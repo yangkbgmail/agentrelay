@@ -47,7 +47,8 @@ export class RelayQueue {
     try {
       const raw = readFileSync(this.filePath, "utf8");
       const parsed: RelayJob[] = raw.trim() ? JSON.parse(raw) : [];
-      this.jobs = new Map(parsed.map((job) => [job.id, job]));
+      // Backfill fields added in later versions so older stores stay readable.
+      this.jobs = new Map(parsed.map((job) => [job.id, { ...job, retries: job.retries ?? 0 }]));
     } catch {
       // Corrupt or empty file: start fresh rather than crashing the whole
       // relay loop. The bad file is left in place for a human to inspect.
@@ -81,6 +82,7 @@ export class RelayQueue {
       createdAt: now,
       updatedAt: now,
       attempts: 0,
+      retries: 0,
       lastError: null,
       lastOutputTail: null,
     };
@@ -91,6 +93,23 @@ export class RelayQueue {
 
   markWaitingForReset(id: string, resetAt: string) {
     this.update(id, { status: "waiting_for_reset", resetAt });
+  }
+
+  /**
+   * Re-queue a job after a transient failure, to be retried once `retryAt`
+   * passes. Increments the `retries` counter and records why it failed so the
+   * dashboard/CLI can surface it. Reuses `waiting_for_reset` so the scheduler's
+   * `listDue` picks it up naturally when the backoff elapses.
+   */
+  markRetryScheduled(id: string, retryAt: string, error: string, outputTail?: string) {
+    const current = this.getById(id);
+    this.update(id, {
+      status: "waiting_for_reset",
+      resetAt: retryAt,
+      retries: (current?.retries ?? 0) + 1,
+      lastError: error,
+      lastOutputTail: outputTail ?? current?.lastOutputTail ?? null,
+    });
   }
 
   markResuming(id: string) {

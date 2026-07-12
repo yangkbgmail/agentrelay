@@ -61,9 +61,11 @@ const PATTERNS: Pattern[] = [
     },
   },
   {
-    // Unix epoch seconds embedded in structured error payloads, e.g. `retry_after=1752345600`
+    // Unix epoch seconds embedded in structured error payloads, e.g. `retry_after=1752345600`.
+    // The trailing (?!\d) pins the match to exactly 10 digits so a millisecond
+    // timestamp (13 digits) isn't silently truncated into a wrong far-future date.
     name: "unix-epoch",
-    regex: /retry_after[=:]\s*(\d{10})/i,
+    regex: /retry_after[=:]\s*(\d{10})(?!\d)/i,
     resolve: (m) => new Date(parseInt(m[1], 10) * 1000),
   },
   {
@@ -76,7 +78,7 @@ const PATTERNS: Pattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry_after)/i;
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|(?:resets?|retry)\s+(?:at|in)|retry_after)/i;
 
 export function parseRateLimitMessage(text: string, options: ParseOptions = {}): RateLimitInfo | null {
   if (!LOOKS_LIKE_RATE_LIMIT.test(text)) return null;

@@ -96,3 +96,22 @@
   - 검증: `pnpm build` 클린(Next.js 포함), `pnpm test` 33개 전부 통과(core 26 + cli 4 + dashboard 3).
 - 다음 할 일: README(5분 튜토리얼, 🧭), 엣지 케이스 파서 회귀 테스트 보강(👷),
   job 재시도 정책/백오프(👷), Codex CLI 어댑터(👷).
+
+### [세션 2 — 재시도 정책 + 파서 회귀 테스트] (2026-07-12 23:4x경, 무인 자율 세션)
+- 한 일 (branch `claude/keen-allen-2o9k53`):
+  1. **job 재시도 정책 / 지수 백오프 / 최대 시도 횟수** (BACKLOG 👷). 기존엔 재개 명령이
+     종료(close)하면 exit code와 무관하게 무조건 `completed`로 표시되던 갭이 있었음(크래시해도
+     완료로 오표기). 이제 `RelayScheduler`가 결과를 `{output, exitCode, error}`로 받아
+     (1) rate-limit 재발견 → reset까지 재큐잉(재시도 카운트 미포함), (2) 정상 종료(exit 0) →
+     completed, (3) 비정상 종료(non-zero/spawn error) → `RetryPolicy`(maxRetries=5, base 1m,
+     max 30m, factor 2)로 지수 백오프 재큐잉, 소진 시 `failed`. `RelayJob.retries` 필드 추가
+     (구 스토어는 load 시 0으로 백필). CLI는 `AGENTRELAY_MAX_RETRIES/RETRY_BASE_MS/RETRY_MAX_MS/
+     RETRY_FACTOR` env로 튜닝(`retryPolicyFromEnv`). 대시보드에 재시도 횟수(↻N) 표시.
+  2. **파서 엣지 케이스 회귀 테스트 보강** (BACKLOG 👷). `parser.test.ts`에 11개 케이스 추가하며
+     실제 파서 갭 2개 발견·수정: (a) prefilter가 "retry in ..."을 놓쳐 패턴은 맞는데 null 반환하던
+     문제, (b) `retry_after`의 13자리 ms epoch를 10자리 초로 잘못 파싱하던 문제(`(?!\d)`로 pin).
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm test` 51개 전부 통과(core 40 + cli 8 + dashboard 3).
+    실제 CLI(`agentrelay tick`)로 비정상 종료 job이 retry1→retry2→failed로 흐르는 전체 라이프사이클
+    e2e 스모크 확인(mock 아님).
+- 다음 할 일: Codex CLI 어댑터(👷), `agentrelay status` 실시간 TUI(👷), lint/CI 강화(👷),
+  README 5분 튜토리얼(🧭).

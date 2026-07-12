@@ -23,7 +23,10 @@ export interface RelayJob {
   resetAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Total number of resume attempts (both rate-limit re-runs and failure retries). */
   attempts: number;
+  /** Number of transient-failure retries consumed so far (bounded by the retry policy). */
+  retries: number;
   lastError: string | null;
   lastOutputTail: string | null;
 }

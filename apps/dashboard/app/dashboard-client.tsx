@@ -58,7 +58,10 @@ function JobRow({ job, now }: { job: RelayJob; now: number }) {
       </td>
       <td className="cmd">{job.command.join(" ")}</td>
       <td className="numeric">{formatCountdown(job.resetAt, now)}</td>
-      <td className="numeric">{job.attempts}</td>
+      <td className="numeric">
+        {job.attempts}
+        {job.retries > 0 ? <span className="retries" title="failure retries used"> ↻{job.retries}</span> : null}
+      </td>
       <td className="numeric">{formatClock(job.updatedAt)}</td>
       <td>
         {tail ? (

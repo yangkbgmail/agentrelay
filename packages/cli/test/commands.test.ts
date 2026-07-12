@@ -4,7 +4,36 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NotifyPayload } from "@agentrelay/core";
-import { listStatus, runCommand } from "../src/commands.js";
+import { listStatus, retryPolicyFromEnv, runCommand } from "../src/commands.js";
+
+describe("retryPolicyFromEnv", () => {
+  it("returns an empty override object when no env vars are set", () => {
+    expect(retryPolicyFromEnv({})).toEqual({});
+  });
+
+  it("reads valid overrides from the environment", () => {
+    const policy = retryPolicyFromEnv({
+      AGENTRELAY_MAX_RETRIES: "3",
+      AGENTRELAY_RETRY_BASE_MS: "2000",
+      AGENTRELAY_RETRY_MAX_MS: "60000",
+      AGENTRELAY_RETRY_FACTOR: "1.5",
+    });
+    expect(policy).toEqual({ maxRetries: 3, baseDelayMs: 2000, maxDelayMs: 60000, factor: 1.5 });
+  });
+
+  it("ignores invalid values (negative, non-numeric, out-of-range factor)", () => {
+    const policy = retryPolicyFromEnv({
+      AGENTRELAY_MAX_RETRIES: "-1",
+      AGENTRELAY_RETRY_BASE_MS: "abc",
+      AGENTRELAY_RETRY_FACTOR: "1", // must be > 1
+    });
+    expect(policy).toEqual({});
+  });
+
+  it("allows maxRetries of 0 (disable retries)", () => {
+    expect(retryPolicyFromEnv({ AGENTRELAY_MAX_RETRIES: "0" })).toEqual({ maxRetries: 0 });
+  });
+});
 
 describe("runCommand", () => {
   let dir: string;

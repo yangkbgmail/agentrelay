@@ -1,7 +1,38 @@
 import { spawn } from "node:child_process";
 import { RelayQueue, RelayScheduler, parseRateLimitMessage, slackNotifierFromEnv } from "@agentrelay/core";
-import type { AgentTool, Notifier, RelayJob } from "@agentrelay/core";
+import type { AgentTool, Notifier, RelayJob, RetryPolicy } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
+
+/**
+ * Reads optional retry/backoff overrides from the environment. Returns only the
+ * keys that are set (and valid), so the scheduler merges them over its defaults.
+ * - AGENTRELAY_MAX_RETRIES   (integer ≥ 0)
+ * - AGENTRELAY_RETRY_BASE_MS (integer > 0)
+ * - AGENTRELAY_RETRY_MAX_MS  (integer > 0)
+ * - AGENTRELAY_RETRY_FACTOR  (number > 1)
+ */
+export function retryPolicyFromEnv(env: NodeJS.ProcessEnv = process.env): Partial<RetryPolicy> {
+  const policy: Partial<RetryPolicy> = {};
+  const intOf = (v: string | undefined, min: number): number | undefined => {
+    if (v === undefined) return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) && Number.isInteger(n) && n >= min ? n : undefined;
+  };
+  const numOf = (v: string | undefined, min: number): number | undefined => {
+    if (v === undefined) return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) && n > min ? n : undefined;
+  };
+  const maxRetries = intOf(env.AGENTRELAY_MAX_RETRIES, 0);
+  if (maxRetries !== undefined) policy.maxRetries = maxRetries;
+  const baseDelayMs = intOf(env.AGENTRELAY_RETRY_BASE_MS, 1);
+  if (baseDelayMs !== undefined) policy.baseDelayMs = baseDelayMs;
+  const maxDelayMs = intOf(env.AGENTRELAY_RETRY_MAX_MS, 1);
+  if (maxDelayMs !== undefined) policy.maxDelayMs = maxDelayMs;
+  const factor = numOf(env.AGENTRELAY_RETRY_FACTOR, 1);
+  if (factor !== undefined) policy.factor = factor;
+  return policy;
+}
 
 export interface RunOptions {
   command: string[];
@@ -95,6 +126,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   const scheduler = new RelayScheduler({
     queue,
     pollIntervalMs: options.pollIntervalMs ?? 30_000,
+    retryPolicy: retryPolicyFromEnv(),
     notify: async (payload) => {
       const line = `[agentrelay] ${payload.event} — ${payload.project}: ${payload.message}`;
       // eslint-disable-next-line no-console
@@ -115,7 +147,7 @@ export function startDaemon(options: DaemonOptions = {}) {
 export async function tickOnce(storePath?: string, slackNotify?: Notifier | null): Promise<RelayJob[]> {
   const queue = new RelayQueue(storePath ?? defaultStorePath());
   const notify = slackNotify === undefined ? slackNotifierFromEnv() : slackNotify;
-  const scheduler = new RelayScheduler({ queue, notify: notify ?? undefined });
+  const scheduler = new RelayScheduler({ queue, notify: notify ?? undefined, retryPolicy: retryPolicyFromEnv() });
   const processed = await scheduler.tick();
   queue.close();
   return processed;
