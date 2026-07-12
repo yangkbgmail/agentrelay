@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { NotifyPayload } from "@agentrelay/core";
 import { listStatus, runCommand } from "../src/commands.js";
 
 describe("runCommand", () => {
@@ -46,5 +47,35 @@ describe("runCommand", () => {
     const jobs = listStatus(storePath);
     expect(jobs).toHaveLength(1);
     expect(jobs[0].command).toEqual(["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"]);
+  });
+
+  it("sends a 'queued' notification when a rate-limited command is enqueued", async () => {
+    const notify = vi.fn(async (_payload: NotifyPayload) => {});
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      notify,
+    });
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    const payload = notify.mock.calls[0][0];
+    expect(payload.event).toBe("queued");
+    expect(payload.jobId).toBe(result.queuedJob?.id);
+    expect(payload.message).toContain(result.queuedJob?.resetAt);
+  });
+
+  it("does not notify when the command completes without a rate limit", async () => {
+    const notify = vi.fn(async (_payload: NotifyPayload) => {});
+    await runCommand({
+      command: ["node", "-e", "console.log('all good')"],
+      storePath,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      notify,
+    });
+    expect(notify).not.toHaveBeenCalled();
   });
 });

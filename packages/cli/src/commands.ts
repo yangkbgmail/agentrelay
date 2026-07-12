@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { RelayQueue, RelayScheduler, parseRateLimitMessage } from "@agentrelay/core";
-import type { AgentTool, RelayJob } from "@agentrelay/core";
+import { RelayQueue, RelayScheduler, parseRateLimitMessage, slackNotifierFromEnv } from "@agentrelay/core";
+import type { AgentTool, Notifier, RelayJob } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
 
 export interface RunOptions {
@@ -11,6 +11,8 @@ export interface RunOptions {
   /** Injected for tests; defaults to real stdout/stderr passthrough. */
   stdout?: NodeJS.WritableStream;
   stderr?: NodeJS.WritableStream;
+  /** Injected for tests; defaults to Slack via AGENTRELAY_SLACK_WEBHOOK (or silent skip). */
+  notify?: Notifier | null;
 }
 
 export interface RunResult {
@@ -57,7 +59,8 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   }
 
   const queue = new RelayQueue(storePath);
-  const job = queue.enqueue({ project: resolveProjectName(cwd), tool, command: options.command, cwd });
+  const project = resolveProjectName(cwd);
+  const job = queue.enqueue({ project, tool, command: options.command, cwd });
   queue.markWaitingForReset(job.id, rateLimit.resetAt);
   queue.close();
 
@@ -66,6 +69,14 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
       `Run "agentrelay daemon" (or schedule "agentrelay tick" via cron) to auto-resume it.\n`
   );
 
+  const notify = options.notify === undefined ? slackNotifierFromEnv() : options.notify;
+  await notify?.({
+    jobId: job.id,
+    project,
+    event: "queued",
+    message: `Rate limit detected, queued to resume at ${rateLimit.resetAt}`,
+  });
+
   return { exitCode, queuedJob: queue.getById(job.id) ?? null };
 }
 
@@ -73,32 +84,38 @@ export interface DaemonOptions {
   storePath?: string;
   pollIntervalMs?: number;
   onNotify?: (message: string) => void;
+  /** Injected for tests; defaults to Slack via AGENTRELAY_SLACK_WEBHOOK (or silent skip). */
+  slackNotify?: Notifier | null;
 }
 
 export function startDaemon(options: DaemonOptions = {}) {
   const storePath = options.storePath ?? defaultStorePath();
   const queue = new RelayQueue(storePath);
+  const slackNotify = options.slackNotify === undefined ? slackNotifierFromEnv() : options.slackNotify;
   const scheduler = new RelayScheduler({
     queue,
     pollIntervalMs: options.pollIntervalMs ?? 30_000,
-    notify: (payload) => {
+    notify: async (payload) => {
       const line = `[agentrelay] ${payload.event} — ${payload.project}: ${payload.message}`;
       // eslint-disable-next-line no-console
       console.log(line);
       options.onNotify?.(line);
+      await slackNotify?.(payload);
     },
   });
   scheduler.start();
   // eslint-disable-next-line no-console
   console.log(
-    `[agentrelay] daemon started, watching ${storePath} every ${(options.pollIntervalMs ?? 30_000) / 1000}s`
+    `[agentrelay] daemon started, watching ${storePath} every ${(options.pollIntervalMs ?? 30_000) / 1000}s` +
+      (slackNotify ? " (Slack notifications on)" : "")
   );
   return scheduler;
 }
 
-export async function tickOnce(storePath?: string): Promise<RelayJob[]> {
+export async function tickOnce(storePath?: string, slackNotify?: Notifier | null): Promise<RelayJob[]> {
   const queue = new RelayQueue(storePath ?? defaultStorePath());
-  const scheduler = new RelayScheduler({ queue });
+  const notify = slackNotify === undefined ? slackNotifierFromEnv() : slackNotify;
+  const scheduler = new RelayScheduler({ queue, notify: notify ?? undefined });
   const processed = await scheduler.tick();
   queue.close();
   return processed;

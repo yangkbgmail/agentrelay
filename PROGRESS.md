@@ -8,8 +8,8 @@
 - [x] 0. 프로젝트 부트스트랩: SPEC.md, PROGRESS.md, 모노레포 골격
 - [x] 1. core 패키지: rate-limit 파서 + 큐 + 스케줄러 (+ 유닛 테스트) — 16개 테스트 통과
 - [x] 2. cli 패키지: `agentrelay run` / `agentrelay daemon` / `agentrelay tick` / `agentrelay status` — 실제 프로세스로 e2e 스모크 테스트 완료
-- [ ] 3. dashboard 앱: Next.js 로컬 대시보드
-- [ ] 4. Slack 알림 연동 (선택적 설정)
+- [x] 3. dashboard 앱: Next.js 로컬 대시보드 — `apps/dashboard`, `/api/jobs` 폴링, 라이트/다크 검증 완료
+- [x] 4. Slack 알림 연동 (선택적 설정) — `@agentrelay/core` Slack notifier, run/daemon/tick 연결, e2e 검증
 - [ ] 5. 테스트 커버리지 점검 (core/cli 엣지 케이스 보강)
 - [ ] 6. 문서: README / ARCHITECTURE.md / ROADMAP.md
 - [ ] 7. 최종 QA + 데모 시나리오 스크립트
@@ -79,3 +79,20 @@
   SETUP_GITHUB.md의 Routines 설정을 하면 주력 빌더로 합류 예정). 그전까지 Cowork가
   `BACKLOG.md`를 직접 구현하되, **커밋 후 반드시 `git push origin main`** 할 것.
 - 다음: 대시보드/Slack 알림 등 BACKLOG의 👷 항목을 계속 구현하며 push.
+
+### [세션 1 — 대시보드 + Slack 알림] (2026-07-12 20:0x경, 무인 자율 세션)
+- 한 일 (branch `claude/magical-knuth-18lx94`):
+  1. **Slack webhook 알림** — `@agentrelay/core`에 `createSlackNotifier`/`slackNotifierFromEnv`/
+     `combineNotifiers` 추가. `AGENTRELAY_SLACK_WEBHOOK` 있으면 발송, 없으면 조용히 null 반환(스킵).
+     전송 실패는 `onError`로 보고만 하고 절대 throw 안 함(릴레이 루프 보호). CLI의 run/daemon/tick
+     세 진입점에 연결. 유닛 테스트 + 실제 로컬 HTTP 서버로 e2e 검증(진짜 POST 수신 확인).
+  2. **Next.js 로컬 대시보드** — `apps/dashboard`. `/api/jobs` route가 공유 JSON 스토어를
+     매 요청마다 재-read(별도 백엔드 없음, `dynamic = force-dynamic`). 클라이언트는 3초 폴링 +
+     1초 카운트다운 틱. 스탯 타일(대기/재개/완료/실패/총합) + 리셋 카운트다운 + job 테이블
+     (상태 뱃지, 커맨드, 시도 횟수, 마지막 출력/에러). dataviz 팔레트 토큰으로 라이트/다크 지원.
+     Playwright로 양쪽 모드 스크린샷 검증, 레이아웃 충돌 없음.
+  3. `@agentrelay/core`에 `summarizeJobs`(큐 요약), `defaultStorePath`(공유 경로) 추가 →
+     CLI `config.ts`도 core의 `defaultStorePath`를 재-export하도록 통일.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm test` 33개 전부 통과(core 26 + cli 4 + dashboard 3).
+- 다음 할 일: README(5분 튜토리얼, 🧭), 엣지 케이스 파서 회귀 테스트 보강(👷),
+  job 재시도 정책/백오프(👷), Codex CLI 어댑터(👷).
