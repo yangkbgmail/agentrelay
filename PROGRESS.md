@@ -96,3 +96,22 @@
   - 검증: `pnpm build` 클린(Next.js 포함), `pnpm test` 33개 전부 통과(core 26 + cli 4 + dashboard 3).
 - 다음 할 일: README(5분 튜토리얼, 🧭), 엣지 케이스 파서 회귀 테스트 보강(👷),
   job 재시도 정책/백오프(👷), Codex CLI 어댑터(👷).
+
+### [세션 1 — 재시도 정책 + 파서 엣지케이스] (2026-07-12 20:3x경, 무인 자율 세션)
+- 배경: 열려 있는 PR #1(대시보드+Slack)과 겹치지 않도록 BACKLOG의 다른 👷 항목 2개를 선택.
+- 한 일:
+  1. **job 재시도 정책 / 지수 백오프 / 최대 시도 횟수**(`@agentrelay/core`):
+     - `runCommand`가 이제 exit code를 포착하고 절대 throw하지 않음(spawn/에러도 결과로 반환).
+     - rate-limit이 아닌 진짜 실패(비정상 종료·spawn 에러)는 지수 백오프로 재큐잉하고,
+       연속 실패가 `maxAttempts`에 도달하면 `failed`로 확정. `RelayJob.retryCount`(연속 실패
+       카운터) 추가 — rate-limit 재큐잉/정상 완료 시 0으로 리셋(rate-limit은 실패가 아님).
+     - `RetryPolicy`/`DEFAULT_RETRY_POLICY`/`computeBackoffMs` export, `RelayQueue.markRetry` 추가.
+     - CLI: `retryPolicyFromEnv()`(`AGENTRELAY_MAX_ATTEMPTS`/`_BACKOFF_BASE_MS`/`_BACKOFF_MAX_MS`)를
+       daemon/tick에 연결, `agentrelay status`에 RETRIES 열 추가.
+  2. **파서 엣지 케이스 보강**(`@agentrelay/core`): Claude 실제 문구 "reset at 10am"(분 없는
+     meridiem), "reset at 3 PM", "please wait 30 minutes/90 seconds/2 hours", 13자리 ms epoch
+     retry_after 패턴 추가. 회귀 테스트로 고정.
+- 테스트: `pnpm build` 클린, `pnpm test` 32개 전부 통과(core 30 + cli 2). 빌드된 CLI로
+  실패→백오프 재시도→최대치 도달 시 failed 확정을 실제 프로세스로 e2e 확인.
+- 다음 할 일: BACKLOG의 남은 👷 항목(Codex CLI 어댑터, 실시간 TUI status) 또는 대시보드에
+  retryCount 노출.

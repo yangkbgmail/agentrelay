@@ -12,13 +12,13 @@
       (완료 — `@agentrelay/core`의 `createSlackNotifier`/`slackNotifierFromEnv`, run/daemon/tick에 연결)
 - [ ] 🧭 README.md: 설치 → `agentrelay run -- claude -p "..."` → daemon까지 5분 튜토리얼.
 - [ ] 🧭 ARCHITECTURE.md + ROADMAP.md(v2: 클라우드 동기화/팀 대시보드/과금).
-- [ ] 👷 엣지 케이스 테스트 보강(다양한 rate-limit 메시지 포맷 회귀 케이스).
+- [x] 👷 엣지 케이스 테스트 보강(다양한 rate-limit 메시지 포맷 회귀 케이스). — `claude/keen-allen-ru3vvo`(파서에 meridiem-only/please-wait/ms-epoch 패턴 + 회귀 테스트).
 - [ ] 👷🧭 최종 QA + 재현 가능한 데모 스크립트.
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
 - [ ] 👷 Codex CLI 등 다른 에이전트 툴 어댑터.
-- [ ] 👷 job 재시도 정책 / 지수 백오프 / 최대 시도 횟수.
+- [x] 👷 job 재시도 정책 / 지수 백오프 / 최대 시도 횟수. — `claude/keen-allen-ru3vvo`(RetryPolicy + retryCount + CLI env 설정 + status RETRIES 열).
 - [ ] 👷 `agentrelay status`를 실시간 TUI로.
 - [ ] 👷 lint(ESLint/Biome) + CI 워크플로 도입.
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.

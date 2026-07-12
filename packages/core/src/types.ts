@@ -24,6 +24,15 @@ export interface RelayJob {
   createdAt: string;
   updatedAt: string;
   attempts: number;
+  /**
+   * Number of *consecutive* transient failures (non-zero exit / spawn error)
+   * since the last successful run or rate-limit re-queue. Drives the retry
+   * policy's exponential backoff and the max-attempts cap. Reset to 0 whenever
+   * the command completes cleanly or is re-queued because of a real rate limit
+   * (a rate limit is not a failure). Older job records may omit it; treat a
+   * missing value as 0.
+   */
+  retryCount?: number;
   lastError: string | null;
   lastOutputTail: string | null;
 }

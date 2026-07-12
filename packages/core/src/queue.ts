@@ -81,6 +81,7 @@ export class RelayQueue {
       createdAt: now,
       updatedAt: now,
       attempts: 0,
+      retryCount: 0,
       lastError: null,
       lastOutputTail: null,
     };
@@ -90,7 +91,27 @@ export class RelayQueue {
   }
 
   markWaitingForReset(id: string, resetAt: string) {
-    this.update(id, { status: "waiting_for_reset", resetAt });
+    // A real rate-limit re-queue is not a failure, so the transient-failure
+    // counter resets -- otherwise a job legitimately relayed across many
+    // limit windows would eventually trip the retry cap.
+    this.update(id, { status: "waiting_for_reset", resetAt, retryCount: 0, lastError: null });
+  }
+
+  /**
+   * Re-queue a job after a *transient failure* (non-zero exit / spawn error),
+   * scheduled to run again at `resetAt` (typically now + exponential backoff).
+   * Increments the consecutive-failure counter so the scheduler can give up
+   * once it exceeds the configured max attempts.
+   */
+  markRetry(id: string, resetAt: string, error: string, outputTail?: string) {
+    const current = this.getById(id);
+    this.update(id, {
+      status: "waiting_for_reset",
+      resetAt,
+      retryCount: (current?.retryCount ?? 0) + 1,
+      lastError: error,
+      lastOutputTail: outputTail ?? current?.lastOutputTail ?? null,
+    });
   }
 
   markResuming(id: string) {
@@ -99,7 +120,7 @@ export class RelayQueue {
   }
 
   markCompleted(id: string, outputTail?: string) {
-    this.update(id, { status: "completed", lastOutputTail: outputTail ?? null });
+    this.update(id, { status: "completed", retryCount: 0, lastError: null, lastOutputTail: outputTail ?? null });
   }
 
   markFailed(id: string, error: string, outputTail?: string) {
