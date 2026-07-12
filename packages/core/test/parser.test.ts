@@ -64,4 +64,60 @@ describe("parseRateLimitMessage", () => {
     );
     expect(result?.pattern).toBe("iso-timestamp");
   });
+
+  // --- Real-world message-format regression cases (BACKLOG 👷: edge cases) ---
+
+  it("parses Claude's 'reset at 3pm' hour-plus-meridiem form (no minutes)", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Claude usage limit reached. Your limit will reset at 3pm.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-meridiem");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getHours()).toBe(15);
+    expect(reset.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'will reset at 10 am' with a space before the meridiem", () => {
+    const now = new Date("2026-07-12T20:00:00Z");
+    const result = parseRateLimitMessage("Your limit will reset at 10 am.", { now });
+    expect(result?.pattern).toBe("clock-meridiem");
+    expect(new Date(result!.resetAt).getHours()).toBe(10);
+  });
+
+  it("parses a fuzzy relative duration like 'try again in about 4 hours'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded. Try again in about 4 hours.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 4 * 60 * 60_000).toISOString());
+  });
+
+  it("parses '~90 minutes' with a tilde and 'minutes' spelled out", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("resets in ~90 minutes", { now });
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
+  });
+
+  it("parses 'available again in 2 hrs' with abbreviated units", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Quota exhausted; available again in 2 hrs.", { now });
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
+  it("parses an HTTP-style 'Retry-After: 3600' header as a delay in seconds", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("HTTP 429 rate_limit_error. Retry-After: 3600", { now });
+    expect(result?.pattern).toBe("retry-after-seconds");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 3600 * 1000).toISOString());
+  });
+
+  it("still treats a 10-digit retry-after value as a unix epoch, not seconds", () => {
+    const result = parseRateLimitMessage("rate_limit_error retry-after: 1752345600");
+    expect(result?.pattern).toBe("unix-epoch");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("does not misfire on ordinary output that merely mentions a time", () => {
+    expect(parseRateLimitMessage("The meeting is at 3pm, see you there.")).toBeNull();
+    expect(parseRateLimitMessage("Retrying the flaky test now.")).toBeNull();
+  });
 });

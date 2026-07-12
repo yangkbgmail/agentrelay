@@ -11,6 +11,9 @@ export interface RateLimitInfo {
   pattern: string;
 }
 
+/** Why a job is currently sitting in `waiting_for_reset`. */
+export type WaitReason = "rate_limit" | "backoff";
+
 export interface RelayJob {
   id: string;
   project: string;
@@ -26,6 +29,11 @@ export interface RelayJob {
   attempts: number;
   lastError: string | null;
   lastOutputTail: string | null;
+  /**
+   * Distinguishes a legitimate rate-limit wait from a backoff wait after a
+   * transient command failure. Optional so older store files stay readable.
+   */
+  waitReason?: WaitReason | null;
 }
 
 export interface CreateJobInput {
@@ -38,6 +46,23 @@ export interface CreateJobInput {
 export interface NotifyPayload {
   jobId: string;
   project: string;
-  event: "queued" | "resumed" | "completed" | "failed";
+  event: "queued" | "resumed" | "retrying" | "completed" | "failed";
   message: string;
+}
+
+/**
+ * Controls how the scheduler retries jobs. `maxAttempts` caps both
+ * rate-limit re-queues and transient-failure retries so a job can never loop
+ * forever. Transient failures (non-zero exit / spawn error, with no
+ * rate-limit detected) are retried with exponential backoff.
+ */
+export interface RetryPolicy {
+  /** Hard cap on total resume attempts before a job is marked failed. */
+  maxAttempts: number;
+  /** First backoff delay after a transient failure. */
+  baseDelayMs: number;
+  /** Upper bound on any single backoff delay. */
+  maxDelayMs: number;
+  /** Multiplier applied to the delay after each failed attempt. */
+  backoffFactor: number;
 }

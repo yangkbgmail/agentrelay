@@ -21,7 +21,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { CreateJobInput, JobStatus, RelayJob } from "./types.js";
+import type { CreateJobInput, JobStatus, RelayJob, WaitReason } from "./types.js";
 
 export class RelayQueue {
   private filePath: string;
@@ -83,14 +83,15 @@ export class RelayQueue {
       attempts: 0,
       lastError: null,
       lastOutputTail: null,
+      waitReason: null,
     };
     this.jobs.set(job.id, job);
     this.flush();
     return job;
   }
 
-  markWaitingForReset(id: string, resetAt: string) {
-    this.update(id, { status: "waiting_for_reset", resetAt });
+  markWaitingForReset(id: string, resetAt: string, reason: WaitReason = "rate_limit") {
+    this.update(id, { status: "waiting_for_reset", resetAt, waitReason: reason });
   }
 
   markResuming(id: string) {
@@ -99,11 +100,16 @@ export class RelayQueue {
   }
 
   markCompleted(id: string, outputTail?: string) {
-    this.update(id, { status: "completed", lastOutputTail: outputTail ?? null });
+    this.update(id, { status: "completed", lastOutputTail: outputTail ?? null, waitReason: null });
   }
 
   markFailed(id: string, error: string, outputTail?: string) {
-    this.update(id, { status: "failed", lastError: error, lastOutputTail: outputTail ?? null });
+    this.update(id, {
+      status: "failed",
+      lastError: error,
+      lastOutputTail: outputTail ?? null,
+      waitReason: null,
+    });
   }
 
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {

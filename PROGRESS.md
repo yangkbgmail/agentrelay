@@ -96,3 +96,24 @@
   - 검증: `pnpm build` 클린(Next.js 포함), `pnpm test` 33개 전부 통과(core 26 + cli 4 + dashboard 3).
 - 다음 할 일: README(5분 튜토리얼, 🧭), 엣지 케이스 파서 회귀 테스트 보강(👷),
   job 재시도 정책/백오프(👷), Codex CLI 어댑터(👷).
+
+### [세션 2 — 재시도 정책 + 파서 엣지 케이스] (2026-07-12 21:4x경, 무인 자율 세션)
+- 한 일 (branch `claude/keen-allen-jtpx3v`):
+  1. **Job 재시도 정책 / 지수 백오프 / 최대 시도 횟수** — `RelayScheduler`에 `RetryPolicy`
+     (`maxAttempts`/`baseDelayMs`/`maxDelayMs`/`backoffFactor`, 기본 10회·30s→1h capped) 도입.
+     기존엔 (a) rate-limit 재큐잉이 무한 루프 가능했고 (b) 비-rate-limit 실패는 즉시 영구 실패였음.
+     이제 spawn 에러·비정상 종료 코드(비-rate-limit)는 지수 백오프로 재큐잉(`waitReason: "backoff"`),
+     rate-limit 재큐잉 포함 `maxAttempts` 초과 시 최종 `failed`. `runCommand`를 reject 안 하고 항상
+     `{output,exitCode,spawnError}`로 resolve하도록 리팩터 → 재시도 판단 로직을 `resume` 한 곳에 집중.
+     부수 개선: 비정상 종료 코드가 조용히 `completed`로 오인되던 버그도 수정(이제 실패로 처리).
+     `NotifyPayload`에 `retrying` 이벤트 + Slack 이모지(🔁) 추가.
+  2. **파서 엣지 케이스 보강** — 실제 메시지 포맷 3종 추가: `clock-meridiem`("reset at 3pm"),
+     fuzzy relative-duration("try again in about 4 hours" / "~90 minutes" / "2 hrs" / "available again in…"),
+     HTTP `Retry-After: <초>` 헤더(429 스타일, 10자리 epoch는 그대로 unix-epoch로 유지).
+  3. **대시보드** — `waiting_for_reset` 뱃지가 `waitReason`을 반영해 백오프 대기는
+     "Retrying (backoff)"로 구분 표시. `RelayJob.waitReason`는 optional이라 기존 스토어 파일 호환.
+  - 검증: `pnpm build` 클린, `pnpm test` 46개 전부 통과(core 39 + cli 4 + dashboard 3, +13).
+    빌드 산출물로 실제 `/bin/sh` 프로세스를 돌려 실패→백오프 재시도→maxAttempts 초과 시 최종 실패까지
+    e2e로 확인(mock 아님).
+- 다음 할 일: Codex CLI 등 어댑터(👷), `agentrelay status` 실시간 TUI(👷),
+  ESLint/Biome lint 도입(👷). README/ARCHITECTURE는 🧭 소유.

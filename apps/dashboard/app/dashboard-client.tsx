@@ -35,12 +35,15 @@ function formatClock(iso: string | null): string {
   return date.toLocaleString();
 }
 
-function StatusBadge({ status }: { status: JobStatus }) {
-  const meta = STATUS_META[status] ?? { label: status, colorVar: "var(--ink-muted)" };
+function StatusBadge({ job }: { job: RelayJob }) {
+  const meta = STATUS_META[job.status] ?? { label: job.status, colorVar: "var(--ink-muted)" };
+  // Distinguish a legitimate rate-limit wait from a post-failure backoff wait.
+  const label =
+    job.status === "waiting_for_reset" && job.waitReason === "backoff" ? "Retrying (backoff)" : meta.label;
   return (
     <span className="badge">
       <span className="dot" style={{ background: meta.colorVar }} aria-hidden />
-      {meta.label}
+      {label}
     </span>
   );
 }
@@ -54,7 +57,7 @@ function JobRow({ job, now }: { job: RelayJob; now: number }) {
         <div className="job-id">{job.id.slice(0, 8)}</div>
       </td>
       <td>
-        <StatusBadge status={job.status} />
+        <StatusBadge job={job} />
       </td>
       <td className="cmd">{job.command.join(" ")}</td>
       <td className="numeric">{formatCountdown(job.resetAt, now)}</td>

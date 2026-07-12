@@ -4,6 +4,7 @@ import type { NotifyPayload } from "./types.js";
 const EVENT_EMOJI: Record<NotifyPayload["event"], string> = {
   queued: "⏳",
   resumed: "▶️",
+  retrying: "🔁",
   completed: "✅",
   failed: "❌",
 };
