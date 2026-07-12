@@ -70,3 +70,12 @@
 - 무인 세션에게: 깃허브가 아직 없으면 지금처럼 `BACKLOG.md`의 항목을 직접 구현하며 계속
   전진하세요. 깃허브가 연결된 흔적(`git remote -v`)이 있으면 `COLLAB.md`의 브랜치+PR
   방식을 따르세요.
+
+### [세션 0 계속 — 깃허브 연결 완료] (2026-07-12 18:5x경, 사람과 대화 중)
+- 한 일: 원격 저장소 연결 완료. `origin` = https://github.com/yangkbgmail/agentrelay.git,
+  브랜치 `main`, 전체 커밋 push 완료(HEAD 2476a77). 자격증명은 credential store 파일로
+  구성돼 있어 이후 세션도 push 가능. SPEC §7에 "pull/push 동기화 필수" 규칙(3-1) 추가.
+- 현재 상태: 코워크 자율 세션이 아직 단독 빌더. 클로드 코드는 아직 미연결(사용자가
+  SETUP_GITHUB.md의 Routines 설정을 하면 주력 빌더로 합류 예정). 그전까지 Cowork가
+  `BACKLOG.md`를 직접 구현하되, **커밋 후 반드시 `git push origin main`** 할 것.
+- 다음: 대시보드/Slack 알림 등 BACKLOG의 👷 항목을 계속 구현하며 push.
