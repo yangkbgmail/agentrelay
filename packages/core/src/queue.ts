@@ -81,6 +81,7 @@ export class RelayQueue {
       createdAt: now,
       updatedAt: now,
       attempts: 0,
+      retries: 0,
       lastError: null,
       lastOutputTail: null,
     };
@@ -96,6 +97,22 @@ export class RelayQueue {
   markResuming(id: string) {
     const current = this.getById(id);
     this.update(id, { status: "resuming", attempts: (current?.attempts ?? 0) + 1 });
+  }
+
+  /**
+   * Re-queue a job that failed for a transient reason, scheduling its next run
+   * at `nextAttemptAt` (an exponential-backoff time) and bumping the transient
+   * `retries` counter. Reuses the `waiting_for_reset` state so the existing
+   * due-scan and dashboard treat it uniformly with rate-limit waits.
+   */
+  markWaitingForRetry(id: string, nextAttemptAt: string, error?: string) {
+    const current = this.getById(id);
+    this.update(id, {
+      status: "waiting_for_reset",
+      resetAt: nextAttemptAt,
+      retries: (current?.retries ?? 0) + 1,
+      lastError: error ?? current?.lastError ?? null,
+    });
   }
 
   markCompleted(id: string, outputTail?: string) {

@@ -12,13 +12,18 @@
       (완료 — `@agentrelay/core`의 `createSlackNotifier`/`slackNotifierFromEnv`, run/daemon/tick에 연결)
 - [ ] 🧭 README.md: 설치 → `agentrelay run -- claude -p "..."` → daemon까지 5분 튜토리얼.
 - [ ] 🧭 ARCHITECTURE.md + ROADMAP.md(v2: 클라우드 동기화/팀 대시보드/과금).
-- [ ] 👷 엣지 케이스 테스트 보강(다양한 rate-limit 메시지 포맷 회귀 케이스).
+- [x] 👷 엣지 케이스 테스트 보강(다양한 rate-limit 메시지 포맷 회귀 케이스).
+      (완료 — `packages/core/test/parser-formats.test.ts` 회귀 코퍼스 10종: 대소문자·TZ 오프셋·
+      spelled-out 시간·JSON `"retry_after"`·멀티라인·오탐 방지. 파서에 JSON quote 허용 개선. branch `claude/keen-allen-8w7gtw`)
 - [ ] 👷🧭 최종 QA + 재현 가능한 데모 스크립트.
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
 - [ ] 👷 Codex CLI 등 다른 에이전트 툴 어댑터.
-- [ ] 👷 job 재시도 정책 / 지수 백오프 / 최대 시도 횟수.
+- [x] 👷 job 재시도 정책 / 지수 백오프 / 최대 시도 횟수.
+      (완료 — 스케줄러가 비-rate-limit 실패(non-zero exit)를 `RetryPolicy`(maxRetries/backoffBase/backoffMax)로
+      지수 백오프 재큐잉하다 예산 소진 시 `failed` 처리. `RelayJob.retries` 필드 + `status`에 RETRIES 컬럼.
+      tick 루프가 개별 job 실패에 멈추지 않도록 방어. branch `claude/keen-allen-8w7gtw`)
 - [ ] 👷 `agentrelay status`를 실시간 TUI로.
 - [ ] 👷 lint(ESLint/Biome) + CI 워크플로 도입.
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.

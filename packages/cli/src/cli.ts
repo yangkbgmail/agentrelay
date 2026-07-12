@@ -68,7 +68,14 @@ export function buildCli(): Command {
         return;
       }
       console.log(
-        ["ID".padEnd(10), "PROJECT".padEnd(16), "STATUS".padEnd(18), "RESETS IN".padEnd(12), "ATTEMPTS"].join(" ")
+        [
+          "ID".padEnd(10),
+          "PROJECT".padEnd(16),
+          "STATUS".padEnd(18),
+          "RESETS IN".padEnd(12),
+          "ATTEMPTS".padEnd(9),
+          "RETRIES",
+        ].join(" ")
       );
       for (const job of jobs) {
         console.log(
@@ -77,7 +84,8 @@ export function buildCli(): Command {
             job.project.slice(0, 16).padEnd(16),
             job.status.padEnd(18),
             formatCountdown(job.resetAt).padEnd(12),
-            String(job.attempts),
+            String(job.attempts).padEnd(9),
+            String(job.retries ?? 0),
           ].join(" ")
         );
       }

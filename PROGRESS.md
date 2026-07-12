@@ -10,7 +10,7 @@
 - [x] 2. cli 패키지: `agentrelay run` / `agentrelay daemon` / `agentrelay tick` / `agentrelay status` — 실제 프로세스로 e2e 스모크 테스트 완료
 - [x] 3. dashboard 앱: Next.js 로컬 대시보드 — `apps/dashboard`, `/api/jobs` 폴링, 라이트/다크 검증 완료
 - [x] 4. Slack 알림 연동 (선택적 설정) — `@agentrelay/core` Slack notifier, run/daemon/tick 연결, e2e 검증
-- [ ] 5. 테스트 커버리지 점검 (core/cli 엣지 케이스 보강)
+- [~] 5. 테스트 커버리지 점검 (core/cli 엣지 케이스 보강) — 파서 회귀 코퍼스 추가(세션 2)
 - [ ] 6. 문서: README / ARCHITECTURE.md / ROADMAP.md
 - [ ] 7. 최종 QA + 데모 시나리오 스크립트
 
@@ -96,3 +96,21 @@
   - 검증: `pnpm build` 클린(Next.js 포함), `pnpm test` 33개 전부 통과(core 26 + cli 4 + dashboard 3).
 - 다음 할 일: README(5분 튜토리얼, 🧭), 엣지 케이스 파서 회귀 테스트 보강(👷),
   job 재시도 정책/백오프(👷), Codex CLI 어댑터(👷).
+
+### [세션 2 — 재시도 정책 + 파서 회귀 테스트] (2026-07-12, 무인 자율 세션)
+- 한 일 (branch `claude/keen-allen-8w7gtw`):
+  1. **재시도/지수 백오프/최대 시도 횟수** — 스케줄러가 이제 자식 프로세스의 **종료 코드**를
+     확인한다. rate-limit 재큐잉은 종전대로 정상 경로(예산 소진 없음)지만, 비-rate-limit
+     실패(non-zero exit / spawn 실패)는 `RetryPolicy`(maxRetries/backoffBaseMs/backoffMaxMs)에
+     따라 지수 백오프로 재큐잉하고, 예산 소진 시 `failed`로 확정한다. `RelayJob.retries` 필드
+     추가(정상 재개 카운트인 `attempts`와 구분), `types.ts`에 `computeBackoffMs`/`DEFAULT_RETRY_POLICY`.
+     queue에 `markWaitingForRetry`. CLI `status`에 RETRIES 컬럼.
+  2. **tick 루프 견고화** — 개별 job의 실패가 나머지 due job 처리를 중단시키던 버그 수정
+     (runCommand가 더 이상 reject하지 않고 exitCode를 반환, tick 루프도 방어적 catch).
+  3. **파서 회귀 코퍼스** — `parser-formats.test.ts` 10종(대소문자, TZ 오프셋 ISO,
+     spelled-out 시간/분, JSON `"retry_after": N`, 멀티라인 버려진 로그, 문자/메모리 limit 오탐 방지,
+     0-duration 무시). 파서 `retry_after` 정규식이 JSON quote를 허용하도록 개선.
+  - 검증: `pnpm build` 클린, `pnpm test` 46개 전부 통과(core 39 + cli 4 + dashboard 3).
+    실제 서브프로세스(`sh -c 'exit 7'`)로 백오프→예산소진→failed e2e 스모크 확인(mock 아님).
+- 다음 할 일: Codex CLI 어댑터(👷), `agentrelay status` 실시간 TUI(👷), lint/Biome 도입(👷),
+  README 5분 튜토리얼(🧭).

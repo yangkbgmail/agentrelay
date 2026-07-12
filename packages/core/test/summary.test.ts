@@ -14,6 +14,7 @@ function job(overrides: Partial<RelayJob>): RelayJob {
     createdAt: "2026-07-12T10:00:00.000Z",
     updatedAt: "2026-07-12T10:00:00.000Z",
     attempts: 0,
+    retries: 0,
     lastError: null,
     lastOutputTail: null,
     ...overrides,
