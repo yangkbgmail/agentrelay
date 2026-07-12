@@ -1,0 +1,25 @@
+{
+  "name": "@agentrelay/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "agentrelay": "dist/bin.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentrelay/core": "workspace:*",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
