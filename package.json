@@ -1,0 +1,21 @@
+{
+  "name": "agentrelay-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AgentRelay: AI 코딩 에이전트 사용량 제한 자동 재개 CLI + 로컬 대시보드",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "dev:dashboard": "pnpm --filter @agentrelay/dashboard dev"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "packageManager": "pnpm@10.28.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
