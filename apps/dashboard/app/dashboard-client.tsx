@@ -12,6 +12,7 @@ const STATUS_META: Record<JobStatus, { label: string; colorVar: string }> = {
   resuming: { label: "Resuming", colorVar: "var(--accent-running)" },
   completed: { label: "Completed", colorVar: "var(--status-good)" },
   failed: { label: "Failed", colorVar: "var(--status-critical)" },
+  cancelled: { label: "Cancelled", colorVar: "var(--ink-muted)" },
 };
 
 function formatCountdown(resetAt: string | null, now: number): string {

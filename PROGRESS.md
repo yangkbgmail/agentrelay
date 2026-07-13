@@ -158,6 +158,25 @@
     수신 확인.
 - 다음 할 일: README(🧭), status TUI(PR #7)·prune(PR #16) 리뷰/병합, 자동 prune 후보(👷).
 
+### [세션 7 — 수동 job 제어(cancel/retry)] (2026-07-13, 무인 자율 세션)
+- 배경: 남은 명시적 👷 백로그 항목(status 실시간 TUI·prune)은 각각 **열린 PR #7·#16**이
+  이미 점유 중(둘 다 미병합, CI `total_count:0`이라 병합 게이트 통과 못 함). 중복 재구현을 피해
+  CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다 — main 기준 신규(prune.ts·status.ts는 아직 main에 없음).
+- 한 일 (branch `claude/wizardly-pascal-sg1ont`): **수동 job 제어 — `agentrelay cancel`/`retry`** —
+  `@agentrelay/core/control.ts` 신설. `canCancel`(종료/취소 job 거부)·`canRequeue`(in-flight `resuming`만
+  거부)·`resolveJobId`(전체 UUID 또는 짧은 prefix→유일 job, exact 우선, 모호/미존재는 명확한 에러).
+  `JobStatus`에 종료 상태 `cancelled` 추가 → `summary` `ALL_STATUSES`와 대시보드 `STATUS_META`에도 반영.
+  `RelayQueue.markCancelled`(status=cancelled + resetAt 정리로 오해성 카운트다운 제거)·`requeueNow`
+  (status=waiting_for_reset + resetAt=now + attempts 0 리셋 + lastError 클리어 → maxAttempts 소진한
+  실패 job도 재시도 시 즉시 재실패하지 않고 새 런). CLI `cancel <id>`/`retry <id>`는 짧은 id prefix를
+  받고 실패 시 `exit 1`.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 에러**,
+    `pnpm test` **98개 전부 통과**(core 86 + cli 9 + dashboard 3 — control 유닛 10 + queue cancel/requeue 2 +
+    CLI cancel/retry 4 신규). **실제 빌드된 CLI e2e**(mock 아님): rate-limit 명령 큐잉 → `retry`로 `due now`
+    전환 확인 → `cancel`로 `cancelled` 전환 → 재-cancel은 "already cancelled" + `exit 1` → 미존재 id는
+    "no job matches" + `exit 1`.
+- 다음 할 일: README(🧭), status TUI(PR #7)·prune(PR #16) 리뷰/병합, 자동 prune 후보(👷).
+
 ### [세션 4 — Biome lint + CI 통합] (2026-07-13, 무인 자율 세션)
 - 한 일 (branch `claude/wizardly-pascal-38649m`): **lint 도입 — Biome 채택**.
   1. 루트 `biome.json` 신설 — recommended 린트 + 포매터(더블쿼트·2스페이스·lineWidth 120·LF),

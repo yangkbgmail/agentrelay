@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import type { NotifyPayload } from "@agentrelay/core";
+import { RelayQueue } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { listStatus, runCommand } from "../src/commands.js";
+import { cancelJob, listStatus, retryJob, runCommand } from "../src/commands.js";
 
 describe("runCommand", () => {
   let dir: string;
@@ -95,5 +96,61 @@ describe("runCommand", () => {
       notify,
     });
     expect(notify).not.toHaveBeenCalled();
+  });
+});
+
+describe("cancelJob / retryJob", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cli-control-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function seed(status: "waiting_for_reset" | "failed" | "completed") {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    if (status === "waiting_for_reset") queue.markWaitingForReset(job.id, new Date(Date.now() + 60_000).toISOString());
+    if (status === "failed") queue.markFailed(job.id, "boom");
+    if (status === "completed") queue.markCompleted(job.id, "done");
+    queue.close();
+    return job.id;
+  }
+
+  it("cancels a pending job by short id prefix", () => {
+    const id = seed("waiting_for_reset");
+    const result = cancelJob(id.slice(0, 8), storePath);
+    expect(result.ok).toBe(true);
+    expect(result.job?.status).toBe("cancelled");
+    expect(listStatus(storePath)[0].status).toBe("cancelled");
+  });
+
+  it("refuses to cancel an already-completed job", () => {
+    const id = seed("completed");
+    const result = cancelJob(id, storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("already completed");
+    expect(listStatus(storePath)[0].status).toBe("completed");
+  });
+
+  it("reports an unknown id without mutating the store", () => {
+    seed("waiting_for_reset");
+    const result = cancelJob("deadbeef", storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("no job matches");
+  });
+
+  it("requeues a failed job to resume now with a fresh attempt count", () => {
+    const id = seed("failed");
+    const result = retryJob(id, storePath);
+    expect(result.ok).toBe(true);
+    expect(result.job?.status).toBe("waiting_for_reset");
+    expect(result.job?.attempts).toBe(0);
+    expect(result.job?.lastError).toBeNull();
   });
 });
