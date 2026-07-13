@@ -185,3 +185,44 @@ export function shouldAutoPrune(lastRunMs: number | null, nowMs: number, everyMs
   if (lastRunMs === null) return true;
   return nowMs - lastRunMs >= everyMs;
 }
+
+/**
+ * Minimum number of ticks between auto-prune passes — or `null` when unset
+ * (prune on every tick, subject to any wall-clock throttle). A tick-count
+ * throttle is handy when the daemon's poll interval is what you actually think
+ * in ("prune every 100 polls") rather than wall-clock time; it composes with
+ * {@link autoPruneEveryMsFromEnv} (both gates must permit a pass — see
+ * {@link shouldAutoPruneByTicks}).
+ *
+ * - `AGENTRELAY_AUTOPRUNE_EVERY_TICKS`  a positive integer. Missing, non-numeric,
+ *                                       or non-positive values return `null` (no
+ *                                       tick throttle) so a typo never silently
+ *                                       disables pruning — it just falls back to
+ *                                       every tick. Fractional values are floored.
+ *
+ * Like the wall-clock throttle, this only affects the long-running `daemon`; a
+ * one-shot `agentrelay tick` process starts each run with a fresh tick counter.
+ */
+export function autoPruneEveryTicksFromEnv(env: NodeJS.ProcessEnv = process.env): number | null {
+  const raw = env.AGENTRELAY_AUTOPRUNE_EVERY_TICKS?.trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.floor(n);
+}
+
+/**
+ * Pure predicate deciding whether an auto-prune pass should run on the tick at
+ * zero-based index `tickIndex`, given the configured tick interval
+ * (`everyTicks`).
+ *
+ * - No throttle (`everyTicks` unset/≤0) ⇒ always run.
+ * - Otherwise run whenever `tickIndex` is a multiple of `everyTicks`. With a
+ *   counter that starts at 0 and advances once per tick, this fires on the
+ *   first tick (index 0) and then every `everyTicks` ticks thereafter, mirroring
+ *   {@link shouldAutoPrune}'s "first pass always runs" behavior.
+ */
+export function shouldAutoPruneByTicks(tickIndex: number, everyTicks?: number): boolean {
+  if (!everyTicks || everyTicks <= 0) return true;
+  return tickIndex % everyTicks === 0;
+}

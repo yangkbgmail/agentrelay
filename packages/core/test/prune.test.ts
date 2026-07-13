@@ -4,11 +4,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   autoPruneEveryMsFromEnv,
+  autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
   DEFAULT_AUTOPRUNE_AFTER_MS,
   parseDuration,
   selectPrunableJobs,
   shouldAutoPrune,
+  shouldAutoPruneByTicks,
 } from "../src/prune.js";
 import { RelayQueue } from "../src/queue.js";
 import type { RelayJob } from "../src/types.js";
@@ -233,5 +235,54 @@ describe("shouldAutoPrune", () => {
     expect(shouldAutoPrune(1_000_000, 1_059_999, every)).toBe(false); // just under
     expect(shouldAutoPrune(1_000_000, 1_060_000, every)).toBe(true); // exactly at boundary
     expect(shouldAutoPrune(1_000_000, 1_120_000, every)).toBe(true); // well past
+  });
+});
+
+describe("autoPruneEveryTicksFromEnv", () => {
+  it("returns null when unset or blank (no tick throttle)", () => {
+    expect(autoPruneEveryTicksFromEnv({})).toBeNull();
+    expect(autoPruneEveryTicksFromEnv({ AGENTRELAY_AUTOPRUNE_EVERY_TICKS: "" })).toBeNull();
+    expect(autoPruneEveryTicksFromEnv({ AGENTRELAY_AUTOPRUNE_EVERY_TICKS: "   " })).toBeNull();
+  });
+
+  it("parses positive integers", () => {
+    expect(autoPruneEveryTicksFromEnv({ AGENTRELAY_AUTOPRUNE_EVERY_TICKS: "1" })).toBe(1);
+    expect(autoPruneEveryTicksFromEnv({ AGENTRELAY_AUTOPRUNE_EVERY_TICKS: "100" })).toBe(100);
+  });
+
+  it("floors fractional values", () => {
+    expect(autoPruneEveryTicksFromEnv({ AGENTRELAY_AUTOPRUNE_EVERY_TICKS: "3.9" })).toBe(3);
+  });
+
+  it("returns null (no throttle) for non-numeric or non-positive values", () => {
+    expect(autoPruneEveryTicksFromEnv({ AGENTRELAY_AUTOPRUNE_EVERY_TICKS: "garbage" })).toBeNull();
+    expect(autoPruneEveryTicksFromEnv({ AGENTRELAY_AUTOPRUNE_EVERY_TICKS: "0" })).toBeNull();
+    expect(autoPruneEveryTicksFromEnv({ AGENTRELAY_AUTOPRUNE_EVERY_TICKS: "-5" })).toBeNull();
+  });
+});
+
+describe("shouldAutoPruneByTicks", () => {
+  it("always runs when no throttle is configured", () => {
+    expect(shouldAutoPruneByTicks(0)).toBe(true);
+    expect(shouldAutoPruneByTicks(7)).toBe(true);
+    expect(shouldAutoPruneByTicks(7, 0)).toBe(true);
+  });
+
+  it("runs on the first tick then every N ticks thereafter", () => {
+    const every = 3;
+    // tick index 0,3,6 run; 1,2,4,5 skip.
+    expect([0, 1, 2, 3, 4, 5, 6].map((i) => shouldAutoPruneByTicks(i, every))).toEqual([
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+    ]);
+  });
+
+  it("runs every tick when everyTicks is 1", () => {
+    expect([0, 1, 2, 3].map((i) => shouldAutoPruneByTicks(i, 1))).toEqual([true, true, true, true]);
   });
 });

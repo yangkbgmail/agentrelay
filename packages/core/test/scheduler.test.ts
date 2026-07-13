@@ -285,4 +285,94 @@ describe("RelayScheduler", () => {
     expect(pruned[1].map((j) => j.id)).toEqual([second.id]);
     expect(queue.listAll()).toHaveLength(0);
   });
+
+  it("throttles auto-prune to every N ticks regardless of wall-clock time", async () => {
+    const pruned: RelayJob[][] = [];
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({}),
+      autoPrune: { olderThanMs: 0 }, // sweep every finished job
+      autoPruneEveryTicks: 3, // ...but only every 3rd tick
+      onPrune: (jobs) => pruned.push(jobs),
+    });
+
+    const seedFinished = (project: string) => {
+      const job = queue.enqueue({ project, tool: "claude-code", command: ["x"], cwd: dir });
+      queue.markCompleted(job.id, "done");
+      return job;
+    };
+
+    // Tick 0 (index 0) always prunes.
+    const a = seedFinished("a");
+    await scheduler.tick();
+    expect(pruned).toHaveLength(1);
+    expect(pruned[0].map((j) => j.id)).toEqual([a.id]);
+
+    // Ticks 1 and 2 are inside the tick window → skipped even though new jobs finish.
+    const b = seedFinished("b");
+    await scheduler.tick();
+    await scheduler.tick();
+    expect(pruned).toHaveLength(1); // no new pass
+    expect(queue.listAll().map((j) => j.id)).toEqual([b.id]); // still present
+
+    // Tick 3 (index 3) is a multiple of 3 → prunes again.
+    await scheduler.tick();
+    expect(pruned).toHaveLength(2);
+    expect(pruned[1].map((j) => j.id)).toEqual([b.id]);
+    expect(queue.listAll()).toHaveLength(0);
+  });
+
+  it("requires both time and tick throttles to permit a pass when both are set", async () => {
+    const pruned: RelayJob[][] = [];
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({}),
+      autoPrune: { olderThanMs: 0 },
+      autoPruneEveryMs: 60_000, // at most once a minute...
+      autoPruneEveryTicks: 2, // ...AND only on even tick indices
+      onPrune: (jobs) => pruned.push(jobs),
+    });
+
+    const t0 = new Date("2026-07-13T00:00:00Z");
+    const at = (ms: number) => new Date(t0.getTime() + ms);
+    const seedFinished = (project: string) => {
+      const job = queue.enqueue({ project, tool: "claude-code", command: ["x"], cwd: dir });
+      queue.markCompleted(job.id, "done");
+      return job;
+    };
+
+    // Tick index 0, first pass: both gates allow → prune.
+    const a = seedFinished("a");
+    await scheduler.tick(t0);
+    expect(pruned).toHaveLength(1);
+    expect(pruned[0].map((j) => j.id)).toEqual([a.id]);
+
+    // Tick index 1 @ +90s: time gate would allow (90s ≥ 60s), but tick gate blocks → skip.
+    const b = seedFinished("b");
+    await scheduler.tick(at(90_000));
+    expect(pruned).toHaveLength(1);
+    expect(queue.listAll().map((j) => j.id)).toEqual([b.id]);
+
+    // Tick index 2 @ +100s: both gates allow (100s since last pass, even index) → prune.
+    await scheduler.tick(at(100_000));
+    expect(pruned).toHaveLength(2);
+    expect(pruned[1].map((j) => j.id)).toEqual([b.id]);
+
+    // Tick index 3 @ +120s: tick gate blocks → skip.
+    const c = seedFinished("c");
+    await scheduler.tick(at(120_000));
+    expect(pruned).toHaveLength(2);
+
+    // Tick index 4 @ +130s: tick gate allows, but only 30s since last pass → time gate blocks → skip.
+    await scheduler.tick(at(130_000));
+    expect(pruned).toHaveLength(2);
+    expect(queue.listAll().map((j) => j.id)).toEqual([c.id]);
+
+    // Tick index 6 @ +200s: even index and 100s since last pass → both allow → prune.
+    await scheduler.tick(at(170_000)); // index 5: tick gate blocks
+    await scheduler.tick(at(200_000)); // index 6: prune
+    expect(pruned).toHaveLength(3);
+    expect(pruned[2].map((j) => j.id)).toEqual([c.id]);
+    expect(queue.listAll()).toHaveLength(0);
+  });
 });

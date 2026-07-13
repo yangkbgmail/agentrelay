@@ -1,6 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { resolveAdapter } from "./adapters.js";
-import { type PruneOptions, shouldAutoPrune } from "./prune.js";
+import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
 import type { RelayQueue } from "./queue.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
 import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
@@ -38,6 +38,14 @@ export interface SchedulerOptions {
    * one-shot `agentrelay tick`) starts with no prior-pass memory.
    */
   autoPruneEveryMs?: number;
+  /**
+   * Minimum number of ticks between auto-prune passes. When set, a prune runs at
+   * most once per this many ticks; the first tick always prunes. Composes with
+   * {@link autoPruneEveryMs} — when both are set, a pass runs only when *both*
+   * throttles permit it. `undefined`/`0` disables the tick throttle. Like the
+   * time throttle, only meaningful for the long-running scheduler.
+   */
+  autoPruneEveryTicks?: number;
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
 }
@@ -57,7 +65,9 @@ export class RelayScheduler {
   private retryPolicy: RetryPolicy;
   private autoPrune: PruneOptions | null;
   private autoPruneEveryMs: number;
+  private autoPruneEveryTicks: number;
   private lastPruneAtMs: number | null = null;
+  private pruneTickCounter = 0;
   private onPrune?: (pruned: RelayJob[]) => void;
   private timer: ReturnType<typeof setInterval> | null = null;
 
@@ -70,6 +80,7 @@ export class RelayScheduler {
     this.retryPolicy = options.retryPolicy ?? DEFAULT_RETRY_POLICY;
     this.autoPrune = options.autoPrune ?? null;
     this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
+    this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
     this.onPrune = options.onPrune;
   }
 
@@ -102,15 +113,20 @@ export class RelayScheduler {
    * (the next tick will try again). The tick's `referenceTime` is reused as the
    * age cutoff's "now" so pruning is deterministic alongside job processing.
    *
-   * When `autoPruneEveryMs` is set, passes are throttled to at most once per
-   * that window so a fast-polling daemon doesn't rewrite the store on every
-   * tick; the marker advances only when a pass actually runs, regardless of
-   * whether it removed anything.
+   * Passes can be throttled by wall-clock time (`autoPruneEveryMs`) and/or tick
+   * count (`autoPruneEveryTicks`) so a fast-polling daemon doesn't rewrite the
+   * store on every tick. When both are set a pass runs only when *both* permit
+   * it. The tick counter advances every tick (so the tick throttle stays on
+   * cadence), while the time marker advances only when a pass actually runs —
+   * regardless of whether it removed anything.
    */
   private runAutoPrune(referenceTime: Date): void {
     if (!this.autoPrune) return;
     const nowMs = referenceTime.getTime();
-    if (!shouldAutoPrune(this.lastPruneAtMs, nowMs, this.autoPruneEveryMs)) return;
+    const tickIndex = this.pruneTickCounter++;
+    const tickAllows = shouldAutoPruneByTicks(tickIndex, this.autoPruneEveryTicks);
+    const timeAllows = shouldAutoPrune(this.lastPruneAtMs, nowMs, this.autoPruneEveryMs);
+    if (!tickAllows || !timeAllows) return;
     this.lastPruneAtMs = nowMs;
     try {
       const pruned = this.queue.prune({ ...this.autoPrune, now: referenceTime });
