@@ -76,7 +76,8 @@ const PATTERNS: Pattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry_after)/i;
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|try again|(?:reset|retry)s?\s+(at|in)|retry_after)/i;
 
 export function parseRateLimitMessage(text: string, options: ParseOptions = {}): RateLimitInfo | null {
   if (!LOOKS_LIKE_RATE_LIMIT.test(text)) return null;

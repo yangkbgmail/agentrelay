@@ -55,6 +55,11 @@ function JobRow({ job, now }: { job: RelayJob; now: number }) {
       </td>
       <td>
         <StatusBadge status={job.status} />
+        {job.status === "waiting_for_reset" && job.retryReason ? (
+          <div className="job-id">
+            {job.retryReason === "error" ? "retrying after error" : "rate-limit reset"}
+          </div>
+        ) : null}
       </td>
       <td className="cmd">{job.command.join(" ")}</td>
       <td className="numeric">{formatCountdown(job.resetAt, now)}</td>

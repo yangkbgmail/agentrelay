@@ -2,6 +2,20 @@ export type AgentTool = "claude-code" | "codex-cli" | "generic";
 
 export type JobStatus = "queued" | "waiting_for_reset" | "resuming" | "completed" | "failed";
 
+/** Why a job is currently waiting to be (re)tried. */
+export type RetryReason = "rate_limit" | "error";
+
+export interface RetryPolicy {
+  /** Total resume attempts allowed before a job is given up on and marked failed. */
+  maxAttempts: number;
+  /** Base delay for exponential backoff on transient (non-rate-limit) failures, in ms. */
+  baseDelayMs: number;
+  /** Upper bound on a single backoff delay, in ms. */
+  maxDelayMs: number;
+  /** Multiplier applied per attempt for exponential backoff. */
+  backoffFactor: number;
+}
+
 export interface RateLimitInfo {
   /** ISO timestamp when the rate limit is expected to reset. */
   resetAt: string;
@@ -26,6 +40,12 @@ export interface RelayJob {
   attempts: number;
   lastError: string | null;
   lastOutputTail: string | null;
+  /**
+   * When status is `waiting_for_reset`, why: a rate limit (retry at the parsed
+   * reset time) or a transient error (retry after exponential backoff). Null
+   * otherwise. Optional for backward-compat with jobs written before this field.
+   */
+  retryReason?: RetryReason | null;
 }
 
 export interface CreateJobInput {

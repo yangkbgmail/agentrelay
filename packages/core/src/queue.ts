@@ -21,7 +21,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { CreateJobInput, JobStatus, RelayJob } from "./types.js";
+import type { CreateJobInput, JobStatus, RelayJob, RetryReason } from "./types.js";
 
 export class RelayQueue {
   private filePath: string;
@@ -83,14 +83,25 @@ export class RelayQueue {
       attempts: 0,
       lastError: null,
       lastOutputTail: null,
+      retryReason: null,
     };
     this.jobs.set(job.id, job);
     this.flush();
     return job;
   }
 
-  markWaitingForReset(id: string, resetAt: string) {
-    this.update(id, { status: "waiting_for_reset", resetAt });
+  markWaitingForReset(
+    id: string,
+    resetAt: string,
+    opts: { retryReason?: RetryReason; lastError?: string | null } = {}
+  ) {
+    const patch: Partial<RelayJob> & { status: JobStatus } = {
+      status: "waiting_for_reset",
+      resetAt,
+      retryReason: opts.retryReason ?? "rate_limit",
+    };
+    if (opts.lastError !== undefined) patch.lastError = opts.lastError;
+    this.update(id, patch);
   }
 
   markResuming(id: string) {
@@ -99,11 +110,20 @@ export class RelayQueue {
   }
 
   markCompleted(id: string, outputTail?: string) {
-    this.update(id, { status: "completed", lastOutputTail: outputTail ?? null });
+    this.update(id, {
+      status: "completed",
+      lastOutputTail: outputTail ?? null,
+      retryReason: null,
+    });
   }
 
   markFailed(id: string, error: string, outputTail?: string) {
-    this.update(id, { status: "failed", lastError: error, lastOutputTail: outputTail ?? null });
+    this.update(id, {
+      status: "failed",
+      lastError: error,
+      lastOutputTail: outputTail ?? null,
+      retryReason: null,
+    });
   }
 
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {

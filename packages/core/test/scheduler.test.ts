@@ -22,6 +22,20 @@ function fakeSpawnFn(outputs: Record<string, string>): SpawnFn {
   };
 }
 
+// Fake ChildProcess that lets a test control both output and exit code.
+function fakeSpawnFnWithExit(response: { output?: string; exitCode?: number }): SpawnFn {
+  return () => {
+    const emitter = new EventEmitter() as any;
+    emitter.stdout = new EventEmitter();
+    emitter.stderr = new EventEmitter();
+    setTimeout(() => {
+      emitter.stdout.emit("data", Buffer.from(response.output ?? ""));
+      emitter.emit("close", response.exitCode ?? 0);
+    }, 0);
+    return emitter;
+  };
+}
+
 describe("RelayScheduler", () => {
   let dir: string;
   let queue: RelayQueue;
@@ -89,5 +103,91 @@ describe("RelayScheduler", () => {
     const scheduler = new RelayScheduler({ queue, spawnFn: fakeSpawnFn({}) });
     const results = await scheduler.tick();
     expect(results).toHaveLength(0);
+  });
+
+  it("re-queues with exponential backoff when the command exits non-zero (no rate limit)", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    const reference = new Date("2026-07-13T00:00:00Z");
+    queue.markWaitingForReset(job.id, new Date(reference.getTime() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFnWithExit({ output: "boom, something crashed", exitCode: 1 }),
+      retryPolicy: { maxAttempts: 5, baseDelayMs: 60_000, maxDelayMs: 3_600_000, backoffFactor: 2 },
+    });
+
+    const [result] = await scheduler.tick(reference);
+    expect(result.status).toBe("waiting_for_reset");
+    expect(result.retryReason).toBe("error");
+    expect(result.lastError).toContain("code 1");
+    // attempt 1 -> baseDelay of 60s past the reference time
+    expect(result.resetAt).toBe(new Date(reference.getTime() + 60_000).toISOString());
+  });
+
+  it("marks a job failed once it exhausts maxAttempts on repeated failures", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    // Pretend we've already burned attempts up to one below the cap.
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+    (queue as any).update(job.id, { status: "waiting_for_reset", attempts: 2 });
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFnWithExit({ output: "still broken", exitCode: 1 }),
+      retryPolicy: { maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 1000, backoffFactor: 2 },
+    });
+
+    const [result] = await scheduler.tick();
+    expect(result.status).toBe("failed");
+    expect(result.attempts).toBe(3);
+    expect(result.lastError).toContain("Gave up after 3 attempts");
+  });
+
+  it("gives up on a job that stays rate-limited past maxAttempts instead of looping forever", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+    (queue as any).update(job.id, { status: "waiting_for_reset", attempts: 1 });
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFnWithExit({ output: "Usage limit reached. Resets in 2h.", exitCode: 0 }),
+      retryPolicy: { maxAttempts: 2, baseDelayMs: 1000, maxDelayMs: 1000, backoffFactor: 2 },
+    });
+
+    const [result] = await scheduler.tick();
+    expect(result.status).toBe("failed");
+    expect(result.lastError).toContain("still rate-limited");
+  });
+
+  it("does not mark a non-zero exit as completed", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFnWithExit({ output: "some non-limit error text", exitCode: 2 }),
+    });
+
+    const [result] = await scheduler.tick();
+    expect(result.status).not.toBe("completed");
   });
 });

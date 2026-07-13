@@ -96,3 +96,20 @@
   - 검증: `pnpm build` 클린(Next.js 포함), `pnpm test` 33개 전부 통과(core 26 + cli 4 + dashboard 3).
 - 다음 할 일: README(5분 튜토리얼, 🧭), 엣지 케이스 파서 회귀 테스트 보강(👷),
   job 재시도 정책/백오프(👷), Codex CLI 어댑터(👷).
+
+### [세션 2 — 재시도 정책 + 파서 회귀 테스트] (2026-07-13, 무인 자율 세션)
+- 한 일 (branch `claude/wizardly-pascal-72iuns`):
+  1. **job 재시도 정책 / 지수 백오프 / 최대 시도** — `@agentrelay/core`에 `retry.ts`
+     (`RetryPolicy`, `DEFAULT_RETRY_POLICY`=maxAttempts 5·base 1m·cap 1h·factor 2,
+     순수 함수 `backoffDelayMs`). 스케줄러가 `runCommand`에서 **종료코드를 수집**하도록
+     리팩터(더 이상 reject 안 함) → rate-limit이 아닌 실패(non-zero exit/crash/spawn 에러)를
+     처음으로 실제 감지. 실패는 지수 백오프로 재큐잉, rate-limit 재히트는 리셋 시각으로 재큐잉,
+     양쪽 모두 `maxAttempts` 초과 시 `failed`로 포기(무한 루프 방지). `RelayJob.retryReason`
+     (`rate_limit`|`error`) 필드로 대기 사유 구분 → 대시보드 상태 뱃지 밑에 표시.
+  2. **파서 회귀 테스트 보강** — `parser.test.ts`에 엣지 케이스 11개(ISO offset/소수초,
+     12am/12pm 경계, hours-only, 장황한 "3 hours 15 minutes", 대소문자, 노이즈 다중라인,
+     파싱 불가 시 null 등). pre-filter가 "retry in ..."을 놓치던 갭도 수정.
+  - 검증: `pnpm build` 클린, `pnpm test` 52개 통과(core 45 + cli 4 + dashboard 3).
+    실제 프로세스(`node -e "...exit(3)"`) e2e로 백오프 5s→10s→포기(failed) 확인.
+- 다음 할 일: README(🧭), Codex CLI 어댑터(👷), `agentrelay status` 실시간 TUI(👷),
+  lint(ESLint/Biome) 도입(👷).
