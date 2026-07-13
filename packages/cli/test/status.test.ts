@@ -6,6 +6,7 @@ import {
   renderStatusJson,
   renderStatusTable,
   renderWatchFrame,
+  selectJobs,
   summaryLine,
 } from "../src/status.js";
 
@@ -137,6 +138,80 @@ describe("renderWatchFrame", () => {
     expect(frame).toContain("/tmp/store.json");
     expect(frame).toContain("2026-07-13 00:00:00");
     expect(frame).toContain("waiting_for_reset");
+  });
+});
+
+describe("selectJobs", () => {
+  const jobs: RelayJob[] = [
+    job({ id: "aaaa1111", project: "web", status: "completed", resetAt: null, attempts: 3, createdAt: at(-3000) }),
+    job({
+      id: "bbbb2222",
+      project: "api",
+      status: "waiting_for_reset",
+      resetAt: at(90 * 60_000),
+      attempts: 1,
+      createdAt: at(-2000),
+    }),
+    job({
+      id: "cccc3333",
+      project: "cli",
+      status: "failed",
+      resetAt: at(30 * 60_000),
+      attempts: 5,
+      createdAt: at(-1000),
+    }),
+  ];
+
+  it("returns a fresh array and never mutates the input", () => {
+    const out = selectJobs(jobs);
+    expect(out).not.toBe(jobs);
+    expect(out.map((j) => j.id)).toEqual(jobs.map((j) => j.id));
+  });
+
+  it("filters to only the requested statuses", () => {
+    const out = selectJobs(jobs, { statuses: ["failed", "completed"] });
+    expect(out.map((j) => j.status).sort()).toEqual(["completed", "failed"]);
+  });
+
+  it("returns an empty array when the status filter matches nothing", () => {
+    expect(selectJobs(jobs, { statuses: ["queued"] })).toEqual([]);
+  });
+
+  it("sorts by project name ascending", () => {
+    const out = selectJobs(jobs, { sort: "project" });
+    expect(out.map((j) => j.project)).toEqual(["api", "cli", "web"]);
+  });
+
+  it("sorts by attempts numerically", () => {
+    const out = selectJobs(jobs, { sort: "attempts" });
+    expect(out.map((j) => j.attempts)).toEqual([1, 3, 5]);
+  });
+
+  it("sorts by reset time with null reset times last", () => {
+    const out = selectJobs(jobs, { sort: "reset" });
+    // cli (30m) then api (90m) then web (null → last).
+    expect(out.map((j) => j.project)).toEqual(["cli", "api", "web"]);
+  });
+
+  it("sorts by status in lifecycle order", () => {
+    const out = selectJobs(jobs, { sort: "status" });
+    // waiting_for_reset (idx 1) < completed (idx 3) < failed (idx 4).
+    expect(out.map((j) => j.status)).toEqual(["waiting_for_reset", "completed", "failed"]);
+  });
+
+  it("reverse flips the sort direction", () => {
+    const out = selectJobs(jobs, { sort: "attempts", reverse: true });
+    expect(out.map((j) => j.attempts)).toEqual([5, 3, 1]);
+  });
+
+  it("reverse alone flips the store order without sorting", () => {
+    const out = selectJobs(jobs, { reverse: true });
+    expect(out.map((j) => j.id)).toEqual(["cccc3333", "bbbb2222", "aaaa1111"]);
+  });
+
+  it("combines filter and sort", () => {
+    const out = selectJobs(jobs, { statuses: ["failed", "waiting_for_reset"], sort: "attempts" });
+    expect(out.map((j) => j.attempts)).toEqual([1, 5]);
   });
 });
 

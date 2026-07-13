@@ -12,17 +12,28 @@ import {
   tickOnce,
 } from "./commands.js";
 import { defaultStorePath } from "./config.js";
-import { renderStatusJson, renderStatusTable, renderWatchFrame } from "./status.js";
+import {
+  type JobSelection,
+  NO_MATCH_MESSAGE,
+  renderStatusJson,
+  renderStatusTable,
+  renderWatchFrame,
+  SORT_FIELDS,
+  type SortField,
+  selectJobs,
+} from "./status.js";
 
 /**
  * Live `agentrelay status --watch`: clears the screen and re-renders the table
  * on an interval so countdowns tick down in place. `listStatus` re-reads the
  * JSON store each pass, so a running daemon's writes show up automatically.
+ * The same `--status`/`--sort`/`--reverse` selection is re-applied every pass.
  * Runs until the process is interrupted (Ctrl-C).
  */
-function runWatch(store: string, intervalMs: number): void {
+function runWatch(store: string, intervalMs: number, selection: JobSelection): void {
   const draw = () => {
-    const frame = renderWatchFrame(listStatus(store), store, intervalMs);
+    const selected = selectJobs(listStatus(store), selection);
+    const frame = renderWatchFrame(selected, store, intervalMs);
     // Clear screen + move cursor home, then paint the frame.
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   };
@@ -95,22 +106,58 @@ export function buildCli(): Command {
     .description("List all jobs and their current state")
     .option("-w, --watch [seconds]", "Continuously refresh the view with live countdowns (Ctrl-C to exit)")
     .option("--json", "Print the status as JSON (machine-readable, for scripts/jq)")
-    .action((opts: { watch?: string | boolean; json?: boolean }) => {
+    .option("-s, --status <statuses>", "Only show jobs with these comma-separated statuses (e.g. queued,failed)")
+    .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
+    .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
+    .action((opts: { watch?: string | boolean; json?: boolean; status?: string; sort?: string; reverse?: boolean }) => {
       const { store } = program.opts();
 
+      const selection: JobSelection = { reverse: opts.reverse };
+
+      if (opts.status !== undefined) {
+        const requested = opts.status
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+        const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
+        if (invalid.length > 0) {
+          console.error(`Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.`);
+          process.exitCode = 1;
+          return;
+        }
+        selection.statuses = requested as JobStatus[];
+      }
+
+      if (opts.sort !== undefined) {
+        if (!SORT_FIELDS.includes(opts.sort as SortField)) {
+          console.error(`Unknown --sort field "${opts.sort}". Valid: ${SORT_FIELDS.join(", ")}.`);
+          process.exitCode = 1;
+          return;
+        }
+        selection.sort = opts.sort as SortField;
+      }
+
       if (opts.json) {
-        console.log(renderStatusJson(listStatus(store), store));
+        console.log(renderStatusJson(selectJobs(listStatus(store), selection), store));
         return;
       }
 
       if (opts.watch !== undefined) {
         const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
         const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
-        runWatch(store, intervalMs);
+        runWatch(store, intervalMs, selection);
         return; // setInterval keeps the process alive.
       }
 
-      console.log(renderStatusTable(listStatus(store), { color: Boolean(process.stdout.isTTY) }));
+      const all = listStatus(store);
+      const selected = selectJobs(all, selection);
+      // Distinguish "store is empty" from "filter matched nothing" so the
+      // hint to run a command doesn't show up when jobs simply got filtered out.
+      if (selected.length === 0 && all.length > 0) {
+        console.log(NO_MATCH_MESSAGE);
+        return;
+      }
+      console.log(renderStatusTable(selected, { color: Boolean(process.stdout.isTTY) }));
     });
 
   program

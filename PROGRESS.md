@@ -256,3 +256,26 @@
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), status TUI 필터/정렬 옵션(👷),
   자동 prune 주기를 tick마다가 아닌 N tick·시간 간격으로 스로틀하는 옵션(👷 후보).
 
+
+### [세션 9 — status 필터/정렬 옵션] (2026-07-13, 무인 자율 세션)
+- 배경: 세션 8 말미에 "다음 할 일"로 남긴 👷 항목(status TUI 필터/정렬)을 구현했다.
+  큐가 커지면 `agentrelay status`가 전체를 최신순으로만 보여줘 원하는 job을 찾기 어려웠다.
+- 한 일 (branch `claude/wizardly-pascal-v1gjni`):
+  1. `packages/cli/src/status.ts`에 순수 함수 `selectJobs(jobs, selection)` 신설.
+     `selection = { statuses?, sort?, reverse? }`. 상태 필터는 Set 기반, 정렬은 6개 필드
+     (`created`/`updated`/`reset`/`project`/`status`/`attempts`)를 안정 정렬(원본 인덱스
+     tiebreak)로 처리. `reset`은 null resetAt을 뒤로 보내고, `status`는 lifecycle 순서
+     (queued→…→cancelled)로 정렬. 입력을 절대 변형하지 않고 항상 새 배열 반환.
+     `SORT_FIELDS`/`SortField`/`JobSelection`/`NO_MATCH_MESSAGE` export.
+  2. CLI `status`에 `-s,--status <statuses>`·`--sort <field>`·`-r,--reverse` 추가.
+     일회성 테이블·`--json`·`--watch(runWatch)` 세 뷰 모두 동일 `selection`을 적용.
+     잘못된 status/sort 값은 stderr 안내 후 exit 1. 필터가 스토어 전체를 걸러내면
+     온보딩 문구가 아니라 `NO_MATCH_MESSAGE`("No jobs match the current filter.")를 출력.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) 0경고,
+    `pnpm test` **141개 전부 통과**(status.test.ts에 selectJobs 10케이스 신규 → cli 33).
+    **빌드된 CLI e2e**(mock 아님): completed/waiting/failed 3-job 스토어 시드 →
+    default 최신순, `--status failed,completed` 2행, `--sort attempts` 1·3·5,
+    `--sort attempts --reverse` 5·3·1, `--sort project` api·cli·web,
+    `--status queued`는 NO_MATCH 문구, `--json --status failed`는 cli 1건(total 1) 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 자동 prune 주기 스로틀 옵션(👷 후보),
+  status 정렬 필드별 기본 방향(시간 필드는 최신 우선 등) 튜닝 검토(👷 후보).
