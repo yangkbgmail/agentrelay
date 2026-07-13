@@ -4,6 +4,7 @@ import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
   cancelJob,
+  getJob,
   listStatus,
   pruneJobs,
   retryJob,
@@ -12,6 +13,7 @@ import {
   tickOnce,
 } from "./commands.js";
 import { defaultStorePath } from "./config.js";
+import { renderJobDetail, renderJobDetailJson } from "./logs.js";
 import { renderStats, renderStatsJson } from "./stats.js";
 import {
   type JobSelection,
@@ -177,6 +179,26 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("logs")
+    .description("Show the full, untruncated detail of a single job (command, cwd, output/error tail)")
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .option("--json", "Print the job as JSON (machine-readable, for scripts/jq)")
+    .action((id: string, opts: { json?: boolean }) => {
+      const { store } = program.opts();
+      const { job, error } = getJob(id, store);
+      if (!job) {
+        console.error(`[agentrelay] ${error ?? "job not found"}`);
+        process.exitCode = 1;
+        return;
+      }
+      if (opts.json) {
+        console.log(renderJobDetailJson(job, store));
+        return;
+      }
+      console.log(renderJobDetail(job, { color: Boolean(process.stdout.isTTY) }));
     });
 
   program
