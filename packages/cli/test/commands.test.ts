@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -65,6 +65,24 @@ describe("runCommand", () => {
     expect(payload.event).toBe("queued");
     expect(payload.jobId).toBe(result.queuedJob?.id);
     expect(payload.message).toContain(result.queuedJob?.resetAt);
+  });
+
+  it("infers the codex-cli tool and detects its seconds-based rate limit", async () => {
+    // A bare "in 20s" wait is only recognized by the Codex adapter, which is
+    // selected here by inference from a `codex`-named binary (symlinked to node
+    // so the fake command actually runs and prints the message).
+    const codexBin = join(dir, "codex");
+    symlinkSync(process.execPath, codexBin);
+    const result = await runCommand({
+      command: [codexBin, "-e", "console.log('Rate limit reached. Please try again in 20s.')"],
+      storePath,
+      cwd: dir,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    expect(result.queuedJob).not.toBeNull();
+    expect(result.queuedJob?.tool).toBe("codex-cli");
+    expect(result.queuedJob?.status).toBe("waiting_for_reset");
   });
 
   it("does not notify when the command completes without a rate limit", async () => {

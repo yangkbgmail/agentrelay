@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import type { AgentTool } from "@agentrelay/core";
 import { defaultStorePath } from "./config.js";
 import { listStatus, runCommand, startDaemon, tickOnce } from "./commands.js";
 
@@ -26,9 +27,17 @@ export function buildCli(): Command {
     .command("run")
     .description("Run a command, watching its output for rate-limit messages")
     .argument("<command...>", "Command to run, e.g. agentrelay run -- claude -p \"continue\"")
-    .action(async (command: string[]) => {
+    .option(
+      "--tool <tool>",
+      "Agent tool adapter to use (claude-code | codex-cli | generic). Inferred from the command when omitted."
+    )
+    .action(async (command: string[], opts: { tool?: string }) => {
       const { store } = program.opts();
-      const result = await runCommand({ command, storePath: store });
+      const result = await runCommand({
+        command,
+        storePath: store,
+        tool: opts.tool as AgentTool | undefined,
+      });
       process.exitCode = result.exitCode;
     });
 

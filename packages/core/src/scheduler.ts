@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { parseRateLimitMessage } from "./parser.js";
+import { resolveAdapter } from "./adapters.js";
 import { DEFAULT_RETRY_POLICY, computeBackoffMs, isRetryExhausted } from "./retry.js";
 import type { RelayQueue } from "./queue.js";
 import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
@@ -83,7 +83,9 @@ export class RelayScheduler {
 
     const { output, exitCode, error } = await this.runCommand(job);
     const tail = output.slice(-this.outputTailLength);
-    const rateLimit = parseRateLimitMessage(output);
+    // Use the tool's adapter so tool-specific rate-limit wording (e.g. Codex's
+    // seconds-based waits) is recognized on resume, not just at enqueue time.
+    const rateLimit = resolveAdapter({ tool: job.tool, command: job.command }).detectRateLimit(output);
 
     // Rate limit takes priority over exit code: agent CLIs commonly exit
     // non-zero when they hit a limit, and that's an expected relay, not a crash.

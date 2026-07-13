@@ -20,7 +20,14 @@
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
-- [ ] 👷 Codex CLI 등 다른 에이전트 툴 어댑터.
+- [x] 👷 Codex CLI 등 다른 에이전트 툴 어댑터.
+      (완료 — `@agentrelay/core`에 `adapters.ts` 신설: `AgentAdapter` 인터페이스 +
+      `CLAUDE_CODE_ADAPTER`/`CODEX_CLI_ADAPTER`/`GENERIC_ADAPTER` + `ADAPTERS` 레지스트리.
+      `inferToolFromCommand`(argv0 바이너리명으로 툴 추론)·`resolveAdapter`(명시 tool→추론→generic).
+      파서에 `extraPatterns` 훅 추가 → 어댑터가 툴별 패턴 주입. Codex 어댑터는 OpenAI식
+      초 단위 대기(`try again in 20s`, `1.5s`)를 인식(generic 파서엔 초 패턴 없음).
+      `run`이 tool 추론·`--tool` 플래그, 스케줄러가 resume 시 job.tool 어댑터 사용.
+      branch `claude/wizardly-pascal-v7euys`)
 - [x] 👷 job 재시도 정책 / 지수 백오프 / 최대 시도 횟수.
       (완료 — `@agentrelay/core`에 `RetryPolicy`/`DEFAULT_RETRY_POLICY`/`computeBackoffMs`/
       `isRetryExhausted`/`retryPolicyFromEnv` 추가. 스케줄러가 non-zero 종료·spawn 에러를
