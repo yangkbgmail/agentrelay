@@ -107,6 +107,15 @@
       `summarizeJobs` 재사용, projects(count desc·이름 asc 랭킹). CLI `packages/cli/src/stats.ts`에
       순수 `renderStats`(사람용 블록)·`renderStatsJson`(--json)·`formatSuccessRate`, `agentrelay stats
       [--json]` 커맨드 배선. branch `claude/wizardly-pascal-iiom6v`)
+- [x] 👷 설정 파일 지원(`agentrelay.config.json`) — 매번 env var 재설정 없이 기본값 영속화.
+      (완료 — `@agentrelay/core/config.ts` 신설: `AgentRelayConfig`(store/notify/retry/autoPrune 그룹,
+      전부 optional) + `parseConfig`(구조 검증, 잘못된 타입은 경로 표기 에러 throw, 미지 키는 무시=전방호환) +
+      `configToEnv`(모든 필드를 기존 `AGENTRELAY_*` env var로 1:1 투영 — 유일 매핑 지점) +
+      `resolveConfigPath`(명시 path/`AGENTRELAY_CONFIG`→`./agentrelay.config.json`→`~/.agentrelay/config.json`) +
+      `loadConfigFile`(없으면 null, 명시했는데 없거나 JSON 깨지면 명확한 에러) + `applyConfigToEnv`(이미
+      설정된 env는 덮지 않음 → **env/CLI > 설정파일 > 기본값** 우선순위). 기존 `*FromEnv` 헬퍼를 전부
+      재사용 — CLI `bin.ts`가 buildCli 전에 `bootstrapConfig()`로 설정을 process.env에 채우고, 프로그램에
+      `--config <path>` 옵션 추가. branch `claude/wizardly-pascal-ohoon1`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

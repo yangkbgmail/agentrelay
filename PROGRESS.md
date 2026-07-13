@@ -359,3 +359,33 @@
     totalAttempts 9·byTool·projects 랭킹까지 정확히 출력 확인.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), status TUI 정렬 기본 방향 튜닝(👷 후보),
   auto-prune 스로틀 OR 모드(👷 후보), stats에 평균 대기시간/시간대별 추이 등 확장(👷 후보).
+
+### [세션 13 — 설정 파일 지원(`agentrelay.config.json`)] (2026-07-13, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 0개, main=현재 브랜치 동일(중복/누적 없음). 남은 👷 후보는
+  소소한 튜닝뿐이라 CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다 — 지금까지 store 경로·
+  알림·재시도·auto-prune이 전부 `AGENTRELAY_*` env var로만 설정 가능해 매 쉘마다 다시
+  export해야 했다. SPEC §8 "DX 개선(설정 파일 지원)" 항목.
+- 한 일 (branch `claude/wizardly-pascal-ohoon1`): **설정 파일 지원**.
+  1. `@agentrelay/core/config.ts` 신설 — `AgentRelayConfig`(store / notify{slackWebhook,webhookUrl,
+     webhookAuth} / retry{maxAttempts,baseDelayMs,factor,maxDelayMs} / autoPrune{enabled,after,keep,
+     every,everyTicks} — 전부 optional 그룹). 순수 `configToEnv(config)`가 각 필드를 기존
+     `AGENTRELAY_*` env var로 **1:1 투영**(유일 매핑 지점; enabled→"1"/"0", maxAttempts:0 같은
+     falsy 유효값도 유지). `parseConfig(value, source)`는 구조 검증 — 비객체 root·필드 타입 오류는
+     경로 표기 에러(`cfg.retry.maxAttempts must be a finite number`)로 throw, 미지 키는 무시(전방호환).
+     `resolveConfigPath`(명시 path/`AGENTRELAY_CONFIG`→`<cwd>/agentrelay.config.json`→
+     `~/.agentrelay/config.json`, HOME은 env override 존중해 테스트 결정적), `loadConfigFile`(없으면
+     null, 명시했는데 없거나 JSON 깨지면 명확 에러). `applyConfigToEnv`는 **이미 설정된 env는 절대
+     안 덮음** → 우선순위 **env/CLI > 설정파일 > 기본값**.
+  2. CLI 배선 — `packages/cli/src/config.ts`에 `configPathFromArgv`(commander 파싱 전 `--config`
+     선-스캔)·`bootstrapConfig`. `bin.ts`가 buildCli **전에** `bootstrapConfig()`로 설정을
+     process.env에 채워, 기존 `*FromEnv` 헬퍼들이 그대로 설정값을 픽업(코드 변경 최소). cli.ts
+     프로그램에 `--config <path>` 옵션 문서화. 잘못된 설정은 bin.ts에서 exit 1.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **185개 전부 통과**(core 143 + cli 39 + dashboard 3 — config.test 13 신규).
+    **실제 빌드된 CLI e2e**(mock 아님): cwd에 `agentrelay.config.json`(store→시드 스토어+
+    autoPrune.enabled+every:1h) 두고 → `status --json`이 config의 store를 읽어 시드 job 1건 표시 →
+    `--store`/`AGENTRELAY_STORE` 명시 시 config store를 이김(env 우선순위 확인) → daemon 배너가
+    config의 auto-prune을 "(auto-prune on, every 3600s)"로 반영 → 깨진 `--config` JSON은 "Invalid
+    JSON in AgentRelay config …" + exit 1.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
+  `agentrelay config init`으로 샘플 설정 파일 생성(👷 후보), stats 시간대별 추이(👷 후보).

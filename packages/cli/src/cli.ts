@@ -57,7 +57,11 @@ export function buildCli(): Command {
       "Wrap AI coding agent CLI calls (Claude Code, etc.), detect rate-limit messages, and auto-resume once the limit resets."
     )
     .version("0.1.0")
-    .option("--store <path>", "Path to the job store JSON file", defaultStorePath());
+    .option("--store <path>", "Path to the job store JSON file", defaultStorePath())
+    .option(
+      "--config <path>",
+      "Path to an agentrelay.config.json (else ./agentrelay.config.json or ~/.agentrelay/config.json). Config values are defaults; explicit env/CLI values win."
+    );
 
   program
     .command("run")
