@@ -336,3 +336,31 @@
     양쪽 게이트 독립 차단)로 검증.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), auto-prune 스로틀 tick+time을 OR로도 선택 가능한
   모드(👷 후보), status TUI 정렬 필드별 기본 방향 튜닝(👷 후보).
+
+### [세션 12 — 자동 prune 스로틀 결합 모드(AND/OR)] (2026-07-13, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 0개(누적 없음), main=현재 브랜치 동일(PR #22까지 병합됨). 세션 11이
+  "다음 할 일"로 남긴 👷 후보(auto-prune 스로틀 tick+time을 OR로도)를 신규 구현. 기존엔 시간·tick
+  스로틀을 둘 다 켜면 **AND**(양쪽 게이트가 다 허용해야 정리)로만 하드코딩돼 있었는데, "둘 중 하나만
+  차도 정리"(OR)를 원하는 운영 취향을 선택 가능하게 만들었다.
+- 한 일 (branch `claude/wizardly-pascal-xzhh46`):
+  1. `@agentrelay/core/prune.ts`에 `AutoPruneCombineMode`(`"and"`|`"or"`) 타입 + 순수
+     `combineAutoPruneGates(gates, active, mode)` 추가. 핵심은 *활성* 게이트만 결합한다는 것 —
+     비설정 throttle의 게이트는 항상-true라 그대로 OR하면 매 tick 정리를 강제해 OR의 의도를
+     삼켜버린다. 그래서 (a) 둘 다 비활성=무스로틀→항상 실행, (b) 단일 throttle이면 OR/AND 무관하게
+     그 throttle 하나로 환원, (c) 둘 다 활성이면 AND=`tick && time`·OR=`tick || time`.
+     `autoPruneCombineModeFromEnv`(`AGENTRELAY_AUTOPRUNE_COMBINE`; 명시적 `or`[대소문자·공백 무시]만
+     OR, 오타 포함 그 외 전부 안전 기본 `and` → 오타가 정리를 더 공격적으로 만들지 않음) 추가.
+  2. `RelayScheduler.runAutoPrune`의 하드코딩 AND(`!tickAllows || !timeAllows`)를
+     `combineAutoPruneGates(...)`로 교체, `SchedulerOptions.autoPruneCombine` 옵션 + 필드 추가
+     (기본 `"and"` → 기존 동작 100% 보존). tick 카운터/시간 마커 전진 규칙은 세션 11과 동일.
+  3. CLI `daemon`이 `autoPruneCombineModeFromEnv()`를 배선. `autoPruneBanner`가 시간·tick 둘 다
+     켜졌을 때만 결합어(" and "/" or ")를 joiner로 쓰고, 단일 throttle이면 무관(" + " 유지).
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **166개 전부 통과**(core 130 + cli 33 + dashboard 3 — prune combine env/게이트
+    9 + scheduler OR-mode 1 신규). **실제 빌드된 CLI e2e**(mock 아님): both+and → "every 3600s
+    and every 100 tick(s)", both+or → "... or ...", both+오타(`XoR`) → and 폴백, time-only+`or` →
+    결합어 무시("every 1800s"), ticks-only → "every 50 tick(s)", 무-스로틀 → "(auto-prune on)".
+    OR 결합의 실제 억제/허용은 결정적 스케줄러 유닛 테스트(tick 창 안이어도 시간 경과 시 정리,
+    시간 미경과여도 tick 배수면 정리)로 검증.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), status TUI 정렬 필드별 기본 방향 튜닝(👷 후보),
+  결합 모드를 `agentrelay prune` 수동 명령에도 노출할지 검토(👷 후보).

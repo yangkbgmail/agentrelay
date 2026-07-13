@@ -99,6 +99,16 @@
       모두 허용할 때만 정리. 시간 마커는 실제 패스 실행 때만, tick 카운터는 매 tick 전진.
       CLI daemon이 env로 배선, 배너에 "every N tick(s)"(+시간과 함께면 " + "로 결합). one-shot
       `tick`은 프로세스마다 카운터가 리셋돼 스로틀 무효(문서화). branch `claude/wizardly-pascal-adfx5s`)
+- [x] 👷 자동 prune 스로틀 결합 모드(AND/OR) — 시간·tick 스로틀을 둘 다 켰을 때 결합 방식 선택.
+      (완료 — `@agentrelay/core/prune.ts`에 `AutoPruneCombineMode`(`"and"`|`"or"`) 타입 +
+      순수 `combineAutoPruneGates(gates, active, mode)`(둘 다 비활성=무스로틀→항상 실행, 단일
+      throttle이면 OR/AND 무관하게 그 throttle로 환원[비활성 게이트는 항상-true라 OR을 삼키지
+      않도록 *활성* 게이트만 OR], 둘 다 활성이면 AND=양쪽·OR=한쪽) + `autoPruneCombineModeFromEnv`
+      (`AGENTRELAY_AUTOPRUNE_COMBINE`; 명시적 `or`[대소문자·공백 무시]만 OR, 그 외 오타 포함
+      전부 안전한 기본 `and` → 오타가 정리를 더 공격적으로 만들지 않음) 추가. 기존 스케줄러의
+      하드코딩 AND(`!tickAllows || !timeAllows`)를 `combineAutoPruneGates`로 대체, `RelayScheduler`에
+      `autoPruneCombine` 옵션. CLI daemon이 env로 배선, 배너 joiner가 둘 다 켜졌을 때만 결합어
+      (" and "/" or ")를 쓰고 단일 throttle이면 무관(" + " 유지). branch `claude/wizardly-pascal-xzhh46`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

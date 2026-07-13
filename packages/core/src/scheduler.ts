@@ -1,6 +1,12 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { resolveAdapter } from "./adapters.js";
-import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
+import {
+  type AutoPruneCombineMode,
+  combineAutoPruneGates,
+  type PruneOptions,
+  shouldAutoPrune,
+  shouldAutoPruneByTicks,
+} from "./prune.js";
 import type { RelayQueue } from "./queue.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
 import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
@@ -46,6 +52,13 @@ export interface SchedulerOptions {
    * time throttle, only meaningful for the long-running scheduler.
    */
   autoPruneEveryTicks?: number;
+  /**
+   * How {@link autoPruneEveryMs} and {@link autoPruneEveryTicks} combine when
+   * both are set: `"and"` (default) runs a pass only when both throttles permit
+   * it; `"or"` runs when either does. Irrelevant when at most one throttle is
+   * configured. Defaults to `"and"`.
+   */
+  autoPruneCombine?: AutoPruneCombineMode;
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
 }
@@ -66,6 +79,7 @@ export class RelayScheduler {
   private autoPrune: PruneOptions | null;
   private autoPruneEveryMs: number;
   private autoPruneEveryTicks: number;
+  private autoPruneCombine: AutoPruneCombineMode;
   private lastPruneAtMs: number | null = null;
   private pruneTickCounter = 0;
   private onPrune?: (pruned: RelayJob[]) => void;
@@ -81,6 +95,7 @@ export class RelayScheduler {
     this.autoPrune = options.autoPrune ?? null;
     this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
+    this.autoPruneCombine = options.autoPruneCombine ?? "and";
     this.onPrune = options.onPrune;
   }
 
@@ -115,9 +130,10 @@ export class RelayScheduler {
    *
    * Passes can be throttled by wall-clock time (`autoPruneEveryMs`) and/or tick
    * count (`autoPruneEveryTicks`) so a fast-polling daemon doesn't rewrite the
-   * store on every tick. When both are set a pass runs only when *both* permit
-   * it. The tick counter advances every tick (so the tick throttle stays on
-   * cadence), while the time marker advances only when a pass actually runs —
+   * store on every tick. When both are set, `autoPruneCombine` decides whether a
+   * pass needs *both* gates (`"and"`, default) or *either* gate (`"or"`) to
+   * permit it. The tick counter advances every tick (so the tick throttle stays
+   * on cadence), while the time marker advances only when a pass actually runs —
    * regardless of whether it removed anything.
    */
   private runAutoPrune(referenceTime: Date): void {
@@ -126,7 +142,12 @@ export class RelayScheduler {
     const tickIndex = this.pruneTickCounter++;
     const tickAllows = shouldAutoPruneByTicks(tickIndex, this.autoPruneEveryTicks);
     const timeAllows = shouldAutoPrune(this.lastPruneAtMs, nowMs, this.autoPruneEveryMs);
-    if (!tickAllows || !timeAllows) return;
+    const allowed = combineAutoPruneGates(
+      { tickAllows, timeAllows },
+      { tickActive: this.autoPruneEveryTicks > 0, timeActive: this.autoPruneEveryMs > 0 },
+      this.autoPruneCombine
+    );
+    if (!allowed) return;
     this.lastPruneAtMs = nowMs;
     try {
       const pruned = this.queue.prune({ ...this.autoPrune, now: referenceTime });

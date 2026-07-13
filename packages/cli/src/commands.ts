@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
-import type { AgentTool, JobStatus, Notifier, PruneOptions, RelayJob } from "@agentrelay/core";
+import type { AgentTool, AutoPruneCombineMode, JobStatus, Notifier, PruneOptions, RelayJob } from "@agentrelay/core";
 import {
+  autoPruneCombineModeFromEnv,
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
@@ -113,13 +114,16 @@ export interface DaemonOptions {
 function autoPruneBanner(
   autoPrune: PruneOptions | null,
   everyMs: number | undefined,
-  everyTicks: number | undefined
+  everyTicks: number | undefined,
+  combine: AutoPruneCombineMode
 ): string {
   if (!autoPrune) return "";
   const parts: string[] = [];
   if (everyMs) parts.push(`every ${Math.round(everyMs / 1000)}s`);
   if (everyTicks) parts.push(`every ${everyTicks} tick(s)`);
-  return parts.length ? ` (auto-prune on, ${parts.join(" + ")})` : " (auto-prune on)";
+  // The combine word only matters when both throttles are active.
+  const joiner = everyMs && everyTicks ? ` ${combine} ` : " + ";
+  return parts.length ? ` (auto-prune on, ${parts.join(joiner)})` : " (auto-prune on)";
 }
 
 export function startDaemon(options: DaemonOptions = {}) {
@@ -129,6 +133,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   const autoPrune = autoPruneOptionsFromEnv();
   const autoPruneEveryMs = autoPruneEveryMsFromEnv() ?? undefined;
   const autoPruneEveryTicks = autoPruneEveryTicksFromEnv() ?? undefined;
+  const autoPruneCombine = autoPruneCombineModeFromEnv();
   const logLine = (line: string) => {
     // eslint-disable-next-line no-console
     console.log(line);
@@ -141,6 +146,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
+    autoPruneCombine,
     onPrune: (pruned) => logLine(`[agentrelay] auto-pruned ${pruned.length} finished job(s)`),
     notify: async (payload) => {
       logLine(`[agentrelay] ${payload.event} — ${payload.project}: ${payload.message}`);
@@ -152,7 +158,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   console.log(
     `[agentrelay] daemon started, watching ${storePath} every ${(options.pollIntervalMs ?? 30_000) / 1000}s` +
       (remoteNotify ? " (notifications on)" : "") +
-      autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks)
+      autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks, autoPruneCombine)
   );
   return scheduler;
 }

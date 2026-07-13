@@ -3,9 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  autoPruneCombineModeFromEnv,
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
+  combineAutoPruneGates,
   DEFAULT_AUTOPRUNE_AFTER_MS,
   parseDuration,
   selectPrunableJobs,
@@ -284,5 +286,70 @@ describe("shouldAutoPruneByTicks", () => {
 
   it("runs every tick when everyTicks is 1", () => {
     expect([0, 1, 2, 3].map((i) => shouldAutoPruneByTicks(i, 1))).toEqual([true, true, true, true]);
+  });
+});
+
+describe("autoPruneCombineModeFromEnv", () => {
+  it("defaults to 'and' when unset or blank", () => {
+    expect(autoPruneCombineModeFromEnv({})).toBe("and");
+    expect(autoPruneCombineModeFromEnv({ AGENTRELAY_AUTOPRUNE_COMBINE: "" })).toBe("and");
+    expect(autoPruneCombineModeFromEnv({ AGENTRELAY_AUTOPRUNE_COMBINE: "   " })).toBe("and");
+  });
+
+  it("recognizes 'or' case-insensitively, trimming whitespace", () => {
+    expect(autoPruneCombineModeFromEnv({ AGENTRELAY_AUTOPRUNE_COMBINE: "or" })).toBe("or");
+    expect(autoPruneCombineModeFromEnv({ AGENTRELAY_AUTOPRUNE_COMBINE: "OR" })).toBe("or");
+    expect(autoPruneCombineModeFromEnv({ AGENTRELAY_AUTOPRUNE_COMBINE: "  Or  " })).toBe("or");
+  });
+
+  it("treats any non-'or' value (incl. typos) as the safe 'and' default", () => {
+    expect(autoPruneCombineModeFromEnv({ AGENTRELAY_AUTOPRUNE_COMBINE: "and" })).toBe("and");
+    expect(autoPruneCombineModeFromEnv({ AGENTRELAY_AUTOPRUNE_COMBINE: "either" })).toBe("and");
+    expect(autoPruneCombineModeFromEnv({ AGENTRELAY_AUTOPRUNE_COMBINE: "0r" })).toBe("and");
+  });
+});
+
+describe("combineAutoPruneGates", () => {
+  it("runs whenever neither throttle is active, regardless of mode", () => {
+    const inactive = { tickActive: false, timeActive: false };
+    for (const mode of ["and", "or"] as const) {
+      expect(combineAutoPruneGates({ tickAllows: false, timeAllows: false }, inactive, mode)).toBe(true);
+    }
+  });
+
+  it("reduces to the single active throttle in both modes when only one is set", () => {
+    // Only the time throttle active — the tick gate is a trivial 'true'.
+    for (const mode of ["and", "or"] as const) {
+      const active = { tickActive: false, timeActive: true };
+      expect(combineAutoPruneGates({ tickAllows: true, timeAllows: true }, active, mode)).toBe(true);
+      expect(combineAutoPruneGates({ tickAllows: true, timeAllows: false }, active, mode)).toBe(false);
+    }
+    // Only the tick throttle active.
+    for (const mode of ["and", "or"] as const) {
+      const active = { tickActive: true, timeActive: false };
+      expect(combineAutoPruneGates({ tickAllows: true, timeAllows: true }, active, mode)).toBe(true);
+      expect(combineAutoPruneGates({ tickAllows: false, timeAllows: true }, active, mode)).toBe(false);
+    }
+  });
+
+  it("in 'and' mode requires both gates when both throttles are active", () => {
+    const active = { tickActive: true, timeActive: true };
+    expect(combineAutoPruneGates({ tickAllows: true, timeAllows: true }, active, "and")).toBe(true);
+    expect(combineAutoPruneGates({ tickAllows: true, timeAllows: false }, active, "and")).toBe(false);
+    expect(combineAutoPruneGates({ tickAllows: false, timeAllows: true }, active, "and")).toBe(false);
+    expect(combineAutoPruneGates({ tickAllows: false, timeAllows: false }, active, "and")).toBe(false);
+  });
+
+  it("in 'or' mode runs when either active gate permits", () => {
+    const active = { tickActive: true, timeActive: true };
+    expect(combineAutoPruneGates({ tickAllows: true, timeAllows: true }, active, "or")).toBe(true);
+    expect(combineAutoPruneGates({ tickAllows: true, timeAllows: false }, active, "or")).toBe(true);
+    expect(combineAutoPruneGates({ tickAllows: false, timeAllows: true }, active, "or")).toBe(true);
+    expect(combineAutoPruneGates({ tickAllows: false, timeAllows: false }, active, "or")).toBe(false);
+  });
+
+  it("defaults to 'and' when no mode is passed", () => {
+    const active = { tickActive: true, timeActive: true };
+    expect(combineAutoPruneGates({ tickAllows: true, timeAllows: false }, active)).toBe(false);
   });
 });

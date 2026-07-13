@@ -226,3 +226,51 @@ export function shouldAutoPruneByTicks(tickIndex: number, everyTicks?: number): 
   if (!everyTicks || everyTicks <= 0) return true;
   return tickIndex % everyTicks === 0;
 }
+
+/**
+ * How the wall-clock ({@link shouldAutoPrune}) and tick-count
+ * ({@link shouldAutoPruneByTicks}) throttles combine when *both* are configured:
+ *
+ * - `"and"` (default) — a pass runs only when **both** gates permit it, so the
+ *   effectively longer interval dominates (fewest passes).
+ * - `"or"` — a pass runs when **either** active gate permits it, so the shorter
+ *   interval dominates (most-eager pruning within either budget).
+ *
+ * When only one throttle is configured the mode is irrelevant — behavior is
+ * governed entirely by that single throttle in either mode.
+ */
+export type AutoPruneCombineMode = "and" | "or";
+
+/**
+ * Reads the combine mode from the environment. Anything other than an explicit
+ * `or` (case-insensitively) is treated as the safe `and` default, so a typo
+ * never accidentally makes pruning more aggressive.
+ *
+ * - `AGENTRELAY_AUTOPRUNE_COMBINE`  `and` (default) or `or`.
+ */
+export function autoPruneCombineModeFromEnv(env: NodeJS.ProcessEnv = process.env): AutoPruneCombineMode {
+  return env.AGENTRELAY_AUTOPRUNE_COMBINE?.trim().toLowerCase() === "or" ? "or" : "and";
+}
+
+/**
+ * Pure combiner for the two auto-prune throttle gates. Given each gate's result
+ * (`tickAllows`/`timeAllows`) and whether each throttle is actually configured
+ * (`tickActive`/`timeActive`), decide whether a pass runs under `mode`.
+ *
+ * The active flags matter for `"or"`: an unconfigured throttle's gate is always
+ * `true`, which would swamp an OR and force a pass every tick. So OR only ORs the
+ * *active* gates. `"and"` needs no such guard — an inactive gate is always-true
+ * and drops out of the AND cleanly. With neither throttle active, a pass always
+ * runs (unthrottled), matching the single-throttle helpers' defaults.
+ */
+export function combineAutoPruneGates(
+  gates: { tickAllows: boolean; timeAllows: boolean },
+  active: { tickActive: boolean; timeActive: boolean },
+  mode: AutoPruneCombineMode = "and"
+): boolean {
+  if (!active.tickActive && !active.timeActive) return true;
+  if (mode === "or") {
+    return (active.tickActive && gates.tickAllows) || (active.timeActive && gates.timeAllows);
+  }
+  return gates.tickAllows && gates.timeAllows;
+}

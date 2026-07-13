@@ -375,4 +375,52 @@ describe("RelayScheduler", () => {
     expect(pruned[2].map((j) => j.id)).toEqual([c.id]);
     expect(queue.listAll()).toHaveLength(0);
   });
+
+  it("in 'or' combine mode prunes when either time or tick throttle permits", async () => {
+    const pruned: RelayJob[][] = [];
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({}),
+      autoPrune: { olderThanMs: 0 },
+      autoPruneEveryMs: 60_000, // once a minute...
+      autoPruneEveryTicks: 3, // ...OR every 3rd tick
+      autoPruneCombine: "or",
+      onPrune: (jobs) => pruned.push(jobs),
+    });
+
+    const t0 = new Date("2026-07-13T00:00:00Z");
+    const at = (ms: number) => new Date(t0.getTime() + ms);
+    const seedFinished = (project: string) => {
+      const job = queue.enqueue({ project, tool: "claude-code", command: ["x"], cwd: dir });
+      queue.markCompleted(job.id, "done");
+      return job;
+    };
+
+    // Tick index 0, first pass: both gates allow → prune, advancing the time marker.
+    const a = seedFinished("a");
+    await scheduler.tick(t0);
+    expect(pruned).toHaveLength(1);
+    expect(pruned[0].map((j) => j.id)).toEqual([a.id]);
+
+    // Tick index 1 @ +10s: tick gate blocks (not multiple of 3), only 10s elapsed → both
+    // gates block → skip.
+    const b = seedFinished("b");
+    await scheduler.tick(at(10_000));
+    expect(pruned).toHaveLength(1);
+    expect(queue.listAll().map((j) => j.id)).toEqual([b.id]);
+
+    // Tick index 2 @ +70s: tick gate still blocks, but 70s ≥ 60s → time gate permits → prune
+    // (OR needs only one). This resets the time marker to +70s.
+    await scheduler.tick(at(70_000));
+    expect(pruned).toHaveLength(2);
+    expect(pruned[1].map((j) => j.id)).toEqual([b.id]);
+
+    // Tick index 3 @ +75s: only 5s since last pass (time blocks), but index 3 is a multiple
+    // of 3 → tick gate permits → prune.
+    const c = seedFinished("c");
+    await scheduler.tick(at(75_000));
+    expect(pruned).toHaveLength(3);
+    expect(pruned[2].map((j) => j.id)).toEqual([c.id]);
+    expect(queue.listAll()).toHaveLength(0);
+  });
 });
