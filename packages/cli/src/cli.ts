@@ -1,5 +1,5 @@
 import type { AgentTool, JobStatus } from "@agentrelay/core";
-import { parseDuration } from "@agentrelay/core";
+import { loadConfig, parseDuration } from "@agentrelay/core";
 import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
@@ -11,7 +11,7 @@ import {
   startDaemon,
   tickOnce,
 } from "./commands.js";
-import { defaultStorePath } from "./config.js";
+import { defaultStorePath, renderConfig } from "./config.js";
 import {
   type JobSelection,
   NO_MATCH_MESSAGE,
@@ -248,6 +248,21 @@ export function buildCli(): Command {
         );
       }
       console.log(`${verb} ${pruned.length} job(s). ${remaining} remain.`);
+    });
+
+  program
+    .command("config")
+    .description("Show the resolved configuration: config file location, its settings, and effective env values")
+    .action(() => {
+      let loaded: ReturnType<typeof loadConfig>;
+      try {
+        loaded = loadConfig();
+      } catch (err) {
+        console.error(`[agentrelay] ${(err as Error).message}`);
+        process.exitCode = 1;
+        return;
+      }
+      console.log(renderConfig(loaded));
     });
 
   return program;

@@ -336,3 +336,28 @@
     양쪽 게이트 독립 차단)로 검증.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), auto-prune 스로틀 tick+time을 OR로도 선택 가능한
   모드(👷 후보), status TUI 정렬 필드별 기본 방향 튜닝(👷 후보).
+
+### [세션 12 — 설정 파일 지원(config file)] (2026-07-13, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 0개, main=현재 브랜치 동일. prune 스로틀 항목이 3연속이라 성격을
+  바꿔 SPEC §8 "DX 개선: 설정 파일 지원"을 신규 구현했다. 그동안 모든 튜너블이 env var 전용이라
+  선호값을 영속화하려면 쉘 프로필에 십수 개를 export하거나 매 명령에 prefix해야 했다.
+- 한 일 (branch `claude/wizardly-pascal-8wtbvl`):
+  1. `@agentrelay/core/config-file.ts` 신설 — friendly camelCase 키↔`AGENTRELAY_*` env 매핑
+     `CONFIG_KEY_TO_ENV`(13개), 순수 함수 `parseConfig`(인식/미지 키 분리, 잘못된 값 타입·malformed
+     JSON·비객체 top-level은 throw), `configToEnv`(string/number/boolean→env 문자열, bool은
+     "true"/"false"), `applyConfigToEnv`(실제 env가 항상 우선 — 미설정 항목만 채우고 입력 불변),
+     `loadConfig`(injectable readFile, ENOENT는 null=정상), `configFilePath`(`AGENTRELAY_CONFIG`
+     override, 기본 `~/.agentrelay/config.json`), `resolveEnvWithConfig` 편의 함수. **우선순위
+     = 실제 env > config 파일 > 빌트인 기본값.**
+  2. CLI `config.ts`에 `applyConfigFile`(시작 시 process.env 아래로 레이어링, 미지 키 stderr 경고) +
+     순수 `renderConfig`(파일 위치·인식 설정·미지 키·유효 env 값 표시, slack/webhook/auth는 마스킹).
+     `bin.ts`가 buildCli 전에 `applyConfigFile` 실행 → 모든 `*FromEnv()`·`--store` 기본값이 자동 반영,
+     malformed config는 exit 1로 loud 중단. 신규 `agentrelay config` 명령 추가.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **178개 전부 통과**(core 137 + cli 38 + dashboard 3 — config-file 16 + CLI config 5 신규).
+    **실제 빌드된 CLI e2e**(mock 아님): (1) `agentrelay config`가 파일 설정·시크릿 마스킹
+    (`http…alue (56 chars)`)·미지 키 경고 출력, (2) `AGENTRELAY_MAX_ATTEMPTS=3`가 config의 9를 override
+    (유효값 3), (3) config의 `store`가 `--store`/env 없이 `status --json`의 storePath에 반영,
+    (4) 잘못된 JSON은 "not valid JSON" + exit 1 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), config 파일에서 daemon poll interval 등 CLI 플래그
+  기본값까지 확장(👷 후보), status TUI 정렬 필드별 기본 방향 튜닝(👷 후보).

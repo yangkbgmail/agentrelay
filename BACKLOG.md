@@ -99,6 +99,15 @@
       모두 허용할 때만 정리. 시간 마커는 실제 패스 실행 때만, tick 카운터는 매 tick 전진.
       CLI daemon이 env로 배선, 배너에 "every N tick(s)"(+시간과 함께면 " + "로 결합). one-shot
       `tick`은 프로세스마다 카운터가 리셋돼 스로틀 무효(문서화). branch `claude/wizardly-pascal-adfx5s`)
+- [x] 👷 설정 파일 지원(config file) — env var 대신 `~/.agentrelay/config.json`으로 기본값 영속화.
+      (완료 — `@agentrelay/core/config-file.ts` 신설: friendly camelCase 키↔`AGENTRELAY_*` env 매핑
+      `CONFIG_KEY_TO_ENV`, 순수 `parseConfig`(미지 키 수집·타입 검증·malformed는 throw)·`configToEnv`
+      (string/number/boolean→env 문자열)·`applyConfigToEnv`(실제 env가 항상 우선, 미설정 항목만 채움,
+      입력 불변)·`loadConfig`(injectable readFile, ENOENT는 null)·`configFilePath`(`AGENTRELAY_CONFIG`
+      override). 우선순위 = 실제 env > config 파일 > 빌트인 기본값. CLI `bin.ts`가 시작 시
+      `applyConfigFile`로 process.env 아래에 레이어링(모든 `*FromEnv()`·`--store` 기본값이 자동 반영),
+      malformed는 exit 1. 신규 `agentrelay config` 명령이 파일 위치·인식된 설정·미지 키·유효 env 값을
+      표시(webhook/secret은 마스킹). branch `claude/wizardly-pascal-8wtbvl`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
