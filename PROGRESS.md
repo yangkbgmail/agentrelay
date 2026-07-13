@@ -233,3 +233,26 @@
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 자동 prune(스케줄러 주기 정리, 👷),
   status TUI에 필터/정렬 옵션 등 개선(👷).
 
+### [세션 8 계속 — 자동 prune(daemon 주기 정리)] (2026-07-13, 무인 자율 세션)
+- 배경: #16 병합으로 수동 `agentrelay prune`이 main에 들어온 뒤, 별도 cron 없이 데몬이
+  스스로 스토어를 정리하도록 하는 **자동 prune**을 신규 👷 항목으로 발굴·구현했다.
+- 한 일 (branch `claude/wizardly-pascal-09q0tw`):
+  1. `@agentrelay/core/prune.ts`에 `autoPruneOptionsFromEnv(env)` — `AGENTRELAY_AUTOPRUNE`
+     opt-in 플래그(1/true/yes/on)가 켜졌을 때만 활성. `AGENTRELAY_AUTOPRUNE_AFTER`(나이
+     임계값, 기본 `7d`=`DEFAULT_AUTOPRUNE_AFTER_MS`, `0s`=나이 무시하고 종료 job 전부),
+     `AGENTRELAY_AUTOPRUNE_KEEP`(최근 N개 보존). 미설정·falsy·AFTER만 준 경우는 `null`(off).
+     불명확한 AFTER는 기본값으로 폴백(opt-in은 유지).
+  2. `RelayScheduler`에 `autoPrune?: PruneOptions | null`·`onPrune?` 옵션 추가 → 매 `tick()`
+     종료 후 `runAutoPrune`가 종료 상태(completed/failed) job만 정리하고 활성 job은 불변.
+     정리 실패는 삼켜 릴레이 루프를 절대 깨지 않음. tick의 referenceTime을 나이 컷오프의
+     `now`로 재사용해 결정적.
+  3. CLI `daemon`/`tick`이 `autoPruneOptionsFromEnv()`를 배선, 데몬 배너에 "(auto-prune on)",
+     정리 시 `[agentrelay] auto-pruned N finished job(s)` 로그.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) 0경고,
+    `pnpm test` **131개 전부 통과**(core 105 + cli 23 + dashboard 3 — env 6 + scheduler 3 신규).
+    **실제 빌드된 CLI e2e**(mock 아님): 완료/실패/대기 3개 job 시드 → autoprune off인 `tick`은
+    3개 유지 → `AGENTRELAY_AUTOPRUNE=1 AGENTRELAY_AUTOPRUNE_AFTER=0s tick`이 종료 job 2개만
+    정리하고 활성 job 보존(status 1행) → 데몬 배너 "(auto-prune on)" 출력 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), status TUI 필터/정렬 옵션(👷),
+  자동 prune 주기를 tick마다가 아닌 N tick·시간 간격으로 스로틀하는 옵션(👷 후보).
+

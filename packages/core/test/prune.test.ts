@@ -2,7 +2,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { parseDuration, selectPrunableJobs } from "../src/prune.js";
+import {
+  autoPruneOptionsFromEnv,
+  DEFAULT_AUTOPRUNE_AFTER_MS,
+  parseDuration,
+  selectPrunableJobs,
+} from "../src/prune.js";
 import { RelayQueue } from "../src/queue.js";
 import type { RelayJob } from "../src/types.js";
 
@@ -137,5 +142,55 @@ describe("RelayQueue.prune", () => {
     const reopened = new RelayQueue(join(dir, "jobs.json"));
     expect(reopened.listAll()).toHaveLength(0);
     reopened.close();
+  });
+});
+
+describe("autoPruneOptionsFromEnv", () => {
+  it("returns null when the opt-in flag is unset or falsy", () => {
+    expect(autoPruneOptionsFromEnv({})).toBeNull();
+    expect(autoPruneOptionsFromEnv({ AGENTRELAY_AUTOPRUNE: "0" })).toBeNull();
+    expect(autoPruneOptionsFromEnv({ AGENTRELAY_AUTOPRUNE: "false" })).toBeNull();
+    // AFTER without the flag does not enable auto-prune.
+    expect(autoPruneOptionsFromEnv({ AGENTRELAY_AUTOPRUNE_AFTER: "1d" })).toBeNull();
+  });
+
+  it("enables with the 7d default age when only the flag is set", () => {
+    expect(autoPruneOptionsFromEnv({ AGENTRELAY_AUTOPRUNE: "1" })).toEqual({
+      olderThanMs: DEFAULT_AUTOPRUNE_AFTER_MS,
+      keepLast: undefined,
+    });
+    // Accepts the other truthy spellings.
+    for (const v of ["true", "yes", "on", "ON"]) {
+      expect(autoPruneOptionsFromEnv({ AGENTRELAY_AUTOPRUNE: v })?.olderThanMs).toBe(DEFAULT_AUTOPRUNE_AFTER_MS);
+    }
+  });
+
+  it("honors a custom AFTER duration and KEEP count", () => {
+    expect(
+      autoPruneOptionsFromEnv({
+        AGENTRELAY_AUTOPRUNE: "on",
+        AGENTRELAY_AUTOPRUNE_AFTER: "24h",
+        AGENTRELAY_AUTOPRUNE_KEEP: "5",
+      })
+    ).toEqual({ olderThanMs: parseDuration("24h"), keepLast: 5 });
+  });
+
+  it("treats AFTER=0s as prune-all-finished (no age filter)", () => {
+    expect(autoPruneOptionsFromEnv({ AGENTRELAY_AUTOPRUNE: "1", AGENTRELAY_AUTOPRUNE_AFTER: "0s" })).toEqual({
+      olderThanMs: 0,
+      keepLast: undefined,
+    });
+  });
+
+  it("falls back to the default age when AFTER is unparseable (still opted in)", () => {
+    expect(
+      autoPruneOptionsFromEnv({ AGENTRELAY_AUTOPRUNE: "1", AGENTRELAY_AUTOPRUNE_AFTER: "garbage" })?.olderThanMs
+    ).toBe(DEFAULT_AUTOPRUNE_AFTER_MS);
+  });
+
+  it("ignores a negative/invalid KEEP", () => {
+    expect(
+      autoPruneOptionsFromEnv({ AGENTRELAY_AUTOPRUNE: "1", AGENTRELAY_AUTOPRUNE_KEEP: "-3" })?.keepLast
+    ).toBeUndefined();
   });
 });

@@ -66,6 +66,12 @@
       (resetAt도 정리)·`requeueNow`(즉시 due + attempts 0 리셋 + lastError 클리어). CLI `cancel`은
       대기 중(queued/waiting_for_reset/resuming) job만 취소, `retry`는 resuming 외 모든 job을
       지금 재개 큐로. 짧은 id prefix 지원, 실패 시 exit 1. branch `claude/wizardly-pascal-sg1ont`)
+- [x] 👷 자동 prune(daemon 주기 정리) — 별도 cron 없이 데몬이 매 tick 종료 job 정리.
+      (완료 — `@agentrelay/core/prune.ts`에 `autoPruneOptionsFromEnv`(`AGENTRELAY_AUTOPRUNE` opt-in +
+      `_AUTOPRUNE_AFTER` 나이 임계값[기본 7d, `0s`=전부] + `_AUTOPRUNE_KEEP` 최근 N개 보존)와
+      `DEFAULT_AUTOPRUNE_AFTER_MS`(7d) 추가. `RelayScheduler`에 `autoPrune`/`onPrune` 옵션 →
+      매 tick 종료 후 종료 상태 job만 정리(활성 job 불변), 실패는 삼켜 릴레이 루프 보호.
+      CLI daemon/tick이 env로 배선, 데몬 배너에 "(auto-prune on)". branch `claude/wizardly-pascal-09q0tw`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
