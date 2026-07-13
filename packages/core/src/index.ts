@@ -1,4 +1,5 @@
 export * from "./adapters.js";
+export * from "./config.js";
 export * from "./control.js";
 export * from "./notify.js";
 export * from "./parser.js";
