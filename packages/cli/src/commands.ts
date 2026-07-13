@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import type { AgentTool, JobStatus, Notifier, PruneOptions, RelayJob } from "@agentrelay/core";
 import {
   autoPruneEveryMsFromEnv,
+  autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
   canCancel,
   canRequeue,
@@ -108,12 +109,26 @@ export interface DaemonOptions {
   remoteNotify?: Notifier | null;
 }
 
+/** Human-readable "(auto-prune on, ...)" suffix for the daemon startup banner. */
+function autoPruneBanner(
+  autoPrune: PruneOptions | null,
+  everyMs: number | undefined,
+  everyTicks: number | undefined
+): string {
+  if (!autoPrune) return "";
+  const parts: string[] = [];
+  if (everyMs) parts.push(`every ${Math.round(everyMs / 1000)}s`);
+  if (everyTicks) parts.push(`every ${everyTicks} tick(s)`);
+  return parts.length ? ` (auto-prune on, ${parts.join(" + ")})` : " (auto-prune on)";
+}
+
 export function startDaemon(options: DaemonOptions = {}) {
   const storePath = options.storePath ?? defaultStorePath();
   const queue = new RelayQueue(storePath);
   const remoteNotify = options.remoteNotify === undefined ? notifiersFromEnv() : options.remoteNotify;
   const autoPrune = autoPruneOptionsFromEnv();
   const autoPruneEveryMs = autoPruneEveryMsFromEnv() ?? undefined;
+  const autoPruneEveryTicks = autoPruneEveryTicksFromEnv() ?? undefined;
   const logLine = (line: string) => {
     // eslint-disable-next-line no-console
     console.log(line);
@@ -125,6 +140,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     retryPolicy: retryPolicyFromEnv(),
     autoPrune,
     autoPruneEveryMs,
+    autoPruneEveryTicks,
     onPrune: (pruned) => logLine(`[agentrelay] auto-pruned ${pruned.length} finished job(s)`),
     notify: async (payload) => {
       logLine(`[agentrelay] ${payload.event} — ${payload.project}: ${payload.message}`);
@@ -136,11 +152,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   console.log(
     `[agentrelay] daemon started, watching ${storePath} every ${(options.pollIntervalMs ?? 30_000) / 1000}s` +
       (remoteNotify ? " (notifications on)" : "") +
-      (autoPrune
-        ? autoPruneEveryMs
-          ? ` (auto-prune on, every ${Math.round(autoPruneEveryMs / 1000)}s)`
-          : " (auto-prune on)"
-        : "")
+      autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks)
   );
   return scheduler;
 }

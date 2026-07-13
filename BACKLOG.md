@@ -89,6 +89,16 @@
       스토어를 재기록하지 않음. CLI daemon이 env로 배선, 배너에 "(auto-prune on, every Ns)".
       one-shot `tick`은 프로세스마다 마커가 없어 스로틀 무효(문서화). branch
       `claude/wizardly-pascal-ikh508`)
+- [x] 👷 자동 prune tick-count 스로틀 — 시간뿐 아니라 tick 횟수 기준으로도 정리 간격 지정.
+      (완료 — `@agentrelay/core/prune.ts`에 순수 `shouldAutoPruneByTicks(tickIndex, everyTicks?)`
+      (스로틀 없음/`≤0`이면 항상 실행, 그 외 `tickIndex % everyTicks === 0` → 첫 tick[index 0]과
+      이후 매 N tick) + `autoPruneEveryTicksFromEnv`(`AGENTRELAY_AUTOPRUNE_EVERY_TICKS` 양의
+      정수 파싱; 미설정·비숫자·비양수는 null=스로틀 없음 → 오타가 정리를 조용히 끄지 않음, 소수는
+      floor) 추가. `RelayScheduler`에 `autoPruneEveryTicks` 옵션 + 인메모리 `pruneTickCounter`
+      (매 tick 전진). 시간 스로틀(`autoPruneEveryMs`)과 **AND** 결합 — 둘 다 설정 시 양쪽 게이트가
+      모두 허용할 때만 정리. 시간 마커는 실제 패스 실행 때만, tick 카운터는 매 tick 전진.
+      CLI daemon이 env로 배선, 배너에 "every N tick(s)"(+시간과 함께면 " + "로 결합). one-shot
+      `tick`은 프로세스마다 카운터가 리셋돼 스로틀 무효(문서화). branch `claude/wizardly-pascal-adfx5s`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

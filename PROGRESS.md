@@ -308,3 +308,31 @@
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), auto-prune 스로틀을 시간뿐 아니라 tick-count
   기준으로도 지정하는 옵션(👷 후보). 앞으로 CI 초록 판정은 `get_status`가 아니라
   `actions_list`로 확인할 것(위 오판 재발 방지).
+
+### [세션 11 — 자동 prune tick-count 스로틀] (2026-07-13, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 0개(누적/중복 없음), main=현재 브랜치 동일. 세션 10이 "다음 할 일"로
+  남긴 👷 후보(auto-prune 스로틀을 tick-count 기준으로도 지정)를 신규 구현했다. 기존 스로틀은
+  wall-clock 시간(`AGENTRELAY_AUTOPRUNE_EVERY`)만 지원했는데, 데몬 poll 주기 자체를 기준으로
+  생각하는 경우("100 polls마다 정리")를 위해 tick 횟수 축을 추가.
+- 한 일 (branch `claude/wizardly-pascal-adfx5s`):
+  1. `@agentrelay/core/prune.ts`에 순수 `shouldAutoPruneByTicks(tickIndex, everyTicks?)` — 스로틀
+     없음(`everyTicks` 미설정/≤0)이면 항상 실행, 그 외 `tickIndex % everyTicks === 0`(0-based 카운터
+     기준 첫 tick[index 0]과 이후 매 N tick 실행 → 시간 스로틀의 "첫 패스 항상 실행"과 대칭).
+     `autoPruneEveryTicksFromEnv`(`AGENTRELAY_AUTOPRUNE_EVERY_TICKS` 양의 정수; 미설정·비숫자·비양수는
+     `null`=스로틀 없음 → 오타가 정리를 조용히 끄지 않고 매 tick 폴백, 소수는 floor) 추가.
+  2. `RelayScheduler`에 `autoPruneEveryTicks` 옵션 + 인메모리 `pruneTickCounter`(매 tick 전진).
+     `runAutoPrune`가 tick 게이트(`shouldAutoPruneByTicks`)와 시간 게이트(`shouldAutoPrune`)를
+     **AND**로 결합 — 둘 다 설정 시 양쪽이 모두 허용할 때만 정리. tick 카운터는 매 tick 전진(스로틀
+     cadence 유지), 시간 마커는 패스가 실제 실행될 때만 전진.
+  3. CLI `daemon`이 `autoPruneEveryTicksFromEnv()`를 배선. 배너 문구를 `autoPruneBanner` 헬퍼로
+     리팩터해 시간·tick 스로틀을 각각/함께 표기("every Ns", "every N tick(s)", 둘 다면 " + "로 결합).
+     one-shot `tick`은 프로세스마다 카운터가 리셋돼 스로틀 무효(코드 주석·BACKLOG에 명시).
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **157개 전부 통과**(core 121 + cli 33 + dashboard 3 — prune env/predicate 9 +
+    scheduler tick/AND 스로틀 2 신규). **실제 빌드된 CLI e2e**(mock 아님): 데몬 배너가 both →
+    "every 3600s + every 100 tick(s)", ticks-only → "every 50 tick(s)", time-only → "every 1800s",
+    무-스로틀 → "(auto-prune on)", 오타(`_EVERY_TICKS=abc`) → 매 tick 폴백("(auto-prune on)") 확인.
+    스로틀 억제 자체는 결정적 스케줄러 유닛 테스트(tick 창 안은 스킵, 경과 후 정리; 시간+tick AND
+    양쪽 게이트 독립 차단)로 검증.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), auto-prune 스로틀 tick+time을 OR로도 선택 가능한
+  모드(👷 후보), status TUI 정렬 필드별 기본 방향 튜닝(👷 후보).
