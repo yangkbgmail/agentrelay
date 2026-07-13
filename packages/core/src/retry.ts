@@ -27,7 +27,7 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = {
  */
 export function computeBackoffMs(policy: RetryPolicy, attemptNumber: number): number {
   const exponent = Math.max(0, attemptNumber - 1);
-  const raw = policy.baseDelayMs * Math.pow(policy.factor, exponent);
+  const raw = policy.baseDelayMs * policy.factor ** exponent;
   if (!Number.isFinite(raw)) return policy.maxDelayMs;
   return Math.min(policy.maxDelayMs, Math.round(raw));
 }

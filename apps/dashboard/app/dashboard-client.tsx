@@ -1,7 +1,7 @@
 "use client";
 
+import type { JobStatus, RelayJob } from "@agentrelay/core";
 import { useEffect, useState } from "react";
-import type { RelayJob, JobStatus } from "@agentrelay/core";
 import type { JobsSnapshot } from "../lib/jobs";
 
 const POLL_INTERVAL_MS = 3000;

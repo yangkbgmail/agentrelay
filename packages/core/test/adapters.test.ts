@@ -53,10 +53,7 @@ describe("adapter rate-limit detection", () => {
   const now = new Date("2026-07-12T10:00:00Z");
 
   it("Codex adapter parses seconds-based waits the generic parser misses", () => {
-    const result = CODEX_CLI_ADAPTER.detectRateLimit(
-      "Rate limit reached for gpt-4. Please try again in 20s.",
-      { now }
-    );
+    const result = CODEX_CLI_ADAPTER.detectRateLimit("Rate limit reached for gpt-4. Please try again in 20s.", { now });
     expect(result?.pattern).toBe("codex-relative-seconds");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 20_000).toISOString());
   });

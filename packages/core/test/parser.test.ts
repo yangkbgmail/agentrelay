@@ -59,9 +59,7 @@ describe("parseRateLimitMessage", () => {
   });
 
   it("prefers the more specific pattern when multiple could match", () => {
-    const result = parseRateLimitMessage(
-      "Usage limit reached. It resets at 2026-07-13T05:00:00Z (in about 5 hours)."
-    );
+    const result = parseRateLimitMessage("Usage limit reached. It resets at 2026-07-13T05:00:00Z (in about 5 hours).");
     expect(result?.pattern).toBe("iso-timestamp");
   });
 

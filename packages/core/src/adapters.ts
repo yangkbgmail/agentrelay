@@ -1,4 +1,4 @@
-import { parseRateLimitMessage, type ParseOptions, type RateLimitPattern } from "./parser.js";
+import { type ParseOptions, parseRateLimitMessage, type RateLimitPattern } from "./parser.js";
 import type { AgentTool, RateLimitInfo } from "./types.js";
 
 /**

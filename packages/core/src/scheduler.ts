@@ -1,7 +1,7 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { resolveAdapter } from "./adapters.js";
-import { DEFAULT_RETRY_POLICY, computeBackoffMs, isRetryExhausted } from "./retry.js";
 import type { RelayQueue } from "./queue.js";
+import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
 import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
 
 export type Notifier = (payload: NotifyPayload) => void | Promise<void>;
@@ -103,7 +103,7 @@ export class RelayScheduler {
           message: `Hit rate limit again, re-queued until ${rateLimit.resetAt}`,
         });
       }
-      return this.queue.getById(job.id)!;
+      return this.reload(job.id);
     }
 
     const failed = error !== null || (exitCode !== null && exitCode !== 0);
@@ -115,7 +115,7 @@ export class RelayScheduler {
         event: "completed",
         message: `Job completed for ${job.project}`,
       });
-      return this.queue.getById(job.id)!;
+      return this.reload(job.id);
     }
 
     // Transient failure (spawn error or non-zero exit with no rate-limit signal):
@@ -140,12 +140,17 @@ export class RelayScheduler {
         message: `Attempt ${attemptNumber} failed (${reason}); retrying at ${retryAt}`,
       });
     }
-    return this.queue.getById(job.id)!;
+    return this.reload(job.id);
   }
 
-  private runCommand(
-    job: RelayJob
-  ): Promise<{ output: string; exitCode: number | null; error: Error | null }> {
+  /** Re-read a job we just persisted; it must still exist. */
+  private reload(id: string): RelayJob {
+    const job = this.queue.getById(id);
+    if (!job) throw new Error(`Job ${id} vanished from the queue`);
+    return job;
+  }
+
+  private runCommand(job: RelayJob): Promise<{ output: string; exitCode: number | null; error: Error | null }> {
     return new Promise((resolve) => {
       let output = "";
       let child: ChildProcessWithoutNullStreams;

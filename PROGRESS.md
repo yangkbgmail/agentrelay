@@ -138,3 +138,17 @@
     tool `codex-cli` 추론 + `codex-relative-seconds` 패턴 감지 + resetAt=now+45s로 큐잉 확인.
 - 다음 할 일: README(🧭), `agentrelay status` 실시간 TUI(👷, PR #7 리뷰/병합),
   lint(ESLint/Biome)+CI(👷).
+
+### [세션 4 — Biome lint + CI 통합] (2026-07-13, 무인 자율 세션)
+- 한 일 (branch `claude/wizardly-pascal-38649m`): **lint 도입 — Biome 채택**.
+  1. 루트 `biome.json` 신설 — recommended 린트 + 포매터(더블쿼트·2스페이스·lineWidth 120·LF),
+     스코프는 `packages/**`·`apps/**`의 src/test(dist·.next·node_modules 제외, `.gitignore` 존중).
+     테스트 파일은 테스트 더블 특성상 `noExplicitAny`/`noNonNullAssertion`을 override로 off.
+     `biome migrate`로 2.5.3 스키마 정합(`preset: recommended`).
+  2. 루트 스크립트 `lint`(`biome check`)·`lint:fix`·`format`·`ci:lint`(`biome ci`) 추가.
+  3. CI 워크플로에 **`pnpm ci:lint`(Biome) 단계**를 install↔build 사이에 삽입.
+  4. 전체 코드베이스를 Biome로 포맷·import 정렬 정규화(17파일). `retry.ts`의 `Math.pow`→`**`,
+     `scheduler.ts`의 방금-저장-job 재조회 non-null 단언 3곳을 방어적 `reload()` 헬퍼로 대체.
+  - 검증: `pnpm ci:lint` **0 경고/0 에러**, `pnpm build` 클린(Next.js 포함),
+    `pnpm test` **72개 전부 통과**(core 64 + cli 5 + dashboard 3). 기능 변경 없음(포맷·정리·헬퍼).
+- 다음 할 일: README(🧭), `agentrelay status` 실시간 TUI(👷, PR #7 리뷰/병합).
