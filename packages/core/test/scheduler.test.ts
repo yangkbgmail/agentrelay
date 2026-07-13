@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RelayQueue } from "../src/queue.js";
 import type { SpawnFn } from "../src/scheduler.js";
 import { RelayScheduler } from "../src/scheduler.js";
+import type { RelayJob } from "../src/types.js";
 
 // Minimal fake ChildProcess: emits given stdout data then closes.
 function fakeSpawnFn(outputs: Record<string, string>): SpawnFn {
@@ -201,5 +202,55 @@ describe("RelayScheduler", () => {
 
     const [result] = await scheduler.tick();
     expect(result.status).toBe("waiting_for_reset");
+  });
+
+  it("auto-prunes finished jobs after a tick (age 0), leaving active jobs untouched", async () => {
+    const done = queue.enqueue({ project: "done", tool: "claude-code", command: ["x"], cwd: dir });
+    queue.markCompleted(done.id, "done");
+    const active = queue.enqueue({ project: "active", tool: "claude-code", command: ["y"], cwd: dir });
+    queue.markWaitingForReset(active.id, new Date(Date.now() + 60_000).toISOString());
+
+    const pruned: RelayJob[][] = [];
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({}),
+      autoPrune: { olderThanMs: 0 }, // no age filter → sweep every finished job
+      onPrune: (jobs) => pruned.push(jobs),
+    });
+
+    await scheduler.tick();
+
+    expect(pruned).toHaveLength(1);
+    expect(pruned[0].map((j) => j.id)).toEqual([done.id]);
+    // The finished job is gone; the active one survives.
+    expect(queue.listAll().map((j) => j.id)).toEqual([active.id]);
+  });
+
+  it("respects the auto-prune age threshold — a just-finished job survives", async () => {
+    const done = queue.enqueue({ project: "recent", tool: "claude-code", command: ["x"], cwd: dir });
+    queue.markCompleted(done.id, "done"); // updatedAt = now
+
+    const pruned: RelayJob[][] = [];
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({}),
+      autoPrune: { olderThanMs: 60 * 60_000 }, // only jobs untouched for 1h+
+      onPrune: (jobs) => pruned.push(jobs),
+    });
+
+    await scheduler.tick();
+
+    expect(pruned).toHaveLength(0);
+    expect(queue.listAll().map((j) => j.id)).toEqual([done.id]);
+  });
+
+  it("does not prune when auto-prune is not configured", async () => {
+    const done = queue.enqueue({ project: "done", tool: "claude-code", command: ["x"], cwd: dir });
+    queue.markCompleted(done.id, "done");
+
+    const scheduler = new RelayScheduler({ queue, spawnFn: fakeSpawnFn({}) });
+    await scheduler.tick();
+
+    expect(queue.listAll().map((j) => j.id)).toEqual([done.id]);
   });
 });

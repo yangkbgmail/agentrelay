@@ -1,5 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { resolveAdapter } from "./adapters.js";
+import type { PruneOptions } from "./prune.js";
 import type { RelayQueue } from "./queue.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
 import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
@@ -22,6 +23,14 @@ export interface SchedulerOptions {
   outputTailLength?: number;
   /** Retry/backoff/max-attempts policy. Defaults to {@link DEFAULT_RETRY_POLICY}. */
   retryPolicy?: RetryPolicy;
+  /**
+   * When set, finished jobs matching these options are pruned from the store
+   * after every tick, keeping a long-running daemon's JSON store bounded
+   * without a separate cron. `null`/omitted disables auto-prune.
+   */
+  autoPrune?: PruneOptions | null;
+  /** Called with the jobs an auto-prune pass removed (for logging). */
+  onPrune?: (pruned: RelayJob[]) => void;
 }
 
 /**
@@ -37,6 +46,8 @@ export class RelayScheduler {
   private notify: Notifier;
   private outputTailLength: number;
   private retryPolicy: RetryPolicy;
+  private autoPrune: PruneOptions | null;
+  private onPrune?: (pruned: RelayJob[]) => void;
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: SchedulerOptions) {
@@ -46,6 +57,8 @@ export class RelayScheduler {
     this.notify = options.notify ?? (() => {});
     this.outputTailLength = options.outputTailLength ?? 2000;
     this.retryPolicy = options.retryPolicy ?? DEFAULT_RETRY_POLICY;
+    this.autoPrune = options.autoPrune ?? null;
+    this.onPrune = options.onPrune;
   }
 
   start() {
@@ -67,7 +80,24 @@ export class RelayScheduler {
     for (const job of due) {
       processed.push(await this.resume(job, referenceTime));
     }
+    this.runAutoPrune(referenceTime);
     return processed;
+  }
+
+  /**
+   * Sweep finished jobs after a tick when auto-prune is configured. Store
+   * maintenance must never break the relay loop, so any failure is swallowed
+   * (the next tick will try again). The tick's `referenceTime` is reused as the
+   * age cutoff's "now" so pruning is deterministic alongside job processing.
+   */
+  private runAutoPrune(referenceTime: Date): void {
+    if (!this.autoPrune) return;
+    try {
+      const pruned = this.queue.prune({ ...this.autoPrune, now: referenceTime });
+      if (pruned.length > 0) this.onPrune?.(pruned);
+    } catch {
+      // Ignore — bounding the store is best-effort and must not stop relaying.
+    }
   }
 
   private async resume(job: RelayJob, referenceTime: Date): Promise<RelayJob> {

@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import type { AgentTool, JobStatus, Notifier, PruneOptions, RelayJob } from "@agentrelay/core";
 import {
+  autoPruneOptionsFromEnv,
   canCancel,
   canRequeue,
   notifiersFromEnv,
@@ -110,15 +111,20 @@ export function startDaemon(options: DaemonOptions = {}) {
   const storePath = options.storePath ?? defaultStorePath();
   const queue = new RelayQueue(storePath);
   const remoteNotify = options.remoteNotify === undefined ? notifiersFromEnv() : options.remoteNotify;
+  const autoPrune = autoPruneOptionsFromEnv();
+  const logLine = (line: string) => {
+    // eslint-disable-next-line no-console
+    console.log(line);
+    options.onNotify?.(line);
+  };
   const scheduler = new RelayScheduler({
     queue,
     pollIntervalMs: options.pollIntervalMs ?? 30_000,
     retryPolicy: retryPolicyFromEnv(),
+    autoPrune,
+    onPrune: (pruned) => logLine(`[agentrelay] auto-pruned ${pruned.length} finished job(s)`),
     notify: async (payload) => {
-      const line = `[agentrelay] ${payload.event} — ${payload.project}: ${payload.message}`;
-      // eslint-disable-next-line no-console
-      console.log(line);
-      options.onNotify?.(line);
+      logLine(`[agentrelay] ${payload.event} — ${payload.project}: ${payload.message}`);
       await remoteNotify?.(payload);
     },
   });
@@ -126,7 +132,8 @@ export function startDaemon(options: DaemonOptions = {}) {
   // eslint-disable-next-line no-console
   console.log(
     `[agentrelay] daemon started, watching ${storePath} every ${(options.pollIntervalMs ?? 30_000) / 1000}s` +
-      (remoteNotify ? " (notifications on)" : "")
+      (remoteNotify ? " (notifications on)" : "") +
+      (autoPrune ? " (auto-prune on)" : "")
   );
   return scheduler;
 }
@@ -138,6 +145,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     queue,
     notify: notify ?? undefined,
     retryPolicy: retryPolicyFromEnv(),
+    autoPrune: autoPruneOptionsFromEnv(),
   });
   const processed = await scheduler.tick();
   queue.close();

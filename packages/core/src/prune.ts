@@ -96,3 +96,51 @@ export function parseDuration(input: string): number | null {
   if (!Number.isFinite(value) || value < 0) return null;
   return value * UNIT_MS[match[2].toLowerCase()];
 }
+
+/**
+ * Age threshold used by auto-prune when the daemon opts in without giving an
+ * explicit `AGENTRELAY_AUTOPRUNE_AFTER`. One week keeps a useful window of
+ * finished-job history while still bounding the store.
+ */
+export const DEFAULT_AUTOPRUNE_AFTER_MS = 7 * UNIT_MS.d;
+
+function parseBool(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+/**
+ * Builds the {@link PruneOptions} the scheduler should apply after each tick,
+ * from environment variables — or `null` when auto-prune is off (the default).
+ * Lets a long-running daemon keep the JSON store bounded without a separate
+ * `agentrelay prune` cron:
+ *
+ * - `AGENTRELAY_AUTOPRUNE`        opt-in flag (1/true/yes/on). Off ⇒ returns null.
+ * - `AGENTRELAY_AUTOPRUNE_AFTER`  age threshold like `7d`/`24h` (default 7d).
+ *                                 `0s` prunes every finished job regardless of age.
+ *                                 An unparseable value falls back to the 7d default
+ *                                 rather than disabling the opt-in.
+ * - `AGENTRELAY_AUTOPRUNE_KEEP`   always retain the N most-recent finished jobs.
+ *
+ * Only terminal states (`completed`/`failed`) are ever swept — active jobs are
+ * left untouched, matching the manual `prune` command's safe default.
+ */
+export function autoPruneOptionsFromEnv(env: NodeJS.ProcessEnv = process.env): PruneOptions | null {
+  if (!parseBool(env.AGENTRELAY_AUTOPRUNE)) return null;
+
+  let olderThanMs = DEFAULT_AUTOPRUNE_AFTER_MS;
+  const afterRaw = env.AGENTRELAY_AUTOPRUNE_AFTER?.trim();
+  if (afterRaw) {
+    const parsed = parseDuration(afterRaw);
+    if (parsed !== null) olderThanMs = parsed;
+  }
+
+  let keepLast: number | undefined;
+  const keepRaw = env.AGENTRELAY_AUTOPRUNE_KEEP?.trim();
+  if (keepRaw) {
+    const n = Number(keepRaw);
+    if (Number.isFinite(n) && n >= 0) keepLast = Math.floor(n);
+  }
+
+  return { olderThanMs, keepLast };
+}
