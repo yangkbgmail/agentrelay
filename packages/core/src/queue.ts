@@ -47,7 +47,11 @@ export class RelayQueue {
     try {
       const raw = readFileSync(this.filePath, "utf8");
       const parsed: RelayJob[] = raw.trim() ? JSON.parse(raw) : [];
-      this.jobs = new Map(parsed.map((job) => [job.id, job]));
+      // Back-compat: `retryCount` was added after the first releases, so jobs
+      // written by older versions won't have it. Default to 0 on read.
+      this.jobs = new Map(
+        parsed.map((job) => [job.id, { ...job, retryCount: job.retryCount ?? 0 }])
+      );
     } catch {
       // Corrupt or empty file: start fresh rather than crashing the whole
       // relay loop. The bad file is left in place for a human to inspect.
@@ -81,6 +85,7 @@ export class RelayQueue {
       createdAt: now,
       updatedAt: now,
       attempts: 0,
+      retryCount: 0,
       lastError: null,
       lastOutputTail: null,
     };
@@ -104,6 +109,23 @@ export class RelayQueue {
 
   markFailed(id: string, error: string, outputTail?: string) {
     this.update(id, { status: "failed", lastError: error, lastOutputTail: outputTail ?? null });
+  }
+
+  /**
+   * Re-queues a job that *failed* (not rate-limited) for a backoff retry.
+   * Bumps `retryCount`, records the error, and parks the job in
+   * `waiting_for_reset` with `resetAt` set to when the retry should fire —
+   * so the existing `listDue` polling picks it up with no extra machinery.
+   */
+  markRetry(id: string, retryAt: string, error: string, outputTail?: string) {
+    const current = this.getById(id);
+    this.update(id, {
+      status: "waiting_for_reset",
+      resetAt: retryAt,
+      retryCount: (current?.retryCount ?? 0) + 1,
+      lastError: error,
+      lastOutputTail: outputTail ?? current?.lastOutputTail ?? null,
+    });
   }
 
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {

@@ -22,6 +22,27 @@ function fakeSpawnFn(outputs: Record<string, string>): SpawnFn {
   };
 }
 
+// Fake ChildProcess that exits with a given non-zero code (a failed command).
+function failingSpawnFn(exitCode: number, output = ""): SpawnFn {
+  return () => {
+    const emitter = new EventEmitter() as any;
+    emitter.stdout = new EventEmitter();
+    emitter.stderr = new EventEmitter();
+    setTimeout(() => {
+      if (output) emitter.stderr.emit("data", Buffer.from(output));
+      emitter.emit("close", exitCode);
+    }, 0);
+    return emitter;
+  };
+}
+
+// Fake spawn that throws synchronously (e.g. command not found / ENOENT).
+function throwingSpawnFn(): SpawnFn {
+  return () => {
+    throw new Error("spawn claude ENOENT");
+  };
+}
+
 describe("RelayScheduler", () => {
   let dir: string;
   let queue: RelayQueue;
@@ -75,6 +96,79 @@ describe("RelayScheduler", () => {
     expect(results).toHaveLength(1);
     expect(results[0].status).toBe("waiting_for_reset");
     expect(results[0].resetAt).not.toBeNull();
+  });
+
+  it("re-queues a failed command for a backoff retry instead of marking it completed", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    const dueAt = new Date(Date.now() - 1000);
+    queue.markWaitingForReset(job.id, dueAt.toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: failingSpawnFn(1, "boom: something went wrong"),
+      retryPolicy: { maxRetries: 3, baseDelayMs: 1000, maxDelayMs: 10_000, factor: 2 },
+    });
+
+    const results = await scheduler.tick(dueAt);
+    expect(results).toHaveLength(1);
+    const updated = results[0];
+    expect(updated.status).toBe("waiting_for_reset");
+    expect(updated.retryCount).toBe(1);
+    expect(updated.lastError).toContain("exited with code 1");
+    // Backoff of baseDelayMs (1000) from the reference time.
+    expect(new Date(updated.resetAt!).getTime()).toBe(dueAt.getTime() + 1000);
+  });
+
+  it("gives up (marks failed) once maxRetries is exhausted", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    // Simulate a job that has already used all its retries.
+    queue.markRetry(job.id, new Date(Date.now() - 1000).toISOString(), "prev failure");
+    const dueAt = new Date();
+    queue.markWaitingForReset(job.id, new Date(dueAt.getTime() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: failingSpawnFn(2),
+      retryPolicy: { maxRetries: 1, baseDelayMs: 1000, maxDelayMs: 10_000, factor: 2 },
+    });
+
+    const results = await scheduler.tick(dueAt);
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe("failed");
+    expect(results[0].lastError).toContain("exited with code 2");
+  });
+
+  it("treats a spawn error (e.g. command not found) as a failure to retry", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    const dueAt = new Date();
+    queue.markWaitingForReset(job.id, new Date(dueAt.getTime() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: throwingSpawnFn(),
+      retryPolicy: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 10_000, factor: 2 },
+    });
+
+    const results = await scheduler.tick(dueAt);
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe("waiting_for_reset");
+    expect(results[0].retryCount).toBe(1);
+    expect(results[0].lastError).toContain("ENOENT");
   });
 
   it("does not touch jobs that are not yet due", async () => {

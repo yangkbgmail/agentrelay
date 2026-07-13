@@ -18,7 +18,11 @@
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
 - [ ] 👷 Codex CLI 등 다른 에이전트 툴 어댑터.
-- [ ] 👷 job 재시도 정책 / 지수 백오프 / 최대 시도 횟수.
+- [x] 👷 job 재시도 정책 / 지수 백오프 / 최대 시도 횟수.
+      (완료 — `@agentrelay/core`의 `retry.ts`: `RetryPolicy`/`computeBackoffMs`/`canRetry`/
+      `retryPolicyFromEnv`. 스케줄러가 명령 실패(non-zero exit·spawn 에러)를 감지해 지수
+      백오프로 재큐잉하고 `maxRetries` 초과 시 `failed` 처리. 레이트리밋 재큐잉과는 분리
+      (`retryCount` 별도). CLI daemon/tick에 env 설정 연결. branch `claude/wizardly-pascal-k87ir2`)
 - [ ] 👷 `agentrelay status`를 실시간 TUI로.
 - [ ] 👷 lint(ESLint/Biome) + CI 워크플로 도입.
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.

@@ -23,9 +23,37 @@ export interface RelayJob {
   resetAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Total resume runs so far (incremented every time the scheduler re-runs the command). */
   attempts: number;
+  /**
+   * How many times this job was re-queued specifically because the command
+   * *failed* (non-zero exit / spawn error), as opposed to hitting a rate
+   * limit. Drives the exponential-backoff retry policy and the max-attempts
+   * cap. Rate-limit re-queues do NOT increment this — relaying across limit
+   * windows is the whole point and is never given up on.
+   */
+  retryCount: number;
   lastError: string | null;
   lastOutputTail: string | null;
+}
+
+/**
+ * Controls how failed commands (crashes / non-zero exits, NOT rate limits)
+ * are retried before a job is given up on and marked `failed`.
+ */
+export interface RetryPolicy {
+  /**
+   * Maximum number of failure retries before giving up. A value <= 0 means
+   * "unlimited" (never mark failed for failures alone). Note this counts
+   * retries, so `maxRetries: 3` means up to 3 re-runs after the first failure.
+   */
+  maxRetries: number;
+  /** Backoff for the first retry, in milliseconds. */
+  baseDelayMs: number;
+  /** Upper bound on any single backoff delay, in milliseconds. */
+  maxDelayMs: number;
+  /** Exponential growth factor applied per retry (e.g. 2 → 1x, 2x, 4x, ...). */
+  factor: number;
 }
 
 export interface CreateJobInput {
