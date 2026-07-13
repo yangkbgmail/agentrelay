@@ -336,3 +336,26 @@
     양쪽 게이트 독립 차단)로 검증.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), auto-prune 스로틀 tick+time을 OR로도 선택 가능한
   모드(👷 후보), status TUI 정렬 필드별 기본 방향 튜닝(👷 후보).
+
+### [세션 12 — `agentrelay stats` 큐 통계 요약] (2026-07-13, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 0개, main=현재 브랜치 동일(중복/누적 없음). 남은 👷 후보는
+  소소한 튜닝뿐이라 CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다 — 사용자가 릴레이 효과
+  (얼마나 재개됐고 성공률/재시도/툴·프로젝트 분포가 어떤지)를 한눈에 보는 통계 커맨드가 없었다.
+- 한 일 (branch `claude/wizardly-pascal-iiom6v`):
+  1. `@agentrelay/core/stats.ts` 신설 — 순수 `computeStats(jobs)` + `RelayStats`. active
+     (queued+waiting_for_reset+resuming)/terminal(completed+failed+cancelled) 분리, `successRate`
+     (completed/(completed+failed) — cancelled는 사용자 취소라 제외, 미해결 시 `null`로 오해성 0%
+     방지), `totalAttempts`·`retriedJobs`(attempts>1=실제 릴레이됨), `byTool`(고정 툴셋 zero-fill,
+     미지 툴은 total만 세고 키는 안 만듦), `projects`(count desc·이름 asc 랭킹). `byStatus`·
+     `nextResetAt`은 `summarizeJobs` 재사용해 status/dashboard와 드리프트 방지. index.ts export.
+  2. CLI `packages/cli/src/stats.ts` 신설 — 순수 `renderStats`(사람용 다중행 블록, color 게이트)·
+     `renderStatsJson`(--json, {storePath,generatedAt,stats})·`formatSuccessRate`. `agentrelay stats
+     [--json]` 커맨드를 cli.ts에 배선(빈 스토어는 온보딩 문구).
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **172개 전부 통과**(core 130 + cli 39 + dashboard 3 — stats.test 9 + CLI stats 6 신규).
+    **실제 빌드된 CLI e2e**(mock 아님): completed/failed/waiting/cancelled 4-job 스토어 시드 →
+    `stats`가 "4 job(s) tracked / active:1 terminal:3 / success rate 50% (1/2) / total attempts 9
+    retried 2 / by tool·status·top projects(api·web 동률→이름순)" 렌더, `--json`은 successRate 0.5·
+    totalAttempts 9·byTool·projects 랭킹까지 정확히 출력 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), status TUI 정렬 기본 방향 튜닝(👷 후보),
+  auto-prune 스로틀 OR 모드(👷 후보), stats에 평균 대기시간/시간대별 추이 등 확장(👷 후보).
