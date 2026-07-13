@@ -21,6 +21,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { type PruneOptions, selectPrunableJobs } from "./prune.js";
 import type { CreateJobInput, JobStatus, RelayJob } from "./types.js";
 
 export class RelayQueue {
@@ -155,6 +156,24 @@ export class RelayQueue {
   listAll(): RelayJob[] {
     this.load();
     return Array.from(this.jobs.values()).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  }
+
+  /**
+   * Removes finished jobs from the store according to `options` (status / age /
+   * keep-last rules — see {@link selectPrunableJobs}) and returns the jobs that
+   * were removed. Active jobs are never touched unless a caller explicitly
+   * includes their status. Pass `dryRun: true` to compute the selection without
+   * mutating the store (nothing is written).
+   */
+  prune(options: PruneOptions & { dryRun?: boolean } = {}): RelayJob[] {
+    this.load();
+    const { prune } = selectPrunableJobs(Array.from(this.jobs.values()), options);
+    if (options.dryRun || prune.length === 0) return prune;
+    for (const job of prune) {
+      this.jobs.delete(job.id);
+    }
+    this.flush();
+    return prune;
   }
 
   /** Jobs whose reset time has already passed and are ready to be resumed now. */

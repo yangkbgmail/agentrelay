@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import type { AgentTool, Notifier, RelayJob } from "@agentrelay/core";
+import type { AgentTool, JobStatus, Notifier, PruneOptions, RelayJob } from "@agentrelay/core";
 import {
   canCancel,
   canRequeue,
@@ -210,3 +210,34 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
     queue.close();
   }
 }
+
+export interface PruneJobsOptions extends PruneOptions {
+  storePath?: string;
+  dryRun?: boolean;
+}
+
+/**
+ * Removes old finished jobs from the store (or, with `dryRun`, reports what
+ * would be removed without touching the file). Returns the affected jobs plus
+ * the remaining count so the CLI can print a summary.
+ */
+export function pruneJobs(options: PruneJobsOptions = {}): { pruned: RelayJob[]; remaining: number } {
+  const { storePath, ...pruneOpts } = options;
+  const queue = new RelayQueue(storePath ?? defaultStorePath());
+  const pruned = queue.prune(pruneOpts);
+  // On a dry run nothing was deleted, so subtract the would-be-pruned count to
+  // report the count that *would* remain (matches the non-dry-run number).
+  const remaining = queue.listAll().length - (pruneOpts.dryRun ? pruned.length : 0);
+  queue.close();
+  return { pruned, remaining };
+}
+
+/** Statuses a job can legitimately be in — used to validate `--status` input. */
+export const ALL_JOB_STATUSES: JobStatus[] = [
+  "queued",
+  "waiting_for_reset",
+  "resuming",
+  "completed",
+  "failed",
+  "cancelled",
+];

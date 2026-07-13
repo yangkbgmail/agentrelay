@@ -34,7 +34,13 @@
       지수 백오프로 재큐잉하고, rate-limit·실패 모두 `maxAttempts` 초과 시 `failed` 처리.
       `RelayScheduler`에 `retryPolicy` 옵션, CLI daemon/tick이 env(`AGENTRELAY_MAX_ATTEMPTS` 등)로
       설정. branch `claude/keen-allen-u5qt1l`)
-- [ ] 👷 `agentrelay status`를 실시간 TUI로.
+- [ ] 👷 `agentrelay status`를 실시간 TUI로. (PR #7에서 구현 중 — 중복 재구현 금지)
+- [x] 👷 job 보존/정리(prune) — `jobs.json` 무한 증가 방지.
+      (완료 — `@agentrelay/core`에 `prune.ts` 신설: 순수 `selectPrunableJobs`(상태/나이/keepLast
+      규칙으로 삭제 대상 분리) + `parseDuration`(`7d`/`24h`/`30m`/`90s`/`500ms`→ms). `RelayQueue.prune`
+      은 기본적으로 종료 상태(completed/failed)만 제거하고 활성 job은 보존, `dryRun`이면 비파괴.
+      CLI `agentrelay prune --older-than/--status/--keep/--dry-run` 추가. branch
+      `claude/wizardly-pascal-94df3w`)
 - [x] 👷 lint(ESLint/Biome) + CI 워크플로 도입.
       (완료 — Biome 채택. 루트 `biome.json`(recommended lint + formatter, 더블쿼트·2스페이스·
       lineWidth 120, `packages/**`·`apps/**` src·test 스코프, dist/.next 제외, test 파일은
