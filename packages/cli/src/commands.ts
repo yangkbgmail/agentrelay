@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import {
   RelayQueue,
   RelayScheduler,
-  parseRateLimitMessage,
+  resolveAdapter,
   retryPolicyFromEnv,
   slackNotifierFromEnv,
 } from "@agentrelay/core";
@@ -34,7 +34,10 @@ export interface RunResult {
  */
 export async function runCommand(options: RunOptions): Promise<RunResult> {
   const cwd = options.cwd ?? process.cwd();
-  const tool = options.tool ?? "claude-code";
+  // Pick the adapter from an explicit --tool, else infer from the command's
+  // binary (e.g. `codex ...` -> codex-cli), else fall back to the generic one.
+  const adapter = resolveAdapter({ tool: options.tool, command: options.command });
+  const tool = adapter.tool;
   const storePath = options.storePath ?? defaultStorePath();
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
@@ -59,7 +62,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
     });
   });
 
-  const rateLimit = parseRateLimitMessage(output);
+  const rateLimit = adapter.detectRateLimit(output);
   if (!rateLimit) {
     return { exitCode, queuedJob: null };
   }
@@ -71,7 +74,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   queue.close();
 
   stdout.write(
-    `\n[agentrelay] Rate limit detected (pattern: ${rateLimit.pattern}). Queued job ${job.id} to resume at ${rateLimit.resetAt}.\n` +
+    `\n[agentrelay] Rate limit detected for ${adapter.displayName} (pattern: ${rateLimit.pattern}). Queued job ${job.id} to resume at ${rateLimit.resetAt}.\n` +
       `Run "agentrelay daemon" (or schedule "agentrelay tick" via cron) to auto-resume it.\n`
   );
 

@@ -114,3 +114,27 @@
   - 검증: `pnpm build` 클린, `pnpm test` 58개 전부 통과(core 51 + cli 4 + dashboard 3).
 - 다음 할 일: README(🧭), Codex CLI 어댑터(👷), `agentrelay status` 실시간 TUI(👷),
   lint(ESLint/Biome) 도입(👷).
+
+### [세션 3 — 중복 PR 루프 해소 + 에이전트 어댑터] (2026-07-13, 무인 자율 세션)
+- **먼저: 중복 PR 루프를 발견·해소**했다. `main` 브랜치 보호로 아무도 병합을 못 해
+  `main`의 BACKLOG가 계속 미완료 → 매시간 기억 없는 새 세션이 같은 최우선 항목("재시도
+  정책" + "파서 회귀")을 반복 구현 → **동일 내용 PR 11개(#2~#6, #8~#13)가 미병합으로 쌓임.**
+  COLLAB.md 병합 정책("CI 초록이면 클로드 코드가 병합 가능")에 근거해, 로컬에서 build+test
+  58개 통과를 직접 검증한 **#6을 main에 병합**하고 나머지 10개 중복 PR을 사유 코멘트와 함께
+  닫았다. 이제 main의 BACKLOG가 갱신돼 루프가 끊긴다. (PR #7=status TUI는 고유 항목이라 유지)
+- 한 일 (branch `claude/wizardly-pascal-v7euys`): **에이전트 툴 어댑터 시스템** —
+  `@agentrelay/core/adapters.ts` 신설. `AgentAdapter`(tool/binaries/patterns/detectRateLimit) +
+  `CLAUDE_CODE_ADAPTER`/`CODEX_CLI_ADAPTER`/`GENERIC_ADAPTER` + `ADAPTERS` 레지스트리.
+  `inferToolFromCommand`(argv0 바이너리명으로 툴 추론, `.exe`/경로 정규화)·`resolveAdapter`
+  (명시 tool→명령 추론→generic). 파서에 `extraPatterns` 훅을 추가해 어댑터가 툴별 패턴을
+  최우선으로 주입(generic pre-filter 우회). Codex 어댑터는 OpenAI식 **초 단위** 대기
+  (`try again in 20s`, `1.5s`)를 인식 — generic 파서엔 초 패턴이 없어 그동안 놓치던 포맷.
+  `run`이 tool을 추론하고 `--tool` 플래그도 지원, 스케줄러가 resume 시 `job.tool` 어댑터로
+  rate-limit을 감지하도록 배선.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm test` **72개 전부 통과**
+    (core 64 + cli 5 + dashboard 3). 신규: `adapters.test.ts` 15케이스(추론/해소/Codex 초 패턴/
+    generic이 초를 못 잡는 대조), CLI가 `codex` 바이너리를 추론해 초 단위 감지 1케이스.
+    빌드된 실제 CLI e2e(mock 아님): `codex`(→node 심링크) 명령이 "try again in 45s"를 출력 →
+    tool `codex-cli` 추론 + `codex-relative-seconds` 패턴 감지 + resetAt=now+45s로 큐잉 확인.
+- 다음 할 일: README(🧭), `agentrelay status` 실시간 TUI(👷, PR #7 리뷰/병합),
+  lint(ESLint/Biome)+CI(👷).

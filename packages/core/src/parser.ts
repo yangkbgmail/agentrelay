@@ -13,15 +13,26 @@ import type { RateLimitInfo } from "./types.js";
 export interface ParseOptions {
   /** Injectable "now" for deterministic tests. Defaults to `new Date()`. */
   now?: Date;
+  /**
+   * Tool-specific patterns tried *before* the built-in generic ones (highest
+   * priority). Supplied by agent adapters (see `adapters.ts`) so a given tool
+   * can recognize wording the generic parser doesn't. These bypass the generic
+   * pre-filter, so an adapter can match formats that don't look rate-limit-y.
+   */
+  extraPatterns?: RateLimitPattern[];
 }
 
-interface Pattern {
+/**
+ * A single rate-limit message matcher. Exposed so agent adapters can contribute
+ * tool-specific patterns without reaching into the parser internals.
+ */
+export interface RateLimitPattern {
   name: string;
   regex: RegExp;
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
-const PATTERNS: Pattern[] = [
+const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
     name: "iso-timestamp",
@@ -80,20 +91,34 @@ const PATTERNS: Pattern[] = [
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
 const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry_after)/i;
 
+function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
+  const match = text.match(pattern.regex);
+  if (!match) return null;
+  const resetDate = pattern.resolve(match, now);
+  if (!resetDate || Number.isNaN(resetDate.getTime())) return null;
+  return {
+    resetAt: resetDate.toISOString(),
+    rawMatch: match[0],
+    pattern: pattern.name,
+  };
+}
+
 export function parseRateLimitMessage(text: string, options: ParseOptions = {}): RateLimitInfo | null {
-  if (!LOOKS_LIKE_RATE_LIMIT.test(text)) return null;
   const now = options.now ?? new Date();
 
+  // Tool-specific patterns win over the generic ones and are tried even when
+  // the text doesn't trip the generic pre-filter (a tool may phrase things its
+  // own way, e.g. "please try again in 20s").
+  for (const pattern of options.extraPatterns ?? []) {
+    const hit = tryPattern(pattern, text, now);
+    if (hit) return hit;
+  }
+
+  if (!LOOKS_LIKE_RATE_LIMIT.test(text)) return null;
+
   for (const pattern of PATTERNS) {
-    const match = text.match(pattern.regex);
-    if (!match) continue;
-    const resetDate = pattern.resolve(match, now);
-    if (!resetDate || Number.isNaN(resetDate.getTime())) continue;
-    return {
-      resetAt: resetDate.toISOString(),
-      rawMatch: match[0],
-      pattern: pattern.name,
-    };
+    const hit = tryPattern(pattern, text, now);
+    if (hit) return hit;
   }
 
   return null;

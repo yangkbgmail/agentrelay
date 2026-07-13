@@ -1,5 +1,6 @@
 export * from "./types.js";
 export * from "./parser.js";
+export * from "./adapters.js";
 export * from "./queue.js";
 export * from "./scheduler.js";
 export * from "./retry.js";
