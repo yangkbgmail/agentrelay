@@ -72,6 +72,14 @@
       `DEFAULT_AUTOPRUNE_AFTER_MS`(7d) 추가. `RelayScheduler`에 `autoPrune`/`onPrune` 옵션 →
       매 tick 종료 후 종료 상태 job만 정리(활성 job 불변), 실패는 삼켜 릴레이 루프 보호.
       CLI daemon/tick이 env로 배선, 데몬 배너에 "(auto-prune on)". branch `claude/wizardly-pascal-09q0tw`)
+- [x] 👷 `agentrelay status` 필터/정렬 옵션 — 큰 큐에서 원하는 job만 보기.
+      (완료 — `packages/cli/src/status.ts`에 순수 `selectJobs(jobs, {statuses, sort, reverse})`
+      신설: 상태 필터(Set), 6개 정렬 필드(`created`/`updated`/`reset`/`project`/`status`/`attempts`)
+      안정 정렬(원본 순서 tiebreak), null resetAt은 뒤로. CLI `status`에 `-s,--status`·`--sort`·
+      `-r,--reverse` 플래그 추가, 일회성·`--json`·`--watch` 세 뷰 모두에 동일 적용. 잘못된
+      status/sort는 exit 1, 필터가 스토어 전체를 걸러내면 온보딩 문구 대신 `NO_MATCH_MESSAGE`.
+      status.test.ts에 selectJobs 10케이스 추가, 빌드된 CLI e2e로 3-job 스토어 검증.
+      branch `claude/wizardly-pascal-v1gjni`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
