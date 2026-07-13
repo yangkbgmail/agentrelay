@@ -139,6 +139,25 @@
 - 다음 할 일: README(🧭), `agentrelay status` 실시간 TUI(👷, PR #7 리뷰/병합),
   lint(ESLint/Biome)+CI(👷).
 
+### [세션 6 — 범용 웹훅 알림자] (2026-07-13, 무인 자율 세션)
+- 배경: 남은 명시적 👷 항목 2개(status 실시간 TUI, prune)는 각각 **열린 PR #7·#16**이
+  이미 점유 중(둘 다 미병합). 중복 재구현을 피해 CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다.
+  (참고: PR #7·#16의 CI 체크는 `total_count:0`(pending)이라 초록 확인이 안 돼 이번엔 병합하지 않음.)
+- 한 일 (branch `claude/wizardly-pascal-vxi6k3`): **범용 웹훅 알림자** —
+  `@agentrelay/core/notify.ts`에 `createWebhookNotifier`(임의 HTTP 엔드포인트로 구조화된
+  `NotifyPayload`+`text`를 JSON POST, 커스텀 `headers`·`formatBody` 지원), `webhookNotifierFromEnv`
+  (`AGENTRELAY_WEBHOOK_URL`/`AGENTRELAY_WEBHOOK_AUTH`), `notifiersFromEnv`(Slack+웹훅 fan-out, 둘 다
+  없으면 null) 추가. 전송 실패는 `onError`로 보고만 하고 절대 throw 안 함(릴레이 루프 보호).
+  CLI의 run/daemon/tick 세 진입점을 Slack 전용(`slackNotifierFromEnv`) 대신 `notifiersFromEnv`로
+  배선(daemon 로그도 "(Slack notifications on)"→"(notifications on)").
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **82개 전부 통과**(core 74 + cli 5 + dashboard 3 — notify 신규 11케이스).
+    **실제 빌드된 CLI e2e**(mock 아님): 로컬 HTTP 서버를 띄우고 `AGENTRELAY_WEBHOOK_URL`+
+    `AGENTRELAY_WEBHOOK_AUTH` 설정 → rate-limit 명령을 큐잉 → 서버가 `Authorization: Bearer …`
+    헤더 + `content-type: application/json` + 구조화 페이로드(event/project/jobId+text) POST **1건**
+    수신 확인.
+- 다음 할 일: README(🧭), status TUI(PR #7)·prune(PR #16) 리뷰/병합, 자동 prune 후보(👷).
+
 ### [세션 4 — Biome lint + CI 통합] (2026-07-13, 무인 자율 세션)
 - 한 일 (branch `claude/wizardly-pascal-38649m`): **lint 도입 — Biome 채택**.
   1. 루트 `biome.json` 신설 — recommended 린트 + 포매터(더블쿼트·2스페이스·lineWidth 120·LF),
