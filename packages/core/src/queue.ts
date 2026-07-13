@@ -106,6 +106,17 @@ export class RelayQueue {
     this.update(id, { status: "failed", lastError: error, lastOutputTail: outputTail ?? null });
   }
 
+  /**
+   * Records the error/output from a transient failure without changing the
+   * job's status -- used when a job is being re-queued for a backoff retry
+   * so the dashboard can show *why* it's waiting again.
+   */
+  recordError(id: string, error: string, outputTail?: string) {
+    const current = this.getById(id);
+    if (!current) return;
+    this.update(id, { status: current.status, lastError: error, lastOutputTail: outputTail ?? current.lastOutputTail });
+  }
+
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {
     this.load();
     const existing = this.jobs.get(id);

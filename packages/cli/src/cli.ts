@@ -1,6 +1,32 @@
 import { Command } from "commander";
+import type { RetryPolicy } from "@agentrelay/core";
 import { defaultStorePath } from "./config.js";
 import { listStatus, runCommand, startDaemon, tickOnce } from "./commands.js";
+
+interface RetryCliOpts {
+  maxAttempts?: string;
+  baseBackoff?: string;
+  maxBackoff?: string;
+  backoffFactor?: string;
+}
+
+/** Turns raw string CLI flags into a partial RetryPolicy, dropping unset ones. */
+function parseRetryOpts(opts: RetryCliOpts): Partial<RetryPolicy> {
+  const retry: Partial<RetryPolicy> = {};
+  if (opts.maxAttempts !== undefined) retry.maxAttempts = parseInt(opts.maxAttempts, 10);
+  if (opts.baseBackoff !== undefined) retry.baseBackoffMs = parseInt(opts.baseBackoff, 10) * 1000;
+  if (opts.maxBackoff !== undefined) retry.maxBackoffMs = parseInt(opts.maxBackoff, 10) * 1000;
+  if (opts.backoffFactor !== undefined) retry.backoffFactor = parseFloat(opts.backoffFactor);
+  return retry;
+}
+
+function withRetryFlags(cmd: Command): Command {
+  return cmd
+    .option("--max-attempts <n>", "Max resume attempts before marking a job failed (0 = unlimited)")
+    .option("--base-backoff <seconds>", "Initial backoff (seconds) after a real failure")
+    .option("--max-backoff <seconds>", "Maximum backoff (seconds) between retries")
+    .option("--backoff-factor <n>", "Exponential backoff multiplier per attempt");
+}
 
 function formatCountdown(resetAt: string | null): string {
   if (!resetAt) return "-";
@@ -32,22 +58,28 @@ export function buildCli(): Command {
       process.exitCode = result.exitCode;
     });
 
-  program
-    .command("daemon")
-    .description("Poll the job queue and auto-resume jobs once their rate limit resets")
-    .option("-i, --interval <ms>", "Poll interval in milliseconds", "30000")
-    .action((opts: { interval: string }) => {
-      const { store } = program.opts();
-      startDaemon({ storePath: store, pollIntervalMs: parseInt(opts.interval, 10) });
-      // Keep the process alive; RelayScheduler uses setInterval internally.
+  withRetryFlags(
+    program
+      .command("daemon")
+      .description("Poll the job queue and auto-resume jobs once their rate limit resets")
+      .option("-i, --interval <ms>", "Poll interval in milliseconds", "30000")
+  ).action((opts: { interval: string } & RetryCliOpts) => {
+    const { store } = program.opts();
+    startDaemon({
+      storePath: store,
+      pollIntervalMs: parseInt(opts.interval, 10),
+      retry: parseRetryOpts(opts),
     });
+    // Keep the process alive; RelayScheduler uses setInterval internally.
+  });
 
-  program
-    .command("tick")
-    .description("Run a single scheduler pass immediately (useful when driven by external cron/Routines)")
-    .action(async () => {
-      const { store } = program.opts();
-      const processed = await tickOnce(store);
+  withRetryFlags(
+    program
+      .command("tick")
+      .description("Run a single scheduler pass immediately (useful when driven by external cron/Routines)")
+  ).action(async (opts: RetryCliOpts) => {
+    const { store } = program.opts();
+    const processed = await tickOnce(store, undefined, parseRetryOpts(opts));
       if (processed.length === 0) {
         console.log("[agentrelay] no due jobs.");
       } else {

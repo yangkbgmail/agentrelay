@@ -96,3 +96,18 @@
   - 검증: `pnpm build` 클린(Next.js 포함), `pnpm test` 33개 전부 통과(core 26 + cli 4 + dashboard 3).
 - 다음 할 일: README(5분 튜토리얼, 🧭), 엣지 케이스 파서 회귀 테스트 보강(👷),
   job 재시도 정책/백오프(👷), Codex CLI 어댑터(👷).
+
+### [세션 2 — job 재시도 정책 / 지수 백오프] (2026-07-13, 무인 자율 세션)
+- 한 일 (branch `claude/wizardly-pascal-1fwcc1`):
+  1. **재시도 정책** — `@agentrelay/core`에 `RetryPolicy`/`DEFAULT_RETRY_POLICY`(maxAttempts=5,
+     base 60s, max 1h, factor 2)/`backoffDelayMs()` 추가. 스케줄러가 재개 결과를 세 갈래로 분기:
+     (a) rate-limit 재도달 → 리셋 시각으로 재큐(백오프 없음, 대기 시간은 provider가 정함),
+     (b) 실제 실패(비정상 종료 코드 또는 spawn 실패) → 지수 백오프로 재큐 + `recordError`로 사유 기록,
+     (c) 정상 종료(exit 0) → completed. 어느 경우든 `attempts >= maxAttempts`면 failed 처리.
+  2. **버그 수정** — 기존 스케줄러는 종료 코드를 무시하고 non-rate-limit 출력이면 무조건 completed로
+     표시했음(크래시한 job도 completed). 이제 `runCommand`가 종료 코드/spawn 에러를 수집해 정확히 분기.
+  3. **CLI 플래그** — `daemon`/`tick`에 `--max-attempts`, `--base-backoff`(초), `--max-backoff`(초),
+     `--backoff-factor` 추가. `commands.ts`의 `startDaemon`/`tickOnce`로 정책 전달.
+  - 검증: `pnpm build` 클린, `pnpm test` 39개 전부 통과(core 32 + cli 4 + dashboard 3).
+    실제 spawn 경로 e2e도 확인 — 비정상 종료 job이 백오프로 재큐되고, `--max-attempts 1`이면 즉시 failed.
+- 다음 할 일: 엣지 케이스 파서 회귀 테스트 보강(👷), Codex CLI 어댑터(👷), 실시간 TUI status(👷).
