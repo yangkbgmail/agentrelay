@@ -144,3 +144,44 @@ export function autoPruneOptionsFromEnv(env: NodeJS.ProcessEnv = process.env): P
 
   return { olderThanMs, keepLast };
 }
+
+/**
+ * Minimum wall-clock interval between auto-prune passes, in milliseconds — or
+ * `null` when unset (prune on every tick, the historical behavior). Lets a
+ * long-running daemon that polls every few seconds avoid rewriting the JSON
+ * store on every single tick:
+ *
+ * - `AGENTRELAY_AUTOPRUNE_EVERY`  duration like `1h`/`30m`/`10s`. A prune pass
+ *                                 only runs when at least this long has elapsed
+ *                                 since the previous one. Missing, unparseable,
+ *                                 or non-positive values return `null` (no
+ *                                 throttle) so a typo never silently disables
+ *                                 pruning — it just falls back to every tick.
+ *
+ * The throttle is only meaningful for the long-running `daemon`; a one-shot
+ * `agentrelay tick` process has no memory of the previous pass, so its cadence
+ * is governed by however often the tick itself is invoked (e.g. cron).
+ */
+export function autoPruneEveryMsFromEnv(env: NodeJS.ProcessEnv = process.env): number | null {
+  const raw = env.AGENTRELAY_AUTOPRUNE_EVERY?.trim();
+  if (!raw) return null;
+  const parsed = parseDuration(raw);
+  if (parsed === null || parsed <= 0) return null;
+  return parsed;
+}
+
+/**
+ * Pure predicate deciding whether an auto-prune pass should run now, given the
+ * timestamp of the last pass (`lastRunMs`, or `null` if none yet), the current
+ * time (`nowMs`), and the configured minimum interval (`everyMs`).
+ *
+ * - No throttle (`everyMs` unset/≤0) ⇒ always run.
+ * - First pass (`lastRunMs === null`) ⇒ always run, so pruning isn't delayed
+ *   by a full interval on daemon start.
+ * - Otherwise run only once `everyMs` has elapsed since the last pass.
+ */
+export function shouldAutoPrune(lastRunMs: number | null, nowMs: number, everyMs?: number): boolean {
+  if (!everyMs || everyMs <= 0) return true;
+  if (lastRunMs === null) return true;
+  return nowMs - lastRunMs >= everyMs;
+}

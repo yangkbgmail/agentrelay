@@ -3,10 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  autoPruneEveryMsFromEnv,
   autoPruneOptionsFromEnv,
   DEFAULT_AUTOPRUNE_AFTER_MS,
   parseDuration,
   selectPrunableJobs,
+  shouldAutoPrune,
 } from "../src/prune.js";
 import { RelayQueue } from "../src/queue.js";
 import type { RelayJob } from "../src/types.js";
@@ -192,5 +194,44 @@ describe("autoPruneOptionsFromEnv", () => {
     expect(
       autoPruneOptionsFromEnv({ AGENTRELAY_AUTOPRUNE: "1", AGENTRELAY_AUTOPRUNE_KEEP: "-3" })?.keepLast
     ).toBeUndefined();
+  });
+});
+
+describe("autoPruneEveryMsFromEnv", () => {
+  it("returns null when unset (no throttle)", () => {
+    expect(autoPruneEveryMsFromEnv({})).toBeNull();
+    expect(autoPruneEveryMsFromEnv({ AGENTRELAY_AUTOPRUNE_EVERY: "" })).toBeNull();
+    expect(autoPruneEveryMsFromEnv({ AGENTRELAY_AUTOPRUNE_EVERY: "   " })).toBeNull();
+  });
+
+  it("parses a valid duration to milliseconds", () => {
+    expect(autoPruneEveryMsFromEnv({ AGENTRELAY_AUTOPRUNE_EVERY: "1h" })).toBe(3_600_000);
+    expect(autoPruneEveryMsFromEnv({ AGENTRELAY_AUTOPRUNE_EVERY: "30m" })).toBe(1_800_000);
+    expect(autoPruneEveryMsFromEnv({ AGENTRELAY_AUTOPRUNE_EVERY: "10s" })).toBe(10_000);
+  });
+
+  it("returns null (no throttle) for unparseable or non-positive values", () => {
+    // A typo must not silently disable pruning — it just falls back to every tick.
+    expect(autoPruneEveryMsFromEnv({ AGENTRELAY_AUTOPRUNE_EVERY: "garbage" })).toBeNull();
+    expect(autoPruneEveryMsFromEnv({ AGENTRELAY_AUTOPRUNE_EVERY: "0s" })).toBeNull();
+  });
+});
+
+describe("shouldAutoPrune", () => {
+  it("always runs when no throttle is configured", () => {
+    expect(shouldAutoPrune(null, 1000)).toBe(true);
+    expect(shouldAutoPrune(500, 1000, 0)).toBe(true);
+  });
+
+  it("always runs on the first pass even with a throttle", () => {
+    expect(shouldAutoPrune(null, 1000, 60_000)).toBe(true);
+  });
+
+  it("skips until the interval has elapsed, then runs again", () => {
+    const every = 60_000;
+    expect(shouldAutoPrune(1_000_000, 1_030_000, every)).toBe(false); // 30s < 60s
+    expect(shouldAutoPrune(1_000_000, 1_059_999, every)).toBe(false); // just under
+    expect(shouldAutoPrune(1_000_000, 1_060_000, every)).toBe(true); // exactly at boundary
+    expect(shouldAutoPrune(1_000_000, 1_120_000, every)).toBe(true); // well past
   });
 });

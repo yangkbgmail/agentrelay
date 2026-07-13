@@ -80,6 +80,15 @@
       status/sort는 exit 1, 필터가 스토어 전체를 걸러내면 온보딩 문구 대신 `NO_MATCH_MESSAGE`.
       status.test.ts에 selectJobs 10케이스 추가, 빌드된 CLI e2e로 3-job 스토어 검증.
       branch `claude/wizardly-pascal-v1gjni`)
+- [x] 👷 자동 prune 스로틀 — 매 tick이 아닌 지정한 시간 간격마다만 정리.
+      (완료 — `@agentrelay/core/prune.ts`에 순수 `shouldAutoPrune(lastRunMs, nowMs, everyMs?)`
+      (스로틀 없음/첫 패스는 즉시 실행, 그 외 `everyMs` 경과 후에만) + `autoPruneEveryMsFromEnv`
+      (`AGENTRELAY_AUTOPRUNE_EVERY` 기간 파싱, 미설정/파싱불가/비양수는 null=스로틀 없음 → 오타가
+      정리를 조용히 끄지 않음) 추가. `RelayScheduler`에 `autoPruneEveryMs` 옵션 + 인메모리
+      `lastPruneAtMs` 마커(패스가 실제 실행될 때만 전진, 정리 결과 무관). fast-poll 데몬이 매 tick
+      스토어를 재기록하지 않음. CLI daemon이 env로 배선, 배너에 "(auto-prune on, every Ns)".
+      one-shot `tick`은 프로세스마다 마커가 없어 스로틀 무효(문서화). branch
+      `claude/wizardly-pascal-ikh508`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

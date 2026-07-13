@@ -253,4 +253,36 @@ describe("RelayScheduler", () => {
 
     expect(queue.listAll().map((j) => j.id)).toEqual([done.id]);
   });
+
+  it("throttles auto-prune to at most once per autoPruneEveryMs window", async () => {
+    const pruned: RelayJob[][] = [];
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({}),
+      autoPrune: { olderThanMs: 0 }, // sweep every finished job
+      autoPruneEveryMs: 60_000, // ...but at most once a minute
+      onPrune: (jobs) => pruned.push(jobs),
+    });
+
+    const t0 = new Date("2026-07-13T00:00:00Z");
+    // First tick always prunes: seed a finished job then tick at t0.
+    const first = queue.enqueue({ project: "a", tool: "claude-code", command: ["x"], cwd: dir });
+    queue.markCompleted(first.id, "done");
+    await scheduler.tick(t0);
+    expect(pruned).toHaveLength(1);
+    expect(pruned[0].map((j) => j.id)).toEqual([first.id]);
+
+    // A second finished job appears, but the next tick is inside the window → skipped.
+    const second = queue.enqueue({ project: "b", tool: "claude-code", command: ["y"], cwd: dir });
+    queue.markCompleted(second.id, "done");
+    await scheduler.tick(new Date(t0.getTime() + 30_000)); // +30s < 60s
+    expect(pruned).toHaveLength(1); // no new pass
+    expect(queue.listAll().map((j) => j.id)).toEqual([second.id]); // still present
+
+    // Once the window elapses, the pending finished job is swept.
+    await scheduler.tick(new Date(t0.getTime() + 60_000)); // +60s ≥ 60s
+    expect(pruned).toHaveLength(2);
+    expect(pruned[1].map((j) => j.id)).toEqual([second.id]);
+    expect(queue.listAll()).toHaveLength(0);
+  });
 });
