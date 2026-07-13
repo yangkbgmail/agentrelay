@@ -1,7 +1,7 @@
-import { Command } from "commander";
 import type { AgentTool } from "@agentrelay/core";
-import { defaultStorePath } from "./config.js";
+import { Command } from "commander";
 import { listStatus, runCommand, startDaemon, tickOnce } from "./commands.js";
+import { defaultStorePath } from "./config.js";
 
 function formatCountdown(resetAt: string | null): string {
   if (!resetAt) return "-";
@@ -26,7 +26,7 @@ export function buildCli(): Command {
   program
     .command("run")
     .description("Run a command, watching its output for rate-limit messages")
-    .argument("<command...>", "Command to run, e.g. agentrelay run -- claude -p \"continue\"")
+    .argument("<command...>", 'Command to run, e.g. agentrelay run -- claude -p "continue"')
     .option(
       "--tool <tool>",
       "Agent tool adapter to use (claude-code | codex-cli | generic). Inferred from the command when omitted."

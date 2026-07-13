@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RelayQueue } from "../src/queue.js";
-import { RelayScheduler } from "../src/scheduler.js";
 import type { SpawnFn } from "../src/scheduler.js";
+import { RelayScheduler } from "../src/scheduler.js";
 
 // Minimal fake ChildProcess: emits given stdout data then closes.
 function fakeSpawnFn(outputs: Record<string, string>): SpawnFn {

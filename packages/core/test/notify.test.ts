@@ -1,10 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  combineNotifiers,
-  createSlackNotifier,
-  formatSlackText,
-  slackNotifierFromEnv,
-} from "../src/notify.js";
+import { combineNotifiers, createSlackNotifier, formatSlackText, slackNotifierFromEnv } from "../src/notify.js";
 import type { NotifyPayload } from "../src/types.js";
 
 const payload: NotifyPayload = {

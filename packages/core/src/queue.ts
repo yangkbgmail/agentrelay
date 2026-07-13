@@ -19,7 +19,7 @@
 // needs real concurrent multi-writer access or heavier querying, revisit
 // with `node:sqlite` once it stabilizes, or `sql.js`.
 import { randomUUID } from "node:crypto";
-import { mkdirSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { CreateJobInput, JobStatus, RelayJob } from "./types.js";
 

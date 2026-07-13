@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NotifyPayload } from "@agentrelay/core";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listStatus, runCommand } from "../src/commands.js";
 
 describe("runCommand", () => {

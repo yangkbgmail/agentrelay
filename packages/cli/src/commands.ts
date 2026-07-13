@@ -1,12 +1,6 @@
 import { spawn } from "node:child_process";
-import {
-  RelayQueue,
-  RelayScheduler,
-  resolveAdapter,
-  retryPolicyFromEnv,
-  slackNotifierFromEnv,
-} from "@agentrelay/core";
 import type { AgentTool, Notifier, RelayJob } from "@agentrelay/core";
+import { RelayQueue, RelayScheduler, resolveAdapter, retryPolicyFromEnv, slackNotifierFromEnv } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
 
 export interface RunOptions {

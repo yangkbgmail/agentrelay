@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  DEFAULT_RETRY_POLICY,
-  computeBackoffMs,
-  isRetryExhausted,
-  retryPolicyFromEnv,
-} from "../src/retry.js";
+import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted, retryPolicyFromEnv } from "../src/retry.js";
 import type { RetryPolicy } from "../src/types.js";
 
 const policy: RetryPolicy = {

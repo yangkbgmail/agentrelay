@@ -1,5 +1,5 @@
-import { RelayQueue, defaultStorePath, summarizeJobs } from "@agentrelay/core";
 import type { QueueSummary, RelayJob } from "@agentrelay/core";
+import { defaultStorePath, RelayQueue, summarizeJobs } from "@agentrelay/core";
 
 export interface JobsSnapshot {
   storePath: string;
