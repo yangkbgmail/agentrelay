@@ -61,9 +61,11 @@ const PATTERNS: Pattern[] = [
     },
   },
   {
-    // Unix epoch seconds embedded in structured error payloads, e.g. `retry_after=1752345600`
+    // Unix epoch seconds embedded in structured error payloads, e.g.
+    // `retry_after=1752345600`, `retry_after: 1752345600`, or the JSON form
+    // `"retry_after": 1752345600`.
     name: "unix-epoch",
-    regex: /retry_after[=:]\s*(\d{10})/i,
+    regex: /retry_after"?\s*[=:]\s*(\d{10})/i,
     resolve: (m) => new Date(parseInt(m[1], 10) * 1000),
   },
   {
