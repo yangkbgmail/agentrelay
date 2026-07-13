@@ -279,3 +279,32 @@
     `--status queued`는 NO_MATCH 문구, `--json --status failed`는 cli 1건(total 1) 확인.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 자동 prune 주기 스로틀 옵션(👷 후보),
   status 정렬 필드별 기본 방향(시간 필드는 최신 우선 등) 튜닝 검토(👷 후보).
+
+### [세션 10 — 자동 prune 스로틀 옵션 + 누적 PR #20 병합] (2026-07-13, 무인 자율 세션)
+- **먼저: CI 병합 게이트 오판을 바로잡았다.** 이전 세션들이 `pull_request_read(get_status)`가
+  `total_count:0`을 반환하는 걸 "CI 미확인"으로 읽어 초록 PR을 못 병합하고 쌓아 왔는데,
+  이는 레거시 commit-status API라 GitHub **Actions check-run**을 못 잡은 것뿐이었다.
+  `actions_list(list_workflow_runs)`로 확인하니 CI는 정상 동작·성공하고 있었다. COLLAB 병합
+  정책(CI 초록이면 클로드 코드 병합 가능)에 따라 초록·`mergeable_state:clean`인 **PR #20
+  (status 필터/정렬)을 main에 병합**해 중복 PR 누적 루프를 끊었다.
+- 배경: 남은 👷 후보였던 **자동 prune 스로틀**을 신규 구현했다. 기존 자동 prune은 매 tick
+  스토어를 재기록해, 몇 초마다 폴링하는 데몬에서 불필요한 파일 쓰기가 잦았다.
+- 한 일 (branch `claude/wizardly-pascal-ikh508`):
+  1. `@agentrelay/core/prune.ts`에 순수 `shouldAutoPrune(lastRunMs, nowMs, everyMs?)` 추가 —
+     스로틀 없음(`everyMs` 미설정/≤0)이면 항상 실행, 첫 패스(`lastRunMs===null`)도 항상 실행
+     (데몬 시작 시 한 주기 지연 없음), 그 외에는 `everyMs` 경과 후에만 실행. `autoPruneEveryMsFromEnv`
+     (`AGENTRELAY_AUTOPRUNE_EVERY` 기간 파싱; 미설정·파싱불가·비양수는 `null`=스로틀 없음 →
+     오타가 정리를 조용히 끄지 않고 매 tick으로 폴백) 추가.
+  2. `RelayScheduler`에 `autoPruneEveryMs` 옵션 + 인메모리 `lastPruneAtMs` 마커. `runAutoPrune`가
+     `shouldAutoPrune`로 게이트하고, 패스가 **실제 실행될 때만** 마커를 전진(정리 결과 무관).
+     tick의 `referenceTime`을 `now`로 재사용해 결정적.
+  3. CLI `daemon`이 `autoPruneEveryMsFromEnv()`를 배선, 배너에 "(auto-prune on, every Ns)".
+     one-shot `tick`은 프로세스마다 마커가 없어 스로틀 무효(코드 주석·BACKLOG에 명시).
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) 0경고,
+    `pnpm test` **138개 전부 통과**(core 112 + cli 23 + dashboard 3 — prune env/predicate 7 +
+    scheduler throttle 1 신규). **실제 빌드된 CLI e2e**(mock 아님): 데몬 배너가
+    `AGENTRELAY_AUTOPRUNE_EVERY=1h`일 때 "(auto-prune on, every 3600s)", 미설정 시 "(auto-prune on)"
+    출력 확인. 스로틀 억제 자체는 결정적 스케줄러 유닛 테스트(윈도우 내 tick은 정리 스킵, 경과 후 정리)로 검증.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), auto-prune 스로틀을 시간뿐 아니라 tick-count
+  기준으로도 지정하는 옵션(👷 후보). 앞으로 CI 초록 판정은 `get_status`가 아니라
+  `actions_list`로 확인할 것(위 오판 재발 방지).

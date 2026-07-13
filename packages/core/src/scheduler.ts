@@ -1,6 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { resolveAdapter } from "./adapters.js";
-import type { PruneOptions } from "./prune.js";
+import { type PruneOptions, shouldAutoPrune } from "./prune.js";
 import type { RelayQueue } from "./queue.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
 import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
@@ -29,6 +29,15 @@ export interface SchedulerOptions {
    * without a separate cron. `null`/omitted disables auto-prune.
    */
   autoPrune?: PruneOptions | null;
+  /**
+   * Minimum wall-clock interval (ms) between auto-prune passes. When set, a
+   * prune runs at most once per this window even though {@link tick} fires more
+   * often, so a fast-polling daemon doesn't rewrite the store every tick. The
+   * first tick always prunes; `undefined`/`0` keeps the prune-every-tick
+   * behavior. Only affects the long-running scheduler — a fresh process (e.g.
+   * one-shot `agentrelay tick`) starts with no prior-pass memory.
+   */
+  autoPruneEveryMs?: number;
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
 }
@@ -47,6 +56,8 @@ export class RelayScheduler {
   private outputTailLength: number;
   private retryPolicy: RetryPolicy;
   private autoPrune: PruneOptions | null;
+  private autoPruneEveryMs: number;
+  private lastPruneAtMs: number | null = null;
   private onPrune?: (pruned: RelayJob[]) => void;
   private timer: ReturnType<typeof setInterval> | null = null;
 
@@ -58,6 +69,7 @@ export class RelayScheduler {
     this.outputTailLength = options.outputTailLength ?? 2000;
     this.retryPolicy = options.retryPolicy ?? DEFAULT_RETRY_POLICY;
     this.autoPrune = options.autoPrune ?? null;
+    this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
     this.onPrune = options.onPrune;
   }
 
@@ -89,9 +101,17 @@ export class RelayScheduler {
    * maintenance must never break the relay loop, so any failure is swallowed
    * (the next tick will try again). The tick's `referenceTime` is reused as the
    * age cutoff's "now" so pruning is deterministic alongside job processing.
+   *
+   * When `autoPruneEveryMs` is set, passes are throttled to at most once per
+   * that window so a fast-polling daemon doesn't rewrite the store on every
+   * tick; the marker advances only when a pass actually runs, regardless of
+   * whether it removed anything.
    */
   private runAutoPrune(referenceTime: Date): void {
     if (!this.autoPrune) return;
+    const nowMs = referenceTime.getTime();
+    if (!shouldAutoPrune(this.lastPruneAtMs, nowMs, this.autoPruneEveryMs)) return;
+    this.lastPruneAtMs = nowMs;
     try {
       const pruned = this.queue.prune({ ...this.autoPrune, now: referenceTime });
       if (pruned.length > 0) this.onPrune?.(pruned);
