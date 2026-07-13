@@ -10,7 +10,7 @@
 - [x] 2. cli 패키지: `agentrelay run` / `agentrelay daemon` / `agentrelay tick` / `agentrelay status` — 실제 프로세스로 e2e 스모크 테스트 완료
 - [x] 3. dashboard 앱: Next.js 로컬 대시보드 — `apps/dashboard`, `/api/jobs` 폴링, 라이트/다크 검증 완료
 - [x] 4. Slack 알림 연동 (선택적 설정) — `@agentrelay/core` Slack notifier, run/daemon/tick 연결, e2e 검증
-- [ ] 5. 테스트 커버리지 점검 (core/cli 엣지 케이스 보강)
+- [~] 5. 테스트 커버리지 점검 (core/cli 엣지 케이스 보강) — 진행중: 재시도 정책 관련 스케줄러 케이스 추가
 - [ ] 6. 문서: README / ARCHITECTURE.md / ROADMAP.md
 - [ ] 7. 최종 QA + 데모 시나리오 스크립트
 
@@ -96,3 +96,21 @@
   - 검증: `pnpm build` 클린(Next.js 포함), `pnpm test` 33개 전부 통과(core 26 + cli 4 + dashboard 3).
 - 다음 할 일: README(5분 튜토리얼, 🧭), 엣지 케이스 파서 회귀 테스트 보강(👷),
   job 재시도 정책/백오프(👷), Codex CLI 어댑터(👷).
+
+### [세션 2 — job 재시도 정책 + 지수 백오프] (2026-07-13 04:3x경, 무인 자율 세션)
+- 한 일 (branch `claude/wizardly-pascal-kada1j`):
+  1. **진짜 실패 감지 버그 수정** — 기존 스케줄러는 `child.on("close")`의 exit code를 무시해서,
+     rate-limit이 아닌 **비정상 종료(nonzero exit)** 커맨드도 무조건 `completed`로 처리했다.
+     이제 exit code와 spawn 에러를 포착한다.
+  2. **재시도 정책(`RetryPolicy`) + 지수 백오프** — `@agentrelay/core`에 `RetryPolicy`/
+     `DEFAULT_RETRY_POLICY`(3회, 1m 시작, ×3, 최대 1h)/`computeBackoffDelay`/`retryPolicyFromEnv` 추가.
+     스케줄러는 진짜 실패 시 `min(maxDelay, base*factor^n)` 만큼 뒤로 재큐잉하고, `failureRetries`가
+     `maxAttempts`에 도달하면 `failed` 처리. **rate-limit 릴레이는 실패 카운터에 넣지 않음**(리밋 창을
+     넘나드는 게 제품의 핵심이므로 절대 캡을 두지 않음).
+  3. **tick 견고화** — `runCommand`가 더 이상 reject하지 않고 결과 객체를 resolve → 문제 job 하나가
+     전체 tick 사이클을 중단시키지 않음. 옛 JSON에 없는 `failureRetries`는 로드 시 0으로 정규화.
+  4. **CLI 연결** — daemon/tick이 `AGENTRELAY_RETRY_*` 환경변수로 정책을 튜닝(`AGENTRELAY_RETRY_MAX_ATTEMPTS`
+     /`_BASE_MS`/`_FACTOR`/`_MAX_MS`).
+  - 검증: `pnpm build` 클린, `pnpm test` 41개 전부 통과(core 34 + cli 4 + dashboard 3, 8개 신규).
+- 다음 할 일: Codex CLI 어댑터(👷), `agentrelay status` 실시간 TUI(👷), 파서 회귀 케이스 추가(👷),
+  README/ARCHITECTURE(🧭).

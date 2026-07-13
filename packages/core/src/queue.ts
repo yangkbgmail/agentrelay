@@ -23,6 +23,18 @@ import { mkdirSync, existsSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname } from "node:path";
 import type { CreateJobInput, JobStatus, RelayJob } from "./types.js";
 
+/**
+ * Fills in fields that may be missing from jobs written by an older version
+ * (e.g. `failureRetries`, added when the retry policy landed) so callers can
+ * rely on the current shape without crashing on legacy data.
+ */
+function normalizeJob(job: RelayJob): RelayJob {
+  return {
+    ...job,
+    failureRetries: typeof job.failureRetries === "number" ? job.failureRetries : 0,
+  };
+}
+
 export class RelayQueue {
   private filePath: string;
   private jobs: Map<string, RelayJob>;
@@ -47,7 +59,7 @@ export class RelayQueue {
     try {
       const raw = readFileSync(this.filePath, "utf8");
       const parsed: RelayJob[] = raw.trim() ? JSON.parse(raw) : [];
-      this.jobs = new Map(parsed.map((job) => [job.id, job]));
+      this.jobs = new Map(parsed.map((job) => [job.id, normalizeJob(job)]));
     } catch {
       // Corrupt or empty file: start fresh rather than crashing the whole
       // relay loop. The bad file is left in place for a human to inspect.
@@ -81,6 +93,7 @@ export class RelayQueue {
       createdAt: now,
       updatedAt: now,
       attempts: 0,
+      failureRetries: 0,
       lastError: null,
       lastOutputTail: null,
     };
@@ -96,6 +109,21 @@ export class RelayQueue {
   markResuming(id: string) {
     const current = this.getById(id);
     this.update(id, { status: "resuming", attempts: (current?.attempts ?? 0) + 1 });
+  }
+
+  /**
+   * Schedules a *failure* retry: the command exited non-zero (not a rate
+   * limit) and we want to try again later with backoff. Bumps `failureRetries`
+   * so the retry policy's cap is enforced, and records the error.
+   */
+  markRetry(id: string, retryAt: string, error: string) {
+    const current = this.getById(id);
+    this.update(id, {
+      status: "waiting_for_reset",
+      resetAt: retryAt,
+      failureRetries: (current?.failureRetries ?? 0) + 1,
+      lastError: error,
+    });
   }
 
   markCompleted(id: string, outputTail?: string) {
