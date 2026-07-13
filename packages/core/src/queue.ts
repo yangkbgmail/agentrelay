@@ -93,6 +93,17 @@ export class RelayQueue {
     this.update(id, { status: "waiting_for_reset", resetAt });
   }
 
+  /**
+   * Re-queue a job that hit a *transient* failure (spawn error / non-zero exit)
+   * to be retried after a backoff delay. Like {@link markWaitingForReset} it
+   * uses the `waiting_for_reset` status so `listDue` picks it up, but it also
+   * records the failure reason so `agentrelay status` / the dashboard can show
+   * why it's waiting.
+   */
+  markRetryScheduled(id: string, resetAt: string, error: string) {
+    this.update(id, { status: "waiting_for_reset", resetAt, lastError: error });
+  }
+
   markResuming(id: string) {
     const current = this.getById(id);
     this.update(id, { status: "resuming", attempts: (current?.attempts ?? 0) + 1 });

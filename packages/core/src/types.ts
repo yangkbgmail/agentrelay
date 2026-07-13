@@ -35,6 +35,23 @@ export interface CreateJobInput {
   cwd: string;
 }
 
+export interface RetryPolicy {
+  /**
+   * Maximum number of resume attempts before a job is marked `failed`.
+   * Counts both rate-limit re-queues and transient-failure retries, so a
+   * job that stays rate-limited (or keeps crashing) can't loop forever.
+   * Set to 0 for unlimited (e.g. a legitimately long task that keeps
+   * hitting the usage window for days).
+   */
+  maxAttempts: number;
+  /** Base backoff delay (ms) applied before the first transient-failure retry. */
+  baseDelayMs: number;
+  /** Multiplier applied to the delay on each subsequent attempt. */
+  factor: number;
+  /** Upper bound (ms) on any single backoff delay. */
+  maxDelayMs: number;
+}
+
 export interface NotifyPayload {
   jobId: string;
   project: string;

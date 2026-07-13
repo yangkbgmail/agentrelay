@@ -12,13 +12,21 @@
       (완료 — `@agentrelay/core`의 `createSlackNotifier`/`slackNotifierFromEnv`, run/daemon/tick에 연결)
 - [ ] 🧭 README.md: 설치 → `agentrelay run -- claude -p "..."` → daemon까지 5분 튜토리얼.
 - [ ] 🧭 ARCHITECTURE.md + ROADMAP.md(v2: 클라우드 동기화/팀 대시보드/과금).
-- [ ] 👷 엣지 케이스 테스트 보강(다양한 rate-limit 메시지 포맷 회귀 케이스).
+- [x] 👷 엣지 케이스 테스트 보강(다양한 rate-limit 메시지 포맷 회귀 케이스).
+      (완료 — `parser.test.ts`에 12케이스 회귀 추가: 빈 문자열/시간없는 rate-limit/24h 시계/
+      12am·12pm/타임존 오프셋 ISO/잘못된 ISO fallthrough/시간단위만/JSON `retry_after`/멀티라인.
+      파서도 `"retry_after": N` JSON 형식 인식하도록 개선. branch `claude/keen-allen-u5qt1l`)
 - [ ] 👷🧭 최종 QA + 재현 가능한 데모 스크립트.
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
 - [ ] 👷 Codex CLI 등 다른 에이전트 툴 어댑터.
-- [ ] 👷 job 재시도 정책 / 지수 백오프 / 최대 시도 횟수.
+- [x] 👷 job 재시도 정책 / 지수 백오프 / 최대 시도 횟수.
+      (완료 — `@agentrelay/core`에 `RetryPolicy`/`DEFAULT_RETRY_POLICY`/`computeBackoffMs`/
+      `isRetryExhausted`/`retryPolicyFromEnv` 추가. 스케줄러가 non-zero 종료·spawn 에러를
+      지수 백오프로 재큐잉하고, rate-limit·실패 모두 `maxAttempts` 초과 시 `failed` 처리.
+      `RelayScheduler`에 `retryPolicy` 옵션, CLI daemon/tick이 env(`AGENTRELAY_MAX_ATTEMPTS` 등)로
+      설정. branch `claude/keen-allen-u5qt1l`)
 - [ ] 👷 `agentrelay status`를 실시간 TUI로.
 - [ ] 👷 lint(ESLint/Biome) + CI 워크플로 도입.
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.

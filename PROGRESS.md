@@ -10,7 +10,8 @@
 - [x] 2. cli 패키지: `agentrelay run` / `agentrelay daemon` / `agentrelay tick` / `agentrelay status` — 실제 프로세스로 e2e 스모크 테스트 완료
 - [x] 3. dashboard 앱: Next.js 로컬 대시보드 — `apps/dashboard`, `/api/jobs` 폴링, 라이트/다크 검증 완료
 - [x] 4. Slack 알림 연동 (선택적 설정) — `@agentrelay/core` Slack notifier, run/daemon/tick 연결, e2e 검증
-- [ ] 5. 테스트 커버리지 점검 (core/cli 엣지 케이스 보강)
+- [x] 5. 테스트 커버리지 점검 (core/cli 엣지 케이스 보강) — 파서 회귀 12케이스 + 스케줄러
+      재시도/백오프/최대시도 5케이스 + retry 유닛 9케이스 추가 (core 51 테스트 통과)
 - [ ] 6. 문서: README / ARCHITECTURE.md / ROADMAP.md
 - [ ] 7. 최종 QA + 데모 시나리오 스크립트
 
@@ -96,3 +97,20 @@
   - 검증: `pnpm build` 클린(Next.js 포함), `pnpm test` 33개 전부 통과(core 26 + cli 4 + dashboard 3).
 - 다음 할 일: README(5분 튜토리얼, 🧭), 엣지 케이스 파서 회귀 테스트 보강(👷),
   job 재시도 정책/백오프(👷), Codex CLI 어댑터(👷).
+
+### [세션 2 — 재시도 정책 + 파서 회귀 테스트] (2026-07-13, 무인 자율 세션)
+- 한 일 (branch `claude/keen-allen-u5qt1l`):
+  1. **재시도/지수 백오프/최대 시도 정책** — `@agentrelay/core`에 `RetryPolicy` 타입,
+     `DEFAULT_RETRY_POLICY`(maxAttempts 5, 1m→2m→4m… 1h cap), `computeBackoffMs`,
+     `isRetryExhausted`, `retryPolicyFromEnv`(`AGENTRELAY_MAX_ATTEMPTS`/`_RETRY_BASE_MS`/
+     `_RETRY_FACTOR`/`_RETRY_MAX_MS`) 추가. `RelayScheduler`가 이제 **종료코드**를 읽어서:
+     rate-limit이면 reset 시각까지 재큐(단 maxAttempts 초과 시 failed), 성공(exit 0)이면
+     completed, 그 외 non-zero·spawn 에러는 **지수 백오프로 재큐**(maxAttempts 초과 시 failed).
+     이전엔 non-zero 종료도 무조건 completed 처리하던 버그를 고침. spawn/child 에러도
+     더는 drop 안 하고 재시도. `RelayQueue.markRetryScheduled` 추가. CLI daemon/tick에 연결.
+  2. **파서 엣지 케이스 회귀 테스트** — 빈 문자열, 시간 없는 rate-limit(=null), 24h 시계,
+     12am/12pm, 타임존 오프셋 ISO, 잘못된 ISO fallthrough, 시간단위만, 멀티라인 노이즈,
+     JSON `"retry_after": N` 등 12케이스. 파서의 `unix-epoch` 패턴을 JSON 형식까지 인식하도록 개선.
+  - 검증: `pnpm build` 클린, `pnpm test` 58개 전부 통과(core 51 + cli 4 + dashboard 3).
+- 다음 할 일: README(🧭), Codex CLI 어댑터(👷), `agentrelay status` 실시간 TUI(👷),
+  lint(ESLint/Biome) 도입(👷).
