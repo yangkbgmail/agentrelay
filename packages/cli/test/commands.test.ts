@@ -5,7 +5,7 @@ import { PassThrough } from "node:stream";
 import type { NotifyPayload } from "@agentrelay/core";
 import { RelayQueue } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cancelJob, listStatus, pruneJobs, retryJob, runCommand } from "../src/commands.js";
+import { cancelJob, getJob, listStatus, pruneJobs, retryJob, runCommand } from "../src/commands.js";
 
 describe("runCommand", () => {
   let dir: string;
@@ -152,6 +152,37 @@ describe("cancelJob / retryJob", () => {
     expect(result.job?.status).toBe("waiting_for_reset");
     expect(result.job?.attempts).toBe(0);
     expect(result.job?.lastError).toBeNull();
+  });
+});
+
+describe("getJob", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cli-getjob-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("resolves a job by short id prefix", () => {
+    const queue = new RelayQueue(storePath);
+    const seeded = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude", "-p", "go"], cwd: dir });
+    queue.close();
+
+    const { job, error } = getJob(seeded.id.slice(0, 8), storePath);
+    expect(error).toBeUndefined();
+    expect(job?.id).toBe(seeded.id);
+    expect(job?.command).toEqual(["claude", "-p", "go"]);
+  });
+
+  it("reports an unknown id", () => {
+    const { job, error } = getJob("deadbeef", storePath);
+    expect(job).toBeNull();
+    expect(error).toContain("no job matches");
   });
 });
 

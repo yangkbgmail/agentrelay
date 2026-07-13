@@ -5,6 +5,7 @@ import {
   ALL_JOB_STATUSES,
   cancelJob,
   gatherDoctorInput,
+  getJob,
   listStatus,
   pruneJobs,
   retryJob,
@@ -16,6 +17,7 @@ import {
 import { defaultStorePath } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { EXPORT_FORMATS, type ExportFormat, isExportFormat, renderExport } from "./export.js";
+import { renderJobDetail, renderJobDetailJson } from "./logs.js";
 import { renderStats, renderStatsJson } from "./stats.js";
 import {
   type JobSelection,
@@ -248,6 +250,23 @@ export function buildCli(): Command {
       }
       // Print to stdout for piping (e.g. `agentrelay export | column -t -s,`).
       console.log(content);
+    .command("logs")
+    .description("Show the full, untruncated detail of a single job (command, cwd, output/error tail)")
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .option("--json", "Print the job as JSON (machine-readable, for scripts/jq)")
+    .action((id: string, opts: { json?: boolean }) => {
+      const { store } = program.opts();
+      const { job, error } = getJob(id, store);
+      if (!job) {
+        console.error(`[agentrelay] ${error ?? "job not found"}`);
+        process.exitCode = 1;
+        return;
+      }
+      if (opts.json) {
+        console.log(renderJobDetailJson(job, store));
+        return;
+      }
+      console.log(renderJobDetail(job, { color: Boolean(process.stdout.isTTY) }));
     });
 
   program

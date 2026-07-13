@@ -135,6 +135,15 @@
       `EXPORT_FORMATS`, `commands.ts`에 부모 디렉터리 자동생성 `writeExportFile`. `agentrelay export
       [--format csv|json] [-o file] [-s status] [--sort field] [-r]`, status의 필터/정렬을 `selectJobs`
       재사용(status/export가 공유 `parseSelection` 헬퍼). branch `claude/wizardly-pascal-i84sa9`)
+- [x] 👷 `agentrelay logs <id>` — 특정 job의 전체(잘리지 않은) 세부정보 뷰.
+      (완료 — `packages/cli/src/logs.ts` 신설: 순수 `renderJobDetail`(full id·project·tool·status·
+      command[shell-safe 인용]·cwd·created/updated·resetAt+카운트다운·attempts + lastError·
+      lastOutputTail을 들여쓰기 블록으로 verbatim, color 게이트)·`renderJobDetailJson`(--json,
+      status와 동일 storePath/generatedAt 엔벨로프)·`formatCommand`. core의 `resolveJobId` 재사용해
+      `commands.ts`에 I/O 전용 `getJob`(전체 id 또는 짧은 prefix 해소, 모호/미존재는 명확한 에러) 추가.
+      CLI `logs <id> [--json]` 배선(미존재 시 exit 1). status 테이블은 command/cwd/출력·에러를 안
+      보여주고 project도 잘려, 릴레이 실패 디버깅용 상세 뷰가 필요했음. branch
+      `claude/wizardly-pascal-qhawoe`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

@@ -245,6 +245,30 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
   }
 }
 
+export interface GetJobResult {
+  /** The resolved job when exactly one matched the id/prefix. */
+  job: RelayJob | null;
+  /** Present only when resolution failed — a human-readable reason. */
+  error?: string;
+}
+
+/**
+ * Look up a single job by full id or short prefix for `agentrelay logs`.
+ * Reuses the same `resolveJobId` guard as cancel/retry so an ambiguous or
+ * unknown id produces a precise message instead of a wrong-job surprise.
+ */
+export function getJob(idOrPrefix: string, storePath?: string): GetJobResult {
+  const queue = new RelayQueue(storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { job: null, error: resolved.error ?? "job not found" };
+    return { job: jobs.find((j) => j.id === resolved.id) ?? null };
+  } finally {
+    queue.close();
+  }
+}
+
 export interface PruneJobsOptions extends PruneOptions {
   storePath?: string;
   dryRun?: boolean;

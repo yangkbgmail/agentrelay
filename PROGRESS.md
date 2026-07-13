@@ -446,3 +446,26 @@
     잘못된 `--format xml`·`--status nope`는 exit 1 확인.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드에서 export 링크 노출(👷 후보),
   stats 시간대별 추이(👷 후보), export에 컬럼 선택(`--columns`) 옵션(👷 후보).
+### [세션 14 — `agentrelay logs <id>` 단일 job 상세 뷰] (2026-07-13, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 3개(#27 config init, #24 auto-prune combine, #23 config file)가 최근
+  👷 후보들을 이미 점유 중이라 중복을 피해 CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다 —
+  `agentrelay status`는 고정폭 테이블이라 project를 자르고 command·cwd·캡처된 출력/에러 tail을 아예
+  안 보여줘, 특정 릴레이가 왜 실패했는지 파고들 방법이 없었다. (main=현재 브랜치 동일, 누적 없음.)
+- 한 일 (branch `claude/wizardly-pascal-qhawoe`): **`agentrelay logs <id>`** —
+  1. `packages/cli/src/logs.ts` 신설 — 순수 `renderJobDetail(job, {now,color})`가 full id·project·
+     tool·status(색상)·command(`formatCommand`으로 공백/특수문자 토큰만 shell-safe 단일 인용)·cwd·
+     created/updated·resetAt(카운트다운 + raw ISO)·attempts를 정렬된 라벨 블록으로, lastError·
+     lastOutputTail은 멀티라인 대응 들여쓰기 블록으로 verbatim 출력(없으면 `-`). `renderJobDetailJson`
+     은 `status --json`과 동일한 `{storePath,generatedAt,job}` 엔벨로프. `formatCountdown`은 status.ts
+     재사용해 드리프트 방지.
+  2. `commands.ts`에 I/O 전용 `getJob(idOrPrefix, storePath)` 추가 — core의 `resolveJobId`를
+     cancel/retry와 동일하게 재사용해 전체 id·짧은 prefix 해소, 모호/미존재는 정확한 에러 반환.
+  3. CLI `logs <id> [--json]` 배선 — 미존재 시 stderr 에러 + exit 1, TTY면 색상 on.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **200개 전부 통과**(core 143 + cli 54 + dashboard 3 — logs.test 13[formatCommand 5 +
+    renderJobDetail 7 + json 1] + commands getJob 2 신규). **실제 빌드된 CLI e2e**(mock 아님):
+    rate-limit 명령 큐잉 → `logs <short-prefix>`가 full id·인용된 command·"resets in 45m (ISO)"·
+    빈 error/output `-` 블록 렌더 → `--json`이 command 배열·resetAt까지 정확한 엔벨로프 → 미존재
+    id는 "no job matches" + exit 1 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일 읽기(👷 후보),
+  stats 시간대별 추이/평균 대기시간(👷 후보), `logs`에 `--tail N`으로 여러 최근 job 상세 나열(👷 후보).
