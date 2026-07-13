@@ -12,15 +12,29 @@ import {
   tickOnce,
 } from "./commands.js";
 import { defaultStorePath } from "./config.js";
+import { renderStatusJson, renderStatusTable, renderWatchFrame } from "./status.js";
 
-function formatCountdown(resetAt: string | null): string {
-  if (!resetAt) return "-";
-  const ms = new Date(resetAt).getTime() - Date.now();
-  if (ms <= 0) return "due now";
-  const totalMinutes = Math.round(ms / 60_000);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+/**
+ * Live `agentrelay status --watch`: clears the screen and re-renders the table
+ * on an interval so countdowns tick down in place. `listStatus` re-reads the
+ * JSON store each pass, so a running daemon's writes show up automatically.
+ * Runs until the process is interrupted (Ctrl-C).
+ */
+function runWatch(store: string, intervalMs: number): void {
+  const draw = () => {
+    const frame = renderWatchFrame(listStatus(store), store, intervalMs);
+    // Clear screen + move cursor home, then paint the frame.
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  };
+  draw();
+  const timer = setInterval(draw, intervalMs);
+  const stop = () => {
+    clearInterval(timer);
+    process.stdout.write("\n");
+    process.exit(0);
+  };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
 }
 
 export function buildCli(): Command {
@@ -79,27 +93,24 @@ export function buildCli(): Command {
   program
     .command("status")
     .description("List all jobs and their current state")
-    .action(() => {
+    .option("-w, --watch [seconds]", "Continuously refresh the view with live countdowns (Ctrl-C to exit)")
+    .option("--json", "Print the status as JSON (machine-readable, for scripts/jq)")
+    .action((opts: { watch?: string | boolean; json?: boolean }) => {
       const { store } = program.opts();
-      const jobs = listStatus(store);
-      if (jobs.length === 0) {
-        console.log("No jobs yet. Run `agentrelay run -- <your agent command>` to get started.");
+
+      if (opts.json) {
+        console.log(renderStatusJson(listStatus(store), store));
         return;
       }
-      console.log(
-        ["ID".padEnd(10), "PROJECT".padEnd(16), "STATUS".padEnd(18), "RESETS IN".padEnd(12), "ATTEMPTS"].join(" ")
-      );
-      for (const job of jobs) {
-        console.log(
-          [
-            job.id.slice(0, 8).padEnd(10),
-            job.project.slice(0, 16).padEnd(16),
-            job.status.padEnd(18),
-            formatCountdown(job.resetAt).padEnd(12),
-            String(job.attempts),
-          ].join(" ")
-        );
+
+      if (opts.watch !== undefined) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        runWatch(store, intervalMs);
+        return; // setInterval keeps the process alive.
       }
+
+      console.log(renderStatusTable(listStatus(store), { color: Boolean(process.stdout.isTTY) }));
     });
 
   program
