@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { RelayQueue, RelayScheduler, parseRateLimitMessage, slackNotifierFromEnv } from "@agentrelay/core";
-import type { AgentTool, Notifier, RelayJob } from "@agentrelay/core";
+import type { AgentTool, Notifier, RelayJob, RetryPolicy } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
 
 export interface RunOptions {
@@ -86,6 +86,8 @@ export interface DaemonOptions {
   onNotify?: (message: string) => void;
   /** Injected for tests; defaults to Slack via AGENTRELAY_SLACK_WEBHOOK (or silent skip). */
   slackNotify?: Notifier | null;
+  /** Retry policy for transient (non-rate-limit) failures; see RelayScheduler. */
+  retry?: Partial<RetryPolicy> | false;
 }
 
 export function startDaemon(options: DaemonOptions = {}) {
@@ -95,6 +97,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   const scheduler = new RelayScheduler({
     queue,
     pollIntervalMs: options.pollIntervalMs ?? 30_000,
+    retry: options.retry,
     notify: async (payload) => {
       const line = `[agentrelay] ${payload.event} — ${payload.project}: ${payload.message}`;
       // eslint-disable-next-line no-console

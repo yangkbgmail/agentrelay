@@ -18,7 +18,10 @@
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
 - [ ] 👷 Codex CLI 등 다른 에이전트 툴 어댑터.
-- [ ] 👷 job 재시도 정책 / 지수 백오프 / 최대 시도 횟수.
+- [x] 👷 job 재시도 정책 / 지수 백오프 / 최대 시도 횟수.
+      (완료 — 스케줄러가 rate-limit이 아닌 실패(non-zero exit/spawn 에러)를 `waiting_for_retry`로
+      지수 백오프 재시도, `maxAttempts` 초과 시 `failed`. `RetryPolicy`/`backoffDelayMs`,
+      daemon `--max-retries`/`--retry-base-ms`. branch `claude/wizardly-pascal-opcgu3`)
 - [ ] 👷 `agentrelay status`를 실시간 TUI로.
 - [ ] 👷 lint(ESLint/Biome) + CI 워크플로 도입.
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.

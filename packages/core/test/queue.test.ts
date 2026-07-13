@@ -78,6 +78,47 @@ describe("RelayQueue", () => {
     expect(queue.getById(job2.id)?.lastError).toBe("boom");
   });
 
+  it("increments retryCount and lists retry jobs once due", () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: "/tmp/demo",
+    });
+    expect(job.retryCount).toBe(0);
+
+    const retryAt = new Date(Date.now() + 1000).toISOString();
+    queue.markWaitingForRetry(job.id, retryAt, "exited with code 1", "boom tail");
+    const after = queue.getById(job.id);
+    expect(after?.status).toBe("waiting_for_retry");
+    expect(after?.retryCount).toBe(1);
+    expect(after?.lastError).toBe("exited with code 1");
+    expect(after?.lastOutputTail).toBe("boom tail");
+
+    // waiting_for_retry jobs are picked up by listDue just like resets.
+    expect(queue.listDue(new Date(Date.now()))).toHaveLength(0);
+    expect(queue.listDue(new Date(Date.now() + 2000))).toHaveLength(1);
+  });
+
+  it("resets retryCount on rate-limit re-queue and on completion", () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: "/tmp/demo",
+    });
+    queue.markWaitingForRetry(job.id, new Date(Date.now() + 1000).toISOString(), "fail");
+    queue.markWaitingForRetry(job.id, new Date(Date.now() + 1000).toISOString(), "fail");
+    expect(queue.getById(job.id)?.retryCount).toBe(2);
+
+    queue.markWaitingForReset(job.id, new Date(Date.now() + 1000).toISOString());
+    expect(queue.getById(job.id)?.retryCount).toBe(0);
+
+    queue.markWaitingForRetry(job.id, new Date(Date.now() + 1000).toISOString(), "fail");
+    queue.markCompleted(job.id, "done");
+    expect(queue.getById(job.id)?.retryCount).toBe(0);
+  });
+
   it("lists all jobs newest first", () => {
     queue.enqueue({ project: "a", tool: "claude-code", command: ["x"], cwd: "/tmp" });
     queue.enqueue({ project: "b", tool: "claude-code", command: ["y"], cwd: "/tmp" });

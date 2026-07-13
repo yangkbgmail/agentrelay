@@ -1,6 +1,12 @@
 export type AgentTool = "claude-code" | "codex-cli" | "generic";
 
-export type JobStatus = "queued" | "waiting_for_reset" | "resuming" | "completed" | "failed";
+export type JobStatus =
+  | "queued"
+  | "waiting_for_reset"
+  | "waiting_for_retry"
+  | "resuming"
+  | "completed"
+  | "failed";
 
 export interface RateLimitInfo {
   /** ISO timestamp when the rate limit is expected to reset. */
@@ -20,10 +26,21 @@ export interface RelayJob {
   /** Working directory the command should run in. */
   cwd: string;
   status: JobStatus;
+  /**
+   * When the job becomes due again. Used both for rate-limit resets
+   * (`waiting_for_reset`) and for backoff retries (`waiting_for_retry`).
+   */
   resetAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Total number of times this job's command has been (re-)run. */
   attempts: number;
+  /**
+   * Consecutive transient-failure retries (non-zero exit / spawn error that
+   * is not a rate limit). Reset to 0 on any successful run or rate-limit
+   * re-queue, and bounded by the scheduler's retry policy.
+   */
+  retryCount: number;
   lastError: string | null;
   lastOutputTail: string | null;
 }
@@ -38,6 +55,6 @@ export interface CreateJobInput {
 export interface NotifyPayload {
   jobId: string;
   project: string;
-  event: "queued" | "resumed" | "completed" | "failed";
+  event: "queued" | "resumed" | "retrying" | "completed" | "failed";
   message: string;
 }

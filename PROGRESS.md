@@ -10,7 +10,8 @@
 - [x] 2. cli 패키지: `agentrelay run` / `agentrelay daemon` / `agentrelay tick` / `agentrelay status` — 실제 프로세스로 e2e 스모크 테스트 완료
 - [x] 3. dashboard 앱: Next.js 로컬 대시보드 — `apps/dashboard`, `/api/jobs` 폴링, 라이트/다크 검증 완료
 - [x] 4. Slack 알림 연동 (선택적 설정) — `@agentrelay/core` Slack notifier, run/daemon/tick 연결, e2e 검증
-- [ ] 5. 테스트 커버리지 점검 (core/cli 엣지 케이스 보강)
+- [~] 5. 테스트 커버리지 점검 (core/cli 엣지 케이스 보강) — 재시도 정책 관련 테스트 7건 추가
+       (스케줄러 5 + 큐 2). 파서 회귀 케이스는 아직 남음.
 - [ ] 6. 문서: README / ARCHITECTURE.md / ROADMAP.md
 - [ ] 7. 최종 QA + 데모 시나리오 스크립트
 
@@ -96,3 +97,25 @@
   - 검증: `pnpm build` 클린(Next.js 포함), `pnpm test` 33개 전부 통과(core 26 + cli 4 + dashboard 3).
 - 다음 할 일: README(5분 튜토리얼, 🧭), 엣지 케이스 파서 회귀 테스트 보강(👷),
   job 재시도 정책/백오프(👷), Codex CLI 어댑터(👷).
+
+### [세션 2 — job 재시도 정책 / 지수 백오프] (2026-07-13, 무인 자율 세션)
+- 한 일 (branch `claude/wizardly-pascal-opcgu3`):
+  1. **버그 발견 & 수정**: 스케줄러가 재개 명령의 **종료 코드를 완전히 무시**해서, rate-limit이
+     아닌 실패(non-zero exit)도 무조건 `completed`로 처리하던 갭을 고침. 이제 exit code와
+     spawn 에러를 포착한다.
+  2. **재시도 정책 도입** — `@agentrelay/core`에 `RetryPolicy`/`DEFAULT_RETRY_POLICY`(maxAttempts 3,
+     base 60s, cap 30m)/`backoffDelayMs(retryCount, policy)` 추가. 스케줄러는 rate-limit이
+     아닌 실패를 `min(maxDelayMs, baseDelayMs·2^retryCount)` 지수 백오프로 `waiting_for_retry`
+     상태에 재큐잉하고, `maxAttempts` 초과 시 `failed`로 종료. rate-limit 재큐잉/완료 시
+     `retryCount`는 0으로 리셋(재시도 예산은 실패 연속에만 소진). spawn 에러도 throw 대신
+     실패로 흘려 릴레이 루프를 보호. `retry: false`로 완전 비활성화 가능.
+  3. **새 상태 `waiting_for_retry`** — `JobStatus`/`listDue`(reset+retry 둘 다 due 판정)/
+     `summarizeJobs`(byStatus+nextResetAt)/대시보드 `STATUS_META`/Slack `retrying`(🔁) 이벤트
+     전부 연동.
+  4. **CLI** — `agentrelay daemon`에 `--max-retries`(0이면 비활성)·`--retry-base-ms` 플래그.
+     tick(cron 경로)은 기본 정책이 자동 적용됨.
+  - 검증: `pnpm build` 클린, `pnpm test` 40개 전부 통과(core 33 + dashboard 3 + cli 4,
+    재시도 테스트 7건 신규). 빌드된 CLI로 실패 명령을 실제 `tick` 돌려 e2e 확인 —
+    exit 7 → `waiting_for_retry`(1m 백오프, lastError 기록), 예산 소진 → `failed` 확인(mock 아님).
+- 다음 할 일: README(🧭), 파서 회귀 케이스 보강(👷), Codex CLI 어댑터(👷),
+  `agentrelay status` 실시간 TUI(👷).

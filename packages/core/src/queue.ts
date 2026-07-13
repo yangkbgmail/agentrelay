@@ -81,6 +81,7 @@ export class RelayQueue {
       createdAt: now,
       updatedAt: now,
       attempts: 0,
+      retryCount: 0,
       lastError: null,
       lastOutputTail: null,
     };
@@ -90,7 +91,25 @@ export class RelayQueue {
   }
 
   markWaitingForReset(id: string, resetAt: string) {
-    this.update(id, { status: "waiting_for_reset", resetAt });
+    // A rate-limit re-queue is not a failure, so the transient-retry budget
+    // resets -- the next window gets a fresh set of retries.
+    this.update(id, { status: "waiting_for_reset", resetAt, retryCount: 0 });
+  }
+
+  /**
+   * Schedules a transient-failure retry: the job becomes due again at
+   * `retryAt` and its `retryCount` is incremented so the scheduler can cap
+   * the number of consecutive retries.
+   */
+  markWaitingForRetry(id: string, retryAt: string, error?: string, outputTail?: string) {
+    const current = this.getById(id);
+    this.update(id, {
+      status: "waiting_for_retry",
+      resetAt: retryAt,
+      retryCount: (current?.retryCount ?? 0) + 1,
+      lastError: error ?? current?.lastError ?? null,
+      lastOutputTail: outputTail ?? current?.lastOutputTail ?? null,
+    });
   }
 
   markResuming(id: string) {
@@ -99,7 +118,7 @@ export class RelayQueue {
   }
 
   markCompleted(id: string, outputTail?: string) {
-    this.update(id, { status: "completed", lastOutputTail: outputTail ?? null });
+    this.update(id, { status: "completed", retryCount: 0, lastOutputTail: outputTail ?? null });
   }
 
   markFailed(id: string, error: string, outputTail?: string) {
@@ -125,12 +144,18 @@ export class RelayQueue {
     return Array.from(this.jobs.values()).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   }
 
-  /** Jobs whose reset time has already passed and are ready to be resumed now. */
+  /**
+   * Jobs whose reset/retry time has already passed and are ready to be
+   * resumed now -- covers both rate-limit waits and backoff retries.
+   */
   listDue(referenceTime: Date = new Date()): RelayJob[] {
     this.load();
     const ref = referenceTime.getTime();
     return Array.from(this.jobs.values()).filter(
-      (job) => job.status === "waiting_for_reset" && job.resetAt !== null && new Date(job.resetAt).getTime() <= ref
+      (job) =>
+        (job.status === "waiting_for_reset" || job.status === "waiting_for_retry") &&
+        job.resetAt !== null &&
+        new Date(job.resetAt).getTime() <= ref
     );
   }
 }

@@ -36,9 +36,17 @@ export function buildCli(): Command {
     .command("daemon")
     .description("Poll the job queue and auto-resume jobs once their rate limit resets")
     .option("-i, --interval <ms>", "Poll interval in milliseconds", "30000")
-    .action((opts: { interval: string }) => {
+    .option("--max-retries <n>", "Max retries for transient (non-rate-limit) failures (0 disables)", "3")
+    .option("--retry-base-ms <ms>", "Base backoff delay before the first retry", "60000")
+    .action((opts: { interval: string; maxRetries: string; retryBaseMs: string }) => {
       const { store } = program.opts();
-      startDaemon({ storePath: store, pollIntervalMs: parseInt(opts.interval, 10) });
+      const maxAttempts = parseInt(opts.maxRetries, 10);
+      startDaemon({
+        storePath: store,
+        pollIntervalMs: parseInt(opts.interval, 10),
+        retry:
+          maxAttempts <= 0 ? false : { maxAttempts, baseDelayMs: parseInt(opts.retryBaseMs, 10) },
+      });
       // Keep the process alive; RelayScheduler uses setInterval internally.
     });
 

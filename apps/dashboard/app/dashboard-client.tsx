@@ -9,6 +9,7 @@ const POLL_INTERVAL_MS = 3000;
 const STATUS_META: Record<JobStatus, { label: string; colorVar: string }> = {
   queued: { label: "Queued", colorVar: "var(--ink-muted)" },
   waiting_for_reset: { label: "Waiting for reset", colorVar: "var(--status-warning)" },
+  waiting_for_retry: { label: "Waiting to retry", colorVar: "var(--status-warning)" },
   resuming: { label: "Resuming", colorVar: "var(--accent-running)" },
   completed: { label: "Completed", colorVar: "var(--status-good)" },
   failed: { label: "Failed", colorVar: "var(--status-critical)" },
