@@ -84,4 +84,28 @@ describe("RelayQueue", () => {
     const all = queue.listAll();
     expect(all).toHaveLength(2);
   });
+
+  it("cancels a pending job into the terminal cancelled state", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    queue.markWaitingForReset(job.id, new Date(Date.now() + 60_000).toISOString());
+    queue.markCancelled(job.id);
+    expect(queue.getById(job.id)?.status).toBe("cancelled");
+    // A cancelled job is no longer picked up as due, even past its reset time.
+    expect(queue.listDue(new Date(Date.now() + 120_000))).toHaveLength(0);
+  });
+
+  it("requeues a job to run now with a fresh attempt count", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    queue.markResuming(job.id);
+    queue.markFailed(job.id, "exhausted attempts");
+    expect(queue.getById(job.id)?.attempts).toBe(1);
+
+    queue.requeueNow(job.id);
+    const requeued = queue.getById(job.id);
+    expect(requeued?.status).toBe("waiting_for_reset");
+    expect(requeued?.attempts).toBe(0);
+    expect(requeued?.lastError).toBeNull();
+    // resetAt is now (or earlier), so the job is immediately due.
+    expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(1);
+  });
 });

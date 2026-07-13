@@ -1,6 +1,15 @@
 import { spawn } from "node:child_process";
 import type { AgentTool, Notifier, RelayJob } from "@agentrelay/core";
-import { notifiersFromEnv, RelayQueue, RelayScheduler, resolveAdapter, retryPolicyFromEnv } from "@agentrelay/core";
+import {
+  canCancel,
+  canRequeue,
+  notifiersFromEnv,
+  RelayQueue,
+  RelayScheduler,
+  resolveAdapter,
+  resolveJobId,
+  retryPolicyFromEnv,
+} from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
 
 export interface RunOptions {
@@ -140,4 +149,64 @@ export function listStatus(storePath?: string): RelayJob[] {
   const jobs = queue.listAll();
   queue.close();
   return jobs;
+}
+
+export interface JobControlResult {
+  ok: boolean;
+  /** The job after the transition (only when `ok`). */
+  job: RelayJob | null;
+  /** Human-readable line for the CLI to print. */
+  message: string;
+}
+
+const shortId = (id: string) => id.slice(0, 8);
+
+/**
+ * Cancel a pending job by full id or short prefix. Terminal jobs are rejected
+ * with an explanatory message rather than silently doing nothing.
+ */
+export function cancelJob(idOrPrefix: string, storePath?: string): JobControlResult {
+  const queue = new RelayQueue(storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { ok: false, job: null, message: resolved.error ?? "job not found" };
+
+    const job = jobs.find((j) => j.id === resolved.id) as RelayJob;
+    const guard = canCancel(job);
+    if (!guard.ok) return { ok: false, job, message: `cannot cancel ${shortId(job.id)}: ${guard.reason}` };
+
+    queue.markCancelled(job.id);
+    const updated = queue.getById(job.id) ?? null;
+    return { ok: true, job: updated, message: `cancelled job ${shortId(job.id)} (${job.project})` };
+  } finally {
+    queue.close();
+  }
+}
+
+/**
+ * Requeue a job to resume immediately by full id or short prefix. In-flight
+ * (`resuming`) jobs are rejected to avoid racing the running command.
+ */
+export function retryJob(idOrPrefix: string, storePath?: string): JobControlResult {
+  const queue = new RelayQueue(storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { ok: false, job: null, message: resolved.error ?? "job not found" };
+
+    const job = jobs.find((j) => j.id === resolved.id) as RelayJob;
+    const guard = canRequeue(job);
+    if (!guard.ok) return { ok: false, job, message: `cannot retry ${shortId(job.id)}: ${guard.reason}` };
+
+    queue.requeueNow(job.id);
+    const updated = queue.getById(job.id) ?? null;
+    return {
+      ok: true,
+      job: updated,
+      message: `job ${shortId(job.id)} (${job.project}) queued to resume now — run "agentrelay tick" or the daemon to pick it up`,
+    };
+  } finally {
+    queue.close();
+  }
 }

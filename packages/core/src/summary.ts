@@ -7,7 +7,7 @@ export interface QueueSummary {
   nextResetAt: string | null;
 }
 
-const ALL_STATUSES: JobStatus[] = ["queued", "waiting_for_reset", "resuming", "completed", "failed"];
+const ALL_STATUSES: JobStatus[] = ["queued", "waiting_for_reset", "resuming", "completed", "failed", "cancelled"];
 
 /** Aggregates a job list into the counts the dashboard/status views render. */
 export function summarizeJobs(jobs: RelayJob[]): QueueSummary {

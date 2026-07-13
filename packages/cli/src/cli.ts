@@ -1,6 +1,6 @@
 import type { AgentTool } from "@agentrelay/core";
 import { Command } from "commander";
-import { listStatus, runCommand, startDaemon, tickOnce } from "./commands.js";
+import { cancelJob, listStatus, retryJob, runCommand, startDaemon, tickOnce } from "./commands.js";
 import { defaultStorePath } from "./config.js";
 
 function formatCountdown(resetAt: string | null): string {
@@ -90,6 +90,28 @@ export function buildCli(): Command {
           ].join(" ")
         );
       }
+    });
+
+  program
+    .command("cancel")
+    .description("Cancel a pending job so the scheduler stops relaying it")
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .action((id: string) => {
+      const { store } = program.opts();
+      const result = cancelJob(id, store);
+      console.log(`[agentrelay] ${result.message}`);
+      if (!result.ok) process.exitCode = 1;
+    });
+
+  program
+    .command("retry")
+    .description("Requeue a job to resume immediately (fresh attempt count)")
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .action((id: string) => {
+      const { store } = program.opts();
+      const result = retryJob(id, store);
+      console.log(`[agentrelay] ${result.message}`);
+      if (!result.ok) process.exitCode = 1;
     });
 
   return program;

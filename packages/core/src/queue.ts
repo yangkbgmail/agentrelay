@@ -117,6 +117,27 @@ export class RelayQueue {
     this.update(id, { status: "failed", lastError: error, lastOutputTail: outputTail ?? null });
   }
 
+  /**
+   * Call off a pending job (user-initiated). Moves it to the terminal
+   * `cancelled` state so the scheduler stops relaying it. A no-op if the id
+   * is unknown; callers guard cancellability via {@link canCancel}.
+   */
+  markCancelled(id: string) {
+    // Clear resetAt so `status` shows no misleading countdown for a job that
+    // will never resume.
+    this.update(id, { status: "cancelled", resetAt: null });
+  }
+
+  /**
+   * Force a job to be due immediately so the next scheduler tick resumes it
+   * (user-initiated retry). Attempts are reset to 0 and the last error is
+   * cleared, so retrying a job that already exhausted its attempt budget gets
+   * a fresh run rather than instantly re-failing the retry check.
+   */
+  requeueNow(id: string, at: string = new Date().toISOString()) {
+    this.update(id, { status: "waiting_for_reset", resetAt: at, attempts: 0, lastError: null });
+  }
+
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {
     this.load();
     const existing = this.jobs.get(id);

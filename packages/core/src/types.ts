@@ -1,6 +1,6 @@
 export type AgentTool = "claude-code" | "codex-cli" | "generic";
 
-export type JobStatus = "queued" | "waiting_for_reset" | "resuming" | "completed" | "failed";
+export type JobStatus = "queued" | "waiting_for_reset" | "resuming" | "completed" | "failed" | "cancelled";
 
 export interface RateLimitInfo {
   /** ISO timestamp when the rate limit is expected to reset. */
