@@ -225,6 +225,53 @@ export function applyConfigToEnv(
   return applied;
 }
 
+/**
+ * Builds a fully-populated sample {@link AgentRelayConfig} for `config init`.
+ * Every option the file schema supports is present so the generated file
+ * doubles as living documentation the user can edit in place.
+ *
+ * The values are chosen to be *inert if left unchanged*:
+ * - notify secrets are empty strings, which the `*FromEnv` helpers treat as
+ *   "off" (see {@link configToEnv} → trimmed-empty is skipped), so a freshly
+ *   generated file never posts to a placeholder endpoint;
+ * - `store` defaults to the built-in job-store path (or an explicit override
+ *   passed in), so the file behaves exactly like no config until edited;
+ * - retry/autoPrune mirror the built-in defaults, making them discoverable
+ *   without changing behavior.
+ */
+export function buildSampleConfig(options: { store?: string } = {}): AgentRelayConfig {
+  return {
+    store: options.store ?? "~/.agentrelay/jobs.json",
+    notify: {
+      slackWebhook: "",
+      webhookUrl: "",
+      webhookAuth: "",
+    },
+    retry: {
+      maxAttempts: 5,
+      baseDelayMs: 60_000,
+      factor: 2,
+      maxDelayMs: 3_600_000,
+    },
+    autoPrune: {
+      enabled: false,
+      after: "7d",
+      keep: 20,
+      every: "1h",
+      everyTicks: 100,
+    },
+  };
+}
+
+/**
+ * Serializes a config object to the exact bytes written to disk: pretty-printed
+ * JSON (2-space indent) with a trailing newline, so the file is diff-friendly
+ * and round-trips cleanly through {@link parseConfig}.
+ */
+export function serializeConfig(config: AgentRelayConfig): string {
+  return `${JSON.stringify(config, null, 2)}\n`;
+}
+
 function asObject(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);

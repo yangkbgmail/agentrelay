@@ -11,7 +11,7 @@ import {
   startDaemon,
   tickOnce,
 } from "./commands.js";
-import { defaultStorePath } from "./config.js";
+import { defaultStorePath, initConfigFile } from "./config.js";
 import { renderStats, renderStatsJson } from "./stats.js";
 import {
   type JobSelection,
@@ -267,6 +267,24 @@ export function buildCli(): Command {
         );
       }
       console.log(`${verb} ${pruned.length} job(s). ${remaining} remain.`);
+    });
+
+  const config = program.command("config").description("Manage the agentrelay.config.json settings file");
+
+  config
+    .command("init")
+    .description("Write a documented sample agentrelay.config.json to edit")
+    .argument("[path]", "Where to write it (default: ./agentrelay.config.json)")
+    .option("-f, --force", "Overwrite an existing config file")
+    .action((path: string | undefined, opts: { force?: boolean }) => {
+      const { store } = program.opts();
+      const result = initConfigFile({ path, store, force: opts.force });
+      if (result.ok) {
+        console.log(`[agentrelay] ${result.message}`);
+      } else {
+        console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 1;
+      }
     });
 
   return program;

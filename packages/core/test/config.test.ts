@@ -5,10 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   type AgentRelayConfig,
   applyConfigToEnv,
+  buildSampleConfig,
   configToEnv,
   loadConfigFile,
   parseConfig,
   resolveConfigPath,
+  serializeConfig,
 } from "../src/config.js";
 
 describe("configToEnv", () => {
@@ -125,5 +127,37 @@ describe("resolveConfigPath / loadConfigFile", () => {
     const path = join(dir, "bad.json");
     writeFileSync(path, "{ not json");
     expect(() => loadConfigFile({ path })).toThrow(/Invalid JSON/);
+  });
+});
+
+describe("buildSampleConfig / serializeConfig", () => {
+  it("populates every option group so the file is self-documenting", () => {
+    const sample = buildSampleConfig();
+    expect(sample.store).toBeDefined();
+    expect(sample.notify).toBeDefined();
+    expect(sample.retry).toBeDefined();
+    expect(sample.autoPrune).toBeDefined();
+    // Every field the schema supports is present.
+    expect(Object.keys(sample.notify ?? {})).toEqual(["slackWebhook", "webhookUrl", "webhookAuth"]);
+    expect(Object.keys(sample.retry ?? {})).toEqual(["maxAttempts", "baseDelayMs", "factor", "maxDelayMs"]);
+    expect(Object.keys(sample.autoPrune ?? {})).toEqual(["enabled", "after", "keep", "every", "everyTicks"]);
+  });
+
+  it("is inert if left unedited: notify secrets are empty (treated as off) and auto-prune stays disabled", () => {
+    const env = configToEnv(buildSampleConfig());
+    expect(env.AGENTRELAY_SLACK_WEBHOOK).toBe("");
+    expect(env.AGENTRELAY_WEBHOOK_URL).toBe("");
+    expect(env.AGENTRELAY_AUTOPRUNE).toBe("0");
+  });
+
+  it("bakes an explicit store path into the sample", () => {
+    expect(buildSampleConfig({ store: "/tmp/jobs.json" }).store).toBe("/tmp/jobs.json");
+  });
+
+  it("round-trips through parseConfig unchanged", () => {
+    const sample = buildSampleConfig({ store: "/tmp/jobs.json" });
+    const text = serializeConfig(sample);
+    expect(text.endsWith("}\n")).toBe(true); // pretty-printed with trailing newline
+    expect(parseConfig(JSON.parse(text))).toEqual(sample);
   });
 });

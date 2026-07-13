@@ -116,6 +116,15 @@
       설정된 env는 덮지 않음 → **env/CLI > 설정파일 > 기본값** 우선순위). 기존 `*FromEnv` 헬퍼를 전부
       재사용 — CLI `bin.ts`가 buildCli 전에 `bootstrapConfig()`로 설정을 process.env에 채우고, 프로그램에
       `--config <path>` 옵션 추가. branch `claude/wizardly-pascal-ohoon1`)
+- [x] 👷 `agentrelay config init` — 문서화된 샘플 `agentrelay.config.json` 생성으로 온보딩 마찰 제거.
+      (완료 — `@agentrelay/core/config.ts`에 순수 `buildSampleConfig({store?})`(store/notify/retry/autoPrune
+      전 그룹·전 필드를 채운 자기문서화 샘플; notify 시크릿은 빈 문자열=off, autoPrune.enabled=false로
+      **미편집 시 무해**; retry/autoPrune은 기본값과 동일해 발견성만 제공) + `serializeConfig`(2스페이스
+      pretty-print + 개행, `parseConfig` 왕복 보장) 추가. CLI `packages/cli/src/config.ts`에
+      `resolveConfigInitPath`(명시 절대경로는 그대로·상대는 cwd 기준·미지정은 `<cwd>/agentrelay.config.json`)와
+      `initConfigFile`(존재 시 `--force` 없으면 거부, 부모 디렉터리 자동 생성, 구조화 결과 반환) 추가.
+      `agentrelay config init [path] [-f/--force]` 커맨드 배선 — 전역 `--store`를 파일에 baked-in.
+      branch `claude/wizardly-pascal-qwye50`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
