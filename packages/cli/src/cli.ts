@@ -1,5 +1,5 @@
 import type { AgentTool, JobStatus } from "@agentrelay/core";
-import { parseDuration } from "@agentrelay/core";
+import { computeStats, parseDuration } from "@agentrelay/core";
 import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
@@ -12,6 +12,7 @@ import {
   tickOnce,
 } from "./commands.js";
 import { defaultStorePath } from "./config.js";
+import { renderStats, renderStatsJson } from "./stats.js";
 import {
   type JobSelection,
   NO_MATCH_MESSAGE,
@@ -158,6 +159,20 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderStatusTable(selected, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("stats")
+    .description("Show aggregate relay metrics: success rate, retries, per-tool/per-project breakdown")
+    .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
+    .action((opts: { json?: boolean }) => {
+      const { store } = program.opts();
+      const stats = computeStats(listStatus(store));
+      if (opts.json) {
+        console.log(renderStatsJson(stats, store));
+        return;
+      }
+      console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY) }));
     });
 
   program

@@ -99,6 +99,14 @@
       모두 허용할 때만 정리. 시간 마커는 실제 패스 실행 때만, tick 카운터는 매 tick 전진.
       CLI daemon이 env로 배선, 배너에 "every N tick(s)"(+시간과 함께면 " + "로 결합). one-shot
       `tick`은 프로세스마다 카운터가 리셋돼 스로틀 무효(문서화). branch `claude/wizardly-pascal-adfx5s`)
+- [x] 👷 `agentrelay stats` — 큐 통계 요약(릴레이 효과 한눈에 보기).
+      (완료 — `@agentrelay/core/stats.ts`에 순수 `computeStats(jobs)` + `RelayStats` 신설:
+      active(queued+waiting+resuming)/terminal(completed+failed+cancelled) 분리, successRate
+      (completed/(completed+failed), cancelled 제외, 미해결 시 null), totalAttempts·retriedJobs
+      (attempts>1), byTool(고정 툴셋 zero-fill, 미지 툴은 키 안 만듦), byStatus·nextResetAt은
+      `summarizeJobs` 재사용, projects(count desc·이름 asc 랭킹). CLI `packages/cli/src/stats.ts`에
+      순수 `renderStats`(사람용 블록)·`renderStatsJson`(--json)·`formatSuccessRate`, `agentrelay stats
+      [--json]` 커맨드 배선. branch `claude/wizardly-pascal-iiom6v`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
