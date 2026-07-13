@@ -190,3 +190,26 @@
   - 검증: `pnpm ci:lint` **0 경고/0 에러**, `pnpm build` 클린(Next.js 포함),
     `pnpm test` **72개 전부 통과**(core 64 + cli 5 + dashboard 3). 기능 변경 없음(포맷·정리·헬퍼).
 - 다음 할 일: README(🧭), `agentrelay status` 실시간 TUI(👷, PR #7 리뷰/병합).
+
+### [세션 5 — job 보존/정리(prune) 기능] (2026-07-13, 무인 자율 세션)
+- 배경: 최우선 미완 👷 항목("status 실시간 TUI")은 이미 **PR #7**이 구현 중(열림·미병합)이라
+  중복 재구현을 피하고, `jobs.json`이 완료/실패 job으로 무한 증가하는 문제를 해결하는 신규
+  개선 항목을 발굴해 진행.
+- 한 일 (branch `claude/wizardly-pascal-94df3w`): **job 보존/정리(prune)**.
+  1. `@agentrelay/core/prune.ts` 신설 — 순수 `selectPrunableJobs(jobs, options)`가 상태
+     (기본 종료 상태 completed/failed) · 나이(`olderThanMs`, `updatedAt` 기준) · `keepLast`
+     (최근 N개 보존) 규칙으로 삭제/보존을 분리. 활성 job(queued/waiting_for_reset/resuming)은
+     기본적으로 절대 삭제 안 함. `parseDuration`(`7d`/`24h`/`30m`/`90s`/`500ms`→ms, 잘못된
+     입력은 null) 추가.
+  2. `RelayQueue.prune(options)` — 위 선택 결과대로 삭제 후 원자적 flush, 삭제된 job 반환.
+     `dryRun: true`면 파일을 건드리지 않고 선택만 계산.
+  3. CLI `agentrelay prune --older-than <기간> --status <목록> --keep <n> --dry-run` 추가.
+     잘못된 duration/status/keep 입력은 명확한 에러 + exit 1. `pruneJobs` 헬퍼가 dry-run에서도
+     "정리 후 남을 개수"를 일관되게 보고.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) 0경고,
+    `pnpm test` **84개 전부 통과**(core 74 + cli 7 + dashboard 3 — prune 10 + CLI prune 2 신규).
+    빌드된 실제 CLI e2e(mock 아님): 3개 job(완료/실패/대기) 시드 → `prune --dry-run`이 종료
+    상태 2개만 표시하고 스토어 미변경 → `prune --keep 1`이 최신 종료 job 1개만 남기고 삭제,
+    활성 job 보존 확인. 잘못된 duration은 exit 1.
+- 다음 할 일: README(🧭), `agentrelay status` 실시간 TUI(👷, PR #7 리뷰/병합),
+  자동 prune(스케줄러/데몬이 주기적으로 오래된 job 정리)도 후보.

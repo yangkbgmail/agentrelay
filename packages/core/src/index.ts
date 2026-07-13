@@ -3,6 +3,7 @@ export * from "./control.js";
 export * from "./notify.js";
 export * from "./parser.js";
 export * from "./paths.js";
+export * from "./prune.js";
 export * from "./queue.js";
 export * from "./retry.js";
 export * from "./scheduler.js";

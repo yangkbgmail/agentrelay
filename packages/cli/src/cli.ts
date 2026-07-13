@@ -1,6 +1,16 @@
-import type { AgentTool } from "@agentrelay/core";
+import type { AgentTool, JobStatus } from "@agentrelay/core";
+import { parseDuration } from "@agentrelay/core";
 import { Command } from "commander";
-import { cancelJob, listStatus, retryJob, runCommand, startDaemon, tickOnce } from "./commands.js";
+import {
+  ALL_JOB_STATUSES,
+  cancelJob,
+  listStatus,
+  pruneJobs,
+  retryJob,
+  runCommand,
+  startDaemon,
+  tickOnce,
+} from "./commands.js";
 import { defaultStorePath } from "./config.js";
 
 function formatCountdown(resetAt: string | null): string {
@@ -112,6 +122,74 @@ export function buildCli(): Command {
       const result = retryJob(id, store);
       console.log(`[agentrelay] ${result.message}`);
       if (!result.ok) process.exitCode = 1;
+    });
+
+  program
+    .command("prune")
+    .description("Remove old finished jobs (completed/failed) from the store to keep it small")
+    .option("--older-than <duration>", "Only prune jobs untouched for at least this long (e.g. 7d, 24h, 30m)")
+    .option("--status <statuses>", "Comma-separated statuses to prune (default: completed,failed)")
+    .option("--keep <n>", "Always keep the N most recently updated eligible jobs")
+    .option("--dry-run", "Show what would be pruned without deleting anything")
+    .action((opts: { olderThan?: string; status?: string; keep?: string; dryRun?: boolean }) => {
+      const { store } = program.opts();
+
+      let olderThanMs: number | undefined;
+      if (opts.olderThan !== undefined) {
+        const parsed = parseDuration(opts.olderThan);
+        if (parsed === null) {
+          console.error(`Invalid --older-than value "${opts.olderThan}". Use a duration like 7d, 24h, 30m, 90s.`);
+          process.exitCode = 1;
+          return;
+        }
+        olderThanMs = parsed;
+      }
+
+      let statuses: JobStatus[] | undefined;
+      if (opts.status !== undefined) {
+        const requested = opts.status
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+        const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
+        if (invalid.length > 0) {
+          console.error(`Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.`);
+          process.exitCode = 1;
+          return;
+        }
+        statuses = requested as JobStatus[];
+      }
+
+      let keepLast: number | undefined;
+      if (opts.keep !== undefined) {
+        const n = Number.parseInt(opts.keep, 10);
+        if (!Number.isInteger(n) || n < 0) {
+          console.error(`Invalid --keep value "${opts.keep}". Use a non-negative integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        keepLast = n;
+      }
+
+      const { pruned, remaining } = pruneJobs({
+        storePath: store,
+        olderThanMs,
+        statuses,
+        keepLast,
+        dryRun: opts.dryRun,
+      });
+
+      const verb = opts.dryRun ? "Would prune" : "Pruned";
+      if (pruned.length === 0) {
+        console.log(`Nothing to prune. ${remaining} job(s) remain.`);
+        return;
+      }
+      for (const job of pruned) {
+        console.log(
+          `${opts.dryRun ? "-" : "×"} ${job.id.slice(0, 8)}  ${job.project.slice(0, 20).padEnd(20)} ${job.status}`
+        );
+      }
+      console.log(`${verb} ${pruned.length} job(s). ${remaining} remain.`);
     });
 
   return program;

@@ -5,7 +5,7 @@ import { PassThrough } from "node:stream";
 import type { NotifyPayload } from "@agentrelay/core";
 import { RelayQueue } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cancelJob, listStatus, retryJob, runCommand } from "../src/commands.js";
+import { cancelJob, listStatus, pruneJobs, retryJob, runCommand } from "../src/commands.js";
 
 describe("runCommand", () => {
   let dir: string;
@@ -152,5 +152,46 @@ describe("cancelJob / retryJob", () => {
     expect(result.job?.status).toBe("waiting_for_reset");
     expect(result.job?.attempts).toBe(0);
     expect(result.job?.lastError).toBeNull();
+  });
+});
+
+describe("pruneJobs", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-prune-cli-test-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("removes finished jobs and reports the remaining count", () => {
+    const queue = new RelayQueue(storePath);
+    const done = queue.enqueue({ project: "a", tool: "claude-code", command: ["x"], cwd: "/tmp" });
+    queue.markCompleted(done.id);
+    const active = queue.enqueue({ project: "b", tool: "claude-code", command: ["y"], cwd: "/tmp" });
+    queue.markWaitingForReset(active.id, new Date(Date.now() + 60_000).toISOString());
+    queue.close();
+
+    const { pruned, remaining } = pruneJobs({ storePath });
+    expect(pruned.map((j) => j.id)).toEqual([done.id]);
+    expect(remaining).toBe(1);
+    expect(listStatus(storePath).map((j) => j.id)).toEqual([active.id]);
+  });
+
+  it("dry-run leaves the store intact but reports the projected remaining count", () => {
+    const queue = new RelayQueue(storePath);
+    const done = queue.enqueue({ project: "a", tool: "claude-code", command: ["x"], cwd: "/tmp" });
+    queue.markCompleted(done.id);
+    queue.close();
+
+    const { pruned, remaining } = pruneJobs({ storePath, dryRun: true });
+    expect(pruned).toHaveLength(1);
+    expect(remaining).toBe(0);
+    // Store untouched.
+    expect(listStatus(storePath)).toHaveLength(1);
   });
 });
