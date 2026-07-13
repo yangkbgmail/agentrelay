@@ -96,3 +96,23 @@
   - 검증: `pnpm build` 클린(Next.js 포함), `pnpm test` 33개 전부 통과(core 26 + cli 4 + dashboard 3).
 - 다음 할 일: README(5분 튜토리얼, 🧭), 엣지 케이스 파서 회귀 테스트 보강(👷),
   job 재시도 정책/백오프(👷), Codex CLI 어댑터(👷).
+
+### [세션 2 — job 재시도 정책 / 지수 백오프 / 최대 시도 횟수] (2026-07-13, 무인 자율 세션)
+- 한 일 (branch `claude/wizardly-pascal-3phqri`):
+  1. **`@agentrelay/core`에 `RetryPolicy` 도입** — `packages/core/src/retry.ts` 신설.
+     `DEFAULT_RETRY_POLICY`(maxAttempts=10, baseBackoff=1분, maxBackoff=1시간),
+     `resolveRetryPolicy`(부분 override 병합 + 방어적 검증), `computeBackoffMs`(1-based 지수
+     백오프, 지수 클램프로 Infinity 방지, maxBackoff 캡), `canRetry`.
+  2. **스케줄러가 두 실패 모드를 정책으로 처리** — (a) rate-limit 재감지 시 `maxAttempts`까지만
+     재큐잉하고 초과하면 영구 `failed` 처리, (b) spawn/child 오류 등 **전이적 실패는 즉시
+     실패시키지 않고** 지수 백오프로 재큐잉(신규 상태 `waiting_for_retry`, `resetAt`=재시도 시각,
+     `lastError` 기록). `runCommand`가 더 이상 reject하지 않고 `{output,error}`를 반환해
+     tick 루프가 중단되지 않음.
+  3. **상태 확장** — `JobStatus`에 `waiting_for_retry` 추가, `queue.markWaitingForRetry` +
+     `listDue`가 두 대기 상태 모두 픽업, `summarizeJobs`/대시보드 뱃지·"Waiting" 타일 반영.
+  4. **CLI 튜닝 훅** — `retryPolicyFromEnv`(`AGENTRELAY_MAX_ATTEMPTS`/`_BASE_BACKOFF_MS`/
+     `_MAX_BACKOFF_MS`)를 daemon/tick에 연결.
+  5. **테스트** — `retry.test.ts`(8), 스케줄러 백오프/재시도/한도소진/알림 케이스(+5),
+     `retryPolicyFromEnv`(+3). 전체 `pnpm build` 클린, `pnpm test` 49개 통과(core 39 + cli 7 + dashboard 3).
+- 다음 할 일: 엣지 케이스 파서 회귀 테스트 보강(👷), Codex CLI 어댑터(👷),
+  `agentrelay status` 실시간 TUI(👷), README(🧭).

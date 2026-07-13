@@ -93,6 +93,20 @@ export class RelayQueue {
     this.update(id, { status: "waiting_for_reset", resetAt });
   }
 
+  /**
+   * Like {@link markWaitingForReset}, but for a transient-failure backoff
+   * retry rather than a rate-limit window. `resetAt` is the time to retry;
+   * the error that triggered the backoff is recorded for the dashboard.
+   */
+  markWaitingForRetry(id: string, resetAt: string, error: string, outputTail?: string) {
+    this.update(id, {
+      status: "waiting_for_retry",
+      resetAt,
+      lastError: error,
+      ...(outputTail !== undefined ? { lastOutputTail: outputTail } : {}),
+    });
+  }
+
   markResuming(id: string) {
     const current = this.getById(id);
     this.update(id, { status: "resuming", attempts: (current?.attempts ?? 0) + 1 });
@@ -125,12 +139,18 @@ export class RelayQueue {
     return Array.from(this.jobs.values()).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   }
 
-  /** Jobs whose reset time has already passed and are ready to be resumed now. */
+  /**
+   * Jobs whose reset/retry time has already passed and are ready to be
+   * resumed now. Covers both rate-limit waits and transient-failure backoff.
+   */
   listDue(referenceTime: Date = new Date()): RelayJob[] {
     this.load();
     const ref = referenceTime.getTime();
     return Array.from(this.jobs.values()).filter(
-      (job) => job.status === "waiting_for_reset" && job.resetAt !== null && new Date(job.resetAt).getTime() <= ref
+      (job) =>
+        (job.status === "waiting_for_reset" || job.status === "waiting_for_retry") &&
+        job.resetAt !== null &&
+        new Date(job.resetAt).getTime() <= ref
     );
   }
 }

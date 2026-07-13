@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NotifyPayload } from "@agentrelay/core";
-import { listStatus, runCommand } from "../src/commands.js";
+import { listStatus, retryPolicyFromEnv, runCommand } from "../src/commands.js";
 
 describe("runCommand", () => {
   let dir: string;
@@ -77,5 +77,24 @@ describe("runCommand", () => {
       notify,
     });
     expect(notify).not.toHaveBeenCalled();
+  });
+});
+
+describe("retryPolicyFromEnv", () => {
+  it("returns an empty override object when no env vars are set", () => {
+    expect(retryPolicyFromEnv({})).toEqual({});
+  });
+
+  it("reads numeric overrides from the environment", () => {
+    const policy = retryPolicyFromEnv({
+      AGENTRELAY_MAX_ATTEMPTS: "3",
+      AGENTRELAY_BASE_BACKOFF_MS: "5000",
+      AGENTRELAY_MAX_BACKOFF_MS: "120000",
+    });
+    expect(policy).toEqual({ maxAttempts: 3, baseBackoffMs: 5000, maxBackoffMs: 120000 });
+  });
+
+  it("ignores blank and non-numeric values", () => {
+    expect(retryPolicyFromEnv({ AGENTRELAY_MAX_ATTEMPTS: "", AGENTRELAY_BASE_BACKOFF_MS: "abc" })).toEqual({});
   });
 });

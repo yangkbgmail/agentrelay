@@ -9,6 +9,7 @@ const POLL_INTERVAL_MS = 3000;
 const STATUS_META: Record<JobStatus, { label: string; colorVar: string }> = {
   queued: { label: "Queued", colorVar: "var(--ink-muted)" },
   waiting_for_reset: { label: "Waiting for reset", colorVar: "var(--status-warning)" },
+  waiting_for_retry: { label: "Retry backoff", colorVar: "var(--status-warning)" },
   resuming: { label: "Resuming", colorVar: "var(--accent-running)" },
   completed: { label: "Completed", colorVar: "var(--status-good)" },
   failed: { label: "Failed", colorVar: "var(--status-critical)" },
@@ -126,11 +127,15 @@ export default function DashboardClient() {
         <div className="tile">
           <div className="label">
             <span className="dot" style={{ background: "var(--status-warning)" }} aria-hidden />
-            Waiting for reset
+            Waiting
           </div>
-          <div className="value numeric">{summary?.byStatus.waiting_for_reset ?? "–"}</div>
+          <div className="value numeric">
+            {summary
+              ? summary.byStatus.waiting_for_reset + summary.byStatus.waiting_for_retry
+              : "–"}
+          </div>
           <div className="sub">
-            next reset in <span className="numeric">{formatCountdown(summary?.nextResetAt ?? null, now)}</span>
+            next resume in <span className="numeric">{formatCountdown(summary?.nextResetAt ?? null, now)}</span>
           </div>
         </div>
         <div className="tile">

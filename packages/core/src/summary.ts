@@ -7,7 +7,14 @@ export interface QueueSummary {
   nextResetAt: string | null;
 }
 
-const ALL_STATUSES: JobStatus[] = ["queued", "waiting_for_reset", "resuming", "completed", "failed"];
+const ALL_STATUSES: JobStatus[] = [
+  "queued",
+  "waiting_for_reset",
+  "waiting_for_retry",
+  "resuming",
+  "completed",
+  "failed",
+];
 
 /** Aggregates a job list into the counts the dashboard/status views render. */
 export function summarizeJobs(jobs: RelayJob[]): QueueSummary {
@@ -16,7 +23,7 @@ export function summarizeJobs(jobs: RelayJob[]): QueueSummary {
 
   for (const job of jobs) {
     byStatus[job.status] += 1;
-    if (job.status === "waiting_for_reset" && job.resetAt) {
+    if ((job.status === "waiting_for_reset" || job.status === "waiting_for_retry") && job.resetAt) {
       if (nextResetAt === null || job.resetAt < nextResetAt) {
         nextResetAt = job.resetAt;
       }

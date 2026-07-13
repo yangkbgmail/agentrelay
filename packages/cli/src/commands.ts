@@ -1,7 +1,31 @@
 import { spawn } from "node:child_process";
 import { RelayQueue, RelayScheduler, parseRateLimitMessage, slackNotifierFromEnv } from "@agentrelay/core";
-import type { AgentTool, Notifier, RelayJob } from "@agentrelay/core";
+import type { AgentTool, Notifier, RelayJob, RetryPolicy } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
+
+/**
+ * Reads retry-policy overrides from the environment so operators can tune the
+ * daemon without code changes. Each var is optional; unset/invalid values fall
+ * back to DEFAULT_RETRY_POLICY inside the scheduler.
+ *   AGENTRELAY_MAX_ATTEMPTS    — cap on total resume attempts per job
+ *   AGENTRELAY_BASE_BACKOFF_MS — base delay for transient-failure backoff
+ *   AGENTRELAY_MAX_BACKOFF_MS  — upper bound on any single backoff delay
+ */
+export function retryPolicyFromEnv(env: NodeJS.ProcessEnv = process.env): Partial<RetryPolicy> {
+  const policy: Partial<RetryPolicy> = {};
+  const num = (raw: string | undefined): number | undefined => {
+    if (raw === undefined || raw.trim() === "") return undefined;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const maxAttempts = num(env.AGENTRELAY_MAX_ATTEMPTS);
+  const baseBackoffMs = num(env.AGENTRELAY_BASE_BACKOFF_MS);
+  const maxBackoffMs = num(env.AGENTRELAY_MAX_BACKOFF_MS);
+  if (maxAttempts !== undefined) policy.maxAttempts = maxAttempts;
+  if (baseBackoffMs !== undefined) policy.baseBackoffMs = baseBackoffMs;
+  if (maxBackoffMs !== undefined) policy.maxBackoffMs = maxBackoffMs;
+  return policy;
+}
 
 export interface RunOptions {
   command: string[];
@@ -86,6 +110,8 @@ export interface DaemonOptions {
   onNotify?: (message: string) => void;
   /** Injected for tests; defaults to Slack via AGENTRELAY_SLACK_WEBHOOK (or silent skip). */
   slackNotify?: Notifier | null;
+  /** Retry/backoff overrides; defaults to values from the environment. */
+  retryPolicy?: Partial<RetryPolicy>;
 }
 
 export function startDaemon(options: DaemonOptions = {}) {
@@ -95,6 +121,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   const scheduler = new RelayScheduler({
     queue,
     pollIntervalMs: options.pollIntervalMs ?? 30_000,
+    retryPolicy: options.retryPolicy ?? retryPolicyFromEnv(),
     notify: async (payload) => {
       const line = `[agentrelay] ${payload.event} — ${payload.project}: ${payload.message}`;
       // eslint-disable-next-line no-console
@@ -115,7 +142,11 @@ export function startDaemon(options: DaemonOptions = {}) {
 export async function tickOnce(storePath?: string, slackNotify?: Notifier | null): Promise<RelayJob[]> {
   const queue = new RelayQueue(storePath ?? defaultStorePath());
   const notify = slackNotify === undefined ? slackNotifierFromEnv() : slackNotify;
-  const scheduler = new RelayScheduler({ queue, notify: notify ?? undefined });
+  const scheduler = new RelayScheduler({
+    queue,
+    notify: notify ?? undefined,
+    retryPolicy: retryPolicyFromEnv(),
+  });
   const processed = await scheduler.tick();
   queue.close();
   return processed;
