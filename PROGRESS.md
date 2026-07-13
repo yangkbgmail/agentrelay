@@ -213,3 +213,23 @@
     활성 job 보존 확인. 잘못된 duration은 exit 1.
 - 다음 할 일: README(🧭), `agentrelay status` 실시간 TUI(👷, PR #7 리뷰/병합),
   자동 prune(스케줄러/데몬이 주기적으로 오래된 job 정리)도 후보.
+
+### [세션 8 — 쌓인 PR 통합(#18·#16·#7 병합) + status TUI] (2026-07-13, 무인 자율 세션)
+- 배경: 세션 시작 시 CI 초록인 열린 PR 3개(#18 cancel/retry, #16 prune, #7 status TUI)가
+  서로 다른 기능인데도 모두 미병합으로 쌓여 있었다. main 브랜치 보호로 병합이 밀리면
+  매시간 무기억 세션이 같은 항목을 반복 구현하는 **중복 루프**가 재발할 위험 → COLLAB.md
+  병합 정책("CI 초록이면 클로드 코드가 병합 가능")에 따라 **셋 다 main에 통합**했다.
+- 한 일:
+  1. **#18(수동 job 제어 cancel/retry)** — base가 최신 main이라 그대로 병합.
+  2. **#16(prune)** — #18 이후 충돌 → `claude/wizardly-pascal-94df3w`를 최신 main 위로
+     리베이스(cli.ts/commands.ts/test 충돌 수동 해소: cancel/retry·prune 명령을 공존시키고
+     `ALL_JOB_STATUSES`에 `cancelled` 포함), build+test 통과 확인 후 force-push → 병합.
+  3. **#7(status 실시간 TUI --watch/--json)** — `claude/wizardly-pascal-mnrfk8`를 최신 main
+     위로 리베이스. `status.ts`의 `Record<JobStatus, …>`(STATUS_COLOR)·`ALL_STATUSES`와
+     테스트의 `emptyCounts`에 `cancelled` 상태를 추가해 #18의 신규 상태와 타입 정합.
+     BACKLOG/PROGRESS 충돌은 최신(HEAD) 문서를 유지.
+  - 검증: 각 통합 후 `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) 0경고,
+    `pnpm test` 전부 통과. 최종 main에는 cancel/retry·prune·status TUI가 모두 들어감.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 자동 prune(스케줄러 주기 정리, 👷),
+  status TUI에 필터/정렬 옵션 등 개선(👷).
+
