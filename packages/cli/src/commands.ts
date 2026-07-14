@@ -2,6 +2,9 @@ import { spawn } from "node:child_process";
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { AgentTool, DoctorInput, JobStatus, Notifier, PruneOptions, RelayJob } from "@agentrelay/core";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import type { AgentTool, JobStatus, Notifier, PruneOptions, RelayJob } from "@agentrelay/core";
 import {
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
@@ -344,6 +347,14 @@ export function gatherDoctorInput(storePath?: string, configPath?: string): Doct
     },
     retry: retryPolicyFromEnv(),
   };
+ * Writes exported text to a file, creating parent directories as needed. Kept
+ * here (not in cli.ts) so the file-writing side effect stays out of the pure
+ * render layer. Returns the resolved path for the CLI to report.
+ */
+export function writeExportFile(path: string, content: string): string {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, content, "utf8");
+  return path;
 }
 
 /** Statuses a job can legitimately be in — used to validate `--status` input. */

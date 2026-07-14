@@ -126,6 +126,15 @@
       job 카운트/파싱·`--config` 존중 설정 해소·env 알림자·retry 수집), `packages/cli/src/doctor.ts`에 순수
       `renderDoctor`(아이콘+색상 게이트)·`renderDoctorJson`. `agentrelay doctor [--json]` 커맨드 배선, error 발견 시
       exit 1(CI 게이트용). branch `claude/wizardly-pascal-epcqb3`)
+- [x] 👷 `agentrelay export` — 큐를 CSV/JSON으로 내보내 스프레드시트·외부 분석에 활용.
+      (완료 — `@agentrelay/core/export.ts` 신설: 순수 `jobsToCsv(jobs, columns?)`(RFC-4180 이스케이프,
+      값에 `,`·`"`·개행 있으면 따옴표로 감싸고 내부 따옴표는 이중화, CRLF 행 구분, header+행)·
+      `jobsToJson`(엔벨로프 없는 순수 job 배열, status --json과 달리 데이터로 왕복)·`EXPORT_COLUMNS`
+      (id/project/tool/status/resetAt/created/updated/attempts/command/cwd/lastError/lastOutputTail,
+      null은 빈 셀, command는 공백 join). CLI `packages/cli/src/export.ts`에 `renderExport`·`isExportFormat`·
+      `EXPORT_FORMATS`, `commands.ts`에 부모 디렉터리 자동생성 `writeExportFile`. `agentrelay export
+      [--format csv|json] [-o file] [-s status] [--sort field] [-r]`, status의 필터/정렬을 `selectJobs`
+      재사용(status/export가 공유 `parseSelection` 헬퍼). branch `claude/wizardly-pascal-i84sa9`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
