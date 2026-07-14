@@ -389,3 +389,29 @@
     JSON in AgentRelay config …" + exit 1.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
   `agentrelay config init`으로 샘플 설정 파일 생성(👷 후보), stats 시간대별 추이(👷 후보).
+
+### [세션 14 — `agentrelay config init` 샘플 설정 파일 생성] (2026-07-14, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 0개, main=현재 브랜치 동일(중복/누적 없음). 세션 13이 설정 파일
+  지원(`agentrelay.config.json`)을 넣었지만, 사용자는 여전히 빈손에서 스키마를 손으로 써야 했다.
+  세션 13이 "다음 할 일"로 남긴 👷 후보(`config init`으로 샘플 설정 생성)를 구현했다 — `npm init`/
+  `tsc --init` 류의 "시작 템플릿" DX.
+- 한 일 (branch `claude/wizardly-pascal-nkbz8g`):
+  1. `@agentrelay/core/config.ts`에 순수 `buildSampleConfig({store?})` — store/notify/retry/autoPrune
+     전 그룹을 채운 **자기문서화 템플릿**. retry(`maxAttempts 5`/`baseDelayMs 60000`/`factor 2`/
+     `maxDelayMs 3600000`)·autoPrune(`enabled false`/`after 7d`/`keep 20`/`every 1h`/`everyTicks 100`)은
+     실제 내장 기본값을 그대로 노출, notify 웹훅은 **빈 문자열**(=`*FromEnv` 헬퍼가 미설정으로 취급 →
+     미편집 템플릿이 실수로 알림자를 켜지 않음). `serializeConfig(config)`는 2-스페이스 들여쓰기 +
+     후행 개행으로 직렬화(로더가 읽는 형식과 동일, `parseConfig`로 무손실 왕복). index.ts export.
+  2. CLI `commands.ts`에 `initConfig({path,force,storePath,cwd})` — `<cwd>/agentrelay.config.json`
+     기본 경로에 씀. **기존 파일은 `--force` 없이 절대 덮지 않음**(재실행이 손편집 설정을 조용히
+     날리지 않게), 부모 디렉터리는 `mkdirSync recursive`로 자동 생성. 쓰기 실패는 `ok:false`로 보고.
+  3. `cli.ts`에 `config` 부모 커맨드 + `config init [--path] [-f,--force]` 서브커맨드 배선. store 필드는
+     전역 `--store`(기본 스토어 경로)를 반영해 구체적 경로를 baked-in. 성공 시 다음 단계 안내 출력,
+     실패 시 stderr + exit 1.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **194개 전부 통과**(core 147 + cli 44 + dashboard 3 — config buildSample/serialize 4 +
+    CLI initConfig 5 신규). **실제 빌드된 CLI e2e**(mock 아님): `config init --path`가 문서화 템플릿을
+    쓰고 → 재실행은 "already exists" + exit 1 → `--force`는 덮어씀 → 생성된 설정의 store를 편집 후
+    `--config`로 지정하면 `status --json`이 그 store를 읽음(설정 픽업 확인).
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
+  stats 시간대별 추이(👷 후보), `config init`에 `--minimal` 옵션(빈 그룹만)(👷 후보).

@@ -5,10 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   type AgentRelayConfig,
   applyConfigToEnv,
+  buildSampleConfig,
   configToEnv,
   loadConfigFile,
   parseConfig,
   resolveConfigPath,
+  serializeConfig,
 } from "../src/config.js";
 
 describe("configToEnv", () => {
@@ -125,5 +127,35 @@ describe("resolveConfigPath / loadConfigFile", () => {
     const path = join(dir, "bad.json");
     writeFileSync(path, "{ not json");
     expect(() => loadConfigFile({ path })).toThrow(/Invalid JSON/);
+  });
+});
+
+describe("buildSampleConfig / serializeConfig", () => {
+  it("populates every option group so the template is self-documenting", () => {
+    const sample = buildSampleConfig();
+    expect(sample.store).toBeDefined();
+    expect(sample.notify).toEqual({ slackWebhook: "", webhookUrl: "", webhookAuth: "" });
+    expect(sample.retry).toEqual({ maxAttempts: 5, baseDelayMs: 60_000, factor: 2, maxDelayMs: 3_600_000 });
+    expect(sample.autoPrune).toEqual({ enabled: false, after: "7d", keep: 20, every: "1h", everyTicks: 100 });
+  });
+
+  it("bakes an explicit store path into the sample", () => {
+    expect(buildSampleConfig({ store: "/tmp/custom/jobs.json" }).store).toBe("/tmp/custom/jobs.json");
+  });
+
+  it("leaves notifiers disabled: the empty webhook strings map to nothing usable", () => {
+    // configToEnv still emits the keys, but downstream *FromEnv helpers treat
+    // empty/blank URLs as unset, so an unedited template activates no notifier.
+    const env = configToEnv(buildSampleConfig());
+    expect(env.AGENTRELAY_SLACK_WEBHOOK).toBe("");
+    expect(env.AGENTRELAY_WEBHOOK_URL).toBe("");
+  });
+
+  it("serializes to pretty JSON with a trailing newline and round-trips through parseConfig", () => {
+    const sample = buildSampleConfig({ store: "/tmp/jobs.json" });
+    const text = serializeConfig(sample);
+    expect(text.endsWith("\n")).toBe(true);
+    expect(text).toContain('  "store": "/tmp/jobs.json"');
+    expect(parseConfig(JSON.parse(text))).toEqual(sample);
   });
 });
