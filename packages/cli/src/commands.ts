@@ -1,15 +1,19 @@
 import { spawn } from "node:child_process";
-import type { AgentTool, JobStatus, Notifier, PruneOptions, RelayJob } from "@agentrelay/core";
+import { accessSync, constants, existsSync, readFileSync } from "node:fs";
+import { dirname } from "node:path";
+import type { AgentTool, DoctorInput, JobStatus, Notifier, PruneOptions, RelayJob } from "@agentrelay/core";
 import {
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
   canCancel,
   canRequeue,
+  loadConfigFile,
   notifiersFromEnv,
   RelayQueue,
   RelayScheduler,
   resolveAdapter,
+  resolveConfigPath,
   resolveJobId,
   retryPolicyFromEnv,
 } from "@agentrelay/core";
@@ -257,6 +261,89 @@ export function pruneJobs(options: PruneJobsOptions = {}): { pruned: RelayJob[];
   const remaining = queue.listAll().length - (pruneOpts.dryRun ? pruned.length : 0);
   queue.close();
   return { pruned, remaining };
+}
+
+/**
+ * Probes whether the relay could write the store file: if it already exists,
+ * the file itself must be writable; otherwise the nearest existing ancestor
+ * directory must be writable (the queue creates missing dirs on first run).
+ * Never creates anything — a pure read-only probe for `agentrelay doctor`.
+ */
+function isStoreWritable(storePath: string, exists: boolean): boolean {
+  try {
+    if (exists) {
+      accessSync(storePath, constants.W_OK);
+      return true;
+    }
+    let dir = dirname(storePath);
+    while (!existsSync(dir)) {
+      const parent = dirname(dir);
+      if (parent === dir) break; // reached the filesystem root
+      dir = parent;
+    }
+    accessSync(dir, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Gathers the real environment snapshot for `agentrelay doctor` — reading the
+ * Node version, probing the store file, discovering the config, and inspecting
+ * the effective notifiers/retry policy from env. All the actual I/O lives here;
+ * the verdict logic is the pure `runDoctorChecks` in core.
+ */
+export function gatherDoctorInput(storePath?: string, configPath?: string): DoctorInput {
+  const path = storePath ?? defaultStorePath();
+  const exists = existsSync(path);
+
+  let jobCount: number | null = null;
+  let parseError: string | null = null;
+  if (exists) {
+    try {
+      const raw = readFileSync(path, "utf8");
+      if (raw.trim() === "") {
+        jobCount = 0;
+      } else {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          jobCount = parsed.length;
+        } else {
+          parseError = "expected a JSON array of jobs";
+        }
+      }
+    } catch (error) {
+      parseError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  // Honor an explicit `--config <path>` (the same one bin.ts bootstrapped from)
+  // so the doctor reports the file the CLI actually used, not just discovery.
+  let resolvedConfigPath: string | null = null;
+  let configError: string | null = null;
+  try {
+    resolvedConfigPath = loadConfigFile({ path: configPath })?.path ?? null;
+  } catch (error) {
+    configError = error instanceof Error ? error.message : String(error);
+    // Still surface which path was being attempted, if we can resolve it.
+    try {
+      resolvedConfigPath = resolveConfigPath({ path: configPath });
+    } catch {
+      resolvedConfigPath = null;
+    }
+  }
+
+  return {
+    nodeVersion: process.versions.node,
+    store: { path, exists, writable: isStoreWritable(path, exists), jobCount, parseError },
+    config: { path: resolvedConfigPath, error: configError },
+    notifiers: {
+      slack: Boolean(process.env.AGENTRELAY_SLACK_WEBHOOK?.trim()),
+      webhook: Boolean(process.env.AGENTRELAY_WEBHOOK_URL?.trim()),
+    },
+    retry: retryPolicyFromEnv(),
+  };
 }
 
 /** Statuses a job can legitimately be in — used to validate `--status` input. */

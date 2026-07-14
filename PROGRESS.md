@@ -389,3 +389,32 @@
     JSON in AgentRelay config …" + exit 1.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
   `agentrelay config init`으로 샘플 설정 파일 생성(👷 후보), stats 시간대별 추이(👷 후보).
+
+### [세션 14 — `agentrelay doctor` 셋업 진단 커맨드] (2026-07-14, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 4개(#28 logs, #27 config init, #24 combine mode, #23 config file)가
+  최근 👷 후보(config init·logs 등)를 이미 점유 중이었다. 중복 재구현을 피해 CLAUDE.md 지침대로
+  **새 개선 항목을 발굴**했다 — 설정(store 경로·알림·재시도·config 파일)이 여러 소스(env/config/기본값)에서
+  합쳐지는데, 사용자가 "지금 무엇이 유효하고 어디가 잘못됐는지"를 한눈에 볼 진단 커맨드가 없었다.
+- 한 일 (branch `claude/wizardly-pascal-epcqb3`): **`agentrelay doctor`** —
+  1. `@agentrelay/core/doctor.ts` 신설 — 순수 `runDoctorChecks(input)` + `DoctorInput`/`DoctorReport`/
+     `DoctorCheck`(status: ok/warn/error). 5개 체크: **node**(`parseVersion`/`compareVersions`로
+     `MIN_NODE_VERSION`=22.5.0 미만은 error), **store**(파싱 불가·쓰기 불가는 error, 미존재-쓰기가능은
+     "첫 실행 시 생성"으로 ok, 존재는 job 카운트 표시), **config**(로드됨/없음은 ok, 명시했는데 깨지면
+     error), **notifiers**(미설정은 warn — 선택사항이므로 실패는 아님, 있으면 ok), **retry**(유효
+     정책 표시, 비정합 값은 warn). 전체 `ok`는 error가 하나도 없을 때 true(warn은 통과). 모든 I/O는
+     주입된 스냅샷으로 분리 → 결정적·유닛테스트 가능. index.ts export.
+  2. CLI 배선 — `packages/cli/src/commands.ts`에 `gatherDoctorInput(store?, config?)`가 실제 환경을
+     수집(Node 버전·fs write-probe[디렉터리 생성 없이 최근접 존재 조상 W_OK 검사]·스토어 job 카운트/
+     배열 아님·JSON 깨짐 감지·`--config` 플래그 존중한 설정 파일 해소[bin.ts의 bootstrap과 동일 경로]·
+     env 알림자·`retryPolicyFromEnv`). `packages/cli/src/doctor.ts`에 순수 `renderDoctor`(체크당 1행
+     아이콘 ✓/!/✗ + color 게이트 + 요약)·`renderDoctorJson`(`{storePath,generatedAt,ok,checks}` 엔벨로프).
+     `agentrelay doctor [--json]` 커맨드를 cli.ts에 배선, error 발견 시 exit 1(CI/스크립트 게이트용).
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **208개 전부 통과**(core 157 + cli 48 + dashboard 3 — core doctor 12 + CLI doctor 9 신규).
+    **실제 빌드된 CLI e2e**(mock 아님): 미존재 스토어→"첫 실행 시 생성" ok·notifiers warn·exit 0 →
+    `--json` 엔벨로프(ok/checks) → 깨진 스토어 JSON은 store error + "1 problem" + exit 1 →
+    env로 slack+webhook 주면 notifiers "Configured: slack, webhook" → `--config`/cwd 발견 설정이
+    "Config loaded from …"로 반영 + retry가 config의 maxAttempts 픽업 → 깨진 config는 bin.ts bootstrap이
+    먼저 loud 에러+exit 1(doctor의 config-error 분기는 유닛테스트로 커버).
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
+  stats 시간대별 추이/평균 대기시간(👷 후보), `doctor`에 디스크 여유/데몬 실행중 여부 체크 확장(👷 후보).
