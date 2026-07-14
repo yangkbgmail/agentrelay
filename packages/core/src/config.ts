@@ -225,6 +225,47 @@ export function applyConfigToEnv(
   return applied;
 }
 
+/**
+ * Builds a fully-populated sample {@link AgentRelayConfig} suitable for writing
+ * out as a starter template (`agentrelay config init`). Every option group is
+ * present so the file is self-documenting: `retry`/`autoPrune` carry the same
+ * built-in defaults the tool already uses, while the `notify` webhooks are left
+ * as empty strings (treated as "unset", so an unedited template never activates
+ * a notifier). Pure — pass an explicit `store` to bake a concrete path in.
+ */
+export function buildSampleConfig(options: { store?: string } = {}): AgentRelayConfig {
+  return {
+    store: options.store ?? "~/.agentrelay/jobs.json",
+    notify: {
+      slackWebhook: "",
+      webhookUrl: "",
+      webhookAuth: "",
+    },
+    retry: {
+      maxAttempts: 5,
+      baseDelayMs: 60_000,
+      factor: 2,
+      maxDelayMs: 3_600_000,
+    },
+    autoPrune: {
+      enabled: false,
+      after: "7d",
+      keep: 20,
+      every: "1h",
+      everyTicks: 100,
+    },
+  };
+}
+
+/**
+ * Serializes a config object to the on-disk JSON format: 2-space indented with
+ * a trailing newline, matching what {@link loadConfigFile} reads back. Round-trips
+ * through {@link parseConfig} unchanged.
+ */
+export function serializeConfig(config: AgentRelayConfig): string {
+  return `${JSON.stringify(config, null, 2)}\n`;
+}
+
 function asObject(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);

@@ -4,11 +4,15 @@ import { dirname } from "node:path";
 import type { AgentTool, DoctorInput, JobStatus, Notifier, PruneOptions, RelayJob } from "@agentrelay/core";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve as resolvePath } from "node:path";
 import type { AgentTool, JobStatus, Notifier, PruneOptions, RelayJob } from "@agentrelay/core";
 import {
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
+  buildSampleConfig,
+  CONFIG_FILENAME,
   canCancel,
   canRequeue,
   loadConfigFile,
@@ -19,6 +23,7 @@ import {
   resolveConfigPath,
   resolveJobId,
   retryPolicyFromEnv,
+  serializeConfig,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
 
@@ -379,6 +384,53 @@ export function writeExportFile(path: string, content: string): string {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, content, "utf8");
   return path;
+export interface InitConfigOptions {
+  /** Where to write the file. Defaults to `<cwd>/agentrelay.config.json`. */
+  path?: string;
+  /** Overwrite an existing file instead of refusing. */
+  force?: boolean;
+  /** Baked into the sample's `store` field. Defaults to the resolved store path. */
+  storePath?: string;
+  /** Injected for tests; defaults to `process.cwd()`. */
+  cwd?: string;
+}
+
+export interface InitConfigResult {
+  ok: boolean;
+  /** Absolute path that was (or would have been) written. */
+  path: string;
+  /** Human-readable line for the CLI to print. */
+  message: string;
+}
+
+/**
+ * Writes a documented starter `agentrelay.config.json`. Refuses to clobber an
+ * existing file unless `force` is set, so re-running never silently wipes a
+ * hand-edited config. Creates parent directories as needed. The generated file
+ * round-trips through the config loader (every field is valid), giving users a
+ * concrete template instead of a blank page.
+ */
+export function initConfig(options: InitConfigOptions = {}): InitConfigResult {
+  const cwd = options.cwd ?? process.cwd();
+  const target = resolvePath(cwd, options.path ?? CONFIG_FILENAME);
+
+  if (existsSync(target) && !options.force) {
+    return {
+      ok: false,
+      path: target,
+      message: `config already exists at ${target} — pass --force to overwrite`,
+    };
+  }
+
+  const sample = buildSampleConfig({ store: options.storePath ?? defaultStorePath() });
+  try {
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, serializeConfig(sample), "utf8");
+  } catch (error) {
+    return { ok: false, path: target, message: `could not write ${target}: ${String(error)}` };
+  }
+
+  return { ok: true, path: target, message: `wrote sample config to ${target}` };
 }
 
 /** Statuses a job can legitimately be in — used to validate `--status` input. */
