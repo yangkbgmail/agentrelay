@@ -10,8 +10,10 @@ import {
   runCommand,
   startDaemon,
   tickOnce,
+  writeExportFile,
 } from "./commands.js";
 import { defaultStorePath } from "./config.js";
+import { EXPORT_FORMATS, type ExportFormat, isExportFormat, renderExport } from "./export.js";
 import { renderStats, renderStatsJson } from "./stats.js";
 import {
   type JobSelection,
@@ -47,6 +49,40 @@ function runWatch(store: string, intervalMs: number, selection: JobSelection): v
   };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
+}
+
+/**
+ * Parses the shared `--status`/`--sort`/`--reverse` options into a
+ * {@link JobSelection}, or returns an error string when a value is invalid.
+ * Used by both `status` and `export` so filtering/sorting behaves identically.
+ */
+function parseSelection(opts: {
+  status?: string;
+  sort?: string;
+  reverse?: boolean;
+}): { selection: JobSelection } | { error: string } {
+  const selection: JobSelection = { reverse: opts.reverse };
+
+  if (opts.status !== undefined) {
+    const requested = opts.status
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
+    if (invalid.length > 0) {
+      return { error: `Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.` };
+    }
+    selection.statuses = requested as JobStatus[];
+  }
+
+  if (opts.sort !== undefined) {
+    if (!SORT_FIELDS.includes(opts.sort as SortField)) {
+      return { error: `Unknown --sort field "${opts.sort}". Valid: ${SORT_FIELDS.join(", ")}.` };
+    }
+    selection.sort = opts.sort as SortField;
+  }
+
+  return { selection };
 }
 
 export function buildCli(): Command {
@@ -117,30 +153,13 @@ export function buildCli(): Command {
     .action((opts: { watch?: string | boolean; json?: boolean; status?: string; sort?: string; reverse?: boolean }) => {
       const { store } = program.opts();
 
-      const selection: JobSelection = { reverse: opts.reverse };
-
-      if (opts.status !== undefined) {
-        const requested = opts.status
-          .split(",")
-          .map((s) => s.trim())
-          .filter((s) => s.length > 0);
-        const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
-        if (invalid.length > 0) {
-          console.error(`Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.`);
-          process.exitCode = 1;
-          return;
-        }
-        selection.statuses = requested as JobStatus[];
+      const parsed = parseSelection(opts);
+      if ("error" in parsed) {
+        console.error(parsed.error);
+        process.exitCode = 1;
+        return;
       }
-
-      if (opts.sort !== undefined) {
-        if (!SORT_FIELDS.includes(opts.sort as SortField)) {
-          console.error(`Unknown --sort field "${opts.sort}". Valid: ${SORT_FIELDS.join(", ")}.`);
-          process.exitCode = 1;
-          return;
-        }
-        selection.sort = opts.sort as SortField;
-      }
+      const selection = parsed.selection;
 
       if (opts.json) {
         console.log(renderStatusJson(selectJobs(listStatus(store), selection), store));
@@ -177,6 +196,43 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("export")
+    .description("Export the job queue as CSV or JSON for spreadsheets / external analysis")
+    .option("--format <format>", `Output format: ${EXPORT_FORMATS.join(" | ")}`, "csv")
+    .option("-o, --out <file>", "Write to a file instead of stdout")
+    .option("-s, --status <statuses>", "Only export jobs with these comma-separated statuses (e.g. completed,failed)")
+    .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
+    .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
+    .action((opts: { format?: string; out?: string; status?: string; sort?: string; reverse?: boolean }) => {
+      const { store } = program.opts();
+
+      const format = opts.format ?? "csv";
+      if (!isExportFormat(format)) {
+        console.error(`Unknown --format "${format}". Valid: ${EXPORT_FORMATS.join(", ")}.`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const parsed = parseSelection(opts);
+      if ("error" in parsed) {
+        console.error(parsed.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const selected = selectJobs(listStatus(store), parsed.selection);
+      const content = renderExport(selected, format as ExportFormat);
+
+      if (opts.out) {
+        const path = writeExportFile(opts.out, content);
+        console.log(`[agentrelay] Exported ${selected.length} job(s) as ${format} to ${path}.`);
+        return;
+      }
+      // Print to stdout for piping (e.g. `agentrelay export | column -t -s,`).
+      console.log(content);
     });
 
   program

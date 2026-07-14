@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import type { AgentTool, JobStatus, Notifier, PruneOptions, RelayJob } from "@agentrelay/core";
 import {
   autoPruneEveryMsFromEnv,
@@ -257,6 +259,17 @@ export function pruneJobs(options: PruneJobsOptions = {}): { pruned: RelayJob[];
   const remaining = queue.listAll().length - (pruneOpts.dryRun ? pruned.length : 0);
   queue.close();
   return { pruned, remaining };
+}
+
+/**
+ * Writes exported text to a file, creating parent directories as needed. Kept
+ * here (not in cli.ts) so the file-writing side effect stays out of the pure
+ * render layer. Returns the resolved path for the CLI to report.
+ */
+export function writeExportFile(path: string, content: string): string {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, content, "utf8");
+  return path;
 }
 
 /** Statuses a job can legitimately be in — used to validate `--status` input. */

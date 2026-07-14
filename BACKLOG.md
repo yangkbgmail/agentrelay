@@ -116,6 +116,15 @@
       설정된 env는 덮지 않음 → **env/CLI > 설정파일 > 기본값** 우선순위). 기존 `*FromEnv` 헬퍼를 전부
       재사용 — CLI `bin.ts`가 buildCli 전에 `bootstrapConfig()`로 설정을 process.env에 채우고, 프로그램에
       `--config <path>` 옵션 추가. branch `claude/wizardly-pascal-ohoon1`)
+- [x] 👷 `agentrelay export` — 큐를 CSV/JSON으로 내보내 스프레드시트·외부 분석에 활용.
+      (완료 — `@agentrelay/core/export.ts` 신설: 순수 `jobsToCsv(jobs, columns?)`(RFC-4180 이스케이프,
+      값에 `,`·`"`·개행 있으면 따옴표로 감싸고 내부 따옴표는 이중화, CRLF 행 구분, header+행)·
+      `jobsToJson`(엔벨로프 없는 순수 job 배열, status --json과 달리 데이터로 왕복)·`EXPORT_COLUMNS`
+      (id/project/tool/status/resetAt/created/updated/attempts/command/cwd/lastError/lastOutputTail,
+      null은 빈 셀, command는 공백 join). CLI `packages/cli/src/export.ts`에 `renderExport`·`isExportFormat`·
+      `EXPORT_FORMATS`, `commands.ts`에 부모 디렉터리 자동생성 `writeExportFile`. `agentrelay export
+      [--format csv|json] [-o file] [-s status] [--sort field] [-r]`, status의 필터/정렬을 `selectJobs`
+      재사용(status/export가 공유 `parseSelection` 헬퍼). branch `claude/wizardly-pascal-i84sa9`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

@@ -389,3 +389,32 @@
     JSON in AgentRelay config …" + exit 1.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
   `agentrelay config init`으로 샘플 설정 파일 생성(👷 후보), stats 시간대별 추이(👷 후보).
+
+### [세션 14 — `agentrelay export`(큐 CSV/JSON 내보내기)] (2026-07-14, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 4개(#29 doctor, #28 logs, #27 config init, #24 combine mode)가
+  최근 👷 후보를 모두 점유 중이라, 중복을 피해 CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다 —
+  지금까지 큐 데이터를 기계 판독으로 꺼낼 방법이 `status --json`(엔벨로프 덤프)뿐이라,
+  스프레드시트/외부 분석(SPEC §2 "소규모 개발팀 리드가 누가 얼마나 막혔는지 본다")에 바로 쓸
+  표 형식(CSV) 내보내기가 없었다.
+- 한 일 (branch `claude/wizardly-pascal-i84sa9`):
+  1. `@agentrelay/core/export.ts` 신설 — 순수·테스트 가능. `jobsToCsv(jobs, columns?)`가 RFC-4180
+     이스케이프(값에 `,`·`"`·개행이 있으면 따옴표로 감싸고 내부 따옴표는 이중화)로 header+행을
+     CRLF로 렌더. `EXPORT_COLUMNS`(id/project/tool/status/resetAt/created/updated/attempts/command/
+     cwd/lastError/lastOutputTail; null은 `null` 문자열이 아니라 빈 셀, command는 공백 join=표시용).
+     `jobsToJson`은 `status --json`과 달리 엔벨로프 없는 순수 job 배열이라 데이터로 왕복. `escapeCsvField`
+     export. index.ts에 배선.
+  2. CLI — `packages/cli/src/export.ts`에 `EXPORT_FORMATS`·`isExportFormat`·순수 `renderExport`
+     (format 디스패치). `commands.ts`에 부모 디렉터리 자동생성 `writeExportFile`(I/O를 순수 렌더에서
+     분리). `cli.ts`에 `agentrelay export [--format csv|json] [-o <file>] [-s <status>] [--sort <field>]
+     [-r]` 배선 — status의 필터/정렬을 `selectJobs`로 재사용하고, status/export가 공유하는 `parseSelection`
+     헬퍼를 뽑아 `--status`/`--sort` 검증 중복 제거(status 커맨드도 이 헬퍼로 리팩터). 잘못된 format/
+     status/sort는 stderr + exit 1, `-o` 없으면 stdout(파이프용).
+  - 검증: `pnpm build` 클린(Next.js 대시보드 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **201개 전부 통과**(core 153 + cli 45 + dashboard 3 — core export 10 + CLI export 6 신규).
+    **실제 빌드된 CLI e2e**(mock 아님): 3-job 스토어(완료/실패-멀티라인 error/대기) 시드 →
+    default CSV가 header+3행을 최신순으로, 멀티라인 error는 이중따옴표로 감싸 한 셀 보존, 콤마 포함
+    command도 인용 → `--status failed,completed` 2건 → `--format json --status waiting_for_reset`가
+    엔벨로프 없는 배열 1건 → `--sort attempts -o out.csv`가 파일 생성·attempts 0·1·3 정렬 →
+    잘못된 `--format xml`·`--status nope`는 exit 1 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드에서 export 링크 노출(👷 후보),
+  stats 시간대별 추이(👷 후보), export에 컬럼 선택(`--columns`) 옵션(👷 후보).
