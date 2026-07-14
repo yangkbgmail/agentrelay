@@ -1,9 +1,10 @@
 import type { AgentTool, JobStatus } from "@agentrelay/core";
-import { computeStats, parseDuration } from "@agentrelay/core";
+import { computeStats, parseDuration, runDoctorChecks } from "@agentrelay/core";
 import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
   cancelJob,
+  gatherDoctorInput,
   listStatus,
   pruneJobs,
   retryJob,
@@ -12,6 +13,7 @@ import {
   tickOnce,
 } from "./commands.js";
 import { defaultStorePath } from "./config.js";
+import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderStats, renderStatsJson } from "./stats.js";
 import {
   type JobSelection,
@@ -177,6 +179,22 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("doctor")
+    .description("Diagnose your setup: Node version, store file, config, notifiers, retry policy")
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/CI)")
+    .action((opts: { json?: boolean }) => {
+      const { store, config } = program.opts();
+      const report = runDoctorChecks(gatherDoctorInput(store, config));
+      if (opts.json) {
+        console.log(renderDoctorJson(report, store));
+      } else {
+        console.log(renderDoctor(report, { color: Boolean(process.stdout.isTTY) }));
+      }
+      // Non-zero exit when a hard problem was found, so CI/scripts can gate on it.
+      if (!report.ok) process.exitCode = 1;
     });
 
   program

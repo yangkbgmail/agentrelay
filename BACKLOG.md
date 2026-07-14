@@ -116,6 +116,16 @@
       설정된 env는 덮지 않음 → **env/CLI > 설정파일 > 기본값** 우선순위). 기존 `*FromEnv` 헬퍼를 전부
       재사용 — CLI `bin.ts`가 buildCli 전에 `bootstrapConfig()`로 설정을 process.env에 채우고, 프로그램에
       `--config <path>` 옵션 추가. branch `claude/wizardly-pascal-ohoon1`)
+- [x] 👷 `agentrelay doctor` — 셋업 진단(Node 버전·스토어·설정 파일·알림자·재시도 정책 점검).
+      (완료 — `@agentrelay/core/doctor.ts` 신설: 순수 `runDoctorChecks(input)` + `DoctorInput`/`DoctorReport`/
+      `DoctorCheck`(status: ok/warn/error). Node 버전(`compareVersions`/`parseVersion`, `MIN_NODE_VERSION` 22.5.0
+      미만은 error)·스토어(파싱 불가/쓰기 불가는 error, 미존재-쓰기가능은 "첫 실행 시 생성"으로 ok)·설정 파일
+      (로드됨/없음은 ok, 명시했는데 깨지면 error)·알림자(미설정은 warn, 있으면 ok)·재시도 정책(유효값 표시,
+      비정합은 warn) 5개 체크. `ok`는 error가 하나도 없을 때 true. 모든 I/O는 CLI가 수집. CLI
+      `packages/cli/src/commands.ts`에 `gatherDoctorInput(store?,config?)`(Node 버전·fs write-probe·스토어
+      job 카운트/파싱·`--config` 존중 설정 해소·env 알림자·retry 수집), `packages/cli/src/doctor.ts`에 순수
+      `renderDoctor`(아이콘+색상 게이트)·`renderDoctorJson`. `agentrelay doctor [--json]` 커맨드 배선, error 발견 시
+      exit 1(CI 게이트용). branch `claude/wizardly-pascal-epcqb3`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
