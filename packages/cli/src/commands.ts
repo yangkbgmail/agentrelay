@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import type {
   AgentRelayConfig,
   AgentTool,
+  BackupResult,
   ConfigIssue,
   JobStatus,
   Notifier,
@@ -18,6 +19,7 @@ import {
   canCancel,
   canRequeue,
   hasConfigErrors,
+  listBackups,
   notifiersFromEnv,
   parseConfig,
   RelayQueue,
@@ -417,6 +419,52 @@ export function validateConfigFile(options: ConfigValidateOptions = {}): ConfigV
 
   const issues = validateConfig(config);
   return { ok: !hasConfigErrors(issues), path, issues };
+}
+
+export interface BackupStoreOptions {
+  storePath?: string;
+  /** How many recent snapshots to retain (default: core's DEFAULT_BACKUP_KEEP). */
+  keepLast?: number;
+}
+
+/**
+ * Writes a timestamped snapshot of the job store and rotates old snapshots.
+ * Thin wrapper over {@link RelayQueue.backup} that owns opening/closing the
+ * store, so the CLI (and tests) get a one-call entry point.
+ */
+export function backupStore(options: BackupStoreOptions = {}): BackupResult {
+  const queue = openQueue(options.storePath ?? defaultStorePath());
+  try {
+    return queue.backup({ keepLast: options.keepLast });
+  } finally {
+    queue.close();
+  }
+}
+
+export interface StoreBackupInfo {
+  /** Absolute path of the snapshot. */
+  path: string;
+  /** The snapshot's sortable timestamp infix (see core `backupStamp`). */
+  stamp: string;
+}
+
+/**
+ * Lists the store's existing snapshots (newest first) by scanning the store's
+ * directory for `<store>.backup-*` files. Reads no snapshot contents — just
+ * enumerates them for `agentrelay backup --list`. A missing/unreadable
+ * directory yields an empty list rather than throwing.
+ */
+export function listStoreBackups(storePath?: string): StoreBackupInfo[] {
+  const store = storePath ?? defaultStorePath();
+  const dir = dirname(store);
+  const storeName = basename(store);
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return listBackups(names, storeName).map((entry) => ({ path: join(dir, entry.name), stamp: entry.stamp }));
 }
 
 /** Statuses a job can legitimately be in — used to validate `--status` input. */

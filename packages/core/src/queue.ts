@@ -19,8 +19,9 @@
 // needs real concurrent multi-writer access or heavier querying, revisit
 // with `node:sqlite` once it stabilizes, or `sql.js`.
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { type BackupResult, backupFilePath, DEFAULT_BACKUP_KEEP, selectRotatableBackups } from "./backup.js";
 import { type PruneOptions, selectPrunableJobs } from "./prune.js";
 import type { CreateJobInput, JobStatus, RelayJob } from "./types.js";
 
@@ -243,6 +244,56 @@ export class RelayQueue {
     }
     this.flush();
     return prune;
+  }
+
+  /**
+   * Writes a timestamped snapshot of the store next to it
+   * (`jobs.json.backup-<ts>`) and rotates old snapshots, keeping the newest
+   * `keepLast` (default {@link DEFAULT_BACKUP_KEEP}). Returns the new path, the
+   * job count captured, and the snapshots removed by rotation.
+   *
+   * The snapshot is written atomically (temp file + rename) and reflects the
+   * current on-disk state, so even an empty store yields a valid `[]` snapshot.
+   * Rotation only ever touches this store's own `.backup-*` files — never the
+   * live store, a `.corrupt-*` recovery copy, or a `.tmp-*` write — and the
+   * just-written snapshot is always spared even at `keepLast: 0`. A failure to
+   * delete an old snapshot is swallowed so a backup never breaks the relay.
+   */
+  backup(options: { keepLast?: number; now?: Date } = {}): BackupResult {
+    this.load();
+    const now = options.now ?? new Date();
+    const dest = backupFilePath(this.filePath, now);
+    const all = Array.from(this.jobs.values()).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+
+    // Atomic write via a `.tmp-*` temp file (NOT `.backup-*`, so rotation's
+    // pattern never matches an in-flight snapshot).
+    const tmpPath = `${this.filePath}.tmp-backup-${process.pid}-${Date.now()}`;
+    writeFileSync(tmpPath, JSON.stringify(all, null, 2), "utf8");
+    renameSync(tmpPath, dest);
+
+    const keepLast = options.keepLast ?? DEFAULT_BACKUP_KEEP;
+    const dir = dirname(this.filePath);
+    const storeName = basename(this.filePath);
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      names = [];
+    }
+    const rotated: string[] = [];
+    for (const name of selectRotatableBackups(names, storeName, keepLast)) {
+      const full = join(dir, name);
+      // Never delete the snapshot we just made (guards keepLast: 0).
+      if (full === dest) continue;
+      try {
+        unlinkSync(full);
+        rotated.push(full);
+      } catch {
+        // Best-effort rotation: a delete failure must not break anything.
+      }
+    }
+
+    return { path: dest, jobCount: all.length, rotated };
   }
 
   /** Jobs whose reset time has already passed and are ready to be resumed now. */
