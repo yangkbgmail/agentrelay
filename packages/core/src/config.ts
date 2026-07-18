@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_AUTOPRUNE_AFTER_MS } from "./prune.js";
+import { DEFAULT_RETRY_POLICY } from "./retry.js";
 
 /**
  * Persistent configuration for AgentRelay, read from a JSON file so users don't
@@ -223,6 +225,63 @@ export function applyConfigToEnv(
     }
   }
   return applied;
+}
+
+/**
+ * Per-user config location (`~/.agentrelay/config.json`), honoring an env
+ * override of HOME/USERPROFILE so it is deterministic and testable. This is the
+ * path `agentrelay config init --global` writes to and the last candidate that
+ * {@link resolveConfigPath} discovers.
+ */
+export function userConfigPath(env: Record<string, string | undefined> = process.env): string {
+  const home = env.HOME?.trim() || env.USERPROFILE?.trim() || homedir();
+  return join(home, ".agentrelay", "config.json");
+}
+
+/**
+ * A ready-to-edit sample config with every field present at its built-in
+ * default, so `agentrelay config init` produces a discoverable template rather
+ * than an empty file. Notification URLs are left blank (a blank webhook is
+ * treated as unset, so the sample never posts anywhere until the user fills it
+ * in). Retry/auto-prune values mirror the real defaults ({@link
+ * DEFAULT_RETRY_POLICY}, {@link DEFAULT_AUTOPRUNE_AFTER_MS}) so the template
+ * documents them without changing behaviour when left untouched.
+ */
+export function sampleConfig(env: Record<string, string | undefined> = process.env): AgentRelayConfig {
+  const afterDays = Math.round(DEFAULT_AUTOPRUNE_AFTER_MS / (24 * 60 * 60_000));
+  const home = env.HOME?.trim() || env.USERPROFILE?.trim() || homedir();
+  return {
+    // The real default store path — present so the knob is discoverable;
+    // leaving it untouched keeps the built-in default (a no-op).
+    store: join(home, ".agentrelay", "jobs.json"),
+    notify: {
+      slackWebhook: "",
+      webhookUrl: "",
+      webhookAuth: "",
+    },
+    retry: {
+      maxAttempts: DEFAULT_RETRY_POLICY.maxAttempts,
+      baseDelayMs: DEFAULT_RETRY_POLICY.baseDelayMs,
+      factor: DEFAULT_RETRY_POLICY.factor,
+      maxDelayMs: DEFAULT_RETRY_POLICY.maxDelayMs,
+    },
+    autoPrune: {
+      enabled: false,
+      after: `${afterDays}d`,
+      keep: 20,
+      every: "1h",
+      everyTicks: 0,
+    },
+  };
+}
+
+/**
+ * Serializes a config object to pretty-printed JSON with a trailing newline —
+ * the on-disk form written by `agentrelay config init`. Round-trips cleanly
+ * through {@link parseConfig}.
+ */
+export function serializeConfig(config: AgentRelayConfig): string {
+  return `${JSON.stringify(config, null, 2)}\n`;
 }
 
 function asObject(value: unknown, label: string): Record<string, unknown> {

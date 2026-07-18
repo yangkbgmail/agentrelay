@@ -9,7 +9,11 @@ import {
   loadConfigFile,
   parseConfig,
   resolveConfigPath,
+  sampleConfig,
+  serializeConfig,
+  userConfigPath,
 } from "../src/config.js";
+import { DEFAULT_RETRY_POLICY } from "../src/retry.js";
 
 describe("configToEnv", () => {
   it("returns an empty map for an empty config", () => {
@@ -125,5 +129,50 @@ describe("resolveConfigPath / loadConfigFile", () => {
     const path = join(dir, "bad.json");
     writeFileSync(path, "{ not json");
     expect(() => loadConfigFile({ path })).toThrow(/Invalid JSON/);
+  });
+});
+
+describe("sampleConfig / serializeConfig", () => {
+  it("mirrors the built-in retry defaults so an untouched template is a no-op", () => {
+    const sample = sampleConfig({ HOME: "/home/tester" });
+    expect(sample.retry).toEqual({
+      maxAttempts: DEFAULT_RETRY_POLICY.maxAttempts,
+      baseDelayMs: DEFAULT_RETRY_POLICY.baseDelayMs,
+      factor: DEFAULT_RETRY_POLICY.factor,
+      maxDelayMs: DEFAULT_RETRY_POLICY.maxDelayMs,
+    });
+    // Auto-prune is off by default and webhooks are blank (blank = unset).
+    expect(sample.autoPrune?.enabled).toBe(false);
+    expect(sample.notify).toEqual({ slackWebhook: "", webhookUrl: "", webhookAuth: "" });
+    // Store points at the real per-user default for the given HOME.
+    expect(sample.store).toBe("/home/tester/.agentrelay/jobs.json");
+  });
+
+  it("round-trips cleanly through parseConfig", () => {
+    const sample = sampleConfig({ HOME: "/home/tester" });
+    const json = serializeConfig(sample);
+    expect(json.endsWith("\n")).toBe(true);
+    expect(parseConfig(JSON.parse(json), "sample")).toEqual(sample);
+  });
+
+  it("produces a config whose env projection leaves defaults untouched", () => {
+    // A blank webhook maps to an empty env value that the notifier treats as unset,
+    // and the retry/auto-prune values equal the built-in defaults, so applying the
+    // sample to a fresh env introduces no behavioural change beyond the store path.
+    const env: Record<string, string | undefined> = {};
+    applyConfigToEnv(sampleConfig({ HOME: "/home/tester" }), env);
+    expect(env.AGENTRELAY_MAX_ATTEMPTS).toBe(String(DEFAULT_RETRY_POLICY.maxAttempts));
+    expect(env.AGENTRELAY_AUTOPRUNE).toBe("0");
+    expect(env.AGENTRELAY_STORE).toBe("/home/tester/.agentrelay/jobs.json");
+  });
+});
+
+describe("userConfigPath", () => {
+  it("resolves ~/.agentrelay/config.json honoring a HOME override", () => {
+    expect(userConfigPath({ HOME: "/home/tester" })).toBe("/home/tester/.agentrelay/config.json");
+  });
+
+  it("falls back to USERPROFILE when HOME is absent", () => {
+    expect(userConfigPath({ USERPROFILE: "/users/win" })).toBe("/users/win/.agentrelay/config.json");
   });
 });

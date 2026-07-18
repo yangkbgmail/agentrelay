@@ -389,3 +389,29 @@
     JSON in AgentRelay config …" + exit 1.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
   `agentrelay config init`으로 샘플 설정 파일 생성(👷 후보), stats 시간대별 추이(👷 후보).
+
+### [세션 14 — `agentrelay config init` 샘플 설정 생성] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 designated 브랜치의 origin이 이미 병합·삭제된 상태라 최신 main에서 브랜치를
+  다시 만들었다(`claude/wizardly-pascal-9yi6f5`←origin/main). 명시적 👷 백로그 항목은 전부 완료 상태라
+  세션 13이 "다음 할 일"로 남긴 👷 후보 중 **`agentrelay config init`**(편집 가능한 샘플 설정 파일
+  생성, SPEC §8 DX 개선)을 구현했다. 지금까지 설정 파일은 사용자가 직접 손으로 작성해야 했다.
+- 한 일 (branch `claude/wizardly-pascal-9yi6f5`):
+  1. `@agentrelay/core/config.ts`에 순수 `sampleConfig(env)`·`serializeConfig`·`userConfigPath` 추가.
+     `sampleConfig`은 **모든 필드를 내장 기본값으로 채운 템플릿**을 반환한다 — store는 실제 per-user
+     기본 경로(HOME override 존중해 결정적), notify는 빈 문자열(빈 webhook=미설정이라 아무 데도 전송
+     안 함), retry는 `DEFAULT_RETRY_POLICY`, autoPrune은 off+기본값. 손대지 않고 적용해도 동작이
+     바뀌지 않는다(모든 값=기본값). 기본 상수(`DEFAULT_RETRY_POLICY`/`DEFAULT_AUTOPRUNE_AFTER_MS`)를
+     재사용해 드리프트 방지. `serializeConfig`은 2-space JSON+trailing newline으로 `parseConfig`와 왕복.
+     `userConfigPath`은 `~/.agentrelay/config.json`(HOME/USERPROFILE override 존중).
+  2. CLI `commands.ts`에 `configInit(options)` — 프로젝트-로컬 `./agentrelay.config.json`이 기본,
+     `--global`은 `~/.agentrelay/config.json`, `-o/--out`은 명시 경로. 부모 디렉토리를 자동 생성하고,
+     기존 파일은 `--force` 없이는 절대 덮지 않고 exit 1(재실행이 커스텀 설정을 조용히 날리지 않음).
+     cli.ts에 `config` 그룹 + `config init` 서브커맨드(`--global`/`-o,--out`/`-f,--force`) 배선.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **195개 전부 통과**(core 148 + cli 44 + dashboard 3 — config.test에 sampleConfig/
+    serializeConfig/userConfigPath 5케이스, commands.test에 configInit 5케이스 신규).
+    **실제 빌드된 CLI e2e**(mock 아님): `config init`이 기본값 템플릿 생성 → 재실행은 "already exists"+
+    exit 1 → `--force`로 덮어쓰기 → `-o sub/dir/my.json`이 중첩 디렉토리 생성 → 생성된 config를
+    `--config … status --json`이 실제로 읽어 storePath에 config의 store가 반영됨을 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
+  `config show`로 현재 해석된 설정 출력(👷 후보), stats 시간대별 추이(👷 후보).

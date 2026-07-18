@@ -4,6 +4,7 @@ import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
   cancelJob,
+  configInit,
   listStatus,
   pruneJobs,
   retryJob,
@@ -177,6 +178,20 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  const config = program.command("config").description("Manage the agentrelay.config.json settings file");
+  config
+    .command("init")
+    .description("Write a sample agentrelay.config.json you can edit (project-local by default)")
+    .option("--global", "Write to ~/.agentrelay/config.json instead of ./agentrelay.config.json")
+    .option("-o, --out <path>", "Write to an explicit path (overrides --global)")
+    .option("-f, --force", "Overwrite the file if it already exists")
+    .action((opts: { global?: boolean; out?: string; force?: boolean }) => {
+      const result = configInit({ path: opts.out, global: opts.global, force: opts.force });
+      const log = result.ok ? console.log : console.error;
+      log(`[agentrelay] ${result.message}`);
+      if (!result.ok) process.exitCode = 1;
     });
 
   program

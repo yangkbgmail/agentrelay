@@ -1,11 +1,11 @@
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import type { NotifyPayload } from "@agentrelay/core";
-import { RelayQueue } from "@agentrelay/core";
+import { parseConfig, RelayQueue, sampleConfig } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cancelJob, listStatus, pruneJobs, retryJob, runCommand } from "../src/commands.js";
+import { cancelJob, configInit, listStatus, pruneJobs, retryJob, runCommand } from "../src/commands.js";
 
 describe("runCommand", () => {
   let dir: string;
@@ -193,5 +193,60 @@ describe("pruneJobs", () => {
     expect(remaining).toBe(0);
     // Store untouched.
     expect(listStatus(storePath)).toHaveLength(1);
+  });
+});
+
+describe("configInit", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-config-init-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("writes a valid sample config to an explicit path", () => {
+    const target = join(dir, "agentrelay.config.json");
+    const result = configInit({ path: target, env: { HOME: "/home/tester" } });
+    expect(result.ok).toBe(true);
+    expect(result.path).toBe(target);
+    expect(existsSync(target)).toBe(true);
+    // The file parses back into the exact sample it was generated from.
+    const parsed = parseConfig(JSON.parse(readFileSync(target, "utf8")), target);
+    expect(parsed).toEqual(sampleConfig({ HOME: "/home/tester" }));
+  });
+
+  it("creates missing parent directories (e.g. ~/.agentrelay)", () => {
+    const target = join(dir, "nested", "deeper", "config.json");
+    const result = configInit({ path: target });
+    expect(result.ok).toBe(true);
+    expect(existsSync(target)).toBe(true);
+  });
+
+  it("refuses to overwrite an existing file without --force", () => {
+    const target = join(dir, "agentrelay.config.json");
+    writeFileSync(target, '{"store":"/keep/me.json"}');
+    const result = configInit({ path: target });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/already exists/);
+    // Original content preserved.
+    expect(readFileSync(target, "utf8")).toBe('{"store":"/keep/me.json"}');
+  });
+
+  it("overwrites an existing file when force is set", () => {
+    const target = join(dir, "agentrelay.config.json");
+    writeFileSync(target, '{"store":"/old.json"}');
+    const result = configInit({ path: target, force: true, env: { HOME: "/home/tester" } });
+    expect(result.ok).toBe(true);
+    expect(readFileSync(target, "utf8")).toBe(`${JSON.stringify(sampleConfig({ HOME: "/home/tester" }), null, 2)}\n`);
+  });
+
+  it("targets ~/.agentrelay/config.json with --global", () => {
+    const result = configInit({ global: true, env: { HOME: dir } });
+    expect(result.ok).toBe(true);
+    expect(result.path).toBe(join(dir, ".agentrelay", "config.json"));
+    expect(existsSync(result.path)).toBe(true);
   });
 });

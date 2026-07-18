@@ -1,9 +1,12 @@
 import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import type { AgentTool, JobStatus, Notifier, PruneOptions, RelayJob } from "@agentrelay/core";
 import {
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
+  CONFIG_FILENAME,
   canCancel,
   canRequeue,
   notifiersFromEnv,
@@ -12,6 +15,9 @@ import {
   resolveAdapter,
   resolveJobId,
   retryPolicyFromEnv,
+  sampleConfig,
+  serializeConfig,
+  userConfigPath,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
 
@@ -257,6 +263,54 @@ export function pruneJobs(options: PruneJobsOptions = {}): { pruned: RelayJob[];
   const remaining = queue.listAll().length - (pruneOpts.dryRun ? pruned.length : 0);
   queue.close();
   return { pruned, remaining };
+}
+
+export interface ConfigInitOptions {
+  /** Explicit target path. Overrides `global`. */
+  path?: string;
+  /** Write to the per-user `~/.agentrelay/config.json` instead of `./agentrelay.config.json`. */
+  global?: boolean;
+  /** Overwrite an existing file instead of refusing. */
+  force?: boolean;
+  /** Environment used to resolve HOME for the global/sample paths. Defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
+}
+
+export interface ConfigInitResult {
+  ok: boolean;
+  /** The resolved target path (whether or not it was written). */
+  path: string;
+  /** Human-readable line for the CLI to print. */
+  message: string;
+}
+
+/**
+ * Writes a ready-to-edit sample `agentrelay.config.json`. Defaults to the
+ * project-local file; `--global` targets the per-user config. Refuses to
+ * clobber an existing file unless `force` is set, so re-running `config init`
+ * never silently wipes a customized config.
+ */
+export function configInit(options: ConfigInitOptions = {}): ConfigInitResult {
+  const env = options.env ?? process.env;
+  const target = options.path?.trim() || (options.global ? userConfigPath(env) : `${process.cwd()}/${CONFIG_FILENAME}`);
+
+  if (existsSync(target) && !options.force) {
+    return {
+      ok: false,
+      path: target,
+      message: `${target} already exists. Re-run with --force to overwrite it.`,
+    };
+  }
+
+  const dir = dirname(target);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(target, serializeConfig(sampleConfig(env)), "utf8");
+
+  return {
+    ok: true,
+    path: target,
+    message: `Wrote sample config to ${target}. Edit it, then run any agentrelay command (values are defaults; env/CLI still win).`,
+  };
 }
 
 /** Statuses a job can legitimately be in — used to validate `--status` input. */
