@@ -158,4 +158,10 @@
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
-- (아직 없음)
+- [ ] 👷 설정 파일 지원 — `~/.agentrelay/config.json`(또는 `.agentrelayrc.json`)을 읽어 반복 CLI
+      플래그를 기본값으로. (이전 브랜치 `wizardly-pascal-8wtbvl`가 있었으나 현재 main과 충돌하여
+      닫음. 최신 main + config init 위에서 깨끗하게 재구현할 것. config init의 `loadConfigFile`/
+      `resolveConfigPath`와 통합.)
+- [ ] 👷 자동 prune 스로틀 "결합 모드(AND/OR)" — 시간·tick 두 스로틀을 AND뿐 아니라 OR로도 결합
+      선택 가능하게. (이전 브랜치 `wizardly-pascal-xzhh46`가 있었으나 현재 main과 충돌하여 닫음.
+      최신 `prune.ts`/`scheduler.ts` 위에서 재구현할 것.)
