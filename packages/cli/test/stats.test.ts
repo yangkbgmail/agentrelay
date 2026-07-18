@@ -1,7 +1,7 @@
 import type { RelayJob } from "@agentrelay/core";
 import { computeStats } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { formatSuccessRate, NO_STATS_MESSAGE, renderStats, renderStatsJson } from "../src/stats.js";
+import { formatDurationMs, formatSuccessRate, NO_STATS_MESSAGE, renderStats, renderStatsJson } from "../src/stats.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -34,6 +34,27 @@ describe("formatSuccessRate", () => {
 
   it("renders n/a for a null rate", () => {
     expect(formatSuccessRate(null)).toBe("n/a");
+  });
+});
+
+describe("formatDurationMs", () => {
+  it("renders sub-second and second spans", () => {
+    expect(formatDurationMs(0)).toBe("<1s");
+    expect(formatDurationMs(500)).toBe("<1s");
+    expect(formatDurationMs(8_000)).toBe("8s");
+  });
+
+  it("renders minutes with seconds, hours with minutes, days with hours", () => {
+    expect(formatDurationMs(90_000)).toBe("1m 30s");
+    expect(formatDurationMs(3_600_000)).toBe("1h 0m");
+    expect(formatDurationMs(4 * 3_600_000 + 12 * 60_000)).toBe("4h 12m");
+    expect(formatDurationMs(26 * 3_600_000)).toBe("1d 2h");
+  });
+
+  it("returns - for negative or non-finite input", () => {
+    expect(formatDurationMs(-1)).toBe("-");
+    expect(formatDurationMs(Number.NaN)).toBe("-");
+    expect(formatDurationMs(Number.POSITIVE_INFINITY)).toBe("-");
   });
 });
 
@@ -74,6 +95,25 @@ describe("renderStats", () => {
     expect(out).toMatch(/api\s+2/);
   });
 
+  it("renders a resolution-time block when jobs have resolved", () => {
+    const stats = computeStats([
+      job({ status: "completed", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T01:00:00.000Z" }),
+      job({ status: "failed", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T03:00:00.000Z" }),
+    ]);
+    const out = renderStats(stats, { now: NOW });
+    expect(out).toContain("resolution time");
+    expect(out).toContain("avg 2h 0m");
+    expect(out).toContain("min 1h 0m");
+    expect(out).toContain("max 3h 0m");
+    expect(out).toContain("over 2 job(s)");
+  });
+
+  it("omits the resolution-time block when nothing has resolved", () => {
+    const stats = computeStats([job({ status: "queued" }), job({ status: "waiting_for_reset" })]);
+    const out = renderStats(stats, { now: NOW });
+    expect(out).not.toContain("resolution time");
+  });
+
   it("caps the project list at five entries", () => {
     const jobs: RelayJob[] = [];
     for (const p of ["a", "b", "c", "d", "e", "f", "g"]) jobs.push(job({ project: p }));
@@ -92,5 +132,8 @@ describe("renderStatsJson", () => {
     expect(parsed.generatedAt).toBe("2026-07-13T00:00:00.000Z");
     expect(parsed.stats.total).toBe(2);
     expect(parsed.stats.successRate).toBeCloseTo(0.5, 10);
+    // timing block is carried through untouched for scripts/jq.
+    expect(parsed.stats.timing.resolvedCount).toBe(2);
+    expect(typeof parsed.stats.timing.avgResolutionMs).toBe("number");
   });
 });

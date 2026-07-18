@@ -13,6 +13,25 @@ export interface ProjectStat {
   count: number;
 }
 
+/**
+ * Timing metrics over relay-resolved jobs (completed + failed). "Resolution
+ * time" is a job's lifecycle span `updatedAt - createdAt`: how long the relay
+ * babysat it, from the first rate-limit/queue to its natural terminal state.
+ * Cancelled jobs are excluded (a user cut, not a relay-driven resolution),
+ * mirroring how `successRate` treats them. Jobs with a missing/unparseable
+ * timestamp or a negative span (clock skew) are skipped, not clamped.
+ */
+export interface TimingStats {
+  /** Number of resolved jobs that contributed a valid, non-negative duration. */
+  resolvedCount: number;
+  /** Mean resolution time (ms) over {@link resolvedCount} jobs, or null when none. */
+  avgResolutionMs: number | null;
+  /** Shortest resolution time (ms), or null when none. */
+  minResolutionMs: number | null;
+  /** Longest resolution time (ms), or null when none. */
+  maxResolutionMs: number | null;
+}
+
 export interface RelayStats {
   total: number;
   /** Count per job status (all statuses present, zero-filled). */
@@ -37,6 +56,23 @@ export interface RelayStats {
   nextResetAt: string | null;
   /** Projects ranked by job count (desc), ties broken by name (asc). */
   projects: ProjectStat[];
+  /** Resolution-time metrics over completed + failed jobs. */
+  timing: TimingStats;
+}
+
+/** Statuses whose lifecycle span counts as a relay-driven resolution. */
+const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
+
+/**
+ * Lifecycle span of a job in ms (`updatedAt - createdAt`), or null when either
+ * timestamp is missing/unparseable or the span is negative (clock skew).
+ */
+function resolutionMs(job: RelayJob): number | null {
+  const created = Date.parse(job.createdAt);
+  const updated = Date.parse(job.updatedAt);
+  if (Number.isNaN(created) || Number.isNaN(updated)) return null;
+  const span = updated - created;
+  return span >= 0 ? span : null;
 }
 
 /**
@@ -51,6 +87,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
   const projectCounts = new Map<string, number>();
   let totalAttempts = 0;
   let retriedJobs = 0;
+  const resolutionDurations: number[] = [];
 
   for (const job of jobs) {
     // A job may carry a tool we don't statically know about; only bump known
@@ -59,6 +96,10 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     totalAttempts += job.attempts;
     if (job.attempts > 1) retriedJobs += 1;
     projectCounts.set(job.project, (projectCounts.get(job.project) ?? 0) + 1);
+    if (RESOLVED_STATUSES.includes(job.status)) {
+      const span = resolutionMs(job);
+      if (span !== null) resolutionDurations.push(span);
+    }
   }
 
   const active = ACTIVE_STATUSES.reduce((sum, s) => sum + byStatus[s], 0);
@@ -71,5 +112,28 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     .map(([project, count]) => ({ project, count }))
     .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.project.localeCompare(b.project)));
 
-  return { total, byStatus, byTool, active, terminal, successRate, totalAttempts, retriedJobs, nextResetAt, projects };
+  const resolvedCount = resolutionDurations.length;
+  const timing: TimingStats =
+    resolvedCount === 0
+      ? { resolvedCount: 0, avgResolutionMs: null, minResolutionMs: null, maxResolutionMs: null }
+      : {
+          resolvedCount,
+          avgResolutionMs: Math.round(resolutionDurations.reduce((sum, d) => sum + d, 0) / resolvedCount),
+          minResolutionMs: Math.min(...resolutionDurations),
+          maxResolutionMs: Math.max(...resolutionDurations),
+        };
+
+  return {
+    total,
+    byStatus,
+    byTool,
+    active,
+    terminal,
+    successRate,
+    totalAttempts,
+    retriedJobs,
+    nextResetAt,
+    projects,
+    timing,
+  };
 }

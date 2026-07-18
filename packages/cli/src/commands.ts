@@ -1,9 +1,12 @@
 import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import type { AgentTool, JobStatus, Notifier, PruneOptions, RelayJob } from "@agentrelay/core";
 import {
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
+  CONFIG_FILENAME,
   canCancel,
   canRequeue,
   notifiersFromEnv,
@@ -12,8 +15,27 @@ import {
   resolveAdapter,
   resolveJobId,
   retryPolicyFromEnv,
+  sampleConfigJson,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
+
+/**
+ * Constructs a {@link RelayQueue} that, if the store file turns out to be
+ * corrupt, moves the unreadable file aside and warns on stderr instead of
+ * silently discarding it. Every CLI command opens the store through this so the
+ * user always learns when their queue file couldn't be read.
+ */
+function openQueue(storePath: string): RelayQueue {
+  return new RelayQueue(storePath, {
+    onCorrupt: ({ path, backupPath }) => {
+      const where = backupPath ? `moved it aside to ${backupPath}` : "could not move it aside";
+      // eslint-disable-next-line no-console
+      console.error(
+        `[agentrelay] warning: store file ${path} was unreadable; ${where} and started with an empty queue.`
+      );
+    },
+  });
+}
 
 export interface RunOptions {
   command: string[];
@@ -76,7 +98,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
     return { exitCode, queuedJob: null };
   }
 
-  const queue = new RelayQueue(storePath);
+  const queue = openQueue(storePath);
   const project = resolveProjectName(cwd);
   const job = queue.enqueue({ project, tool, command: options.command, cwd });
   queue.markWaitingForReset(job.id, rateLimit.resetAt);
@@ -124,7 +146,7 @@ function autoPruneBanner(
 
 export function startDaemon(options: DaemonOptions = {}) {
   const storePath = options.storePath ?? defaultStorePath();
-  const queue = new RelayQueue(storePath);
+  const queue = openQueue(storePath);
   const remoteNotify = options.remoteNotify === undefined ? notifiersFromEnv() : options.remoteNotify;
   const autoPrune = autoPruneOptionsFromEnv();
   const autoPruneEveryMs = autoPruneEveryMsFromEnv() ?? undefined;
@@ -158,7 +180,7 @@ export function startDaemon(options: DaemonOptions = {}) {
 }
 
 export async function tickOnce(storePath?: string, remoteNotify?: Notifier | null): Promise<RelayJob[]> {
-  const queue = new RelayQueue(storePath ?? defaultStorePath());
+  const queue = openQueue(storePath ?? defaultStorePath());
   const notify = remoteNotify === undefined ? notifiersFromEnv() : remoteNotify;
   const scheduler = new RelayScheduler({
     queue,
@@ -172,7 +194,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
 }
 
 export function listStatus(storePath?: string): RelayJob[] {
-  const queue = new RelayQueue(storePath ?? defaultStorePath());
+  const queue = openQueue(storePath ?? defaultStorePath());
   const jobs = queue.listAll();
   queue.close();
   return jobs;
@@ -193,7 +215,7 @@ const shortId = (id: string) => id.slice(0, 8);
  * with an explanatory message rather than silently doing nothing.
  */
 export function cancelJob(idOrPrefix: string, storePath?: string): JobControlResult {
-  const queue = new RelayQueue(storePath ?? defaultStorePath());
+  const queue = openQueue(storePath ?? defaultStorePath());
   try {
     const jobs = queue.listAll();
     const resolved = resolveJobId(jobs, idOrPrefix);
@@ -216,7 +238,7 @@ export function cancelJob(idOrPrefix: string, storePath?: string): JobControlRes
  * (`resuming`) jobs are rejected to avoid racing the running command.
  */
 export function retryJob(idOrPrefix: string, storePath?: string): JobControlResult {
-  const queue = new RelayQueue(storePath ?? defaultStorePath());
+  const queue = openQueue(storePath ?? defaultStorePath());
   try {
     const jobs = queue.listAll();
     const resolved = resolveJobId(jobs, idOrPrefix);
@@ -250,13 +272,62 @@ export interface PruneJobsOptions extends PruneOptions {
  */
 export function pruneJobs(options: PruneJobsOptions = {}): { pruned: RelayJob[]; remaining: number } {
   const { storePath, ...pruneOpts } = options;
-  const queue = new RelayQueue(storePath ?? defaultStorePath());
+  const queue = openQueue(storePath ?? defaultStorePath());
   const pruned = queue.prune(pruneOpts);
   // On a dry run nothing was deleted, so subtract the would-be-pruned count to
   // report the count that *would* remain (matches the non-dry-run number).
   const remaining = queue.listAll().length - (pruneOpts.dryRun ? pruned.length : 0);
   queue.close();
   return { pruned, remaining };
+}
+
+export interface ConfigInitOptions {
+  /** Target file path. Defaults to `<cwd>/agentrelay.config.json`. */
+  path?: string;
+  /** Directory the default path is resolved against. Defaults to `process.cwd()`. */
+  cwd?: string;
+  /** Overwrite an existing file instead of refusing. */
+  force?: boolean;
+}
+
+export interface ConfigInitResult {
+  ok: boolean;
+  /** Absolute path that was (or would have been) written. */
+  path: string;
+  message: string;
+}
+
+/**
+ * Writes a fully-populated sample `agentrelay.config.json` so users have a
+ * documented starting point instead of hand-authoring one. Refuses to clobber
+ * an existing file unless `force` is set (returns `ok:false` so the CLI can
+ * exit non-zero). Creates parent directories as needed. The written content
+ * round-trips through `parseConfig`, so `agentrelay --config <path> status`
+ * works immediately.
+ */
+export function initConfig(options: ConfigInitOptions = {}): ConfigInitResult {
+  const cwd = options.cwd ?? process.cwd();
+  // A supplied relative path resolves against cwd; an absolute one wins; no
+  // path at all defaults to the discovery filename in cwd.
+  const path = resolve(cwd, options.path?.trim() || CONFIG_FILENAME);
+
+  if (existsSync(path) && !options.force) {
+    return {
+      ok: false,
+      path,
+      message: `Config already exists at ${path}. Re-run with --force to overwrite.`,
+    };
+  }
+
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, sampleConfigJson(), "utf8");
+  } catch (error) {
+    return { ok: false, path, message: `Could not write config to ${path}: ${String(error)}` };
+  }
+
+  const verb = options.force ? "Overwrote" : "Wrote";
+  return { ok: true, path, message: `${verb} sample config to ${path}. Edit it, then run any command.` };
 }
 
 /** Statuses a job can legitimately be in — used to validate `--status` input. */

@@ -116,6 +116,31 @@
       설정된 env는 덮지 않음 → **env/CLI > 설정파일 > 기본값** 우선순위). 기존 `*FromEnv` 헬퍼를 전부
       재사용 — CLI `bin.ts`가 buildCli 전에 `bootstrapConfig()`로 설정을 process.env에 채우고, 프로그램에
       `--config <path>` 옵션 추가. branch `claude/wizardly-pascal-ohoon1`)
+- [x] 👷 손상된 스토어 파일 보존/복구 — `jobs.json`이 깨졌을 때 조용히 덮어써 유실하지 않고
+      백업으로 보존.
+      (완료 — 기존 `RelayQueue.load()`는 손상 파일을 만나면 빈 맵으로 시작하며 "파일을 그대로
+      남긴다"고 주석에 적었지만, 실제로는 다음 `flush()`가 손상 파일을 **덮어써 영구 파괴**하는
+      버그가 있었다. `queue.ts`에 순수 `corruptBackupPath(filePath, now)`(파일시스템-safe 타임스탬프
+      접미사) 추가 + `load()`가 파싱 불가 파일을 **먼저** `jobs.json.corrupt-<타임스탬프>`로 rename해
+      보존한 뒤 빈 큐로 계속 진행. 비배열 JSON 루트도 손상으로 취급, 빈/공백 파일은 정상 "빈 큐"로
+      구분(백업 안 함). `RelayQueue`에 `onCorrupt` 콜백 옵션 추가 → CLI가 공용 `openQueue` 헬퍼로
+      모든 커맨드에서 stderr 경고 출력. rename 실패(권한/크로스디바이스)는 삼켜 릴레이 루프 보호.
+      branch `claude/wizardly-pascal-2gm0z9`)
+- [x] 👷 `agentrelay stats` 해결 시간(resolution time) 지표 — 릴레이가 잡을 얼마나 오래 돌봤는지.
+      (완료 — `@agentrelay/core/stats.ts`에 `TimingStats`(resolvedCount·avg/min/maxResolutionMs) 추가.
+      completed+failed 잡의 라이프사이클 span(`updatedAt-createdAt`)을 집계 — cancelled(사용자 취소)와
+      비종료 잡은 제외(successRate와 동일 정책), 타임스탬프 파싱 불가·음수 span(클럭 스큐)은 클램프
+      대신 스킵. CLI `stats.ts`에 순수 `formatDurationMs`(초~일, 2단위 "4h 12m"/"3d 2h") + `renderStats`가
+      resolved 잡이 있을 때만 "resolution time" 블록 렌더, `--json`은 timing 그대로 전달.
+      branch `claude/wizardly-pascal-qb3468`)
+- [x] 👷 `agentrelay config init` — 문서화된 샘플 설정 파일 생성(빈 파일 손 작성 갭 메움).
+      (완료 — `@agentrelay/core`에 순수 `sampleConfig()`(모든 그룹을 기본값으로 채운 예시,
+      autoPrune.enabled=false로 안전) + `sampleConfigJson()`(2-스페이스 pretty JSON, `parseConfig`
+      왕복 무손실). CLI `initConfig({path,cwd,force})` — 기본 `<cwd>/agentrelay.config.json`에
+      쓰되 기존 파일은 `--force` 없이 안 덮음(exit 1), 부모 디렉터리 자동 생성. `agentrelay config
+      init [path] [-f]` 서브커맨드. 부수 수정: `paths.ts`에 `expandTilde` 추가 →
+      `defaultStorePath`가 설정파일 store의 선행 `~`를 홈으로 확장(쉘 미경유 경로 footgun 제거).
+      branch `claude/config-init`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

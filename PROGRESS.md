@@ -389,3 +389,101 @@
     JSON in AgentRelay config …" + exit 1.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
   `agentrelay config init`으로 샘플 설정 파일 생성(👷 후보), stats 시간대별 추이(👷 후보).
+
+### [세션 14 — 손상된 스토어 파일 보존/복구] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 4개(#32 stats 해결시간, #33·#34·#35 config init 3중복)와 최근 닫힌
+  PR들(logs·doctor·export·combine mode)이 점유·시도한 항목을 피해, CLAUDE.md 지침대로 **새 개선
+  항목을 발굴**했다. 코드를 읽던 중 `RelayQueue.load()`에서 **실제 데이터 유실 버그**를 발견했다:
+  손상된 `jobs.json`을 만나면 주석은 "파일을 그대로 남겨 사람이 검사하도록"이라 적혀 있지만,
+  빈 맵으로 시작한 뒤 이어지는 어떤 쓰기(enqueue/status의 close→flush)든 **손상 파일을 덮어써
+  복구 불가능하게 파괴**하고 있었다. 로컬 우선 도구에서 유일한 데이터가 이 파일이므로 치명적.
+- 한 일 (branch `claude/wizardly-pascal-2gm0z9`): **손상 스토어 보존/복구**.
+  1. `@agentrelay/core/queue.ts`에 순수 `corruptBackupPath(filePath, now)` 추가 — 파일시스템-safe
+     타임스탬프 접미사(`jobs.json.corrupt-2026-07-18T13-38-10-351Z`, ISO의 `:`/`.`→`-`), 테스트
+     결정성을 위해 `now` 주입.
+  2. `RelayQueue.load()` 재작성 — (a) 읽기 실패(IO/권한)는 파일 손대지 않고 빈 큐, (b) 빈/공백
+     파일은 정상 "빈 큐"(백업 안 함), (c) 파싱 불가 또는 **비배열 JSON 루트**는 손상으로 판정해
+     `flush()`가 덮어쓰기 **전에** 먼저 백업 경로로 `rename`해 원본 보존 후 빈 큐로 계속 진행.
+     rename 실패는 삼켜 릴레이 루프를 절대 깨지 않음(`backupPath: null`로 보고).
+  3. `RelayQueue`에 `onCorrupt(info)` 콜백 옵션(`CorruptStoreInfo`: path/backupPath/error) 추가.
+     CLI `commands.ts`에 공용 `openQueue(storePath)` 헬퍼 신설 → 7개 커맨드 진입점을 전부 이걸로
+     통일, 손상 감지 시 stderr에 "store file … was unreadable; moved it aside to … and started with
+     an empty queue." 경고 출력.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **189개 전부 통과**(core 147 + cli 39 + dashboard 3 — queue corrupt-recovery 4케이스
+    신규: 손상 파일 보존+빈 큐 시작+원본 바이트 유지+재쓰기가 백업 미파괴+단일 백업, 비배열 루트=손상,
+    빈/공백=정상, `corruptBackupPath` 결정성). **실제 빌드된 CLI e2e**(mock 아님): 손상 `jobs.json`을
+    두고 `status --store`가 stderr 경고 + `jobs.json.corrupt-<ts>` 백업(원본 바이트 그대로) + 온보딩
+    문구 출력, 원본 경로는 이후 빈 `[]`로 안전 재기록 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드도 `onCorrupt` 배선해 손상 경고 노출(👷 후보),
+  stats 시간대별 추이(👷 후보), 스토어 자동 백업 로테이션(👷 후보).
+### [세션 15 — `agentrelay stats` 해결 시간(resolution time) 지표] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 7개(#23·#24·#27~#31)가 config init·logs·doctor·export·combine mode를
+  이미 점유(일부 #27/#31은 config init 중복). 중복을 피해 CLAUDE.md 지침대로 **세션 12/13이 "다음
+  할 일 👷 후보"로 남긴 stats 타이밍 확장**을 골라 구현했다 — 어떤 열린 PR과도 겹치지 않는 항목.
+- 한 일 (branch `claude/wizardly-pascal-qb3468`): **stats 해결 시간 지표**.
+  1. `@agentrelay/core/stats.ts`에 `TimingStats`(resolvedCount·avgResolutionMs·minResolutionMs·
+     maxResolutionMs) + `RelayStats.timing` 추가. 순수 `resolutionMs(job)`가 라이프사이클 span
+     (`updatedAt-createdAt`)을 계산 — completed+failed(릴레이가 자연 종료로 몬 잡)만 집계, cancelled
+     (사용자 취소)·비종료 잡은 제외(successRate와 동일 정책). 타임스탬프 파싱 불가·음수 span(클럭
+     스큐)은 클램프 대신 스킵해 지표를 왜곡하지 않음. resolved 0건이면 전부 null.
+  2. CLI `packages/cli/src/stats.ts`에 순수 `formatDurationMs(ms)`(초~일 범위, 2단위 "4h 12m"/
+     "3d 2h"/"45m 30s"/"8s", 음수·비유한은 "-", 1초 미만은 "<1s"). `renderStats`가 resolved 잡이
+     있을 때만 "resolution time (completed + failed)" 블록(avg/min/max + over N job(s))을 렌더,
+     `--json`은 `stats.timing`을 그대로 전달(스크립트/jq용).
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **194개 전부 통과**(core 147 + cli 44 + dashboard 3 — core timing 4 + CLI
+    formatDurationMs 3·renderStats 2·json 1 신규). **실제 빌드된 CLI e2e**(mock 아님): completed(1h)/
+    failed(3h)/waiting/cancelled(9h) 4-job 스토어 시드 → `stats`가 "resolution time … avg 2h 0m
+    min 1h 0m max 3h 0m over 2 job(s)" 렌더(cancelled·waiting 제외 확인), `--json` timing이
+    avg/min/max ms를 정확히 출력.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 누적 중복 PR(#27/#31 config init) 정리 후보,
+  stats 시간대별 추이/평균 대기시간(대기→재개 지연) 확장(👷 후보), 대시보드에 timing 노출(👷 후보).
+### [세션 14b — `agentrelay config init` + 스토어 경로 `~` 확장] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 👷 PR 0개, main=현재 브랜치 동일(중복/누적 없음). BACKLOG의
+  👷 항목은 전부 완료 상태라, 세션 13이 "다음 할 일"로 남긴 👷 후보 중 **`agentrelay config
+  init`(샘플 설정 파일 생성)** 을 골랐다. 설정 파일 지원(세션 13)은 있으나 사용자가 파일을
+  손으로 작성해야 했던 갭을 메운다.
+- 한 일 (branch `claude/config-init`):
+  1. `@agentrelay/core/config.ts`에 순수 `sampleConfig()`(모든 그룹을 기본값으로 채운
+     문서용 예시 — JSON엔 주석이 없으니 "모든 필드가 존재하는 것"이 곧 문서) +
+     `sampleConfigJson()`(2-스페이스 pretty JSON + 개행, `parseConfig` 왕복 무손실) 추가.
+     autoPrune.enabled는 기본 false로 두어 신규 사용자가 실수로 파괴적 정리를 켜지 않게 함.
+  2. `packages/cli/src/commands.ts`에 `initConfig({path,cwd,force})` 추가 — 기본
+     `<cwd>/agentrelay.config.json`에 샘플을 쓰되, 기존 파일은 `--force` 없이 덮지 않음
+     (ok:false→exit 1), 부모 디렉터리 자동 생성, 상대경로는 cwd 기준 해소. cli.ts에
+     `agentrelay config init [path] [-f/--force]` 서브커맨드 배선.
+  3. **footgun 수정** — 샘플 store가 `~/.agentrelay/jobs.json`(리터럴 틸드)인데 스토어
+     레이어가 확장하지 않아 `~` 디렉터리가 생길 수 있었다. `paths.ts`에 순수 `expandTilde`
+     추가하고 `defaultStorePath`가 `AGENTRELAY_STORE`(=설정파일 store)의 선행 `~`/`~/…`를
+     홈으로 확장하도록 함(쉘을 안 거치는 설정 파일 경로도 기대대로 동작). `~user`는 해소 불가라 보존.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **199개 전부 통과**(core 153 + cli 43 + dashboard 3 — config sample 3 +
+    paths 7 + CLI initConfig 4 신규). **실제 빌드된 CLI e2e**(mock 아님): `config init <path>`가
+    샘플 작성 → 재실행 시 "already exists" + exit 1 → `--force`로 "Overwrote" → `--config`로
+    그 파일을 읽어 `status --json`의 storePath가 `~`를 홈(`/root/.agentrelay/jobs.json`)으로
+    확장해 표시하는 것까지 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
+  stats 시간대별 추이/평균 대기시간(👷 후보), `config validate`로 설정 파일 검증(👷 후보).
+
+### [세션 16 — 누적 중복 PR 통합(#36·#32·#37) + 5중 config-init 정리] (2026-07-18, 무인 자율 세션)
+- **핵심: 다시 재발한 중복 PR 루프를 끊었다.** 세션 시작 시 열린 PR이 7개(#32~#38)였는데,
+  그중 **5개(#33·#34·#35·#37·#38)가 전부 `agentrelay config init` 동일 기능의 중복 구현**이었다.
+  main 브랜치 보호로 병합이 밀리면 매시간 무기억 세션이 같은 최우선 후보를 반복 구현하는
+  고질적 패턴(세션 3·8·10에서도 발생). COLLAB.md 병합 정책("CI 초록이면 클로드 코드가 병합
+  가능")에 근거해 통합했다.
+- 한 일 (branch `claude/wizardly-pascal-ndais8`): 고유한 3개 PR의 커밋을 **cherry-pick으로
+  내 브랜치에 통합**(다른 브랜치엔 push 안 함)하고 문서/코드 충돌을 union-merge로 해소:
+  1. **#36(손상 스토어 보존/복구)** — 실제 데이터 유실 버그 수정. `RelayQueue.load()`가 손상
+     `jobs.json`을 조용히 덮어써 파괴하던 버그를 백업 rename으로 고침. 가장 가치 높은 픽스라 최우선.
+  2. **#32(stats 해결시간 지표)** — completed/failed 잡의 라이프사이클 span avg/min/max.
+  3. **#37(config init)** — 5중 중복 중 가장 완성도 높은 버전(테스트 199, `expandTilde`
+     footgun 수정 포함)을 대표로 채택.
+  - 정리: 나머지 config-init 중복 4개(#33·#34·#35·#38)는 사유 코멘트와 함께 **닫음**.
+    통합 원본 PR(#36·#32·#37)도 이 브랜치에 흡수됐으므로 닫음.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **212개 전부 통과**(core 161 + cli 48 + dashboard 3). **실제 빌드된 CLI e2e**
+    (mock 아님): `config init`이 4-그룹 샘플 생성 → 손상 `jobs.json`에 `status`가 백업+경고+빈 큐
+    → `stats`가 정상 렌더까지 세 기능 동시 동작 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크). 앞으로 무기억 세션은 **작업 시작 전 열린 PR을
+  먼저 확인**해 중복 구현 대신 통합을 우선할 것(config-init은 이제 main에 있음).
