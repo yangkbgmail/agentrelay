@@ -141,6 +141,17 @@
       init [path] [-f]` 서브커맨드. 부수 수정: `paths.ts`에 `expandTilde` 추가 →
       `defaultStorePath`가 설정파일 store의 선행 `~`를 홈으로 확장(쉘 미경유 경로 footgun 제거).
       branch `claude/config-init`)
+- [x] 👷 `agentrelay config validate` — 설정 파일 검증(구조+의미). 잘못된 값을 실행 전에 잡음.
+      (완료 — `@agentrelay/core/config.ts`에 순수 `validateConfig(config)` + `ConfigIssue`/
+      `ConfigIssueLevel` + `hasConfigErrors` 추가. `parseConfig`는 타입만 보는데, 이 함수는 타입은
+      맞지만 무의미한 값을 잡는다: 음수/비정수 `maxAttempts`·`baseDelayMs`·`maxDelayMs`·`keep`·
+      `everyTicks`(error), 1 미만 `factor`(백오프가 줄어듦, error), 파싱 불가 `after`/`every`
+      duration(error), http(s) 아닌 `webhookUrl`(error), URL 아닌 `slackWebhook`(warning),
+      빈 store(warning), maxDelayMs<baseDelayMs(warning). CLI `validateConfigFile({path,cwd,env})`가
+      파일 해소→읽기→JSON.parse→parseConfig→validateConfig를 throw 없이 통합해 모든 문제를 한 번에
+      리포트, error 있으면 exit 1(warning만이면 exit 0). `agentrelay config validate [path]` 서브커맨드.
+      부수: bin.ts가 `config validate` 호출 시 startup `bootstrapConfig`(깨진 설정에 throw)를 건너뛰어,
+      바로 그 깨진 파일을 진단할 수 있게 함. branch `claude/wizardly-pascal-kgd08a`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

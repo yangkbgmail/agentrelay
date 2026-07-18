@@ -487,3 +487,34 @@
     → `stats`가 정상 렌더까지 세 기능 동시 동작 확인.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크). 앞으로 무기억 세션은 **작업 시작 전 열린 PR을
   먼저 확인**해 중복 구현 대신 통합을 우선할 것(config-init은 이제 main에 있음).
+
+### [세션 17 — `agentrelay config validate`] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 0개, main=현재 브랜치 동일(중복/누적 없음). 세션 13/14b가 "다음
+  할 일 👷 후보"로 남긴 `config validate`(설정 파일 검증)를 골랐다. 설정 파일 지원(세션 13)·
+  `config init`(세션 14b)은 있으나, `parseConfig`가 **타입만** 검증해 음수·파싱불가 duration 등
+  "타입은 맞지만 무의미한" 값이 런타임까지 조용히 흘러가는 갭이 있었다.
+- 한 일 (branch `claude/wizardly-pascal-kgd08a`):
+  1. `@agentrelay/core/config.ts`에 순수 `validateConfig(config): ConfigIssue[]` +
+     `ConfigIssue`/`ConfigIssueLevel` + `hasConfigErrors` 추가. 의미 검증 규칙:
+     음수/비정수 `retry.maxAttempts`·`baseDelayMs`·`maxDelayMs`·`autoPrune.keep`·`everyTicks`
+     (error), 1 미만 `retry.factor`(백오프가 매 시도 줄어듦, error), `parseDuration`로 파싱
+     불가한 `autoPrune.after`/`every`(error), http(s) 아닌 `notify.webhookUrl`(error), URL 아닌
+     `slackWebhook`(warning), 빈 store(warning), maxDelayMs<baseDelayMs(warning). `prune.ts`의
+     `parseDuration` 재사용(순환참조 없음 — prune는 types만 import).
+  2. CLI `packages/cli/src/commands.ts`에 `validateConfigFile({path,cwd,env})` — 파일 해소
+     (`resolveConfigPath`)→읽기→`JSON.parse`→`parseConfig`(구조)→`validateConfig`(의미)를 **throw
+     없이** 통합, 각 실패를 `ConfigIssue`로 변환해 한 번에 리포트. `ok`는 error-level 이슈가
+     없을 때만 true(warning은 통과). `agentrelay config validate [path]` 서브커맨드 배선(error는
+     stderr+exit 1, warning만이면 exit 0).
+  3. **부수 수정** — bin.ts의 startup `bootstrapConfig`는 깨진 설정에 throw해 프로그램을 조기
+     종료시키는데, 그러면 바로 그 깨진 파일을 진단하려는 `config validate`가 실행되지 못한다.
+     `isConfigValidateInvocation(argv)`를 추가해 이 커맨드일 때만 bootstrap을 건너뛰도록 함.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **230개 전부 통과**(core 173 + cli 54 + dashboard 3 — core validateConfig 12 +
+    CLI validateConfigFile 6 신규). **실제 빌드된 CLI e2e**(mock 아님): `config init`으로 만든
+    샘플은 "is valid" exit 0 → 음수 maxAttempts·factor 0.5·잘못된 duration·ftp 웹훅은 4개 error
+    각각 리포트+exit 1 → 잘못된 타입은 "structure" error+exit 1 → **깨진 JSON도 startup 크래시
+    없이** "invalid JSON" error+exit 1(bootstrap-skip 확인) → URL 아닌 slackWebhook은 warning만+
+    exit 0까지 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing/설정 파일 노출(👷 후보),
+  stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), 스토어 자동 백업 로테이션(👷 후보).

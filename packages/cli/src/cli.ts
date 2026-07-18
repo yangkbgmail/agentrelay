@@ -11,6 +11,7 @@ import {
   runCommand,
   startDaemon,
   tickOnce,
+  validateConfigFile,
 } from "./commands.js";
 import { defaultStorePath } from "./config.js";
 import { renderStats, renderStatsJson } from "./stats.js";
@@ -193,6 +194,32 @@ export function buildCli(): Command {
       } else {
         console.error(`[agentrelay] ${result.message}`);
         process.exitCode = 1;
+      }
+    });
+  config
+    .command("validate")
+    .description("Check an agentrelay.config.json for structural and semantic mistakes")
+    .argument(
+      "[path]",
+      "Config file to check (default: discovered ./agentrelay.config.json or ~/.agentrelay/config.json)"
+    )
+    .action((path: string | undefined) => {
+      const result = validateConfigFile({ path });
+      const where = result.path ?? "config";
+      if (result.issues.length === 0) {
+        console.log(`[agentrelay] ${where} is valid.`);
+        return;
+      }
+      for (const issue of result.issues) {
+        const line = `[agentrelay] ${issue.level}: ${issue.path} ${issue.message}`;
+        if (issue.level === "error") console.error(line);
+        else console.warn(line);
+      }
+      if (!result.ok) {
+        console.error(`[agentrelay] ${where} has errors.`);
+        process.exitCode = 1;
+      } else {
+        console.log(`[agentrelay] ${where} is valid (with warnings).`);
       }
     });
 

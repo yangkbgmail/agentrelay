@@ -6,11 +6,13 @@ import {
   type AgentRelayConfig,
   applyConfigToEnv,
   configToEnv,
+  hasConfigErrors,
   loadConfigFile,
   parseConfig,
   resolveConfigPath,
   sampleConfig,
   sampleConfigJson,
+  validateConfig,
 } from "../src/config.js";
 
 describe("configToEnv", () => {
@@ -152,5 +154,70 @@ describe("sampleConfig", () => {
     expect(json.endsWith("\n")).toBe(true);
     expect(json).toContain("\n  "); // 2-space indented
     expect(JSON.parse(json)).toEqual(sampleConfig());
+  });
+});
+
+describe("validateConfig", () => {
+  it("reports no issues for the sample config", () => {
+    expect(validateConfig(sampleConfig())).toEqual([]);
+  });
+
+  it("reports no issues for an empty config", () => {
+    expect(validateConfig({})).toEqual([]);
+  });
+
+  it("flags negative or non-integer retry numbers as errors", () => {
+    const issues = validateConfig({ retry: { maxAttempts: -1, baseDelayMs: 1.5, maxDelayMs: -5 } });
+    const paths = issues.filter((i) => i.level === "error").map((i) => i.path);
+    expect(paths).toContain("retry.maxAttempts");
+    expect(paths).toContain("retry.baseDelayMs");
+    expect(paths).toContain("retry.maxDelayMs");
+  });
+
+  it("flags a factor below 1 as an error", () => {
+    const issues = validateConfig({ retry: { factor: 0.5 } });
+    expect(issues).toEqual([expect.objectContaining({ level: "error", path: "retry.factor" })]);
+  });
+
+  it("accepts a factor of exactly 1", () => {
+    expect(validateConfig({ retry: { factor: 1 } })).toEqual([]);
+  });
+
+  it("warns when the delay cap is below the base delay", () => {
+    const issues = validateConfig({ retry: { baseDelayMs: 1000, maxDelayMs: 500 } });
+    expect(issues).toEqual([expect.objectContaining({ level: "warning", path: "retry.maxDelayMs" })]);
+  });
+
+  it("errors on unparseable auto-prune durations", () => {
+    const issues = validateConfig({ autoPrune: { after: "soon", every: "1 week" } });
+    const paths = issues.filter((i) => i.level === "error").map((i) => i.path);
+    expect(paths).toContain("autoPrune.after");
+    expect(paths).toContain("autoPrune.every");
+  });
+
+  it("accepts valid auto-prune durations and zero thresholds", () => {
+    expect(validateConfig({ autoPrune: { after: "0s", every: "30m", keep: 0, everyTicks: 0 } })).toEqual([]);
+  });
+
+  it("errors on a webhook URL that is not http(s)", () => {
+    const issues = validateConfig({ notify: { webhookUrl: "ftp://example.com/hook" } });
+    expect(issues).toEqual([expect.objectContaining({ level: "error", path: "notify.webhookUrl" })]);
+  });
+
+  it("warns (not errors) on a Slack webhook that is not a URL", () => {
+    const issues = validateConfig({ notify: { slackWebhook: "not-a-url" } });
+    expect(issues).toEqual([expect.objectContaining({ level: "warning", path: "notify.slackWebhook" })]);
+    expect(hasConfigErrors(issues)).toBe(false);
+  });
+
+  it("warns on an empty store path", () => {
+    const issues = validateConfig({ store: "   " });
+    expect(issues).toEqual([expect.objectContaining({ level: "warning", path: "store" })]);
+  });
+
+  it("hasConfigErrors is true only when an error-level issue exists", () => {
+    expect(hasConfigErrors([{ level: "warning", path: "x", message: "y" }])).toBe(false);
+    expect(hasConfigErrors([{ level: "error", path: "x", message: "y" }])).toBe(true);
+    expect(hasConfigErrors([])).toBe(false);
   });
 });
