@@ -439,7 +439,7 @@
     avg/min/max ms를 정확히 출력.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 누적 중복 PR(#27/#31 config init) 정리 후보,
   stats 시간대별 추이/평균 대기시간(대기→재개 지연) 확장(👷 후보), 대시보드에 timing 노출(👷 후보).
-### [세션 14 — `agentrelay config init` + 스토어 경로 `~` 확장] (2026-07-18, 무인 자율 세션)
+### [세션 14b — `agentrelay config init` + 스토어 경로 `~` 확장] (2026-07-18, 무인 자율 세션)
 - 배경: 세션 시작 시 열린 👷 PR 0개, main=현재 브랜치 동일(중복/누적 없음). BACKLOG의
   👷 항목은 전부 완료 상태라, 세션 13이 "다음 할 일"로 남긴 👷 후보 중 **`agentrelay config
   init`(샘플 설정 파일 생성)** 을 골랐다. 설정 파일 지원(세션 13)은 있으나 사용자가 파일을
@@ -465,3 +465,25 @@
     확장해 표시하는 것까지 확인.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
   stats 시간대별 추이/평균 대기시간(👷 후보), `config validate`로 설정 파일 검증(👷 후보).
+
+### [세션 16 — 누적 중복 PR 통합(#36·#32·#37) + 5중 config-init 정리] (2026-07-18, 무인 자율 세션)
+- **핵심: 다시 재발한 중복 PR 루프를 끊었다.** 세션 시작 시 열린 PR이 7개(#32~#38)였는데,
+  그중 **5개(#33·#34·#35·#37·#38)가 전부 `agentrelay config init` 동일 기능의 중복 구현**이었다.
+  main 브랜치 보호로 병합이 밀리면 매시간 무기억 세션이 같은 최우선 후보를 반복 구현하는
+  고질적 패턴(세션 3·8·10에서도 발생). COLLAB.md 병합 정책("CI 초록이면 클로드 코드가 병합
+  가능")에 근거해 통합했다.
+- 한 일 (branch `claude/wizardly-pascal-ndais8`): 고유한 3개 PR의 커밋을 **cherry-pick으로
+  내 브랜치에 통합**(다른 브랜치엔 push 안 함)하고 문서/코드 충돌을 union-merge로 해소:
+  1. **#36(손상 스토어 보존/복구)** — 실제 데이터 유실 버그 수정. `RelayQueue.load()`가 손상
+     `jobs.json`을 조용히 덮어써 파괴하던 버그를 백업 rename으로 고침. 가장 가치 높은 픽스라 최우선.
+  2. **#32(stats 해결시간 지표)** — completed/failed 잡의 라이프사이클 span avg/min/max.
+  3. **#37(config init)** — 5중 중복 중 가장 완성도 높은 버전(테스트 199, `expandTilde`
+     footgun 수정 포함)을 대표로 채택.
+  - 정리: 나머지 config-init 중복 4개(#33·#34·#35·#38)는 사유 코멘트와 함께 **닫음**.
+    통합 원본 PR(#36·#32·#37)도 이 브랜치에 흡수됐으므로 닫음.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **212개 전부 통과**(core 161 + cli 48 + dashboard 3). **실제 빌드된 CLI e2e**
+    (mock 아님): `config init`이 4-그룹 샘플 생성 → 손상 `jobs.json`에 `status`가 백업+경고+빈 큐
+    → `stats`가 정상 렌더까지 세 기능 동시 동작 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크). 앞으로 무기억 세션은 **작업 시작 전 열린 PR을
+  먼저 확인**해 중복 구현 대신 통합을 우선할 것(config-init은 이제 main에 있음).
