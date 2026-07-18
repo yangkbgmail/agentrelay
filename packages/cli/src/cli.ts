@@ -1,8 +1,9 @@
 import type { AgentTool, JobStatus } from "@agentrelay/core";
-import { computeStats, parseDuration } from "@agentrelay/core";
+import { computeStats, DEFAULT_BACKUP_KEEP, parseDuration } from "@agentrelay/core";
 import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
+  backupStore,
   cancelJob,
   initConfig,
   listStatus,
@@ -311,6 +312,41 @@ export function buildCli(): Command {
         );
       }
       console.log(`${verb} ${pruned.length} job(s). ${remaining} remain.`);
+    });
+
+  program
+    .command("backup")
+    .description("Snapshot the job store to a timestamped sibling file, keeping only the newest N")
+    .option(
+      "--keep <n>",
+      `How many backups to retain after rotation (default: ${DEFAULT_BACKUP_KEEP})`,
+      String(DEFAULT_BACKUP_KEEP)
+    )
+    .option("--json", "Print the result as JSON (machine-readable, for scripts/jq)")
+    .action((opts: { keep?: string; json?: boolean }) => {
+      const { store } = program.opts();
+
+      const keepLast = Number.parseInt(opts.keep ?? String(DEFAULT_BACKUP_KEEP), 10);
+      // Guard >= 1: keeping 0 would immediately rotate away the backup we just
+      // wrote, defeating the point.
+      if (!Number.isInteger(keepLast) || keepLast < 1) {
+        console.error(`Invalid --keep value "${opts.keep}". Use a positive integer.`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const result = backupStore({ storePath: store, keepLast });
+      if (opts.json) {
+        console.log(JSON.stringify({ ok: result.ok, path: result.path, pruned: result.pruned, kept: result.kept }));
+        if (!result.ok) process.exitCode = 1;
+        return;
+      }
+      if (result.ok) {
+        console.log(`[agentrelay] ${result.message}`);
+      } else {
+        console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 1;
+      }
     });
 
   return program;

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import type {
   AgentRelayConfig,
   AgentTool,
@@ -14,10 +14,13 @@ import {
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
+  backupPathFor,
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  DEFAULT_BACKUP_KEEP,
   hasConfigErrors,
+  isBackupFile,
   notifiersFromEnv,
   parseConfig,
   RelayQueue,
@@ -27,6 +30,7 @@ import {
   resolveJobId,
   retryPolicyFromEnv,
   sampleConfigJson,
+  selectRotatedBackups,
   validateConfig,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
@@ -291,6 +295,89 @@ export function pruneJobs(options: PruneJobsOptions = {}): { pruned: RelayJob[];
   const remaining = queue.listAll().length - (pruneOpts.dryRun ? pruned.length : 0);
   queue.close();
   return { pruned, remaining };
+}
+
+export interface BackupOptions {
+  storePath?: string;
+  /** How many backups to keep after this one is written. Defaults to {@link DEFAULT_BACKUP_KEEP}. */
+  keepLast?: number;
+  /** Injected for deterministic tests; defaults to the current time. */
+  now?: Date;
+}
+
+export interface BackupResult {
+  ok: boolean;
+  /** Absolute path of the backup that was written, or null on failure. */
+  path: string | null;
+  /** Backup files removed by rotation (bare basenames), oldest first. */
+  pruned: string[];
+  /** How many backups remain after rotation, including the one just written. */
+  kept: number;
+  message: string;
+}
+
+/**
+ * Snapshots the job store to a timestamped sibling file (`<store>.bak-<stamp>`)
+ * and then rotates old backups so only the newest `keepLast` survive. This is a
+ * *preventive* companion to the corrupt-store recovery in {@link RelayQueue}:
+ * that recovers a file only after it's already damaged, whereas a backup taken
+ * while the store is healthy lets a user roll back to real data.
+ *
+ * The snapshot is written to a temp sibling and renamed into place, so a reader
+ * (dashboard/CLI) never observes a half-copied backup. A missing store yields
+ * `ok:false` rather than an empty backup. Rotation failures (e.g. a backup that
+ * can't be unlinked) are swallowed so a healthy snapshot still succeeds.
+ */
+export function backupStore(options: BackupOptions = {}): BackupResult {
+  const storePath = options.storePath ?? defaultStorePath();
+  const keepLast = options.keepLast ?? DEFAULT_BACKUP_KEEP;
+  const now = options.now ?? new Date();
+
+  if (!existsSync(storePath)) {
+    return { ok: false, path: null, pruned: [], kept: 0, message: `No store file at ${storePath} to back up yet.` };
+  }
+
+  const dest = backupPathFor(storePath, now);
+  try {
+    const bytes = readFileSync(storePath);
+    // Point-in-time snapshot: write to a temp sibling, then atomically rename so
+    // a concurrent reader never sees a partial backup.
+    const tmp = `${dest}.tmp-${process.pid}`;
+    writeFileSync(tmp, bytes);
+    renameSync(tmp, dest);
+  } catch (error) {
+    return { ok: false, path: null, pruned: [], kept: 0, message: `Could not write backup: ${String(error)}` };
+  }
+
+  const dir = dirname(storePath);
+  const base = basename(storePath);
+  const pruned: string[] = [];
+  let totalBackups = 1; // at least the one we just wrote
+  try {
+    const entries = readdirSync(dir);
+    totalBackups = entries.filter((name) => isBackupFile(name, base)).length;
+    for (const name of selectRotatedBackups(entries, base, keepLast)) {
+      try {
+        unlinkSync(join(dir, name));
+        pruned.push(name);
+      } catch {
+        // A backup we couldn't delete just stays; never fail the whole backup
+        // over a rotation hiccup (permissions / already-gone file).
+      }
+    }
+  } catch {
+    // Directory listing failed; skip rotation but keep the fresh snapshot.
+  }
+
+  const kept = totalBackups - pruned.length;
+  const rotated = pruned.length > 0 ? `, rotated out ${pruned.length} old` : "";
+  return {
+    ok: true,
+    path: dest,
+    pruned,
+    kept,
+    message: `Backed up ${storePath} to ${dest}. ${kept} backup(s) kept${rotated}.`,
+  };
 }
 
 export interface ConfigInitOptions {

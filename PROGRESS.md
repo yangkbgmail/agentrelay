@@ -519,6 +519,40 @@
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing/설정 파일 노출(👷 후보),
   stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), 스토어 자동 백업 로테이션(👷 후보).
 
+### [세션 19 — `agentrelay backup`(스토어 스냅샷 + 로테이션)] (2026-07-18, 무인 자율 세션)
+- **먼저: 누적 고유 PR 2개를 통합**했다. 세션 시작 시 열린 PR이 #42(stats median/p90)·
+  #41(`agentrelay show`) 2개였고 **둘 다 CI 초록·`mergeable_state:clean`·서로 다른 고유
+  기능**이었다. main 브랜치 보호로 병합이 밀리면 무기억 세션이 중복 구현하는 패턴(세션
+  3·8·16)을 예방하려 COLLAB 병합 정책에 따라 **#42를 main에 병합**했다. #41은 병합 시
+  문서(PROGRESS/BACKLOG) 충돌이 있고 다른 세션 브랜치라 권한 없이 force-push하지 않았다
+  (단일 고유 PR=누적 중복 아님, 그대로 열어 둠).
+- 배경: 남은 👷 후보 중 세션 14b/17이 "다음 할 일"로 남긴 **스토어 백업 로테이션**을 골랐다.
+  세션 14의 손상 복구는 파일이 이미 깨진 **사후** 대응인데, 정상 상태에서 스냅샷을 남기는
+  **사전 예방** 백업이 없어 사용자가 실수(잘못된 수동 편집 등) 전 상태로 롤백할 수단이 없었다.
+- 한 일 (branch `claude/wizardly-pascal-o3t0dh`): **`agentrelay backup`**.
+  1. `@agentrelay/core/backup.ts` 신설 — 순수 함수 4종 + `DEFAULT_BACKUP_KEEP`(10):
+     `backupStamp(now)`(fs-safe ISO 접미사 `:`/`.`→`-`, `corruptBackupPath`와 동일 규약 →
+     고정폭·연도우선이라 문자열 정렬=시간순), `backupPathFor(store,now)`(형제 파일
+     `<store>.bak-<stamp>`), `isBackupFile(name,base)`(store의 `.corrupt-`·`.tmp-` 사이드카는
+     제외), `selectRotatedBackups(entries,base,keepLast)`(백업만 필터→오름차순 정렬→keepLast
+     초과분을 **가장 오래된 것부터** 반환, `keepLast≤0`이면 전부=keep none).
+  2. CLI `commands.ts`에 `backupStore({storePath,keepLast,now}): BackupResult` — 스토어를
+     `readFileSync`→temp 형제에 쓰고 원자적 `rename`(point-in-time 스냅샷, 반쯤 복사된 백업을
+     리더가 못 봄)→디렉터리 스캔→`selectRotatedBackups`가 고른 오래된 백업 `unlink`. 스토어
+     파일이 없으면 `ok:false`(빈 백업 안 만듦), 로테이션 실패(readdir/unlink 권한·경합)는
+     삼켜 정상 스냅샷은 무조건 성공. `cli.ts`에 `agentrelay backup [--keep N] [--json]` 배선,
+     `--keep`는 1 미만 거부(방금 만든 백업이 즉시 로테이션되는 footgun 방지).
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **244개 전부 통과**(core 184 + cli 57 + dashboard 3 — core backup 6 + CLI
+    backupStore 3 신규). **실제 빌드된 CLI e2e**(mock 아님): 완료 job 1개 스토어 시드 →
+    `backup`이 원본과 **바이트 동일**한 `<store>.bak-<ts>` 생성 → 스토어 없는 경로는 exit 1 +
+    "No store file …" → `--keep 0`은 exit 1("positive integer") → `--json`은 ok/path/pruned/
+    kept 출력 → 백업 4개 만든 뒤 `--keep 2`가 5번째를 쓰고 오래된 3개를 로테이션(최신 2개만
+    남고 정렬 순서 정확) 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), #41(`agentrelay show`) 리베이스/병합 후보,
+  데몬이 주기적으로 자동 backup 하도록 스케줄러 연동(👷 후보 — 이번 순수 로테이션 코어 재사용),
+  대시보드가 timing/설정 파일 노출(👷 후보).
+
 ### [세션 18 — `agentrelay stats` 해결 시간 백분위수(median/p90)] (2026-07-18, 무인 자율 세션)
 - 배경: 세션 시작 시 열린 PR 0개, main=현재 브랜치 동일(중복/누적 없음). 세션 16/17이 남긴
   timing 관련 👷 후보를 이어받아, resolution time을 avg/min/max만 보여주던 것을 백분위수로

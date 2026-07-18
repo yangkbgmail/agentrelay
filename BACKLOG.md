@@ -164,6 +164,18 @@
       오름차순 정렬 → min/max는 양끝, median/p90은 `percentile`. resolved 0개면 둘 다 null.
       CLI `stats.ts` resolution-time 블록에 `median … p90 …` 라인, `--json`은 자동 노출.
       branch `claude/wizardly-pascal-yfv19e`)
+- [x] 👷 `agentrelay backup` — 스토어 스냅샷 + 백업 로테이션. 세션 14의 손상 복구(사후)를
+      보완하는 **사전 예방** 백업으로, 정상 상태의 스토어를 롤백 지점으로 남긴다.
+      (완료 — `@agentrelay/core/backup.ts` 신설: 순수 `backupStamp(now)`(fs-safe ISO 접미사,
+      corruptBackupPath와 동일 규약이라 고정폭·연도우선 → 문자열 정렬=시간순)·
+      `backupPathFor(store,now)`(형제 파일 `<store>.bak-<stamp>`)·`isBackupFile(name,base)`
+      (`.corrupt-`/`.tmp-` 사이드카는 제외)·`selectRotatedBackups(entries,base,keepLast)`
+      (백업만 필터→오름차순 정렬→keepLast 초과분[가장 오래된 것부터] 반환, `≤0`이면 전부).
+      `DEFAULT_BACKUP_KEEP`(10). CLI `backupStore({storePath,keepLast,now})`가 스토어를
+      temp 형제로 복사→원자적 rename(point-in-time 스냅샷)→디렉터리 스캔→오래된 백업 unlink.
+      스토어 없으면 ok:false, 로테이션 실패(unlink/readdir)는 삼켜 스냅샷 성공 보장.
+      `agentrelay backup [--keep N] [--json]`, `--keep`는 1 미만 거부(방금 만든 백업이
+      즉시 로테이션되는 것 방지). branch `claude/wizardly-pascal-o3t0dh`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

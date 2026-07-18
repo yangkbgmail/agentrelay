@@ -1,11 +1,12 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import type { NotifyPayload } from "@agentrelay/core";
-import { parseConfig, RelayQueue, sampleConfigJson } from "@agentrelay/core";
+import { isBackupFile, parseConfig, RelayQueue, sampleConfigJson } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  backupStore,
   cancelJob,
   initConfig,
   listStatus,
@@ -311,5 +312,60 @@ describe("validateConfigFile", () => {
     const result = validateConfigFile({ path });
     expect(result.ok).toBe(true);
     expect(result.issues).toEqual([expect.objectContaining({ level: "warning", path: "notify.slackWebhook" })]);
+  });
+});
+
+describe("backupStore", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-backup-test-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const seedStore = (contents: string) => writeFileSync(storePath, contents);
+  const backupsInDir = () => readdirSync(dir).filter((n) => isBackupFile(n, "jobs.json"));
+
+  it("copies the store byte-for-byte to a timestamped sibling", () => {
+    const bytes = JSON.stringify([{ id: "a", project: "demo" }], null, 2);
+    seedStore(bytes);
+
+    const result = backupStore({ storePath, now: new Date("2026-07-18T13:38:10.351Z") });
+    expect(result.ok).toBe(true);
+    expect(result.path).toBe(`${storePath}.bak-2026-07-18T13-38-10-351Z`);
+    expect(result.kept).toBe(1);
+    expect(readFileSync(result.path as string, "utf8")).toBe(bytes);
+  });
+
+  it("refuses (ok=false) when there is no store file yet", () => {
+    const result = backupStore({ storePath });
+    expect(result.ok).toBe(false);
+    expect(result.path).toBeNull();
+    expect(backupsInDir()).toHaveLength(0);
+  });
+
+  it("rotates old backups down to keepLast, keeping the newest", () => {
+    seedStore("[]");
+    const older = backupStore({ storePath, keepLast: 5, now: new Date("2026-07-18T10:00:00.000Z") });
+    const middle = backupStore({ storePath, keepLast: 5, now: new Date("2026-07-18T11:00:00.000Z") });
+    const newest = backupStore({ storePath, keepLast: 5, now: new Date("2026-07-18T12:00:00.000Z") });
+    expect(backupsInDir()).toHaveLength(3);
+
+    // Now cap at 2: the oldest backup is rotated out, the two newest remain.
+    const result = backupStore({ storePath, keepLast: 2, now: new Date("2026-07-18T13:00:00.000Z") });
+    expect(result.ok).toBe(true);
+    // We wrote a 4th backup then trimmed to 2, so 2 of the earlier files are gone.
+    expect(result.kept).toBe(2);
+    expect(result.pruned).toContain(`jobs.json.bak-2026-07-18T10-00-00-000Z`);
+    expect(existsSync(older.path as string)).toBe(false);
+    expect(existsSync(middle.path as string)).toBe(false);
+    expect(existsSync(newest.path as string)).toBe(true);
+    expect(existsSync(result.path as string)).toBe(true);
+    expect(backupsInDir()).toHaveLength(2);
   });
 });
