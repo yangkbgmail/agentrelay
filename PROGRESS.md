@@ -616,3 +616,28 @@
     스냅샷 → 미존재 id는 "no job matches" + exit 1까지 확인.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), stats 대기시간(대기→재개 지연) 지표(👷 후보),
   대시보드가 job 상세/설정 파일 노출(👷 후보), 스토어 자동 백업 로테이션(👷 후보).
+
+### [세션 22 — 누적 중복 PR 통합(#45·#44·#41) + 백업 중복 #43 정리] (2026-07-18, 무인 자율 세션)
+- **핵심: 다시 쌓인 열린 PR 5개를 통합·정리해 중복 루프를 끊었다.** 세션 시작 시 열린 PR이
+  #41·#43·#44·#45 4건이었는데, 그중 **#43·#45가 둘 다 `agentrelay backup`(스토어 스냅샷+
+  로테이션) 동일 기능의 중복 구현**이었다. main 브랜치 보호로 병합이 밀리면 매시간 무기억
+  세션이 같은 후보를 반복 구현하는 고질적 패턴(세션 3·8·10·16에서도 발생). COLLAB.md 병합
+  정책("CI 초록이면 클로드 코드가 통합 가능")에 근거해 정리했다.
+- 한 일 (branch `claude/wizardly-pascal-v4vb19`): 고유한 3개 기능의 커밋을 **cherry-pick(-x)으로
+  내 브랜치에 통합**(다른 브랜치엔 push 안 함)하고 cli.ts/commands.ts/PROGRESS.md 충돌을 해소:
+  1. **#45(스토어 백업+로테이션 `agentrelay backup`)** — 백업 중복 2건 중 더 완성도 높은 버전을
+     채택. `@agentrelay/core/backup.ts`(순수 헬퍼) + `RelayQueue.backup()`(원자적 스냅샷+newest-N
+     로테이션, 원본/`.corrupt-`/`.tmp-` 미접촉) + `backup [--keep N] [--list]`. #43(`.bak-` infix,
+     CLI 레벨 구현)은 동일 기능 중복이라 채택 안 함.
+  2. **#44(`agentrelay export` CSV/JSON)** — 잡 이력을 스프레드시트/BI/jq로 빼내는 평면 export.
+     `@agentrelay/core/export.ts`(RFC 4180) + `export [-f csv|json] [-o file] [-s/--sort/-r]`.
+  3. **#41(`agentrelay show <id>`)** — 단일 job 전체 상세(command·cwd·에러·출력 tail·카운트다운).
+     `packages/cli/src/show.ts` + read-only `showJob`(resolveJobId 재사용).
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **281개 전부 통과**(core 203 + cli 75 + dashboard 3). **실제 빌드된 CLI e2e**
+    (mock 아님): 시드 스토어로 `show <prefix>`가 인용 command·span 주석·출력 섹션 렌더 →
+    `export -f csv`가 `alpha,inc`·`refactor, please`를 RFC 4180 인용 → `export -f json`이 command
+    배열 무손실 왕복 → `backup` 후 `backup --keep 1`이 스냅샷 2개를 1개로 로테이션 확인.
+  - 정리: 통합 흡수된 #45·#44·#41과 백업 중복 #43은 사유 코멘트와 함께 닫는다(이 PR로 대체).
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크). 앞으로 무기억 세션은 **작업 시작 전 열린 PR을
+  먼저 확인**해 중복 구현 대신 통합을 우선할 것(backup·export·show는 이제 이 브랜치에 있음).
