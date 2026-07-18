@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { parseDuration } from "./prune.js";
 
 /**
  * Persistent configuration for AgentRelay, read from a JSON file so users don't
@@ -209,6 +210,114 @@ export function parseConfig(value: unknown, source = "config"): AgentRelayConfig
   }
 
   return config;
+}
+
+/** Severity of a {@link ConfigIssue}. Errors fail validation; warnings don't. */
+export type ConfigIssueLevel = "error" | "warning";
+
+/**
+ * A single problem found by {@link validateConfig}. `path` is the dotted
+ * location within the config (e.g. `retry.factor`) so users can jump straight
+ * to the offending field.
+ */
+export interface ConfigIssue {
+  level: ConfigIssueLevel;
+  path: string;
+  message: string;
+}
+
+/**
+ * Semantically validates an already-structurally-valid {@link AgentRelayConfig}
+ * (i.e. one that passed {@link parseConfig}, so every field has the right type)
+ * and returns a list of issues — empty when everything is sane.
+ *
+ * `parseConfig` only rejects *type* mistakes (a string where a number belongs).
+ * This catches values that are the right type but nonsensical: a negative
+ * `maxAttempts`, a `factor` below 1 that would make backoff shrink instead of
+ * grow, an `after`/`every` duration the prune parser can't understand, a
+ * webhook URL that isn't http(s). Errors mean the config would misbehave;
+ * warnings flag likely mistakes that still "work".
+ *
+ * Pure — no filesystem, no env — so the CLI `config validate` command and tests
+ * share exactly the same rules.
+ */
+export function validateConfig(config: AgentRelayConfig): ConfigIssue[] {
+  const issues: ConfigIssue[] = [];
+  const error = (path: string, message: string) => issues.push({ level: "error", path, message });
+  const warn = (path: string, message: string) => issues.push({ level: "warning", path, message });
+
+  if (config.store !== undefined && config.store.trim() === "") {
+    warn("store", "is empty; the built-in default store path will be used instead");
+  }
+
+  const slack = config.notify?.slackWebhook;
+  if (slack && !isHttpUrl(slack)) {
+    warn("notify.slackWebhook", "does not look like an http(s) URL; Slack webhooks start with https://");
+  }
+  const webhook = config.notify?.webhookUrl;
+  if (webhook && !isHttpUrl(webhook)) {
+    error("notify.webhookUrl", "is not a valid http(s) URL");
+  }
+
+  const retry = config.retry;
+  if (retry) {
+    checkInteger(issues, "retry.maxAttempts", retry.maxAttempts, { min: 0 });
+    checkInteger(issues, "retry.baseDelayMs", retry.baseDelayMs, { min: 0 });
+    checkInteger(issues, "retry.maxDelayMs", retry.maxDelayMs, { min: 0 });
+    if (retry.factor !== undefined && retry.factor < 1) {
+      error("retry.factor", "must be at least 1, otherwise the backoff delay would shrink each attempt");
+    }
+    if (
+      retry.baseDelayMs !== undefined &&
+      retry.maxDelayMs !== undefined &&
+      retry.maxDelayMs > 0 &&
+      retry.maxDelayMs < retry.baseDelayMs
+    ) {
+      warn(
+        "retry.maxDelayMs",
+        "is smaller than retry.baseDelayMs, so the delay cap clamps every attempt to the same value"
+      );
+    }
+  }
+
+  const autoPrune = config.autoPrune;
+  if (autoPrune) {
+    if (autoPrune.after !== undefined && parseDuration(autoPrune.after) === null) {
+      error("autoPrune.after", `is not a valid duration like "7d", "24h", "30m", "90s" or "500ms"`);
+    }
+    if (autoPrune.every !== undefined && parseDuration(autoPrune.every) === null) {
+      error("autoPrune.every", `is not a valid duration like "1h", "30m" or "90s"`);
+    }
+    checkInteger(issues, "autoPrune.keep", autoPrune.keep, { min: 0 });
+    checkInteger(issues, "autoPrune.everyTicks", autoPrune.everyTicks, { min: 0 });
+  }
+
+  return issues;
+}
+
+/** True when at least one issue is an error (validation should be treated as failed). */
+export function hasConfigErrors(issues: ConfigIssue[]): boolean {
+  return issues.some((issue) => issue.level === "error");
+}
+
+function checkInteger(issues: ConfigIssue[], path: string, value: number | undefined, { min }: { min: number }): void {
+  if (value === undefined) return;
+  if (!Number.isInteger(value)) {
+    issues.push({ level: "error", path, message: "must be a whole number" });
+    return;
+  }
+  if (value < min) {
+    issues.push({ level: "error", path, message: `must be ${min} or greater` });
+  }
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 /**

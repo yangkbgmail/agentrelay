@@ -1,7 +1,15 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import type { AgentTool, JobStatus, Notifier, PruneOptions, RelayJob } from "@agentrelay/core";
+import type {
+  AgentRelayConfig,
+  AgentTool,
+  ConfigIssue,
+  JobStatus,
+  Notifier,
+  PruneOptions,
+  RelayJob,
+} from "@agentrelay/core";
 import {
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
@@ -9,13 +17,17 @@ import {
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  hasConfigErrors,
   notifiersFromEnv,
+  parseConfig,
   RelayQueue,
   RelayScheduler,
   resolveAdapter,
+  resolveConfigPath,
   resolveJobId,
   retryPolicyFromEnv,
   sampleConfigJson,
+  validateConfig,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
 
@@ -328,6 +340,83 @@ export function initConfig(options: ConfigInitOptions = {}): ConfigInitResult {
 
   const verb = options.force ? "Overwrote" : "Wrote";
   return { ok: true, path, message: `${verb} sample config to ${path}. Edit it, then run any command.` };
+}
+
+export interface ConfigValidateOptions {
+  /** Explicit file path. When omitted, the usual discovery order is used. */
+  path?: string;
+  /** Directory searched for `agentrelay.config.json`. Defaults to `process.cwd()`. */
+  cwd?: string;
+  /** Environment consulted for `AGENTRELAY_CONFIG`. Defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
+}
+
+export interface ConfigValidateResult {
+  /** True when the file was found, parsed, and has no error-level issues. */
+  ok: boolean;
+  /** The file that was checked, or null when discovery found nothing. */
+  path: string | null;
+  issues: ConfigIssue[];
+}
+
+/**
+ * Validates a config file end to end and returns a structured result instead of
+ * throwing, so the `config validate` command can report every problem at once:
+ *
+ * 1. resolve which file to check (explicit path or the normal discovery order);
+ * 2. read + `JSON.parse` it — an unreadable file or bad JSON becomes one error
+ *    issue rather than a crash;
+ * 3. `parseConfig` for structural (type) mistakes — reported as an error;
+ * 4. {@link validateConfig} for semantic mistakes (bad durations, negative
+ *    numbers, non-URL webhooks) — errors and warnings.
+ *
+ * `ok` is true only when a file was found, parsed, and produced no error-level
+ * issues (warnings still pass), so the CLI can exit non-zero on real problems.
+ */
+export function validateConfigFile(options: ConfigValidateOptions = {}): ConfigValidateResult {
+  const path = resolveConfigPath({ path: options.path, cwd: options.cwd, env: options.env });
+  if (!path) {
+    return {
+      ok: false,
+      path: null,
+      issues: [
+        {
+          level: "error",
+          path: "file",
+          message: "no config file found (looked for ./agentrelay.config.json and ~/.agentrelay/config.json)",
+        },
+      ],
+    };
+  }
+
+  if (!existsSync(path)) {
+    return { ok: false, path, issues: [{ level: "error", path: "file", message: `not found: ${path}` }] };
+  }
+
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch (error) {
+    return { ok: false, path, issues: [{ level: "error", path: "file", message: `could not read: ${String(error)}` }] };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    return { ok: false, path, issues: [{ level: "error", path: "file", message: `invalid JSON: ${String(error)}` }] };
+  }
+
+  let config: AgentRelayConfig;
+  try {
+    config = parseConfig(parsed, "config");
+  } catch (error) {
+    // parseConfig throws a message already scoped like "config.retry.factor must be…".
+    return { ok: false, path, issues: [{ level: "error", path: "structure", message: String(error) }] };
+  }
+
+  const issues = validateConfig(config);
+  return { ok: !hasConfigErrors(issues), path, issues };
 }
 
 /** Statuses a job can legitimately be in — used to validate `--status` input. */

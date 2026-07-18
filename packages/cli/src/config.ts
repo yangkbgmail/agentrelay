@@ -25,6 +25,17 @@ export function configPathFromArgv(argv: string[]): string | undefined {
 }
 
 /**
+ * True when argv invokes `config validate`, whose whole job is to diagnose a
+ * broken config file. The startup {@link bootstrapConfig} throws on a malformed
+ * config, which would otherwise abort before the validate command can report
+ * the problem — so bin.ts skips the throwing bootstrap for this one command.
+ */
+export function isConfigValidateInvocation(argv: string[] = process.argv): boolean {
+  const args = argv.slice(2).filter((arg) => !arg.startsWith("-"));
+  return args[0] === "config" && args[1] === "validate";
+}
+
+/**
  * Loads the config file (if any) and fills its values into `process.env`
  * *without overwriting* variables already set, so explicit env/CLI values win.
  * Runs once at startup before the CLI reads any env-driven option. Returns the

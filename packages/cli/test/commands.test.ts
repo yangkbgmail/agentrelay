@@ -5,7 +5,15 @@ import { PassThrough } from "node:stream";
 import type { NotifyPayload } from "@agentrelay/core";
 import { parseConfig, RelayQueue, sampleConfigJson } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cancelJob, initConfig, listStatus, pruneJobs, retryJob, runCommand } from "../src/commands.js";
+import {
+  cancelJob,
+  initConfig,
+  listStatus,
+  pruneJobs,
+  retryJob,
+  runCommand,
+  validateConfigFile,
+} from "../src/commands.js";
 
 describe("runCommand", () => {
   let dir: string;
@@ -242,5 +250,66 @@ describe("initConfig", () => {
     expect(result.ok).toBe(true);
     expect(result.message).toMatch(/Overwrote/);
     expect(readFileSync(path, "utf8")).toBe(sampleConfigJson());
+  });
+});
+
+describe("validateConfigFile", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-validate-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("passes cleanly for the freshly generated sample config", () => {
+    const path = join(dir, "agentrelay.config.json");
+    initConfig({ cwd: dir });
+    const result = validateConfigFile({ path });
+    expect(result.ok).toBe(true);
+    expect(result.path).toBe(path);
+    expect(result.issues).toEqual([]);
+  });
+
+  it("errors when no config file is found", () => {
+    const result = validateConfigFile({ cwd: dir, env: { HOME: dir } });
+    expect(result.ok).toBe(false);
+    expect(result.path).toBeNull();
+    expect(result.issues[0].message).toMatch(/no config file found/);
+  });
+
+  it("reports invalid JSON as a single error instead of throwing", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, "{ not json");
+    const result = validateConfigFile({ path });
+    expect(result.ok).toBe(false);
+    expect(result.issues).toEqual([expect.objectContaining({ level: "error", path: "file" })]);
+    expect(result.issues[0].message).toMatch(/invalid JSON/i);
+  });
+
+  it("reports a structural (wrong type) mistake as an error", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ retry: { maxAttempts: "lots" } }));
+    const result = validateConfigFile({ path });
+    expect(result.ok).toBe(false);
+    expect(result.issues).toEqual([expect.objectContaining({ level: "error", path: "structure" })]);
+  });
+
+  it("surfaces semantic issues (bad duration) with ok=false", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ autoPrune: { after: "whenever" } }));
+    const result = validateConfigFile({ path });
+    expect(result.ok).toBe(false);
+    expect(result.issues).toEqual([expect.objectContaining({ level: "error", path: "autoPrune.after" })]);
+  });
+
+  it("passes (ok=true) when only warnings are present", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ notify: { slackWebhook: "oops" } }));
+    const result = validateConfigFile({ path });
+    expect(result.ok).toBe(true);
+    expect(result.issues).toEqual([expect.objectContaining({ level: "warning", path: "notify.slackWebhook" })]);
   });
 });
