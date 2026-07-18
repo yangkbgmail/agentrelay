@@ -22,6 +22,28 @@ export function formatSuccessRate(rate: number | null): string {
 }
 
 /**
+ * Format an absolute duration (ms) as a compact human string spanning the full
+ * range a relay produces: sub-second resolutions up to multi-day windows. Two
+ * units of granularity ("4h 12m", "3d 2h", "45m 30s", "8s"). Returns "-" for a
+ * negative or non-finite input, "<1s" for a sub-second span.
+ */
+export function formatDurationMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "-";
+  if (ms < 1000) return "<1s";
+  const totalSeconds = Math.round(ms / 1000);
+  const seconds = totalSeconds % 60;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const minutes = totalMinutes % 60;
+  const totalHours = Math.floor(totalMinutes / 60);
+  const hours = totalHours % 24;
+  const days = Math.floor(totalHours / 24);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (totalHours > 0) return `${totalHours}h ${minutes}m`;
+  if (totalMinutes > 0) return `${totalMinutes}m ${seconds}s`;
+  return `${totalSeconds}s`;
+}
+
+/**
  * Renders the stats summary as a multi-line block. Pure: no I/O, no ambient
  * clock unless `now` is omitted. `color` gates ANSI codes (TTY only).
  */
@@ -44,6 +66,18 @@ export function renderStats(stats: RelayStats, options: { now?: number; color?: 
   lines.push(`  total attempts: ${stats.totalAttempts}   retried jobs: ${stats.retriedJobs}`);
   if (stats.nextResetAt !== null) {
     lines.push(`  next reset in: ${formatCountdown(stats.nextResetAt, now)}`);
+  }
+
+  const { timing } = stats;
+  if (timing.resolvedCount > 0) {
+    lines.push("");
+    lines.push(b("resolution time") + d(" (completed + failed)"));
+    lines.push(
+      `  avg ${formatDurationMs(timing.avgResolutionMs ?? 0)}` +
+        `   min ${formatDurationMs(timing.minResolutionMs ?? 0)}` +
+        `   max ${formatDurationMs(timing.maxResolutionMs ?? 0)} ` +
+        d(`over ${timing.resolvedCount} job(s)`)
+    );
   }
 
   const statusParts = STATUS_ORDER.filter((s) => stats.byStatus[s] > 0).map((s) => `${s}:${stats.byStatus[s]}`);
