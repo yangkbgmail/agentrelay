@@ -18,6 +18,8 @@ import {
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  type ExportFormat,
+  exportJobs,
   hasConfigErrors,
   listBackups,
   notifiersFromEnv,
@@ -465,6 +467,45 @@ export function listStoreBackups(storePath?: string): StoreBackupInfo[] {
     return [];
   }
   return listBackups(names, storeName).map((entry) => ({ path: join(dir, entry.name), stamp: entry.stamp }));
+}
+
+export interface ExportJobsOptions {
+  storePath?: string;
+  /** Serialization format. */
+  format: ExportFormat;
+  /** Already-selected jobs to serialize (filtered/sorted by the caller). If omitted, the whole store is read. */
+  jobs?: RelayJob[];
+  /** When set, write the output to this file (parent dirs created) instead of returning it for stdout. */
+  outPath?: string;
+}
+
+export interface ExportJobsResult {
+  /** The serialized payload. Always populated, even when also written to a file. */
+  content: string;
+  /** Number of jobs serialized. */
+  count: number;
+  /** Absolute path written to, or null when the caller should print to stdout. */
+  writtenTo: string | null;
+}
+
+/**
+ * Serialize the job store to CSV or JSON. The heavy lifting (escaping,
+ * column layout) lives in the pure `@agentrelay/core` `exportJobs`; this wrapper
+ * only handles the store read and optional file write so the CLI stays thin.
+ * A file write appends a trailing newline (POSIX text convention); the returned
+ * `content` is the exact serializer output without it.
+ */
+export function exportStore(options: ExportJobsOptions): ExportJobsResult {
+  const jobs = options.jobs ?? listStatus(options.storePath);
+  const content = exportJobs(jobs, options.format);
+  let writtenTo: string | null = null;
+  if (options.outPath) {
+    const path = resolve(process.cwd(), options.outPath);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${content}\n`, "utf8");
+    writtenTo = path;
+  }
+  return { content, count: jobs.length, writtenTo };
 }
 
 /** Statuses a job can legitimately be in — used to validate `--status` input. */

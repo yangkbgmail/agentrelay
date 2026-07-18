@@ -568,3 +568,28 @@
     원본 `jobs.json` + 최신 백업 1개만 잔존 확인.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), `agentrelay restore <snapshot>`으로 스냅샷 복원(👷 후보),
   대시보드가 timing/설정 파일 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보).
+
+### [세션 20 — `agentrelay export` (CSV/JSON 내보내기)] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 0개, main=현재 브랜치 동일(중복/누적 없음). BACKLOG §8의 👷
+  항목이 모두 완료 상태여서, CLAUDE.md 지침대로 새 개선 항목을 발굴했다. `stats`(집계)·
+  대시보드(실시간)는 있었지만 잡별 원본 이력을 스프레드시트/BI/`jq`로 빼낼 방법이 없었다 —
+  잡 1건당 1행(row)의 평면 export가 그 갭을 메운다.
+- 한 일 (branch `claude/wizardly-pascal-cjcfb7`):
+  1. `@agentrelay/core/export.ts` 신설(순수, 파일시스템 미접촉): RFC 4180 `escapeCsvField`
+     (콤마/쌍따옴표/개행 포함 시 인용·내부 따옴표 이중화), `JOB_CSV_COLUMNS`(사람이 실제로
+     필터/정렬하는 필드 순서), `jobCsvValue`(command는 가독성 위해 공백 조인, null은 빈 문자열),
+     `jobsToCsv`(헤더+행, 빈 스토어도 헤더 유지, LF·trailing newline 없음), `jobsToJson`
+     (2-스페이스 pretty, command 배열까지 무손실 왕복), `EXPORT_FORMATS`/`exportJobs` 디스패처.
+     CSV=평면·가독, JSON=정확·무손실로 역할 분리. index.ts에 재노출.
+  2. CLI: `commands.ts`에 `exportStore`(스토어 읽기+선택적 파일 쓰기만 담당, 나머지는 core
+     순수 함수 위임; 파일 쓰기는 POSIX 관례로 trailing newline 부착, 반환 content는 그대로).
+     `cli.ts`에 `agentrelay export` 커맨드 배선: `-f/--format csv|json`, `-o/--out <file>`,
+     `-s/--status`·`--sort`·`-r/--reverse`(status 커맨드의 `selectJobs` 재사용). 파일 출력 시
+     상태 메시지는 stderr로(리다이렉트용 stdout 청정 유지), 잘못된 format/status/sort는 exit 1.
+  - 검증: `pnpm build` 클린, `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+    **256개 전부 통과**(core 194 + cli 59 + dashboard 3 — core에 export 순수함수 22케이스,
+    cli에 exportStore 5케이스 신규). **실제 빌드된 CLI e2e**(mock 아님): `alpha,inc`·
+    `refactor, please` 시드 잡으로 CSV가 두 필드를 정확히 인용부호 처리, `-f json`이 command
+    배열 보존, `-o out/report.csv`가 2 job(s) 리포트 + 파일 생성, `-f xml`은 exit 1 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing(백분위수 포함)/설정 파일 노출
+  (👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), 스토어 자동 백업 로테이션(👷 후보).

@@ -2,6 +2,7 @@ export * from "./adapters.js";
 export * from "./backup.js";
 export * from "./config.js";
 export * from "./control.js";
+export * from "./export.js";
 export * from "./notify.js";
 export * from "./parser.js";
 export * from "./paths.js";

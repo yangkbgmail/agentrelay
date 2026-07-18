@@ -164,6 +164,16 @@
       오름차순 정렬 → min/max는 양끝, median/p90은 `percentile`. resolved 0개면 둘 다 null.
       CLI `stats.ts` resolution-time 블록에 `median … p90 …` 라인, `--json`은 자동 노출.
       branch `claude/wizardly-pascal-yfv19e`)
+- [x] 👷 `agentrelay export` — 잡 이력을 CSV/JSON으로 내보내 스프레드시트/BI/`jq` 분석.
+      (완료 — `@agentrelay/core/export.ts` 신설(순수·파일시스템 미접촉): RFC 4180
+      `escapeCsvField`(콤마/쌍따옴표/개행 인용·따옴표 이중화), `JOB_CSV_COLUMNS`(필터·정렬용
+      필드 순서), `jobCsvValue`(command 공백 조인·null은 빈칸), `jobsToCsv`(빈 스토어도 헤더
+      유지, LF), `jobsToJson`(2-스페이스 pretty·command 배열까지 무손실 왕복), `EXPORT_FORMATS`/
+      `exportJobs` 디스패처. CSV=평면·가독, JSON=정확·무손실 역할 분리. CLI `commands.ts`
+      `exportStore`(스토어 읽기+선택적 파일 쓰기[trailing newline 부착]만, 나머지는 core 위임),
+      `cli.ts` `agentrelay export` 커맨드: `-f/--format csv|json`·`-o/--out`·`-s/--status`·
+      `--sort`·`-r/--reverse`(status의 `selectJobs` 재사용). 파일 출력 시 상태는 stderr(stdout
+      청정), 잘못된 format/status/sort는 exit 1. branch `claude/wizardly-pascal-cjcfb7`)
 
 - [x] 👷 스토어 백업 + 로테이션(`agentrelay backup`) — 유일한 데이터(`jobs.json`)의 시점 스냅샷.
       (완료 — `@agentrelay/core/backup.ts` 신설: 순수 `backupFilePath`(fs-safe·정렬가능 ISO 타임스탬프
