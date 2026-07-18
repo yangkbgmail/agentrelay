@@ -540,3 +540,31 @@
     7200000·`p90ResolutionMs` 18720000을 정확히 전달함을 확인.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing(백분위수 포함)/설정 파일 노출
   (👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), 스토어 자동 백업 로테이션(👷 후보).
+
+### [세션 19 — 스토어 백업 + 로테이션(`agentrelay backup`)] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 0개, main=현재 브랜치 동일(중복/누적 없음). BACKLOG의 명시적 👷
+  항목은 전부 완료라, 세션 14/17/18이 반복 남긴 "다음 할 일 👷 후보" 중 **스토어 자동 백업
+  로테이션**을 골랐다. 세션 14(손상 스토어 보존/복구)의 안전 테마를 잇는 항목 — 로컬 우선 도구의
+  유일한 데이터인 `jobs.json`을 위험한 작업(대량 prune·수동 편집·업그레이드) 전에 시점 스냅샷으로
+  지키고, 무한 증가는 로테이션으로 막는다.
+- 한 일 (branch `claude/wizardly-pascal-283n3i`):
+  1. `@agentrelay/core/backup.ts` 신설(순수 헬퍼만) — `backupFilePath`(fs-safe·정렬가능 ISO
+     타임스탬프 `jobs.json.backup-<ts>`, ISO 8601이 고정폭 zero-pad라 사전순==시간순),
+     `backupStamp`(이 스토어의 `.backup-*`만 스탬프 추출 — `.corrupt-`/`.tmp-`/원본은 null로 배제),
+     `listBackups`(최신순 desc 정렬), `selectRotatableBackups`(newest `keepLast` 보존, 나머지 삭제
+     대상 반환; `keepLast≤0`은 전부, 소수 floor). `BackupResult`/`BACKUP_INFIX`/`DEFAULT_BACKUP_KEEP`(10).
+  2. `RelayQueue.backup({keepLast,now})` — 현재 온-디스크 상태를 **원자적**(`.tmp-backup-*` temp+rename)
+     으로 `.backup-<ts>`에 스냅샷(빈 스토어도 유효한 `[]`) 후 `selectRotatableBackups`로 이 스토어의
+     `.backup-*`만 로테이션. **원본/`.corrupt-`/`.tmp-`는 절대 안 건드림**(distinct infix), 방금 만든
+     스냅샷은 `full===dest` 가드로 `keepLast:0`에서도 보존, unlink 실패는 삼켜 릴레이 루프 보호.
+  3. CLI `packages/cli/src/commands.ts`에 `backupStore`(래퍼)·`listStoreBackups`(디렉터리 스캔→최신순,
+     읽기 실패는 빈 배열). `cli.ts`에 `agentrelay backup [--keep N] [--list]` — `--list`는 생성 대신
+     기존 스냅샷 나열, `--keep`은 비음수 정수 검증(exit 1), 생성 시 job 수·로테이션 수 보고.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **244개 전부 통과**(core 185 + cli 56 + dashboard 3 — core backup 9[순수 4 + queue 5] +
+    CLI backupStore/listStoreBackups 2 신규). **실제 빌드된 CLI e2e**(mock 아님): rate-limit 잡 1개
+    큐잉 → `backup --list`가 "No snapshots" → `backup`이 1-job 스냅샷 작성 → `backup --keep 1`이 2번째
+    작성 + 이전 1개 로테이션 → `--list`가 최신 1개만 표시 → `--keep -3`은 error+exit 1 → 디스크에
+    원본 `jobs.json` + 최신 백업 1개만 잔존 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), `agentrelay restore <snapshot>`으로 스냅샷 복원(👷 후보),
+  대시보드가 timing/설정 파일 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보).

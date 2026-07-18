@@ -165,6 +165,16 @@
       CLI `stats.ts` resolution-time 블록에 `median … p90 …` 라인, `--json`은 자동 노출.
       branch `claude/wizardly-pascal-yfv19e`)
 
+- [x] 👷 스토어 백업 + 로테이션(`agentrelay backup`) — 유일한 데이터(`jobs.json`)의 시점 스냅샷.
+      (완료 — `@agentrelay/core/backup.ts` 신설: 순수 `backupFilePath`(fs-safe·정렬가능 ISO 타임스탬프
+      `jobs.json.backup-<ts>`)·`backupStamp`(이 스토어의 백업만 스탬프 추출, `.corrupt-`/`.tmp-`/원본
+      제외)·`listBackups`(최신순 정렬)·`selectRotatableBackups`(newest N 보존, 나머지 삭제 대상; keepLast≤0은
+      전부, 소수 floor) + `BackupResult`. `RelayQueue.backup({keepLast,now})`가 현재 온-디스크 상태를
+      원자적(temp+rename)으로 `.backup-<ts>`에 스냅샷(빈 스토어도 유효한 `[]`) 후 `.backup-*`만 로테이션 —
+      원본/`.corrupt-`/`.tmp-`는 절대 안 건드리고 방금 만든 스냅샷은 keepLast:0에서도 보존, 삭제 실패는
+      삼켜 릴레이 보호. CLI `agentrelay backup [--keep N] [--list]` + `backupStore`/`listStoreBackups`.
+      branch `claude/wizardly-pascal-283n3i`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -6,9 +6,11 @@ import type { NotifyPayload } from "@agentrelay/core";
 import { parseConfig, RelayQueue, sampleConfigJson } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  backupStore,
   cancelJob,
   initConfig,
   listStatus,
+  listStoreBackups,
   pruneJobs,
   retryJob,
   runCommand,
@@ -311,5 +313,45 @@ describe("validateConfigFile", () => {
     const result = validateConfigFile({ path });
     expect(result.ok).toBe(true);
     expect(result.issues).toEqual([expect.objectContaining({ level: "warning", path: "notify.slackWebhook" })]);
+  });
+});
+
+describe("backupStore / listStoreBackups", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-backup-cli-test-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("writes a snapshot of the store and reports the job count", () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    queue.close();
+
+    const result = backupStore({ storePath });
+    expect(result.jobCount).toBe(1);
+    expect(existsSync(result.path)).toBe(true);
+    expect(JSON.parse(readFileSync(result.path, "utf8"))).toHaveLength(1);
+  });
+
+  it("lists snapshots newest first and returns [] when there are none", () => {
+    expect(listStoreBackups(storePath)).toEqual([]);
+
+    const queue = new RelayQueue(storePath);
+    queue.close();
+    queue.backup({ now: new Date("2026-07-18T09:00:01.000Z") });
+    queue.backup({ now: new Date("2026-07-18T09:00:02.000Z") });
+
+    const backups = listStoreBackups(storePath);
+    expect(backups).toHaveLength(2);
+    // Newest first.
+    expect(backups[0].stamp).toBe("2026-07-18T09-00-02-000Z");
+    expect(backups[1].stamp).toBe("2026-07-18T09-00-01-000Z");
   });
 });

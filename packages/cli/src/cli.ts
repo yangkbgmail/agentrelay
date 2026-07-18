@@ -3,9 +3,11 @@ import { computeStats, parseDuration } from "@agentrelay/core";
 import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
+  backupStore,
   cancelJob,
   initConfig,
   listStatus,
+  listStoreBackups,
   pruneJobs,
   retryJob,
   runCommand,
@@ -243,6 +245,45 @@ export function buildCli(): Command {
       const result = retryJob(id, store);
       console.log(`[agentrelay] ${result.message}`);
       if (!result.ok) process.exitCode = 1;
+    });
+
+  program
+    .command("backup")
+    .description("Write a timestamped snapshot of the job store and rotate old ones")
+    .option("--keep <n>", "How many recent snapshots to keep after this one (default: 10)")
+    .option("--list", "List existing snapshots instead of creating one")
+    .action((opts: { keep?: string; list?: boolean }) => {
+      const { store } = program.opts();
+
+      if (opts.list) {
+        const backups = listStoreBackups(store);
+        if (backups.length === 0) {
+          console.log(`No snapshots found for ${store}.`);
+          return;
+        }
+        console.log(`${backups.length} snapshot(s) for ${store} (newest first):`);
+        for (const b of backups) {
+          console.log(`  ${b.path}`);
+        }
+        return;
+      }
+
+      let keepLast: number | undefined;
+      if (opts.keep !== undefined) {
+        const n = Number.parseInt(opts.keep, 10);
+        if (!Number.isInteger(n) || n < 0) {
+          console.error(`Invalid --keep value "${opts.keep}". Use a non-negative integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        keepLast = n;
+      }
+
+      const result = backupStore({ storePath: store, keepLast });
+      console.log(`[agentrelay] Wrote snapshot of ${result.jobCount} job(s) to ${result.path}.`);
+      if (result.rotated.length > 0) {
+        console.log(`[agentrelay] Rotated out ${result.rotated.length} old snapshot(s).`);
+      }
     });
 
   program
