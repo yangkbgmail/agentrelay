@@ -389,3 +389,27 @@
     JSON in AgentRelay config …" + exit 1.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
   `agentrelay config init`으로 샘플 설정 파일 생성(👷 후보), stats 시간대별 추이(👷 후보).
+
+### [세션 14 — `agentrelay config init` 스타터 설정 파일 생성] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 0개, main=현재 브랜치 동일(중복/누적 없음). 세션 13이 남긴 👷
+  후보 중 `agentrelay config init`을 선택 — 세션 13에서 설정 파일 로딩은 붙였지만, 사용자가
+  빈 파일을 직접 손으로 작성해야 해서 어떤 키가 있는지 알기 어려웠다. 스타터 파일을 만들어
+  DX를 마무리한다.
+- 한 일 (branch `claude/wizardly-pascal-68mifp`): **`agentrelay config init`**.
+  1. `@agentrelay/core/config.ts`에 순수 `SAMPLE_CONFIG`(retry는 `DEFAULT_RETRY_POLICY`에서
+     끌어와 드리프트 방지, autoPrune은 `7d`/keep 20/every 1h·enabled false=opt-in 기본과 일치) +
+     `sampleConfigJson(overrides?)`(예쁜 2스페이스 JSON + 후행 개행) 추가. **그대로 써도 안전**:
+     `store`는 생략(빈 문자열이면 `defaultStorePath`가 리터럴로 써버림), notify 채널은 빈 문자열
+     (모든 `*NotifierFromEnv`가 trim/falsy로 "미설정" 취급 → 깨진 웹훅 미활성).
+  2. `packages/cli/src/commands.ts`에 `initConfig({path?,force?})` — 기본 `./agentrelay.config.json`,
+     기존 파일은 `--force` 없이 덮지 않음(exit 1), 부모 디렉터리 자동 생성, 샘플에 resolved
+     기본 store 경로를 주입해 완결·유효한 파일 생성. cli.ts에 `config` 부모 커맨드 + `config init`
+     서브커맨드(`--path`/`-f,--force`) 배선.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **193개 전부 통과**(core 147 + cli 43 + dashboard 3 — core sampleConfigJson 4
+    + cli initConfig 4 신규). **실제 빌드된 CLI e2e**(mock 아님): `config init`이 5-키 스타터
+    파일 생성 → 재실행은 "already exists" + exit 1 → `--force`로 덮어쓰기 → `--path ./sub/…`가
+    중첩 디렉터리 생성 → 생성된 config를 `--config`로 로드 시 `status --json`이 config의 store를
+    읽음 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
+  stats 시간대별 추이/평균 대기시간(👷 후보), `config init`에 `--minimal` 옵션(👷 후보).

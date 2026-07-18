@@ -1,9 +1,12 @@
 import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { AgentTool, JobStatus, Notifier, PruneOptions, RelayJob } from "@agentrelay/core";
 import {
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
+  CONFIG_FILENAME,
   canCancel,
   canRequeue,
   notifiersFromEnv,
@@ -12,6 +15,7 @@ import {
   resolveAdapter,
   resolveJobId,
   retryPolicyFromEnv,
+  sampleConfigJson,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
 
@@ -257,6 +261,40 @@ export function pruneJobs(options: PruneJobsOptions = {}): { pruned: RelayJob[];
   const remaining = queue.listAll().length - (pruneOpts.dryRun ? pruned.length : 0);
   queue.close();
   return { pruned, remaining };
+}
+
+export interface InitConfigResult {
+  ok: boolean;
+  message: string;
+  /** Absolute-or-relative path that was targeted, whether or not it was written. */
+  path: string;
+}
+
+/**
+ * Writes a starter `agentrelay.config.json` (see {@link sampleConfigJson}) so
+ * users get a documented, editable file instead of having to remember the
+ * `AGENTRELAY_*` env vars. Defaults to `./agentrelay.config.json`; refuses to
+ * clobber an existing file unless `force` is set. The sample bakes in the
+ * resolved default store path so the emitted file is complete and valid.
+ */
+export function initConfig(options: { path?: string; force?: boolean } = {}): InitConfigResult {
+  const target = options.path ?? join(process.cwd(), CONFIG_FILENAME);
+  if (existsSync(target) && !options.force) {
+    return {
+      ok: false,
+      message: `${target} already exists. Use --force to overwrite.`,
+      path: target,
+    };
+  }
+  const json = sampleConfigJson({ store: defaultStorePath() });
+  const dir = dirname(target);
+  if (dir) mkdirSync(dir, { recursive: true });
+  writeFileSync(target, json, "utf8");
+  return {
+    ok: true,
+    message: `Wrote starter config to ${target}. Edit it, then run any command from this directory.`,
+    path: target,
+  };
 }
 
 /** Statuses a job can legitimately be in — used to validate `--status` input. */

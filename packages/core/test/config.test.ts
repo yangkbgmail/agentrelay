@@ -9,7 +9,10 @@ import {
   loadConfigFile,
   parseConfig,
   resolveConfigPath,
+  SAMPLE_CONFIG,
+  sampleConfigJson,
 } from "../src/config.js";
+import { DEFAULT_RETRY_POLICY } from "../src/retry.js";
 
 describe("configToEnv", () => {
   it("returns an empty map for an empty config", () => {
@@ -125,5 +128,40 @@ describe("resolveConfigPath / loadConfigFile", () => {
     const path = join(dir, "bad.json");
     writeFileSync(path, "{ not json");
     expect(() => loadConfigFile({ path })).toThrow(/Invalid JSON/);
+  });
+});
+
+describe("sampleConfigJson", () => {
+  it("emits valid JSON that round-trips through parseConfig unchanged", () => {
+    const json = sampleConfigJson();
+    expect(json.endsWith("\n")).toBe(true);
+    const parsed = parseConfig(JSON.parse(json), "sample");
+    expect(parsed).toEqual(SAMPLE_CONFIG);
+  });
+
+  it("mirrors the built-in retry defaults so the two never drift", () => {
+    expect(SAMPLE_CONFIG.retry).toEqual({
+      maxAttempts: DEFAULT_RETRY_POLICY.maxAttempts,
+      baseDelayMs: DEFAULT_RETRY_POLICY.baseDelayMs,
+      factor: DEFAULT_RETRY_POLICY.factor,
+      maxDelayMs: DEFAULT_RETRY_POLICY.maxDelayMs,
+    });
+  });
+
+  it("is safe to apply as-is: empty notify channels and no literal store", () => {
+    // No `store` key means the built-in default holds (an empty string would be
+    // taken literally). Empty notify strings are treated as unset downstream.
+    expect(SAMPLE_CONFIG.store).toBeUndefined();
+    const env = configToEnv(SAMPLE_CONFIG);
+    expect(env.AGENTRELAY_STORE).toBeUndefined();
+    expect(env.AGENTRELAY_SLACK_WEBHOOK).toBe("");
+    expect(env.AGENTRELAY_AUTOPRUNE).toBe("0");
+  });
+
+  it("applies shallow overrides (e.g. an explicit store) into the emitted JSON", () => {
+    const parsed = parseConfig(JSON.parse(sampleConfigJson({ store: "/tmp/jobs.json" })), "sample");
+    expect(parsed.store).toBe("/tmp/jobs.json");
+    // Other groups are preserved untouched.
+    expect(parsed.retry).toEqual(SAMPLE_CONFIG.retry);
   });
 });

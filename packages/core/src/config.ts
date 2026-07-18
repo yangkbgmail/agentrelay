@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_RETRY_POLICY } from "./retry.js";
 
 /**
  * Persistent configuration for AgentRelay, read from a JSON file so users don't
@@ -223,6 +224,42 @@ export function applyConfigToEnv(
     }
   }
   return applied;
+}
+
+/**
+ * A representative starter config used by `agentrelay config init`. It mirrors
+ * the built-in defaults (retry policy pulled from {@link DEFAULT_RETRY_POLICY}
+ * so the two never drift, auto-prune matching `DEFAULT_AUTOPRUNE_AFTER_MS`), so
+ * the emitted file reproduces current behavior and doubles as documentation of
+ * every knob a user can turn.
+ *
+ * Deliberately safe to write as-is:
+ * - `store` is omitted so the built-in `~/.agentrelay/jobs.json` default holds
+ *   (an empty-string store would be taken literally by `defaultStorePath`);
+ * - notify channels are empty strings, which every `*NotifierFromEnv` helper
+ *   treats as "unset" (they trim and reject falsy values), so no broken webhook
+ *   is activated until the user fills one in;
+ * - `autoPrune.enabled` is `false`, matching the opt-in default.
+ */
+export const SAMPLE_CONFIG: AgentRelayConfig = {
+  notify: { slackWebhook: "", webhookUrl: "", webhookAuth: "" },
+  retry: {
+    maxAttempts: DEFAULT_RETRY_POLICY.maxAttempts,
+    baseDelayMs: DEFAULT_RETRY_POLICY.baseDelayMs,
+    factor: DEFAULT_RETRY_POLICY.factor,
+    maxDelayMs: DEFAULT_RETRY_POLICY.maxDelayMs,
+  },
+  autoPrune: { enabled: false, after: "7d", keep: 20, every: "1h" },
+};
+
+/**
+ * Serializes {@link SAMPLE_CONFIG} (with optional shallow overrides, e.g. an
+ * explicit `store`) to a pretty-printed JSON string with a trailing newline,
+ * ready to write to disk. Overrides replace whole top-level groups, so pass a
+ * complete group when overriding one.
+ */
+export function sampleConfigJson(overrides: AgentRelayConfig = {}): string {
+  return `${JSON.stringify({ ...SAMPLE_CONFIG, ...overrides }, null, 2)}\n`;
 }
 
 function asObject(value: unknown, label: string): Record<string, unknown> {
