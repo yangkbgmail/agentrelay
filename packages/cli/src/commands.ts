@@ -1,9 +1,12 @@
 import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import type { AgentTool, JobStatus, Notifier, PruneOptions, RelayJob } from "@agentrelay/core";
 import {
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
+  CONFIG_FILENAME,
   canCancel,
   canRequeue,
   notifiersFromEnv,
@@ -12,6 +15,7 @@ import {
   resolveAdapter,
   resolveJobId,
   retryPolicyFromEnv,
+  sampleConfigJson,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
 
@@ -275,6 +279,55 @@ export function pruneJobs(options: PruneJobsOptions = {}): { pruned: RelayJob[];
   const remaining = queue.listAll().length - (pruneOpts.dryRun ? pruned.length : 0);
   queue.close();
   return { pruned, remaining };
+}
+
+export interface ConfigInitOptions {
+  /** Target file path. Defaults to `<cwd>/agentrelay.config.json`. */
+  path?: string;
+  /** Directory the default path is resolved against. Defaults to `process.cwd()`. */
+  cwd?: string;
+  /** Overwrite an existing file instead of refusing. */
+  force?: boolean;
+}
+
+export interface ConfigInitResult {
+  ok: boolean;
+  /** Absolute path that was (or would have been) written. */
+  path: string;
+  message: string;
+}
+
+/**
+ * Writes a fully-populated sample `agentrelay.config.json` so users have a
+ * documented starting point instead of hand-authoring one. Refuses to clobber
+ * an existing file unless `force` is set (returns `ok:false` so the CLI can
+ * exit non-zero). Creates parent directories as needed. The written content
+ * round-trips through `parseConfig`, so `agentrelay --config <path> status`
+ * works immediately.
+ */
+export function initConfig(options: ConfigInitOptions = {}): ConfigInitResult {
+  const cwd = options.cwd ?? process.cwd();
+  // A supplied relative path resolves against cwd; an absolute one wins; no
+  // path at all defaults to the discovery filename in cwd.
+  const path = resolve(cwd, options.path?.trim() || CONFIG_FILENAME);
+
+  if (existsSync(path) && !options.force) {
+    return {
+      ok: false,
+      path,
+      message: `Config already exists at ${path}. Re-run with --force to overwrite.`,
+    };
+  }
+
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, sampleConfigJson(), "utf8");
+  } catch (error) {
+    return { ok: false, path, message: `Could not write config to ${path}: ${String(error)}` };
+  }
+
+  const verb = options.force ? "Overwrote" : "Wrote";
+  return { ok: true, path, message: `${verb} sample config to ${path}. Edit it, then run any command.` };
 }
 
 /** Statuses a job can legitimately be in — used to validate `--status` input. */

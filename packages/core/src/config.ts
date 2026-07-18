@@ -54,6 +54,48 @@ export interface AgentRelayConfig {
 /** Filename looked for in the current directory during config discovery. */
 export const CONFIG_FILENAME = "agentrelay.config.json";
 
+/**
+ * A fully-populated example config with the built-in defaults spelled out.
+ * Since JSON can't carry comments, every field being present *is* the
+ * documentation — users edit or delete the lines they don't need. The values
+ * mirror the framework defaults (see the `*FromEnv` helpers), so writing this
+ * file and running with it changes nothing until the user tweaks something.
+ *
+ * Round-trips cleanly through {@link parseConfig}.
+ */
+export function sampleConfig(): AgentRelayConfig {
+  return {
+    store: "~/.agentrelay/jobs.json",
+    notify: {
+      slackWebhook: "",
+      webhookUrl: "",
+      webhookAuth: "",
+    },
+    retry: {
+      maxAttempts: 5,
+      baseDelayMs: 1000,
+      factor: 2,
+      maxDelayMs: 300000,
+    },
+    autoPrune: {
+      enabled: false,
+      after: "7d",
+      keep: 50,
+      every: "1h",
+      everyTicks: 20,
+    },
+  };
+}
+
+/**
+ * The {@link sampleConfig} rendered as a pretty-printed JSON string with a
+ * trailing newline — ready to write to `agentrelay.config.json`. Exported so
+ * both the CLI `config init` command and tooling can emit the same content.
+ */
+export function sampleConfigJson(): string {
+  return `${JSON.stringify(sampleConfig(), null, 2)}\n`;
+}
+
 export interface LoadConfigOptions {
   /** Explicit file path (skips discovery). Falls back to `AGENTRELAY_CONFIG`. */
   path?: string;
