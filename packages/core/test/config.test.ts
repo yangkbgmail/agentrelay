@@ -9,6 +9,8 @@ import {
   loadConfigFile,
   parseConfig,
   resolveConfigPath,
+  sampleConfig,
+  sampleConfigJson,
 } from "../src/config.js";
 
 describe("configToEnv", () => {
@@ -125,5 +127,30 @@ describe("resolveConfigPath / loadConfigFile", () => {
     const path = join(dir, "bad.json");
     writeFileSync(path, "{ not json");
     expect(() => loadConfigFile({ path })).toThrow(/Invalid JSON/);
+  });
+});
+
+describe("sampleConfig", () => {
+  it("round-trips through parseConfig without loss", () => {
+    const sample = sampleConfig();
+    // parseConfig should accept it verbatim (no unknown keys, correct types).
+    expect(parseConfig(sample)).toEqual(sample);
+  });
+
+  it("populates every top-level group so the file self-documents", () => {
+    const sample = sampleConfig();
+    expect(sample.store).toBeDefined();
+    expect(sample.notify).toBeDefined();
+    expect(sample.retry).toBeDefined();
+    expect(sample.autoPrune).toBeDefined();
+    // A brand-new user should not accidentally enable destructive auto-prune.
+    expect(sample.autoPrune?.enabled).toBe(false);
+  });
+
+  it("renders pretty JSON with a trailing newline that parses back", () => {
+    const json = sampleConfigJson();
+    expect(json.endsWith("\n")).toBe(true);
+    expect(json).toContain("\n  "); // 2-space indented
+    expect(JSON.parse(json)).toEqual(sampleConfig());
   });
 });

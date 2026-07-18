@@ -389,3 +389,30 @@
     JSON in AgentRelay config …" + exit 1.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
   `agentrelay config init`으로 샘플 설정 파일 생성(👷 후보), stats 시간대별 추이(👷 후보).
+
+### [세션 14 — `agentrelay config init` + 스토어 경로 `~` 확장] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 👷 PR 0개, main=현재 브랜치 동일(중복/누적 없음). BACKLOG의
+  👷 항목은 전부 완료 상태라, 세션 13이 "다음 할 일"로 남긴 👷 후보 중 **`agentrelay config
+  init`(샘플 설정 파일 생성)** 을 골랐다. 설정 파일 지원(세션 13)은 있으나 사용자가 파일을
+  손으로 작성해야 했던 갭을 메운다.
+- 한 일 (branch `claude/config-init`):
+  1. `@agentrelay/core/config.ts`에 순수 `sampleConfig()`(모든 그룹을 기본값으로 채운
+     문서용 예시 — JSON엔 주석이 없으니 "모든 필드가 존재하는 것"이 곧 문서) +
+     `sampleConfigJson()`(2-스페이스 pretty JSON + 개행, `parseConfig` 왕복 무손실) 추가.
+     autoPrune.enabled는 기본 false로 두어 신규 사용자가 실수로 파괴적 정리를 켜지 않게 함.
+  2. `packages/cli/src/commands.ts`에 `initConfig({path,cwd,force})` 추가 — 기본
+     `<cwd>/agentrelay.config.json`에 샘플을 쓰되, 기존 파일은 `--force` 없이 덮지 않음
+     (ok:false→exit 1), 부모 디렉터리 자동 생성, 상대경로는 cwd 기준 해소. cli.ts에
+     `agentrelay config init [path] [-f/--force]` 서브커맨드 배선.
+  3. **footgun 수정** — 샘플 store가 `~/.agentrelay/jobs.json`(리터럴 틸드)인데 스토어
+     레이어가 확장하지 않아 `~` 디렉터리가 생길 수 있었다. `paths.ts`에 순수 `expandTilde`
+     추가하고 `defaultStorePath`가 `AGENTRELAY_STORE`(=설정파일 store)의 선행 `~`/`~/…`를
+     홈으로 확장하도록 함(쉘을 안 거치는 설정 파일 경로도 기대대로 동작). `~user`는 해소 불가라 보존.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **199개 전부 통과**(core 153 + cli 43 + dashboard 3 — config sample 3 +
+    paths 7 + CLI initConfig 4 신규). **실제 빌드된 CLI e2e**(mock 아님): `config init <path>`가
+    샘플 작성 → 재실행 시 "already exists" + exit 1 → `--force`로 "Overwrote" → `--config`로
+    그 파일을 읽어 `status --json`의 storePath가 `~`를 홈(`/root/.agentrelay/jobs.json`)으로
+    확장해 표시하는 것까지 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
+  stats 시간대별 추이/평균 대기시간(👷 후보), `config validate`로 설정 파일 검증(👷 후보).
