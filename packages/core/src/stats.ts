@@ -30,6 +30,16 @@ export interface TimingStats {
   minResolutionMs: number | null;
   /** Longest resolution time (ms), or null when none. */
   maxResolutionMs: number | null;
+  /**
+   * Median (p50) resolution time (ms), or null when none. The average is easily
+   * skewed by one long-babysat job; the median shows the typical case.
+   */
+  medianResolutionMs: number | null;
+  /**
+   * 90th-percentile resolution time (ms), or null when none. The tail matters
+   * for a relay: it's the near-worst-case time a job sat before resolving.
+   */
+  p90ResolutionMs: number | null;
 }
 
 export interface RelayStats {
@@ -76,6 +86,22 @@ function resolutionMs(job: RelayJob): number | null {
 }
 
 /**
+ * Linear-interpolated percentile (0..1) over an ascending-sorted, non-empty
+ * array. p=0.5 → median, p=0.9 → p90. Matches the common "type 7" / NumPy
+ * default: rank = p·(n−1), interpolate between the two straddling samples.
+ * Result is rounded to whole ms. Callers guarantee `sortedAsc.length > 0`.
+ */
+function percentile(sortedAsc: number[], p: number): number {
+  const n = sortedAsc.length;
+  if (n === 1) return sortedAsc[0];
+  const rank = p * (n - 1);
+  const lower = Math.floor(rank);
+  const frac = rank - lower;
+  if (frac === 0) return sortedAsc[lower];
+  return Math.round(sortedAsc[lower] + frac * (sortedAsc[lower + 1] - sortedAsc[lower]));
+}
+
+/**
  * Aggregates a job list into headline relay metrics for `agentrelay stats`.
  * Pure and non-mutating: no I/O, no ambient clock. Reuses {@link summarizeJobs}
  * for the per-status counts and next-reset so the two surfaces never drift.
@@ -113,15 +139,28 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.project.localeCompare(b.project)));
 
   const resolvedCount = resolutionDurations.length;
-  const timing: TimingStats =
-    resolvedCount === 0
-      ? { resolvedCount: 0, avgResolutionMs: null, minResolutionMs: null, maxResolutionMs: null }
-      : {
-          resolvedCount,
-          avgResolutionMs: Math.round(resolutionDurations.reduce((sum, d) => sum + d, 0) / resolvedCount),
-          minResolutionMs: Math.min(...resolutionDurations),
-          maxResolutionMs: Math.max(...resolutionDurations),
-        };
+  let timing: TimingStats;
+  if (resolvedCount === 0) {
+    timing = {
+      resolvedCount: 0,
+      avgResolutionMs: null,
+      minResolutionMs: null,
+      maxResolutionMs: null,
+      medianResolutionMs: null,
+      p90ResolutionMs: null,
+    };
+  } else {
+    // Sort once ascending; percentiles read from it, min/max are its ends.
+    const sorted = [...resolutionDurations].sort((a, b) => a - b);
+    timing = {
+      resolvedCount,
+      avgResolutionMs: Math.round(sorted.reduce((sum, d) => sum + d, 0) / resolvedCount),
+      minResolutionMs: sorted[0],
+      maxResolutionMs: sorted[resolvedCount - 1],
+      medianResolutionMs: percentile(sorted, 0.5),
+      p90ResolutionMs: percentile(sorted, 0.9),
+    };
+  }
 
   return {
     total,

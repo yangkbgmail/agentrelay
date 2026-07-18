@@ -41,6 +41,8 @@ describe("computeStats", () => {
       avgResolutionMs: null,
       minResolutionMs: null,
       maxResolutionMs: null,
+      medianResolutionMs: null,
+      p90ResolutionMs: null,
     });
   });
 
@@ -149,6 +151,43 @@ describe("computeStats", () => {
     expect(stats.timing.avgResolutionMs).toBe(7_200_000); // (1h + 3h) / 2 = 2h
   });
 
+  it("reports median and p90 over an odd number of resolved jobs", () => {
+    // spans of 1h, 2h, 6h (created at 0, updated at 1h/2h/6h)
+    const at = (h: number) => `2026-07-13T${String(h).padStart(2, "0")}:00:00.000Z`;
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(2) }), // 2h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h  (out of order on purpose)
+      job({ status: "failed", createdAt: at(0), updatedAt: at(6) }), // 6h
+    ]);
+    expect(stats.timing.resolvedCount).toBe(3);
+    // median of {1h,2h,6h} is the middle value → 2h
+    expect(stats.timing.medianResolutionMs).toBe(2 * 3_600_000);
+    // avg = (1+2+6)/3 h = 3h
+    expect(stats.timing.avgResolutionMs).toBe(3 * 3_600_000);
+    // p90 over sorted [1h,2h,6h]: rank=0.9*2=1.8 → 2h + 0.8*(6h-2h) = 2h+3.2h = 5.2h
+    expect(stats.timing.p90ResolutionMs).toBe(Math.round(5.2 * 3_600_000));
+  });
+
+  it("interpolates the median over an even number of resolved jobs", () => {
+    const at = (h: number) => `2026-07-13T${String(h).padStart(2, "0")}:00:00.000Z`;
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(2) }), // 2h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(4) }), // 4h
+    ]);
+    // median of {2h,4h} interpolates to the midpoint → 3h
+    expect(stats.timing.medianResolutionMs).toBe(3 * 3_600_000);
+  });
+
+  it("collapses median and p90 to the single value for one resolved job", () => {
+    const stats = computeStats([
+      job({ status: "completed", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T01:00:00.000Z" }),
+    ]);
+    expect(stats.timing.medianResolutionMs).toBe(3_600_000);
+    expect(stats.timing.p90ResolutionMs).toBe(3_600_000);
+    expect(stats.timing.minResolutionMs).toBe(3_600_000);
+    expect(stats.timing.maxResolutionMs).toBe(3_600_000);
+  });
+
   it("excludes cancelled and still-active jobs from resolution timing", () => {
     const stats = computeStats([
       job({
@@ -197,6 +236,8 @@ describe("computeStats", () => {
       avgResolutionMs: null,
       minResolutionMs: null,
       maxResolutionMs: null,
+      medianResolutionMs: null,
+      p90ResolutionMs: null,
     });
   });
 });

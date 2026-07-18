@@ -78,6 +78,10 @@ export function renderStats(stats: RelayStats, options: { now?: number; color?: 
         `   max ${formatDurationMs(timing.maxResolutionMs ?? 0)} ` +
         d(`over ${timing.resolvedCount} job(s)`)
     );
+    lines.push(
+      `  median ${formatDurationMs(timing.medianResolutionMs ?? 0)}` +
+        `   p90 ${formatDurationMs(timing.p90ResolutionMs ?? 0)}`
+    );
   }
 
   const statusParts = STATUS_ORDER.filter((s) => stats.byStatus[s] > 0).map((s) => `${s}:${stats.byStatus[s]}`);
