@@ -156,6 +156,15 @@
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
 
+- [x] 👷 `agentrelay stats` 해결 시간 백분위수(median/p90) — avg/min/max만으론 안 보이는
+      전형 케이스와 꼬리 지연 노출.
+      (완료 — `@agentrelay/core/stats.ts`의 `TimingStats`에 `medianResolutionMs`(p50)·
+      `p90ResolutionMs` 추가. 순수 `percentile(sortedAsc,p)`(선형보간, NumPy 기본/"type 7":
+      rank=p·(n−1), 두 표본 보간, ms 반올림). `computeStats`가 resolution 스팬을 한 번만
+      오름차순 정렬 → min/max는 양끝, median/p90은 `percentile`. resolved 0개면 둘 다 null.
+      CLI `stats.ts` resolution-time 블록에 `median … p90 …` 라인, `--json`은 자동 노출.
+      branch `claude/wizardly-pascal-yfv19e`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

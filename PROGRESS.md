@@ -518,3 +518,25 @@
     exit 0까지 확인.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing/설정 파일 노출(👷 후보),
   stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), 스토어 자동 백업 로테이션(👷 후보).
+
+### [세션 18 — `agentrelay stats` 해결 시간 백분위수(median/p90)] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 0개, main=현재 브랜치 동일(중복/누적 없음). 세션 16/17이 남긴
+  timing 관련 👷 후보를 이어받아, resolution time을 avg/min/max만 보여주던 것을 백분위수로
+  확장했다. 평균은 오래 돌본 잡 하나에 쉽게 왜곡되고, min/max는 극단만 보여줘 "전형적인
+  케이스"와 "꼬리(near-worst-case)"가 안 보이는 갭이 있었다.
+- 한 일 (branch `claude/wizardly-pascal-yfv19e`):
+  1. `@agentrelay/core/stats.ts`의 `TimingStats`에 `medianResolutionMs`(p50)·`p90ResolutionMs`
+     추가. 순수 `percentile(sortedAsc, p)` 헬퍼 신설 — 선형보간(NumPy 기본/"type 7":
+     rank=p·(n−1), 두 표본 사이 보간, ms 반올림). `computeStats`가 resolution 스팬을 한 번만
+     오름차순 정렬해 min/max는 양끝, median/p90은 `percentile`로 계산(중복 정렬 제거).
+     resolved 잡 0개면 median/p90도 null(기존 avg/min/max와 동일 정책).
+  2. CLI `packages/cli/src/stats.ts`의 resolution-time 블록에 `median … p90 …` 라인 추가
+     (`formatDurationMs` 재사용). `--json`은 timing 그대로 전달하므로 새 필드가 자동 노출.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **233개 전부 통과**(core 176 + cli 54 + dashboard 3 — core에 홀수/짝수/단일
+    잡 percentile 3케이스 신규, cli render는 기존 테스트에 median/p90 단언 보강, 기존 empty-shape
+    단언 2곳 갱신). **실제 빌드된 CLI e2e**(mock 아님): 스팬 {1h,2h,6h} 스토어로 `stats`가
+    `median 2h 0m   p90 5h 12m`(rank=1.8→2h+0.8·4h=5.2h) 출력, `--json`이 `medianResolutionMs`
+    7200000·`p90ResolutionMs` 18720000을 정확히 전달함을 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing(백분위수 포함)/설정 파일 노출
+  (👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), 스토어 자동 백업 로테이션(👷 후보).
