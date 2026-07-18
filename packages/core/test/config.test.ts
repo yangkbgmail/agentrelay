@@ -5,11 +5,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   type AgentRelayConfig,
   applyConfigToEnv,
+  buildSampleConfig,
   configToEnv,
   loadConfigFile,
   parseConfig,
   resolveConfigPath,
+  serializeConfig,
 } from "../src/config.js";
+import { DEFAULT_RETRY_POLICY } from "../src/retry.js";
 
 describe("configToEnv", () => {
   it("returns an empty map for an empty config", () => {
@@ -125,5 +128,37 @@ describe("resolveConfigPath / loadConfigFile", () => {
     const path = join(dir, "bad.json");
     writeFileSync(path, "{ not json");
     expect(() => loadConfigFile({ path })).toThrow(/Invalid JSON/);
+  });
+});
+
+describe("buildSampleConfig / serializeConfig", () => {
+  it("populates every option group at its built-in default", () => {
+    const sample = buildSampleConfig("/tmp/jobs.json");
+    expect(sample.store).toBe("/tmp/jobs.json");
+    expect(sample.retry).toEqual({
+      maxAttempts: DEFAULT_RETRY_POLICY.maxAttempts,
+      baseDelayMs: DEFAULT_RETRY_POLICY.baseDelayMs,
+      factor: DEFAULT_RETRY_POLICY.factor,
+      maxDelayMs: DEFAULT_RETRY_POLICY.maxDelayMs,
+    });
+    // Ships inert: auto-prune off and blank notification secrets so a fresh
+    // config changes no behavior until the user edits it.
+    expect(sample.autoPrune?.enabled).toBe(false);
+    expect(sample.notify).toEqual({ slackWebhook: "", webhookUrl: "", webhookAuth: "" });
+  });
+
+  it("omits store when no path is provided", () => {
+    expect(buildSampleConfig().store).toBeUndefined();
+  });
+
+  it("round-trips through parseConfig unchanged", () => {
+    const sample = buildSampleConfig("/tmp/jobs.json");
+    const json = serializeConfig(sample);
+    expect(json.endsWith("\n")).toBe(true);
+    expect(parseConfig(JSON.parse(json))).toEqual(sample);
+  });
+
+  it("serializes to pretty-printed JSON", () => {
+    expect(serializeConfig({ retry: { maxAttempts: 3 } })).toBe(`{\n  "retry": {\n    "maxAttempts": 3\n  }\n}\n`);
   });
 });

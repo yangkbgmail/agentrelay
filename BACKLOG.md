@@ -116,6 +116,14 @@
       설정된 env는 덮지 않음 → **env/CLI > 설정파일 > 기본값** 우선순위). 기존 `*FromEnv` 헬퍼를 전부
       재사용 — CLI `bin.ts`가 buildCli 전에 `bootstrapConfig()`로 설정을 process.env에 채우고, 프로그램에
       `--config <path>` 옵션 추가. branch `claude/wizardly-pascal-ohoon1`)
+- [x] 👷 `agentrelay config init` — 모든 옵션을 기본값으로 채운 샘플 설정 파일 생성(env var 암기 불필요).
+      (완료 — `@agentrelay/core/config.ts`에 순수 `buildSampleConfig(storePath?)`(전 옵션을 기본값으로 채운
+      스타터 config; retry는 `DEFAULT_RETRY_POLICY` 재사용해 드리프트 방지, notify 시크릿은 공란=off,
+      auto-prune은 disabled로 출고해 신규 config가 동작을 안 바꿈)·`serializeConfig`(pretty JSON+개행,
+      `parseConfig` 왕복 무손실)·`SAMPLE_AUTOPRUNE_AFTER` 추가. CLI `commands.ts`에 `initConfig`
+      (타깃 경로 해소[상대→cwd], 기존 파일은 `--force` 없이는 거부, 부모 디렉터리 자동 생성). cli.ts에
+      `config init [--path] [--force]` 서브커맨드 배선(글로벌 `--config`를 기본 쓰기 경로로, `--store`를
+      템플릿에 각인). branch `claude/wizardly-pascal-2kic2o`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

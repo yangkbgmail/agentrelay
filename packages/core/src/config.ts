@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_RETRY_POLICY } from "./retry.js";
 
 /**
  * Persistent configuration for AgentRelay, read from a JSON file so users don't
@@ -223,6 +224,50 @@ export function applyConfigToEnv(
     }
   }
   return applied;
+}
+
+/**
+ * Duration string mirroring the built-in `DEFAULT_AUTOPRUNE_AFTER_MS` (7 days),
+ * used in the starter config so the template documents the real default without
+ * importing the raw millisecond constant (the file layer speaks durations).
+ */
+export const SAMPLE_AUTOPRUNE_AFTER = "7d";
+
+/**
+ * Builds a fully-populated starter {@link AgentRelayConfig} for `agentrelay
+ * config init`. Every option is present at its built-in default so the written
+ * file doubles as self-documenting reference: editing a value overrides that
+ * default, deleting a key falls back to it. Retry values track
+ * {@link DEFAULT_RETRY_POLICY} so the template can't drift from the real
+ * defaults. Notification secrets are left blank (an empty webhook is treated as
+ * "off"), and auto-prune ships disabled so a fresh config changes no behavior
+ * until the user opts in.
+ *
+ * @param storePath Optional job-store path to bake in (usually the resolved
+ * default). Omitted → the `store` key is left out and the built-in default path
+ * is used at runtime.
+ */
+export function buildSampleConfig(storePath?: string): AgentRelayConfig {
+  const config: AgentRelayConfig = {
+    notify: { slackWebhook: "", webhookUrl: "", webhookAuth: "" },
+    retry: {
+      maxAttempts: DEFAULT_RETRY_POLICY.maxAttempts,
+      baseDelayMs: DEFAULT_RETRY_POLICY.baseDelayMs,
+      factor: DEFAULT_RETRY_POLICY.factor,
+      maxDelayMs: DEFAULT_RETRY_POLICY.maxDelayMs,
+    },
+    autoPrune: { enabled: false, after: SAMPLE_AUTOPRUNE_AFTER, keep: 20, every: "1h", everyTicks: 0 },
+  };
+  if (storePath) config.store = storePath;
+  return config;
+}
+
+/**
+ * Serializes a config to pretty-printed JSON with a trailing newline, ready to
+ * write to disk. Round-trips through {@link parseConfig} unchanged.
+ */
+export function serializeConfig(config: AgentRelayConfig): string {
+  return `${JSON.stringify(config, null, 2)}\n`;
 }
 
 function asObject(value: unknown, label: string): Record<string, unknown> {

@@ -1,11 +1,11 @@
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import type { NotifyPayload } from "@agentrelay/core";
-import { RelayQueue } from "@agentrelay/core";
+import { parseConfig, RelayQueue } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cancelJob, listStatus, pruneJobs, retryJob, runCommand } from "../src/commands.js";
+import { cancelJob, initConfig, listStatus, pruneJobs, retryJob, runCommand } from "../src/commands.js";
 
 describe("runCommand", () => {
   let dir: string;
@@ -193,5 +193,59 @@ describe("pruneJobs", () => {
     expect(remaining).toBe(0);
     // Store untouched.
     expect(listStatus(storePath)).toHaveLength(1);
+  });
+});
+
+describe("initConfig", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-init-cli-test-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("writes a valid starter config with the store baked in", () => {
+    const target = join(dir, "agentrelay.config.json");
+    const result = initConfig({ path: target, storePath: "/custom/jobs.json" });
+    expect(result.ok).toBe(true);
+    expect(result.path).toBe(target);
+    expect(existsSync(target)).toBe(true);
+
+    const parsed = parseConfig(JSON.parse(readFileSync(target, "utf8")));
+    expect(parsed.store).toBe("/custom/jobs.json");
+    expect(parsed.autoPrune?.enabled).toBe(false);
+    expect(parsed.retry?.maxAttempts).toBeGreaterThan(0);
+  });
+
+  it("defaults to agentrelay.config.json in cwd and resolves relative paths", () => {
+    const result = initConfig({ cwd: dir, storePath: "/s/jobs.json" });
+    expect(result.ok).toBe(true);
+    expect(result.path).toBe(join(dir, "agentrelay.config.json"));
+    expect(existsSync(result.path)).toBe(true);
+  });
+
+  it("refuses to overwrite an existing file without force", () => {
+    const target = join(dir, "agentrelay.config.json");
+    writeFileSync(target, '{"store":"keepme"}');
+
+    const refused = initConfig({ path: target });
+    expect(refused.ok).toBe(false);
+    expect(refused.message).toMatch(/already exists/);
+    // Original file untouched.
+    expect(JSON.parse(readFileSync(target, "utf8")).store).toBe("keepme");
+
+    const forced = initConfig({ path: target, force: true, storePath: "/new/jobs.json" });
+    expect(forced.ok).toBe(true);
+    expect(JSON.parse(readFileSync(target, "utf8")).store).toBe("/new/jobs.json");
+  });
+
+  it("creates parent directories as needed", () => {
+    const target = join(dir, "nested", "deep", "config.json");
+    const result = initConfig({ path: target, storePath: "/s/jobs.json" });
+    expect(result.ok).toBe(true);
+    expect(existsSync(target)).toBe(true);
   });
 });

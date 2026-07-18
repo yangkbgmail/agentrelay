@@ -389,3 +389,28 @@
     JSON in AgentRelay config …" + exit 1.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
   `agentrelay config init`으로 샘플 설정 파일 생성(👷 후보), stats 시간대별 추이(👷 후보).
+
+### [세션 14 — `agentrelay config init` 샘플 설정 생성] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 0개, main=현재 브랜치 동일(중복/누적 없음). 순수 👷 백로그 항목은
+  전부 완료 상태 → 세션 13이 "다음 할 일"로 남긴 👷 후보 중 자기완결적이고 사용자 가치가 명확한
+  `agentrelay config init`(설정 파일을 매번 손으로 쓰지 않고 스타터 템플릿 생성)을 구현했다.
+- 한 일 (branch `claude/wizardly-pascal-2kic2o`): **설정 파일 스캐폴딩 커맨드**.
+  1. `@agentrelay/core/config.ts`에 순수 `buildSampleConfig(storePath?)` — 모든 옵션 그룹
+     (notify/retry/autoPrune + 선택적 store)을 **기본값으로 채운** 스타터 config를 반환. retry는
+     `DEFAULT_RETRY_POLICY`를 재사용해 템플릿이 실제 기본값과 절대 드리프트하지 않음. 알림 시크릿은
+     공란("")=off, auto-prune은 `enabled:false`로 출고 → **갓 만든 config는 동작을 전혀 안 바꿈**(편집
+     시에만 오버라이드). `serializeConfig`(pretty JSON + 개행, `parseConfig` 왕복 무손실)·
+     `SAMPLE_AUTOPRUNE_AFTER`("7d") 추가. index.ts로 export.
+  2. CLI `packages/cli/src/commands.ts`에 `initConfig({path,force,storePath,cwd})` — 타깃 경로 해소
+     (상대 경로는 cwd 기준), 기존 파일은 `--force` 없이 절대 덮지 않음(실제 설정 보호), 부모 디렉터리
+     자동 생성(`~/.agentrelay/config.json` 등). `{ok,path,message}` 반환.
+  3. cli.ts에 `config` 부모 커맨드 + `config init [--path] [--force]` 서브커맨드 배선 — 글로벌
+     `--config`를 기본 쓰기 경로로, 글로벌 `--store`(기본은 resolved 기본 스토어)를 템플릿에 각인.
+     실패 시 exit 1.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **193개 전부 통과**(core 147 + cli 43 + dashboard 3 — config buildSample/serialize 4 +
+    CLI initConfig 4 신규). **실제 빌드된 CLI e2e**(mock 아님): `config init --store …`가 스타터 파일
+    생성 → 재실행은 "already exists" + exit 1 → `--force`로 덮어쓰기 → `--path custom.json`으로 만든
+    파일을 `--config custom.json status --json`이 실제로 로드해 config의 store 경로를 읽음(왕복 확인).
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
+  `config show`/`config path`로 현재 유효 설정 표시(👷 후보), stats 시간대별 추이(👷 후보).
