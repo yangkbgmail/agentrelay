@@ -5,8 +5,7 @@ import { PassThrough } from "node:stream";
 import type { NotifyPayload } from "@agentrelay/core";
 import { parseConfig, RelayQueue } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cancelJob, getJob, listStatus, pruneJobs, retryJob, runCommand } from "../src/commands.js";
-import { cancelJob, initConfig, listStatus, pruneJobs, retryJob, runCommand } from "../src/commands.js";
+import { cancelJob, getJob, initConfig, listStatus, pruneJobs, retryJob, runCommand } from "../src/commands.js";
 
 describe("runCommand", () => {
   let dir: string;

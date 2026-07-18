@@ -236,6 +236,9 @@ export function buildCli(): Command {
       }
       // Non-zero exit when a hard problem was found, so CI/scripts can gate on it.
       if (!report.ok) process.exitCode = 1;
+    });
+
+  program
     .command("export")
     .description("Export the job queue as CSV or JSON for spreadsheets / external analysis")
     .option("--format <format>", `Output format: ${EXPORT_FORMATS.join(" | ")}`, "csv")
@@ -270,6 +273,9 @@ export function buildCli(): Command {
       }
       // Print to stdout for piping (e.g. `agentrelay export | column -t -s,`).
       console.log(content);
+    });
+
+  program
     .command("logs")
     .description("Show the full, untruncated detail of a single job (command, cwd, output/error tail)")
     .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
