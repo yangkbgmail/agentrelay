@@ -389,3 +389,31 @@
     JSON in AgentRelay config …" + exit 1.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
   `agentrelay config init`으로 샘플 설정 파일 생성(👷 후보), stats 시간대별 추이(👷 후보).
+
+### [세션 14 — 손상된 스토어 파일 보존/복구] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 4개(#32 stats 해결시간, #33·#34·#35 config init 3중복)와 최근 닫힌
+  PR들(logs·doctor·export·combine mode)이 점유·시도한 항목을 피해, CLAUDE.md 지침대로 **새 개선
+  항목을 발굴**했다. 코드를 읽던 중 `RelayQueue.load()`에서 **실제 데이터 유실 버그**를 발견했다:
+  손상된 `jobs.json`을 만나면 주석은 "파일을 그대로 남겨 사람이 검사하도록"이라 적혀 있지만,
+  빈 맵으로 시작한 뒤 이어지는 어떤 쓰기(enqueue/status의 close→flush)든 **손상 파일을 덮어써
+  복구 불가능하게 파괴**하고 있었다. 로컬 우선 도구에서 유일한 데이터가 이 파일이므로 치명적.
+- 한 일 (branch `claude/wizardly-pascal-2gm0z9`): **손상 스토어 보존/복구**.
+  1. `@agentrelay/core/queue.ts`에 순수 `corruptBackupPath(filePath, now)` 추가 — 파일시스템-safe
+     타임스탬프 접미사(`jobs.json.corrupt-2026-07-18T13-38-10-351Z`, ISO의 `:`/`.`→`-`), 테스트
+     결정성을 위해 `now` 주입.
+  2. `RelayQueue.load()` 재작성 — (a) 읽기 실패(IO/권한)는 파일 손대지 않고 빈 큐, (b) 빈/공백
+     파일은 정상 "빈 큐"(백업 안 함), (c) 파싱 불가 또는 **비배열 JSON 루트**는 손상으로 판정해
+     `flush()`가 덮어쓰기 **전에** 먼저 백업 경로로 `rename`해 원본 보존 후 빈 큐로 계속 진행.
+     rename 실패는 삼켜 릴레이 루프를 절대 깨지 않음(`backupPath: null`로 보고).
+  3. `RelayQueue`에 `onCorrupt(info)` 콜백 옵션(`CorruptStoreInfo`: path/backupPath/error) 추가.
+     CLI `commands.ts`에 공용 `openQueue(storePath)` 헬퍼 신설 → 7개 커맨드 진입점을 전부 이걸로
+     통일, 손상 감지 시 stderr에 "store file … was unreadable; moved it aside to … and started with
+     an empty queue." 경고 출력.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **189개 전부 통과**(core 147 + cli 39 + dashboard 3 — queue corrupt-recovery 4케이스
+    신규: 손상 파일 보존+빈 큐 시작+원본 바이트 유지+재쓰기가 백업 미파괴+단일 백업, 비배열 루트=손상,
+    빈/공백=정상, `corruptBackupPath` 결정성). **실제 빌드된 CLI e2e**(mock 아님): 손상 `jobs.json`을
+    두고 `status --store`가 stderr 경고 + `jobs.json.corrupt-<ts>` 백업(원본 바이트 그대로) + 온보딩
+    문구 출력, 원본 경로는 이후 빈 `[]`로 안전 재기록 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드도 `onCorrupt` 배선해 손상 경고 노출(👷 후보),
+  stats 시간대별 추이(👷 후보), 스토어 자동 백업 로테이션(👷 후보).

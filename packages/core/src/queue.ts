@@ -24,12 +24,48 @@ import { dirname } from "node:path";
 import { type PruneOptions, selectPrunableJobs } from "./prune.js";
 import type { CreateJobInput, JobStatus, RelayJob } from "./types.js";
 
+/** Details handed to {@link RelayQueueOptions.onCorrupt} when the store file
+ *  existed but couldn't be parsed. */
+export interface CorruptStoreInfo {
+  /** The store path that was unreadable. */
+  path: string;
+  /** Where the unreadable file was moved for safekeeping, or `null` if it
+   *  couldn't be moved aside (e.g. a rename failure). */
+  backupPath: string | null;
+  /** The parse error that triggered the recovery. */
+  error: unknown;
+}
+
+export interface RelayQueueOptions {
+  /**
+   * Called when the backing file existed but couldn't be parsed as a jobs
+   * array. By the time this fires the corrupt file has already been moved aside
+   * (see `backupPath`) and the queue has started fresh, so the relay loop keeps
+   * running. Lets callers surface a warning instead of silently losing data.
+   */
+  onCorrupt?: (info: CorruptStoreInfo) => void;
+}
+
+/**
+ * Where a corrupt store file is moved aside before the queue starts fresh, so
+ * the unreadable data is preserved for inspection/recovery instead of being
+ * silently clobbered by the next write. The suffix is filesystem-safe (the
+ * ISO timestamp's `:`/`.` are replaced with `-`). Takes an explicit `now` for
+ * deterministic tests.
+ */
+export function corruptBackupPath(filePath: string, now: Date = new Date()): string {
+  const stamp = now.toISOString().replace(/[:.]/g, "-");
+  return `${filePath}.corrupt-${stamp}`;
+}
+
 export class RelayQueue {
   private filePath: string;
   private jobs: Map<string, RelayJob>;
+  private onCorrupt?: RelayQueueOptions["onCorrupt"];
 
-  constructor(filePath: string) {
+  constructor(filePath: string, options: RelayQueueOptions = {}) {
     this.filePath = filePath;
+    this.onCorrupt = options.onCorrupt;
     mkdirSync(dirname(filePath), { recursive: true });
     this.jobs = new Map();
     this.load();
@@ -45,15 +81,48 @@ export class RelayQueue {
       this.jobs = new Map();
       return;
     }
+    let raw: string;
     try {
-      const raw = readFileSync(this.filePath, "utf8");
-      const parsed: RelayJob[] = raw.trim() ? JSON.parse(raw) : [];
-      this.jobs = new Map(parsed.map((job) => [job.id, job]));
+      raw = readFileSync(this.filePath, "utf8");
     } catch {
-      // Corrupt or empty file: start fresh rather than crashing the whole
-      // relay loop. The bad file is left in place for a human to inspect.
+      // Can't even read the file (transient IO / permissions). Start fresh but
+      // leave the file untouched so a later read can recover it.
       this.jobs = new Map();
+      return;
     }
+    // An empty (or whitespace-only) file is a legitimate "no jobs yet" state,
+    // not corruption -- treat it as an empty queue without a backup.
+    if (!raw.trim()) {
+      this.jobs = new Map();
+      return;
+    }
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) throw new Error("store root is not a JSON array");
+      this.jobs = new Map((parsed as RelayJob[]).map((job) => [job.id, job]));
+    } catch (error) {
+      // The file exists and has content but can't be parsed. Preserve it by
+      // moving it aside to a timestamped `.corrupt-*` backup BEFORE starting
+      // fresh -- otherwise the next flush() would overwrite (and permanently
+      // destroy) the unreadable data. Then continue with an empty queue so the
+      // relay loop keeps running.
+      this.jobs = new Map();
+      this.preserveCorruptFile(error);
+    }
+  }
+
+  /** Moves the unreadable store file aside and notifies `onCorrupt`. */
+  private preserveCorruptFile(error: unknown) {
+    let backupPath: string | null = corruptBackupPath(this.filePath, new Date());
+    try {
+      renameSync(this.filePath, backupPath);
+    } catch {
+      // If it can't be moved (permissions / cross-device), leave it in place.
+      // The next flush() may clobber it, but that's no worse than the previous
+      // behavior, and we must not crash the relay over a backup failure.
+      backupPath = null;
+    }
+    this.onCorrupt?.({ path: this.filePath, backupPath, error });
   }
 
   private flush() {

@@ -15,6 +15,24 @@ import {
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
 
+/**
+ * Constructs a {@link RelayQueue} that, if the store file turns out to be
+ * corrupt, moves the unreadable file aside and warns on stderr instead of
+ * silently discarding it. Every CLI command opens the store through this so the
+ * user always learns when their queue file couldn't be read.
+ */
+function openQueue(storePath: string): RelayQueue {
+  return new RelayQueue(storePath, {
+    onCorrupt: ({ path, backupPath }) => {
+      const where = backupPath ? `moved it aside to ${backupPath}` : "could not move it aside";
+      // eslint-disable-next-line no-console
+      console.error(
+        `[agentrelay] warning: store file ${path} was unreadable; ${where} and started with an empty queue.`
+      );
+    },
+  });
+}
+
 export interface RunOptions {
   command: string[];
   cwd?: string;
@@ -76,7 +94,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
     return { exitCode, queuedJob: null };
   }
 
-  const queue = new RelayQueue(storePath);
+  const queue = openQueue(storePath);
   const project = resolveProjectName(cwd);
   const job = queue.enqueue({ project, tool, command: options.command, cwd });
   queue.markWaitingForReset(job.id, rateLimit.resetAt);
@@ -124,7 +142,7 @@ function autoPruneBanner(
 
 export function startDaemon(options: DaemonOptions = {}) {
   const storePath = options.storePath ?? defaultStorePath();
-  const queue = new RelayQueue(storePath);
+  const queue = openQueue(storePath);
   const remoteNotify = options.remoteNotify === undefined ? notifiersFromEnv() : options.remoteNotify;
   const autoPrune = autoPruneOptionsFromEnv();
   const autoPruneEveryMs = autoPruneEveryMsFromEnv() ?? undefined;
@@ -158,7 +176,7 @@ export function startDaemon(options: DaemonOptions = {}) {
 }
 
 export async function tickOnce(storePath?: string, remoteNotify?: Notifier | null): Promise<RelayJob[]> {
-  const queue = new RelayQueue(storePath ?? defaultStorePath());
+  const queue = openQueue(storePath ?? defaultStorePath());
   const notify = remoteNotify === undefined ? notifiersFromEnv() : remoteNotify;
   const scheduler = new RelayScheduler({
     queue,
@@ -172,7 +190,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
 }
 
 export function listStatus(storePath?: string): RelayJob[] {
-  const queue = new RelayQueue(storePath ?? defaultStorePath());
+  const queue = openQueue(storePath ?? defaultStorePath());
   const jobs = queue.listAll();
   queue.close();
   return jobs;
@@ -193,7 +211,7 @@ const shortId = (id: string) => id.slice(0, 8);
  * with an explanatory message rather than silently doing nothing.
  */
 export function cancelJob(idOrPrefix: string, storePath?: string): JobControlResult {
-  const queue = new RelayQueue(storePath ?? defaultStorePath());
+  const queue = openQueue(storePath ?? defaultStorePath());
   try {
     const jobs = queue.listAll();
     const resolved = resolveJobId(jobs, idOrPrefix);
@@ -216,7 +234,7 @@ export function cancelJob(idOrPrefix: string, storePath?: string): JobControlRes
  * (`resuming`) jobs are rejected to avoid racing the running command.
  */
 export function retryJob(idOrPrefix: string, storePath?: string): JobControlResult {
-  const queue = new RelayQueue(storePath ?? defaultStorePath());
+  const queue = openQueue(storePath ?? defaultStorePath());
   try {
     const jobs = queue.listAll();
     const resolved = resolveJobId(jobs, idOrPrefix);
@@ -250,7 +268,7 @@ export interface PruneJobsOptions extends PruneOptions {
  */
 export function pruneJobs(options: PruneJobsOptions = {}): { pruned: RelayJob[]; remaining: number } {
   const { storePath, ...pruneOpts } = options;
-  const queue = new RelayQueue(storePath ?? defaultStorePath());
+  const queue = openQueue(storePath ?? defaultStorePath());
   const pruned = queue.prune(pruneOpts);
   // On a dry run nothing was deleted, so subtract the would-be-pruned count to
   // report the count that *would* remain (matches the non-dry-run number).

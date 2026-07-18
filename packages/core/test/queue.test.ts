@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { RelayQueue } from "../src/queue.js";
+import { corruptBackupPath, RelayQueue } from "../src/queue.js";
 
 describe("RelayQueue", () => {
   let dir: string;
@@ -92,6 +92,67 @@ describe("RelayQueue", () => {
     expect(queue.getById(job.id)?.status).toBe("cancelled");
     // A cancelled job is no longer picked up as due, even past its reset time.
     expect(queue.listDue(new Date(Date.now() + 120_000))).toHaveLength(0);
+  });
+
+  describe("corrupt store recovery", () => {
+    it("preserves a corrupt store file instead of clobbering it, and starts fresh", () => {
+      const storePath = join(dir, "corrupt.db");
+      writeFileSync(storePath, "{ this is not valid json ]", "utf8");
+
+      const events: Array<{ path: string; backupPath: string | null }> = [];
+      const recovered = new RelayQueue(storePath, {
+        onCorrupt: ({ path, backupPath }) => events.push({ path, backupPath }),
+      });
+
+      // Started with an empty queue rather than crashing.
+      expect(recovered.listAll()).toHaveLength(0);
+
+      // The callback fired with a real backup path...
+      expect(events).toHaveLength(1);
+      expect(events[0].path).toBe(storePath);
+      expect(events[0].backupPath).not.toBeNull();
+
+      // ...and that backup file still holds the original unreadable bytes.
+      const backupPath = events[0].backupPath as string;
+      expect(existsSync(backupPath)).toBe(true);
+      expect(readFileSync(backupPath, "utf8")).toBe("{ this is not valid json ]");
+      expect(basename(backupPath).startsWith("corrupt.db.corrupt-")).toBe(true);
+
+      // A subsequent write rewrites the (now-absent) main path cleanly without
+      // destroying the preserved copy.
+      const job = recovered.enqueue({ project: "p", tool: "claude-code", command: ["x"], cwd: "/tmp" });
+      recovered.close();
+      expect(JSON.parse(readFileSync(storePath, "utf8"))).toHaveLength(1);
+      expect(recovered.getById(job.id)?.id).toBe(job.id);
+      // Exactly one backup was made (no duplicate backups on later loads).
+      const backups = readdirSync(dir).filter((f) => f.startsWith("corrupt.db.corrupt-"));
+      expect(backups).toHaveLength(1);
+    });
+
+    it("treats a non-array JSON root as corrupt", () => {
+      const storePath = join(dir, "object.db");
+      writeFileSync(storePath, '{"not":"an array"}', "utf8");
+      let backupPath: string | null | undefined;
+      const q = new RelayQueue(storePath, { onCorrupt: (info) => (backupPath = info.backupPath) });
+      expect(q.listAll()).toHaveLength(0);
+      expect(backupPath).toBeTruthy();
+    });
+
+    it("does NOT treat an empty or whitespace-only file as corrupt", () => {
+      const storePath = join(dir, "empty.db");
+      writeFileSync(storePath, "   \n", "utf8");
+      let called = false;
+      const q = new RelayQueue(storePath, { onCorrupt: () => (called = true) });
+      expect(q.listAll()).toHaveLength(0);
+      expect(called).toBe(false);
+      // No backup file was created.
+      expect(readdirSync(dir).some((f) => f.includes(".corrupt-"))).toBe(false);
+    });
+
+    it("corruptBackupPath produces a filesystem-safe, deterministic suffix", () => {
+      const at = new Date("2026-07-18T12:34:56.789Z");
+      expect(corruptBackupPath("/a/b/jobs.json", at)).toBe("/a/b/jobs.json.corrupt-2026-07-18T12-34-56-789Z");
+    });
   });
 
   it("requeues a job to run now with a fresh attempt count", () => {
