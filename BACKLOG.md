@@ -116,6 +116,16 @@
       설정된 env는 덮지 않음 → **env/CLI > 설정파일 > 기본값** 우선순위). 기존 `*FromEnv` 헬퍼를 전부
       재사용 — CLI `bin.ts`가 buildCli 전에 `bootstrapConfig()`로 설정을 process.env에 채우고, 프로그램에
       `--config <path>` 옵션 추가. branch `claude/wizardly-pascal-ohoon1`)
+- [x] 👷 손상된 스토어 파일 보존/복구 — `jobs.json`이 깨졌을 때 조용히 덮어써 유실하지 않고
+      백업으로 보존.
+      (완료 — 기존 `RelayQueue.load()`는 손상 파일을 만나면 빈 맵으로 시작하며 "파일을 그대로
+      남긴다"고 주석에 적었지만, 실제로는 다음 `flush()`가 손상 파일을 **덮어써 영구 파괴**하는
+      버그가 있었다. `queue.ts`에 순수 `corruptBackupPath(filePath, now)`(파일시스템-safe 타임스탬프
+      접미사) 추가 + `load()`가 파싱 불가 파일을 **먼저** `jobs.json.corrupt-<타임스탬프>`로 rename해
+      보존한 뒤 빈 큐로 계속 진행. 비배열 JSON 루트도 손상으로 취급, 빈/공백 파일은 정상 "빈 큐"로
+      구분(백업 안 함). `RelayQueue`에 `onCorrupt` 콜백 옵션 추가 → CLI가 공용 `openQueue` 헬퍼로
+      모든 커맨드에서 stderr 경고 출력. rename 실패(권한/크로스디바이스)는 삼켜 릴레이 루프 보호.
+      branch `claude/wizardly-pascal-2gm0z9`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
