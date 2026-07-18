@@ -12,6 +12,7 @@ import {
   pruneJobs,
   retryJob,
   runCommand,
+  showJob,
   validateConfigFile,
 } from "../src/commands.js";
 
@@ -160,6 +161,45 @@ describe("cancelJob / retryJob", () => {
     expect(result.job?.status).toBe("waiting_for_reset");
     expect(result.job?.attempts).toBe(0);
     expect(result.job?.lastError).toBeNull();
+  });
+});
+
+describe("showJob", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-show-cli-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("resolves a job by short id prefix and returns it unmutated", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude", "-p", "go"], cwd: dir });
+    queue.markWaitingForReset(job.id, new Date(Date.now() + 60_000).toISOString());
+    queue.close();
+
+    const result = showJob(job.id.slice(0, 8), storePath);
+    expect(result.ok).toBe(true);
+    expect(result.job?.id).toBe(job.id);
+    expect(result.job?.status).toBe("waiting_for_reset");
+    // Read-only: the store is unchanged.
+    expect(listStatus(storePath)[0].status).toBe("waiting_for_reset");
+  });
+
+  it("reports an unknown id as not ok", () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.close();
+
+    const result = showJob("deadbeef", storePath);
+    expect(result.ok).toBe(false);
+    expect(result.job).toBeNull();
+    expect(result.error).toMatch(/no job matches/);
   });
 });
 

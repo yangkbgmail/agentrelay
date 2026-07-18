@@ -152,6 +152,16 @@
       리포트, error 있으면 exit 1(warning만이면 exit 0). `agentrelay config validate [path]` 서브커맨드.
       부수: bin.ts가 `config validate` 호출 시 startup `bootstrapConfig`(깨진 설정에 throw)를 건너뛰어,
       바로 그 깨진 파일을 진단할 수 있게 함. branch `claude/wizardly-pascal-kgd08a`)
+- [x] 👷 `agentrelay show <id>` — 단일 job 전체 상세(명령어·cwd·타임스탬프·에러·출력 tail).
+      (완료 — `status` 테이블은 큐 전체를 요약하느라 8자 id·잘린 project만 보여줘 개별 job을
+      깊게 들여다볼 방법이 없었다. `packages/cli/src/show.ts` 신설: 순수 `renderJobDetail(job,
+      {now,color})`(전체 id·project·tool·status[색상]·읽기 좋은 command 라인·cwd·created/updated
+      [라이프사이클 span 주석]·resets in[카운트다운+절대시각]·attempts, lastError/lastOutputTail은
+      있을 때만 블록 렌더) + `formatCommand`(공백·따옴표·빈 인자 안전 인용, 복붙 가능한 에코) +
+      `renderJobDetailJson`(--json). `commands.ts`에 read-only `showJob(idOrPrefix, store)` —
+      `resolveJobId` 재사용(짧은 prefix·모호/미존재 처리 cancel/retry와 동일), 스토어 불변.
+      CLI `agentrelay show <id> [--json]` 배선, 미존재/모호 id는 exit 1. show.test.ts 12케이스 +
+      commands.test.ts showJob 2케이스. branch `claude/wizardly-pascal-y5jh3b`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

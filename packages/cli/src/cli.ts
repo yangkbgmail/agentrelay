@@ -9,11 +9,13 @@ import {
   pruneJobs,
   retryJob,
   runCommand,
+  showJob,
   startDaemon,
   tickOnce,
   validateConfigFile,
 } from "./commands.js";
 import { defaultStorePath } from "./config.js";
+import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import { renderStats, renderStatsJson } from "./stats.js";
 import {
   type JobSelection,
@@ -179,6 +181,26 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("show")
+    .description("Show full details for one job: command, cwd, timestamps, last error, and captured output")
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .option("--json", "Print the job as JSON (machine-readable, for scripts/jq)")
+    .action((id: string, opts: { json?: boolean }) => {
+      const { store } = program.opts();
+      const result = showJob(id, store);
+      if (!result.ok || !result.job) {
+        console.error(`[agentrelay] ${result.error ?? "job not found"}`);
+        process.exitCode = 1;
+        return;
+      }
+      if (opts.json) {
+        console.log(renderJobDetailJson(result.job, store));
+        return;
+      }
+      console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
     });
 
   const config = program.command("config").description("Manage the agentrelay.config.json defaults file");

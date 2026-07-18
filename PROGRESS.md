@@ -518,3 +518,26 @@
     exit 0까지 확인.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing/설정 파일 노출(👷 후보),
   stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), 스토어 자동 백업 로테이션(👷 후보).
+
+### [세션 18 — `agentrelay show <id>`] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 내 브랜치=main(PR #40 병합 완료, 누적 없음), 열린 👷 PR 0개. BACKLOG의
+  👷 항목이 전부 [완료]라 CLAUDE.md 지침대로 신규 개선 항목을 스스로 발굴. `status` 테이블은
+  큐 전체를 8자 id·잘린 project로 **요약**만 해, 실패한 job의 전체 명령어·cwd·에러 메시지·
+  출력 tail을 확인할 방법이 없는 갭을 골랐다.
+- 한 일 (branch `claude/wizardly-pascal-y5jh3b`):
+  1. `packages/cli/src/show.ts` 신설 — 순수 `renderJobDetail(job, {now,color})`: 전체 id·
+     project·tool·status(색상)·읽기 좋은 command 라인·cwd·created/updated(라이프사이클 span
+     주석)·resets in(카운트다운+절대시각)·attempts를 라벨 정렬 블록으로, `lastError`/
+     `lastOutputTail`은 값이 있을 때만 별도 섹션으로 렌더. `formatCommand`는 공백·따옴표·빈
+     인자를 안전 인용(복붙 가능한 에코, 재실행용 아님). `renderJobDetailJson`은 --json 스냅샷.
+     기존 `formatCountdown`(status)·`formatDurationMs`(stats) 재사용.
+  2. `commands.ts`에 read-only `showJob(idOrPrefix, store)` — `resolveJobId` 재사용으로 짧은
+     prefix·모호/미존재를 cancel/retry와 동일하게 처리, 스토어를 전혀 변경하지 않음.
+  3. CLI `agentrelay show <id> [--json]` 배선(cli.ts). 미존재/모호 id는 stderr+exit 1.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **244개 전부 통과**(core 173 + cli 68 + dashboard 3 — show.test 12 + showJob 2
+    신규). **실제 빌드된 CLI e2e**(mock 아님): `run`으로 rate-limit job을 큐잉 → `show <8자
+    prefix>`가 전체 상세(따옴표 포함 command 라인·카운트다운) 렌더 → `--json`이 기계 판독
+    스냅샷 → 미존재 id는 "no job matches" + exit 1까지 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), stats 대기시간(대기→재개 지연) 지표(👷 후보),
+  대시보드가 job 상세/설정 파일 노출(👷 후보), 스토어 자동 백업 로테이션(👷 후보).

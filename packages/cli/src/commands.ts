@@ -272,6 +272,34 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
   }
 }
 
+export interface ShowJobResult {
+  /** True when exactly one job matched the given id/prefix. */
+  ok: boolean;
+  /** The resolved job (only when `ok`). */
+  job: RelayJob | null;
+  /** Present only when resolution failed — an explanatory message. */
+  error?: string;
+}
+
+/**
+ * Resolve a single job by full id or short prefix for `agentrelay show`, so
+ * the CLI can print its full detail block. Reuses {@link resolveJobId} for the
+ * same ambiguous/unknown handling `cancel`/`retry` give, but performs no
+ * mutation — it only reads the store.
+ */
+export function showJob(idOrPrefix: string, storePath?: string): ShowJobResult {
+  const queue = openQueue(storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { ok: false, job: null, error: resolved.error ?? "job not found" };
+    const job = jobs.find((j) => j.id === resolved.id) ?? null;
+    return { ok: true, job };
+  } finally {
+    queue.close();
+  }
+}
+
 export interface PruneJobsOptions extends PruneOptions {
   storePath?: string;
   dryRun?: boolean;
