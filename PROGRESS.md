@@ -389,3 +389,26 @@
     JSON in AgentRelay config …" + exit 1.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
   `agentrelay config init`으로 샘플 설정 파일 생성(👷 후보), stats 시간대별 추이(👷 후보).
+
+### [세션 14 — `agentrelay config init` + store 경로 `~` 확장] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 0개, 지정 브랜치=main 동일(직전 PR #26 병합 완료 → 최신 main에서
+  브랜치 재시작). BACKLOG의 👷 항목은 거의 소진, 세션 13이 다음 할 일로 남긴 `agentrelay config init`
+  (👷 후보)을 구현. 설정 파일 지원(세션 13)의 자연스러운 후속 — 매번 손으로 JSON을 쓰지 않고
+  기본값이 채워진 스타터 파일을 생성.
+- 한 일 (branch `claude/wizardly-pascal-magdwt`):
+  1. `@agentrelay/core/config.ts` — `SAMPLE_CONFIG`(모든 그룹을 빌트인 기본값/플레이스홀더로 채운
+     유효한 `AgentRelayConfig`) + `serializeConfig(config?)`(2-스페이스 JSON + 끝 개행 + 선두 `"//"`
+     주석 키; JSON엔 주석 문법이 없으므로 `parseConfig`가 무시하는 미지 키로 파일을 자기설명적으로
+     만듦 → 그래도 로드 가능).
+  2. `packages/cli/src/commands.ts` — `initConfig({path,force,cwd})` 순수 헬퍼. 기본 `<cwd>/agentrelay.config.json`,
+     상대경로는 cwd 기준 해소, 기존 파일은 `--force` 없으면 거부(재실행 안전), 부모 디렉터리 자동 생성.
+     `cli.ts`에 `config` 부모 커맨드 + `config init [-p --path] [-f --force]` 배선(성공 stdout, 실패 exit 1).
+  3. `@agentrelay/core/paths.ts` — `expandTilde(path, home?)` 신설 + `defaultStorePath`가 `AGENTRELAY_STORE`의
+     선두 `~`/`~/…`를 홈으로 확장. 함정 제거: 샘플 store `~/.agentrelay/jobs.json`를 그대로 둬도 cwd에
+     리터럴 `~` 디렉터리가 생기지 않음(셸은 따옴표 안 `~`를 확장 안 함). 대시보드도 같은 헬퍼를 써 일관.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) 0 에러, `pnpm test` **197개 전부 통과**
+    (core 152[config +3, paths +6 신규] + cli 42[initConfig +3] + dashboard 3). **실제 빌드된 CLI e2e**:
+    `config init`이 파일 생성 → 재실행은 "already exists" + exit 1 → `--path sub/dir/my.json`은 중첩 디렉터리
+    생성 → 생성된 config를 `status --json`이 픽업해 `storePath`가 `~` 확장된 `/root/.agentrelay/jobs.json`로 표시.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 설정 파일도 읽게 확장(👷 후보),
+  stats 시간대별 추이(👷 후보), 재현 가능한 데모 스크립트(👷🧭, BACKLOG line 19).

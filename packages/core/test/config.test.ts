@@ -9,6 +9,8 @@ import {
   loadConfigFile,
   parseConfig,
   resolveConfigPath,
+  SAMPLE_CONFIG,
+  serializeConfig,
 } from "../src/config.js";
 
 describe("configToEnv", () => {
@@ -80,6 +82,28 @@ describe("parseConfig", () => {
 
   it("rejects NaN/Infinity numbers", () => {
     expect(() => parseConfig({ retry: { factor: Number.POSITIVE_INFINITY } })).toThrow(/finite number/);
+  });
+});
+
+describe("SAMPLE_CONFIG / serializeConfig", () => {
+  it("emits pretty-printed JSON with a trailing newline and a note key", () => {
+    const text = serializeConfig();
+    expect(text.endsWith("\n")).toBe(true);
+    expect(text).toContain("\n  "); // 2-space indentation
+    expect(JSON.parse(text)["//"]).toMatch(/AgentRelay config/);
+  });
+
+  it("round-trips SAMPLE_CONFIG through parseConfig unchanged (note key ignored)", () => {
+    const text = serializeConfig();
+    // The "//" note is an unknown key -> parseConfig drops it, leaving the config intact.
+    expect(parseConfig(JSON.parse(text), "sample")).toEqual(SAMPLE_CONFIG);
+  });
+
+  it("serializes an arbitrary config, not just the default sample", () => {
+    const custom: AgentRelayConfig = { store: "/tmp/x.json" };
+    const parsed = JSON.parse(serializeConfig(custom));
+    expect(parsed.store).toBe("/tmp/x.json");
+    expect(parsed.retry).toBeUndefined();
   });
 });
 

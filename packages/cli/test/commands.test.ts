@@ -1,11 +1,11 @@
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import type { NotifyPayload } from "@agentrelay/core";
-import { RelayQueue } from "@agentrelay/core";
+import { CONFIG_FILENAME, parseConfig, RelayQueue, SAMPLE_CONFIG } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cancelJob, listStatus, pruneJobs, retryJob, runCommand } from "../src/commands.js";
+import { cancelJob, initConfig, listStatus, pruneJobs, retryJob, runCommand } from "../src/commands.js";
 
 describe("runCommand", () => {
   let dir: string;
@@ -193,5 +193,48 @@ describe("pruneJobs", () => {
     expect(remaining).toBe(0);
     // Store untouched.
     expect(listStatus(storePath)).toHaveLength(1);
+  });
+});
+
+describe("initConfig", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-init-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("writes a loadable sample config to <cwd>/agentrelay.config.json by default", () => {
+    const result = initConfig({ cwd: dir });
+    expect(result.ok).toBe(true);
+    expect(result.path).toBe(join(dir, CONFIG_FILENAME));
+    // The written file parses back into the sample config (note key ignored).
+    const parsed = parseConfig(JSON.parse(readFileSync(result.path, "utf8")), "written");
+    expect(parsed).toEqual(SAMPLE_CONFIG);
+  });
+
+  it("refuses to overwrite an existing file unless force is set", () => {
+    const path = join(dir, CONFIG_FILENAME);
+    writeFileSync(path, '{"store":"/keep/me.json"}');
+
+    const refused = initConfig({ cwd: dir });
+    expect(refused.ok).toBe(false);
+    expect(refused.message).toMatch(/already exists/);
+    // Original content untouched.
+    expect(readFileSync(path, "utf8")).toContain("/keep/me.json");
+
+    const forced = initConfig({ cwd: dir, force: true });
+    expect(forced.ok).toBe(true);
+    expect(readFileSync(path, "utf8")).not.toContain("/keep/me.json");
+  });
+
+  it("honors an explicit relative path and creates missing parent dirs", () => {
+    const result = initConfig({ cwd: dir, path: "nested/custom.json" });
+    expect(result.ok).toBe(true);
+    expect(result.path).toBe(join(dir, "nested", "custom.json"));
+    expect(readFileSync(result.path, "utf8")).toContain('"//"');
   });
 });

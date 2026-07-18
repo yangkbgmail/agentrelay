@@ -54,6 +54,49 @@ export interface AgentRelayConfig {
 /** Filename looked for in the current directory during config discovery. */
 export const CONFIG_FILENAME = "agentrelay.config.json";
 
+/**
+ * A representative starter config with every field filled in using AgentRelay's
+ * built-in defaults (retry/auto-prune) and obvious placeholders (store/notify),
+ * so `agentrelay config init` produces a file the user only has to *edit* rather
+ * than author from scratch. It is itself a valid {@link AgentRelayConfig} and
+ * round-trips cleanly through {@link parseConfig}.
+ */
+export const SAMPLE_CONFIG: AgentRelayConfig = {
+  store: "~/.agentrelay/jobs.json",
+  notify: {
+    slackWebhook: "https://hooks.slack.com/services/XXXX/YYYY/ZZZZ",
+    webhookUrl: "https://example.com/agentrelay-webhook",
+    webhookAuth: "Bearer your-token",
+  },
+  retry: {
+    maxAttempts: 5,
+    baseDelayMs: 60000,
+    factor: 2,
+    maxDelayMs: 3600000,
+  },
+  autoPrune: {
+    enabled: false,
+    after: "7d",
+    keep: 50,
+    every: "1h",
+    everyTicks: 20,
+  },
+};
+
+/**
+ * Serializes a config to the exact text `config init` writes: 2-space indented
+ * JSON with a trailing newline, and a leading `"//"` note key that documents the
+ * file. JSON has no comment syntax, but the note is an unknown key that
+ * {@link parseConfig} ignores, so the emitted file still loads without error.
+ */
+export function serializeConfig(config: AgentRelayConfig = SAMPLE_CONFIG): string {
+  const withNote = {
+    "//": "AgentRelay config. Every field is optional; delete the ones you don't need. Explicit AGENTRELAY_* env vars and CLI flags always win over this file.",
+    ...config,
+  };
+  return `${JSON.stringify(withNote, null, 2)}\n`;
+}
+
 export interface LoadConfigOptions {
   /** Explicit file path (skips discovery). Falls back to `AGENTRELAY_CONFIG`. */
   path?: string;
