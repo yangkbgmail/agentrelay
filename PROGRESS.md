@@ -417,3 +417,25 @@
     문구 출력, 원본 경로는 이후 빈 `[]`로 안전 재기록 확인.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드도 `onCorrupt` 배선해 손상 경고 노출(👷 후보),
   stats 시간대별 추이(👷 후보), 스토어 자동 백업 로테이션(👷 후보).
+### [세션 15 — `agentrelay stats` 해결 시간(resolution time) 지표] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 7개(#23·#24·#27~#31)가 config init·logs·doctor·export·combine mode를
+  이미 점유(일부 #27/#31은 config init 중복). 중복을 피해 CLAUDE.md 지침대로 **세션 12/13이 "다음
+  할 일 👷 후보"로 남긴 stats 타이밍 확장**을 골라 구현했다 — 어떤 열린 PR과도 겹치지 않는 항목.
+- 한 일 (branch `claude/wizardly-pascal-qb3468`): **stats 해결 시간 지표**.
+  1. `@agentrelay/core/stats.ts`에 `TimingStats`(resolvedCount·avgResolutionMs·minResolutionMs·
+     maxResolutionMs) + `RelayStats.timing` 추가. 순수 `resolutionMs(job)`가 라이프사이클 span
+     (`updatedAt-createdAt`)을 계산 — completed+failed(릴레이가 자연 종료로 몬 잡)만 집계, cancelled
+     (사용자 취소)·비종료 잡은 제외(successRate와 동일 정책). 타임스탬프 파싱 불가·음수 span(클럭
+     스큐)은 클램프 대신 스킵해 지표를 왜곡하지 않음. resolved 0건이면 전부 null.
+  2. CLI `packages/cli/src/stats.ts`에 순수 `formatDurationMs(ms)`(초~일 범위, 2단위 "4h 12m"/
+     "3d 2h"/"45m 30s"/"8s", 음수·비유한은 "-", 1초 미만은 "<1s"). `renderStats`가 resolved 잡이
+     있을 때만 "resolution time (completed + failed)" 블록(avg/min/max + over N job(s))을 렌더,
+     `--json`은 `stats.timing`을 그대로 전달(스크립트/jq용).
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **194개 전부 통과**(core 147 + cli 44 + dashboard 3 — core timing 4 + CLI
+    formatDurationMs 3·renderStats 2·json 1 신규). **실제 빌드된 CLI e2e**(mock 아님): completed(1h)/
+    failed(3h)/waiting/cancelled(9h) 4-job 스토어 시드 → `stats`가 "resolution time … avg 2h 0m
+    min 1h 0m max 3h 0m over 2 job(s)" 렌더(cancelled·waiting 제외 확인), `--json` timing이
+    avg/min/max ms를 정확히 출력.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 누적 중복 PR(#27/#31 config init) 정리 후보,
+  stats 시간대별 추이/평균 대기시간(대기→재개 지연) 확장(👷 후보), 대시보드에 timing 노출(👷 후보).

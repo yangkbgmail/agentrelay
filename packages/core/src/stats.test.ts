@@ -36,6 +36,12 @@ describe("computeStats", () => {
     // Every status and tool key is present and zero.
     expect(Object.values(stats.byStatus).every((n) => n === 0)).toBe(true);
     expect(stats.byTool).toEqual({ "claude-code": 0, "codex-cli": 0, generic: 0 });
+    expect(stats.timing).toEqual({
+      resolvedCount: 0,
+      avgResolutionMs: null,
+      minResolutionMs: null,
+      maxResolutionMs: null,
+    });
   });
 
   it("splits active vs terminal counts", () => {
@@ -120,5 +126,77 @@ describe("computeStats", () => {
       job({ status: "completed", resetAt: "2026-07-13T01:00:00.000Z" }), // not waiting -> ignored
     ]);
     expect(stats.nextResetAt).toBe("2026-07-13T02:00:00.000Z");
+  });
+
+  it("computes resolution timing over completed + failed jobs", () => {
+    const stats = computeStats([
+      // completed: 1h lifecycle
+      job({
+        status: "completed",
+        createdAt: "2026-07-13T00:00:00.000Z",
+        updatedAt: "2026-07-13T01:00:00.000Z",
+      }),
+      // failed: 3h lifecycle
+      job({
+        status: "failed",
+        createdAt: "2026-07-13T00:00:00.000Z",
+        updatedAt: "2026-07-13T03:00:00.000Z",
+      }),
+    ]);
+    expect(stats.timing.resolvedCount).toBe(2);
+    expect(stats.timing.minResolutionMs).toBe(3_600_000);
+    expect(stats.timing.maxResolutionMs).toBe(10_800_000);
+    expect(stats.timing.avgResolutionMs).toBe(7_200_000); // (1h + 3h) / 2 = 2h
+  });
+
+  it("excludes cancelled and still-active jobs from resolution timing", () => {
+    const stats = computeStats([
+      job({
+        status: "cancelled", // user cut, not a relay resolution
+        createdAt: "2026-07-13T00:00:00.000Z",
+        updatedAt: "2026-07-13T09:00:00.000Z",
+      }),
+      job({
+        status: "waiting_for_reset", // not terminal
+        createdAt: "2026-07-13T00:00:00.000Z",
+        updatedAt: "2026-07-13T08:00:00.000Z",
+      }),
+      job({
+        status: "completed",
+        createdAt: "2026-07-13T00:00:00.000Z",
+        updatedAt: "2026-07-13T00:30:00.000Z",
+      }),
+    ]);
+    expect(stats.timing.resolvedCount).toBe(1);
+    expect(stats.timing.avgResolutionMs).toBe(1_800_000); // only the 30m completed job
+  });
+
+  it("skips resolved jobs with unparseable or negative spans", () => {
+    const stats = computeStats([
+      job({ status: "completed", createdAt: "not-a-date", updatedAt: "2026-07-13T01:00:00.000Z" }),
+      // negative span (clock skew): updatedAt before createdAt
+      job({
+        status: "failed",
+        createdAt: "2026-07-13T05:00:00.000Z",
+        updatedAt: "2026-07-13T04:00:00.000Z",
+      }),
+      job({
+        status: "completed",
+        createdAt: "2026-07-13T00:00:00.000Z",
+        updatedAt: "2026-07-13T02:00:00.000Z",
+      }),
+    ]);
+    expect(stats.timing.resolvedCount).toBe(1);
+    expect(stats.timing.avgResolutionMs).toBe(7_200_000); // only the valid 2h job
+  });
+
+  it("reports empty timing when no jobs have resolved", () => {
+    const stats = computeStats([job({ status: "queued" }), job({ status: "resuming" })]);
+    expect(stats.timing).toEqual({
+      resolvedCount: 0,
+      avgResolutionMs: null,
+      minResolutionMs: null,
+      maxResolutionMs: null,
+    });
   });
 });
