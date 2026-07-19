@@ -305,6 +305,34 @@
       core 코드 0줄, export.test.ts에 조합 파이프라인 회귀 2케이스 추가 + 빌드된 CLI e2e로
       tool/project AND·시간 창·에러 exit 검증. branch `claude/wizardly-pascal-xqzyk6`)
 
+- [x] 👷 `agentrelay doctor` 스토어 디렉터리 쓰기 권한 검사 — 스토어가 읽히더라도 매 `flush()`가
+      쓰기 실패하면 잡 상태 변경이 조용히 유실된다(PATH 다음으로 흔한 "재개 조용히 실패" 원인).
+      (완료 — `@agentrelay/core/doctor.ts`에 `WritableFacts`(dir·writable·willCreate·error) 타입 +
+      `DiagnosticInput.writable` 추가, 순수 `writableCheck` 신설(검사 순서 node→store→**store-writable**→
+      adapters→config→notify): 쓰기 가능=OK(디렉터리 미존재면 "부모가 쓰기 가능, 첫 실행 시 생성"),
+      쓰기 불가=error(OS 에러 텍스트 표기 + `AGENTRELAY_STORE` 재지정 힌트). CLI `commands.ts`에
+      `probeStoreWritable`(실제 throwaway 파일 write+rm — 권한 비트뿐 아니라 read-only 마운트·풀
+      디스크까지 잡음, 스토어 dir 미존재 시 `nearestExistingDir`로 가장 가까운 존재 조상을 프로브,
+      절대 throw 안 함) 신설, `runDoctor`가 **큐 오픈 전**에 프로브(RelayQueue 생성자가 dir을 mkdir하므로
+      순서 중요). 부수 견고화: RelayQueue 생성이 dir 생성 불가(부모가 파일·권한 거부·read-only)로 throw할
+      때 `runDoctor`가 크래시하던 것을 try/catch로 감싸 store-writable error로 진단 리포트(doctor "절대
+      throw 안 함" 계약 유지). core doctor 5 + cli doctor 4(1 skip: root는 권한 비트 우회) 신규 테스트,
+      실제 빌드 CLI e2e로 쓰기 가능→ok/디렉터리 미존재→"will be created"/ENOTDIR→error+exit 1 검증.
+      branch `claude/wizardly-pascal-nbitfy`)
+
+- [x] 👷 `agentrelay status --since/--until` 시간 창 필터 — `stats`(세션 26)·`export`(세션 28)에는
+      있지만 `status`에는 없던 시간 차원을 추가해, 큰 큐에서 최근 N일/시간에 생성된 잡만 라이브로 보기.
+      (완료 — `status`는 `--status`/`--tool`/`--project`만 지원해 시간 창 스코프가 세 형제 명령 중 유일하게
+      빠져 있었다. CLI `cli.ts`의 status 액션에 `--since`/`--until`(now−기간=createdFrom/createdTo, 기존
+      `parseDuration` 재사용) 배선. 시간 창은 core `scopeJobs`로 **먼저** 필터한 뒤 status/tool/project/
+      sort/reverse를 `selectJobs`로 적용(창→선택 순서로 stats·export와 동일 의미). 일회성 테이블·`--json`·
+      `--watch` 세 뷰 모두에 동일 적용 — `runWatch`에 optional `window` 인자를 추가해 매 프레임 재적용
+      (경계는 명령 시작 시 고정된 절대 epoch-ms라 라이브 쓰기는 계속 반영). 창이 스토어 전체를 걸러내면
+      온보딩 문구 대신 `NO_MATCH_MESSAGE`. 파싱 불가 기간·빈 범위(since<until)는 exit 1. 새 core 코드
+      0줄 — 전부 기존 검증된 `scopeJobs`(stats.ts)·`selectJobs`(status.ts) 재사용. status.test.ts에
+      window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
+      검증. branch `claude/wizardly-pascal-uxx5os`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

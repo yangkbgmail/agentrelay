@@ -1,4 +1,5 @@
 import type { JobStatus, RelayJob } from "@agentrelay/core";
+import { scopeJobs } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
   EMPTY_MESSAGE,
@@ -264,6 +265,50 @@ describe("isSelectionFiltering", () => {
     expect(isSelectionFiltering({ statuses: ["failed"] })).toBe(true);
     expect(isSelectionFiltering({ tools: ["codex-cli"] })).toBe(true);
     expect(isSelectionFiltering({ projects: ["web"] })).toBe(true);
+  });
+});
+
+// The `status` command applies the same time window as `stats`/`export`:
+// the --since/--until window via core scopeJobs, then the
+// --status/--tool/--project/--sort/--reverse selection via selectJobs. These
+// tests exercise that exact pipeline, matching the CLI wiring in cli.ts.
+describe("status --since/--until pipeline (scopeJobs then selectJobs)", () => {
+  const now = Date.parse("2026-07-19T00:00:00.000Z");
+  const ago = (ms: number) => new Date(now - ms).toISOString();
+  const HOUR = 3600_000;
+  const DAY = 24 * HOUR;
+
+  function windowJob(overrides: Partial<RelayJob>): RelayJob {
+    return job({ status: "completed", resetAt: null, ...overrides });
+  }
+
+  const jobs: RelayJob[] = [
+    windowJob({ id: "old", project: "alpha", tool: "codex-cli", createdAt: ago(30 * DAY), updatedAt: ago(30 * DAY) }),
+    windowJob({ id: "recent-codex", project: "beta", tool: "codex-cli", createdAt: ago(HOUR), updatedAt: ago(HOUR) }),
+    windowJob({
+      id: "recent-claude",
+      project: "gamma",
+      tool: "claude-code",
+      createdAt: ago(HOUR),
+      updatedAt: ago(HOUR),
+    }),
+  ];
+
+  it("keeps only jobs created within a --since window", () => {
+    const windowed = scopeJobs(jobs, { createdFrom: now - DAY });
+    expect(windowed.map((j) => j.id).sort()).toEqual(["recent-claude", "recent-codex"]);
+  });
+
+  it("combines a --since window with a --tool filter (window then select)", () => {
+    const windowed = scopeJobs(jobs, { createdFrom: now - DAY });
+    const selected = selectJobs(windowed, { tools: ["codex-cli"] });
+    expect(selected.map((j) => j.id)).toEqual(["recent-codex"]);
+  });
+
+  it("scopes to a --since/--until band (created between 7 and 1 days ago)", () => {
+    const mid = windowJob({ id: "mid", project: "delta", createdAt: ago(3 * DAY), updatedAt: ago(3 * DAY) });
+    const windowed = scopeJobs([...jobs, mid], { createdFrom: now - 7 * DAY, createdTo: now - DAY });
+    expect(windowed.map((j) => j.id)).toEqual(["mid"]);
   });
 });
 

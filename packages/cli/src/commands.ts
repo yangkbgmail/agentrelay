@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -20,6 +21,7 @@ import type {
   Notifier,
   PruneOptions,
   RelayJob,
+  WritableFacts,
 } from "@agentrelay/core";
 import {
   autoPruneEveryMsFromEnv,
@@ -727,6 +729,56 @@ function resolveOnPath(binary: string, env: Record<string, string | undefined>):
   return null;
 }
 
+/** Module counter so back-to-back write probes never collide on a filename. */
+let writeProbeSeq = 0;
+
+/**
+ * Walks up from `dir` to the nearest ancestor that actually exists on disk
+ * (possibly `dir` itself). Returns null only if even the filesystem root is
+ * missing, which shouldn't happen. Used so the write probe can test a
+ * not-yet-created store dir by checking the parent the queue will mkdir into.
+ */
+function nearestExistingDir(dir: string): string | null {
+  let current = dir;
+  while (!existsSync(current)) {
+    const parent = dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+  return current;
+}
+
+/**
+ * Probes whether the store directory can actually be written to by creating and
+ * removing a throwaway file — the honest test of "can the relay persist state",
+ * catching read-only mounts and full disks that a bare permission-bit check
+ * would miss. When the store dir doesn't exist yet (fresh install), probes the
+ * nearest existing ancestor since the queue mkdir's the dir on first flush.
+ * Never throws — a failed probe is exactly what we want to report.
+ */
+function probeStoreWritable(storePath: string): WritableFacts {
+  const dir = dirname(storePath);
+  const willCreate = !existsSync(dir);
+  const target = nearestExistingDir(dir);
+  if (!target) {
+    return { dir, writable: false, willCreate, error: "no existing parent directory" };
+  }
+  writeProbeSeq += 1;
+  const probe = join(target, `.agentrelay-write-probe-${process.pid}-${writeProbeSeq}`);
+  try {
+    writeFileSync(probe, "", { flag: "wx" });
+    rmSync(probe, { force: true });
+    return { dir, writable: true, willCreate };
+  } catch (error) {
+    try {
+      rmSync(probe, { force: true });
+    } catch {
+      // best-effort cleanup; ignore
+    }
+    return { dir, writable: false, willCreate, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /**
  * Gathers real environment/store/config facts and runs them through the pure
  * {@link runDiagnostics} judge for `agentrelay doctor`. This is the filesystem +
@@ -741,10 +793,26 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
   // corrupt file gets moved aside during load and would then look "absent".
   const storePath = options.storePath ?? defaultStorePath();
   const existedBefore = existsSync(storePath);
+
+  // --- writability facts. The store loader only reads; every state change has
+  // to write the file back, so a non-writable store dir loses every update
+  // silently. Probe with a real throwaway write *before* opening the queue,
+  // because RelayQueue's constructor mkdir's the store dir (which would make a
+  // not-yet-created dir look already-present).
+  const writable = probeStoreWritable(storePath);
+
   let corrupt = false;
-  const queue = new RelayQueue(storePath, { onCorrupt: () => (corrupt = true) });
-  const jobs = queue.listAll();
-  queue.close();
+  let jobs: RelayJob[] = [];
+  try {
+    const queue = new RelayQueue(storePath, { onCorrupt: () => (corrupt = true) });
+    jobs = queue.listAll();
+    queue.close();
+  } catch {
+    // Opening the queue can throw when the store dir can't be created/written
+    // (parent is a file, perms deny mkdir, read-only mount). The writable probe
+    // above already captured that as an error check, so swallow the crash and
+    // let `doctor` report the diagnosis instead of a stack trace.
+  }
 
   // --- config facts. A missing file is fine (env/defaults); a present-but-broken
   // file is a load error; an OK file is run through the semantic validator.
@@ -779,6 +847,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
       jobCount: jobs.length,
       activeCount: countActiveJobs(jobs),
     },
+    writable,
     config: { path: configPathResolved, loadError, issues },
     notify: {
       slackWebhook: env.AGENTRELAY_SLACK_WEBHOOK,
