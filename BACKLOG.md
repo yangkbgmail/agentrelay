@@ -230,6 +230,18 @@
       flaky). `compareJobsNewestFirst`(createdAt desc, id asc 타이브레이크)로 결정론화 + export
       테스트의 인덱스 의존 단언을 순서 무관으로 교체. branch `claude/wizardly-pascal-ru3nmz`)
 
+- [x] 👷 `agentrelay stats --since/--until` 시간 창(time-window) 필터 — 최근 N일/시간에
+      생성된 잡의 지표만 보기(추세 파악).
+      (완료 — `@agentrelay/core`의 `JobScope`에 `createdFrom`/`createdTo`(epoch ms, 양끝 포함)
+      차원 추가 — 클럭/기간이 아닌 명시 타임스탬프라 `scopeJobs`가 순수·테스트 가능 유지.
+      `scopeJobs`가 `createdAt`을 파싱해 창 안의 잡만 남기고, 파싱 불가/누락 `createdAt`은
+      시간 창이 활성일 때 제외(타임라인에 놓을 수 없으므로). `isJobScopeActive`가 시간 경계
+      (0=falsy epoch 포함)도 활성으로 인식. CLI `stats`에 `--since <기간>`(now−기간=createdFrom)·
+      `--until <기간>`(now−기간=createdTo, 창의 오래된 쪽 경계) 배선 — 기존 `parseDuration`
+      재사용, 잘못된 기간/빈 범위(since<until)는 exit 1, scope note에 `since=…`/`until=…`,
+      `--json`은 scope에 createdFrom/createdTo 에코. stats.test.ts에 6케이스 추가.
+      branch `claude/wizardly-pascal-9uyktw`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -730,3 +730,24 @@
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), `stats --project`를 상위 프로젝트 랭킹과 연동한
   드릴다운(👷 후보), `status`에도 `--tool`/`--project` 필터 확장(👷 후보), 대시보드가 스코프 필터
   UI 노출(👷 후보).
+
+### [세션 26 — `agentrelay stats --since/--until` 시간 창 필터] (2026-07-19, 무인 자율 세션)
+- 배경: 이전 PR(#50) 병합으로 브랜치가 main과 동일. BACKLOG의 순수 👷 항목은 모두 완료 →
+  세션 25의 스코프 필터(status/tool/project)에 **시간 차원**을 더하는 자연스러운 후속을 발굴·구현.
+- 한 일:
+  1. `@agentrelay/core` `stats.ts`: `JobScope`에 `createdFrom`/`createdTo`(epoch ms, 양끝 포함)
+     추가. 클럭/기간이 아닌 명시 타임스탬프라 `scopeJobs`가 순수·클럭 미접촉·테스트 가능 유지.
+     `scopeJobs`가 `createdAt`을 파싱해 창 안의 잡만 남기고, 파싱 불가/누락 `createdAt`은 시간
+     창 활성 시 제외(타임라인에 놓을 수 없으므로). `isJobScopeActive`가 시간 경계도 활성으로 인식
+     (`createdFrom: 0` 같은 falsy epoch도 `!== undefined`로 정확히 감지).
+  2. CLI `stats`에 `--since <기간>`(now−기간=createdFrom)·`--until <기간>`(now−기간=createdTo,
+     창의 오래된 쪽 경계) 배선. 기존 `parseDuration`(prune.ts) 재사용, 잘못된 기간/빈 범위
+     (since<until)는 명확한 에러 + exit 1, scope note에 `since=…`/`until=…`, `--json`은 scope에
+     createdFrom/createdTo 에코.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 에러**, `pnpm test`
+    **319개 전부 통과**(core 227 + cli 89 + dashboard 3 — core scopeJobs/isJobScopeActive 6 신규).
+    **실제 빌드된 CLI e2e**(mock 아님): 최근2h/어제30h/10일전 3-job 스토어로 `stats`(전체 67%)·
+    `--since 24h`(최근1개 100%)·`--since 7d --until 24h`(어제1개 0%)·`--since 7d --json`(scope
+    에코, total 2)·`--since bogus`(exit 1)·`--since 1d --until 7d`(빈 범위 exit 1) 확인.
+- 다음 할 일: `export`/`status`에도 `--since/--until` 확장(👷 후보), 대시보드 시간 창 필터 UI
+  (👷 후보), README/ARCHITECTURE(🧭 코워크).

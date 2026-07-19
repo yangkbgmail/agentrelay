@@ -253,6 +253,12 @@ describe("isJobScopeActive", () => {
     expect(isJobScopeActive({ tools: ["codex-cli"] })).toBe(true);
     expect(isJobScopeActive({ projects: ["web"] })).toBe(true);
   });
+
+  it("is true when a time boundary is set (including 0, a falsy epoch)", () => {
+    expect(isJobScopeActive({ createdFrom: 0 })).toBe(true);
+    expect(isJobScopeActive({ createdTo: 0 })).toBe(true);
+    expect(isJobScopeActive({ createdFrom: 1_000 })).toBe(true);
+  });
 });
 
 describe("scopeJobs", () => {
@@ -306,5 +312,59 @@ describe("scopeJobs", () => {
     const stats = computeStats(scopeJobs(jobs, { projects: ["web"] }));
     expect(stats.total).toBe(2);
     expect(stats.successRate).toBe(0.5); // 1 of 2 resolved in "web"
+  });
+
+  it("filters by createdFrom (inclusive lower bound)", () => {
+    const jobs = [
+      job({ id: "old", createdAt: "2026-07-10T00:00:00.000Z" }),
+      job({ id: "edge", createdAt: "2026-07-13T00:00:00.000Z" }),
+      job({ id: "new", createdAt: "2026-07-15T00:00:00.000Z" }),
+    ];
+    const from = Date.parse("2026-07-13T00:00:00.000Z");
+    expect(scopeJobs(jobs, { createdFrom: from }).map((j) => j.id)).toEqual(["edge", "new"]);
+  });
+
+  it("filters by createdTo (inclusive upper bound)", () => {
+    const jobs = [
+      job({ id: "old", createdAt: "2026-07-10T00:00:00.000Z" }),
+      job({ id: "edge", createdAt: "2026-07-13T00:00:00.000Z" }),
+      job({ id: "new", createdAt: "2026-07-15T00:00:00.000Z" }),
+    ];
+    const to = Date.parse("2026-07-13T00:00:00.000Z");
+    expect(scopeJobs(jobs, { createdTo: to }).map((j) => j.id)).toEqual(["old", "edge"]);
+  });
+
+  it("keeps only jobs inside a [createdFrom, createdTo] window", () => {
+    const jobs = [
+      job({ id: "before", createdAt: "2026-07-09T00:00:00.000Z" }),
+      job({ id: "inside", createdAt: "2026-07-12T00:00:00.000Z" }),
+      job({ id: "after", createdAt: "2026-07-20T00:00:00.000Z" }),
+    ];
+    const scope = {
+      createdFrom: Date.parse("2026-07-10T00:00:00.000Z"),
+      createdTo: Date.parse("2026-07-15T00:00:00.000Z"),
+    };
+    expect(scopeJobs(jobs, scope).map((j) => j.id)).toEqual(["inside"]);
+  });
+
+  it("drops jobs with an unparseable createdAt when a time bound is active", () => {
+    const jobs = [
+      job({ id: "good", createdAt: "2026-07-14T00:00:00.000Z" }),
+      job({ id: "bad", createdAt: "not-a-date" }),
+    ];
+    const from = Date.parse("2026-07-13T00:00:00.000Z");
+    expect(scopeJobs(jobs, { createdFrom: from }).map((j) => j.id)).toEqual(["good"]);
+    // ...but keeps it when no time bound is set.
+    expect(scopeJobs(jobs, {}).map((j) => j.id)).toEqual(["good", "bad"]);
+  });
+
+  it("ANDs the time window with other dimensions", () => {
+    const from = Date.parse("2026-07-13T00:00:00.000Z");
+    const jobs = [
+      job({ id: "a", project: "web", createdAt: "2026-07-14T00:00:00.000Z" }),
+      job({ id: "b", project: "web", createdAt: "2026-07-10T00:00:00.000Z" }), // too old
+      job({ id: "c", project: "api", createdAt: "2026-07-14T00:00:00.000Z" }), // wrong project
+    ];
+    expect(scopeJobs(jobs, { projects: ["web"], createdFrom: from }).map((j) => j.id)).toEqual(["a"]);
   });
 });
