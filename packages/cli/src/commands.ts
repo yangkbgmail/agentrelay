@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -17,6 +18,8 @@ import type {
   BackupResult,
   ConfigIssue,
   DiagnosticReport,
+  HeartbeatFacts,
+  HeartbeatMode,
   JobStatus,
   Notifier,
   PruneOptions,
@@ -31,15 +34,18 @@ import {
   canCancel,
   canRequeue,
   countActiveJobs,
+  daemonHeartbeatPath,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
   type ExportFormat,
   exportJobs,
   hasConfigErrors,
+  heartbeatStaleAfterMs,
   listBackups,
   loadConfigFile,
   notifiersFromEnv,
   parseConfig,
+  parseDaemonHeartbeat,
   RelayQueue,
   RelayScheduler,
   type RestorePreview,
@@ -52,6 +58,7 @@ import {
   retryPolicyFromEnv,
   runDiagnostics,
   sampleConfigJson,
+  serializeDaemonHeartbeat,
   validateConfig,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
@@ -168,6 +175,69 @@ export interface DaemonOptions {
   remoteNotify?: Notifier | null;
 }
 
+/**
+ * Write the resume-loop liveness heartbeat next to the store, atomically via a
+ * temp file + rename so `doctor` never reads a half-written record. Best-effort:
+ * a failed write must never break the relay loop, so it's swallowed. `startedAt`
+ * is preserved across ticks by the caller; each tick just bumps `lastTickAt`.
+ */
+export function writeDaemonHeartbeat(
+  storePath: string,
+  fields: { pid: number; mode: HeartbeatMode; startedAt: string; lastTickAt: string; pollIntervalMs: number }
+): void {
+  const path = daemonHeartbeatPath(storePath);
+  const body = serializeDaemonHeartbeat(fields);
+  const tmp = `${path}.tmp-${process.pid}-${writeProbeSeq++}`;
+  try {
+    const dir = dirname(path);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(tmp, body, "utf8");
+    // rename is atomic on the same filesystem; readers see old-or-new, never partial.
+    renameSync(tmp, path);
+  } catch {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      // best-effort cleanup; ignore
+    }
+  }
+}
+
+/** Remove the heartbeat file on a clean daemon shutdown. Best-effort. */
+export function removeDaemonHeartbeat(storePath: string): void {
+  try {
+    rmSync(daemonHeartbeatPath(storePath), { force: true });
+  } catch {
+    // best-effort; a stale file just reads as stale and expires on its own.
+  }
+}
+
+/**
+ * Read and judge the heartbeat file into {@link HeartbeatFacts} for `doctor`.
+ * This is the filesystem + clock half; the staleness rule and message live in
+ * `@agentrelay/core`. Never throws — a missing/garbled file reads as "absent".
+ */
+export function readHeartbeatFacts(storePath: string, nowMs: number = Date.now()): HeartbeatFacts {
+  const path = daemonHeartbeatPath(storePath);
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    return { present: false };
+  }
+  const hb = parseDaemonHeartbeat(raw);
+  if (!hb) return { present: false };
+  const lastTick = Date.parse(hb.lastTickAt);
+  if (Number.isNaN(lastTick)) return { present: false };
+  return {
+    present: true,
+    mode: hb.mode,
+    pid: hb.pid,
+    ageMs: Math.max(0, nowMs - lastTick),
+    staleAfterMs: heartbeatStaleAfterMs(hb.mode, hb.pollIntervalMs),
+  };
+}
+
 /** Human-readable "(auto-prune on, ...)" suffix for the daemon startup banner. */
 function autoPruneBanner(
   autoPrune: PruneOptions | null,
@@ -188,28 +258,51 @@ export function startDaemon(options: DaemonOptions = {}) {
   const autoPrune = autoPruneOptionsFromEnv();
   const autoPruneEveryMs = autoPruneEveryMsFromEnv() ?? undefined;
   const autoPruneEveryTicks = autoPruneEveryTicksFromEnv() ?? undefined;
+  const pollIntervalMs = options.pollIntervalMs ?? 30_000;
   const logLine = (line: string) => {
     // eslint-disable-next-line no-console
     console.log(line);
     options.onNotify?.(line);
   };
+  // Liveness heartbeat: written once at startup and refreshed every tick so
+  // `agentrelay doctor` can tell the resume loop is alive. startedAt is fixed
+  // for this process; each tick only advances lastTickAt.
+  const startedAt = new Date().toISOString();
+  const beat = (at: Date) =>
+    writeDaemonHeartbeat(storePath, {
+      pid: process.pid,
+      mode: "daemon",
+      startedAt,
+      lastTickAt: at.toISOString(),
+      pollIntervalMs,
+    });
   const scheduler = new RelayScheduler({
     queue,
-    pollIntervalMs: options.pollIntervalMs ?? 30_000,
+    pollIntervalMs,
     retryPolicy: retryPolicyFromEnv(),
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
     onPrune: (pruned) => logLine(`[agentrelay] auto-pruned ${pruned.length} finished job(s)`),
+    onTick: (referenceTime) => beat(referenceTime),
     notify: async (payload) => {
       logLine(`[agentrelay] ${payload.event} — ${payload.project}: ${payload.message}`);
       await remoteNotify?.(payload);
     },
   });
+  beat(new Date());
   scheduler.start();
+  // On a clean shutdown, remove the heartbeat so `doctor` doesn't report a
+  // ghost daemon (a crash leaves it, and staleness catches that instead).
+  const shutdown = () => {
+    scheduler.stop();
+    removeDaemonHeartbeat(storePath);
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
   // eslint-disable-next-line no-console
   console.log(
-    `[agentrelay] daemon started, watching ${storePath} every ${(options.pollIntervalMs ?? 30_000) / 1000}s` +
+    `[agentrelay] daemon started, watching ${storePath} every ${pollIntervalMs / 1000}s` +
       (remoteNotify ? " (notifications on)" : "") +
       autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks)
   );
@@ -217,7 +310,8 @@ export function startDaemon(options: DaemonOptions = {}) {
 }
 
 export async function tickOnce(storePath?: string, remoteNotify?: Notifier | null): Promise<RelayJob[]> {
-  const queue = openQueue(storePath ?? defaultStorePath());
+  const resolvedStore = storePath ?? defaultStorePath();
+  const queue = openQueue(resolvedStore);
   const notify = remoteNotify === undefined ? notifiersFromEnv() : remoteNotify;
   const scheduler = new RelayScheduler({
     queue,
@@ -226,6 +320,17 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     autoPrune: autoPruneOptionsFromEnv(),
   });
   const processed = await scheduler.tick();
+  // Record that a (typically cron-driven) tick ran, so `doctor` can tell the
+  // resume loop is being driven even without a long-lived daemon. pollIntervalMs
+  // is 0 → tick mode, judged against a generous fixed staleness window.
+  const at = new Date().toISOString();
+  writeDaemonHeartbeat(resolvedStore, {
+    pid: process.pid,
+    mode: "tick",
+    startedAt: at,
+    lastTickAt: at,
+    pollIntervalMs: 0,
+  });
   queue.close();
   return processed;
 }
@@ -691,6 +796,8 @@ export interface DoctorOptions {
   env?: Record<string, string | undefined>;
   /** Running Node version. Defaults to `process.version`. Injectable for tests. */
   nodeVersion?: string;
+  /** "Now" (epoch ms) used to age the heartbeat. Defaults to `Date.now()`. Injectable for tests. */
+  nowMs?: number;
 }
 
 /** True when `p` is an existing, executable file. Errors (missing/perms) → false. */
@@ -854,6 +961,9 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
       webhookUrl: env.AGENTRELAY_WEBHOOK_URL,
     },
     adapters: { binaries },
+    // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
+    // doctor can flag "jobs waiting but nothing running to resume them".
+    heartbeat: readHeartbeatFacts(storePath, options.nowMs),
   });
 }
 

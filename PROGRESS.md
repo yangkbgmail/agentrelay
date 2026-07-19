@@ -952,3 +952,31 @@
 - 다음 할 일: 대시보드가 스코프/시간 창 필터 UI 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), `doctor` 데몬 실행 여부 검사(👷 후보),
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 30 — `doctor` 재개 루프(daemon/tick) 생존 검사 + 하트비트 인프라] (2026-07-19, 무인 자율 세션, branch `claude/wizardly-pascal-hb7k2m`)
+- **한 일: AgentRelay 최다 무음 실패("job은 큐에 있는데 아무것도 재개 안 됨")를 `doctor`가 잡게 했다.**
+  기존 `doctor`는 node/store/writable/adapters/config/notify는 봤지만 **재개 루프가 실제로 살아있는지**는
+  볼 수 없었다. job을 `waiting_for_reset`로 큐잉해도 데몬/cron `tick`이 안 돌면 리셋 시각이 지나도 아무도
+  안 집어가 영원히 대기 — 이게 이 도구의 #1 혼란 지점.
+  1. `@agentrelay/core/heartbeat.ts` 신설(순수): `DaemonHeartbeat`(pid·mode`daemon`/`tick`·startedAt·
+     lastTickAt·pollIntervalMs) + `daemonHeartbeatPath`(스토어 옆 `daemon.json`) +
+     `serialize/parseDaemonHeartbeat`(불량 JSON·배열/원시값·잘못된 필드는 null, mode 없으면
+     pollIntervalMs>0→daemon/else→tick 추론=전방호환) + `heartbeatStaleAfterMs`(daemon=poll×3, 60s 하한
+     / tick=15m 고정창 — cron 간격을 모르니 관대하게, 거짓 "안 돎"이 늦은 경고보다 나쁨).
+  2. `doctor.ts`에 `HeartbeatFacts` + `daemon` 체크: **대기 job 수(`store.activeCount`)와 교차 판정** —
+     대기 job 있는데 생존 루프 없음(부재/stale)=warning(그게 이 체크의 존재 이유), 생존 루프 있으면 ok,
+     대기 job 없으면 부재=ok·stale=약한 warning. 순수 유지(시계·파일 미접촉) — CLI가 age/staleAfter 주입.
+  3. `RelayScheduler`에 `onTick(referenceTime)` 콜백(매 tick 끝에서 autoprune 후 호출, 던진 에러는 삼켜
+     릴레이 루프 보호). 파일 I/O는 스케줄러에 안 넣고 콜백으로 — "core 순수, CLI가 I/O" 컨벤션 유지.
+  4. CLI `commands.ts`: `writeDaemonHeartbeat`(tmp+rename 원자적 → doctor가 반쯤 쓴 파일 안 읽음)·
+     `removeDaemonHeartbeat`·`readHeartbeatFacts`(파싱→age/staleAfter 판정, 절대 throw 안 함). `startDaemon`이
+     start시 1회 + `onTick` 매 tick 하트비트 쓰고 SIGINT/SIGTERM에 제거(크래시는 stale로 감지), one-shot
+     `tick`은 tick-mode 하트비트 기록(cron 사용자도 생존 신호). `runDoctor`에 `nowMs` 주입(테스트 결정성).
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **420개 통과 + 1 skip**(core 286[+21: heartbeat 13·doctor daemon 6·scheduler onTick 2] +
+    cli 131[+7: 하트비트 helper·doctor daemon 통합][+1 skip] + dashboard 3). **실제 빌드 CLI e2e**(mock 아님):
+    대기 job+루프 없음→warning "no resume loop"·`tick` 후→"alive: tick"·`daemon --interval 1000` 후→
+    "alive: daemon"·SIGTERM 클린 종료→`daemon.json` 제거 확인·stale 하트비트(10분 전)→"looks stopped" 경고·
+    `--json` daemon 체크 형태 확인.
+- 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
+  (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).

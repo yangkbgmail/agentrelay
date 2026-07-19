@@ -1,4 +1,5 @@
 import type { ConfigIssue } from "./config.js";
+import type { HeartbeatMode } from "./heartbeat.js";
 import type { RelayJob } from "./types.js";
 
 /**
@@ -114,6 +115,26 @@ export interface BinaryFact {
   neededBy: number;
 }
 
+/**
+ * Facts about the resume-loop heartbeat, gathered by the CLI (which reads the
+ * file and knows the wall clock) before judging. The heartbeat proves a
+ * `daemon`/`tick` resume loop is alive; combined with how many jobs are waiting,
+ * `doctor` can catch the #1 silent failure: jobs queued to resume with nothing
+ * running to resume them.
+ */
+export interface HeartbeatFacts {
+  /** True when a heartbeat file exists and parsed into a usable record. */
+  present: boolean;
+  /** How the writer runs (only when {@link present}). */
+  mode?: HeartbeatMode;
+  /** Age in ms of the last tick (`now - lastTickAt`), when present & parseable. */
+  ageMs?: number;
+  /** Staleness threshold in ms; an {@link ageMs} beyond this means "not alive". */
+  staleAfterMs?: number;
+  /** Writer PID, surfaced in the message so a user can locate the process. */
+  pid?: number;
+}
+
 /** Facts about the agent binaries the queued jobs will re-spawn. */
 export interface AdapterFacts {
   /**
@@ -133,6 +154,7 @@ export interface DiagnosticInput {
   config: ConfigFacts;
   notify: NotifyFacts;
   adapters: AdapterFacts;
+  heartbeat: HeartbeatFacts;
 }
 
 /** Minimum supported Node version — mirrors the packages' `engines.node`. */
@@ -199,9 +221,12 @@ export function isSupportedNode(version: string): boolean {
  * 4. **adapters** — every agent binary a queued job will re-spawn is on PATH
  *    (a missing one is an error: those jobs can't resume). Skipped-as-OK when
  *    nothing is queued to resume.
- * 5. **config** — the config file (if any) loads and validates; a broken file
+ * 5. **daemon** — a resume loop (daemon/tick) is alive, cross-referenced with
+ *    how many jobs are waiting: waiting jobs with no live loop is a warning
+ *    (they won't resume), otherwise absence is just an informational OK.
+ * 6. **config** — the config file (if any) loads and validates; a broken file
  *    is an error, semantic warnings are surfaced as warnings.
- * 6. **notify** — at least one notification channel is set (absence is a
+ * 7. **notify** — at least one notification channel is set (absence is a
  *    warning, not an error: notifications are optional but you'd want to know
  *    the relay can't reach you).
  */
@@ -212,6 +237,7 @@ export function runDiagnostics(input: DiagnosticInput): DiagnosticReport {
   checks.push(storeCheck(input.store));
   checks.push(writableCheck(input.writable));
   checks.push(adapterCheck(input.adapters));
+  checks.push(daemonCheck(input.heartbeat, input.store));
   checks.push(configCheck(input.config));
   checks.push(notifyCheck(input.notify));
 
@@ -315,6 +341,84 @@ function adapterCheck(adapters: AdapterFacts): DiagnosticCheck {
     name: "adapters",
     level: "ok",
     message: `all ${binaries.length} agent binary/binaries resolve on PATH: ${names}`,
+  };
+}
+
+/** Compact human age like "3s", "5m", "2h" for a heartbeat's tick age. */
+function humanizeAge(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.round(h / 24)}d`;
+}
+
+/**
+ * Judges resume-loop liveness. The severity hinges on whether any job is
+ * actually waiting to resume (`store.activeCount`), because that's what makes a
+ * missing loop *matter*:
+ *
+ * - **Jobs waiting, no live loop** (absent or stale heartbeat) → warning: those
+ *   jobs won't resume until a daemon/tick runs. This is the failure this check
+ *   exists to surface.
+ * - **Jobs waiting, live loop** → ok: they'll be picked up.
+ * - **Nothing waiting** → ok regardless: a live loop is noted, an absent one is
+ *   fine (there's nothing to resume), a stale one is a mild "may have stopped".
+ */
+function daemonCheck(heartbeat: HeartbeatFacts, store: StoreFacts): DiagnosticCheck {
+  const waiting = store.activeCount;
+  const alive =
+    heartbeat.present && heartbeat.ageMs !== undefined && heartbeat.staleAfterMs !== undefined
+      ? heartbeat.ageMs <= heartbeat.staleAfterMs
+      : false;
+
+  if (heartbeat.present && alive) {
+    const age = heartbeat.ageMs !== undefined ? humanizeAge(heartbeat.ageMs) : "just now";
+    const who = heartbeat.mode === "tick" ? "tick" : "daemon";
+    const pid = heartbeat.pid !== undefined ? ` (pid ${heartbeat.pid})` : "";
+    const tail = waiting > 0 ? ` — ${waiting} waiting job(s) will resume` : "";
+    return {
+      name: "daemon",
+      level: "ok",
+      message: `resume loop is alive: ${who}${pid}, last tick ${age} ago${tail}`,
+    };
+  }
+
+  // Present but stale: the writer left a heartbeat but hasn't ticked in a while.
+  if (heartbeat.present) {
+    const age = heartbeat.ageMs !== undefined ? humanizeAge(heartbeat.ageMs) : "a while";
+    const pid = heartbeat.pid !== undefined ? ` (pid ${heartbeat.pid})` : "";
+    if (waiting > 0) {
+      return {
+        name: "daemon",
+        level: "warning",
+        message: `resume loop looks stopped: last tick ${age} ago${pid}, but ${waiting} job(s) are waiting to resume`,
+        hint: "Restart it: run `agentrelay daemon` (or schedule `agentrelay tick` via cron).",
+      };
+    }
+    return {
+      name: "daemon",
+      level: "warning",
+      message: `resume loop heartbeat is stale (last tick ${age} ago${pid}) — the daemon may have stopped`,
+      hint: "If you expect it running, start `agentrelay daemon` again.",
+    };
+  }
+
+  // No heartbeat at all.
+  if (waiting > 0) {
+    return {
+      name: "daemon",
+      level: "warning",
+      message: `${waiting} job(s) are waiting to resume but no resume loop is running — they won't resume on their own`,
+      hint: "Start `agentrelay daemon` (or schedule `agentrelay tick` via cron) to auto-resume queued jobs.",
+    };
+  }
+  return {
+    name: "daemon",
+    level: "ok",
+    message: "no resume loop running, and no jobs are waiting to resume",
   };
 }
 

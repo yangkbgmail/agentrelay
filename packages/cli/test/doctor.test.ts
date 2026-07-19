@@ -1,10 +1,9 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { DiagnosticReport } from "@agentrelay/core";
-import { RelayQueue } from "@agentrelay/core";
+import { DAEMON_HEARTBEAT_FILENAME, type DiagnosticReport, RelayQueue } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runDoctor } from "../src/commands.js";
+import { readHeartbeatFacts, removeDaemonHeartbeat, runDoctor, writeDaemonHeartbeat } from "../src/commands.js";
 import { renderDoctor, renderDoctorJson } from "../src/doctor.js";
 
 const find = (report: DiagnosticReport, name: string) => report.checks.find((c) => c.name === name)!;
@@ -257,6 +256,124 @@ describe("renderDoctor", () => {
       checks: [{ name: "notify", level: "warning", message: "no channel", hint: "set one" }],
     };
     expect(renderDoctor(warned, { color: false })).toContain("healthy (with warnings)");
+  });
+});
+
+describe("heartbeat helpers + doctor daemon check", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-hb-test-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Put one queued (active) job in the store so "waiting" logic engages. */
+  function seedActiveJob(): void {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "p", tool: "claude-code", command: ["node", "--version"], cwd: dir });
+    queue.close();
+  }
+
+  it("writes an atomic heartbeat next to the store and reads it back", () => {
+    const now = Date.parse("2026-07-19T00:00:30.000Z");
+    writeDaemonHeartbeat(storePath, {
+      pid: 4242,
+      mode: "daemon",
+      startedAt: "2026-07-19T00:00:00.000Z",
+      lastTickAt: "2026-07-19T00:00:30.000Z",
+      pollIntervalMs: 30_000,
+    });
+    expect(existsSync(join(dir, DAEMON_HEARTBEAT_FILENAME))).toBe(true);
+
+    const facts = readHeartbeatFacts(storePath, now);
+    expect(facts.present).toBe(true);
+    expect(facts.pid).toBe(4242);
+    expect(facts.mode).toBe("daemon");
+    expect(facts.ageMs).toBe(0);
+    expect(facts.staleAfterMs).toBe(90_000);
+  });
+
+  it("reports absent facts when there is no heartbeat file", () => {
+    expect(readHeartbeatFacts(storePath).present).toBe(false);
+  });
+
+  it("removeDaemonHeartbeat deletes the file (best-effort, no throw when missing)", () => {
+    writeDaemonHeartbeat(storePath, {
+      pid: 1,
+      mode: "daemon",
+      startedAt: "2026-07-19T00:00:00.000Z",
+      lastTickAt: "2026-07-19T00:00:00.000Z",
+      pollIntervalMs: 30_000,
+    });
+    removeDaemonHeartbeat(storePath);
+    expect(existsSync(join(dir, DAEMON_HEARTBEAT_FILENAME))).toBe(false);
+    // idempotent — removing again doesn't throw
+    expect(() => removeDaemonHeartbeat(storePath)).not.toThrow();
+  });
+
+  it("doctor warns when a job is waiting but no resume loop is running", () => {
+    seedActiveJob();
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    const daemon = find(report, "daemon");
+    expect(daemon.level).toBe("warning");
+    expect(daemon.message).toContain("no resume loop is running");
+  });
+
+  it("doctor is OK when a fresh daemon heartbeat covers the waiting job", () => {
+    seedActiveJob();
+    const at = "2026-07-19T00:00:00.000Z";
+    writeDaemonHeartbeat(storePath, {
+      pid: 999,
+      mode: "daemon",
+      startedAt: at,
+      lastTickAt: at,
+      pollIntervalMs: 30_000,
+    });
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: {},
+      nodeVersion: "v22.5.0",
+      nowMs: Date.parse(at) + 5_000, // 5s after last tick → fresh
+    });
+    const daemon = find(report, "daemon");
+    expect(daemon.level).toBe("ok");
+    expect(daemon.message).toContain("pid 999");
+  });
+
+  it("doctor warns when the daemon heartbeat has gone stale", () => {
+    seedActiveJob();
+    const at = "2026-07-19T00:00:00.000Z";
+    writeDaemonHeartbeat(storePath, {
+      pid: 999,
+      mode: "daemon",
+      startedAt: at,
+      lastTickAt: at,
+      pollIntervalMs: 30_000,
+    });
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: {},
+      nodeVersion: "v22.5.0",
+      nowMs: Date.parse(at) + 10 * 60_000, // 10 min later, well past 90s stale window
+    });
+    const daemon = find(report, "daemon");
+    expect(daemon.level).toBe("warning");
+    expect(daemon.message).toContain("looks stopped");
+  });
+
+  it("doctor ignores a corrupt heartbeat file (reads as absent)", () => {
+    writeFileSync(join(dir, DAEMON_HEARTBEAT_FILENAME), "{ not json", "utf8");
+    expect(readHeartbeatFacts(storePath).present).toBe(false);
+    // No active jobs + no usable heartbeat → daemon check is a benign OK.
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    expect(find(report, "daemon").level).toBe("ok");
   });
 });
 

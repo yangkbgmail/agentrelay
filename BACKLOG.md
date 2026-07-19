@@ -162,6 +162,20 @@
       `resolveJobId` 재사용(짧은 prefix·모호/미존재 처리 cancel/retry와 동일), 스토어 불변.
       CLI `agentrelay show <id> [--json]` 배선, 미존재/모호 id는 exit 1. show.test.ts 12케이스 +
       commands.test.ts showJob 2케이스. branch `claude/wizardly-pascal-y5jh3b`)
+- [x] 👷 `doctor` 재개 루프(daemon/tick) 생존 검사 — "job은 큐에 있는데 아무것도 재개 안 됨"
+      최다 무음 실패를 잡음.
+      (완료 — `@agentrelay/core/heartbeat.ts` 신설(순수): `DaemonHeartbeat`(pid·mode·startedAt·
+      lastTickAt·pollIntervalMs) + `daemonHeartbeatPath`(스토어 옆 `daemon.json`) +
+      `serialize/parseDaemonHeartbeat`(불량 JSON·잘못된 필드는 null, mode 없으면 pollIntervalMs로
+      daemon/tick 추론) + `heartbeatStaleAfterMs`(daemon=poll×3, 60s 하한 / tick=15m 고정창).
+      `doctor.ts`에 `HeartbeatFacts` + `daemon` 체크 추가: **대기 job 수와 교차 판정** — 대기 job이
+      있는데 생존 루프 없음(부재/stale)=warning, 생존 루프 있으면 ok, 대기 job 없으면 부재도 ok.
+      `RelayScheduler`에 `onTick(referenceTime)` 콜백(매 tick 끝, 에러 삼킴). CLI `commands.ts`에
+      `writeDaemonHeartbeat`(tmp+rename 원자적)·`removeDaemonHeartbeat`·`readHeartbeatFacts`. daemon은
+      start+매 tick 하트비트 쓰고 SIGINT/SIGTERM에 제거(크래시는 stale로 감지), one-shot `tick`은
+      tick-mode 하트비트 기록(cron 사용자도 생존 신호). `runDoctor`가 `nowMs` 주입 가능(테스트용).
+      heartbeat.test.ts 13 + doctor daemon 6 + scheduler onTick 2 + CLI 7케이스, 실제 빌드 CLI로
+      before/after·daemon 수명주기·stale 경고 e2e 검증. branch `claude/wizardly-pascal-hb7k2m`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

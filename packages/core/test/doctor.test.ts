@@ -38,6 +38,7 @@ function input(overrides: Partial<DiagnosticInput> = {}): DiagnosticInput {
     config: { path: null, loadError: null, issues: [] },
     notify: { slackWebhook: "https://hooks.slack.com/x" },
     adapters: { binaries: [] },
+    heartbeat: { present: false },
     ...overrides,
   };
 }
@@ -240,7 +241,7 @@ describe("runDiagnostics", () => {
     const report = runDiagnostics(input({ nodeVersion: "v20.0.0", notify: {} }));
     expect(report.counts.error).toBe(1); // node
     expect(report.counts.warning).toBe(1); // notify
-    expect(report.counts.ok).toBe(4); // store + store-writable + adapters + config
+    expect(report.counts.ok).toBe(5); // store + store-writable + adapters + daemon + config
     expect(report.ok).toBe(false);
   });
 
@@ -277,6 +278,89 @@ describe("runDiagnostics", () => {
     expect(writable.message).toContain("EACCES: permission denied");
     expect(writable.hint).toContain("AGENTRELAY_STORE");
     expect(report.ok).toBe(false);
+  });
+
+  describe("daemon (resume-loop liveness) check", () => {
+    const store = (activeCount: number): DiagnosticInput["store"] => ({
+      path: "/home/u/.agentrelay/jobs.json",
+      exists: true,
+      corrupt: false,
+      jobCount: Math.max(activeCount, 1),
+      activeCount,
+    });
+
+    it("is OK when no loop is running and nothing is waiting", () => {
+      const report = runDiagnostics(input({ heartbeat: { present: false }, store: store(0) }));
+      const daemon = find(report, "daemon");
+      expect(daemon.level).toBe("ok");
+      expect(daemon.message).toContain("no resume loop running");
+      expect(report.ok).toBe(true);
+    });
+
+    it("warns when jobs are waiting but no loop is running", () => {
+      const report = runDiagnostics(input({ heartbeat: { present: false }, store: store(2) }));
+      const daemon = find(report, "daemon");
+      expect(daemon.level).toBe("warning");
+      expect(daemon.message).toContain("2 job(s) are waiting");
+      expect(daemon.message).toContain("no resume loop is running");
+      expect(daemon.hint).toContain("agentrelay daemon");
+      // warnings don't fail the report
+      expect(report.ok).toBe(true);
+    });
+
+    it("is OK with a fresh daemon heartbeat and reports pid + age", () => {
+      const report = runDiagnostics(
+        input({
+          heartbeat: { present: true, mode: "daemon", pid: 4242, ageMs: 5_000, staleAfterMs: 90_000 },
+          store: store(1),
+        })
+      );
+      const daemon = find(report, "daemon");
+      expect(daemon.level).toBe("ok");
+      expect(daemon.message).toContain("daemon");
+      expect(daemon.message).toContain("pid 4242");
+      expect(daemon.message).toContain("5s ago");
+      expect(daemon.message).toContain("1 waiting job(s) will resume");
+    });
+
+    it("warns when the heartbeat is stale and jobs are waiting", () => {
+      const report = runDiagnostics(
+        input({
+          heartbeat: { present: true, mode: "daemon", pid: 7, ageMs: 300_000, staleAfterMs: 90_000 },
+          store: store(3),
+        })
+      );
+      const daemon = find(report, "daemon");
+      expect(daemon.level).toBe("warning");
+      expect(daemon.message).toContain("looks stopped");
+      expect(daemon.message).toContain("3 job(s) are waiting");
+      expect(daemon.hint).toContain("agentrelay daemon");
+    });
+
+    it("gives a mild stale warning when nothing is waiting", () => {
+      const report = runDiagnostics(
+        input({
+          heartbeat: { present: true, mode: "daemon", pid: 7, ageMs: 300_000, staleAfterMs: 90_000 },
+          store: store(0),
+        })
+      );
+      const daemon = find(report, "daemon");
+      expect(daemon.level).toBe("warning");
+      expect(daemon.message).toContain("heartbeat is stale");
+      expect(daemon.message).toContain("may have stopped");
+    });
+
+    it("recognizes a live one-shot tick heartbeat", () => {
+      const report = runDiagnostics(
+        input({
+          heartbeat: { present: true, mode: "tick", pid: 99, ageMs: 60_000, staleAfterMs: 900_000 },
+          store: store(1),
+        })
+      );
+      const daemon = find(report, "daemon");
+      expect(daemon.level).toBe("ok");
+      expect(daemon.message).toContain("tick");
+    });
   });
 });
 
