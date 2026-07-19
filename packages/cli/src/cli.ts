@@ -52,7 +52,8 @@ function splitList(raw: string): string[] {
  * Live `agentrelay status --watch`: clears the screen and re-renders the table
  * on an interval so countdowns tick down in place. `listStatus` re-reads the
  * JSON store each pass, so a running daemon's writes show up automatically.
- * The same `--status`/`--sort`/`--reverse` selection is re-applied every pass.
+ * The same `--status`/`--tool`/`--project`/`--sort`/`--reverse` selection is
+ * re-applied every pass.
  * Runs until the process is interrupted (Ctrl-C).
  */
 function runWatch(store: string, intervalMs: number, selection: JobSelection): void {
@@ -136,58 +137,88 @@ export function buildCli(): Command {
     .option("-w, --watch [seconds]", "Continuously refresh the view with live countdowns (Ctrl-C to exit)")
     .option("--json", "Print the status as JSON (machine-readable, for scripts/jq)")
     .option("-s, --status <statuses>", "Only show jobs with these comma-separated statuses (e.g. queued,failed)")
+    .option("-t, --tool <tools>", `Only show jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only show jobs from these comma-separated project names (exact match)")
     .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
     .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
-    .action((opts: { watch?: string | boolean; json?: boolean; status?: string; sort?: string; reverse?: boolean }) => {
-      const { store } = program.opts();
+    .action(
+      (opts: {
+        watch?: string | boolean;
+        json?: boolean;
+        status?: string;
+        tool?: string;
+        project?: string;
+        sort?: string;
+        reverse?: boolean;
+      }) => {
+        const { store } = program.opts();
 
-      const selection: JobSelection = { reverse: opts.reverse };
+        const selection: JobSelection = { reverse: opts.reverse };
 
-      if (opts.status !== undefined) {
-        const requested = opts.status
-          .split(",")
-          .map((s) => s.trim())
-          .filter((s) => s.length > 0);
-        const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
-        if (invalid.length > 0) {
-          console.error(`Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.`);
-          process.exitCode = 1;
+        if (opts.status !== undefined) {
+          const requested = splitList(opts.status);
+          const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
+          if (invalid.length > 0) {
+            console.error(`Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          selection.statuses = requested as JobStatus[];
+        }
+
+        if (opts.tool !== undefined) {
+          const requested = splitList(opts.tool);
+          const invalid = requested.filter((t) => !ALL_TOOLS.includes(t as AgentTool));
+          if (invalid.length > 0) {
+            console.error(`Unknown tool(s): ${invalid.join(", ")}. Valid: ${ALL_TOOLS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          selection.tools = requested;
+        }
+
+        if (opts.project !== undefined) {
+          const requested = splitList(opts.project);
+          if (requested.length === 0) {
+            console.error("--project needs at least one project name.");
+            process.exitCode = 1;
+            return;
+          }
+          selection.projects = requested;
+        }
+
+        if (opts.sort !== undefined) {
+          if (!SORT_FIELDS.includes(opts.sort as SortField)) {
+            console.error(`Unknown --sort field "${opts.sort}". Valid: ${SORT_FIELDS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          selection.sort = opts.sort as SortField;
+        }
+
+        if (opts.json) {
+          console.log(renderStatusJson(selectJobs(listStatus(store), selection), store));
           return;
         }
-        selection.statuses = requested as JobStatus[];
-      }
 
-      if (opts.sort !== undefined) {
-        if (!SORT_FIELDS.includes(opts.sort as SortField)) {
-          console.error(`Unknown --sort field "${opts.sort}". Valid: ${SORT_FIELDS.join(", ")}.`);
-          process.exitCode = 1;
+        if (opts.watch !== undefined) {
+          const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+          const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+          runWatch(store, intervalMs, selection);
+          return; // setInterval keeps the process alive.
+        }
+
+        const all = listStatus(store);
+        const selected = selectJobs(all, selection);
+        // Distinguish "store is empty" from "filter matched nothing" so the
+        // hint to run a command doesn't show up when jobs simply got filtered out.
+        if (selected.length === 0 && all.length > 0) {
+          console.log(NO_MATCH_MESSAGE);
           return;
         }
-        selection.sort = opts.sort as SortField;
+        console.log(renderStatusTable(selected, { color: Boolean(process.stdout.isTTY) }));
       }
-
-      if (opts.json) {
-        console.log(renderStatusJson(selectJobs(listStatus(store), selection), store));
-        return;
-      }
-
-      if (opts.watch !== undefined) {
-        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
-        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
-        runWatch(store, intervalMs, selection);
-        return; // setInterval keeps the process alive.
-      }
-
-      const all = listStatus(store);
-      const selected = selectJobs(all, selection);
-      // Distinguish "store is empty" from "filter matched nothing" so the
-      // hint to run a command doesn't show up when jobs simply got filtered out.
-      if (selected.length === 0 && all.length > 0) {
-        console.log(NO_MATCH_MESSAGE);
-        return;
-      }
-      console.log(renderStatusTable(selected, { color: Boolean(process.stdout.isTTY) }));
-    });
+    );
 
   program
     .command("stats")
@@ -195,62 +226,97 @@ export function buildCli(): Command {
     .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. completed,failed)")
     .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
-    .action((opts: { status?: string; tool?: string; project?: string; json?: boolean }) => {
-      const { store } = program.opts();
+    .action(
+      (opts: { status?: string; tool?: string; project?: string; since?: string; until?: string; json?: boolean }) => {
+        const { store } = program.opts();
 
-      const scope: JobScope = {};
-      const noteParts: string[] = [];
+        const now = Date.now();
+        const scope: JobScope = {};
+        const noteParts: string[] = [];
 
-      if (opts.status !== undefined) {
-        const requested = splitList(opts.status);
-        const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
-        if (invalid.length > 0) {
-          console.error(`Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.`);
+        if (opts.status !== undefined) {
+          const requested = splitList(opts.status);
+          const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
+          if (invalid.length > 0) {
+            console.error(`Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          scope.statuses = requested as JobStatus[];
+          noteParts.push(`status=${requested.join(",")}`);
+        }
+
+        if (opts.tool !== undefined) {
+          const requested = splitList(opts.tool);
+          const invalid = requested.filter((t) => !ALL_TOOLS.includes(t as AgentTool));
+          if (invalid.length > 0) {
+            console.error(`Unknown tool(s): ${invalid.join(", ")}. Valid: ${ALL_TOOLS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          scope.tools = requested;
+          noteParts.push(`tool=${requested.join(",")}`);
+        }
+
+        if (opts.project !== undefined) {
+          const requested = splitList(opts.project);
+          if (requested.length === 0) {
+            console.error("--project needs at least one project name.");
+            process.exitCode = 1;
+            return;
+          }
+          scope.projects = requested;
+          noteParts.push(`project=${requested.join(",")}`);
+        }
+
+        // Time window: --since/--until are "N ago" durations relative to now, so
+        // `--since 7d --until 1d` scopes to jobs created between 7 and 1 days ago.
+        if (opts.since !== undefined) {
+          const ms = parseDuration(opts.since);
+          if (ms === null) {
+            console.error(`Invalid --since duration: "${opts.since}". Use e.g. 24h, 7d, 30m, 90s.`);
+            process.exitCode = 1;
+            return;
+          }
+          scope.createdFrom = now - ms;
+          noteParts.push(`since=${opts.since}`);
+        }
+
+        if (opts.until !== undefined) {
+          const ms = parseDuration(opts.until);
+          if (ms === null) {
+            console.error(`Invalid --until duration: "${opts.until}". Use e.g. 24h, 7d, 30m, 90s.`);
+            process.exitCode = 1;
+            return;
+          }
+          scope.createdTo = now - ms;
+          noteParts.push(`until=${opts.until}`);
+        }
+
+        if (scope.createdFrom !== undefined && scope.createdTo !== undefined && scope.createdFrom > scope.createdTo) {
+          console.error("--since must be a longer window than --until (empty range otherwise).");
           process.exitCode = 1;
           return;
         }
-        scope.statuses = requested as JobStatus[];
-        noteParts.push(`status=${requested.join(",")}`);
-      }
 
-      if (opts.tool !== undefined) {
-        const requested = splitList(opts.tool);
-        const invalid = requested.filter((t) => !ALL_TOOLS.includes(t as AgentTool));
-        if (invalid.length > 0) {
-          console.error(`Unknown tool(s): ${invalid.join(", ")}. Valid: ${ALL_TOOLS.join(", ")}.`);
-          process.exitCode = 1;
+        const allJobs = listStatus(store);
+        const active = isJobScopeActive(scope);
+        const jobs = active ? scopeJobs(allJobs, scope) : allJobs;
+        const scopeNote = active ? noteParts.join(" ") : undefined;
+        const stats = computeStats(jobs);
+
+        if (opts.json) {
+          console.log(renderStatsJson(stats, store, { scope }));
           return;
         }
-        scope.tools = requested;
-        noteParts.push(`tool=${requested.join(",")}`);
+        // A store with jobs but an empty scoped subset should say "no match",
+        // not the onboarding hint — renderStats keys that off scopeNote.
+        console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY), scopeNote }));
       }
-
-      if (opts.project !== undefined) {
-        const requested = splitList(opts.project);
-        if (requested.length === 0) {
-          console.error("--project needs at least one project name.");
-          process.exitCode = 1;
-          return;
-        }
-        scope.projects = requested;
-        noteParts.push(`project=${requested.join(",")}`);
-      }
-
-      const allJobs = listStatus(store);
-      const active = isJobScopeActive(scope);
-      const jobs = active ? scopeJobs(allJobs, scope) : allJobs;
-      const scopeNote = active ? noteParts.join(" ") : undefined;
-      const stats = computeStats(jobs);
-
-      if (opts.json) {
-        console.log(renderStatsJson(stats, store, { scope }));
-        return;
-      }
-      // A store with jobs but an empty scoped subset should say "no match",
-      // not the onboarding hint — renderStats keys that off scopeNote.
-      console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY), scopeNote }));
-    });
+    );
 
   program
     .command("doctor")

@@ -256,6 +256,28 @@
       플래그 배선(백업 여부·대체 job 수를 리포트하고 "No changes made"로 종료, 미매칭 selector는
       exit 1). branch `claude/wizardly-pascal-atytw7`)
 
+- [x] 👷 `agentrelay status` 스코프 필터(`--tool`/`--project`) — `stats`와 동일한 부분집합
+      필터를 status 테이블/`--json`/`--watch`에도 제공.
+      (완료 — `packages/cli/src/status.ts`의 `JobSelection`에 `tools?`/`projects?` 추가,
+      `selectJobs`가 status·tool·project를 차원 간 AND·차원 내 OR로 필터(항상 새 배열, 정렬/역순
+      전에 적용). tool은 원시 문자열 매칭(미지 tool도 정확히 걸러냄). 순수 `isSelectionFiltering`
+      (core `isJobScopeActive`의 status 버전) export. CLI `status`에 `-t/--tool`·`-p/--project`
+      배선(공용 `splitList` 재사용, 잘못된 status/tool은 exit 1), 일회성·`--json`·`--watch` 세 뷰에
+      동일 `selection` 적용. status.test.ts에 selectJobs tool/project/AND 5 + isSelectionFiltering 2
+      신규. branch `claude/wizardly-pascal-6st1ab`)
+
+- [x] 👷 `agentrelay stats --since/--until` 시간 창(time-window) 필터 — 최근 N일/시간에
+      생성된 잡의 지표만 보기(추세 파악).
+      (완료 — `@agentrelay/core`의 `JobScope`에 `createdFrom`/`createdTo`(epoch ms, 양끝 포함)
+      차원 추가 — 클럭/기간이 아닌 명시 타임스탬프라 `scopeJobs`가 순수·테스트 가능 유지.
+      `scopeJobs`가 `createdAt`을 파싱해 창 안의 잡만 남기고, 파싱 불가/누락 `createdAt`은
+      시간 창이 활성일 때 제외(타임라인에 놓을 수 없으므로). `isJobScopeActive`가 시간 경계
+      (0=falsy epoch 포함)도 활성으로 인식. CLI `stats`에 `--since <기간>`(now−기간=createdFrom)·
+      `--until <기간>`(now−기간=createdTo, 창의 오래된 쪽 경계) 배선 — 기존 `parseDuration`
+      재사용, 잘못된 기간/빈 범위(since<until)는 exit 1, scope note에 `since=…`/`until=…`,
+      `--json`은 scope에 createdFrom/createdTo 에코. stats.test.ts에 6케이스 추가.
+      branch `claude/wizardly-pascal-9uyktw`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

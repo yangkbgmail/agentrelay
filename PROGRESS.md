@@ -783,3 +783,72 @@
     `--dry-run --no-backup`은 "would NOT be backed up" → 미존재 selector는 "No snapshot matches" + exit 1.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing/설정 파일 노출(👷 후보),
   stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), `doctor`에 검사 추가(디스크 쓰기 권한 등, 👷 후보).
+
+### [세션 26 — `agentrelay status` 스코프 필터(--tool/--project)] (2026-07-19, 무인 자율 세션)
+- 배경: 세션 시작 시 지정 브랜치=최신 main(0 커밋 diff, 중복/누적 없음), BACKLOG의 👷 항목은
+  전부 완료. CLAUDE.md 지침대로 세션 25가 "다음 할 일 👷 후보"로 남긴 항목 중 **status 스코프
+  필터**를 골랐다 — `stats`는 세션 25에서 `--status/--tool/--project` 부분집합 필터를 얻었지만
+  `status` 테이블은 여전히 `--status`만 지원해, 큰 큐에서 특정 툴·프로젝트 job만 보려면 방법이
+  없던 비대칭을 메운다.
+- 한 일 (branch `claude/wizardly-pascal-6st1ab`):
+  1. `packages/cli/src/status.ts`의 `JobSelection`에 `tools?: string[]`·`projects?: string[]` 추가.
+     `selectJobs`가 status·tool·project 세 필터를 **차원 간 AND·차원 내 OR**로 적용(항상 새 배열
+     반환, 정렬/역순 전에 필터). tool은 `stats`의 `scopeJobs`와 동일하게 **원시 문자열 매칭**이라
+     미지 tool 문자열도 정확히 걸러냄. 순수 `isSelectionFiltering(selection)`(core `isJobScopeActive`의
+     status 버전) export.
+  2. CLI `status`에 `-t/--tool`·`-p/--project` 옵션 배선. 공용 `splitList` 헬퍼 재사용(기존 인라인
+     split 대체), tool은 `ALL_TOOLS` 검증(잘못된 tool은 exit 1), status 검증도 `splitList`로 통일.
+     일회성 테이블·`--json`·`--watch(runWatch)` 세 뷰 모두 동일 `selection`을 적용. 필터가 스토어
+     전체를 걸러내면 온보딩 문구 대신 `NO_MATCH_MESSAGE`.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **320개 전부 통과**(core 221 + cli 96 + dashboard 3 — status.test에 selectJobs
+    tool/project/AND 5 + isSelectionFiltering 2 신규). **실제 빌드된 CLI e2e**(mock 아님): 3-job
+    (web×claude / api×codex / web×codex) 스토어로 `status`(3행)·`--tool codex-cli`(2행)·`--project web`
+    (2행)·`--tool codex-cli --project web`(1행, AND)·`--project nope`(No match)·`--tool bogus`(exit 1)·
+    `--json --tool claude-code`(total 1) 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 스코프 필터(tool/project) UI 노출(👷 후보),
+  stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), `restore --dry-run`(👷 후보).
+
+### [세션 26 — `agentrelay stats --since/--until` 시간 창 필터] (2026-07-19, 무인 자율 세션)
+- 배경: 이전 PR(#50) 병합으로 브랜치가 main과 동일. BACKLOG의 순수 👷 항목은 모두 완료 →
+  세션 25의 스코프 필터(status/tool/project)에 **시간 차원**을 더하는 자연스러운 후속을 발굴·구현.
+- 한 일:
+  1. `@agentrelay/core` `stats.ts`: `JobScope`에 `createdFrom`/`createdTo`(epoch ms, 양끝 포함)
+     추가. 클럭/기간이 아닌 명시 타임스탬프라 `scopeJobs`가 순수·클럭 미접촉·테스트 가능 유지.
+     `scopeJobs`가 `createdAt`을 파싱해 창 안의 잡만 남기고, 파싱 불가/누락 `createdAt`은 시간
+     창 활성 시 제외(타임라인에 놓을 수 없으므로). `isJobScopeActive`가 시간 경계도 활성으로 인식
+     (`createdFrom: 0` 같은 falsy epoch도 `!== undefined`로 정확히 감지).
+  2. CLI `stats`에 `--since <기간>`(now−기간=createdFrom)·`--until <기간>`(now−기간=createdTo,
+     창의 오래된 쪽 경계) 배선. 기존 `parseDuration`(prune.ts) 재사용, 잘못된 기간/빈 범위
+     (since<until)는 명확한 에러 + exit 1, scope note에 `since=…`/`until=…`, `--json`은 scope에
+     createdFrom/createdTo 에코.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 에러**, `pnpm test`
+    **319개 전부 통과**(core 227 + cli 89 + dashboard 3 — core scopeJobs/isJobScopeActive 6 신규).
+    **실제 빌드된 CLI e2e**(mock 아님): 최근2h/어제30h/10일전 3-job 스토어로 `stats`(전체 67%)·
+    `--since 24h`(최근1개 100%)·`--since 7d --until 24h`(어제1개 0%)·`--since 7d --json`(scope
+    에코, total 2)·`--since bogus`(exit 1)·`--since 1d --until 7d`(빈 범위 exit 1) 확인.
+- 다음 할 일: `export`/`status`에도 `--since/--until` 확장(👷 후보), 대시보드 시간 창 필터 UI
+  (👷 후보), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 27 — 누적 PR 통합(#52 병합·#55·#53 흡수·#54 중복 정리)] (2026-07-19, 무인 자율 세션)
+- **오늘의 초점: 다시 쌓인 열린 PR 4개를 정리해 고질적 중복 루프를 끊었다.** 세션 시작 시 CI
+  초록(`actions_list`로 확인)인 열린 PR이 #52(restore --dry-run + doctor)·#53(stats --since/--until)·
+  #54·#55(둘 다 status --tool/--project로 **상호 중복**) 4건이었다. main 브랜치 보호로 병합이 밀리면
+  매시간 무기억 세션이 같은 후보를 반복 구현하는 패턴(세션 3·8·10·16·22·24·26)이 재발한다.
+  COLLAB.md 병합 정책("CI 초록이면 클로드 코드가 통합 가능")에 근거해:
+  1. **#52를 main에 병합**(restore --dry-run + doctor 셋업 진단이 한 번에 main으로, a88ec8d).
+  2. **#55(status --tool/--project 스코프 필터)를 내 브랜치에 `cherry-pick -x`로 흡수** — #52 병합으로
+     충돌(BACKLOG/PROGRESS/cli.ts)이 났고 코드는 자동 병합, 문서 로그는 양쪽 보존으로 해소.
+  3. **#53(stats --since/--until 시간 창 필터)도 `cherry-pick -x`로 흡수** — 마찬가지로 문서 충돌만
+     해소(코드 자동 병합). 다른 브랜치엔 push하지 않음("지정 브랜치 외 push 금지" 원칙 준수).
+  4. **#54는 #55와 완전 동일 기능(status 스코프 필터)**이라 중복으로 판단 → 이 통합 PR로 대체하며 닫음.
+- 결과: main에 `restore --dry-run`·`doctor`가 들어갔고, 이 브랜치가 `status --tool/--project`와
+  `stats --since/--until`을 함께 담아 나머지 세 PR(#53·#54·#55)을 대체한다.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **372개 전부 통과**(core 256 + cli 113 + dashboard 3). **실제 빌드된 CLI e2e**(mock
+    아님): 3-job(web×claude / api×codex / web×codex) 스토어로 두 흡수 기능이 함께 동작 확인 —
+    `status`(3행)·`--tool codex-cli`(2행)·`--project web --tool codex-cli`(AND 1행)·`--tool bogus`
+    (exit 1); `stats`(전체 50%)·`--since 24h`(최근 completed만 100%, scope 에코)·`--since 7d --until 24h`
+    (어제 failed만 0%)·`--since 1d --until 7d`(빈 범위 exit 1).
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), `export`/`status`에도 `--since/--until` 확장(👷 후보),
+  대시보드가 스코프/시간 창 필터 UI 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보).
