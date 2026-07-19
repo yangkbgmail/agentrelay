@@ -1,5 +1,13 @@
 import type { AgentTool, ExportFormat, JobScope, JobStatus, RelayJob } from "@agentrelay/core";
-import { ALL_TOOLS, computeStats, EXPORT_FORMATS, isJobScopeActive, parseDuration, scopeJobs } from "@agentrelay/core";
+import {
+  ALL_TOOLS,
+  computeStats,
+  EXPORT_FORMATS,
+  isJobScopeActive,
+  parseDuration,
+  scopeJobs,
+  sendTestNotifications,
+} from "@agentrelay/core";
 import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
@@ -23,6 +31,7 @@ import {
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
+import { renderNotifyTest, renderNotifyTestJson } from "./notify.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import { renderStats, renderStatsJson } from "./stats.js";
 import {
@@ -601,6 +610,25 @@ export function buildCli(): Command {
       const result = retryJob(id, store);
       console.log(`[agentrelay] ${result.message}`);
       if (!result.ok) process.exitCode = 1;
+    });
+
+  const notify = program.command("notify").description("Inspect and test the notification channels");
+  notify
+    .command("test")
+    .description("Send a test notification to each configured channel (Slack / webhook) and report delivery")
+    .option("--json", "Print the results as JSON (machine-readable, for scripts/jq)")
+    .option("--show-secrets", "Show raw endpoint URLs instead of masking their secret parts")
+    .action(async (opts: { json?: boolean; showSecrets?: boolean }) => {
+      const results = await sendTestNotifications();
+      if (opts.json) {
+        console.log(renderNotifyTestJson(results, new Date().toISOString()));
+      } else {
+        console.log(renderNotifyTest(results, { color: Boolean(process.stdout.isTTY), showSecrets: opts.showSecrets }));
+      }
+      // Non-zero when the user asked to test delivery but nothing is set up,
+      // or when any configured channel failed to deliver — so it doubles as a
+      // CI / pre-flight gate for notification setup.
+      if (results.length === 0 || results.some((r) => !r.ok)) process.exitCode = 1;
     });
 
   program

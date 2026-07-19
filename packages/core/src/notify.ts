@@ -158,3 +158,122 @@ export function notifiersFromEnv(
   if (configured.length === 0) return null;
   return combineNotifiers(...configured);
 }
+
+/** One of the notification transports AgentRelay can deliver through. */
+export type NotifyChannelKind = "slack" | "webhook";
+
+/**
+ * A configured notification channel, as read from the environment. `url` is
+ * the raw endpoint (Slack webhooks embed a secret token in the path, so
+ * callers that display it should mask it). `headers` carries any auth the
+ * channel needs (the webhook's `Authorization`).
+ */
+export interface NotifyChannel {
+  kind: NotifyChannelKind;
+  url: string;
+  headers?: Record<string, string>;
+}
+
+/**
+ * Lists the notification channels configured through the environment, in the
+ * same order and from the same variables that `notifiersFromEnv` uses:
+ * Slack (`AGENTRELAY_SLACK_WEBHOOK`) then generic webhook
+ * (`AGENTRELAY_WEBHOOK_URL`, with `AGENTRELAY_WEBHOOK_AUTH` as the
+ * `Authorization` header). Pure — reads env only, sends nothing. Returns an
+ * empty array when no channel is configured.
+ */
+export function describeConfiguredChannels(env: Record<string, string | undefined> = process.env): NotifyChannel[] {
+  const channels: NotifyChannel[] = [];
+  const slack = env.AGENTRELAY_SLACK_WEBHOOK?.trim();
+  if (slack) channels.push({ kind: "slack", url: slack });
+  const webhook = env.AGENTRELAY_WEBHOOK_URL?.trim();
+  if (webhook) {
+    const auth = env.AGENTRELAY_WEBHOOK_AUTH?.trim();
+    channels.push({ kind: "webhook", url: webhook, headers: auth ? { Authorization: auth } : undefined });
+  }
+  return channels;
+}
+
+/**
+ * Builds the sample payload used by `agentrelay notify test`. Deterministic
+ * (no clock/randomness) so the surrounding logic stays unit-testable. It
+ * flows through the exact same `createSlackNotifier`/`createWebhookNotifier`
+ * bodies as real events, so a channel that accepts this accepts real
+ * notifications.
+ */
+export function buildTestPayload(): NotifyPayload {
+  return {
+    jobId: "test-notification",
+    project: "agentrelay",
+    event: "completed",
+    message: "This is a test notification from AgentRelay. If you can read this, delivery works.",
+  };
+}
+
+/** Per-channel outcome of a `notify test` delivery attempt. */
+export interface TestNotifyResult {
+  kind: NotifyChannelKind;
+  /** Raw endpoint the attempt targeted (mask before display). */
+  url: string;
+  /** True when the endpoint accepted the POST (2xx and no transport error). */
+  ok: boolean;
+  /** Failure reason when `ok` is false (HTTP status text or thrown error). */
+  error?: string;
+}
+
+export interface SendTestNotificationsOptions {
+  /** Injected for tests; defaults to global fetch (Node >= 18). */
+  fetchFn?: typeof fetch;
+  /** Override the sample payload (defaults to `buildTestPayload()`). */
+  payload?: NotifyPayload;
+}
+
+/**
+ * Delivers a test notification to every channel configured in the
+ * environment and reports each channel's outcome. Unlike the relay-loop
+ * notifiers (which swallow failures so a broken webhook can't stop the
+ * loop), this surfaces per-channel success/failure so the user can verify
+ * their setup actually delivers — the gap `doctor` can't fill, since it only
+ * checks that a channel is *configured*. Never throws: a channel that fails
+ * is reported with `ok: false`, not raised. Returns `[]` when nothing is
+ * configured.
+ */
+export async function sendTestNotifications(
+  env: Record<string, string | undefined> = process.env,
+  options: SendTestNotificationsOptions = {}
+): Promise<TestNotifyResult[]> {
+  const payload = options.payload ?? buildTestPayload();
+  const channels = describeConfiguredChannels(env);
+  const results: TestNotifyResult[] = [];
+  for (const channel of channels) {
+    let captured: unknown = null;
+    const onError = (error: unknown) => {
+      captured = error;
+    };
+    const notifier =
+      channel.kind === "slack"
+        ? createSlackNotifier({ webhookUrl: channel.url, fetchFn: options.fetchFn, onError })
+        : createWebhookNotifier({
+            url: channel.url,
+            headers: channel.headers,
+            fetchFn: options.fetchFn,
+            onError,
+          });
+    // The notifier resolves after its single POST, reporting any failure
+    // through `onError` (both non-2xx and thrown transport errors). No
+    // captured error means the endpoint accepted the payload.
+    await notifier(payload);
+    results.push({
+      kind: channel.kind,
+      url: channel.url,
+      ok: captured === null,
+      error: captured === null ? undefined : errorMessage(captured),
+    });
+  }
+  return results;
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}

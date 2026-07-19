@@ -980,3 +980,35 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — `agentrelay notify test` 알림 채널 전달 검증] (2026-07-19, 무인 자율 세션, branch `claude/wizardly-pascal-g2pmcp`)
+- 배경: 세션 시작 시 열린 PR 3개(#64 `next`, #63 `stats --trend`, #61 `doctor queue-progress`)가 각각 그
+  항목을 점유 중. 중복을 피해 CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다 — `doctor`의 notify 체크는
+  채널이 **설정됐는지**(env var 존재)만 보고, 그 웹훅이 **실제로 전달되는지**는 확인 못 하는 갭이 있었다.
+  깨진/만료된 Slack URL·오타난 웹훅·잘못된 auth 토큰은 조용히 실패해, rate-limit이 실제로 터질 때까지
+  알림이 안 오는 걸 모른다. 이걸 실행 전에 검증하는 수단이 없었다.
+- **한 일: `agentrelay notify test` — 설정된 각 채널에 샘플 알림을 실제 POST하고 채널별 전달 결과를 리포트.**
+  1. `@agentrelay/core/notify.ts`(순수 로직 확장): `describeConfiguredChannels(env)`(Slack→webhook 순,
+     `notifiersFromEnv`와 동일 env var·순서, webhook은 `AGENTRELAY_WEBHOOK_AUTH`를 `Authorization` 헤더로
+     첨부, 공백값 무시·trim) + `buildTestPayload()`(결정론적 샘플 `NotifyPayload`, event `completed`) +
+     `sendTestNotifications(env, {fetchFn,payload})` → `TestNotifyResult[]`(`kind`·`url`·`ok`·`error`).
+     기존 `createSlackNotifier`/`createWebhookNotifier`를 **재사용**(실제 이벤트와 동일 body/헤더 경로 →
+     테스트가 통과하면 실제도 통과)하되 채널별 `onError`로 성공/실패를 포착. 릴레이 루프 notifier와 달리
+     실패를 삼키지 않고 **채널별로 노출**하지만 여전히 절대 throw 안 함(0채널이면 `[]`).
+  2. `packages/cli/src/notify.ts` 신설(순수): `renderNotifyTest`(채널별 ✓/✗ + 요약 "N/M delivered",
+     실패 시 에러 메시지)·`renderNotifyTestJson`(--json)·`maskChannelUrl`(scheme+host만 남기고 secret path/
+     query는 `/…`로 마스킹 — Slack URL은 경로에 토큰이 박혀 있음, 비-URL은 앞 8자만)·`NO_CHANNELS_MESSAGE`.
+  3. CLI `cli.ts`에 `agentrelay notify test [--json] [--show-secrets]` 배선(`notify` 커맨드 그룹).
+     0채널이거나 하나라도 실패하면 exit 1 → 알림 셋업의 CI/pre-flight 게이트로도 사용 가능. URL은 기본
+     마스킹, `--show-secrets`로 원문 노출.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **439개 통과 + 1 skip**(core 297[+13: describeConfiguredChannels 4·buildTestPayload 1·
+    sendTestNotifications 6·기타] + cli 142[+11: maskChannelUrl 4·renderNotifyTest 5·renderNotifyTestJson 2] +
+    dashboard 3). **실제 빌드된 CLI e2e**(mock 아님, 로컬 HTTP 서버 — async spawn으로 이벤트루프 데드락
+    회피): 0채널→NO_CHANNELS+exit 1 / 양쪽 200→"✓ delivered" 2건+exit 0+URL 마스킹+`Authorization: Bearer …`
+    수신 확인 / 웹훅 500→해당 채널만 "✗ failed HTTP 500"+exit 1(Slack은 독립적으로 성공) / `--json` 구조
+    출력 / `--show-secrets`로 원문 URL 노출 확인.
+- 참고: `notify test`는 외부 서비스로 **실제 알림을 발송**하지만, 사용자가 직접 이 명령을 실행한 의도적
+  행위이므로 자동 발송 금지 원칙에 저촉되지 않는다(e2e는 로컬 테스트 서버만 사용).
+- 다음 할 일: 대시보드가 재개-루프 생존/알림 상태 노출(👷 후보), `doctor`가 이 전달 검증을 opt-in으로
+  포함(👷 후보 — 단, 매 doctor마다 실제 발송은 부담이라 `--live`류 플래그로), README/ARCHITECTURE(🧭 코워크).

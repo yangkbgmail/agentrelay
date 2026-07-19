@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildTestPayload,
   combineNotifiers,
   createSlackNotifier,
   createWebhookNotifier,
+  describeConfiguredChannels,
   formatSlackText,
   notifiersFromEnv,
+  sendTestNotifications,
   slackNotifierFromEnv,
   webhookNotifierFromEnv,
 } from "../src/notify.js";
@@ -235,5 +238,120 @@ describe("notifiersFromEnv", () => {
     await notify!(payload);
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(fetchFn.mock.calls[0][0]).toBe("https://hooks.example.test/relay");
+  });
+});
+
+describe("describeConfiguredChannels", () => {
+  it("returns an empty array when nothing is configured", () => {
+    expect(describeConfiguredChannels({})).toEqual([]);
+  });
+
+  it("lists Slack then webhook, in the same order as notifiersFromEnv", () => {
+    const channels = describeConfiguredChannels({
+      AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/abc",
+      AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+    });
+    expect(channels.map((c) => c.kind)).toEqual(["slack", "webhook"]);
+    expect(channels[0].url).toBe("https://hooks.slack.test/abc");
+    expect(channels[1].url).toBe("https://hooks.example.test/relay");
+  });
+
+  it("attaches the Authorization header to the webhook when auth is set", () => {
+    const channels = describeConfiguredChannels({
+      AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+      AGENTRELAY_WEBHOOK_AUTH: "Bearer tok",
+    });
+    expect(channels).toHaveLength(1);
+    expect(channels[0].headers).toEqual({ Authorization: "Bearer tok" });
+  });
+
+  it("ignores blank/whitespace values and trims", () => {
+    expect(describeConfiguredChannels({ AGENTRELAY_SLACK_WEBHOOK: "   " })).toEqual([]);
+    const [ch] = describeConfiguredChannels({ AGENTRELAY_SLACK_WEBHOOK: "  https://hooks.slack.test/abc  " });
+    expect(ch.url).toBe("https://hooks.slack.test/abc");
+  });
+});
+
+describe("buildTestPayload", () => {
+  it("is deterministic and carries a recognizable test message", () => {
+    expect(buildTestPayload()).toEqual(buildTestPayload());
+    expect(buildTestPayload().message).toContain("test notification");
+  });
+});
+
+describe("sendTestNotifications", () => {
+  function okResponse(status = 200): Response {
+    return { ok: status >= 200 && status < 300, status } as Response;
+  }
+
+  it("returns [] and sends nothing when no channel is configured", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const results = await sendTestNotifications({}, { fetchFn });
+    expect(results).toEqual([]);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("POSTs the test payload to each configured channel and reports ok", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const results = await sendTestNotifications(
+      {
+        AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/abc",
+        AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+      },
+      { fetchFn }
+    );
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(results.map((r) => r.kind)).toEqual(["slack", "webhook"]);
+    expect(results.every((r) => r.ok)).toBe(true);
+    expect(results.every((r) => r.error === undefined)).toBe(true);
+    // The webhook body carries the deterministic test message.
+    const webhookBody = JSON.parse(fetchFn.mock.calls[1][1]?.body as string);
+    expect(webhookBody.jobId).toBe("test-notification");
+  });
+
+  it("marks a channel failed (never throws) on a non-2xx response", async () => {
+    const fetchFn = vi.fn(async () => okResponse(500));
+    const results = await sendTestNotifications(
+      { AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/abc" },
+      { fetchFn }
+    );
+    expect(results).toHaveLength(1);
+    expect(results[0].ok).toBe(false);
+    expect(results[0].error).toContain("500");
+  });
+
+  it("marks a channel failed on a thrown transport error", async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new Error("ECONNREFUSED");
+    });
+    const results = await sendTestNotifications(
+      { AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay" },
+      { fetchFn }
+    );
+    expect(results[0].ok).toBe(false);
+    expect(results[0].error).toContain("ECONNREFUSED");
+  });
+
+  it("reports one channel ok and another failed independently", async () => {
+    const fetchFn = vi.fn(async (url: string) => (url.includes("slack") ? okResponse(200) : okResponse(503)));
+    const results = await sendTestNotifications(
+      {
+        AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/abc",
+        AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+      },
+      { fetchFn }
+    );
+    expect(results.find((r) => r.kind === "slack")?.ok).toBe(true);
+    expect(results.find((r) => r.kind === "webhook")?.ok).toBe(false);
+  });
+
+  it("sends the Authorization header to the webhook", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    await sendTestNotifications(
+      { AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay", AGENTRELAY_WEBHOOK_AUTH: "Bearer tok" },
+      { fetchFn }
+    );
+    const headers = fetchFn.mock.calls[0][1]?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer tok");
   });
 });

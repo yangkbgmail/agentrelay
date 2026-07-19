@@ -347,6 +347,16 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay notify test` — 설정된 알림 채널(Slack/webhook)로 샘플 알림을 실제 발송해 전달 검증.
+      (완료 — `doctor`의 notify 체크는 채널이 **설정됐는지**만 보고 실제 **전달**은 확인 못 하는 갭을 메움.
+      `@agentrelay/core/notify.ts`에 순수 `describeConfiguredChannels(env)`(Slack→webhook, `notifiersFromEnv`와
+      동일 env·순서, webhook auth를 `Authorization` 헤더로)·`buildTestPayload()`(결정론적 샘플)·
+      `sendTestNotifications(env,{fetchFn,payload})`→`TestNotifyResult[]`(kind/url/ok/error, 기존 notifier
+      재사용+채널별 `onError` 포착, 실패를 삼키지 않고 노출하되 절대 throw 안 함). CLI `packages/cli/src/notify.ts`
+      순수 `renderNotifyTest`·`renderNotifyTestJson`·`maskChannelUrl`(secret path/query 마스킹)·
+      `NO_CHANNELS_MESSAGE`. `agentrelay notify test [--json] [--show-secrets]` 배선, 0채널 또는 하나라도
+      실패 시 exit 1(알림 셋업 pre-flight 게이트). branch `claude/wizardly-pascal-g2pmcp`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
