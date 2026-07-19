@@ -347,6 +347,23 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay stats --trend` 활동 추이 — 최근 N개 시간 버킷(일/시간)별로 생성·해결된 잡 수를
+      막대로 보여줘 릴레이가 최근 얼마나 바빴는지 한눈에 파악. (여러 세션이 "stats 시간대별 추이(👷 후보)"로
+      남긴 항목.)
+      (완료 — `@agentrelay/core/stats.ts`에 순수 `computeActivityTrend(jobs, {now, bucketMs, buckets})` +
+      `ActivityTrend`/`ActivityBucket`/`ActivityTrendOptions` 신설: `now`를 오른쪽 끝으로 하는 롤링 윈도우
+      (버킷 k = `[now-(k+1)·bucketMs, now-k·bucketMs)`)로, 캘린더-일이 아닌 상대 창이라 타임존-free·순수 유지.
+      created는 `createdAt`, resolved는 completed+failed의 `updatedAt`으로 카운트(timing/successRate와 동일
+      정책 — cancelled·활성 제외). 가장 오래된 버킷보다 이전·미래·파싱불가 타임스탬프는 스킵(windowed
+      scopeJobs와 동일), 정확히 `now` 이벤트는 최신 버킷에 clamp. bucketMs/buckets는 최소 1로 clamp해
+      div-by-zero 방지. CLI `stats.ts`에 순수 `renderTrend`(버킷당 막대 1행, 최대 활동에 비례 스케일)·
+      `formatTrendLabel`(최신="now", 그 외 "Nd ago"/"Nh ago") 추가, `renderStats`가 `trend` 옵션 시 활동
+      블록을 top-projects 뒤에 append, `renderStatsJson`은 `trend` 필드로 에코. `agentrelay stats --trend
+      [--trend-by day|hour] [--trend-buckets N(1..90)]` 배선 — 트렌드는 stats와 동일한 스코프/시간 창을 존중,
+      잘못된 unit/buckets는 exit 1. core trend 7 + cli formatTrendLabel/renderTrend/renderStats+json 6 신규
+      테스트, 실제 빌드 CLI e2e로 일/시간 버킷·JSON trend 필드·에러 exit·빈 스토어 무크래시 검증.
+      branch `claude/wizardly-pascal-vxwgf9`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

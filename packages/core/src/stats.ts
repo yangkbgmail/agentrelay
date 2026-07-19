@@ -144,6 +144,81 @@ export function scopeJobs(jobs: RelayJob[], scope: JobScope = {}): RelayJob[] {
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 
 /**
+ * One bucket of an activity trend: a half-open time window `[startMs, endMs)`
+ * with how many jobs were created in it (by `createdAt`) and how many resolved
+ * in it (terminal completed/failed, by `updatedAt`). Lets `agentrelay stats
+ * --trend` show whether the relay has been busy lately.
+ */
+export interface ActivityBucket {
+  /** Inclusive start of the window (epoch ms). */
+  startMs: number;
+  /** Exclusive end of the window (epoch ms); the newest bucket ends at `now`. */
+  endMs: number;
+  /** Jobs whose `createdAt` falls in this window. */
+  created: number;
+  /** Terminal (completed + failed) jobs whose `updatedAt` falls in this window. */
+  resolved: number;
+}
+
+export interface ActivityTrend {
+  /** Width of each bucket in ms. */
+  bucketMs: number;
+  /** Buckets oldest-first; the last one's `endMs` is `now`. */
+  buckets: ActivityBucket[];
+}
+
+export interface ActivityTrendOptions {
+  /** Right edge of the most recent bucket (epoch ms). Explicit → keeps this pure. */
+  now: number;
+  /** Width of each rolling window in ms. Clamped to at least 1. */
+  bucketMs: number;
+  /** How many buckets back from `now` to produce. Clamped to at least 1. */
+  buckets: number;
+}
+
+/**
+ * Buckets jobs into rolling time windows ending at `now`, to surface relay
+ * activity over time. Windows are relative to `now` (bucket k counts back
+ * `[now-(k+1)·bucketMs, now-k·bucketMs)`), not calendar days, so the function
+ * stays pure and timezone-free — the CLI passes `now` and a day/hour width.
+ * Jobs older than the earliest bucket, in the future, or with an unparseable
+ * timestamp are simply not counted (mirroring the windowed `scopeJobs`).
+ * "resolved" uses the same completed+failed policy as `timing`/`successRate`.
+ */
+export function computeActivityTrend(jobs: RelayJob[], options: ActivityTrendOptions): ActivityTrend {
+  const { now } = options;
+  const bucketMs = Math.max(1, Math.floor(options.bucketMs));
+  const count = Math.max(1, Math.floor(options.buckets));
+  const buckets: ActivityBucket[] = [];
+  // Oldest first: index 0 is the furthest-back window, last ends exactly at now.
+  for (let i = count - 1; i >= 0; i--) {
+    const endMs = now - i * bucketMs;
+    buckets.push({ startMs: endMs - bucketMs, endMs, created: 0, resolved: 0 });
+  }
+  const earliest = buckets[0].startMs;
+
+  const place = (ts: string): ActivityBucket | null => {
+    const t = Date.parse(ts);
+    if (Number.isNaN(t) || t < earliest || t > now) return null;
+    // Windows are half-open [start, end); the exact `now` edge lands in the
+    // newest bucket (clamp) so a just-now event isn't dropped.
+    const idx = Math.min(count - 1, Math.floor((t - earliest) / bucketMs));
+    return buckets[idx];
+  };
+
+  for (const job of jobs) {
+    const createdBucket = place(job.createdAt);
+    if (createdBucket) createdBucket.created += 1;
+    if (RESOLVED_STATUSES.includes(job.status)) {
+      const resolvedBucket = place(job.updatedAt);
+      if (resolvedBucket) resolvedBucket.resolved += 1;
+    }
+  }
+
+  return { bucketMs, buckets };
+}
+
+/**
  * Lifecycle span of a job in ms (`updatedAt - createdAt`), or null when either
  * timestamp is missing/unparseable or the span is negative (clock skew).
  */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import { computeActivityTrend, computeStats, isJobScopeActive, scopeJobs } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -366,5 +366,71 @@ describe("scopeJobs", () => {
       job({ id: "c", project: "api", createdAt: "2026-07-14T00:00:00.000Z" }), // wrong project
     ];
     expect(scopeJobs(jobs, { projects: ["web"], createdFrom: from }).map((j) => j.id)).toEqual(["a"]);
+  });
+});
+
+describe("computeActivityTrend", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const HOUR = 60 * 60 * 1000;
+  const now = Date.parse("2026-07-19T12:00:00.000Z");
+
+  it("produces `buckets` windows, oldest first, the last ending at now", () => {
+    const trend = computeActivityTrend([], { now, bucketMs: DAY, buckets: 3 });
+    expect(trend.bucketMs).toBe(DAY);
+    expect(trend.buckets).toHaveLength(3);
+    expect(trend.buckets[0].startMs).toBe(now - 3 * DAY);
+    expect(trend.buckets[2].endMs).toBe(now);
+    // Each window is exactly bucketMs wide and contiguous.
+    expect(trend.buckets[0].endMs).toBe(trend.buckets[1].startMs);
+    expect(trend.buckets.every((b) => b.endMs - b.startMs === DAY)).toBe(true);
+    expect(trend.buckets.every((b) => b.created === 0 && b.resolved === 0)).toBe(true);
+  });
+
+  it("counts created jobs by createdAt into the right bucket", () => {
+    const jobs = [
+      // 2 days + 1h ago → oldest bucket (index 0).
+      job({ createdAt: new Date(now - 2 * DAY - HOUR).toISOString(), status: "queued" }),
+      // 12h ago → newest bucket (index 2).
+      job({ createdAt: new Date(now - 12 * 60 * 60 * 1000).toISOString(), status: "queued" }),
+      job({ createdAt: new Date(now - 12 * 60 * 60 * 1000).toISOString(), status: "queued" }),
+    ];
+    const trend = computeActivityTrend(jobs, { now, bucketMs: DAY, buckets: 3 });
+    expect(trend.buckets.map((b) => b.created)).toEqual([1, 0, 2]);
+  });
+
+  it("counts resolved (completed+failed) jobs by updatedAt; skips cancelled/active", () => {
+    const updated = new Date(now - 6 * 60 * 60 * 1000).toISOString(); // 6h ago → newest bucket
+    const jobs = [
+      job({ status: "completed", createdAt: updated, updatedAt: updated }),
+      job({ status: "failed", createdAt: updated, updatedAt: updated }),
+      job({ status: "cancelled", createdAt: updated, updatedAt: updated }),
+      job({ status: "waiting_for_reset", createdAt: updated, updatedAt: updated }),
+    ];
+    const trend = computeActivityTrend(jobs, { now, bucketMs: DAY, buckets: 2 });
+    // All four created in the newest bucket; only completed+failed resolve.
+    expect(trend.buckets[1].created).toBe(4);
+    expect(trend.buckets[1].resolved).toBe(2);
+  });
+
+  it("drops jobs older than the earliest bucket, in the future, or unparseable", () => {
+    const jobs = [
+      job({ createdAt: new Date(now - 10 * DAY).toISOString(), status: "queued" }), // too old
+      job({ createdAt: new Date(now + DAY).toISOString(), status: "queued" }), // future
+      job({ createdAt: "not-a-date", status: "queued" }),
+    ];
+    const trend = computeActivityTrend(jobs, { now, bucketMs: DAY, buckets: 3 });
+    expect(trend.buckets.reduce((s, b) => s + b.created, 0)).toBe(0);
+  });
+
+  it("places an event at exactly `now` into the newest bucket", () => {
+    const jobs = [job({ createdAt: new Date(now).toISOString(), status: "queued" })];
+    const trend = computeActivityTrend(jobs, { now, bucketMs: DAY, buckets: 2 });
+    expect(trend.buckets.map((b) => b.created)).toEqual([0, 1]);
+  });
+
+  it("clamps non-positive bucketMs/buckets to at least 1 (no crash, no div-by-zero)", () => {
+    const trend = computeActivityTrend([], { now, bucketMs: 0, buckets: 0 });
+    expect(trend.buckets).toHaveLength(1);
+    expect(trend.bucketMs).toBe(1);
   });
 });

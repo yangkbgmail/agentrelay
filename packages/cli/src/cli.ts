@@ -1,5 +1,13 @@
 import type { AgentTool, ExportFormat, JobScope, JobStatus, RelayJob } from "@agentrelay/core";
-import { ALL_TOOLS, computeStats, EXPORT_FORMATS, isJobScopeActive, parseDuration, scopeJobs } from "@agentrelay/core";
+import {
+  ALL_TOOLS,
+  computeActivityTrend,
+  computeStats,
+  EXPORT_FORMATS,
+  isJobScopeActive,
+  parseDuration,
+  scopeJobs,
+} from "@agentrelay/core";
 import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
@@ -270,9 +278,22 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--trend", "Append an activity trend: jobs created/resolved per bucket over recent time")
+    .option("--trend-by <unit>", "Trend bucket size: day or hour (default: day)")
+    .option("--trend-buckets <n>", "How many trend buckets to show (default: 7)")
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
     .action(
-      (opts: { status?: string; tool?: string; project?: string; since?: string; until?: string; json?: boolean }) => {
+      (opts: {
+        status?: string;
+        tool?: string;
+        project?: string;
+        since?: string;
+        until?: string;
+        trend?: boolean;
+        trendBy?: string;
+        trendBuckets?: string;
+        json?: boolean;
+      }) => {
         const { store } = program.opts();
 
         const now = Date.now();
@@ -350,13 +371,40 @@ export function buildCli(): Command {
         const scopeNote = active ? noteParts.join(" ") : undefined;
         const stats = computeStats(jobs);
 
+        // Trend options: only computed when --trend is set. Bucket unit and
+        // count are validated up front so a typo fails loudly, not silently.
+        let trend: ReturnType<typeof computeActivityTrend> | undefined;
+        if (opts.trend) {
+          const DAY_MS = 24 * 60 * 60 * 1000;
+          const HOUR_MS = 60 * 60 * 1000;
+          const unit = opts.trendBy ?? "day";
+          if (unit !== "day" && unit !== "hour") {
+            console.error(`Invalid --trend-by: "${unit}". Use "day" or "hour".`);
+            process.exitCode = 1;
+            return;
+          }
+          const bucketMs = unit === "day" ? DAY_MS : HOUR_MS;
+          let buckets = 7;
+          if (opts.trendBuckets !== undefined) {
+            const parsed = Number(opts.trendBuckets);
+            if (!Number.isInteger(parsed) || parsed < 1 || parsed > 90) {
+              console.error(`Invalid --trend-buckets: "${opts.trendBuckets}". Use an integer from 1 to 90.`);
+              process.exitCode = 1;
+              return;
+            }
+            buckets = parsed;
+          }
+          // Respect the same scope/window filters as the headline stats.
+          trend = computeActivityTrend(jobs, { now, bucketMs, buckets });
+        }
+
         if (opts.json) {
-          console.log(renderStatsJson(stats, store, { scope }));
+          console.log(renderStatsJson(stats, store, { scope, trend }));
           return;
         }
         // A store with jobs but an empty scoped subset should say "no match",
         // not the onboarding hint — renderStats keys that off scopeNote.
-        console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY), scopeNote }));
+        console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY), scopeNote, trend }));
       }
     );
 

@@ -953,6 +953,36 @@
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), `doctor` 데몬 실행 여부 검사(👷 후보),
   README/ARCHITECTURE(🧭 코워크).
 
+### [세션 30 — PR #62 병합(doctor 하트비트) + `agentrelay stats --trend` 활동 추이] (2026-07-19, 무인 자율 세션)
+- **먼저: 다시 쌓인 열린 PR 2개 중 상위 접근을 병합해 중복 루프를 끊었다.** 세션 시작 시 CI 초록
+  (`actions_list`로 확인)인 열린 PR이 #61(doctor 큐-진행 overdue 프록시 검사)·#62(doctor 재개-루프
+  하트비트 생존 검사) 2건. 둘 다 "doctor 데몬 실행 여부 검사" 후보를 점유하며 `doctor.ts`를 건드려 서로
+  충돌한다. #62는 `daemon.json` 하트비트 인프라로 "루프가 실제 살아있는가"를 직접 답하는 상위 접근이고,
+  #61은 overdue 잡을 간접 프록시로 삼는 경량 접근. COLLAB.md 병합 정책("CI 초록이면 클로드 코드가 통합
+  가능")에 근거해 `mergeable_state:clean`인 **#62를 main에 병합**(f6c7f32). (#61은 doctor.ts 충돌로 남겨둠
+  — 다음 세션/코워크가 리베이스 후 판단.)
+- **한 일: `agentrelay stats --trend` 활동 추이.** 여러 세션이 "다음 할 일 👷 후보(stats 시간대별 추이)"로
+  남겼지만 아무 PR도 점유하지 않은, doctor와 무관한(stats.ts) 신규 항목을 골라 구현했다. 기존 stats는
+  누적 총계·성공률·해결시간만 보여줘 "최근 릴레이가 얼마나 바빴는지" 시간축 뷰가 없었다.
+  1. `@agentrelay/core/stats.ts`에 순수 `computeActivityTrend(jobs, {now, bucketMs, buckets})` +
+     `ActivityTrend`/`ActivityBucket`/`ActivityTrendOptions` — `now`를 오른쪽 끝으로 하는 롤링 윈도우
+     (캘린더-일 아님 → 타임존-free·순수). created=`createdAt`, resolved=completed+failed의 `updatedAt`
+     (timing/successRate와 동일 정책). 최고령 버킷보다 이전·미래·파싱불가는 스킵, 정확히 `now`는 최신 버킷에
+     clamp, bucketMs/buckets는 최소 1로 clamp(div-by-zero 방지).
+  2. CLI `stats.ts`에 순수 `renderTrend`(버킷당 막대 1행, 최대 활동에 비례 스케일)·`formatTrendLabel`
+     (최신="now", 그 외 "Nd ago"/"Nh ago"), `renderStats`가 `trend` 옵션 시 활동 블록을 append,
+     `renderStatsJson`은 `trend` 필드로 에코. `agentrelay stats --trend [--trend-by day|hour]
+     [--trend-buckets N(1..90)]` 배선(트렌드도 stats와 동일 스코프/시간 창 존중, 잘못된 unit/buckets는 exit 1).
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **432개 통과 + 1 skip**(core 292[+7 trend] + cli 137[+13 trend] + dashboard 3). **실제 빌드된
+    CLI e2e**(mock 아님): 4-job(2h/3h 전 completed·failed / 1d 전 queued / 3d 전 completed) 스토어로
+    `stats --trend`(일 버킷 7개, 3d ago·1d ago·now 막대), `--trend-by hour --trend-buckets 4`(시간 버킷),
+    `--json`(trend.bucketMs/buckets 에코), 잘못된 `--trend-by week`·`--trend-buckets 0/abc`(exit 1), 빈
+    스토어(무크래시) 검증.
+- 다음 할 일: 대시보드가 스코프/시간 창/트렌드 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
+  (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), #61(doctor overdue) 리베이스/판단(👷 후보),
+  README/ARCHITECTURE(🧭 코워크).
+
 ### [세션 30 — `doctor` 재개 루프(daemon/tick) 생존 검사 + 하트비트 인프라] (2026-07-19, 무인 자율 세션, branch `claude/wizardly-pascal-hb7k2m`)
 - **한 일: AgentRelay 최다 무음 실패("job은 큐에 있는데 아무것도 재개 안 됨")를 `doctor`가 잡게 했다.**
   기존 `doctor`는 node/store/writable/adapters/config/notify는 봤지만 **재개 루프가 실제로 살아있는지**는

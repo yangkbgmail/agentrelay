@@ -3,7 +3,7 @@
 // breakdown). Kept as pure functions here, separate from the commander wiring
 // in cli.ts, so the exact output is unit-testable without a store or a clock.
 
-import type { JobScope, JobStatus, RelayStats } from "@agentrelay/core";
+import type { ActivityTrend, JobScope, JobStatus, RelayStats } from "@agentrelay/core";
 import { isJobScopeActive } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
@@ -47,13 +47,61 @@ export function formatDurationMs(ms: number): string {
   return `${totalSeconds}s`;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+/** Width (chars) of the activity bar at the busiest bucket. */
+const TREND_BAR_WIDTH = 16;
+
+/**
+ * Short recency label for a trend bucket: "now" for the newest window, else
+ * "{n}d ago"/"{n}h ago" counted from the newest edge. `index` is the bucket's
+ * position (0 = oldest) within a run of `total` buckets of width `bucketMs`.
+ */
+export function formatTrendLabel(index: number, total: number, bucketMs: number): string {
+  const fromNewest = total - 1 - index;
+  if (fromNewest === 0) return "now";
+  const unit = bucketMs % DAY_MS === 0 ? "d" : bucketMs % HOUR_MS === 0 ? "h" : "";
+  if (unit === "d") return `${fromNewest}d ago`;
+  if (unit === "h") return `${fromNewest}h ago`;
+  // Fall back to a coarse duration for odd widths.
+  return `${formatDurationMs(fromNewest * bucketMs)} ago`;
+}
+
+/**
+ * Renders an activity trend as one bar row per bucket (oldest → newest). The
+ * bar length scales to the busiest bucket's total activity (created +
+ * resolved). Pure; `color` gates the dim styling. Returns "" for no buckets.
+ */
+export function renderTrend(trend: ActivityTrend, options: { color?: boolean } = {}): string {
+  const { buckets, bucketMs } = trend;
+  if (buckets.length === 0) return "";
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const maxTotal = buckets.reduce((m, bk) => Math.max(m, bk.created + bk.resolved), 0);
+  const unitWord = bucketMs % DAY_MS === 0 ? "day" : bucketMs % HOUR_MS === 0 ? "hour" : "window";
+
+  const lines: string[] = [];
+  lines.push(b("activity") + d(` (per ${unitWord}, last ${buckets.length})`));
+  buckets.forEach((bucket, index) => {
+    const label = formatTrendLabel(index, buckets.length, bucketMs).padStart(7);
+    const total = bucket.created + bucket.resolved;
+    const barLen = maxTotal === 0 ? 0 : Math.round((total / maxTotal) * TREND_BAR_WIDTH);
+    const bar = "█".repeat(barLen).padEnd(TREND_BAR_WIDTH);
+    lines.push(`  ${label}  ${bar}  ${bucket.created} created  ${bucket.resolved} resolved`);
+  });
+  return lines.join("\n");
+}
+
 /**
  * Renders the stats summary as a multi-line block. Pure: no I/O, no ambient
- * clock unless `now` is omitted. `color` gates ANSI codes (TTY only).
+ * clock unless `now` is omitted. `color` gates ANSI codes (TTY only). A
+ * pre-computed `trend` is appended as an activity block when supplied.
  */
 export function renderStats(
   stats: RelayStats,
-  options: { now?: number; color?: boolean; scopeNote?: string } = {}
+  options: { now?: number; color?: boolean; scopeNote?: string; trend?: ActivityTrend } = {}
 ): string {
   // With a scope active, an empty subset is "nothing matched", not "no jobs
   // yet" — the store may be full. The command distinguishes the two before
@@ -117,6 +165,14 @@ export function renderStats(
     }
   }
 
+  if (options.trend) {
+    const block = renderTrend(options.trend, { color });
+    if (block) {
+      lines.push("");
+      lines.push(block);
+    }
+  }
+
   return lines.join("\n");
 }
 
@@ -124,9 +180,9 @@ export function renderStats(
 export function renderStatsJson(
   stats: RelayStats,
   storePath: string,
-  options: { generatedAt?: string; scope?: JobScope } = {}
+  options: { generatedAt?: string; scope?: JobScope; trend?: ActivityTrend } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, stats }, null, 2);
+  return JSON.stringify({ storePath, generatedAt, scope, stats, trend: options.trend }, null, 2);
 }

@@ -1,14 +1,19 @@
 import type { RelayJob } from "@agentrelay/core";
-import { computeStats } from "@agentrelay/core";
+import { computeActivityTrend, computeStats } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
   formatDurationMs,
   formatSuccessRate,
+  formatTrendLabel,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
   renderStats,
   renderStatsJson,
+  renderTrend,
 } from "../src/stats.js";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -131,6 +136,97 @@ describe("renderStats", () => {
     // 7 distinct projects but only the top 5 are printed.
     const projectLines = out.split("\n").filter((l) => /^ {2}[a-g] {24}1$/.test(l));
     expect(projectLines.length).toBe(5);
+  });
+});
+
+describe("formatTrendLabel", () => {
+  it("labels the newest bucket 'now' and older ones by unit distance", () => {
+    // 7 day-buckets: index 6 is newest, index 0 is oldest (6 days back).
+    expect(formatTrendLabel(6, 7, DAY_MS)).toBe("now");
+    expect(formatTrendLabel(5, 7, DAY_MS)).toBe("1d ago");
+    expect(formatTrendLabel(0, 7, DAY_MS)).toBe("6d ago");
+  });
+
+  it("uses hour units for hour-width buckets", () => {
+    expect(formatTrendLabel(3, 4, HOUR_MS)).toBe("now");
+    expect(formatTrendLabel(0, 4, HOUR_MS)).toBe("3h ago");
+  });
+});
+
+describe("renderTrend", () => {
+  const now = Date.parse("2026-07-19T12:00:00.000Z");
+
+  it("renders one bar row per bucket, oldest first, scaled to the busiest", () => {
+    const jobs = [
+      // newest bucket: 3 created, 2 resolved (busiest → full-width bar)
+      job({
+        status: "completed",
+        createdAt: new Date(now - HOUR_MS).toISOString(),
+        updatedAt: new Date(now - HOUR_MS).toISOString(),
+      }),
+      job({
+        status: "failed",
+        createdAt: new Date(now - HOUR_MS).toISOString(),
+        updatedAt: new Date(now - HOUR_MS).toISOString(),
+      }),
+      job({ status: "queued", createdAt: new Date(now - HOUR_MS).toISOString() }),
+      // 1 day ago bucket: 1 created
+      job({ status: "queued", createdAt: new Date(now - DAY_MS - HOUR_MS).toISOString() }),
+    ];
+    const trend = computeActivityTrend(jobs, { now, bucketMs: DAY_MS, buckets: 3 });
+    const out = renderTrend(trend);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("activity");
+    expect(lines[0]).toContain("per day, last 3");
+    // 3 bucket rows follow the header.
+    expect(lines).toHaveLength(4);
+    expect(lines[3]).toContain("now");
+    expect(lines[3]).toContain("3 created  2 resolved");
+    expect(lines[2]).toContain("1d ago");
+    expect(lines[2]).toContain("1 created  0 resolved");
+    // Busiest bucket gets the widest bar.
+    expect(lines[3]).toContain("█");
+  });
+
+  it("draws empty bars when there is no activity at all", () => {
+    const trend = computeActivityTrend([], { now, bucketMs: DAY_MS, buckets: 2 });
+    const out = renderTrend(trend);
+    expect(out).not.toContain("█");
+    expect(out).toContain("0 created  0 resolved");
+  });
+});
+
+describe("renderStats with a trend", () => {
+  const now = Date.parse("2026-07-19T12:00:00.000Z");
+
+  it("appends the activity block after the main stats", () => {
+    const stats = computeStats([job({ status: "completed" })]);
+    const trend = computeActivityTrend(
+      [job({ status: "completed", createdAt: new Date(now - HOUR_MS).toISOString() })],
+      {
+        now,
+        bucketMs: DAY_MS,
+        buckets: 2,
+      }
+    );
+    const out = renderStats(stats, { now, trend });
+    expect(out).toContain("1 job(s) tracked");
+    expect(out).toContain("activity");
+    // The activity block comes after the top-projects block.
+    expect(out.indexOf("top projects")).toBeLessThan(out.indexOf("activity"));
+  });
+
+  it("carries the trend into --json output, omitting it when absent", () => {
+    const stats = computeStats([job()]);
+    const trend = computeActivityTrend([], { now, bucketMs: DAY_MS, buckets: 3 });
+    const withTrend = JSON.parse(
+      renderStatsJson(stats, "/tmp/store.json", { generatedAt: "2026-07-19T00:00:00.000Z", trend })
+    );
+    expect(withTrend.trend.bucketMs).toBe(DAY_MS);
+    expect(withTrend.trend.buckets).toHaveLength(3);
+
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/store.json", { generatedAt: "2026-07-19T00:00:00.000Z" }));
+    expect(without.trend).toBeUndefined();
   });
 });
 
