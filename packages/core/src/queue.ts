@@ -65,6 +65,20 @@ export function corruptBackupPath(filePath: string, now: Date = new Date()): str
   return `${filePath}.corrupt-${stamp}`;
 }
 
+/**
+ * Total order for listing jobs newest-first. Primary key is `createdAt`
+ * (descending); ties (jobs enqueued in the same millisecond) are broken by
+ * `id` (ascending) so the order is fully deterministic. The previous
+ * `a.createdAt < b.createdAt ? 1 : -1` never returned 0, so equal timestamps
+ * produced an inconsistent (non-antisymmetric) comparator whose result varied
+ * with the engine's sort internals — a source of flaky, load-dependent
+ * ordering. A stable tiebreak removes that.
+ */
+export function compareJobsNewestFirst(a: RelayJob, b: RelayJob): number {
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
 export class RelayQueue {
   private filePath: string;
   private jobs: Map<string, RelayJob>;
@@ -133,7 +147,7 @@ export class RelayQueue {
   }
 
   private flush() {
-    const all = Array.from(this.jobs.values()).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    const all = Array.from(this.jobs.values()).sort(compareJobsNewestFirst);
     const tmpPath = `${this.filePath}.tmp-${process.pid}-${Date.now()}`;
     writeFileSync(tmpPath, JSON.stringify(all, null, 2), "utf8");
     renameSync(tmpPath, this.filePath);
@@ -231,7 +245,7 @@ export class RelayQueue {
 
   listAll(): RelayJob[] {
     this.load();
-    return Array.from(this.jobs.values()).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    return Array.from(this.jobs.values()).sort(compareJobsNewestFirst);
   }
 
   /**
@@ -269,7 +283,7 @@ export class RelayQueue {
     this.load();
     const now = options.now ?? new Date();
     const dest = backupFilePath(this.filePath, now);
-    const all = Array.from(this.jobs.values()).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    const all = Array.from(this.jobs.values()).sort(compareJobsNewestFirst);
 
     // Atomic write via a `.tmp-*` temp file (NOT `.backup-*`, so rotation's
     // pattern never matches an in-flight snapshot).

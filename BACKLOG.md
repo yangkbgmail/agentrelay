@@ -217,6 +217,19 @@
       `agentrelay restore [snapshot] [--no-backup]` 서브커맨드(미매칭 selector는 exit 1). branch
       `claude/wizardly-pascal-5bxk7l`)
 
+- [x] 👷 `agentrelay stats` 필터/스코프 옵션(`--status`/`--tool`/`--project`) — 큐 전체가 아닌
+      특정 프로젝트·툴·상태 부분집합의 지표만 보기.
+      (완료 — `@agentrelay/core/stats.ts`에 순수 `scopeJobs(jobs, {statuses,tools,projects})`
+      (차원 간 AND·차원 내 OR, 미지정 차원은 필터 안 함, 항상 새 배열 반환) + `isJobScopeActive`
+      추가. tool은 원시 문자열로 매칭(미지 tool 문자열도 정확히 필터). CLI `stats`에 `-s/--status`·
+      `-t/--tool`·`-p/--project` 배선(공용 `splitList` 헬퍼로 콤마 분리), 잘못된 status/tool은
+      exit 1. `renderStats`에 `scopeNote` 옵션(활성 시 "scope: …" 라인 + 스코프가 스토어 전체를
+      걸러내면 온보딩 문구 대신 `NO_SCOPE_MATCH_MESSAGE`), `renderStatsJson`은 활성 스코프를
+      `scope` 필드로 에코. 부수 버그 수정: `queue.ts`의 리스트 정렬 comparator가 동시각(same-ms)
+      타이에서 0을 안 돌려주는 비대칭 비교였음 → 부하에 따라 export 테스트가 간헐 실패(pre-existing
+      flaky). `compareJobsNewestFirst`(createdAt desc, id asc 타이브레이크)로 결정론화 + export
+      테스트의 인덱스 의존 단언을 순서 무관으로 교체. branch `claude/wizardly-pascal-ru3nmz`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

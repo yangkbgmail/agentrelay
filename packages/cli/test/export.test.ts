@@ -50,7 +50,11 @@ describe("exportStore", () => {
     const parsed = JSON.parse(result.content);
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed).toHaveLength(2);
-    expect(parsed[0].command).toEqual(["claude", "-p", "go"]);
+    // Store order is newest-first and both jobs may share a createdAt
+    // millisecond, so assert on the set of commands rather than a fixed index.
+    const commands = parsed.map((j: { command: string[] }) => j.command);
+    expect(commands).toContainEqual(["claude", "-p", "go"]);
+    expect(commands).toContainEqual(["codex", "run"]);
   });
 
   it("writes to a file with a trailing newline and reports the path", () => {

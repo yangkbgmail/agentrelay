@@ -1,5 +1,5 @@
-import type { AgentTool, ExportFormat, JobStatus } from "@agentrelay/core";
-import { computeStats, EXPORT_FORMATS, parseDuration } from "@agentrelay/core";
+import type { AgentTool, ExportFormat, JobScope, JobStatus } from "@agentrelay/core";
+import { ALL_TOOLS, computeStats, EXPORT_FORMATS, isJobScopeActive, parseDuration, scopeJobs } from "@agentrelay/core";
 import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
@@ -32,6 +32,18 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+
+/**
+ * Split a comma-separated CLI option (e.g. `--status completed,failed`) into
+ * trimmed, non-empty tokens. Shared by the `--status`/`--tool`/`--project`
+ * filters so they all treat whitespace and stray commas the same way.
+ */
+function splitList(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
 
 /**
  * Live `agentrelay status --watch`: clears the screen and re-renders the table
@@ -177,15 +189,64 @@ export function buildCli(): Command {
   program
     .command("stats")
     .description("Show aggregate relay metrics: success rate, retries, per-tool/per-project breakdown")
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. completed,failed)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
-    .action((opts: { json?: boolean }) => {
+    .action((opts: { status?: string; tool?: string; project?: string; json?: boolean }) => {
       const { store } = program.opts();
-      const stats = computeStats(listStatus(store));
+
+      const scope: JobScope = {};
+      const noteParts: string[] = [];
+
+      if (opts.status !== undefined) {
+        const requested = splitList(opts.status);
+        const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
+        if (invalid.length > 0) {
+          console.error(`Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.`);
+          process.exitCode = 1;
+          return;
+        }
+        scope.statuses = requested as JobStatus[];
+        noteParts.push(`status=${requested.join(",")}`);
+      }
+
+      if (opts.tool !== undefined) {
+        const requested = splitList(opts.tool);
+        const invalid = requested.filter((t) => !ALL_TOOLS.includes(t as AgentTool));
+        if (invalid.length > 0) {
+          console.error(`Unknown tool(s): ${invalid.join(", ")}. Valid: ${ALL_TOOLS.join(", ")}.`);
+          process.exitCode = 1;
+          return;
+        }
+        scope.tools = requested;
+        noteParts.push(`tool=${requested.join(",")}`);
+      }
+
+      if (opts.project !== undefined) {
+        const requested = splitList(opts.project);
+        if (requested.length === 0) {
+          console.error("--project needs at least one project name.");
+          process.exitCode = 1;
+          return;
+        }
+        scope.projects = requested;
+        noteParts.push(`project=${requested.join(",")}`);
+      }
+
+      const allJobs = listStatus(store);
+      const active = isJobScopeActive(scope);
+      const jobs = active ? scopeJobs(allJobs, scope) : allJobs;
+      const scopeNote = active ? noteParts.join(" ") : undefined;
+      const stats = computeStats(jobs);
+
       if (opts.json) {
-        console.log(renderStatsJson(stats, store));
+        console.log(renderStatsJson(stats, store, { scope }));
         return;
       }
-      console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY) }));
+      // A store with jobs but an empty scoped subset should say "no match",
+      // not the onboarding hint — renderStats keys that off scopeNote.
+      console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY), scopeNote }));
     });
 
   program
