@@ -9,6 +9,7 @@ import {
   jobsToCsv,
   jobsToJson,
   jobsToMarkdown,
+  jobsToNdjson,
 } from "../src/export.js";
 import type { RelayJob } from "../src/types.js";
 
@@ -190,6 +191,39 @@ describe("jobsToMarkdown", () => {
   });
 });
 
+describe("jobsToNdjson", () => {
+  it("emits one compact JSON object per line, LF-separated, no trailing newline", () => {
+    const jobs = [job({ id: "a" }), job({ id: "b" }), job({ id: "c" })];
+    const out = jobsToNdjson(jobs);
+    const lines = out.split("\n");
+    expect(lines).toHaveLength(3);
+    // Compact (no pretty-print indentation) so each record is exactly one line.
+    expect(out).not.toContain("\n  ");
+    expect(out.endsWith("\n")).toBe(false);
+    expect(lines.map((l) => JSON.parse(l).id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("round-trips each line losslessly, preserving the command array", () => {
+    const jobs = [job({ command: ["claude", "-p", "a b"], lastOutputTail: "tail" })];
+    const parsed = jobsToNdjson(jobs)
+      .split("\n")
+      .map((l) => JSON.parse(l));
+    expect(parsed).toEqual(jobs);
+    expect(parsed[0].command).toEqual(["claude", "-p", "a b"]);
+  });
+
+  it("keeps newline-bearing fields on a single line (embedded LF is escaped)", () => {
+    const out = jobsToNdjson([job({ lastError: "line1\nline2" })]);
+    // The record's own newline is JSON-escaped, so it does not split the record.
+    expect(out.split("\n")).toHaveLength(1);
+    expect(JSON.parse(out).lastError).toBe("line1\nline2");
+  });
+
+  it("yields an empty string for an empty job list", () => {
+    expect(jobsToNdjson([])).toBe("");
+  });
+});
+
 describe("exportJobs", () => {
   it("dispatches to CSV by default format", () => {
     const jobs = [job({ id: "d" })];
@@ -206,7 +240,12 @@ describe("exportJobs", () => {
     expect(exportJobs(jobs, "md")).toBe(jobsToMarkdown(jobs));
   });
 
+  it("dispatches to NDJSON", () => {
+    const jobs = [job({ id: "d" }), job({ id: "e" })];
+    expect(exportJobs(jobs, "ndjson")).toBe(jobsToNdjson(jobs));
+  });
+
   it("exposes the supported formats", () => {
-    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md"]);
+    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md", "ndjson"]);
   });
 });
