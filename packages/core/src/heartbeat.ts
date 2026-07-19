@@ -123,3 +123,69 @@ export function heartbeatStaleAfterMs(mode: HeartbeatMode, pollIntervalMs: numbe
   if (mode === "tick" || pollIntervalMs <= 0) return HEARTBEAT_TICK_STALE_AFTER_MS;
   return Math.max(pollIntervalMs * HEARTBEAT_STALE_FACTOR, HEARTBEAT_MIN_STALE_AFTER_MS);
 }
+
+/**
+ * Why a would-be daemon start does (or doesn't) collide with an existing
+ * heartbeat:
+ * - `absent`  — no usable heartbeat; nothing is running (safe to start).
+ * - `self`    — the heartbeat's pid is our own process (safe; e.g. a re-entrant
+ *               call or a test harness).
+ * - `tick`    — the writer was a one-shot `agentrelay tick`, not a long-lived
+ *               daemon. A cron tick that just ran isn't a competing resume loop,
+ *               so it never blocks a daemon (blocking here would break the common
+ *               cron-only setup).
+ * - `stale`   — a daemon heartbeat exists but has aged past its staleness window;
+ *               the previous daemon almost certainly crashed (safe to start).
+ * - `live`    — a fresh daemon heartbeat from another pid; a second daemon would
+ *               race it and double-resume jobs.
+ */
+export type DaemonConflictReason = "absent" | "self" | "tick" | "stale" | "live";
+
+/** The verdict on whether starting a new daemon collides with a running one. */
+export interface DaemonConflict {
+  /** True only for the `live` reason — an active daemon that would be raced. */
+  conflict: boolean;
+  reason: DaemonConflictReason;
+  /** The pid recorded in the heartbeat, when one was present (to probe/report). */
+  pid?: number;
+  /** Age of the heartbeat in ms, when computable from `lastTickAt`. */
+  ageMs?: number;
+  /** Staleness threshold the age was judged against, when computed. */
+  staleAfterMs?: number;
+}
+
+/**
+ * Decide whether an existing heartbeat represents a live daemon that a new
+ * daemon start would race — the guard against two daemons both flipping the same
+ * due job to `resuming` and double-spawning its agent. Pure: `Date.parse` on the
+ * ISO `lastTickAt` is deterministic and the "now"/self pid are injected.
+ *
+ * Only a *daemon* heartbeat that is fresh (age within its staleness window) and
+ * from a different pid conflicts. This is intentionally the same freshness rule
+ * `doctor` uses ({@link heartbeatStaleAfterMs}), so "live enough to warn about"
+ * and "live enough to block a second daemon" never drift apart. A `conflict`
+ * verdict is a strong signal, not proof the process is alive — the caller should
+ * additionally confirm the pid is running (a crashed daemon can leave a heartbeat
+ * that hasn't yet aged out) before refusing to start.
+ */
+export function evaluateDaemonConflict(
+  heartbeat: DaemonHeartbeat | null,
+  options: { nowMs: number; selfPid: number }
+): DaemonConflict {
+  if (!heartbeat) return { conflict: false, reason: "absent" };
+  const { pid, mode, lastTickAt, pollIntervalMs } = heartbeat;
+  if (mode === "tick") return { conflict: false, reason: "tick", pid };
+  if (pid === options.selfPid) return { conflict: false, reason: "self", pid };
+
+  const lastTick = Date.parse(lastTickAt);
+  if (Number.isNaN(lastTick)) {
+    // Unparseable timestamp: can't trust it as live, treat as stale.
+    return { conflict: false, reason: "stale", pid };
+  }
+  const ageMs = Math.max(0, options.nowMs - lastTick);
+  const staleAfterMs = heartbeatStaleAfterMs(mode, pollIntervalMs);
+  if (ageMs <= staleAfterMs) {
+    return { conflict: true, reason: "live", pid, ageMs, staleAfterMs };
+  }
+  return { conflict: false, reason: "stale", pid, ageMs, staleAfterMs };
+}

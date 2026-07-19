@@ -17,6 +17,8 @@ import type {
   AgentTool,
   BackupResult,
   ConfigIssue,
+  DaemonConflict,
+  DaemonHeartbeat,
   DiagnosticReport,
   HeartbeatFacts,
   HeartbeatMode,
@@ -38,6 +40,7 @@ import {
   distinctActiveBinaries,
   type EffectiveConfigEntry,
   type ExportFormat,
+  evaluateDaemonConflict,
   exportJobs,
   hasConfigErrors,
   heartbeatStaleAfterMs,
@@ -173,6 +176,14 @@ export interface DaemonOptions {
    * (AGENTRELAY_SLACK_WEBHOOK and/or AGENTRELAY_WEBHOOK_URL, or silent skip).
    */
   remoteNotify?: Notifier | null;
+  /**
+   * Start even when another live daemon appears to be running. By default a
+   * second daemon refuses to start (to avoid two loops double-resuming the same
+   * job); `--force` overrides that guard.
+   */
+  force?: boolean;
+  /** Injected for tests: pid liveness probe used by the double-start guard. */
+  isAlive?: (pid: number) => boolean;
 }
 
 /**
@@ -238,6 +249,59 @@ export function readHeartbeatFacts(storePath: string, nowMs: number = Date.now()
   };
 }
 
+/**
+ * Read + parse the raw heartbeat record (not the doctor-facing {@link
+ * HeartbeatFacts}) so the daemon-start guard can see `mode`/`pid`/`pollIntervalMs`.
+ * Never throws — a missing/garbled file reads as `null` ("nothing running").
+ */
+export function readDaemonHeartbeat(storePath: string): DaemonHeartbeat | null {
+  let raw: string;
+  try {
+    raw = readFileSync(daemonHeartbeatPath(storePath), "utf8");
+  } catch {
+    return null;
+  }
+  return parseDaemonHeartbeat(raw);
+}
+
+/**
+ * Is `pid` a live process? Uses signal 0, which performs the permission/existence
+ * check without actually delivering a signal. `ESRCH` = no such process (dead);
+ * `EPERM` = the process exists but is owned by another user (still alive). Any
+ * non-integer/non-positive pid is treated as dead. Never throws.
+ */
+export function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Decide whether a new daemon should refuse to start because another one is
+ * already running. Combines the pure freshness verdict ({@link
+ * evaluateDaemonConflict}) with an OS liveness probe: we only block when the
+ * heartbeat looks live *and* its pid is actually running, so a daemon that
+ * crashed without cleaning up (leaving a not-yet-stale heartbeat) doesn't wedge
+ * the queue. Returns the conflict verdict plus whether the holder is alive; the
+ * caller decides whether to honor or override (`--force`) it. Never throws.
+ */
+export function checkDaemonConflict(
+  storePath: string,
+  options: { nowMs?: number; selfPid?: number; isAlive?: (pid: number) => boolean } = {}
+): { blocked: boolean; conflict: DaemonConflict; holderAlive: boolean } {
+  const nowMs = options.nowMs ?? Date.now();
+  const selfPid = options.selfPid ?? process.pid;
+  const isAlive = options.isAlive ?? isProcessAlive;
+  const heartbeat = readDaemonHeartbeat(storePath);
+  const conflict = evaluateDaemonConflict(heartbeat, { nowMs, selfPid });
+  const holderAlive = conflict.conflict && conflict.pid !== undefined ? isAlive(conflict.pid) : false;
+  return { blocked: conflict.conflict && holderAlive, conflict, holderAlive };
+}
+
 /** Human-readable "(auto-prune on, ...)" suffix for the daemon startup banner. */
 function autoPruneBanner(
   autoPrune: PruneOptions | null,
@@ -253,6 +317,21 @@ function autoPruneBanner(
 
 export function startDaemon(options: DaemonOptions = {}) {
   const storePath = options.storePath ?? defaultStorePath();
+  // Guard against a second daemon racing the first: both would flip the same
+  // due job to `resuming` and double-spawn its agent. Refuse unless --force.
+  const guard = checkDaemonConflict(storePath, { isAlive: options.isAlive });
+  if (guard.blocked && !options.force) {
+    const { conflict } = guard;
+    const ageNote = conflict.ageMs === undefined ? "" : ` (last tick ${Math.round(conflict.ageMs / 1000)}s ago)`;
+    // eslint-disable-next-line no-console
+    console.error(
+      `[agentrelay] another daemon appears to be running (pid ${conflict.pid})${ageNote}.\n` +
+        "Refusing to start a second one — two daemons would double-resume the same jobs.\n" +
+        `Stop the other daemon, or pass --force to start anyway (watching ${storePath}).`
+    );
+    process.exitCode = 1;
+    return null;
+  }
   const queue = openQueue(storePath);
   const remoteNotify = options.remoteNotify === undefined ? notifiersFromEnv() : options.remoteNotify;
   const autoPrune = autoPruneOptionsFromEnv();

@@ -3,16 +3,26 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import type { NotifyPayload } from "@agentrelay/core";
-import { parseConfig, RelayQueue, sampleConfigJson } from "@agentrelay/core";
+import {
+  type DaemonHeartbeat,
+  daemonHeartbeatPath,
+  parseConfig,
+  RelayQueue,
+  sampleConfigJson,
+  serializeDaemonHeartbeat,
+} from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   backupStore,
   cancelJob,
+  checkDaemonConflict,
   initConfig,
+  isProcessAlive,
   listStatus,
   listStoreBackups,
   previewRestoreStore,
   pruneJobs,
+  readDaemonHeartbeat,
   restoreStore,
   retryJob,
   runCommand,
@@ -583,5 +593,132 @@ describe("isConfigDiagnosticInvocation", () => {
     expect(isConfigDiagnosticInvocation(argv("config", "init"))).toBe(false);
     expect(isConfigDiagnosticInvocation(argv("status"))).toBe(false);
     expect(isConfigDiagnosticInvocation(argv("config"))).toBe(false);
+  });
+});
+
+describe("isProcessAlive", () => {
+  it("returns true for the current process", () => {
+    expect(isProcessAlive(process.pid)).toBe(true);
+  });
+
+  it("returns false for a pid that is very unlikely to exist", () => {
+    // Max pid on Linux default is 32768/4194304; this is safely above any real pid.
+    expect(isProcessAlive(2_147_483_646)).toBe(false);
+  });
+
+  it("returns false for non-integer or non-positive pids", () => {
+    expect(isProcessAlive(0)).toBe(false);
+    expect(isProcessAlive(-1)).toBe(false);
+    expect(isProcessAlive(1.5)).toBe(false);
+    expect(isProcessAlive(Number.NaN)).toBe(false);
+  });
+});
+
+describe("readDaemonHeartbeat / checkDaemonConflict", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-daemon-guard-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const writeHeartbeat = (hb: DaemonHeartbeat) => {
+    writeFileSync(daemonHeartbeatPath(storePath), serializeDaemonHeartbeat(hb), "utf8");
+  };
+
+  const freshDaemon = (pid: number, lastTickAt: string): DaemonHeartbeat => ({
+    pid,
+    mode: "daemon",
+    startedAt: lastTickAt,
+    lastTickAt,
+    pollIntervalMs: 30_000,
+  });
+
+  it("readDaemonHeartbeat returns null when no file exists", () => {
+    expect(readDaemonHeartbeat(storePath)).toBeNull();
+  });
+
+  it("readDaemonHeartbeat returns null for a garbled file", () => {
+    writeFileSync(daemonHeartbeatPath(storePath), "{ not json", "utf8");
+    expect(readDaemonHeartbeat(storePath)).toBeNull();
+  });
+
+  it("does not block when there is no heartbeat", () => {
+    const result = checkDaemonConflict(storePath);
+    expect(result.blocked).toBe(false);
+    expect(result.conflict.reason).toBe("absent");
+  });
+
+  it("blocks when a fresh daemon heartbeat's pid is alive", () => {
+    const now = Date.parse("2026-07-19T00:01:00.000Z");
+    writeHeartbeat(freshDaemon(4242, "2026-07-19T00:00:40.000Z"));
+    const result = checkDaemonConflict(storePath, {
+      nowMs: now,
+      selfPid: 1,
+      isAlive: (pid) => pid === 4242,
+    });
+    expect(result.blocked).toBe(true);
+    expect(result.conflict.reason).toBe("live");
+    expect(result.holderAlive).toBe(true);
+  });
+
+  it("does NOT block when the fresh heartbeat's pid is dead (crashed daemon)", () => {
+    const now = Date.parse("2026-07-19T00:01:00.000Z");
+    writeHeartbeat(freshDaemon(4242, "2026-07-19T00:00:40.000Z"));
+    const result = checkDaemonConflict(storePath, {
+      nowMs: now,
+      selfPid: 1,
+      isAlive: () => false,
+    });
+    expect(result.blocked).toBe(false);
+    expect(result.conflict.reason).toBe("live");
+    expect(result.holderAlive).toBe(false);
+  });
+
+  it("does not block on a stale daemon heartbeat", () => {
+    const now = Date.parse("2026-07-19T01:00:00.000Z");
+    writeHeartbeat(freshDaemon(4242, "2026-07-19T00:00:40.000Z"));
+    const result = checkDaemonConflict(storePath, {
+      nowMs: now,
+      selfPid: 1,
+      isAlive: () => true,
+    });
+    expect(result.blocked).toBe(false);
+    expect(result.conflict.reason).toBe("stale");
+  });
+
+  it("does not block on our own pid", () => {
+    const now = Date.parse("2026-07-19T00:01:00.000Z");
+    writeHeartbeat(freshDaemon(777, "2026-07-19T00:00:40.000Z"));
+    const result = checkDaemonConflict(storePath, {
+      nowMs: now,
+      selfPid: 777,
+      isAlive: () => true,
+    });
+    expect(result.blocked).toBe(false);
+    expect(result.conflict.reason).toBe("self");
+  });
+
+  it("does not block on a one-shot tick heartbeat", () => {
+    const now = Date.parse("2026-07-19T00:01:00.000Z");
+    writeHeartbeat({
+      pid: 4242,
+      mode: "tick",
+      startedAt: "2026-07-19T00:00:40.000Z",
+      lastTickAt: "2026-07-19T00:00:40.000Z",
+      pollIntervalMs: 0,
+    });
+    const result = checkDaemonConflict(storePath, {
+      nowMs: now,
+      selfPid: 1,
+      isAlive: () => true,
+    });
+    expect(result.blocked).toBe(false);
+    expect(result.conflict.reason).toBe("tick");
   });
 });

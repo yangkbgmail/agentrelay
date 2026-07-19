@@ -980,3 +980,37 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 32 — 데몬 이중 실행 가드] (2026-07-19, 무인 자율 세션, branch `claude/wizardly-pascal-6l48rb`)
+- 배경: 세션 시작 시 남은 명시적 👷 항목은 전부 완료, 열린 PR 7개(#61 doctor queue-progress, #63 stats
+  trend, #64 next, #65 notify test, #66·#68 stats group-by, #67 대시보드 resumeLoop)가 각 영역을 점유.
+  중복을 피해 코드를 읽던 중 **스케줄러의 실제 경쟁 조건**을 발견해 신규 👷 항목으로 구현했다: 두 개의
+  `agentrelay daemon`(또는 데몬+동시 tick)이 같은 스토어를 폴링하면, 둘 다 `listDue`에서 같은 잡을 보고
+  둘 다 `markResuming`으로 뒤집어 **에이전트 CLI를 이중 spawn**할 수 있다. 세션 30이 넣은 `daemon.json`
+  하트비트(pid 포함)를 재활용하면 이를 정확히 막을 수 있었다.
+- 한 일:
+  1. `@agentrelay/core/heartbeat.ts`에 순수 `evaluateDaemonConflict(heartbeat, {nowMs, selfPid})` +
+     `DaemonConflict`/`DaemonConflictReason` 추가. 5가지 판정: `absent`(하트비트 없음)·`self`(내
+     pid — 재진입/테스트)·`tick`(cron 일회성 tick은 경쟁 long-lived 루프가 아니므로 **절대 안 막음**
+     — 막으면 cron-only 셋업이 깨짐)·`stale`(daemon 하트비트가 staleness 창을 지남=이전 데몬 크래시)·
+     `live`(다른 pid의 신선한 daemon 하트비트=race 위험, 유일한 `conflict:true`). freshness는 `doctor`가
+     쓰는 `heartbeatStaleAfterMs`와 **동일 규칙**이라 "경고할 만큼 살아있음"과 "두 번째 데몬을 막을 만큼
+     살아있음"이 드리프트하지 않음. 경계(age==staleAfter)는 live, 클럭 스큐 음수 age는 0으로 클램프,
+     파싱 불가 `lastTickAt`은 stale로 안전 처리. `Date.parse`(결정론적)만 쓰고 now/pid는 주입 → 순수·테스트.
+  2. CLI `commands.ts`에 3개 헬퍼: `readDaemonHeartbeat`(raw 하트비트 파싱, 없거나 깨지면 null, 절대
+     throw 안 함) · `isProcessAlive`(POSIX signal 0 — `ESRCH`=죽음·`EPERM`=타 유저 소유라 살아있음,
+     비정수/비양수 pid=죽음, 절대 throw 안 함) · `checkDaemonConflict`(순수 verdict + OS pid 프로브를
+     **AND** 결합 — 하트비트가 신선하고 *그리고* 그 pid가 실제로 살아있을 때만 block. 이 이중 확인이
+     핵심: 크래시로 안 지워진 not-yet-stale 하트비트가 큐를 영구히 wedge하지 않는다).
+  3. `startDaemon`이 큐 열기 **전에** 가드 → block이면 stderr에 holder pid·last tick 경과·해결법
+     안내 + `process.exitCode=1` + early return(스케줄러 미시작). `DaemonOptions`에 `force`(가드 무시)·
+     `isAlive`(테스트 주입) 추가, CLI `daemon`에 `-f/--force` 플래그 배선.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **439개 통과 + 1 skip**(core 294[+9: evaluateDaemonConflict absent/tick/self/live/경계/
+    stale/음수 age 클램프/파싱불가] + cli 142[+11: isProcessAlive 3·readDaemonHeartbeat 2·checkDaemonConflict
+    block/dead-pid/stale/self/tick 6] + dashboard 3). **실제 빌드된 CLI e2e**(mock 아님): 신선한 하트비트
+    +살아있는 pid(shell `$$`)→두 번째 daemon 거부 + exit 1 + "another daemon appears to be running" 안내,
+    `--force`→기동, **죽은 pid**의 신선한 하트비트→기동(크래시 데몬 무시), stale(2h 전) 하트비트→기동,
+    하트비트 없음→기동 확인.
+- 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 — PR #67), stats 평균 대기시간(👷 후보),
+  README/ARCHITECTURE(🧭 코워크). `tick`도 동시 실행 가드가 필요한지 검토(👷 후보 — 현재는 daemon만).

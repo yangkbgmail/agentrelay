@@ -3,6 +3,7 @@ import {
   DAEMON_HEARTBEAT_FILENAME,
   type DaemonHeartbeat,
   daemonHeartbeatPath,
+  evaluateDaemonConflict,
   HEARTBEAT_MIN_STALE_AFTER_MS,
   HEARTBEAT_STALE_FACTOR,
   HEARTBEAT_TICK_STALE_AFTER_MS,
@@ -92,5 +93,61 @@ describe("heartbeatStaleAfterMs", () => {
 
   it("treats a non-positive daemon poll as tick-style", () => {
     expect(heartbeatStaleAfterMs("daemon", 0)).toBe(HEARTBEAT_TICK_STALE_AFTER_MS);
+  });
+});
+
+describe("evaluateDaemonConflict", () => {
+  // lastTickAt is 00:00:30; staleAfter for a 30s daemon poll is 90s (>60s floor).
+  const lastTickMs = Date.parse(sample.lastTickAt);
+  const opts = (nowMs: number, selfPid = 9999) => ({ nowMs, selfPid });
+
+  it("reports no conflict when there is no heartbeat", () => {
+    expect(evaluateDaemonConflict(null, opts(lastTickMs))).toEqual({ conflict: false, reason: "absent" });
+  });
+
+  it("never blocks on a one-shot tick heartbeat", () => {
+    const tick: DaemonHeartbeat = { ...sample, mode: "tick", pollIntervalMs: 0 };
+    const result = evaluateDaemonConflict(tick, opts(lastTickMs));
+    expect(result).toEqual({ conflict: false, reason: "tick", pid: 1234 });
+  });
+
+  it("never blocks on its own pid", () => {
+    const result = evaluateDaemonConflict(sample, opts(lastTickMs, sample.pid));
+    expect(result).toEqual({ conflict: false, reason: "self", pid: 1234 });
+  });
+
+  it("conflicts on a fresh daemon heartbeat from another pid", () => {
+    // 30s after the last tick — well within the 90s stale window.
+    const result = evaluateDaemonConflict(sample, opts(lastTickMs + 30_000));
+    expect(result.conflict).toBe(true);
+    expect(result.reason).toBe("live");
+    expect(result.pid).toBe(1234);
+    expect(result.ageMs).toBe(30_000);
+    expect(result.staleAfterMs).toBe(90_000);
+  });
+
+  it("treats the exact stale boundary as still live", () => {
+    const result = evaluateDaemonConflict(sample, opts(lastTickMs + 90_000));
+    expect(result.conflict).toBe(true);
+    expect(result.reason).toBe("live");
+  });
+
+  it("does not conflict once the daemon heartbeat is stale", () => {
+    const result = evaluateDaemonConflict(sample, opts(lastTickMs + 90_001));
+    expect(result.conflict).toBe(false);
+    expect(result.reason).toBe("stale");
+    expect(result.pid).toBe(1234);
+  });
+
+  it("clamps a negative age (future lastTick / clock skew) to 0 and treats it as live", () => {
+    const result = evaluateDaemonConflict(sample, opts(lastTickMs - 5_000));
+    expect(result.conflict).toBe(true);
+    expect(result.ageMs).toBe(0);
+  });
+
+  it("treats an unparseable lastTickAt as stale, not live", () => {
+    const bad: DaemonHeartbeat = { ...sample, lastTickAt: "not-a-date" };
+    const result = evaluateDaemonConflict(bad, opts(lastTickMs));
+    expect(result).toEqual({ conflict: false, reason: "stale", pid: 1234 });
   });
 });
