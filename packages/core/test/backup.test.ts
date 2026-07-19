@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { backupFilePath, backupStamp, listBackups, selectRotatableBackups } from "../src/backup.js";
+import { backupFilePath, backupStamp, listBackups, resolveBackup, selectRotatableBackups } from "../src/backup.js";
 import { RelayQueue } from "../src/queue.js";
 
 describe("backup pure helpers", () => {
@@ -57,6 +57,31 @@ describe("backup pure helpers", () => {
     // keep 0 selects everything; non-integers floor.
     expect(selectRotatableBackups(names, "jobs.json", 0)).toHaveLength(4);
     expect(selectRotatableBackups(names, "jobs.json", 1.9)).toHaveLength(3);
+  });
+
+  it("resolveBackup matches latest / basename / stamp and rejects the rest", () => {
+    const names = [
+      "jobs.json",
+      "jobs.json.backup-2026-07-18T00-00-01-000Z",
+      "jobs.json.backup-2026-07-18T00-00-03-000Z",
+      "jobs.json.backup-2026-07-18T00-00-02-000Z",
+      "other.json.backup-2026-07-18T00-00-09-000Z",
+    ];
+    // "latest" (and the empty selector) -> newest snapshot.
+    expect(resolveBackup(names, "jobs.json", "latest")?.stamp).toBe("2026-07-18T00-00-03-000Z");
+    expect(resolveBackup(names, "jobs.json", "")?.stamp).toBe("2026-07-18T00-00-03-000Z");
+    // Exact basename match.
+    expect(resolveBackup(names, "jobs.json", "jobs.json.backup-2026-07-18T00-00-02-000Z")?.stamp).toBe(
+      "2026-07-18T00-00-02-000Z"
+    );
+    // Stamp-only match.
+    expect(resolveBackup(names, "jobs.json", "2026-07-18T00-00-01-000Z")?.name).toBe(
+      "jobs.json.backup-2026-07-18T00-00-01-000Z"
+    );
+    // Unknown stamp / another store's snapshot / no snapshots at all.
+    expect(resolveBackup(names, "jobs.json", "2099-01-01T00-00-00-000Z")).toBeNull();
+    expect(resolveBackup(names, "jobs.json", "other.json.backup-2026-07-18T00-00-09-000Z")).toBeNull();
+    expect(resolveBackup(["jobs.json"], "jobs.json", "latest")).toBeNull();
   });
 });
 
@@ -146,5 +171,80 @@ describe("RelayQueue.backup", () => {
     // The corrupt copy is left alone even though keepLast 0 rotates aggressively.
     expect(readdirSync(dir)).toContain("jobs.json.corrupt-2026-07-18T00-00-00-000Z");
     expect(readFileSync(corrupt, "utf8")).toBe("garbage");
+  });
+});
+
+describe("RelayQueue.restore", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-restore-test-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("replaces the store with a snapshot's contents and backs up the previous store", () => {
+    const storePath = join(dir, "jobs.json");
+    const queue = new RelayQueue(storePath);
+    const original = queue.enqueue({ project: "orig", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    const snapshot = queue.backup({ now: new Date("2026-07-18T09:00:00.000Z") });
+
+    // Mutate the store after the snapshot: add a second job, cancel the first.
+    const second = queue.enqueue({ project: "later", tool: "codex-cli", command: ["codex"], cwd: "/tmp" });
+    queue.markCancelled(original.id);
+    expect(queue.listAll()).toHaveLength(2);
+
+    const result = queue.restore({ from: snapshot.path, now: new Date("2026-07-18T10:00:00.000Z") });
+    queue.close();
+
+    // Store is back to the single original job.
+    expect(result.jobCount).toBe(1);
+    expect(result.from).toBe(snapshot.path);
+    const restored = JSON.parse(readFileSync(storePath, "utf8"));
+    expect(restored).toHaveLength(1);
+    expect(restored[0].id).toBe(original.id);
+    expect(restored[0].status).toBe("queued");
+    expect(restored.some((j: { id: string }) => j.id === second.id)).toBe(false);
+
+    // The pre-restore state was snapshotted so the restore is itself undoable.
+    expect(result.backedUpTo).toBe(`${storePath}.backup-2026-07-18T10-00-00-000Z`);
+    const safety = JSON.parse(readFileSync(result.backedUpTo as string, "utf8"));
+    expect(safety).toHaveLength(2);
+  });
+
+  it("skips the safety backup when backupCurrent is false", () => {
+    const storePath = join(dir, "jobs.json");
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "a", tool: "generic", command: ["x"], cwd: "/tmp" });
+    const snapshot = queue.backup({ now: new Date("2026-07-18T09:00:00.000Z") });
+    queue.enqueue({ project: "b", tool: "generic", command: ["y"], cwd: "/tmp" });
+
+    const result = queue.restore({ from: snapshot.path, backupCurrent: false });
+    queue.close();
+
+    expect(result.backedUpTo).toBeNull();
+    // Only the snapshot backup exists; no safety backup was written.
+    const backups = readdirSync(dir).filter((f) => f.includes(".backup-"));
+    expect(backups).toEqual(["jobs.json.backup-2026-07-18T09-00-00-000Z"]);
+  });
+
+  it("throws without touching the live store when the snapshot is not a jobs array", () => {
+    const storePath = join(dir, "jobs.json");
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "keep", tool: "generic", command: ["x"], cwd: "/tmp" });
+
+    const bad = join(dir, "bad.json");
+    writeFileSync(bad, JSON.stringify({ not: "an array" }), "utf8");
+    expect(() => queue.restore({ from: bad })).toThrow(/not a JSON array/);
+
+    // Live store is untouched: the original job is still there.
+    queue.close();
+    const live = JSON.parse(readFileSync(storePath, "utf8"));
+    expect(live).toHaveLength(1);
+    expect(live[0].id).toBe(job.id);
+    // No safety backup was written for the failed restore.
+    expect(readdirSync(dir).filter((f) => f.includes(".backup-"))).toEqual([]);
   });
 });

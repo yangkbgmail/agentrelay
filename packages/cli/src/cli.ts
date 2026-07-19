@@ -10,6 +10,7 @@ import {
   listStatus,
   listStoreBackups,
   pruneJobs,
+  restoreStore,
   retryJob,
   runCommand,
   showConfig,
@@ -379,6 +380,29 @@ export function buildCli(): Command {
       console.log(`[agentrelay] Wrote snapshot of ${result.jobCount} job(s) to ${result.path}.`);
       if (result.rotated.length > 0) {
         console.log(`[agentrelay] Rotated out ${result.rotated.length} old snapshot(s).`);
+      }
+    });
+
+  program
+    .command("restore")
+    .argument("[snapshot]", 'Snapshot to restore: "latest" (default), a stamp, a snapshot filename, or a path')
+    .description("Restore the job store from a snapshot (the current store is backed up first)")
+    .option("--no-backup", "Skip snapshotting the current store before overwriting it")
+    .action((snapshot: string | undefined, opts: { backup?: boolean }) => {
+      const { store } = program.opts();
+      try {
+        const result = restoreStore({
+          storePath: store,
+          selector: snapshot ?? "latest",
+          backupCurrent: opts.backup,
+        });
+        console.log(`[agentrelay] Restored ${result.jobCount} job(s) from ${result.from}.`);
+        if (result.backedUpTo) {
+          console.log(`[agentrelay] Previous store backed up to ${result.backedUpTo}.`);
+        }
+      } catch (error) {
+        console.error(`[agentrelay] ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = 1;
       }
     });
 

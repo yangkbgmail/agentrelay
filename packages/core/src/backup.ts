@@ -86,3 +86,33 @@ export interface BackupResult {
   /** Backup files removed by rotation (may be empty). */
   rotated: string[];
 }
+
+/**
+ * Resolves which of the store's snapshots a restore `selector` refers to,
+ * returning the matched {@link BackupEntry} or null when nothing matches.
+ * `selector` may be:
+ *   - `"latest"` (or empty) → the newest snapshot;
+ *   - a snapshot basename (e.g. `jobs.json.backup-2026-...Z`);
+ *   - the sortable stamp portion alone (e.g. `2026-07-18T09-00-01-000Z`).
+ * `fileNames` are directory basenames (any order); only this store's snapshots
+ * are considered. Pure: reads nothing, deletes nothing.
+ */
+export function resolveBackup(fileNames: string[], storeFileName: string, selector: string): BackupEntry | null {
+  const backups = listBackups(fileNames, storeFileName); // newest first
+  if (backups.length === 0) return null;
+  if (selector === "" || selector === "latest") return backups[0];
+  return backups.find((b) => b.name === selector) ?? backups.find((b) => b.stamp === selector) ?? null;
+}
+
+/** Outcome of {@link RelayQueue.restore}. */
+export interface RestoreResult {
+  /** Absolute path of the snapshot the store was restored from. */
+  from: string;
+  /** Number of jobs in the restored store. */
+  jobCount: number;
+  /**
+   * Where the pre-restore store was snapshotted for safety, or null when the
+   * safety backup was skipped or there was no existing store to snapshot.
+   */
+  backedUpTo: string | null;
+}

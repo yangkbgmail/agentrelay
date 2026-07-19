@@ -21,7 +21,13 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { type BackupResult, backupFilePath, DEFAULT_BACKUP_KEEP, selectRotatableBackups } from "./backup.js";
+import {
+  type BackupResult,
+  backupFilePath,
+  DEFAULT_BACKUP_KEEP,
+  type RestoreResult,
+  selectRotatableBackups,
+} from "./backup.js";
 import { type PruneOptions, selectPrunableJobs } from "./prune.js";
 import type { CreateJobInput, JobStatus, RelayJob } from "./types.js";
 
@@ -294,6 +300,41 @@ export class RelayQueue {
     }
 
     return { path: dest, jobCount: all.length, rotated };
+  }
+
+  /**
+   * Replaces the store's contents with those of a snapshot file (`from`) — the
+   * inverse of {@link backup}. The snapshot is fully read and validated (must be
+   * a JSON array of jobs) *before* the live store is touched, so a bad snapshot
+   * throws without destroying current data. By default the current store is
+   * first snapshotted (`.backup-<ts>`) so a restore is itself undoable; pass
+   * `backupCurrent: false` to skip that. Returns the source, the restored job
+   * count, and where the previous store was backed up (or null).
+   */
+  restore(options: { from: string; backupCurrent?: boolean; now?: Date }): RestoreResult {
+    const { from } = options;
+    // Validate the snapshot BEFORE mutating anything. A parse failure or a
+    // non-array root throws here, leaving the live store intact.
+    const raw = readFileSync(from, "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      throw new Error(`snapshot ${from} is not a JSON array of jobs`);
+    }
+    const jobs = parsed as RelayJob[];
+
+    // Safety net: snapshot the current store first so the restore is undoable.
+    // `backup()` reloads from disk, so this captures the real current state,
+    // and `jobs` above already holds the source content — safe even if `from`
+    // is itself an old snapshot that rotation might touch.
+    let backedUpTo: string | null = null;
+    const backupCurrent = options.backupCurrent ?? true;
+    if (backupCurrent && existsSync(this.filePath)) {
+      backedUpTo = this.backup({ now: options.now }).path;
+    }
+
+    this.jobs = new Map(jobs.map((job) => [job.id, job]));
+    this.flush();
+    return { from, jobCount: jobs.length, backedUpTo };
   }
 
   /** Jobs whose reset time has already passed and are ready to be resumed now. */

@@ -12,6 +12,7 @@ import {
   listStatus,
   listStoreBackups,
   pruneJobs,
+  restoreStore,
   retryJob,
   runCommand,
   showConfig,
@@ -395,6 +396,58 @@ describe("backupStore / listStoreBackups", () => {
     // Newest first.
     expect(backups[0].stamp).toBe("2026-07-18T09-00-02-000Z");
     expect(backups[1].stamp).toBe("2026-07-18T09-00-01-000Z");
+  });
+});
+
+describe("restoreStore", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-restore-cli-test-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("restores the latest snapshot by default and reports the job count", () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    queue.backup({ now: new Date("2026-07-18T09:00:01.000Z") });
+    // Grow the store beyond the snapshot.
+    queue.enqueue({ project: "extra", tool: "generic", command: ["x"], cwd: "/tmp" });
+    queue.close();
+    expect(listStatus(storePath)).toHaveLength(2);
+
+    const result = restoreStore({ storePath });
+    expect(result.jobCount).toBe(1);
+    expect(result.from.endsWith("jobs.json.backup-2026-07-18T09-00-01-000Z")).toBe(true);
+    expect(result.backedUpTo).not.toBeNull();
+    // Store is back to the single snapshotted job.
+    expect(listStatus(storePath)).toHaveLength(1);
+  });
+
+  it("restores a specific snapshot by its stamp", () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "one", tool: "generic", command: ["a"], cwd: "/tmp" });
+    queue.backup({ now: new Date("2026-07-18T09:00:01.000Z") });
+    queue.enqueue({ project: "two", tool: "generic", command: ["b"], cwd: "/tmp" });
+    queue.backup({ now: new Date("2026-07-18T09:00:02.000Z") });
+    queue.close();
+
+    // Restore the older (1-job) snapshot, not the latest (2-job) one.
+    const result = restoreStore({ storePath, selector: "2026-07-18T09-00-01-000Z" });
+    expect(result.jobCount).toBe(1);
+    expect(listStatus(storePath)).toHaveLength(1);
+  });
+
+  it("throws a clear error when no snapshot matches the selector", () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "one", tool: "generic", command: ["a"], cwd: "/tmp" });
+    queue.close();
+    expect(() => restoreStore({ storePath, selector: "latest" })).toThrow(/No snapshot matches/);
   });
 });
 

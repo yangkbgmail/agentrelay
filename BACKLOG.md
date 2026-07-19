@@ -207,6 +207,16 @@
       validate+show 모두 startup-skip, `--config <path>` 뒤 경로 값을 커맨드로 오인하던 argv
       파서 버그도 `subcommandTokens`로 교정. branch `claude/wizardly-pascal-dgs7go`)
 
+- [x] 👷 `agentrelay restore <snapshot>` — 스냅샷에서 스토어 복원(`backup`의 역연산).
+      (완료 — `@agentrelay/core/backup.ts`에 순수 `resolveBackup(fileNames, storeFileName, selector)`
+      (`latest`/빈 문자열→최신, 스냅샷 basename, 정렬가능 stamp 매칭; 미매칭·타 스토어·백업 없음은 null) +
+      `RestoreResult` 추가. `RelayQueue.restore({from,backupCurrent,now})`가 스냅샷을 **먼저 검증**
+      (JSON 배열이 아니면 throw — 라이브 스토어 미변경)한 뒤, 기본적으로 현재 스토어를 `.backup-<ts>`로
+      스냅샷(복원 자체를 되돌릴 수 있게)하고 원자적으로 교체. CLI `restoreStore`/`resolveRestoreSource`
+      (직접 파일 경로 우선, 아니면 이 스토어의 `.backup-*`를 selector로 해소, 미매칭은 명확한 에러) +
+      `agentrelay restore [snapshot] [--no-backup]` 서브커맨드(미매칭 selector는 exit 1). branch
+      `claude/wizardly-pascal-5bxk7l`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

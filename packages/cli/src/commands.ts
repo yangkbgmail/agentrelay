@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type {
   AgentRelayConfig,
@@ -28,7 +28,9 @@ import {
   parseConfig,
   RelayQueue,
   RelayScheduler,
+  type RestoreResult,
   resolveAdapter,
+  resolveBackup,
   resolveConfigPath,
   resolveEffectiveConfig,
   resolveJobId,
@@ -498,6 +500,62 @@ export function listStoreBackups(storePath?: string): StoreBackupInfo[] {
     return [];
   }
   return listBackups(names, storeName).map((entry) => ({ path: join(dir, entry.name), stamp: entry.stamp }));
+}
+
+export interface RestoreStoreOptions {
+  storePath?: string;
+  /**
+   * Which snapshot to restore. Either a filesystem path to any snapshot file
+   * (absolute or relative to cwd), or — for this store's own rotating snapshots —
+   * `"latest"`, a snapshot basename, or its sortable stamp. Defaults to `"latest"`.
+   */
+  selector?: string;
+  /** Snapshot the current store before overwriting it (default: true). */
+  backupCurrent?: boolean;
+}
+
+/**
+ * Resolves a restore `selector` to an absolute snapshot path. A direct path to
+ * an existing file wins (lets users restore from an arbitrary snapshot they
+ * point at); otherwise the selector is matched against this store's rotating
+ * `.backup-*` snapshots via {@link resolveBackup}. Throws a clear error when
+ * nothing matches so a typo never silently restores the wrong file.
+ */
+function resolveRestoreSource(storePath: string, selector: string): string {
+  const asPath = resolve(process.cwd(), selector);
+  if (selector !== "latest" && existsSync(asPath) && statSync(asPath).isFile()) {
+    return asPath;
+  }
+  const dir = dirname(storePath);
+  const storeName = basename(storePath);
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    names = [];
+  }
+  const entry = resolveBackup(names, storeName, selector);
+  if (!entry) {
+    throw new Error(`No snapshot matches "${selector}" for ${storePath}. Try \`agentrelay backup --list\`.`);
+  }
+  return join(dir, entry.name);
+}
+
+/**
+ * Restores the job store from a snapshot (the inverse of `agentrelay backup`).
+ * Thin wrapper over {@link RelayQueue.restore}: it resolves the selector to a
+ * snapshot path, then lets the queue validate the snapshot before overwriting
+ * (and, by default, snapshot the current store first so the restore is undoable).
+ */
+export function restoreStore(options: RestoreStoreOptions = {}): RestoreResult {
+  const storePath = options.storePath ?? defaultStorePath();
+  const from = resolveRestoreSource(storePath, options.selector ?? "latest");
+  const queue = openQueue(storePath);
+  try {
+    return queue.restore({ from, backupCurrent: options.backupCurrent });
+  } finally {
+    queue.close();
+  }
 }
 
 export interface ExportJobsOptions {

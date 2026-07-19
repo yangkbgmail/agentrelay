@@ -674,3 +674,34 @@
     전체 노출, `--json` 구조·손상파일 exit 1을 모두 확인.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing/설정 파일(config show 결과) 노출
   (👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), 스토어 자동 백업 로테이션(👷 후보).
+
+### [세션 24 — 누적 PR 통합(#46 병합·#47 정리·#48 흡수) + `agentrelay restore`] (2026-07-19, 무인 자율 세션)
+- **먼저: 다시 쌓인 열린 PR 3개를 정리해 중복 루프를 끊었다.** 세션 시작 시 CI 초록인 열린 PR이
+  #46(backup+export+show 통합)·#47(export, #46의 부분집합)·#48(config show) 3건이었다. main 브랜치
+  보호로 병합이 밀리면 매시간 무기억 세션이 같은 후보를 반복 구현하는 고질적 패턴(세션 3·8·10·16·22).
+  COLLAB.md 병합 정책("CI 초록이면 클로드 코드가 병합 가능", `actions_list`로 초록 확인)에 근거해:
+  1. **#46을 main에 병합**(backup·export·show 세 기능이 한 번에 main에 들어옴, 63f8b73).
+  2. **#47(export)은 #46에 이미 포함**되어 닫음(사유 코멘트).
+  3. **#48(config show)은 #46 병합으로 dirty가 됨** → 단일 커밋을 내 브랜치에 `cherry-pick -x`로
+     흡수하고 cli.ts/commands.ts/test/PROGRESS 충돌을 해소(다른 브랜치엔 push 안 함).
+- 한 일 (branch `claude/wizardly-pascal-5bxk7l`): **`agentrelay restore <snapshot>`** — 방금 main에
+  들어온 `backup`의 자연스러운 짝(세션 19가 "다음 할 일 👷 후보"로 남긴 항목). 스키마 변경 없이
+  JSON 스토어 모델 안에서 완결.
+  1. `@agentrelay/core/backup.ts`에 순수 `resolveBackup(fileNames, storeFileName, selector)` +
+     `RestoreResult` 추가. selector는 `latest`(또는 빈 문자열)→최신, 스냅샷 basename, 정렬가능 stamp를
+     매칭; 미매칭·타 스토어 스냅샷·백업 없음은 null.
+  2. `RelayQueue.restore({from, backupCurrent, now})` — 스냅샷을 **먼저 읽고 검증**(JSON 배열이
+     아니면 throw → 라이브 스토어를 절대 파괴하지 않음)한 뒤, 기본적으로 현재 스토어를 `.backup-<ts>`로
+     스냅샷(복원 자체를 되돌릴 수 있게)하고 인메모리 맵을 교체해 원자적 flush. `backupCurrent:false`면
+     안전 백업 생략.
+  3. CLI `commands.ts`에 `restoreStore`(래퍼) + `resolveRestoreSource`(직접 파일 경로가 있으면 우선,
+     아니면 이 스토어의 `.backup-*`를 selector로 해소, 미매칭은 명확한 에러로 오복원 방지).
+     `cli.ts`에 `agentrelay restore [snapshot] [--no-backup]` 배선(미매칭 selector는 stderr+exit 1).
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **302개 전부 통과**(core 213 + cli 86 + dashboard 3 — core resolveBackup 1 +
+    RelayQueue.restore 3 + CLI restoreStore 3 신규). **실제 빌드된 CLI e2e**(mock 아님): 1-job
+    스토어를 `backup` → 2-job으로 키운 뒤 `restore`가 최신 스냅샷으로 1-job 복원 + 이전 상태를
+    안전 백업(`backup --list`에 2개), stamp 지정 복원, `--no-backup`이 안전 백업 생략, 미매칭
+    selector는 "No snapshot matches" + exit 1까지 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing/설정 파일 노출(👷 후보),
+  stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), `restore --dry-run`(복원 전 미리보기, 👷 후보).
