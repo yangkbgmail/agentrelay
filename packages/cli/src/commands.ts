@@ -40,7 +40,7 @@ import {
   type ExportFormat,
   exportJobs,
   hasConfigErrors,
-  heartbeatStaleAfterMs,
+  heartbeatLiveness,
   listBackups,
   loadConfigFile,
   notifiersFromEnv,
@@ -227,14 +227,14 @@ export function readHeartbeatFacts(storePath: string, nowMs: number = Date.now()
   }
   const hb = parseDaemonHeartbeat(raw);
   if (!hb) return { present: false };
-  const lastTick = Date.parse(hb.lastTickAt);
-  if (Number.isNaN(lastTick)) return { present: false };
+  const liveness = heartbeatLiveness(hb, nowMs);
+  if (!liveness) return { present: false };
   return {
     present: true,
-    mode: hb.mode,
-    pid: hb.pid,
-    ageMs: Math.max(0, nowMs - lastTick),
-    staleAfterMs: heartbeatStaleAfterMs(hb.mode, hb.pollIntervalMs),
+    mode: liveness.mode,
+    pid: liveness.pid,
+    ageMs: liveness.ageMs,
+    staleAfterMs: liveness.staleAfterMs,
   };
 }
 

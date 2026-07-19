@@ -6,8 +6,10 @@ import {
   HEARTBEAT_MIN_STALE_AFTER_MS,
   HEARTBEAT_STALE_FACTOR,
   HEARTBEAT_TICK_STALE_AFTER_MS,
+  heartbeatLiveness,
   heartbeatStaleAfterMs,
   parseDaemonHeartbeat,
+  resolveResumeLoopHealth,
   serializeDaemonHeartbeat,
 } from "../src/heartbeat.js";
 
@@ -92,5 +94,84 @@ describe("heartbeatStaleAfterMs", () => {
 
   it("treats a non-positive daemon poll as tick-style", () => {
     expect(heartbeatStaleAfterMs("daemon", 0)).toBe(HEARTBEAT_TICK_STALE_AFTER_MS);
+  });
+});
+
+describe("heartbeatLiveness", () => {
+  it("returns null when lastTickAt is unparseable", () => {
+    expect(heartbeatLiveness({ ...sample, lastTickAt: "not-a-date" }, Date.parse(sample.startedAt))).toBeNull();
+  });
+
+  it("computes age and marks fresh within the stale window", () => {
+    const now = Date.parse(sample.lastTickAt) + 10_000;
+    const live = heartbeatLiveness(sample, now);
+    expect(live).not.toBeNull();
+    expect(live?.ageMs).toBe(10_000);
+    expect(live?.staleAfterMs).toBe(heartbeatStaleAfterMs("daemon", 30_000));
+    expect(live?.live).toBe(true);
+  });
+
+  it("marks stale once past the window", () => {
+    const now = Date.parse(sample.lastTickAt) + heartbeatStaleAfterMs("daemon", 30_000) + 1;
+    expect(heartbeatLiveness(sample, now)?.live).toBe(false);
+  });
+
+  it("clamps negative ages (clock skew) to 0 and stays live", () => {
+    const now = Date.parse(sample.lastTickAt) - 5_000;
+    const live = heartbeatLiveness(sample, now);
+    expect(live?.ageMs).toBe(0);
+    expect(live?.live).toBe(true);
+  });
+});
+
+describe("resolveResumeLoopHealth", () => {
+  const freshDaemon = heartbeatLiveness(sample, Date.parse(sample.lastTickAt) + 10_000);
+  const staleDaemon = heartbeatLiveness(sample, Date.parse(sample.lastTickAt) + 10 * 60_000);
+
+  it("reports running with no attention when a live loop and jobs wait", () => {
+    const h = resolveResumeLoopHealth(freshDaemon, 3);
+    expect(h.state).toBe("running");
+    expect(h.live).toBe(true);
+    expect(h.needsAttention).toBe(false);
+    expect(h.activeCount).toBe(3);
+    expect(h.detail).toContain("3 waiting job(s)");
+  });
+
+  it("reports running even with nothing waiting", () => {
+    const h = resolveResumeLoopHealth(freshDaemon, 0);
+    expect(h.state).toBe("running");
+    expect(h.needsAttention).toBe(false);
+  });
+
+  it("flags a stale loop with waiting jobs as needing attention", () => {
+    const h = resolveResumeLoopHealth(staleDaemon, 2);
+    expect(h.state).toBe("stale");
+    expect(h.live).toBe(false);
+    expect(h.needsAttention).toBe(true);
+    expect(h.detail).toContain("2 job(s) are waiting");
+  });
+
+  it("keeps a stale loop with nothing waiting non-urgent", () => {
+    const h = resolveResumeLoopHealth(staleDaemon, 0);
+    expect(h.state).toBe("stale");
+    expect(h.needsAttention).toBe(false);
+  });
+
+  it("flags an absent loop with waiting jobs as needing attention", () => {
+    const h = resolveResumeLoopHealth(null, 5);
+    expect(h.state).toBe("absent");
+    expect(h.live).toBe(false);
+    expect(h.needsAttention).toBe(true);
+    expect(h.headline).toBe("No resume loop running");
+  });
+
+  it("treats an absent loop with nothing waiting as fine", () => {
+    const h = resolveResumeLoopHealth(null, 0);
+    expect(h.state).toBe("absent");
+    expect(h.needsAttention).toBe(false);
+  });
+
+  it("clamps a negative activeCount to 0", () => {
+    expect(resolveResumeLoopHealth(null, -3).activeCount).toBe(0);
   });
 });

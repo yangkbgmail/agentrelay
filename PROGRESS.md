@@ -980,3 +980,31 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — 대시보드 재개-루프(daemon/tick) 생존 상태 노출] (2026-07-19, 무인 자율 세션, branch `claude/wizardly-pascal-79s2lw`)
+- **한 일: 세션 30이 `doctor`에서 잡게 한 "job은 큐에 있는데 아무것도 재개 안 됨" #1 무음 실패를 로컬 대시보드 UI에서도 표면화했다.**
+  세션 30은 `daemon.json` 하트비트 + `doctor` 재개-루프 검사를 넣었지만, 대시보드는 여전히 잡 목록/카운트만
+  보여줘 "재개 루프가 실제 살아있는지"는 UI에서 볼 수 없었다. 데몬을 안 켠 사용자가 대기 잡이 영원히 안
+  움직이는 이유를 대시보드만 보고는 알 수 없던 갭.
+  1. `@agentrelay/core/heartbeat.ts`에 순수 헬퍼 2개 추가: `heartbeatLiveness(hb, nowMs)`(파싱된 하트비트를
+     age/staleAfter/live 사실로 — `lastTickAt` 파싱불가는 null=미사용 하트비트, 세션 30의 staleness 규칙 재사용) +
+     `resolveResumeLoopHealth(liveness, activeCount)`(→`ResumeLoopHealth`: state `running`/`stale`/`absent`·live·
+     needsAttention·headline·detail). `doctor` daemonCheck와 **동일 심각도 로직**(대기 잡 있는데 생존 루프 없음/
+     stale = needsAttention)이되 CLI 문자열이 아닌 구조화 데이터라 UI가 색·문구를 스스로 고름. core 순수 유지 —
+     파일/시계 미접촉, 호출자가 파싱된 liveness와 active 수를 주입.
+  2. CLI `commands.ts`의 `readHeartbeatFacts`를 `heartbeatLiveness` 재사용으로 리팩터(중복 age/stale 계산 제거,
+     동작 동일 — 기존 doctor 테스트 그대로 통과).
+  3. 대시보드 `lib/jobs.ts`가 스토어 옆 `daemon.json`을 읽어(없거나 깨지면 조용히 `absent`, 절대 throw 안 함)
+     `JobsSnapshot`에 `resumeLoop: ResumeLoopHealth` 필드 추가. activeCount는 summary.byStatus의
+     queued+waiting_for_reset+resuming 합.
+  4. `dashboard-client.tsx`에 `ResumeLoopBanner`(에러 배너와 tile-row 사이, 상태별 색: running=status-good·
+     stale=status-warning·absent=ink-muted, **needsAttention이면 무조건 warning**으로 무음 실패를 강조).
+     `globals.css`에 `.health-banner`(좌측 3px 색 보더 + headline/detail 2줄) 스타일.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+    **436개 통과 + 1 skip**(core 297[+21: heartbeatLiveness 4·resolveResumeLoopHealth 8] + cli 131[+1 skip] +
+    dashboard 8[+5: resumeLoop absent/running/stale/needsAttention/garbled]). **실제 `next start` 서버 e2e**(mock
+    아님): 크래프트한 스토어(대기 잡 1개)를 defaultStorePath로 띄우고 `/api/jobs` curl — 하트비트 없음→
+    `absent`+needsAttention, 방금 쓴 daemon 하트비트→`running`+live, 1시간 전 하트비트→`stale`+needsAttention의
+    세 상태 JSON을 실제 서버 재읽기(force-dynamic)로 확인.
+- 다음 할 일: stats 평균 대기시간(대기→재개 지연) 확장(👷 후보 — RelayJob에 중간 타임스탬프 필요),
+  대시보드 자동 새로고침 시각 표시 개선(👷 후보), README/ARCHITECTURE(🧭 코워크).

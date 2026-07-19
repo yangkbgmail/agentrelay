@@ -123,3 +123,137 @@ export function heartbeatStaleAfterMs(mode: HeartbeatMode, pollIntervalMs: numbe
   if (mode === "tick" || pollIntervalMs <= 0) return HEARTBEAT_TICK_STALE_AFTER_MS;
   return Math.max(pollIntervalMs * HEARTBEAT_STALE_FACTOR, HEARTBEAT_MIN_STALE_AFTER_MS);
 }
+
+/**
+ * A parsed heartbeat turned into the age/staleness facts a reader needs. This is
+ * the pure kernel shared by every consumer that reads the file — `doctor`'s CLI
+ * fact-gatherer and the dashboard both call it so they judge liveness the same
+ * way. Returns null when `lastTickAt` isn't a parseable timestamp (treated as
+ * "no usable heartbeat", same as a missing file).
+ */
+export interface HeartbeatLiveness {
+  mode: HeartbeatMode;
+  pid: number;
+  /** Milliseconds since the last tick (clamped at 0 for clock skew). */
+  ageMs: number;
+  /** Threshold beyond which {@link ageMs} counts as stale, per {@link heartbeatStaleAfterMs}. */
+  staleAfterMs: number;
+  /** True when the last tick is within the staleness window. */
+  live: boolean;
+}
+
+/** Derive age/staleness liveness facts from a heartbeat + the current time. Pure. */
+export function heartbeatLiveness(heartbeat: DaemonHeartbeat, nowMs: number): HeartbeatLiveness | null {
+  const lastTick = Date.parse(heartbeat.lastTickAt);
+  if (Number.isNaN(lastTick)) return null;
+  const ageMs = Math.max(0, nowMs - lastTick);
+  const staleAfterMs = heartbeatStaleAfterMs(heartbeat.mode, heartbeat.pollIntervalMs);
+  return {
+    mode: heartbeat.mode,
+    pid: heartbeat.pid,
+    ageMs,
+    staleAfterMs,
+    live: ageMs <= staleAfterMs,
+  };
+}
+
+/**
+ * The state of the resume loop as far as a heartbeat can tell:
+ * - `running` — a fresh heartbeat: a daemon/tick is actively driving resumes.
+ * - `stale` — a heartbeat exists but hasn't ticked within its window; the loop
+ *   likely stopped (crash, killed, cron unscheduled).
+ * - `absent` — no usable heartbeat at all; nothing is running.
+ */
+export type ResumeLoopState = "running" | "stale" | "absent";
+
+/**
+ * A dashboard-friendly verdict on whether jobs will actually get resumed. Mirrors
+ * the severity logic of `doctor`'s daemon check but returns structured data (not a
+ * formatted CLI line) so a UI can pick its own colors/copy. The key field is
+ * {@link needsAttention}: jobs are waiting *and* no live loop is running — the one
+ * situation where the whole tool silently does nothing.
+ */
+export interface ResumeLoopHealth {
+  state: ResumeLoopState;
+  /** True only when a heartbeat is present and fresh. */
+  live: boolean;
+  /** Jobs in a state that needs a resume loop (queued/waiting/resuming). */
+  activeCount: number;
+  /** Waiting jobs but no live loop — the failure this surface exists to catch. */
+  needsAttention: boolean;
+  mode?: HeartbeatMode;
+  pid?: number;
+  ageMs?: number;
+  staleAfterMs?: number;
+  /** Short status line, e.g. "Resume loop running" / "No resume loop running". */
+  headline: string;
+  /** One sentence of context suitable for a subtitle. */
+  detail: string;
+}
+
+/**
+ * Judge resume-loop health from liveness facts (null = no usable heartbeat) and
+ * how many jobs are waiting. Pure — the caller supplies the parsed liveness and
+ * the active-job count. Severity hinges on `activeCount`, exactly like `doctor`:
+ * a missing loop only *matters* when something is waiting to resume.
+ */
+export function resolveResumeLoopHealth(liveness: HeartbeatLiveness | null, activeCount: number): ResumeLoopHealth {
+  const waiting = Math.max(0, activeCount);
+  const base = { activeCount: waiting } as const;
+
+  if (liveness?.live) {
+    const who = liveness.mode === "tick" ? "tick" : "daemon";
+    const tail = waiting > 0 ? ` — ${waiting} waiting job(s) will resume` : "";
+    return {
+      ...base,
+      state: "running",
+      live: true,
+      needsAttention: false,
+      mode: liveness.mode,
+      pid: liveness.pid,
+      ageMs: liveness.ageMs,
+      staleAfterMs: liveness.staleAfterMs,
+      headline: "Resume loop running",
+      detail: `${who} is alive (pid ${liveness.pid})${tail}.`,
+    };
+  }
+
+  if (liveness) {
+    // Present but stale.
+    return {
+      ...base,
+      state: "stale",
+      live: false,
+      needsAttention: waiting > 0,
+      mode: liveness.mode,
+      pid: liveness.pid,
+      ageMs: liveness.ageMs,
+      staleAfterMs: liveness.staleAfterMs,
+      headline: "Resume loop stopped",
+      detail:
+        waiting > 0
+          ? `Heartbeat is stale but ${waiting} job(s) are waiting — start \`agentrelay daemon\` to resume them.`
+          : "Heartbeat is stale — the daemon may have stopped, but nothing is waiting.",
+    };
+  }
+
+  // No usable heartbeat.
+  if (waiting > 0) {
+    return {
+      ...base,
+      state: "absent",
+      live: false,
+      needsAttention: true,
+      headline: "No resume loop running",
+      detail: `${waiting} job(s) are waiting but nothing will resume them — start \`agentrelay daemon\`.`,
+    };
+  }
+  return {
+    ...base,
+    state: "absent",
+    live: false,
+    needsAttention: false,
+    headline: "No resume loop running",
+    detail: "Nothing is waiting to resume, so no daemon is needed right now.",
+  };
+}

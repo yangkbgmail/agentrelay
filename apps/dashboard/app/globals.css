@@ -219,3 +219,36 @@ details.tail pre {
   color: var(--ink-primary);
   background: var(--surface);
 }
+
+.health-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--health-accent, var(--ink-muted));
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.health-banner .dot {
+  margin-top: 5px;
+  flex: none;
+}
+
+.health-banner .health-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.health-banner .health-headline {
+  font-weight: 600;
+  color: var(--ink-primary);
+}
+
+.health-banner .health-detail {
+  color: var(--ink-secondary);
+  font-size: 0.9em;
+}

@@ -347,6 +347,23 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 대시보드 재개-루프(daemon/tick) 생존 상태 노출 — 세션 30에서 `doctor`가 잡게 된
+      "job은 큐에 있는데 아무것도 재개 안 됨" #1 무음 실패를 로컬 대시보드 UI에서도 표면화.
+      (완료 — 세션 30이 `daemon.json` 하트비트로 `doctor`에 재개-루프 생존 검사를 넣었지만,
+      대시보드는 여전히 잡 목록/카운트만 보여줘 "재개 루프가 실제 살아있는지"는 안 보였다.
+      `@agentrelay/core/heartbeat.ts`에 순수 `heartbeatLiveness(hb, nowMs)`(파싱된 하트비트→
+      age/staleAfter/live, `lastTickAt` 파싱불가는 null=미사용 하트비트) + `resolveResumeLoopHealth
+      (liveness, activeCount)`(→`ResumeLoopHealth`: state `running`/`stale`/`absent`·live·
+      needsAttention·headline·detail) 추가 — `doctor` daemonCheck와 **동일 심각도 로직**(대기 잡
+      있는데 생존 루프 없음=needsAttention)이되 CLI 문자열이 아닌 구조화 데이터라 UI가 색/문구를
+      고름. CLI `readHeartbeatFacts`를 `heartbeatLiveness` 재사용하도록 리팩터(중복 제거).
+      대시보드 `lib/jobs.ts`가 스토어 옆 하트비트를 읽어(없거나 깨지면 조용히 `absent`) 스냅샷에
+      `resumeLoop` 필드 추가, `dashboard-client.tsx`에 `ResumeLoopBanner`(상태별 색: running=good·
+      stale=warning·absent=muted, needsAttention이면 무조건 warning) 렌더. core heartbeat 21케이스
+      (liveness 4·resolveResumeLoopHealth 8 추가) + dashboard jobs 8케이스(resumeLoop 5 추가),
+      **실제 next start 서버 e2e**로 absent+needsAttention/running+live/stale+needsAttention JSON
+      3상태 검증. branch `claude/wizardly-pascal-79s2lw`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

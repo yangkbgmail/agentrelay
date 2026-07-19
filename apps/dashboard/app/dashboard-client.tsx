@@ -1,10 +1,34 @@
 "use client";
 
-import type { JobStatus, RelayJob } from "@agentrelay/core";
+import type { JobStatus, RelayJob, ResumeLoopHealth, ResumeLoopState } from "@agentrelay/core";
 import { useEffect, useState } from "react";
 import type { JobsSnapshot } from "../lib/jobs";
 
 const POLL_INTERVAL_MS = 3000;
+
+// Color role per resume-loop state: a live loop is good; a waiting-but-dead loop
+// is the failure worth flagging (warning); an absent loop with nothing waiting is
+// neutral (muted), not an alarm.
+const RESUME_LOOP_COLOR: Record<ResumeLoopState, string> = {
+  running: "var(--status-good)",
+  stale: "var(--status-warning)",
+  absent: "var(--ink-muted)",
+};
+
+function ResumeLoopBanner({ health }: { health: ResumeLoopHealth }) {
+  // needsAttention (jobs waiting, no live loop) always reads as a warning even if
+  // the underlying state is "absent" — that's the silent-failure case to surface.
+  const color = health.needsAttention ? "var(--status-warning)" : RESUME_LOOP_COLOR[health.state];
+  return (
+    <div className="health-banner" role="status" style={{ ["--health-accent" as string]: color }}>
+      <span className="dot" style={{ background: color }} aria-hidden />
+      <span className="health-text">
+        <span className="health-headline">{health.headline}</span>
+        <span className="health-detail">{health.detail}</span>
+      </span>
+    </div>
+  );
+}
 
 const STATUS_META: Record<JobStatus, { label: string; colorVar: string }> = {
   queued: { label: "Queued", colorVar: "var(--ink-muted)" },
@@ -122,6 +146,8 @@ export default function DashboardClient() {
           Could not read the job store: {fetchError}
         </div>
       )}
+
+      {snapshot?.resumeLoop && <ResumeLoopBanner health={snapshot.resumeLoop} />}
 
       <section className="tile-row" aria-label="Queue summary">
         <div className="tile">
