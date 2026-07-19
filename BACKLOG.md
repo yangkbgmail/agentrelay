@@ -278,6 +278,21 @@
       `--json`은 scope에 createdFrom/createdTo 에코. stats.test.ts에 6케이스 추가.
       branch `claude/wizardly-pascal-9uyktw`)
 
+- [x] 👷 `agentrelay doctor` 어댑터 바이너리 PATH 검사 — 대기 중인 잡이 재개될 때 spawn할
+      에이전트 바이너리(`command[0]`)가 PATH에 있는지 점검(가장 흔한 "재개가 조용히 실패" 원인).
+      (완료 — 스케줄러는 재개 시 `job.command[0]`을 spawn하는데, 그 바이너리가 PATH에 없으면
+      모든 재개가 실패했다. `doctor`는 지금까지 이를 잡지 못했다. `@agentrelay/core/doctor.ts`에
+      `BinaryFact`(binary·found·resolvedPath·neededBy)·`AdapterFacts` 타입 + `DiagnosticInput.adapters`
+      추가, 순수 `distinctActiveBinaries(jobs)`(활성 잡의 distinct `command[0]`+카운트, 종료 잡·빈
+      command 제외, 첫 등장 순서 보존) 신설. `runDiagnostics`에 `adapters` 검사 추가(node→store→
+      **adapters**→config→notify): 대기 잡 없으면 OK(점검 대상 없음), 전부 PATH에 있으면 OK(해석 경로
+      표시), 하나라도 없으면 error("M of N … not on PATH" + `which <bin>` 힌트, 재개 실패 경고).
+      CLI `commands.ts`에 `which`식 `resolveOnPath`(PATH 스캔, Windows PATHEXT 대응, 경로 포함
+      바이너리는 직접 확인) + `isExecutableFile`(statSync isFile + accessSync X_OK) 신설, `runDoctor`가
+      활성 잡 바이너리를 각각 PATH 해석해 `AdapterFacts` 구성. 검사 실패 시 exit 1(CI/pre-flight 게이트).
+      core doctor 6 + cli doctor 3 신규 테스트, 실제 빌드 CLI e2e로 PATH 부재→error/존재→ok 검증.
+      branch `claude/wizardly-pascal-66cnzs`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
