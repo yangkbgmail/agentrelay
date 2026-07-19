@@ -9,6 +9,7 @@ import {
   initConfig,
   listStatus,
   listStoreBackups,
+  previewRestoreStore,
   pruneJobs,
   restoreStore,
   retryJob,
@@ -468,9 +469,28 @@ export function buildCli(): Command {
     .argument("[snapshot]", 'Snapshot to restore: "latest" (default), a stamp, a snapshot filename, or a path')
     .description("Restore the job store from a snapshot (the current store is backed up first)")
     .option("--no-backup", "Skip snapshotting the current store before overwriting it")
-    .action((snapshot: string | undefined, opts: { backup?: boolean }) => {
+    .option("--dry-run", "Show what would be restored without changing the store")
+    .action((snapshot: string | undefined, opts: { backup?: boolean; dryRun?: boolean }) => {
       const { store } = program.opts();
       try {
+        if (opts.dryRun) {
+          const preview = previewRestoreStore({
+            storePath: store,
+            selector: snapshot ?? "latest",
+            backupCurrent: opts.backup,
+          });
+          console.log(
+            `[agentrelay] Dry run: would restore ${preview.jobCount} job(s) from ${preview.from}, ` +
+              `replacing the current ${preview.currentJobCount} job(s).`
+          );
+          console.log(
+            preview.wouldBackUp
+              ? "[agentrelay] The current store would be backed up first."
+              : "[agentrelay] The current store would NOT be backed up."
+          );
+          console.log("[agentrelay] No changes made (--dry-run).");
+          return;
+        }
         const result = restoreStore({
           storePath: store,
           selector: snapshot ?? "latest",

@@ -248,3 +248,69 @@ describe("RelayQueue.restore", () => {
     expect(readdirSync(dir).filter((f) => f.includes(".backup-"))).toEqual([]);
   });
 });
+
+describe("RelayQueue.previewRestore", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-preview-restore-test-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("reports what a restore would do without changing the store or writing a backup", () => {
+    const storePath = join(dir, "jobs.json");
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "orig", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    const snapshot = queue.backup({ now: new Date("2026-07-18T09:00:00.000Z") });
+    // Grow the store to two jobs after the snapshot.
+    const second = queue.enqueue({ project: "later", tool: "codex-cli", command: ["codex"], cwd: "/tmp" });
+    expect(queue.listAll()).toHaveLength(2);
+
+    const preview = queue.previewRestore({ from: snapshot.path });
+
+    expect(preview.from).toBe(snapshot.path);
+    expect(preview.jobCount).toBe(1); // the snapshot holds one job
+    expect(preview.currentJobCount).toBe(2); // it would replace the two current jobs
+    expect(preview.wouldBackUp).toBe(true);
+
+    // The live store is untouched: still two jobs, no new backup written.
+    queue.close();
+    const live = JSON.parse(readFileSync(storePath, "utf8"));
+    expect(live).toHaveLength(2);
+    expect(live.some((j: { id: string }) => j.id === second.id)).toBe(true);
+    expect(readdirSync(dir).filter((f) => f.includes(".backup-"))).toEqual([
+      "jobs.json.backup-2026-07-18T09-00-00-000Z",
+    ]);
+  });
+
+  it("reports wouldBackUp=false when the safety backup is disabled", () => {
+    const storePath = join(dir, "jobs.json");
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "a", tool: "generic", command: ["x"], cwd: "/tmp" });
+    const snapshot = queue.backup({ now: new Date("2026-07-18T09:00:00.000Z") });
+
+    const preview = queue.previewRestore({ from: snapshot.path, backupCurrent: false });
+    queue.close();
+
+    expect(preview.wouldBackUp).toBe(false);
+    expect(preview.currentJobCount).toBe(1);
+  });
+
+  it("validates the snapshot and throws on a non-array root, leaving the store intact", () => {
+    const storePath = join(dir, "jobs.json");
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "keep", tool: "generic", command: ["x"], cwd: "/tmp" });
+
+    const bad = join(dir, "bad.json");
+    writeFileSync(bad, JSON.stringify({ not: "an array" }), "utf8");
+    expect(() => queue.previewRestore({ from: bad })).toThrow(/not a JSON array/);
+
+    queue.close();
+    const live = JSON.parse(readFileSync(storePath, "utf8"));
+    expect(live).toHaveLength(1);
+    expect(live[0].id).toBe(job.id);
+  });
+});

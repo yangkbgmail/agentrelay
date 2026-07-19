@@ -245,6 +245,17 @@
       createdAt 내림차순 정렬이라 같은 ms 삽입 시에만 통과하던 flaky 테스트). branch
       `claude/wizardly-pascal-5rqier`)
 
+- [x] 👷 `agentrelay restore --dry-run` — 복원 전 무엇이 바뀔지 미리보기(라이브 스토어 미변경).
+      (완료 — `restore`가 되돌리기 어려운 파괴적 연산이라, 실행 전 "이 스냅샷을 복원하면 몇 개
+      job이 현재 몇 개를 대체하고 안전 백업이 만들어지는가"를 안전하게 확인하는 수단이 없었다.
+      `@agentrelay/core/backup.ts`에 `RestorePreview`(from·jobCount·currentJobCount·wouldBackUp)
+      타입 추가. `RelayQueue.previewRestore({from,backupCurrent})`가 실제 `restore`와 **동일한 검증**
+      (스냅샷 읽기+JSON 배열 체크 → 깨진 스냅샷은 미리보기에서도 throw)을 거치되, 라이브 스토어는
+      읽기만(대체될 현재 job 수 집계) 하고 절대 쓰지 않음. CLI `commands.ts`에 read-only
+      `previewRestoreStore`(선택자 해소는 `restoreStore`와 공유), `cli.ts` `restore`에 `--dry-run`
+      플래그 배선(백업 여부·대체 job 수를 리포트하고 "No changes made"로 종료, 미매칭 selector는
+      exit 1). branch `claude/wizardly-pascal-atytw7`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

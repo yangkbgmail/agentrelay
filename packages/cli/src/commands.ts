@@ -30,6 +30,7 @@ import {
   parseConfig,
   RelayQueue,
   RelayScheduler,
+  type RestorePreview,
   type RestoreResult,
   resolveAdapter,
   resolveBackup,
@@ -556,6 +557,24 @@ export function restoreStore(options: RestoreStoreOptions = {}): RestoreResult {
   const queue = openQueue(storePath);
   try {
     return queue.restore({ from, backupCurrent: options.backupCurrent });
+  } finally {
+    queue.close();
+  }
+}
+
+/**
+ * Previews a restore without touching the store — the read-only counterpart of
+ * {@link restoreStore} (used by `agentrelay restore --dry-run`). Resolves the
+ * selector the same way, then lets the queue validate the snapshot and report
+ * what a real restore would do (source, job counts, whether it would back up).
+ * A missing/broken snapshot still throws, so a dry run surfaces the same errors.
+ */
+export function previewRestoreStore(options: RestoreStoreOptions = {}): RestorePreview {
+  const storePath = options.storePath ?? defaultStorePath();
+  const from = resolveRestoreSource(storePath, options.selector ?? "latest");
+  const queue = openQueue(storePath);
+  try {
+    return queue.previewRestore({ from, backupCurrent: options.backupCurrent });
   } finally {
     queue.close();
   }

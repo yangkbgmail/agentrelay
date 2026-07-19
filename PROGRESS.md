@@ -753,3 +753,33 @@
   Slack"까지 확인.
 - 다음 할 일: `doctor`에 검사 추가 후보(디스크 쓰기 권한·데몬 실행 여부·어댑터 바이너리 PATH 확인),
   README/ARCHITECTURE(🧭 코워크), stats 평균 대기시간 확장(👷 후보).
+
+### [세션 26 — 누적 PR 통합(#50 병합·#51 흡수) + `agentrelay restore --dry-run`] (2026-07-19, 무인 자율 세션)
+- **먼저: 다시 쌓인 열린 PR 2개를 통합해 중복 루프를 끊었다.** 세션 시작 시 CI 초록(`actions_list`로
+  확인)·`mergeable_state:clean`인 열린 PR이 #50(stats 스코프 필터)·#51(doctor) 2건이었다. main 브랜치
+  보호로 병합이 밀리면 매시간 무기억 세션이 같은 후보를 반복 구현하는 고질적 패턴(세션 3·8·10·16·22·24).
+  COLLAB.md 병합 정책("CI 초록이면 클로드 코드가 통합 가능")에 근거해:
+  1. **#50을 main에 병합**(stats `-s/--status`·`-t/--tool`·`-p/--project` 스코프 필터 + `queue.ts`의
+     same-ms 타이 비대칭 comparator를 `compareJobsNewestFirst`로 결정론화한 pre-existing flaky 근본 수정).
+     실제 버그 수정을 담고 있어 먼저 병합, 8f2ffab.
+  2. **#51(doctor)은 #50 병합으로 dirty가 됨** → 단일 커밋을 내 브랜치에 `cherry-pick -x`로 흡수하고
+     BACKLOG/PROGRESS/export.test.ts 충돌을 해소(export의 flaky 픽스는 #50의 comparator 근본 수정을
+     채택, #51은 코멘트만 달랐음; 다른 브랜치엔 push 안 함).
+- 한 일 (branch `claude/wizardly-pascal-atytw7`): **`agentrelay restore --dry-run`** — 세션 24가 "다음
+  할 일 👷 후보"로 남긴 항목. `restore`는 스토어를 통째로 교체하는 파괴적 연산인데, 실행 전 "무엇이
+  바뀔지"를 안전하게 확인할 수단이 없었다.
+  1. `@agentrelay/core/backup.ts`에 `RestorePreview`(from·jobCount·currentJobCount·wouldBackUp) 타입 추가.
+     `RelayQueue.previewRestore({from,backupCurrent})`가 실제 `restore`와 **동일한 검증**(스냅샷 읽기+
+     JSON 배열 체크 → 깨진 스냅샷은 미리보기에서도 throw)을 거치되, 라이브 스토어는 읽기만(대체될 현재
+     job 수 집계) 하고 절대 쓰지 않음(안전 백업도 안 함).
+  2. CLI `commands.ts`에 read-only `previewRestoreStore`(선택자 해소는 `restoreStore`와 공유해 미매칭은
+     동일하게 에러). `cli.ts` `restore`에 `--dry-run` 플래그 배선 — 복원될 job 수·대체될 현재 job 수·
+     안전 백업 여부를 리포트하고 "No changes made (--dry-run)"으로 종료. 미매칭 selector는 exit 1.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **359개 전부 통과**(core 250 + cli 106 + dashboard 3 — core previewRestore 3 +
+    cli previewRestoreStore 3 신규). **실제 빌드된 CLI e2e**(mock 아님): 1-job 스냅샷을 뜬 뒤 스토어를
+    2-job으로 키우고 → `restore --dry-run`이 "would restore 1 job, replacing 2 / would be backed up first
+    / No changes made" 렌더 → dry-run 후 스토어 여전히 2-job·백업 개수 불변(미변경 확인) →
+    `--dry-run --no-backup`은 "would NOT be backed up" → 미존재 selector는 "No snapshot matches" + exit 1.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing/설정 파일 노출(👷 후보),
+  stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), `doctor`에 검사 추가(디스크 쓰기 권한 등, 👷 후보).
