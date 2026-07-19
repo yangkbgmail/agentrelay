@@ -540,3 +540,30 @@
     7200000·`p90ResolutionMs` 18720000을 정확히 전달함을 확인.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing(백분위수 포함)/설정 파일 노출
   (👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), 스토어 자동 백업 로테이션(👷 후보).
+
+### [세션 19 — `agentrelay export` (CSV/NDJSON/JSON 내보내기)] (2026-07-19, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 0개, main=현재 브랜치 동일(중복/누적 없음). 남은 명시적 👷
+  백로그 항목이 없어 CLAUDE.md 지침대로 **새 개선 항목을 발굴** — 큐 데이터를 스프레드시트·
+  `jq`·외부 분석 스크립트로 꺼내는 이식성(data portability)이 빠져 있었다(status/stats는
+  화면용, `--json`은 요약/스냅샷 뿐 job 원본 테이블은 없음).
+- 한 일 (branch `claude/wizardly-pascal-rij1dh`):
+  1. `@agentrelay/core/export.ts` 신설 — 순수 문자열 생산자(I/O·클럭 없음). `toCsv(jobs, eol?)`
+     는 RFC 4180 CSV(헤더 행 + 잡당 1행, CRLF, `escapeCsvField`로 콤마/따옴표/개행 포함 필드를
+     따옴표 감싸고 내부 따옴표 이중화). `CSV_COLUMNS`는 스프레드시트 친화적 고정 순서
+     (id/project/tool/status/resetAt/createdAt/updatedAt/attempts/lastError/cwd/command) —
+     `command`(string[])는 셀 안에서 모호하지 않게 JSON 배열로, 크고 멀티라인일 수 있는
+     `lastOutputTail`은 평평한 표에서 의도적으로 제외(전체 필드는 json/ndjson으로). `toNdjson`
+     (잡당 JSON 1줄, 빈 리스트는 ""), `toJsonArray`(2-스페이스 pretty), `serializeJobs(jobs,
+     format)`(단일 진입점, 미지 포맷은 exhaustiveness 가드로 throw). `EXPORT_FORMATS` 노출.
+  2. CLI `agentrelay export [-f csv|ndjson|json] [-o file] [-s statuses] [--sort] [-r]` 추가.
+     status 필터·정렬은 `status`/`stats`와 동일하게 `selectJobs`·`ALL_JOB_STATUSES`·`SORT_FIELDS`
+     재사용(잘못된 format/status/sort는 명확한 에러 + exit 1). 파일 출력은 `writeFileSync` +
+     진행 메시지(stderr), stdout 출력은 `process.stdout.write`로 CSV/NDJSON의 정확한 후행 개행
+     보존(console.log 이중 개행 방지).
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 에러**,
+    `pnpm test` **250개 전부 통과**(core 193 + cli 54 + dashboard 3 — export 17케이스 신규:
+    escape 4·CSV 6·NDJSON 3·JSON 2·serialize 3, 라운드트립 단언 포함). **실제 빌드된 CLI
+    e2e**(mock 아님): 콤마·따옴표·개행이 든 2-job 스토어로 CSV(escaping 정확)·NDJSON(`-s failed`
+    필터)·JSON(`-o` 파일 출력) 확인, 미지 포맷 `xml`은 exit 1.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드 export 버튼(👷 후보), stats 평균
+  대기시간(대기→재개 지연) 확장(👷 후보), 스토어 자동 백업 로테이션(👷 후보).

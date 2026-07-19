@@ -165,6 +165,16 @@
       CLI `stats.ts` resolution-time 블록에 `median … p90 …` 라인, `--json`은 자동 노출.
       branch `claude/wizardly-pascal-yfv19e`)
 
+- [x] 👷 `agentrelay export` — 큐 데이터를 CSV/NDJSON/JSON으로 내보내 스프레드시트·`jq`·
+      외부 분석에 활용(데이터 이식성).
+      (완료 — `@agentrelay/core/export.ts` 신설: 순수 문자열 생산자 `toCsv`(RFC 4180, 헤더+CRLF,
+      `escapeCsvField`로 콤마/따옴표/개행 필드 escape, `command`는 셀 안 JSON 배열, 크고 멀티라인일
+      수 있는 `lastOutputTail`은 평평한 표에서 제외)·`toNdjson`·`toJsonArray`·`serializeJobs`
+      (단일 진입점, 미지 포맷 throw) + `EXPORT_FORMATS`/`CSV_COLUMNS`. CLI `agentrelay export
+      [-f csv|ndjson|json] [-o file] [-s statuses] [--sort] [-r]` — status 필터/정렬은
+      `selectJobs` 재사용, 파일 출력 진행 메시지는 stderr, stdout은 후행 개행 보존. branch
+      `claude/wizardly-pascal-rij1dh`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

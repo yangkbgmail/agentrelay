@@ -1,5 +1,6 @@
-import type { AgentTool, JobStatus } from "@agentrelay/core";
-import { computeStats, parseDuration } from "@agentrelay/core";
+import { writeFileSync } from "node:fs";
+import type { AgentTool, ExportFormat, JobStatus } from "@agentrelay/core";
+import { computeStats, EXPORT_FORMATS, parseDuration, serializeJobs } from "@agentrelay/core";
 import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
@@ -179,6 +180,63 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("export")
+    .description("Export the job queue as CSV, NDJSON, or JSON for spreadsheets, jq, or analysis")
+    .option("-f, --format <format>", `Output format: ${EXPORT_FORMATS.join(", ")}`, "csv")
+    .option("-o, --out <file>", "Write to a file instead of stdout")
+    .option("-s, --status <statuses>", "Only export jobs with these comma-separated statuses (e.g. completed,failed)")
+    .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
+    .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
+    .action((opts: { format?: string; out?: string; status?: string; sort?: string; reverse?: boolean }) => {
+      const { store } = program.opts();
+
+      const format = (opts.format ?? "csv") as ExportFormat;
+      if (!EXPORT_FORMATS.includes(format)) {
+        console.error(`Unknown --format "${opts.format}". Valid: ${EXPORT_FORMATS.join(", ")}.`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const selection: JobSelection = { reverse: opts.reverse };
+
+      if (opts.status !== undefined) {
+        const requested = opts.status
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+        const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
+        if (invalid.length > 0) {
+          console.error(`Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.`);
+          process.exitCode = 1;
+          return;
+        }
+        selection.statuses = requested as JobStatus[];
+      }
+
+      if (opts.sort !== undefined) {
+        if (!SORT_FIELDS.includes(opts.sort as SortField)) {
+          console.error(`Unknown --sort field "${opts.sort}". Valid: ${SORT_FIELDS.join(", ")}.`);
+          process.exitCode = 1;
+          return;
+        }
+        selection.sort = opts.sort as SortField;
+      }
+
+      const jobs = selectJobs(listStatus(store), selection);
+      const output = serializeJobs(jobs, format);
+
+      if (opts.out) {
+        writeFileSync(opts.out, output);
+        console.error(`[agentrelay] wrote ${jobs.length} job(s) as ${format} to ${opts.out}`);
+        return;
+      }
+      // To stdout: use process.stdout.write so CSV/NDJSON keep their exact
+      // trailing newline instead of console.log adding a second one.
+      process.stdout.write(output);
+      if (!output.endsWith("\n")) process.stdout.write("\n");
     });
 
   const config = program.command("config").description("Manage the agentrelay.config.json defaults file");
