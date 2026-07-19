@@ -50,7 +50,12 @@ describe("exportStore", () => {
     const parsed = JSON.parse(result.content);
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed).toHaveLength(2);
-    expect(parsed[0].command).toEqual(["claude", "-p", "go"]);
+    // Assert the commands are present without depending on listAll's ordering:
+    // two jobs enqueued in the same test can share a createdAt millisecond, so
+    // their relative order isn't guaranteed. Round-trip fidelity is what matters.
+    const commands = parsed.map((j: { command: string[] }) => j.command);
+    expect(commands).toContainEqual(["claude", "-p", "go"]);
+    expect(commands).toContainEqual(["codex", "run"]);
   });
 
   it("writes to a file with a trailing newline and reports the path", () => {

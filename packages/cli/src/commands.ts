@@ -6,6 +6,7 @@ import type {
   AgentTool,
   BackupResult,
   ConfigIssue,
+  DiagnosticReport,
   JobStatus,
   Notifier,
   PruneOptions,
@@ -18,6 +19,7 @@ import {
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  countActiveJobs,
   type EffectiveConfigEntry,
   type ExportFormat,
   exportJobs,
@@ -35,6 +37,7 @@ import {
   resolveEffectiveConfig,
   resolveJobId,
   retryPolicyFromEnv,
+  runDiagnostics,
   sampleConfigJson,
   validateConfig,
 } from "@agentrelay/core";
@@ -645,6 +648,70 @@ export function showConfig(options: ConfigShowOptions = {}): ConfigShowResult {
   }
   const entries = resolveEffectiveConfig(fileConfig, env);
   return { path, entries, loadError };
+}
+
+export interface DoctorOptions {
+  storePath?: string;
+  /** Explicit config path. When omitted, the usual discovery order is used. */
+  configPath?: string;
+  /** Directory searched for `agentrelay.config.json`. Defaults to `process.cwd()`. */
+  cwd?: string;
+  /** Environment consulted for notify channels + `AGENTRELAY_CONFIG`. Defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
+  /** Running Node version. Defaults to `process.version`. Injectable for tests. */
+  nodeVersion?: string;
+}
+
+/**
+ * Gathers real environment/store/config facts and runs them through the pure
+ * {@link runDiagnostics} judge for `agentrelay doctor`. This is the filesystem +
+ * env half; every actual health rule lives in `@agentrelay/core` so it can be
+ * unit-tested without disk. Never throws — a broken config becomes a reported
+ * error check rather than a crash, which is the whole point of a doctor command.
+ */
+export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
+  const env = options.env ?? process.env;
+
+  // --- store facts. Capture existence *before* opening the queue, because a
+  // corrupt file gets moved aside during load and would then look "absent".
+  const storePath = options.storePath ?? defaultStorePath();
+  const existedBefore = existsSync(storePath);
+  let corrupt = false;
+  const queue = new RelayQueue(storePath, { onCorrupt: () => (corrupt = true) });
+  const jobs = queue.listAll();
+  queue.close();
+
+  // --- config facts. A missing file is fine (env/defaults); a present-but-broken
+  // file is a load error; an OK file is run through the semantic validator.
+  let configPathResolved: string | null = null;
+  let loadError: string | null = null;
+  let issues: ConfigIssue[] = [];
+  try {
+    const loaded = loadConfigFile({ path: options.configPath, cwd: options.cwd, env });
+    if (loaded) {
+      configPathResolved = loaded.path;
+      issues = validateConfig(loaded.config);
+    }
+  } catch (error) {
+    configPathResolved = resolveConfigPath({ path: options.configPath, cwd: options.cwd, env });
+    loadError = String(error);
+  }
+
+  return runDiagnostics({
+    nodeVersion: options.nodeVersion ?? process.version,
+    store: {
+      path: storePath,
+      exists: existedBefore,
+      corrupt,
+      jobCount: jobs.length,
+      activeCount: countActiveJobs(jobs),
+    },
+    config: { path: configPathResolved, loadError, issues },
+    notify: {
+      slackWebhook: env.AGENTRELAY_SLACK_WEBHOOK,
+      webhookUrl: env.AGENTRELAY_WEBHOOK_URL,
+    },
+  });
 }
 
 /** Statuses a job can legitimately be in — used to validate `--status` input. */

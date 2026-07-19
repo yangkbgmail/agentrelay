@@ -13,6 +13,7 @@ import {
   restoreStore,
   retryJob,
   runCommand,
+  runDoctor,
   showConfig,
   showJob,
   startDaemon,
@@ -20,6 +21,7 @@ import {
   validateConfigFile,
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
+import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import { renderStats, renderStatsJson } from "./stats.js";
 import {
@@ -186,6 +188,23 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("doctor")
+    .description("Health-check your setup: Node version, job store, config file, and notifications")
+    .option("--json", "Print the diagnostics as JSON (machine-readable, for scripts/CI)")
+    .action((opts: { json?: boolean }) => {
+      const { store, config: configPath } = program.opts();
+      const report = runDoctor({ storePath: store, configPath });
+      if (opts.json) {
+        console.log(renderDoctorJson(report));
+      } else {
+        console.log(renderDoctor(report, { color: Boolean(process.stdout.isTTY) }));
+      }
+      // Exit non-zero when any check failed, so `agentrelay doctor` is usable as
+      // a CI/pre-flight gate.
+      if (!report.ok) process.exitCode = 1;
     });
 
   program
