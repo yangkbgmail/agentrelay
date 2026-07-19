@@ -124,6 +124,27 @@ export interface AdapterFacts {
   binaries: BinaryFact[];
 }
 
+/** One job whose rate-limit reset time has already passed but is still waiting. */
+export interface OverdueJob {
+  id: string;
+  project: string;
+  /** How long ago the reset time passed, in ms (always > the grace period). */
+  overdueByMs: number;
+}
+
+/**
+ * Facts about jobs the relay should already have picked up. AgentRelay has no
+ * pidfile, so `doctor` can't ask "is the daemon running?" directly — but a job
+ * sitting in `waiting_for_reset` well past its `resetAt` is a strong proxy: the
+ * reset window opened and nothing flipped it to `resuming`. That only happens
+ * when no relay loop (`agentrelay daemon`, or a scheduled `agentrelay tick`) is
+ * running to process the queue.
+ */
+export interface OverdueFacts {
+  /** Overdue jobs, most-overdue first. Empty when the relay is keeping up. */
+  jobs: OverdueJob[];
+}
+
 /** Everything {@link runDiagnostics} needs — collected by the CLI, judged here. */
 export interface DiagnosticInput {
   /** Running Node version string, e.g. `process.version` ("v22.5.0"). */
@@ -133,6 +154,7 @@ export interface DiagnosticInput {
   config: ConfigFacts;
   notify: NotifyFacts;
   adapters: AdapterFacts;
+  overdue: OverdueFacts;
 }
 
 /** Minimum supported Node version — mirrors the packages' `engines.node`. */
@@ -164,6 +186,40 @@ export function distinctActiveBinaries(jobs: RelayJob[]): { binary: string; need
     counts.set(binary, (counts.get(binary) ?? 0) + 1);
   }
   return [...counts.entries()].map(([binary, neededBy]) => ({ binary, neededBy }));
+}
+
+/**
+ * Grace period (ms) a job may sit past its `resetAt` before it's called
+ * "overdue". A running daemon polls on an interval and a scheduled `tick` runs
+ * at most once a minute, so a job a few seconds past its reset time is normal,
+ * not a sign the relay is down. One minute keeps the check from false-alarming
+ * on a healthy-but-just-polled queue.
+ */
+export const DEFAULT_OVERDUE_GRACE_MS = 60_000;
+
+/**
+ * The jobs still parked in `waiting_for_reset` whose `resetAt` passed more than
+ * `graceMs` ago, most-overdue first — the CLI feeds `nowMs` (its clock) so this
+ * stays pure and testable. Only `waiting_for_reset` counts: that's the state a
+ * running relay flips to `resuming` the moment the window opens, so a stuck one
+ * is the clean signal that nothing is processing the queue. Jobs with no/invalid
+ * `resetAt` are skipped (they can't be placed on the timeline).
+ */
+export function findOverdueJobs(
+  jobs: RelayJob[],
+  nowMs: number,
+  graceMs: number = DEFAULT_OVERDUE_GRACE_MS
+): OverdueJob[] {
+  const overdue: OverdueJob[] = [];
+  for (const job of jobs) {
+    if (job.status !== "waiting_for_reset" || !job.resetAt) continue;
+    const resetMs = Date.parse(job.resetAt);
+    if (Number.isNaN(resetMs)) continue;
+    const overdueByMs = nowMs - resetMs;
+    if (overdueByMs > graceMs) overdue.push({ id: job.id, project: job.project, overdueByMs });
+  }
+  overdue.sort((a, b) => b.overdueByMs - a.overdueByMs);
+  return overdue;
 }
 
 /**
@@ -199,9 +255,12 @@ export function isSupportedNode(version: string): boolean {
  * 4. **adapters** — every agent binary a queued job will re-spawn is on PATH
  *    (a missing one is an error: those jobs can't resume). Skipped-as-OK when
  *    nothing is queued to resume.
- * 5. **config** — the config file (if any) loads and validates; a broken file
+ * 5. **queue-progress** — no job is stuck past its reset time; if some are, the
+ *    relay loop probably isn't running (a warning, since not-yet-started is a
+ *    legitimate state).
+ * 6. **config** — the config file (if any) loads and validates; a broken file
  *    is an error, semantic warnings are surfaced as warnings.
- * 6. **notify** — at least one notification channel is set (absence is a
+ * 7. **notify** — at least one notification channel is set (absence is a
  *    warning, not an error: notifications are optional but you'd want to know
  *    the relay can't reach you).
  */
@@ -212,6 +271,7 @@ export function runDiagnostics(input: DiagnosticInput): DiagnosticReport {
   checks.push(storeCheck(input.store));
   checks.push(writableCheck(input.writable));
   checks.push(adapterCheck(input.adapters));
+  checks.push(overdueCheck(input.overdue));
   checks.push(configCheck(input.config));
   checks.push(notifyCheck(input.notify));
 
@@ -315,6 +375,39 @@ function adapterCheck(adapters: AdapterFacts): DiagnosticCheck {
     name: "adapters",
     level: "ok",
     message: `all ${binaries.length} agent binary/binaries resolve on PATH: ${names}`,
+  };
+}
+
+/**
+ * Formats an elapsed duration (ms) as a coarse human string for the overdue
+ * message — largest sensible unit only ("3d", "5h", "12m", "45s"). Just enough
+ * to convey "how stuck", not a precise clock.
+ */
+function formatOverdue(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
+
+function overdueCheck(overdue: OverdueFacts): DiagnosticCheck {
+  const { jobs } = overdue;
+  if (jobs.length === 0) {
+    return {
+      name: "queue-progress",
+      level: "ok",
+      message: "no overdue jobs — the relay is keeping up (or nothing is waiting to resume)",
+    };
+  }
+  const worst = jobs[0];
+  return {
+    name: "queue-progress",
+    level: "warning",
+    message: `${jobs.length} job(s) are past their reset time but still waiting (oldest overdue by ${formatOverdue(worst.overdueByMs)}) — the relay loop may not be running`,
+    hint: "Start it with `agentrelay daemon` (or schedule `agentrelay tick` via cron) so waiting jobs resume.",
   };
 }
 

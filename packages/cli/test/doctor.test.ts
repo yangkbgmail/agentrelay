@@ -144,6 +144,29 @@ describe("runDoctor", () => {
     expect(report.ok).toBe(true);
   });
 
+  it("reports queue-progress OK when no job is overdue", () => {
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    const progress = find(report, "queue-progress");
+    expect(progress.level).toBe("ok");
+    expect(progress.message).toContain("keeping up");
+  });
+
+  it("warns via queue-progress when a waiting job is past its reset time", () => {
+    const now = Date.parse("2026-07-19T12:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    // Park it waiting on a reset that already passed two hours ago.
+    queue.markWaitingForReset(j.id, new Date(now - 2 * 60 * 60 * 1000).toISOString());
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", now });
+    const progress = find(report, "queue-progress");
+    expect(progress.level).toBe("warning");
+    expect(progress.message).toContain("1 job(s)");
+    expect(progress.message).toContain("2h");
+    expect(progress.hint).toContain("agentrelay daemon");
+  });
+
   it("reports store-writable OK for a writable store directory", () => {
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
     const writable = find(report, "store-writable");

@@ -952,3 +952,26 @@
 - 다음 할 일: 대시보드가 스코프/시간 창 필터 UI 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), `doctor` 데몬 실행 여부 검사(👷 후보),
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 30 — `agentrelay doctor` 큐 진행(overdue) 검사] (2026-07-19, 무인 자율 세션)
+- 세션 시작 시 열린 PR 0건(#58·#59 병합 완료), 👷 백로그 미완 항목 없음 → PROGRESS "다음 할 일"의
+  `doctor` 데몬 실행 여부 검사(👷 후보)를 착수. AgentRelay는 pidfile이 없어 "데몬이 도는가?"를 직접
+  물을 수 없지만, **리셋 창이 열렸는데도 `waiting_for_reset`에 남은 잡**이 그 프록시다(실행 중인
+  릴레이는 창이 열리는 즉시 `resuming`으로 뒤집는다). 스키마·데몬 라이프사이클 변경 없이 기존 잡
+  데이터만 읽는 순수 판정으로 구현 — doctor 모듈의 "facts→judge" 패턴 그대로.
+- **한 일: `doctor`에 `queue-progress` 검사 추가.** `@agentrelay/core/doctor.ts`에 `OverdueJob`
+  (id·project·overdueByMs)·`OverdueFacts` 타입 + `DiagnosticInput.overdue`, 순수
+  `findOverdueJobs(jobs, nowMs, graceMs?)` 신설(`waiting_for_reset` + resetAt 파싱 성공 +
+  `now−reset > grace[기본 60s]`인 잡만 most-overdue-first; 다른 상태·미래 리셋·무효 resetAt 제외).
+  grace는 데몬 폴 간격·`tick` cron 주기를 감안해 갓 폴링된 건강한 큐의 false-alarm을 막는다.
+  `runDiagnostics`에 검사 삽입(node→store→writable→adapters→**queue-progress**→config→notify):
+  오버듀 0=OK, 있으면 **warning**(개수 + 최장 오버듀 coarse-format + 데몬/cron 힌트). error가 아닌
+  warning인 이유 — 아직 데몬을 안 띄운 것도 정상이라 doctor가 CI를 깨선 안 됨. CLI `runDoctor`가
+  주입 가능한 `now`(`DoctorOptions.now`, 기본 `Date.now()`)로 `findOverdueJobs`를 호출해 facts 구성.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 에러**,
+    `pnpm test` **403개 통과 + 1 skip**(core 274[+9: findOverdueJobs 7 + queue-progress 2] +
+    cli 126[+2] + dashboard 3). **실제 빌드된 CLI e2e**(mock 아님): 2h 전 리셋 `waiting_for_reset`
+    잡→`queue-progress` warning("oldest overdue by 2h" + 데몬 힌트, 전체 "healthy with warnings"),
+    미래 리셋→OK "keeping up", `--json`도 warning 체크 노출.
+- 다음 할 일: 대시보드가 오버듀/스코프 필터 노출(👷 후보), stats 평균 대기시간(👷 후보 — RelayJob에
+  중간 타임스탬프 필요), README/ARCHITECTURE(🧭 코워크).
