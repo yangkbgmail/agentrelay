@@ -9,11 +9,12 @@ import {
   pruneJobs,
   retryJob,
   runCommand,
+  showConfig,
   startDaemon,
   tickOnce,
   validateConfigFile,
 } from "./commands.js";
-import { defaultStorePath } from "./config.js";
+import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderStats, renderStatsJson } from "./stats.js";
 import {
   type JobSelection,
@@ -221,6 +222,25 @@ export function buildCli(): Command {
       } else {
         console.log(`[agentrelay] ${where} is valid (with warnings).`);
       }
+    });
+  config
+    .command("show")
+    .description("Show the effective configuration and where each value comes from (env > file > default)")
+    .option("--json", "Print the resolved config as JSON (machine-readable, for scripts/jq)")
+    .option("--show-secrets", "Reveal masked webhook URLs/tokens in the human-readable output")
+    .action((opts: { json?: boolean; showSecrets?: boolean }) => {
+      const { config: configPath } = program.opts();
+      const result = showConfig({ path: configPath });
+      if (opts.json) {
+        console.log(renderEffectiveConfigJson(result));
+      } else {
+        console.log(
+          renderEffectiveConfig(result, { color: Boolean(process.stdout.isTTY), showSecrets: opts.showSecrets })
+        );
+      }
+      // A broken config file is a real problem worth a non-zero exit, but we
+      // still printed the env/default resolution above to aid debugging.
+      if (result.loadError) process.exitCode = 1;
     });
 
   program

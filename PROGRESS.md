@@ -540,3 +540,36 @@
     7200000·`p90ResolutionMs` 18720000을 정확히 전달함을 확인.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing(백분위수 포함)/설정 파일 노출
   (👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), 스토어 자동 백업 로테이션(👷 후보).
+
+### [세션 19 — `agentrelay config show` 유효 설정/출처 표시] (2026-07-19, 무인 자율 세션)
+- 배경: 세션 시작 시 지정 브랜치가 origin에서 삭제됨(PR #42 머지 완료) → 지침대로 최신 main에서
+  동일 이름 브랜치를 새로 파 후속 작업을 진행. 설정 시스템은 `config init`(샘플 생성)·`config
+  validate`(검증)까지 있었지만, "지금 실제로 어떤 값이 적용되고 그게 env/파일/기본값 중
+  어디서 왔는가"를 보여주는 수단이 없었다. env > 설정파일 > 기본값 우선순위는 코드로만
+  존재해 디버깅 시 추측에 의존하는 갭.
+- 한 일 (branch `claude/wizardly-pascal-dgs7go`):
+  1. `@agentrelay/core/config.ts`에 순수 `resolveEffectiveConfig(fileConfig, env)` + 타입
+     `EffectiveConfigEntry`(key·group·value·source·secret)·`ConfigValueSource`(env/config-file/
+     default)·`ConfigGroup` 신설. 각 `AGENTRELAY_*` 키를 env>파일>기본값 순으로 해소해 출처를
+     귀속(`applyConfigToEnv`의 읽기 전용 미러). 키 목록 `CONFIG_ENV_KEYS`는 `configToEnv`가
+     방출하는 키와 정확히 동기화(테스트로 드리프트 방지), 웹훅 URL/토큰은 `secret` 플래그.
+  2. CLI `commands.ts`에 `showConfig({path,cwd,env})` — 설정파일을 직접 로드(손상 파일은 throw
+     대신 `loadError`로 보고하고 env/기본값 해소는 계속). `config.ts`에 순수 렌더
+     `renderEffectiveConfig`(그룹별 정렬 표, 시크릿 마스킹 + `--show-secrets` 해제)·
+     `renderEffectiveConfigJson`(`--json`). `agentrelay config show` 서브커맨드 배선.
+  3. 부수 버그 수정: bin.ts의 startup `bootstrapConfig`가 설정파일 값을 `process.env`에 먼저
+     주입하면 `config show`가 파일 출처를 전부 `[env]`로 오표기하는 문제 발견. `config validate`가
+     쓰던 startup-skip 가드를 `isConfigDiagnosticInvocation`으로 일반화(validate+show 모두 skip).
+     또한 기존 argv 파서가 `--config <path>` 뒤 **경로 값**을 커맨드명으로 오인하던 잠복 버그를
+     `subcommandTokens`(값 받는 옵션 스킵)로 교정 — `--config x.json config show`도 정상 인식.
+     `isConfigValidateInvocation`은 하위호환 alias로 유지.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **247개 전부 통과**(core 182 + cli 62 + dashboard 3 — core에 resolveEffectiveConfig
+    6케이스[전부 기본값/파일귀속/env우선/불리언 1·0 투영/시크릿 플래그/configToEnv 동기화]
+    신규, cli에 showConfig 5케이스 + isConfigDiagnosticInvocation 3케이스 신규). **실제 빌드된
+    CLI e2e**(mock 아님): store·webhookUrl·webhookAuth·maxAttempts·autoPrune를 담은 설정파일 +
+    `AGENTRELAY_MAX_ATTEMPTS=2`로 실행 → `AGENTRELAY_STORE …[config-file]`,
+    `AGENTRELAY_MAX_ATTEMPTS 2 [env]`(파일 8 무시), 시크릿 마스킹(`…cret`/`…-xyz`), `--show-secrets`로
+    전체 노출, `--json` 구조·손상파일 exit 1을 모두 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing/설정 파일(config show 결과) 노출
+  (👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), 스토어 자동 백업 로테이션(👷 후보).

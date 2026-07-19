@@ -165,6 +165,18 @@
       CLI `stats.ts` resolution-time 블록에 `median … p90 …` 라인, `--json`은 자동 노출.
       branch `claude/wizardly-pascal-yfv19e`)
 
+- [x] 👷 `agentrelay config show` — 유효 설정과 각 값의 출처(env/설정파일/기본값) 표시.
+      (완료 — `@agentrelay/core/config.ts`에 순수 `resolveEffectiveConfig(fileConfig, env)` +
+      `EffectiveConfigEntry`/`ConfigValueSource`/`ConfigGroup` + `CONFIG_ENV_KEYS`(configToEnv와
+      동기화, 테스트로 드리프트 방지, 웹훅 URL/토큰은 secret 플래그) 신설: 각 `AGENTRELAY_*`를
+      env>파일>기본값으로 해소해 출처 귀속(applyConfigToEnv의 읽기 전용 미러). CLI `showConfig`
+      (손상 파일은 throw 대신 loadError로 보고, env/기본값 해소는 계속) + 순수 `renderEffectiveConfig`
+      (그룹별 정렬 표, 시크릿 마스킹 + `--show-secrets`)·`renderEffectiveConfigJson`(`--json`).
+      `agentrelay config show` 서브커맨드. 부수 버그 수정: startup bootstrap이 파일 값을
+      process.env에 주입해 출처를 [env]로 오표기하던 문제 → `isConfigDiagnosticInvocation`으로
+      validate+show 모두 startup-skip, `--config <path>` 뒤 경로 값을 커맨드로 오인하던 argv
+      파서 버그도 `subcommandTokens`로 교정. branch `claude/wizardly-pascal-dgs7go`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
