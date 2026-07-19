@@ -347,6 +347,20 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay next` — 다음에 재개될 잡 하나를 카운트다운과 함께 보여주는 스크립트 친화적 한 줄.
+      (완료 — `status`는 큐 전체 테이블이라 "지금 데몬이 다음에 뭘 집을지"를 셸 프롬프트/상태바/cron에서
+      한 줄로 알 방법이 없었다. `@agentrelay/core/next.ts` 신설(순수·시계/큐/I·O 미접촉): `NextResume`
+      (job·dueInMs·due·waitingBehind) + `selectNextResume(jobs, now)` — 스케줄러 `listDue`와 **동일 집합**
+      (`waiting_for_reset` + 파싱 가능한 resetAt)에서 가장 이른 잡을 고르고, resetAt 동률은 createdAt→id로
+      결정론적 tiebreak(null/불량 resetAt·비대기 상태는 제외). CLI `packages/cli/src/next.ts`에 순수
+      `renderNext`(짧은 id·project·`resets in …`/`due now`[status의 `formatCountdown` 재사용]·절대 resetAt·
+      "N more waiting behind it" 단복수)·`renderNextJson`(--json, next=null 가능)·`NO_PENDING_MESSAGE`.
+      `agentrelay next [--json] [--exit-code]` — `--exit-code`는 jq 없이 셸 분기용(0=due now, 3=대기 중이나
+      아직 안 됨, 4=대기 잡 없음)이라 `agentrelay next --exit-code && agentrelay tick` 식 cron 게이트 가능.
+      새 core는 순수 함수 하나뿐, 나머지는 기존 `formatCountdown`·`listStatus` 재사용. next.test.ts core 7 +
+      cli 8 신규, 빌드된 CLI e2e로 earliest-reset 선택·due now 전환·exit 0/3/4·빈 큐 메시지 검증.
+      branch `claude/wizardly-pascal-lgawzr`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

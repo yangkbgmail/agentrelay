@@ -980,3 +980,24 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — `agentrelay next`: 다음 재개 잡 한 줄 뷰(스크립트 친화)] (2026-07-19, 무인 자율 세션, branch `claude/wizardly-pascal-lgawzr`)
+- **한 일: "데몬이 다음에 뭘, 언제 재개하나?"를 셸 프롬프트/상태바/cron이 한 줄로 알 수 있게 했다.**
+  `status`는 큐 전체 테이블이라 단일 "다음 잡"을 스크립트로 뽑기 번거로웠다. 백로그의 👷 항목이 전부
+  완료 상태라 새 개선 항목을 발굴해 구현.
+  1. `@agentrelay/core/next.ts` 신설(순수·시계/큐/I·O 미접촉): `NextResume`(job·dueInMs·due·waitingBehind)
+     + `selectNextResume(jobs, now)`. 스케줄러 `listDue`와 **동일 집합**(`waiting_for_reset` + 파싱 가능
+     resetAt)에서 가장 이른 잡을 고르고, resetAt 동률은 createdAt→id로 결정론적 tiebreak. null/불량
+     resetAt·비대기 상태는 제외 → `summarizeJobs.nextResetAt`와 일관.
+  2. CLI `packages/cli/src/next.ts`에 순수 `renderNext`(짧은 id·project·`resets in …`/`due now`[status의
+     `formatCountdown` 재사용]·절대 resetAt·"N more waiting behind it" 단복수)·`renderNextJson`(--json,
+     next=null 가능)·`NO_PENDING_MESSAGE`. `agentrelay next [--json] [--exit-code]` 배선. `--exit-code`는
+     jq 없이 셸 분기용(0=due now, 3=대기 중이나 아직 안 됨, 4=대기 잡 없음) → `agentrelay next --exit-code
+     && agentrelay tick` 식 cron 게이트 가능.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **435개 통과 + 1 skip**(core 293[+7: next] + cli 139[+8: next][+1 skip] + dashboard 3).
+    **실제 빌드 CLI e2e**(mock 아님): far/soon/completed 3-job 스토어로 `next`(soon-proj 선택 + "1 more
+    job waiting")·`--exit-code`(pending 3)·soon-proj overdue로 변경 후 "due now"+exit 0·빈 스토어
+    `[]`→NO_PENDING+exit 4 확인.
+- 다음 할 일: 대시보드가 "다음 재개" 카드 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
+  (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
