@@ -49,7 +49,8 @@ function splitList(raw: string): string[] {
  * Live `agentrelay status --watch`: clears the screen and re-renders the table
  * on an interval so countdowns tick down in place. `listStatus` re-reads the
  * JSON store each pass, so a running daemon's writes show up automatically.
- * The same `--status`/`--sort`/`--reverse` selection is re-applied every pass.
+ * The same `--status`/`--tool`/`--project`/`--sort`/`--reverse` selection is
+ * re-applied every pass.
  * Runs until the process is interrupted (Ctrl-C).
  */
 function runWatch(store: string, intervalMs: number, selection: JobSelection): void {
@@ -133,58 +134,88 @@ export function buildCli(): Command {
     .option("-w, --watch [seconds]", "Continuously refresh the view with live countdowns (Ctrl-C to exit)")
     .option("--json", "Print the status as JSON (machine-readable, for scripts/jq)")
     .option("-s, --status <statuses>", "Only show jobs with these comma-separated statuses (e.g. queued,failed)")
+    .option("-t, --tool <tools>", `Only show jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only show jobs from these comma-separated project names (exact match)")
     .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
     .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
-    .action((opts: { watch?: string | boolean; json?: boolean; status?: string; sort?: string; reverse?: boolean }) => {
-      const { store } = program.opts();
+    .action(
+      (opts: {
+        watch?: string | boolean;
+        json?: boolean;
+        status?: string;
+        tool?: string;
+        project?: string;
+        sort?: string;
+        reverse?: boolean;
+      }) => {
+        const { store } = program.opts();
 
-      const selection: JobSelection = { reverse: opts.reverse };
+        const selection: JobSelection = { reverse: opts.reverse };
 
-      if (opts.status !== undefined) {
-        const requested = opts.status
-          .split(",")
-          .map((s) => s.trim())
-          .filter((s) => s.length > 0);
-        const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
-        if (invalid.length > 0) {
-          console.error(`Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.`);
-          process.exitCode = 1;
+        if (opts.status !== undefined) {
+          const requested = splitList(opts.status);
+          const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
+          if (invalid.length > 0) {
+            console.error(`Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          selection.statuses = requested as JobStatus[];
+        }
+
+        if (opts.tool !== undefined) {
+          const requested = splitList(opts.tool);
+          const invalid = requested.filter((t) => !ALL_TOOLS.includes(t as AgentTool));
+          if (invalid.length > 0) {
+            console.error(`Unknown tool(s): ${invalid.join(", ")}. Valid: ${ALL_TOOLS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          selection.tools = requested;
+        }
+
+        if (opts.project !== undefined) {
+          const requested = splitList(opts.project);
+          if (requested.length === 0) {
+            console.error("--project needs at least one project name.");
+            process.exitCode = 1;
+            return;
+          }
+          selection.projects = requested;
+        }
+
+        if (opts.sort !== undefined) {
+          if (!SORT_FIELDS.includes(opts.sort as SortField)) {
+            console.error(`Unknown --sort field "${opts.sort}". Valid: ${SORT_FIELDS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          selection.sort = opts.sort as SortField;
+        }
+
+        if (opts.json) {
+          console.log(renderStatusJson(selectJobs(listStatus(store), selection), store));
           return;
         }
-        selection.statuses = requested as JobStatus[];
-      }
 
-      if (opts.sort !== undefined) {
-        if (!SORT_FIELDS.includes(opts.sort as SortField)) {
-          console.error(`Unknown --sort field "${opts.sort}". Valid: ${SORT_FIELDS.join(", ")}.`);
-          process.exitCode = 1;
+        if (opts.watch !== undefined) {
+          const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+          const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+          runWatch(store, intervalMs, selection);
+          return; // setInterval keeps the process alive.
+        }
+
+        const all = listStatus(store);
+        const selected = selectJobs(all, selection);
+        // Distinguish "store is empty" from "filter matched nothing" so the
+        // hint to run a command doesn't show up when jobs simply got filtered out.
+        if (selected.length === 0 && all.length > 0) {
+          console.log(NO_MATCH_MESSAGE);
           return;
         }
-        selection.sort = opts.sort as SortField;
+        console.log(renderStatusTable(selected, { color: Boolean(process.stdout.isTTY) }));
       }
-
-      if (opts.json) {
-        console.log(renderStatusJson(selectJobs(listStatus(store), selection), store));
-        return;
-      }
-
-      if (opts.watch !== undefined) {
-        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
-        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
-        runWatch(store, intervalMs, selection);
-        return; // setInterval keeps the process alive.
-      }
-
-      const all = listStatus(store);
-      const selected = selectJobs(all, selection);
-      // Distinguish "store is empty" from "filter matched nothing" so the
-      // hint to run a command doesn't show up when jobs simply got filtered out.
-      if (selected.length === 0 && all.length > 0) {
-        console.log(NO_MATCH_MESSAGE);
-        return;
-      }
-      console.log(renderStatusTable(selected, { color: Boolean(process.stdout.isTTY) }));
-    });
+    );
 
   program
     .command("stats")

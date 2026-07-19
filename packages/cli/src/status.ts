@@ -25,7 +25,7 @@ const BOLD = "\x1b[1m";
 
 export const EMPTY_MESSAGE = "No jobs yet. Run `agentrelay run -- <your agent command>` to get started.";
 
-/** Shown by `status` when a `--status` filter matches nothing in the store. */
+/** Shown by `status` when a `--status`/`--tool`/`--project` filter matches nothing. */
 export const NO_MATCH_MESSAGE = "No jobs match the current filter.";
 
 /** Fields `agentrelay status --sort` can order by. */
@@ -61,17 +61,31 @@ const COMPARATORS: Record<SortField, (a: RelayJob, b: RelayJob) => number> = {
 export interface JobSelection {
   /** Keep only jobs whose status is in this set (empty/undefined = all). */
   statuses?: JobStatus[];
+  /** Keep only jobs whose tool is in this list (matched as raw strings). */
+  tools?: string[];
+  /** Keep only jobs whose project is in this list (exact match). */
+  projects?: string[];
   /** Sort field. When omitted, the store's own order (newest first) is kept. */
   sort?: SortField;
   /** Reverse the final order (flips the sort, or the store order if no sort). */
   reverse?: boolean;
 }
 
+/** True when a selection would actually filter the store (any dimension set). */
+export function isSelectionFiltering(selection: JobSelection): boolean {
+  return Boolean(
+    (selection.statuses && selection.statuses.length > 0) ||
+      (selection.tools && selection.tools.length > 0) ||
+      (selection.projects && selection.projects.length > 0)
+  );
+}
+
 /**
- * Applies a `--status`/`--sort`/`--reverse` selection to a job list. Pure and
- * non-mutating: always returns a fresh array so callers (one-shot, `--json`,
- * live `--watch`) can share one code path. Sorting is stable — ties keep their
- * original store order via an index fallback.
+ * Applies a `--status`/`--tool`/`--project` filter plus `--sort`/`--reverse` to
+ * a job list. Pure and non-mutating: always returns a fresh array so callers
+ * (one-shot, `--json`, live `--watch`) can share one code path. Filter
+ * dimensions AND together (OR within a dimension), matching `agentrelay stats`.
+ * Sorting is stable — ties keep their original store order via an index fallback.
  */
 export function selectJobs(jobs: RelayJob[], selection: JobSelection = {}): RelayJob[] {
   let result: RelayJob[] = jobs;
@@ -79,6 +93,16 @@ export function selectJobs(jobs: RelayJob[], selection: JobSelection = {}): Rela
   if (selection.statuses && selection.statuses.length > 0) {
     const wanted = new Set(selection.statuses);
     result = result.filter((job) => wanted.has(job.status));
+  }
+
+  if (selection.tools && selection.tools.length > 0) {
+    const wanted = new Set(selection.tools);
+    result = result.filter((job) => wanted.has(job.tool));
+  }
+
+  if (selection.projects && selection.projects.length > 0) {
+    const wanted = new Set(selection.projects);
+    result = result.filter((job) => wanted.has(job.project));
   }
 
   if (selection.sort) {

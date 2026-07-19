@@ -730,3 +730,28 @@
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), `stats --project`를 상위 프로젝트 랭킹과 연동한
   드릴다운(👷 후보), `status`에도 `--tool`/`--project` 필터 확장(👷 후보), 대시보드가 스코프 필터
   UI 노출(👷 후보).
+
+### [세션 26 — `agentrelay status` 스코프 필터(--tool/--project)] (2026-07-19, 무인 자율 세션)
+- 배경: 세션 시작 시 지정 브랜치=최신 main(0 커밋 diff, 중복/누적 없음), BACKLOG의 👷 항목은
+  전부 완료. CLAUDE.md 지침대로 세션 25가 "다음 할 일 👷 후보"로 남긴 항목 중 **status 스코프
+  필터**를 골랐다 — `stats`는 세션 25에서 `--status/--tool/--project` 부분집합 필터를 얻었지만
+  `status` 테이블은 여전히 `--status`만 지원해, 큰 큐에서 특정 툴·프로젝트 job만 보려면 방법이
+  없던 비대칭을 메운다.
+- 한 일 (branch `claude/wizardly-pascal-6st1ab`):
+  1. `packages/cli/src/status.ts`의 `JobSelection`에 `tools?: string[]`·`projects?: string[]` 추가.
+     `selectJobs`가 status·tool·project 세 필터를 **차원 간 AND·차원 내 OR**로 적용(항상 새 배열
+     반환, 정렬/역순 전에 필터). tool은 `stats`의 `scopeJobs`와 동일하게 **원시 문자열 매칭**이라
+     미지 tool 문자열도 정확히 걸러냄. 순수 `isSelectionFiltering(selection)`(core `isJobScopeActive`의
+     status 버전) export.
+  2. CLI `status`에 `-t/--tool`·`-p/--project` 옵션 배선. 공용 `splitList` 헬퍼 재사용(기존 인라인
+     split 대체), tool은 `ALL_TOOLS` 검증(잘못된 tool은 exit 1), status 검증도 `splitList`로 통일.
+     일회성 테이블·`--json`·`--watch(runWatch)` 세 뷰 모두 동일 `selection`을 적용. 필터가 스토어
+     전체를 걸러내면 온보딩 문구 대신 `NO_MATCH_MESSAGE`.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **320개 전부 통과**(core 221 + cli 96 + dashboard 3 — status.test에 selectJobs
+    tool/project/AND 5 + isSelectionFiltering 2 신규). **실제 빌드된 CLI e2e**(mock 아님): 3-job
+    (web×claude / api×codex / web×codex) 스토어로 `status`(3행)·`--tool codex-cli`(2행)·`--project web`
+    (2행)·`--tool codex-cli --project web`(1행, AND)·`--project nope`(No match)·`--tool bogus`(exit 1)·
+    `--json --tool claude-code`(total 1) 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 스코프 필터(tool/project) UI 노출(👷 후보),
+  stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), `restore --dry-run`(👷 후보).

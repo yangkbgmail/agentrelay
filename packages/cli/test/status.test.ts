@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   EMPTY_MESSAGE,
   formatCountdown,
+  isSelectionFiltering,
   renderStatusJson,
   renderStatusTable,
   renderWatchFrame,
@@ -143,10 +144,19 @@ describe("renderWatchFrame", () => {
 
 describe("selectJobs", () => {
   const jobs: RelayJob[] = [
-    job({ id: "aaaa1111", project: "web", status: "completed", resetAt: null, attempts: 3, createdAt: at(-3000) }),
+    job({
+      id: "aaaa1111",
+      project: "web",
+      tool: "claude-code",
+      status: "completed",
+      resetAt: null,
+      attempts: 3,
+      createdAt: at(-3000),
+    }),
     job({
       id: "bbbb2222",
       project: "api",
+      tool: "codex-cli",
       status: "waiting_for_reset",
       resetAt: at(90 * 60_000),
       attempts: 1,
@@ -155,6 +165,7 @@ describe("selectJobs", () => {
     job({
       id: "cccc3333",
       project: "cli",
+      tool: "claude-code",
       status: "failed",
       resetAt: at(30 * 60_000),
       attempts: 5,
@@ -212,6 +223,47 @@ describe("selectJobs", () => {
   it("combines filter and sort", () => {
     const out = selectJobs(jobs, { statuses: ["failed", "waiting_for_reset"], sort: "attempts" });
     expect(out.map((j) => j.attempts)).toEqual([1, 5]);
+  });
+
+  it("filters by tool (OR within the dimension)", () => {
+    const out = selectJobs(jobs, { tools: ["claude-code"] });
+    expect(out.map((j) => j.id)).toEqual(["aaaa1111", "cccc3333"]);
+  });
+
+  it("filters by an unknown tool string to nothing (raw match, no coercion)", () => {
+    expect(selectJobs(jobs, { tools: ["gemini-cli"] })).toEqual([]);
+  });
+
+  it("filters by project (exact match)", () => {
+    const out = selectJobs(jobs, { projects: ["api", "cli"] });
+    expect(out.map((j) => j.project).sort()).toEqual(["api", "cli"]);
+  });
+
+  it("ANDs the tool, project and status dimensions together", () => {
+    // claude-code has web+cli; status failed leaves cli; project cli keeps it.
+    const out = selectJobs(jobs, { tools: ["claude-code"], statuses: ["failed"], projects: ["cli"] });
+    expect(out.map((j) => j.id)).toEqual(["cccc3333"]);
+    // A project that the other filters exclude yields nothing.
+    expect(selectJobs(jobs, { tools: ["claude-code"], projects: ["api"] })).toEqual([]);
+  });
+
+  it("combines a tool filter with a sort", () => {
+    const out = selectJobs(jobs, { tools: ["claude-code"], sort: "attempts" });
+    expect(out.map((j) => j.attempts)).toEqual([3, 5]);
+  });
+});
+
+describe("isSelectionFiltering", () => {
+  it("is false for an empty or sort-only selection", () => {
+    expect(isSelectionFiltering({})).toBe(false);
+    expect(isSelectionFiltering({ sort: "attempts", reverse: true })).toBe(false);
+    expect(isSelectionFiltering({ statuses: [], tools: [], projects: [] })).toBe(false);
+  });
+
+  it("is true when any filter dimension is set", () => {
+    expect(isSelectionFiltering({ statuses: ["failed"] })).toBe(true);
+    expect(isSelectionFiltering({ tools: ["codex-cli"] })).toBe(true);
+    expect(isSelectionFiltering({ projects: ["web"] })).toBe(true);
   });
 });
 
