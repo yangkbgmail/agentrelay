@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DiagnosticReport } from "@agentrelay/core";
@@ -142,6 +142,65 @@ describe("runDoctor", () => {
     expect(adapters.message).toContain(binName);
     expect(adapters.message).toContain(binPath);
     expect(report.ok).toBe(true);
+  });
+
+  it("reports store-writable OK for a writable store directory", () => {
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    const writable = find(report, "store-writable");
+    expect(writable.level).toBe("ok");
+    expect(writable.message).toContain("is writable");
+    expect(report.ok).toBe(true);
+  });
+
+  it("notes the store directory will be created when it doesn't exist yet", () => {
+    // Point the store one level deeper than the temp dir, so its own dir is absent.
+    const nestedStore = join(dir, "nested", "jobs.json");
+    const report = runDoctor({ storePath: nestedStore, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    const writable = find(report, "store-writable");
+    expect(writable.level).toBe("ok");
+    expect(writable.message).toContain("will be created");
+    expect(report.ok).toBe(true);
+  });
+
+  it("reports store-writable error (not a crash) when the store dir can't be created", () => {
+    // Make the store's parent a regular file: mkdir/write into it fails with
+    // ENOTDIR regardless of user, and RelayQueue's constructor would throw.
+    // doctor must survive and report the diagnosis.
+    const filePath = join(dir, "notadir");
+    writeFileSync(filePath, "", "utf8");
+    const badStore = join(filePath, "jobs.json");
+    let report: DiagnosticReport | undefined;
+    expect(() => {
+      report = runDoctor({ storePath: badStore, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    }).not.toThrow();
+    const writable = find(report!, "store-writable");
+    expect(writable.level).toBe("error");
+    expect(writable.message).toContain("not writable");
+    expect(report!.ok).toBe(false);
+  });
+
+  // Root bypasses directory permission bits, so a chmod-based read-only probe
+  // can't be exercised as root — skip there rather than assert a false result.
+  const asRoot = typeof process.getuid === "function" && process.getuid() === 0;
+  it.skipIf(asRoot)("errors when the store directory is not writable", () => {
+    const roStore = join(dir, "readonly", "jobs.json");
+    mkdirSync(join(dir, "readonly"));
+    chmodSync(join(dir, "readonly"), 0o500); // r-x: readable, not writable
+    try {
+      const report = runDoctor({
+        storePath: roStore,
+        cwd: dir,
+        env: { AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+        nodeVersion: "v22.5.0",
+      });
+      const writable = find(report, "store-writable");
+      expect(writable.level).toBe("error");
+      expect(writable.message).toContain("not writable");
+      expect(report.ok).toBe(false);
+    } finally {
+      // Restore write bit so afterEach can clean up.
+      chmodSync(join(dir, "readonly"), 0o700);
+    }
   });
 });
 
