@@ -3,7 +3,7 @@
 // breakdown). Kept as pure functions here, separate from the commander wiring
 // in cli.ts, so the exact output is unit-testable without a store or a clock.
 
-import type { JobScope, JobStatus, RelayStats } from "@agentrelay/core";
+import type { GroupedStats, JobScope, JobStatus, RelayStats } from "@agentrelay/core";
 import { isJobScopeActive } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
@@ -118,6 +118,64 @@ export function renderStats(
   }
 
   return lines.join("\n");
+}
+
+/**
+ * Renders a per-group breakdown (`--group-by tool|project`) as a multi-line
+ * block: one compact stat line per group, ranked by job count. Pure: no I/O, no
+ * ambient clock unless `now` is omitted. `color` gates ANSI codes (TTY only).
+ * An empty breakdown means either an empty store or a scope that matched
+ * nothing — the caller distinguishes the two via `scopeNote`.
+ */
+export function renderGroupedStats(
+  grouped: GroupedStats,
+  options: { now?: number; color?: boolean; scopeNote?: string } = {}
+): string {
+  if (grouped.groups.length === 0) return options.scopeNote ? NO_SCOPE_MATCH_MESSAGE : NO_STATS_MESSAGE;
+  const now = options.now ?? Date.now();
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [];
+  if (options.scopeNote) lines.push(d(`scope: ${options.scopeNote}`));
+  lines.push(b(`by ${grouped.dimension}`) + d(` (${grouped.groups.length} group(s))`));
+
+  for (const { key, stats } of grouped.groups) {
+    lines.push("");
+    lines.push(`${b(key)} ${d(`— ${stats.total} job(s)`)}`);
+    lines.push(`  active: ${stats.active}   terminal: ${stats.terminal}`);
+    const resolved = stats.byStatus.completed + stats.byStatus.failed;
+    lines.push(
+      `  success rate: ${formatSuccessRate(stats.successRate)} ` +
+        d(`(${stats.byStatus.completed}/${resolved} resolved)`) +
+        `   retried: ${stats.retriedJobs}`
+    );
+    const { timing } = stats;
+    if (timing.resolvedCount > 0) {
+      lines.push(
+        `  resolution: median ${formatDurationMs(timing.medianResolutionMs ?? 0)}` +
+          `   p90 ${formatDurationMs(timing.p90ResolutionMs ?? 0)}` +
+          `   max ${formatDurationMs(timing.maxResolutionMs ?? 0)}`
+      );
+    }
+    if (stats.nextResetAt !== null) {
+      lines.push(`  next reset in: ${formatCountdown(stats.nextResetAt, now)}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+/** Machine-readable snapshot of a `--group-by` breakdown for `--json`. */
+export function renderGroupedStatsJson(
+  grouped: GroupedStats,
+  storePath: string,
+  options: { generatedAt?: string; scope?: JobScope } = {}
+): string {
+  const generatedAt = options.generatedAt ?? new Date().toISOString();
+  const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, grouped }, null, 2);
 }
 
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */

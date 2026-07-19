@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import { computeGroupedStats, computeStats, isJobScopeActive, scopeJobs } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -366,5 +366,73 @@ describe("scopeJobs", () => {
       job({ id: "c", project: "api", createdAt: "2026-07-14T00:00:00.000Z" }), // wrong project
     ];
     expect(scopeJobs(jobs, { projects: ["web"], createdFrom: from }).map((j) => j.id)).toEqual(["a"]);
+  });
+});
+
+describe("computeGroupedStats", () => {
+  it("returns an empty breakdown for no jobs, keeping the dimension", () => {
+    const grouped = computeGroupedStats([], "tool");
+    expect(grouped.dimension).toBe("tool");
+    expect(grouped.groups).toEqual([]);
+  });
+
+  it("buckets by tool and computes a full RelayStats per group", () => {
+    const jobs = [
+      job({ tool: "claude-code" as AgentTool, status: "completed" as JobStatus }),
+      job({ tool: "claude-code" as AgentTool, status: "failed" as JobStatus }),
+      job({ tool: "codex-cli" as AgentTool, status: "completed" as JobStatus }),
+    ];
+    const grouped = computeGroupedStats(jobs, "tool");
+    expect(grouped.groups.map((g) => g.key)).toEqual(["claude-code", "codex-cli"]);
+    const claude = grouped.groups[0];
+    expect(claude.stats.total).toBe(2);
+    expect(claude.stats.successRate).toBe(0.5);
+    const codex = grouped.groups[1];
+    expect(codex.stats.total).toBe(1);
+    expect(codex.stats.successRate).toBe(1);
+  });
+
+  it("ranks groups by job count desc, ties broken by key asc", () => {
+    const jobs = [
+      job({ project: "zeta" }),
+      job({ project: "alpha" }),
+      job({ project: "alpha" }),
+      job({ project: "mid" }),
+    ];
+    const grouped = computeGroupedStats(jobs, "project");
+    // alpha has 2 (wins), then zeta/mid tie at 1 → key asc.
+    expect(grouped.groups.map((g) => `${g.key}:${g.stats.total}`)).toEqual(["alpha:2", "mid:1", "zeta:1"]);
+  });
+
+  it("buckets by project independently of tool", () => {
+    const jobs = [
+      job({ project: "web", tool: "claude-code" as AgentTool }),
+      job({ project: "web", tool: "codex-cli" as AgentTool }),
+    ];
+    const grouped = computeGroupedStats(jobs, "project");
+    expect(grouped.groups).toHaveLength(1);
+    expect(grouped.groups[0].key).toBe("web");
+    expect(grouped.groups[0].stats.total).toBe(2);
+  });
+
+  it("computes per-group timing from resolved jobs only", () => {
+    const jobs = [
+      job({
+        project: "web",
+        status: "completed" as JobStatus,
+        createdAt: "2026-07-13T00:00:00.000Z",
+        updatedAt: "2026-07-13T01:00:00.000Z", // 1h span
+      }),
+      job({
+        project: "web",
+        status: "queued" as JobStatus, // not resolved → excluded from timing
+        createdAt: "2026-07-13T00:00:00.000Z",
+        updatedAt: "2026-07-13T05:00:00.000Z",
+      }),
+    ];
+    const grouped = computeGroupedStats(jobs, "project");
+    const web = grouped.groups[0];
+    expect(web.stats.timing.resolvedCount).toBe(1);
+    expect(web.stats.timing.medianResolutionMs).toBe(60 * 60 * 1000);
   });
 });

@@ -980,3 +980,28 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — `agentrelay stats --group-by tool|project`] (2026-07-19, 무인 자율 세션, branch `claude/wizardly-pascal-vd04pd`)
+- **한 일: stats 지표를 툴별/프로젝트별로 분해하는 `--group-by`를 추가했다.**
+  기존 `stats`는 큐 전체를 단일 집계(successRate·timing·retries)로만 보여줘, "어떤 에이전트가
+  rate-limit을 가장 자주 맞나", "어떤 코드베이스가 릴레이 시간을 가장 많이 먹나"를 볼 수 없었다.
+  1. `@agentrelay/core/stats.ts`에 순수 `computeGroupedStats(jobs, dimension)` + `GroupDimension`
+     (`"tool"`/`"project"`)·`StatGroup`(key+RelayStats)·`GroupedStats` 신설. 잡을 tool/project로
+     버킷팅한 뒤 각 버킷에 기존 `computeStats`를 **재사용** → 그룹별 숫자가 전체와 절대 드리프트
+     안 하고, 각 그룹이 successRate·timing(median/p90 포함)·retries를 모두 가진 full RelayStats.
+     그룹 정렬은 job수 desc·key asc(computeStats의 projects ordering 재사용).
+  2. CLI `stats.ts`에 순수 `renderGroupedStats`(그룹별 압축 블록: total·active/terminal·success
+     rate·retried·resolution median/p90/max·next reset; resolution 라인은 그룹에 resolved 잡
+     있을 때만) + `renderGroupedStatsJson`(--json). 빈 breakdown은 scopeNote 유무로
+     NO_STATS/NO_SCOPE_MATCH 구분.
+  3. `cli.ts` `stats`에 `-g/--group-by <dimension>` 배선(tool/project 검증, 잘못된 값 exit 1).
+     기존 scope 필터(--status/--tool/--project/--since/--until)를 **먼저** 적용한 뒤 group —
+     scope+group 자유 조합, 스코프가 전체를 걸러내면 no-match.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **430개 통과 + 1 skip**(core 291[+5: computeGroupedStats] + cli 136[+5:
+    renderGroupedStats·renderGroupedStatsJson][+1 skip] + dashboard 3). **실제 빌드 CLI e2e**(mock
+    아님): 4-job 스토어로 `--group-by tool`(claude-code 2/success 50%·codex-cli 2/success 100%)·
+    `-g project --json`(dimension/groups 구조)·`--tool codex-cli --group-by project`(scope→group
+    결합)·`--project doesnotexist -g tool`(no-match)·`--group-by nope`(exit 1) 확인.
+- 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연)
+  확장(👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).

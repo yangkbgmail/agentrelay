@@ -347,6 +347,22 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay stats --group-by tool|project` — 전체 집계가 아닌 툴별/프로젝트별로
+      지표를 분해(어떤 에이전트/코드베이스가 rate-limit을 가장 많이·오래 겪는가).
+      (완료 — `@agentrelay/core/stats.ts`에 순수 `computeGroupedStats(jobs, dimension)` +
+      `GroupDimension`(`"tool"`/`"project"`)·`StatGroup`(key+RelayStats)·`GroupedStats` 신설:
+      잡을 tool 또는 project로 버킷팅한 뒤 각 버킷에 기존 `computeStats`를 **재사용** —
+      그룹별 숫자가 전체 집계와 절대 드리프트 안 함, 각 그룹이 successRate·timing·retries를
+      모두 가진 full RelayStats. 그룹 정렬은 job수 desc·key asc(computeStats의 projects와 동일
+      ordering), 버킷 삽입 순서 보존. CLI `stats.ts`에 순수 `renderGroupedStats`(그룹별 압축
+      블록: total·active/terminal·success rate·retried·resolution median/p90/max·next reset,
+      resolution 라인은 그룹에 resolved 잡 있을 때만) + `renderGroupedStatsJson`(--json). `cli.ts`
+      `stats`에 `-g/--group-by <dimension>` 배선(tool/project 검증, 잘못된 값은 exit 1). scope
+      필터(--status/--tool/--project/--since/--until)를 **먼저** 적용한 뒤 group — scope+group
+      조합, 스코프가 전체를 걸러내면 NO_SCOPE_MATCH_MESSAGE. 새 core 5 + cli 5 테스트, 실제 빌드
+      CLI e2e로 tool/project 분해·JSON·scope 결합·잘못된 dimension exit 1 검증.
+      branch `claude/wizardly-pascal-vd04pd`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

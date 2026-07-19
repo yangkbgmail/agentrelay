@@ -1,11 +1,13 @@
 import type { RelayJob } from "@agentrelay/core";
-import { computeStats } from "@agentrelay/core";
+import { computeGroupedStats, computeStats } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
   formatDurationMs,
   formatSuccessRate,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
+  renderGroupedStats,
+  renderGroupedStatsJson,
   renderStats,
   renderStatsJson,
 } from "../src/stats.js";
@@ -175,5 +177,71 @@ describe("renderStats with a scope", () => {
     expect(renderStats(empty, { scopeNote: "project=nope" })).toBe(NO_SCOPE_MATCH_MESSAGE);
     // Without a scope, an empty store still shows the onboarding hint.
     expect(renderStats(empty)).toBe(NO_STATS_MESSAGE);
+  });
+});
+
+describe("renderGroupedStats", () => {
+  it("renders one block per group with a header count", () => {
+    const jobs = [
+      job({ tool: "claude-code", status: "completed" }),
+      job({ tool: "claude-code", status: "failed" }),
+      job({ tool: "codex-cli", status: "completed" }),
+    ];
+    const grouped = computeGroupedStats(jobs, "tool");
+    const out = renderGroupedStats(grouped, { now: NOW });
+    expect(out).toContain("by tool (2 group(s))");
+    expect(out).toContain("claude-code");
+    expect(out).toContain("codex-cli");
+    // claude-code group: 1/2 resolved success, one retry column present.
+    expect(out).toContain("success rate: 50%");
+  });
+
+  it("shows the onboarding hint for an empty store, no-match when scoped", () => {
+    const empty = computeGroupedStats([], "project");
+    expect(renderGroupedStats(empty)).toBe(NO_STATS_MESSAGE);
+    expect(renderGroupedStats(empty, { scopeNote: "project=nope" })).toBe(NO_SCOPE_MATCH_MESSAGE);
+  });
+
+  it("renders a per-group resolution line only when the group has resolved jobs", () => {
+    const grouped = computeGroupedStats(
+      [
+        job({
+          project: "web",
+          status: "completed",
+          createdAt: "2026-07-12T00:00:00.000Z",
+          updatedAt: "2026-07-12T02:00:00.000Z",
+        }),
+        job({ project: "api", status: "queued" }),
+      ],
+      "project"
+    );
+    const out = renderGroupedStats(grouped, { now: NOW });
+    // Groups tie at 1 job → key asc: "api" block first, then "web".
+    const apiBlock = out.slice(out.indexOf("api"), out.indexOf("web"));
+    const webBlock = out.slice(out.indexOf("web"));
+    // web resolved → has a resolution line; api (queued only) → no resolution line.
+    expect(webBlock).toContain("resolution: median");
+    expect(apiBlock).not.toContain("resolution: median");
+  });
+});
+
+describe("renderGroupedStatsJson", () => {
+  it("emits the grouped breakdown and echoes an active scope", () => {
+    const grouped = computeGroupedStats([job({ project: "demo" })], "project");
+    const out = JSON.parse(
+      renderGroupedStatsJson(grouped, "/store/jobs.json", {
+        generatedAt: "2026-07-13T00:00:00.000Z",
+        scope: { projects: ["demo"] },
+      })
+    );
+    expect(out.grouped.dimension).toBe("project");
+    expect(out.grouped.groups[0].key).toBe("demo");
+    expect(out.scope).toEqual({ projects: ["demo"] });
+  });
+
+  it("omits an inactive (empty) scope", () => {
+    const grouped = computeGroupedStats([job()], "tool");
+    const out = JSON.parse(renderGroupedStatsJson(grouped, "/store/jobs.json", { generatedAt: "x", scope: {} }));
+    expect(out.scope).toBeUndefined();
   });
 });

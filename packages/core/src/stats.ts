@@ -246,3 +246,50 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     timing,
   };
 }
+
+/** Dimension a job list can be split on for a per-group stats breakdown. */
+export type GroupDimension = "tool" | "project";
+
+/** One group's key plus the full {@link RelayStats} computed over its jobs. */
+export interface StatGroup {
+  /** The tool name or project name that identifies this group. */
+  key: string;
+  /** Full metrics for just this group's jobs — same shape as the overall stats. */
+  stats: RelayStats;
+}
+
+/**
+ * A per-group breakdown of {@link computeStats}. Splitting on `tool` answers
+ * "which agent gets rate-limited most / resolves slowest", on `project`
+ * "which codebase eats the most relay time". Each group carries a complete
+ * {@link RelayStats} so callers get success rate, timing, and retries per group.
+ */
+export interface GroupedStats {
+  dimension: GroupDimension;
+  /** Groups ordered by job count (desc), ties broken by key (asc). */
+  groups: StatGroup[];
+}
+
+/**
+ * Buckets a job list by `tool` or `project` and computes a full
+ * {@link RelayStats} per bucket. Pure and non-mutating: reuses
+ * {@link computeStats} for each group so a group's numbers never drift from the
+ * overall ones. Groups are ranked by job count (desc), ties broken by key (asc)
+ * — the same ordering `computeStats` uses for its `projects` list. Insertion
+ * order into buckets is preserved so per-group timing/next-reset stay stable.
+ */
+export function computeGroupedStats(jobs: RelayJob[], dimension: GroupDimension): GroupedStats {
+  const buckets = new Map<string, RelayJob[]>();
+  for (const job of jobs) {
+    const key = dimension === "tool" ? job.tool : job.project;
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(job);
+    else buckets.set(key, [job]);
+  }
+
+  const groups: StatGroup[] = [...buckets.entries()]
+    .map(([key, groupJobs]) => ({ key, stats: computeStats(groupJobs) }))
+    .sort((a, b) => (b.stats.total !== a.stats.total ? b.stats.total - a.stats.total : a.key.localeCompare(b.key)));
+
+  return { dimension, groups };
+}
