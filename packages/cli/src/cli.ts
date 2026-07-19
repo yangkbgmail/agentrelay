@@ -1,19 +1,24 @@
-import type { AgentTool, JobStatus } from "@agentrelay/core";
-import { computeStats, parseDuration } from "@agentrelay/core";
+import type { AgentTool, ExportFormat, JobStatus } from "@agentrelay/core";
+import { computeStats, EXPORT_FORMATS, parseDuration } from "@agentrelay/core";
 import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
+  backupStore,
   cancelJob,
+  exportStore,
   initConfig,
   listStatus,
+  listStoreBackups,
   pruneJobs,
   retryJob,
   runCommand,
+  showJob,
   startDaemon,
   tickOnce,
   validateConfigFile,
 } from "./commands.js";
 import { defaultStorePath } from "./config.js";
+import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import { renderStats, renderStatsJson } from "./stats.js";
 import {
   type JobSelection,
@@ -181,6 +186,79 @@ export function buildCli(): Command {
       console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY) }));
     });
 
+  program
+    .command("export")
+    .description("Export the job store to CSV or JSON for spreadsheets/BI/jq (stdout or a file)")
+    .option("-f, --format <format>", `Output format: ${EXPORT_FORMATS.join(" | ")}`, "csv")
+    .option("-o, --out <file>", "Write to this file instead of stdout")
+    .option("-s, --status <statuses>", "Only export jobs with these comma-separated statuses (e.g. completed,failed)")
+    .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
+    .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
+    .action((opts: { format?: string; out?: string; status?: string; sort?: string; reverse?: boolean }) => {
+      const { store } = program.opts();
+
+      const format = (opts.format ?? "csv").toLowerCase();
+      if (!EXPORT_FORMATS.includes(format as ExportFormat)) {
+        console.error(`Unknown --format "${opts.format}". Valid: ${EXPORT_FORMATS.join(", ")}.`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const selection: JobSelection = { reverse: opts.reverse };
+
+      if (opts.status !== undefined) {
+        const requested = opts.status
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+        const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
+        if (invalid.length > 0) {
+          console.error(`Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.`);
+          process.exitCode = 1;
+          return;
+        }
+        selection.statuses = requested as JobStatus[];
+      }
+
+      if (opts.sort !== undefined) {
+        if (!SORT_FIELDS.includes(opts.sort as SortField)) {
+          console.error(`Unknown --sort field "${opts.sort}". Valid: ${SORT_FIELDS.join(", ")}.`);
+          process.exitCode = 1;
+          return;
+        }
+        selection.sort = opts.sort as SortField;
+      }
+
+      const jobs = selectJobs(listStatus(store), selection);
+      const result = exportStore({ storePath: store, format: format as ExportFormat, jobs, outPath: opts.out });
+      if (result.writtenTo) {
+        // Keep stdout clean for redirection; status goes to stderr.
+        console.error(`[agentrelay] exported ${result.count} job(s) to ${result.writtenTo}`);
+      } else {
+        console.log(result.content);
+      }
+    });
+
+  program
+    .command("show")
+    .description("Show full details for one job: command, cwd, timestamps, last error, and captured output")
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .option("--json", "Print the job as JSON (machine-readable, for scripts/jq)")
+    .action((id: string, opts: { json?: boolean }) => {
+      const { store } = program.opts();
+      const result = showJob(id, store);
+      if (!result.ok || !result.job) {
+        console.error(`[agentrelay] ${result.error ?? "job not found"}`);
+        process.exitCode = 1;
+        return;
+      }
+      if (opts.json) {
+        console.log(renderJobDetailJson(result.job, store));
+        return;
+      }
+      console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
+    });
+
   const config = program.command("config").description("Manage the agentrelay.config.json defaults file");
   config
     .command("init")
@@ -243,6 +321,45 @@ export function buildCli(): Command {
       const result = retryJob(id, store);
       console.log(`[agentrelay] ${result.message}`);
       if (!result.ok) process.exitCode = 1;
+    });
+
+  program
+    .command("backup")
+    .description("Write a timestamped snapshot of the job store and rotate old ones")
+    .option("--keep <n>", "How many recent snapshots to keep after this one (default: 10)")
+    .option("--list", "List existing snapshots instead of creating one")
+    .action((opts: { keep?: string; list?: boolean }) => {
+      const { store } = program.opts();
+
+      if (opts.list) {
+        const backups = listStoreBackups(store);
+        if (backups.length === 0) {
+          console.log(`No snapshots found for ${store}.`);
+          return;
+        }
+        console.log(`${backups.length} snapshot(s) for ${store} (newest first):`);
+        for (const b of backups) {
+          console.log(`  ${b.path}`);
+        }
+        return;
+      }
+
+      let keepLast: number | undefined;
+      if (opts.keep !== undefined) {
+        const n = Number.parseInt(opts.keep, 10);
+        if (!Number.isInteger(n) || n < 0) {
+          console.error(`Invalid --keep value "${opts.keep}". Use a non-negative integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        keepLast = n;
+      }
+
+      const result = backupStore({ storePath: store, keepLast });
+      console.log(`[agentrelay] Wrote snapshot of ${result.jobCount} job(s) to ${result.path}.`);
+      if (result.rotated.length > 0) {
+        console.log(`[agentrelay] Rotated out ${result.rotated.length} old snapshot(s).`);
+      }
     });
 
   program

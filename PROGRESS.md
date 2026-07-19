@@ -540,3 +540,104 @@
     7200000·`p90ResolutionMs` 18720000을 정확히 전달함을 확인.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing(백분위수 포함)/설정 파일 노출
   (👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), 스토어 자동 백업 로테이션(👷 후보).
+
+### [세션 19 — 스토어 백업 + 로테이션(`agentrelay backup`)] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 0개, main=현재 브랜치 동일(중복/누적 없음). BACKLOG의 명시적 👷
+  항목은 전부 완료라, 세션 14/17/18이 반복 남긴 "다음 할 일 👷 후보" 중 **스토어 자동 백업
+  로테이션**을 골랐다. 세션 14(손상 스토어 보존/복구)의 안전 테마를 잇는 항목 — 로컬 우선 도구의
+  유일한 데이터인 `jobs.json`을 위험한 작업(대량 prune·수동 편집·업그레이드) 전에 시점 스냅샷으로
+  지키고, 무한 증가는 로테이션으로 막는다.
+- 한 일 (branch `claude/wizardly-pascal-283n3i`):
+  1. `@agentrelay/core/backup.ts` 신설(순수 헬퍼만) — `backupFilePath`(fs-safe·정렬가능 ISO
+     타임스탬프 `jobs.json.backup-<ts>`, ISO 8601이 고정폭 zero-pad라 사전순==시간순),
+     `backupStamp`(이 스토어의 `.backup-*`만 스탬프 추출 — `.corrupt-`/`.tmp-`/원본은 null로 배제),
+     `listBackups`(최신순 desc 정렬), `selectRotatableBackups`(newest `keepLast` 보존, 나머지 삭제
+     대상 반환; `keepLast≤0`은 전부, 소수 floor). `BackupResult`/`BACKUP_INFIX`/`DEFAULT_BACKUP_KEEP`(10).
+  2. `RelayQueue.backup({keepLast,now})` — 현재 온-디스크 상태를 **원자적**(`.tmp-backup-*` temp+rename)
+     으로 `.backup-<ts>`에 스냅샷(빈 스토어도 유효한 `[]`) 후 `selectRotatableBackups`로 이 스토어의
+     `.backup-*`만 로테이션. **원본/`.corrupt-`/`.tmp-`는 절대 안 건드림**(distinct infix), 방금 만든
+     스냅샷은 `full===dest` 가드로 `keepLast:0`에서도 보존, unlink 실패는 삼켜 릴레이 루프 보호.
+  3. CLI `packages/cli/src/commands.ts`에 `backupStore`(래퍼)·`listStoreBackups`(디렉터리 스캔→최신순,
+     읽기 실패는 빈 배열). `cli.ts`에 `agentrelay backup [--keep N] [--list]` — `--list`는 생성 대신
+     기존 스냅샷 나열, `--keep`은 비음수 정수 검증(exit 1), 생성 시 job 수·로테이션 수 보고.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **244개 전부 통과**(core 185 + cli 56 + dashboard 3 — core backup 9[순수 4 + queue 5] +
+    CLI backupStore/listStoreBackups 2 신규). **실제 빌드된 CLI e2e**(mock 아님): rate-limit 잡 1개
+    큐잉 → `backup --list`가 "No snapshots" → `backup`이 1-job 스냅샷 작성 → `backup --keep 1`이 2번째
+    작성 + 이전 1개 로테이션 → `--list`가 최신 1개만 표시 → `--keep -3`은 error+exit 1 → 디스크에
+    원본 `jobs.json` + 최신 백업 1개만 잔존 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), `agentrelay restore <snapshot>`으로 스냅샷 복원(👷 후보),
+  대시보드가 timing/설정 파일 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보).
+
+### [세션 20 — `agentrelay export` (CSV/JSON 내보내기)] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 0개, main=현재 브랜치 동일(중복/누적 없음). BACKLOG §8의 👷
+  항목이 모두 완료 상태여서, CLAUDE.md 지침대로 새 개선 항목을 발굴했다. `stats`(집계)·
+  대시보드(실시간)는 있었지만 잡별 원본 이력을 스프레드시트/BI/`jq`로 빼낼 방법이 없었다 —
+  잡 1건당 1행(row)의 평면 export가 그 갭을 메운다.
+- 한 일 (branch `claude/wizardly-pascal-cjcfb7`):
+  1. `@agentrelay/core/export.ts` 신설(순수, 파일시스템 미접촉): RFC 4180 `escapeCsvField`
+     (콤마/쌍따옴표/개행 포함 시 인용·내부 따옴표 이중화), `JOB_CSV_COLUMNS`(사람이 실제로
+     필터/정렬하는 필드 순서), `jobCsvValue`(command는 가독성 위해 공백 조인, null은 빈 문자열),
+     `jobsToCsv`(헤더+행, 빈 스토어도 헤더 유지, LF·trailing newline 없음), `jobsToJson`
+     (2-스페이스 pretty, command 배열까지 무손실 왕복), `EXPORT_FORMATS`/`exportJobs` 디스패처.
+     CSV=평면·가독, JSON=정확·무손실로 역할 분리. index.ts에 재노출.
+  2. CLI: `commands.ts`에 `exportStore`(스토어 읽기+선택적 파일 쓰기만 담당, 나머지는 core
+     순수 함수 위임; 파일 쓰기는 POSIX 관례로 trailing newline 부착, 반환 content는 그대로).
+     `cli.ts`에 `agentrelay export` 커맨드 배선: `-f/--format csv|json`, `-o/--out <file>`,
+     `-s/--status`·`--sort`·`-r/--reverse`(status 커맨드의 `selectJobs` 재사용). 파일 출력 시
+     상태 메시지는 stderr로(리다이렉트용 stdout 청정 유지), 잘못된 format/status/sort는 exit 1.
+  - 검증: `pnpm build` 클린, `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+    **256개 전부 통과**(core 194 + cli 59 + dashboard 3 — core에 export 순수함수 22케이스,
+    cli에 exportStore 5케이스 신규). **실제 빌드된 CLI e2e**(mock 아님): `alpha,inc`·
+    `refactor, please` 시드 잡으로 CSV가 두 필드를 정확히 인용부호 처리, `-f json`이 command
+    배열 보존, `-o out/report.csv`가 2 job(s) 리포트 + 파일 생성, `-f xml`은 exit 1 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing(백분위수 포함)/설정 파일 노출
+  (👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), 스토어 자동 백업 로테이션(👷 후보).
+
+### [세션 21 — `agentrelay show <id>`] (2026-07-18, 무인 자율 세션)
+- 배경: 세션 시작 시 내 브랜치=main(PR #40 병합 완료, 누적 없음), 열린 👷 PR 0개. BACKLOG의
+  👷 항목이 전부 [완료]라 CLAUDE.md 지침대로 신규 개선 항목을 스스로 발굴. `status` 테이블은
+  큐 전체를 8자 id·잘린 project로 **요약**만 해, 실패한 job의 전체 명령어·cwd·에러 메시지·
+  출력 tail을 확인할 방법이 없는 갭을 골랐다.
+- 한 일 (branch `claude/wizardly-pascal-y5jh3b`):
+  1. `packages/cli/src/show.ts` 신설 — 순수 `renderJobDetail(job, {now,color})`: 전체 id·
+     project·tool·status(색상)·읽기 좋은 command 라인·cwd·created/updated(라이프사이클 span
+     주석)·resets in(카운트다운+절대시각)·attempts를 라벨 정렬 블록으로, `lastError`/
+     `lastOutputTail`은 값이 있을 때만 별도 섹션으로 렌더. `formatCommand`는 공백·따옴표·빈
+     인자를 안전 인용(복붙 가능한 에코, 재실행용 아님). `renderJobDetailJson`은 --json 스냅샷.
+     기존 `formatCountdown`(status)·`formatDurationMs`(stats) 재사용.
+  2. `commands.ts`에 read-only `showJob(idOrPrefix, store)` — `resolveJobId` 재사용으로 짧은
+     prefix·모호/미존재를 cancel/retry와 동일하게 처리, 스토어를 전혀 변경하지 않음.
+  3. CLI `agentrelay show <id> [--json]` 배선(cli.ts). 미존재/모호 id는 stderr+exit 1.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **244개 전부 통과**(core 173 + cli 68 + dashboard 3 — show.test 12 + showJob 2
+    신규). **실제 빌드된 CLI e2e**(mock 아님): `run`으로 rate-limit job을 큐잉 → `show <8자
+    prefix>`가 전체 상세(따옴표 포함 command 라인·카운트다운) 렌더 → `--json`이 기계 판독
+    스냅샷 → 미존재 id는 "no job matches" + exit 1까지 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), stats 대기시간(대기→재개 지연) 지표(👷 후보),
+  대시보드가 job 상세/설정 파일 노출(👷 후보), 스토어 자동 백업 로테이션(👷 후보).
+
+### [세션 22 — 누적 중복 PR 통합(#45·#44·#41) + 백업 중복 #43 정리] (2026-07-18, 무인 자율 세션)
+- **핵심: 다시 쌓인 열린 PR 5개를 통합·정리해 중복 루프를 끊었다.** 세션 시작 시 열린 PR이
+  #41·#43·#44·#45 4건이었는데, 그중 **#43·#45가 둘 다 `agentrelay backup`(스토어 스냅샷+
+  로테이션) 동일 기능의 중복 구현**이었다. main 브랜치 보호로 병합이 밀리면 매시간 무기억
+  세션이 같은 후보를 반복 구현하는 고질적 패턴(세션 3·8·10·16에서도 발생). COLLAB.md 병합
+  정책("CI 초록이면 클로드 코드가 통합 가능")에 근거해 정리했다.
+- 한 일 (branch `claude/wizardly-pascal-v4vb19`): 고유한 3개 기능의 커밋을 **cherry-pick(-x)으로
+  내 브랜치에 통합**(다른 브랜치엔 push 안 함)하고 cli.ts/commands.ts/PROGRESS.md 충돌을 해소:
+  1. **#45(스토어 백업+로테이션 `agentrelay backup`)** — 백업 중복 2건 중 더 완성도 높은 버전을
+     채택. `@agentrelay/core/backup.ts`(순수 헬퍼) + `RelayQueue.backup()`(원자적 스냅샷+newest-N
+     로테이션, 원본/`.corrupt-`/`.tmp-` 미접촉) + `backup [--keep N] [--list]`. #43(`.bak-` infix,
+     CLI 레벨 구현)은 동일 기능 중복이라 채택 안 함.
+  2. **#44(`agentrelay export` CSV/JSON)** — 잡 이력을 스프레드시트/BI/jq로 빼내는 평면 export.
+     `@agentrelay/core/export.ts`(RFC 4180) + `export [-f csv|json] [-o file] [-s/--sort/-r]`.
+  3. **#41(`agentrelay show <id>`)** — 단일 job 전체 상세(command·cwd·에러·출력 tail·카운트다운).
+     `packages/cli/src/show.ts` + read-only `showJob`(resolveJobId 재사용).
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **281개 전부 통과**(core 203 + cli 75 + dashboard 3). **실제 빌드된 CLI e2e**
+    (mock 아님): 시드 스토어로 `show <prefix>`가 인용 command·span 주석·출력 섹션 렌더 →
+    `export -f csv`가 `alpha,inc`·`refactor, please`를 RFC 4180 인용 → `export -f json`이 command
+    배열 무손실 왕복 → `backup` 후 `backup --keep 1`이 스냅샷 2개를 1개로 로테이션 확인.
+  - 정리: 통합 흡수된 #45·#44·#41과 백업 중복 #43은 사유 코멘트와 함께 닫는다(이 PR로 대체).
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크). 앞으로 무기억 세션은 **작업 시작 전 열린 PR을
+  먼저 확인**해 중복 구현 대신 통합을 우선할 것(backup·export·show는 이제 이 브랜치에 있음).

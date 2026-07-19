@@ -152,6 +152,16 @@
       리포트, error 있으면 exit 1(warning만이면 exit 0). `agentrelay config validate [path]` 서브커맨드.
       부수: bin.ts가 `config validate` 호출 시 startup `bootstrapConfig`(깨진 설정에 throw)를 건너뛰어,
       바로 그 깨진 파일을 진단할 수 있게 함. branch `claude/wizardly-pascal-kgd08a`)
+- [x] 👷 `agentrelay show <id>` — 단일 job 전체 상세(명령어·cwd·타임스탬프·에러·출력 tail).
+      (완료 — `status` 테이블은 큐 전체를 요약하느라 8자 id·잘린 project만 보여줘 개별 job을
+      깊게 들여다볼 방법이 없었다. `packages/cli/src/show.ts` 신설: 순수 `renderJobDetail(job,
+      {now,color})`(전체 id·project·tool·status[색상]·읽기 좋은 command 라인·cwd·created/updated
+      [라이프사이클 span 주석]·resets in[카운트다운+절대시각]·attempts, lastError/lastOutputTail은
+      있을 때만 블록 렌더) + `formatCommand`(공백·따옴표·빈 인자 안전 인용, 복붙 가능한 에코) +
+      `renderJobDetailJson`(--json). `commands.ts`에 read-only `showJob(idOrPrefix, store)` —
+      `resolveJobId` 재사용(짧은 prefix·모호/미존재 처리 cancel/retry와 동일), 스토어 불변.
+      CLI `agentrelay show <id> [--json]` 배선, 미존재/모호 id는 exit 1. show.test.ts 12케이스 +
+      commands.test.ts showJob 2케이스. branch `claude/wizardly-pascal-y5jh3b`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
@@ -164,6 +174,26 @@
       오름차순 정렬 → min/max는 양끝, median/p90은 `percentile`. resolved 0개면 둘 다 null.
       CLI `stats.ts` resolution-time 블록에 `median … p90 …` 라인, `--json`은 자동 노출.
       branch `claude/wizardly-pascal-yfv19e`)
+- [x] 👷 `agentrelay export` — 잡 이력을 CSV/JSON으로 내보내 스프레드시트/BI/`jq` 분석.
+      (완료 — `@agentrelay/core/export.ts` 신설(순수·파일시스템 미접촉): RFC 4180
+      `escapeCsvField`(콤마/쌍따옴표/개행 인용·따옴표 이중화), `JOB_CSV_COLUMNS`(필터·정렬용
+      필드 순서), `jobCsvValue`(command 공백 조인·null은 빈칸), `jobsToCsv`(빈 스토어도 헤더
+      유지, LF), `jobsToJson`(2-스페이스 pretty·command 배열까지 무손실 왕복), `EXPORT_FORMATS`/
+      `exportJobs` 디스패처. CSV=평면·가독, JSON=정확·무손실 역할 분리. CLI `commands.ts`
+      `exportStore`(스토어 읽기+선택적 파일 쓰기[trailing newline 부착]만, 나머지는 core 위임),
+      `cli.ts` `agentrelay export` 커맨드: `-f/--format csv|json`·`-o/--out`·`-s/--status`·
+      `--sort`·`-r/--reverse`(status의 `selectJobs` 재사용). 파일 출력 시 상태는 stderr(stdout
+      청정), 잘못된 format/status/sort는 exit 1. branch `claude/wizardly-pascal-cjcfb7`)
+
+- [x] 👷 스토어 백업 + 로테이션(`agentrelay backup`) — 유일한 데이터(`jobs.json`)의 시점 스냅샷.
+      (완료 — `@agentrelay/core/backup.ts` 신설: 순수 `backupFilePath`(fs-safe·정렬가능 ISO 타임스탬프
+      `jobs.json.backup-<ts>`)·`backupStamp`(이 스토어의 백업만 스탬프 추출, `.corrupt-`/`.tmp-`/원본
+      제외)·`listBackups`(최신순 정렬)·`selectRotatableBackups`(newest N 보존, 나머지 삭제 대상; keepLast≤0은
+      전부, 소수 floor) + `BackupResult`. `RelayQueue.backup({keepLast,now})`가 현재 온-디스크 상태를
+      원자적(temp+rename)으로 `.backup-<ts>`에 스냅샷(빈 스토어도 유효한 `[]`) 후 `.backup-*`만 로테이션 —
+      원본/`.corrupt-`/`.tmp-`는 절대 안 건드리고 방금 만든 스냅샷은 keepLast:0에서도 보존, 삭제 실패는
+      삼켜 릴레이 보호. CLI `agentrelay backup [--keep N] [--list]` + `backupStore`/`listStoreBackups`.
+      branch `claude/wizardly-pascal-283n3i`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

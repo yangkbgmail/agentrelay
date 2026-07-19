@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import type {
   AgentRelayConfig,
   AgentTool,
+  BackupResult,
   ConfigIssue,
   JobStatus,
   Notifier,
@@ -17,7 +18,10 @@ import {
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  type ExportFormat,
+  exportJobs,
   hasConfigErrors,
+  listBackups,
   notifiersFromEnv,
   parseConfig,
   RelayQueue,
@@ -272,6 +276,34 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
   }
 }
 
+export interface ShowJobResult {
+  /** True when exactly one job matched the given id/prefix. */
+  ok: boolean;
+  /** The resolved job (only when `ok`). */
+  job: RelayJob | null;
+  /** Present only when resolution failed — an explanatory message. */
+  error?: string;
+}
+
+/**
+ * Resolve a single job by full id or short prefix for `agentrelay show`, so
+ * the CLI can print its full detail block. Reuses {@link resolveJobId} for the
+ * same ambiguous/unknown handling `cancel`/`retry` give, but performs no
+ * mutation — it only reads the store.
+ */
+export function showJob(idOrPrefix: string, storePath?: string): ShowJobResult {
+  const queue = openQueue(storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { ok: false, job: null, error: resolved.error ?? "job not found" };
+    const job = jobs.find((j) => j.id === resolved.id) ?? null;
+    return { ok: true, job };
+  } finally {
+    queue.close();
+  }
+}
+
 export interface PruneJobsOptions extends PruneOptions {
   storePath?: string;
   dryRun?: boolean;
@@ -417,6 +449,91 @@ export function validateConfigFile(options: ConfigValidateOptions = {}): ConfigV
 
   const issues = validateConfig(config);
   return { ok: !hasConfigErrors(issues), path, issues };
+}
+
+export interface BackupStoreOptions {
+  storePath?: string;
+  /** How many recent snapshots to retain (default: core's DEFAULT_BACKUP_KEEP). */
+  keepLast?: number;
+}
+
+/**
+ * Writes a timestamped snapshot of the job store and rotates old snapshots.
+ * Thin wrapper over {@link RelayQueue.backup} that owns opening/closing the
+ * store, so the CLI (and tests) get a one-call entry point.
+ */
+export function backupStore(options: BackupStoreOptions = {}): BackupResult {
+  const queue = openQueue(options.storePath ?? defaultStorePath());
+  try {
+    return queue.backup({ keepLast: options.keepLast });
+  } finally {
+    queue.close();
+  }
+}
+
+export interface StoreBackupInfo {
+  /** Absolute path of the snapshot. */
+  path: string;
+  /** The snapshot's sortable timestamp infix (see core `backupStamp`). */
+  stamp: string;
+}
+
+/**
+ * Lists the store's existing snapshots (newest first) by scanning the store's
+ * directory for `<store>.backup-*` files. Reads no snapshot contents — just
+ * enumerates them for `agentrelay backup --list`. A missing/unreadable
+ * directory yields an empty list rather than throwing.
+ */
+export function listStoreBackups(storePath?: string): StoreBackupInfo[] {
+  const store = storePath ?? defaultStorePath();
+  const dir = dirname(store);
+  const storeName = basename(store);
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return listBackups(names, storeName).map((entry) => ({ path: join(dir, entry.name), stamp: entry.stamp }));
+}
+
+export interface ExportJobsOptions {
+  storePath?: string;
+  /** Serialization format. */
+  format: ExportFormat;
+  /** Already-selected jobs to serialize (filtered/sorted by the caller). If omitted, the whole store is read. */
+  jobs?: RelayJob[];
+  /** When set, write the output to this file (parent dirs created) instead of returning it for stdout. */
+  outPath?: string;
+}
+
+export interface ExportJobsResult {
+  /** The serialized payload. Always populated, even when also written to a file. */
+  content: string;
+  /** Number of jobs serialized. */
+  count: number;
+  /** Absolute path written to, or null when the caller should print to stdout. */
+  writtenTo: string | null;
+}
+
+/**
+ * Serialize the job store to CSV or JSON. The heavy lifting (escaping,
+ * column layout) lives in the pure `@agentrelay/core` `exportJobs`; this wrapper
+ * only handles the store read and optional file write so the CLI stays thin.
+ * A file write appends a trailing newline (POSIX text convention); the returned
+ * `content` is the exact serializer output without it.
+ */
+export function exportStore(options: ExportJobsOptions): ExportJobsResult {
+  const jobs = options.jobs ?? listStatus(options.storePath);
+  const content = exportJobs(jobs, options.format);
+  let writtenTo: string | null = null;
+  if (options.outPath) {
+    const path = resolve(process.cwd(), options.outPath);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${content}\n`, "utf8");
+    writtenTo = path;
+  }
+  return { content, count: jobs.length, writtenTo };
 }
 
 /** Statuses a job can legitimately be in — used to validate `--status` input. */
