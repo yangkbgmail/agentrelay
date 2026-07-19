@@ -375,4 +375,38 @@ describe("RelayScheduler", () => {
     expect(pruned[2].map((j) => j.id)).toEqual([c.id]);
     expect(queue.listAll()).toHaveLength(0);
   });
+
+  it("fires onTick after every tick with the reference time, even when nothing is due", async () => {
+    const seen: number[] = [];
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({}),
+      onTick: (referenceTime) => {
+        seen.push(referenceTime.getTime());
+      },
+    });
+
+    await scheduler.tick(new Date(1000));
+    await scheduler.tick(new Date(2000));
+
+    expect(seen).toEqual([1000, 2000]);
+  });
+
+  it("swallows an onTick error so the relay loop keeps running", async () => {
+    const job = queue.enqueue({ project: "p", tool: "claude-code", command: ["cmd"], cwd: dir });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString()); // due now
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({ cmd: "ok" }),
+      onTick: () => {
+        throw new Error("heartbeat write failed");
+      },
+    });
+
+    const processed = await scheduler.tick();
+    // The due job was still resumed despite the throwing hook.
+    expect(processed).toHaveLength(1);
+    expect(queue.getById(job.id)?.status).toBe("completed");
+  });
 });

@@ -48,6 +48,14 @@ export interface SchedulerOptions {
   autoPruneEveryTicks?: number;
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
+  /**
+   * Called at the end of every tick with the tick's reference time, whether or
+   * not any job was due. The daemon uses this to refresh its liveness heartbeat
+   * so `agentrelay doctor` can tell the resume loop is alive. Kept as a callback
+   * (not file I/O here) so the scheduler stays free of heartbeat-file concerns;
+   * any error it throws is swallowed so store maintenance can't break relaying.
+   */
+  onTick?: (referenceTime: Date) => void | Promise<void>;
 }
 
 /**
@@ -69,6 +77,7 @@ export class RelayScheduler {
   private lastPruneAtMs: number | null = null;
   private pruneTickCounter = 0;
   private onPrune?: (pruned: RelayJob[]) => void;
+  private onTick?: (referenceTime: Date) => void | Promise<void>;
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: SchedulerOptions) {
@@ -82,6 +91,7 @@ export class RelayScheduler {
     this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
     this.onPrune = options.onPrune;
+    this.onTick = options.onTick;
   }
 
   start() {
@@ -104,6 +114,15 @@ export class RelayScheduler {
       processed.push(await this.resume(job, referenceTime));
     }
     this.runAutoPrune(referenceTime);
+    // Refresh liveness last, so a heartbeat write reflects a fully completed
+    // tick. Best-effort: a failing hook must never stop the relay loop.
+    if (this.onTick) {
+      try {
+        await this.onTick(referenceTime);
+      } catch {
+        // Ignore — liveness bookkeeping is best-effort.
+      }
+    }
     return processed;
   }
 
