@@ -730,3 +730,26 @@
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), `stats --project`를 상위 프로젝트 랭킹과 연동한
   드릴다운(👷 후보), `status`에도 `--tool`/`--project` 필터 확장(👷 후보), 대시보드가 스코프 필터
   UI 노출(👷 후보).
+
+### [세션 25b — `agentrelay doctor` 셋업 건강 진단] (2026-07-19, 무인 자율 세션)
+- 배경: BACKLOG의 👷 항목이 전부 [완료] 상태 → CLAUDE.md "다 소진되면 스스로 새 개선 항목을
+  발굴" 지침대로 신규 항목을 발굴해 구현. 로컬 우선 CLI에서 "왜 릴레이가 안 도나?"를 한 번에
+  진단하는 `doctor`가 없어 사용자가 Node 버전·스토어·설정·알림을 따로 확인해야 했다.
+- 한 일: `agentrelay doctor [--json]` 신설.
+  1. `@agentrelay/core/doctor.ts` — 순수 판정 계층 `runDiagnostics(input)`: 파일시스템/env/시계를
+     만지지 않고 이미 수집된 사실만 ok/warning/error로 판정(단위 테스트 가능). 네 검사 —
+     node(`>=22.5` engines 하한, `parseNodeVersion`/`isSupportedNode`), store(corrupt=error·부재=OK·
+     활성 잡 수), config(loadError=error·`validateConfig` 결과 전달), notify(채널 0개=warning·공백 무시).
+     `DiagnosticReport`(checks·ok·counts) + `countActiveJobs` 헬퍼. index.ts 재노출.
+  2. CLI `commands.ts`의 `runDoctor` — 파일시스템+env 절반. 스토어 존재 여부를 큐 오픈 **전**에
+     캡처(corrupt가 부재로 오인되지 않게), config는 loadConfigFile+validateConfig, notify는 env에서
+     수집. 절대 throw 안 함(깨진 설정도 error 검사로 보고). `packages/cli/src/doctor.ts`에 순수
+     `renderDoctor`(색상 체크리스트+힌트+요약)·`renderDoctorJson`. `cli.ts`에 커맨드 배선, 실패 시 exit 1.
+  3. 부수: 타이밍 의존 flaky였던 export.test.ts의 순서 단언을 순서 무관으로 안정화(listAll이
+     createdAt 내림차순이라 같은 ms 삽입 시에만 통과하던 케이스).
+- 검증: `pnpm build` 클린, `pnpm ci:lint`(Biome) 0 경고/0 에러, `pnpm test` **342개 전부 통과**
+  (core doctor 25 + cli doctor 15 신규). **실제 빌드된 CLI e2e**: 정상 셋업(3 ok+notify warning,
+  exit 0), 손상 스토어(store error, exit 1), `--json` 출력, 알림 채널 설정 시 "notifications on via
+  Slack"까지 확인.
+- 다음 할 일: `doctor`에 검사 추가 후보(디스크 쓰기 권한·데몬 실행 여부·어댑터 바이너리 PATH 확인),
+  README/ARCHITECTURE(🧭 코워크), stats 평균 대기시간 확장(👷 후보).
