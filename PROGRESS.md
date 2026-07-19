@@ -882,3 +882,25 @@
     (해석 절대경로 표시) + exit 0, 대기 잡 없으면 "no queued jobs … no agent binary to check" OK.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), `doctor`에 디스크 쓰기 권한·데몬 실행 여부 검사 추가(👷
   후보), 대시보드가 timing/설정 파일 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보).
+
+### [세션 28 — export 스코프 필터 확장(`--tool`/`--project`/`--since`/`--until`)] (2026-07-19, 무인 자율 세션)
+- **먼저 열린 PR #57 통합으로 중복 루프 차단.** 세션 시작 시 CI 초록·`mergeable_state:clean`이던
+  #57(doctor 어댑터 바이너리 PATH 검사)을 COLLAB 병합 정책("CI 초록이면 클로드 코드가 병합 가능")에
+  따라 main에 병합(1e4a4c8). 그 위 최신 main에서 브랜치를 리셋해 작업.
+- **한 일: `agentrelay export`에 stats·status와 동일한 스코프/시간 창 필터를 확장.**
+  기존 export는 `--status`/`--sort`/`--reverse`만 지원해, 특정 툴·프로젝트·기간의 잡 부분집합만
+  CSV/JSON으로 내보낼 수 없었다. CLI `cli.ts`의 export 액션에:
+  1. `-t/--tool`·`-p/--project` — 공용 `splitList` + `selectJobs`의 tools/projects 재사용
+     (잘못된 tool은 `ALL_TOOLS` 검증 후 exit 1).
+  2. `--since`/`--until` — `now−기간`으로 `createdFrom`/`createdTo` 산출(기존 `parseDuration` 재사용),
+     빈 범위(since<until)·파싱 불가 기간은 exit 1.
+  필터 적용 순서는 **시간 창(core `scopeJobs`) → status/tool/project/sort/reverse(`selectJobs`)**로,
+  stats의 "창→선택" 의미와 정확히 일치. 새 core 코드는 0줄 — 전부 기존에 검증된 순수 함수 재사용.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 에러**,
+    `pnpm test` **383개 전부 통과**(core 262 + cli 118 + dashboard 3 — export.test.ts에 조합
+    파이프라인 회귀 2케이스 추가: `--tool`만 / `--since`+`--tool` 창→선택). **실제 빌드된 CLI e2e**
+    (mock 아님): 3-job(web×claude / api×codex / web×codex) 스토어로 `export`(3행)·`--tool codex-cli`
+    (2행)·`--project web --tool codex-cli`(AND 1행)·`--since 24h`(최근 web만)·`--since bogus`(exit 1)·
+    `--tool bogus`(exit 1)·`--since 1d --until 7d`(빈 범위 exit 1) 확인.
+- 다음 할 일: 대시보드가 스코프/시간 창 필터 UI 노출(👷 후보), stats 대기시간(대기→재개 지연) 지표
+  (👷 후보 — 단 현재 RelayJob에 중간 타임스탬프가 없어 스키마 확장 필요), README/ARCHITECTURE(🧭 코워크).

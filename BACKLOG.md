@@ -293,6 +293,18 @@
       core doctor 6 + cli doctor 3 신규 테스트, 실제 빌드 CLI e2e로 PATH 부재→error/존재→ok 검증.
       branch `claude/wizardly-pascal-66cnzs`)
 
+- [x] 👷 `agentrelay export` 스코프 필터 확장(`--tool`/`--project`/`--since`/`--until`) — `stats`·`status`와
+      동일한 부분집합·시간 창 필터를 export에도 제공해, 스코프한 그대로 CSV/JSON으로 내보내기.
+      (완료 — 기존 export는 `--status`/`--sort`/`--reverse`만 지원해 특정 툴·프로젝트·기간의 잡만
+      내보낼 수 없었다. CLI `cli.ts`의 export 액션에 `-t/--tool`·`-p/--project`(공용 `splitList` +
+      `selectJobs`의 tools/projects 재사용)와 `--since`/`--until`(now−기간=createdFrom/createdTo,
+      기존 `parseDuration` 재사용) 배선. 시간 창은 core `scopeJobs`로 **먼저** 필터한 뒤
+      status/tool/project/sort/reverse를 `selectJobs`로 적용(선정렬 후 창 아님 — 창→선택 순서로
+      stats와 동일 의미). 잘못된 tool/status/sort·파싱 불가 기간·빈 범위(since<until)는 exit 1.
+      순수 로직은 전부 기존에 검증된 `selectJobs`(status.ts)·`scopeJobs`(stats.ts) 재사용이라 새
+      core 코드 0줄, export.test.ts에 조합 파이프라인 회귀 2케이스 추가 + 빌드된 CLI e2e로
+      tool/project AND·시간 창·에러 exit 검증. branch `claude/wizardly-pascal-xqzyk6`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

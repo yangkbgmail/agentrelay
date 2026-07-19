@@ -341,52 +341,122 @@ export function buildCli(): Command {
     .option("-f, --format <format>", `Output format: ${EXPORT_FORMATS.join(" | ")}`, "csv")
     .option("-o, --out <file>", "Write to this file instead of stdout")
     .option("-s, --status <statuses>", "Only export jobs with these comma-separated statuses (e.g. completed,failed)")
+    .option("-t, --tool <tools>", `Only export jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only export jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only export jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only export jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
     .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
-    .action((opts: { format?: string; out?: string; status?: string; sort?: string; reverse?: boolean }) => {
-      const { store } = program.opts();
+    .action(
+      (opts: {
+        format?: string;
+        out?: string;
+        status?: string;
+        tool?: string;
+        project?: string;
+        since?: string;
+        until?: string;
+        sort?: string;
+        reverse?: boolean;
+      }) => {
+        const { store } = program.opts();
 
-      const format = (opts.format ?? "csv").toLowerCase();
-      if (!EXPORT_FORMATS.includes(format as ExportFormat)) {
-        console.error(`Unknown --format "${opts.format}". Valid: ${EXPORT_FORMATS.join(", ")}.`);
-        process.exitCode = 1;
-        return;
-      }
-
-      const selection: JobSelection = { reverse: opts.reverse };
-
-      if (opts.status !== undefined) {
-        const requested = opts.status
-          .split(",")
-          .map((s) => s.trim())
-          .filter((s) => s.length > 0);
-        const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
-        if (invalid.length > 0) {
-          console.error(`Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.`);
+        const format = (opts.format ?? "csv").toLowerCase();
+        if (!EXPORT_FORMATS.includes(format as ExportFormat)) {
+          console.error(`Unknown --format "${opts.format}". Valid: ${EXPORT_FORMATS.join(", ")}.`);
           process.exitCode = 1;
           return;
         }
-        selection.statuses = requested as JobStatus[];
-      }
 
-      if (opts.sort !== undefined) {
-        if (!SORT_FIELDS.includes(opts.sort as SortField)) {
-          console.error(`Unknown --sort field "${opts.sort}". Valid: ${SORT_FIELDS.join(", ")}.`);
+        // status/tool/project/sort/reverse go through selectJobs (which also sorts);
+        // the --since/--until time window uses core scopeJobs, applied first.
+        const selection: JobSelection = { reverse: opts.reverse };
+
+        if (opts.status !== undefined) {
+          const requested = splitList(opts.status);
+          const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
+          if (invalid.length > 0) {
+            console.error(`Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          selection.statuses = requested as JobStatus[];
+        }
+
+        if (opts.tool !== undefined) {
+          const requested = splitList(opts.tool);
+          const invalid = requested.filter((t) => !ALL_TOOLS.includes(t as AgentTool));
+          if (invalid.length > 0) {
+            console.error(`Unknown tool(s): ${invalid.join(", ")}. Valid: ${ALL_TOOLS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          selection.tools = requested;
+        }
+
+        if (opts.project !== undefined) {
+          const requested = splitList(opts.project);
+          if (requested.length === 0) {
+            console.error("--project needs at least one project name.");
+            process.exitCode = 1;
+            return;
+          }
+          selection.projects = requested;
+        }
+
+        if (opts.sort !== undefined) {
+          if (!SORT_FIELDS.includes(opts.sort as SortField)) {
+            console.error(`Unknown --sort field "${opts.sort}". Valid: ${SORT_FIELDS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          selection.sort = opts.sort as SortField;
+        }
+
+        // Time window: --since/--until are "N ago" durations relative to now, so
+        // `--since 7d --until 1d` scopes to jobs created between 7 and 1 days ago.
+        const now = Date.now();
+        const window: JobScope = {};
+        if (opts.since !== undefined) {
+          const ms = parseDuration(opts.since);
+          if (ms === null) {
+            console.error(`Invalid --since duration: "${opts.since}". Use e.g. 24h, 7d, 30m, 90s.`);
+            process.exitCode = 1;
+            return;
+          }
+          window.createdFrom = now - ms;
+        }
+        if (opts.until !== undefined) {
+          const ms = parseDuration(opts.until);
+          if (ms === null) {
+            console.error(`Invalid --until duration: "${opts.until}". Use e.g. 24h, 7d, 30m, 90s.`);
+            process.exitCode = 1;
+            return;
+          }
+          window.createdTo = now - ms;
+        }
+        if (
+          window.createdFrom !== undefined &&
+          window.createdTo !== undefined &&
+          window.createdFrom > window.createdTo
+        ) {
+          console.error("--since must be a longer window than --until (empty range otherwise).");
           process.exitCode = 1;
           return;
         }
-        selection.sort = opts.sort as SortField;
-      }
 
-      const jobs = selectJobs(listStatus(store), selection);
-      const result = exportStore({ storePath: store, format: format as ExportFormat, jobs, outPath: opts.out });
-      if (result.writtenTo) {
-        // Keep stdout clean for redirection; status goes to stderr.
-        console.error(`[agentrelay] exported ${result.count} job(s) to ${result.writtenTo}`);
-      } else {
-        console.log(result.content);
+        const all = listStatus(store);
+        const windowed = isJobScopeActive(window) ? scopeJobs(all, window) : all;
+        const jobs = selectJobs(windowed, selection);
+        const result = exportStore({ storePath: store, format: format as ExportFormat, jobs, outPath: opts.out });
+        if (result.writtenTo) {
+          // Keep stdout clean for redirection; status goes to stderr.
+          console.error(`[agentrelay] exported ${result.count} job(s) to ${result.writtenTo}`);
+        } else {
+          console.log(result.content);
+        }
       }
-    });
+    );
 
   program
     .command("show")
