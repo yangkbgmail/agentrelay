@@ -61,6 +61,10 @@ const COMPARATORS: Record<SortField, (a: RelayJob, b: RelayJob) => number> = {
 export interface JobSelection {
   /** Keep only jobs whose status is in this set (empty/undefined = all). */
   statuses?: JobStatus[];
+  /** Keep only jobs whose tool is in this set (matched as raw strings; empty/undefined = all). */
+  tools?: string[];
+  /** Keep only jobs whose project is in this set (exact match; empty/undefined = all). */
+  projects?: string[];
   /** Sort field. When omitted, the store's own order (newest first) is kept. */
   sort?: SortField;
   /** Reverse the final order (flips the sort, or the store order if no sort). */
@@ -68,7 +72,8 @@ export interface JobSelection {
 }
 
 /**
- * Applies a `--status`/`--sort`/`--reverse` selection to a job list. Pure and
+ * Applies a `--status`/`--tool`/`--project`/`--sort`/`--reverse` selection to a
+ * job list. Filters AND across dimensions (OR within one). Pure and
  * non-mutating: always returns a fresh array so callers (one-shot, `--json`,
  * live `--watch`) can share one code path. Sorting is stable — ties keep their
  * original store order via an index fallback.
@@ -79,6 +84,16 @@ export function selectJobs(jobs: RelayJob[], selection: JobSelection = {}): Rela
   if (selection.statuses && selection.statuses.length > 0) {
     const wanted = new Set(selection.statuses);
     result = result.filter((job) => wanted.has(job.status));
+  }
+
+  if (selection.tools && selection.tools.length > 0) {
+    const wanted = new Set(selection.tools);
+    result = result.filter((job) => wanted.has(job.tool));
+  }
+
+  if (selection.projects && selection.projects.length > 0) {
+    const wanted = new Set(selection.projects);
+    result = result.filter((job) => wanted.has(job.project));
   }
 
   if (selection.sort) {

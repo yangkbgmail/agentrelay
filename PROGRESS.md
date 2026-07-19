@@ -730,3 +730,22 @@
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), `stats --project`를 상위 프로젝트 랭킹과 연동한
   드릴다운(👷 후보), `status`에도 `--tool`/`--project` 필터 확장(👷 후보), 대시보드가 스코프 필터
   UI 노출(👷 후보).
+
+### [세션 26 — `agentrelay status` 필터 확장(--tool/--project)] (2026-07-19, 무인 자율 세션)
+- 한 일: `status`는 지금까지 `--status`만 필터할 수 있어, `stats`가 이미 갖춘 `--tool`/`--project`
+  스코프와 CLI 표면이 어긋나 있었다. 이번에 `status`도 툴·프로젝트로 좁혀볼 수 있게 정렬을 맞췄다.
+  1. `packages/cli/src/status.ts`의 `JobSelection`에 `tools?`/`projects?` 추가 + `selectJobs`가
+     두 차원을 `Set` 기반으로 필터. 차원 간 AND·차원 내 OR, 미지정 차원은 필터 안 함. tool은 원시
+     문자열로 매칭해 미지 tool 문자열도 정확히 필터. 순수·비파괴 계약 유지(항상 새 배열 반환).
+  2. CLI `status`에 `-t/--tool`·`-p/--project` 옵션 배선. 공용 `splitList` 헬퍼 재사용(기존 인라인
+     `--status` 파싱도 이 헬퍼로 정리), 잘못된 tool은 `stats`와 동일한 `Unknown tool(s)` 에러 +
+     exit 1, 빈 `--project`는 에러. 일회성·`--json`·`--watch` 세 뷰 모두 동일 selection을 통과하므로
+     필터가 자동 적용되고, 필터가 스토어 전체를 걸러내면 기존 `NO_MATCH_MESSAGE`가 뜬다.
+  - 검증: `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm build` 클린(Next.js 포함),
+    `pnpm test` **317개 전부 통과**(core 221 + cli 93 + dashboard 3 — cli selectJobs
+    tool/project/AND 케이스 4개 신규). **실제 빌드된 CLI e2e**(mock 아님): 3-job(web/api ×
+    claude-code/codex-cli) 스토어로 `--tool codex-cli`(1건)·`--project web`(2건)·
+    `--project web --tool claude-code`(1건 교집합)·`--project nope`(No match)·`--tool bogus`
+    (exit 1)·`--json --tool codex-cli`(필터된 jobs만) 확인. 필터된 요약 푸터도 부분집합 반영.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 스코프/툴 필터 UI 노출(👷 후보),
+  `status --sort` 기본을 config로 영속화(👷 후보), `export`에도 `--tool`/`--project` 확장(👷 후보).

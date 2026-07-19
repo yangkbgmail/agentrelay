@@ -230,6 +230,19 @@
       flaky). `compareJobsNewestFirst`(createdAt desc, id asc 타이브레이크)로 결정론화 + export
       테스트의 인덱스 의존 단언을 순서 무관으로 교체. branch `claude/wizardly-pascal-ru3nmz`)
 
+- [x] 👷 `agentrelay status` 필터 확장(`--tool`/`--project`) — 큰 큐에서 특정 툴·프로젝트 job만
+      보기(`stats` 스코프와 CLI 표면 정렬).
+      (완료 — `status`는 지금까지 `--status`만 필터할 수 있어 `stats`가 이미 갖춘 `--tool`/`--project`와
+      어긋났다. `packages/cli/src/status.ts`의 `JobSelection`에 `tools?`/`projects?` 추가 +
+      `selectJobs`가 두 차원을 `Set` 기반으로 필터(차원 간 AND·차원 내 OR, 미지정 차원은 필터 안 함).
+      tool은 원시 문자열 매칭(미지 tool도 정확). 순수·비파괴 계약 유지 — 항상 새 배열 반환. CLI
+      `status`에 `-t/--tool`·`-p/--project` 배선(공용 `splitList` 재사용, `--status`도 함께 정리),
+      잘못된 tool은 `stats`와 동일하게 `Unknown tool(s)` + exit 1, 빈 `--project`는 에러. 일회성·
+      `--json`·`--watch` 세 뷰 모두 동일 selection을 통과하므로 자동 적용. 필터가 스토어 전체를
+      걸러내면 기존 `NO_MATCH_MESSAGE`. status.test.ts에 selectJobs tool/project/AND 케이스 4개 추가,
+      빌드된 CLI e2e로 3-job 스토어에서 `--tool`·`--project`·복합·미매칭·잘못된 tool·`--json` 검증.
+      branch `claude/wizardly-pascal-5d1d1v`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -177,6 +177,36 @@ describe("selectJobs", () => {
     expect(selectJobs(jobs, { statuses: ["queued"] })).toEqual([]);
   });
 
+  it("filters to only the requested tools", () => {
+    const mixed: RelayJob[] = [
+      job({ id: "t1", tool: "claude-code" }),
+      job({ id: "t2", tool: "codex-cli" }),
+      job({ id: "t3", tool: "generic" }),
+    ];
+    const out = selectJobs(mixed, { tools: ["codex-cli", "generic"] });
+    expect(out.map((j) => j.id)).toEqual(["t2", "t3"]);
+  });
+
+  it("filters to only the requested projects", () => {
+    const out = selectJobs(jobs, { projects: ["web", "cli"] });
+    expect(out.map((j) => j.project).sort()).toEqual(["cli", "web"]);
+  });
+
+  it("ANDs across dimensions (status + project + tool)", () => {
+    const mixed: RelayJob[] = [
+      job({ id: "m1", project: "web", status: "failed", tool: "claude-code" }),
+      job({ id: "m2", project: "web", status: "completed", tool: "claude-code" }),
+      job({ id: "m3", project: "api", status: "failed", tool: "claude-code" }),
+      job({ id: "m4", project: "web", status: "failed", tool: "codex-cli" }),
+    ];
+    const out = selectJobs(mixed, { statuses: ["failed"], projects: ["web"], tools: ["claude-code"] });
+    expect(out.map((j) => j.id)).toEqual(["m1"]);
+  });
+
+  it("returns an empty array when a project filter matches nothing", () => {
+    expect(selectJobs(jobs, { projects: ["nope"] })).toEqual([]);
+  });
+
   it("sorts by project name ascending", () => {
     const out = selectJobs(jobs, { sort: "project" });
     expect(out.map((j) => j.project)).toEqual(["api", "cli", "web"]);
