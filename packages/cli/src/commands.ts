@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type {
   AgentRelayConfig,
@@ -18,16 +18,21 @@ import {
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  type EffectiveConfigEntry,
   type ExportFormat,
   exportJobs,
   hasConfigErrors,
   listBackups,
+  loadConfigFile,
   notifiersFromEnv,
   parseConfig,
   RelayQueue,
   RelayScheduler,
+  type RestoreResult,
   resolveAdapter,
+  resolveBackup,
   resolveConfigPath,
+  resolveEffectiveConfig,
   resolveJobId,
   retryPolicyFromEnv,
   sampleConfigJson,
@@ -497,6 +502,62 @@ export function listStoreBackups(storePath?: string): StoreBackupInfo[] {
   return listBackups(names, storeName).map((entry) => ({ path: join(dir, entry.name), stamp: entry.stamp }));
 }
 
+export interface RestoreStoreOptions {
+  storePath?: string;
+  /**
+   * Which snapshot to restore. Either a filesystem path to any snapshot file
+   * (absolute or relative to cwd), or — for this store's own rotating snapshots —
+   * `"latest"`, a snapshot basename, or its sortable stamp. Defaults to `"latest"`.
+   */
+  selector?: string;
+  /** Snapshot the current store before overwriting it (default: true). */
+  backupCurrent?: boolean;
+}
+
+/**
+ * Resolves a restore `selector` to an absolute snapshot path. A direct path to
+ * an existing file wins (lets users restore from an arbitrary snapshot they
+ * point at); otherwise the selector is matched against this store's rotating
+ * `.backup-*` snapshots via {@link resolveBackup}. Throws a clear error when
+ * nothing matches so a typo never silently restores the wrong file.
+ */
+function resolveRestoreSource(storePath: string, selector: string): string {
+  const asPath = resolve(process.cwd(), selector);
+  if (selector !== "latest" && existsSync(asPath) && statSync(asPath).isFile()) {
+    return asPath;
+  }
+  const dir = dirname(storePath);
+  const storeName = basename(storePath);
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    names = [];
+  }
+  const entry = resolveBackup(names, storeName, selector);
+  if (!entry) {
+    throw new Error(`No snapshot matches "${selector}" for ${storePath}. Try \`agentrelay backup --list\`.`);
+  }
+  return join(dir, entry.name);
+}
+
+/**
+ * Restores the job store from a snapshot (the inverse of `agentrelay backup`).
+ * Thin wrapper over {@link RelayQueue.restore}: it resolves the selector to a
+ * snapshot path, then lets the queue validate the snapshot before overwriting
+ * (and, by default, snapshot the current store first so the restore is undoable).
+ */
+export function restoreStore(options: RestoreStoreOptions = {}): RestoreResult {
+  const storePath = options.storePath ?? defaultStorePath();
+  const from = resolveRestoreSource(storePath, options.selector ?? "latest");
+  const queue = openQueue(storePath);
+  try {
+    return queue.restore({ from, backupCurrent: options.backupCurrent });
+  } finally {
+    queue.close();
+  }
+}
+
 export interface ExportJobsOptions {
   storePath?: string;
   /** Serialization format. */
@@ -534,6 +595,56 @@ export function exportStore(options: ExportJobsOptions): ExportJobsResult {
     writtenTo = path;
   }
   return { content, count: jobs.length, writtenTo };
+}
+
+export interface ConfigShowOptions {
+  /** Explicit file path. When omitted, the usual discovery order is used. */
+  path?: string;
+  /** Directory searched for `agentrelay.config.json`. Defaults to `process.cwd()`. */
+  cwd?: string;
+  /** Environment consulted for precedence + `AGENTRELAY_CONFIG`. Defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
+}
+
+export interface ConfigShowResult {
+  /** The config file that fed the resolution, or null when none was found. */
+  path: string | null;
+  /** Every setting with its effective value and source (env > file > default). */
+  entries: EffectiveConfigEntry[];
+  /**
+   * Set when a config file was found but couldn't be loaded/parsed. `show` still
+   * reports env/default resolution (a broken file shouldn't blind the diagnostic
+   * that would explain it) but surfaces the problem so it isn't mistaken for
+   * "no file".
+   */
+  loadError?: string;
+}
+
+/**
+ * Resolves the *effective* configuration — what value each setting actually
+ * takes and where it comes from — so users can debug the env > file > default
+ * precedence without guessing. Unlike `config validate`, a malformed file is
+ * non-fatal here: env/default entries are still reported and the load error is
+ * returned alongside them. Never throws.
+ */
+export function showConfig(options: ConfigShowOptions = {}): ConfigShowResult {
+  const env = options.env ?? process.env;
+  let fileConfig: AgentRelayConfig | null = null;
+  let path: string | null = null;
+  let loadError: string | undefined;
+  try {
+    const loaded = loadConfigFile({ path: options.path, cwd: options.cwd, env });
+    if (loaded) {
+      fileConfig = loaded.config;
+      path = loaded.path;
+    }
+  } catch (error) {
+    // Report where the broken file lives (if resolvable) but keep going.
+    path = resolveConfigPath({ path: options.path, cwd: options.cwd, env });
+    loadError = String(error);
+  }
+  const entries = resolveEffectiveConfig(fileConfig, env);
+  return { path, entries, loadError };
 }
 
 /** Statuses a job can legitimately be in — used to validate `--status` input. */

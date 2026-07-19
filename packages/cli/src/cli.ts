@@ -10,14 +10,16 @@ import {
   listStatus,
   listStoreBackups,
   pruneJobs,
+  restoreStore,
   retryJob,
   runCommand,
+  showConfig,
   showJob,
   startDaemon,
   tickOnce,
   validateConfigFile,
 } from "./commands.js";
-import { defaultStorePath } from "./config.js";
+import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import { renderStats, renderStatsJson } from "./stats.js";
 import {
@@ -300,6 +302,25 @@ export function buildCli(): Command {
         console.log(`[agentrelay] ${where} is valid (with warnings).`);
       }
     });
+  config
+    .command("show")
+    .description("Show the effective configuration and where each value comes from (env > file > default)")
+    .option("--json", "Print the resolved config as JSON (machine-readable, for scripts/jq)")
+    .option("--show-secrets", "Reveal masked webhook URLs/tokens in the human-readable output")
+    .action((opts: { json?: boolean; showSecrets?: boolean }) => {
+      const { config: configPath } = program.opts();
+      const result = showConfig({ path: configPath });
+      if (opts.json) {
+        console.log(renderEffectiveConfigJson(result));
+      } else {
+        console.log(
+          renderEffectiveConfig(result, { color: Boolean(process.stdout.isTTY), showSecrets: opts.showSecrets })
+        );
+      }
+      // A broken config file is a real problem worth a non-zero exit, but we
+      // still printed the env/default resolution above to aid debugging.
+      if (result.loadError) process.exitCode = 1;
+    });
 
   program
     .command("cancel")
@@ -359,6 +380,29 @@ export function buildCli(): Command {
       console.log(`[agentrelay] Wrote snapshot of ${result.jobCount} job(s) to ${result.path}.`);
       if (result.rotated.length > 0) {
         console.log(`[agentrelay] Rotated out ${result.rotated.length} old snapshot(s).`);
+      }
+    });
+
+  program
+    .command("restore")
+    .argument("[snapshot]", 'Snapshot to restore: "latest" (default), a stamp, a snapshot filename, or a path')
+    .description("Restore the job store from a snapshot (the current store is backed up first)")
+    .option("--no-backup", "Skip snapshotting the current store before overwriting it")
+    .action((snapshot: string | undefined, opts: { backup?: boolean }) => {
+      const { store } = program.opts();
+      try {
+        const result = restoreStore({
+          storePath: store,
+          selector: snapshot ?? "latest",
+          backupCurrent: opts.backup,
+        });
+        console.log(`[agentrelay] Restored ${result.jobCount} job(s) from ${result.from}.`);
+        if (result.backedUpTo) {
+          console.log(`[agentrelay] Previous store backed up to ${result.backedUpTo}.`);
+        }
+      } catch (error) {
+        console.error(`[agentrelay] ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = 1;
       }
     });
 

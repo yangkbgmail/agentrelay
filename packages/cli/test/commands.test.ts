@@ -12,11 +12,14 @@ import {
   listStatus,
   listStoreBackups,
   pruneJobs,
+  restoreStore,
   retryJob,
   runCommand,
+  showConfig,
   showJob,
   validateConfigFile,
 } from "../src/commands.js";
+import { isConfigDiagnosticInvocation, renderEffectiveConfig } from "../src/config.js";
 
 describe("runCommand", () => {
   let dir: string;
@@ -393,5 +396,140 @@ describe("backupStore / listStoreBackups", () => {
     // Newest first.
     expect(backups[0].stamp).toBe("2026-07-18T09-00-02-000Z");
     expect(backups[1].stamp).toBe("2026-07-18T09-00-01-000Z");
+  });
+});
+
+describe("restoreStore", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-restore-cli-test-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("restores the latest snapshot by default and reports the job count", () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    queue.backup({ now: new Date("2026-07-18T09:00:01.000Z") });
+    // Grow the store beyond the snapshot.
+    queue.enqueue({ project: "extra", tool: "generic", command: ["x"], cwd: "/tmp" });
+    queue.close();
+    expect(listStatus(storePath)).toHaveLength(2);
+
+    const result = restoreStore({ storePath });
+    expect(result.jobCount).toBe(1);
+    expect(result.from.endsWith("jobs.json.backup-2026-07-18T09-00-01-000Z")).toBe(true);
+    expect(result.backedUpTo).not.toBeNull();
+    // Store is back to the single snapshotted job.
+    expect(listStatus(storePath)).toHaveLength(1);
+  });
+
+  it("restores a specific snapshot by its stamp", () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "one", tool: "generic", command: ["a"], cwd: "/tmp" });
+    queue.backup({ now: new Date("2026-07-18T09:00:01.000Z") });
+    queue.enqueue({ project: "two", tool: "generic", command: ["b"], cwd: "/tmp" });
+    queue.backup({ now: new Date("2026-07-18T09:00:02.000Z") });
+    queue.close();
+
+    // Restore the older (1-job) snapshot, not the latest (2-job) one.
+    const result = restoreStore({ storePath, selector: "2026-07-18T09-00-01-000Z" });
+    expect(result.jobCount).toBe(1);
+    expect(listStatus(storePath)).toHaveLength(1);
+  });
+
+  it("throws a clear error when no snapshot matches the selector", () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "one", tool: "generic", command: ["a"], cwd: "/tmp" });
+    queue.close();
+    expect(() => restoreStore({ storePath, selector: "latest" })).toThrow(/No snapshot matches/);
+  });
+});
+
+describe("showConfig", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-show-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const entry = (result: ReturnType<typeof showConfig>, key: string) => {
+    const found = result.entries.find((e) => e.key === key);
+    if (!found) throw new Error(`no entry for ${key}`);
+    return found;
+  };
+
+  it("reports all defaults when there is no config file and empty env", () => {
+    const result = showConfig({ cwd: dir, env: { HOME: dir } });
+    expect(result.path).toBeNull();
+    expect(result.loadError).toBeUndefined();
+    expect(result.entries.every((e) => e.source === "default")).toBe(true);
+  });
+
+  it("attributes file values and honors env precedence", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ store: "/from/file.json", retry: { maxAttempts: 9 } }));
+    const result = showConfig({ path, env: { AGENTRELAY_MAX_ATTEMPTS: "3" } });
+    expect(result.path).toBe(path);
+    expect(entry(result, "AGENTRELAY_STORE")).toMatchObject({ source: "config-file", value: "/from/file.json" });
+    // env beats the file for the same setting.
+    expect(entry(result, "AGENTRELAY_MAX_ATTEMPTS")).toMatchObject({ source: "env", value: "3" });
+  });
+
+  it("does not throw on a broken config file — reports loadError and keeps going", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, "{ not json");
+    const result = showConfig({ path, env: {} });
+    expect(result.loadError).toBeDefined();
+    // Env/default resolution still produced (all defaults, since env is empty).
+    expect(result.entries.every((e) => e.source === "default")).toBe(true);
+  });
+
+  it("renders a masked secret unless showSecrets is set", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ notify: { webhookAuth: "Bearer supersecrettoken" } }));
+    const result = showConfig({ path, env: {} });
+    const masked = renderEffectiveConfig(result, { color: false, showSecrets: false });
+    expect(masked).not.toContain("Bearer supersecrettoken");
+    expect(masked).toContain("oken"); // last 4 chars kept as a hint
+    const revealed = renderEffectiveConfig(result, { color: false, showSecrets: true });
+    expect(revealed).toContain("Bearer supersecrettoken");
+  });
+
+  it("renders default entries as (default)", () => {
+    const result = showConfig({ cwd: dir, env: { HOME: dir } });
+    const text = renderEffectiveConfig(result, { color: false });
+    expect(text).toContain("AGENTRELAY_STORE");
+    expect(text).toContain("(default)");
+    expect(text).toContain("[default]");
+  });
+});
+
+describe("isConfigDiagnosticInvocation", () => {
+  const argv = (...rest: string[]) => ["node", "bin.js", ...rest];
+
+  it("recognizes plain config validate/show", () => {
+    expect(isConfigDiagnosticInvocation(argv("config", "validate"))).toBe(true);
+    expect(isConfigDiagnosticInvocation(argv("config", "show"))).toBe(true);
+  });
+
+  it("recognizes them past a global --config <path> (the value is not the command)", () => {
+    expect(isConfigDiagnosticInvocation(argv("--config", "/tmp/x.json", "config", "show"))).toBe(true);
+    expect(isConfigDiagnosticInvocation(argv("--store", "/tmp/j.json", "config", "validate"))).toBe(true);
+  });
+
+  it("is false for other config subcommands and other commands", () => {
+    expect(isConfigDiagnosticInvocation(argv("config", "init"))).toBe(false);
+    expect(isConfigDiagnosticInvocation(argv("status"))).toBe(false);
+    expect(isConfigDiagnosticInvocation(argv("config"))).toBe(false);
   });
 });

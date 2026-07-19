@@ -641,3 +641,67 @@
   - 정리: 통합 흡수된 #45·#44·#41과 백업 중복 #43은 사유 코멘트와 함께 닫는다(이 PR로 대체).
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크). 앞으로 무기억 세션은 **작업 시작 전 열린 PR을
   먼저 확인**해 중복 구현 대신 통합을 우선할 것(backup·export·show는 이제 이 브랜치에 있음).
+
+### [세션 23 — `agentrelay config show` 유효 설정/출처 표시] (2026-07-19, 무인 자율 세션)
+- 배경: 세션 시작 시 지정 브랜치가 origin에서 삭제됨(PR #42 머지 완료) → 지침대로 최신 main에서
+  동일 이름 브랜치를 새로 파 후속 작업을 진행. 설정 시스템은 `config init`(샘플 생성)·`config
+  validate`(검증)까지 있었지만, "지금 실제로 어떤 값이 적용되고 그게 env/파일/기본값 중
+  어디서 왔는가"를 보여주는 수단이 없었다. env > 설정파일 > 기본값 우선순위는 코드로만
+  존재해 디버깅 시 추측에 의존하는 갭.
+- 한 일 (branch `claude/wizardly-pascal-dgs7go`):
+  1. `@agentrelay/core/config.ts`에 순수 `resolveEffectiveConfig(fileConfig, env)` + 타입
+     `EffectiveConfigEntry`(key·group·value·source·secret)·`ConfigValueSource`(env/config-file/
+     default)·`ConfigGroup` 신설. 각 `AGENTRELAY_*` 키를 env>파일>기본값 순으로 해소해 출처를
+     귀속(`applyConfigToEnv`의 읽기 전용 미러). 키 목록 `CONFIG_ENV_KEYS`는 `configToEnv`가
+     방출하는 키와 정확히 동기화(테스트로 드리프트 방지), 웹훅 URL/토큰은 `secret` 플래그.
+  2. CLI `commands.ts`에 `showConfig({path,cwd,env})` — 설정파일을 직접 로드(손상 파일은 throw
+     대신 `loadError`로 보고하고 env/기본값 해소는 계속). `config.ts`에 순수 렌더
+     `renderEffectiveConfig`(그룹별 정렬 표, 시크릿 마스킹 + `--show-secrets` 해제)·
+     `renderEffectiveConfigJson`(`--json`). `agentrelay config show` 서브커맨드 배선.
+  3. 부수 버그 수정: bin.ts의 startup `bootstrapConfig`가 설정파일 값을 `process.env`에 먼저
+     주입하면 `config show`가 파일 출처를 전부 `[env]`로 오표기하는 문제 발견. `config validate`가
+     쓰던 startup-skip 가드를 `isConfigDiagnosticInvocation`으로 일반화(validate+show 모두 skip).
+     또한 기존 argv 파서가 `--config <path>` 뒤 **경로 값**을 커맨드명으로 오인하던 잠복 버그를
+     `subcommandTokens`(값 받는 옵션 스킵)로 교정 — `--config x.json config show`도 정상 인식.
+     `isConfigValidateInvocation`은 하위호환 alias로 유지.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **247개 전부 통과**(core 182 + cli 62 + dashboard 3 — core에 resolveEffectiveConfig
+    6케이스[전부 기본값/파일귀속/env우선/불리언 1·0 투영/시크릿 플래그/configToEnv 동기화]
+    신규, cli에 showConfig 5케이스 + isConfigDiagnosticInvocation 3케이스 신규). **실제 빌드된
+    CLI e2e**(mock 아님): store·webhookUrl·webhookAuth·maxAttempts·autoPrune를 담은 설정파일 +
+    `AGENTRELAY_MAX_ATTEMPTS=2`로 실행 → `AGENTRELAY_STORE …[config-file]`,
+    `AGENTRELAY_MAX_ATTEMPTS 2 [env]`(파일 8 무시), 시크릿 마스킹(`…cret`/`…-xyz`), `--show-secrets`로
+    전체 노출, `--json` 구조·손상파일 exit 1을 모두 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing/설정 파일(config show 결과) 노출
+  (👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), 스토어 자동 백업 로테이션(👷 후보).
+
+### [세션 24 — 누적 PR 통합(#46 병합·#47 정리·#48 흡수) + `agentrelay restore`] (2026-07-19, 무인 자율 세션)
+- **먼저: 다시 쌓인 열린 PR 3개를 정리해 중복 루프를 끊었다.** 세션 시작 시 CI 초록인 열린 PR이
+  #46(backup+export+show 통합)·#47(export, #46의 부분집합)·#48(config show) 3건이었다. main 브랜치
+  보호로 병합이 밀리면 매시간 무기억 세션이 같은 후보를 반복 구현하는 고질적 패턴(세션 3·8·10·16·22).
+  COLLAB.md 병합 정책("CI 초록이면 클로드 코드가 병합 가능", `actions_list`로 초록 확인)에 근거해:
+  1. **#46을 main에 병합**(backup·export·show 세 기능이 한 번에 main에 들어옴, 63f8b73).
+  2. **#47(export)은 #46에 이미 포함**되어 닫음(사유 코멘트).
+  3. **#48(config show)은 #46 병합으로 dirty가 됨** → 단일 커밋을 내 브랜치에 `cherry-pick -x`로
+     흡수하고 cli.ts/commands.ts/test/PROGRESS 충돌을 해소(다른 브랜치엔 push 안 함).
+- 한 일 (branch `claude/wizardly-pascal-5bxk7l`): **`agentrelay restore <snapshot>`** — 방금 main에
+  들어온 `backup`의 자연스러운 짝(세션 19가 "다음 할 일 👷 후보"로 남긴 항목). 스키마 변경 없이
+  JSON 스토어 모델 안에서 완결.
+  1. `@agentrelay/core/backup.ts`에 순수 `resolveBackup(fileNames, storeFileName, selector)` +
+     `RestoreResult` 추가. selector는 `latest`(또는 빈 문자열)→최신, 스냅샷 basename, 정렬가능 stamp를
+     매칭; 미매칭·타 스토어 스냅샷·백업 없음은 null.
+  2. `RelayQueue.restore({from, backupCurrent, now})` — 스냅샷을 **먼저 읽고 검증**(JSON 배열이
+     아니면 throw → 라이브 스토어를 절대 파괴하지 않음)한 뒤, 기본적으로 현재 스토어를 `.backup-<ts>`로
+     스냅샷(복원 자체를 되돌릴 수 있게)하고 인메모리 맵을 교체해 원자적 flush. `backupCurrent:false`면
+     안전 백업 생략.
+  3. CLI `commands.ts`에 `restoreStore`(래퍼) + `resolveRestoreSource`(직접 파일 경로가 있으면 우선,
+     아니면 이 스토어의 `.backup-*`를 selector로 해소, 미매칭은 명확한 에러로 오복원 방지).
+     `cli.ts`에 `agentrelay restore [snapshot] [--no-backup]` 배선(미매칭 selector는 stderr+exit 1).
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **302개 전부 통과**(core 213 + cli 86 + dashboard 3 — core resolveBackup 1 +
+    RelayQueue.restore 3 + CLI restoreStore 3 신규). **실제 빌드된 CLI e2e**(mock 아님): 1-job
+    스토어를 `backup` → 2-job으로 키운 뒤 `restore`가 최신 스냅샷으로 1-job 복원 + 이전 상태를
+    안전 백업(`backup --list`에 2개), stamp 지정 복원, `--no-backup`이 안전 백업 생략, 미매칭
+    selector는 "No snapshot matches" + exit 1까지 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing/설정 파일 노출(👷 후보),
+  stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), `restore --dry-run`(복원 전 미리보기, 👷 후보).

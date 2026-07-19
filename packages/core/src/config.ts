@@ -356,6 +356,74 @@ export function configToEnv(config: AgentRelayConfig): Record<string, string> {
   return env;
 }
 
+/** Logical grouping of an {@link AgentRelayConfig} env var, used for display. */
+export type ConfigGroup = "store" | "notify" | "retry" | "autoPrune";
+
+/**
+ * Metadata for one `AGENTRELAY_*` env var that the config file can populate.
+ * The list mirrors exactly the keys {@link configToEnv} can emit — a test
+ * asserts they stay in sync, so `config show` never silently omits a setting.
+ */
+export interface ConfigEnvKey {
+  key: string;
+  group: ConfigGroup;
+  /** Values that shouldn't be printed in full (webhook URLs / auth tokens). */
+  secret?: boolean;
+}
+
+/** Every config-backed env var, in display order (grouped by concern). */
+export const CONFIG_ENV_KEYS: ConfigEnvKey[] = [
+  { key: "AGENTRELAY_STORE", group: "store" },
+  { key: "AGENTRELAY_SLACK_WEBHOOK", group: "notify", secret: true },
+  { key: "AGENTRELAY_WEBHOOK_URL", group: "notify", secret: true },
+  { key: "AGENTRELAY_WEBHOOK_AUTH", group: "notify", secret: true },
+  { key: "AGENTRELAY_MAX_ATTEMPTS", group: "retry" },
+  { key: "AGENTRELAY_RETRY_BASE_MS", group: "retry" },
+  { key: "AGENTRELAY_RETRY_FACTOR", group: "retry" },
+  { key: "AGENTRELAY_RETRY_MAX_MS", group: "retry" },
+  { key: "AGENTRELAY_AUTOPRUNE", group: "autoPrune" },
+  { key: "AGENTRELAY_AUTOPRUNE_AFTER", group: "autoPrune" },
+  { key: "AGENTRELAY_AUTOPRUNE_KEEP", group: "autoPrune" },
+  { key: "AGENTRELAY_AUTOPRUNE_EVERY", group: "autoPrune" },
+  { key: "AGENTRELAY_AUTOPRUNE_EVERY_TICKS", group: "autoPrune" },
+];
+
+/** Where an effective config value came from, in precedence order. */
+export type ConfigValueSource = "env" | "config-file" | "default";
+
+/** One resolved setting: its effective value and which layer supplied it. */
+export interface EffectiveConfigEntry {
+  key: string;
+  group: ConfigGroup;
+  /** The effective value, or `undefined` when the built-in default applies. */
+  value: string | undefined;
+  source: ConfigValueSource;
+  secret: boolean;
+}
+
+/**
+ * Resolves every config-backed setting to its *effective* value and source,
+ * applying the same precedence the app uses at runtime: an explicit
+ * `AGENTRELAY_*` env var wins over the config file, which wins over the
+ * built-in default (reported as `source: "default"`, `value: undefined`).
+ *
+ * Pure — no filesystem, no ambient env unless `env` is omitted — so the CLI
+ * `config show` command and tests share exactly this resolution. This is the
+ * read-only mirror of {@link applyConfigToEnv}, which does the actual filling.
+ */
+export function resolveEffectiveConfig(
+  fileConfig: AgentRelayConfig | null,
+  env: Record<string, string | undefined> = process.env
+): EffectiveConfigEntry[] {
+  const fileEnv = fileConfig ? configToEnv(fileConfig) : {};
+  return CONFIG_ENV_KEYS.map(({ key, group, secret }): EffectiveConfigEntry => {
+    const flag = Boolean(secret);
+    if (env[key] !== undefined) return { key, group, value: env[key], source: "env", secret: flag };
+    if (fileEnv[key] !== undefined) return { key, group, value: fileEnv[key], source: "config-file", secret: flag };
+    return { key, group, value: undefined, source: "default", secret: flag };
+  });
+}
+
 /**
  * Fills the derived config values into `targetEnv` (defaults to `process.env`)
  * *without overwriting anything already set*, so an explicit environment
