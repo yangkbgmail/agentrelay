@@ -226,62 +226,97 @@ export function buildCli(): Command {
     .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. completed,failed)")
     .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
-    .action((opts: { status?: string; tool?: string; project?: string; json?: boolean }) => {
-      const { store } = program.opts();
+    .action(
+      (opts: { status?: string; tool?: string; project?: string; since?: string; until?: string; json?: boolean }) => {
+        const { store } = program.opts();
 
-      const scope: JobScope = {};
-      const noteParts: string[] = [];
+        const now = Date.now();
+        const scope: JobScope = {};
+        const noteParts: string[] = [];
 
-      if (opts.status !== undefined) {
-        const requested = splitList(opts.status);
-        const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
-        if (invalid.length > 0) {
-          console.error(`Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.`);
+        if (opts.status !== undefined) {
+          const requested = splitList(opts.status);
+          const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
+          if (invalid.length > 0) {
+            console.error(`Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          scope.statuses = requested as JobStatus[];
+          noteParts.push(`status=${requested.join(",")}`);
+        }
+
+        if (opts.tool !== undefined) {
+          const requested = splitList(opts.tool);
+          const invalid = requested.filter((t) => !ALL_TOOLS.includes(t as AgentTool));
+          if (invalid.length > 0) {
+            console.error(`Unknown tool(s): ${invalid.join(", ")}. Valid: ${ALL_TOOLS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          scope.tools = requested;
+          noteParts.push(`tool=${requested.join(",")}`);
+        }
+
+        if (opts.project !== undefined) {
+          const requested = splitList(opts.project);
+          if (requested.length === 0) {
+            console.error("--project needs at least one project name.");
+            process.exitCode = 1;
+            return;
+          }
+          scope.projects = requested;
+          noteParts.push(`project=${requested.join(",")}`);
+        }
+
+        // Time window: --since/--until are "N ago" durations relative to now, so
+        // `--since 7d --until 1d` scopes to jobs created between 7 and 1 days ago.
+        if (opts.since !== undefined) {
+          const ms = parseDuration(opts.since);
+          if (ms === null) {
+            console.error(`Invalid --since duration: "${opts.since}". Use e.g. 24h, 7d, 30m, 90s.`);
+            process.exitCode = 1;
+            return;
+          }
+          scope.createdFrom = now - ms;
+          noteParts.push(`since=${opts.since}`);
+        }
+
+        if (opts.until !== undefined) {
+          const ms = parseDuration(opts.until);
+          if (ms === null) {
+            console.error(`Invalid --until duration: "${opts.until}". Use e.g. 24h, 7d, 30m, 90s.`);
+            process.exitCode = 1;
+            return;
+          }
+          scope.createdTo = now - ms;
+          noteParts.push(`until=${opts.until}`);
+        }
+
+        if (scope.createdFrom !== undefined && scope.createdTo !== undefined && scope.createdFrom > scope.createdTo) {
+          console.error("--since must be a longer window than --until (empty range otherwise).");
           process.exitCode = 1;
           return;
         }
-        scope.statuses = requested as JobStatus[];
-        noteParts.push(`status=${requested.join(",")}`);
-      }
 
-      if (opts.tool !== undefined) {
-        const requested = splitList(opts.tool);
-        const invalid = requested.filter((t) => !ALL_TOOLS.includes(t as AgentTool));
-        if (invalid.length > 0) {
-          console.error(`Unknown tool(s): ${invalid.join(", ")}. Valid: ${ALL_TOOLS.join(", ")}.`);
-          process.exitCode = 1;
+        const allJobs = listStatus(store);
+        const active = isJobScopeActive(scope);
+        const jobs = active ? scopeJobs(allJobs, scope) : allJobs;
+        const scopeNote = active ? noteParts.join(" ") : undefined;
+        const stats = computeStats(jobs);
+
+        if (opts.json) {
+          console.log(renderStatsJson(stats, store, { scope }));
           return;
         }
-        scope.tools = requested;
-        noteParts.push(`tool=${requested.join(",")}`);
+        // A store with jobs but an empty scoped subset should say "no match",
+        // not the onboarding hint — renderStats keys that off scopeNote.
+        console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY), scopeNote }));
       }
-
-      if (opts.project !== undefined) {
-        const requested = splitList(opts.project);
-        if (requested.length === 0) {
-          console.error("--project needs at least one project name.");
-          process.exitCode = 1;
-          return;
-        }
-        scope.projects = requested;
-        noteParts.push(`project=${requested.join(",")}`);
-      }
-
-      const allJobs = listStatus(store);
-      const active = isJobScopeActive(scope);
-      const jobs = active ? scopeJobs(allJobs, scope) : allJobs;
-      const scopeNote = active ? noteParts.join(" ") : undefined;
-      const stats = computeStats(jobs);
-
-      if (opts.json) {
-        console.log(renderStatsJson(stats, store, { scope }));
-        return;
-      }
-      // A store with jobs but an empty scoped subset should say "no match",
-      // not the onboarding hint — renderStats keys that off scopeNote.
-      console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY), scopeNote }));
-    });
+    );
 
   program
     .command("doctor")

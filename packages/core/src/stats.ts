@@ -82,6 +82,16 @@ export interface JobScope {
   tools?: string[];
   /** Keep only jobs whose project is one of these (exact match). */
   projects?: string[];
+  /**
+   * Keep only jobs created at-or-after this epoch-ms boundary (inclusive). An
+   * explicit timestamp, not a clock/duration, so `scopeJobs` stays pure and
+   * testable. `agentrelay stats --since 24h` computes `now - 24h` and passes it
+   * here. Jobs whose `createdAt` is missing/unparseable can't be placed on the
+   * timeline, so they're dropped whenever a time bound is active.
+   */
+  createdFrom?: number;
+  /** Keep only jobs created at-or-before this epoch-ms boundary (inclusive). */
+  createdTo?: number;
 }
 
 /** True when a scope would actually filter anything (any dimension is set). */
@@ -89,7 +99,9 @@ export function isJobScopeActive(scope: JobScope): boolean {
   return Boolean(
     (scope.statuses && scope.statuses.length > 0) ||
       (scope.tools && scope.tools.length > 0) ||
-      (scope.projects && scope.projects.length > 0)
+      (scope.projects && scope.projects.length > 0) ||
+      scope.createdFrom !== undefined ||
+      scope.createdTo !== undefined
   );
 }
 
@@ -113,6 +125,17 @@ export function scopeJobs(jobs: RelayJob[], scope: JobScope = {}): RelayJob[] {
   if (scope.projects && scope.projects.length > 0) {
     const wanted = new Set<string>(scope.projects);
     result = result.filter((job) => wanted.has(job.project));
+  }
+  if (scope.createdFrom !== undefined || scope.createdTo !== undefined) {
+    const from = scope.createdFrom ?? Number.NEGATIVE_INFINITY;
+    const to = scope.createdTo ?? Number.POSITIVE_INFINITY;
+    result = result.filter((job) => {
+      const created = Date.parse(job.createdAt);
+      // Unplaceable jobs (missing/unparseable createdAt) drop out of a windowed
+      // scope rather than silently counting toward every window.
+      if (Number.isNaN(created)) return false;
+      return created >= from && created <= to;
+    });
   }
   return result;
 }
