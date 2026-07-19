@@ -5,11 +5,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   type AgentRelayConfig,
   applyConfigToEnv,
+  CONFIG_ENV_KEYS,
   configToEnv,
   hasConfigErrors,
   loadConfigFile,
   parseConfig,
   resolveConfigPath,
+  resolveEffectiveConfig,
   sampleConfig,
   sampleConfigJson,
   validateConfig,
@@ -219,5 +221,50 @@ describe("validateConfig", () => {
     expect(hasConfigErrors([{ level: "warning", path: "x", message: "y" }])).toBe(false);
     expect(hasConfigErrors([{ level: "error", path: "x", message: "y" }])).toBe(true);
     expect(hasConfigErrors([])).toBe(false);
+  });
+});
+
+describe("resolveEffectiveConfig", () => {
+  const find = (entries: ReturnType<typeof resolveEffectiveConfig>, key: string) => {
+    const entry = entries.find((e) => e.key === key);
+    if (!entry) throw new Error(`no entry for ${key}`);
+    return entry;
+  };
+
+  it("marks everything as a default when no file and empty env", () => {
+    const entries = resolveEffectiveConfig(null, {});
+    expect(entries).toHaveLength(CONFIG_ENV_KEYS.length);
+    expect(entries.every((e) => e.source === "default" && e.value === undefined)).toBe(true);
+  });
+
+  it("attributes a value to the config file when env does not set it", () => {
+    const entries = resolveEffectiveConfig({ store: "/tmp/jobs.json" }, {});
+    const store = find(entries, "AGENTRELAY_STORE");
+    expect(store).toMatchObject({ source: "config-file", value: "/tmp/jobs.json" });
+  });
+
+  it("lets an env var win over the config file (precedence)", () => {
+    const entries = resolveEffectiveConfig({ store: "/from/file.json" }, { AGENTRELAY_STORE: "/from/env.json" });
+    expect(find(entries, "AGENTRELAY_STORE")).toMatchObject({ source: "env", value: "/from/env.json" });
+  });
+
+  it("projects the boolean autoPrune flag as the file's 1/0 env form", () => {
+    const entries = resolveEffectiveConfig({ autoPrune: { enabled: true } }, {});
+    expect(find(entries, "AGENTRELAY_AUTOPRUNE")).toMatchObject({ source: "config-file", value: "1" });
+  });
+
+  it("flags secret keys so the CLI can mask them", () => {
+    const entries = resolveEffectiveConfig(null, {});
+    expect(find(entries, "AGENTRELAY_WEBHOOK_AUTH").secret).toBe(true);
+    expect(find(entries, "AGENTRELAY_STORE").secret).toBe(false);
+  });
+
+  it("stays in sync with configToEnv — every emittable key is known", () => {
+    // sampleConfig populates every group, so configToEnv exercises all keys.
+    const emitted = Object.keys(configToEnv(sampleConfig()));
+    const known = new Set(CONFIG_ENV_KEYS.map((k) => k.key));
+    for (const key of emitted) expect(known.has(key)).toBe(true);
+    // ...and no known key is dead (each maps to something configToEnv can emit).
+    for (const { key } of CONFIG_ENV_KEYS) expect(emitted).toContain(key);
   });
 });

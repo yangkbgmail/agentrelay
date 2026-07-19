@@ -18,16 +18,19 @@ import {
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  type EffectiveConfigEntry,
   type ExportFormat,
   exportJobs,
   hasConfigErrors,
   listBackups,
+  loadConfigFile,
   notifiersFromEnv,
   parseConfig,
   RelayQueue,
   RelayScheduler,
   resolveAdapter,
   resolveConfigPath,
+  resolveEffectiveConfig,
   resolveJobId,
   retryPolicyFromEnv,
   sampleConfigJson,
@@ -534,6 +537,56 @@ export function exportStore(options: ExportJobsOptions): ExportJobsResult {
     writtenTo = path;
   }
   return { content, count: jobs.length, writtenTo };
+}
+
+export interface ConfigShowOptions {
+  /** Explicit file path. When omitted, the usual discovery order is used. */
+  path?: string;
+  /** Directory searched for `agentrelay.config.json`. Defaults to `process.cwd()`. */
+  cwd?: string;
+  /** Environment consulted for precedence + `AGENTRELAY_CONFIG`. Defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
+}
+
+export interface ConfigShowResult {
+  /** The config file that fed the resolution, or null when none was found. */
+  path: string | null;
+  /** Every setting with its effective value and source (env > file > default). */
+  entries: EffectiveConfigEntry[];
+  /**
+   * Set when a config file was found but couldn't be loaded/parsed. `show` still
+   * reports env/default resolution (a broken file shouldn't blind the diagnostic
+   * that would explain it) but surfaces the problem so it isn't mistaken for
+   * "no file".
+   */
+  loadError?: string;
+}
+
+/**
+ * Resolves the *effective* configuration — what value each setting actually
+ * takes and where it comes from — so users can debug the env > file > default
+ * precedence without guessing. Unlike `config validate`, a malformed file is
+ * non-fatal here: env/default entries are still reported and the load error is
+ * returned alongside them. Never throws.
+ */
+export function showConfig(options: ConfigShowOptions = {}): ConfigShowResult {
+  const env = options.env ?? process.env;
+  let fileConfig: AgentRelayConfig | null = null;
+  let path: string | null = null;
+  let loadError: string | undefined;
+  try {
+    const loaded = loadConfigFile({ path: options.path, cwd: options.cwd, env });
+    if (loaded) {
+      fileConfig = loaded.config;
+      path = loaded.path;
+    }
+  } catch (error) {
+    // Report where the broken file lives (if resolvable) but keep going.
+    path = resolveConfigPath({ path: options.path, cwd: options.cwd, env });
+    loadError = String(error);
+  }
+  const entries = resolveEffectiveConfig(fileConfig, env);
+  return { path, entries, loadError };
 }
 
 /** Statuses a job can legitimately be in — used to validate `--status` input. */

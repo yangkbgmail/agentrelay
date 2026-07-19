@@ -1,6 +1,8 @@
 // Shared with the dashboard via @agentrelay/core so every entry point
 // resolves the same store file.
+import type { ConfigGroup, EffectiveConfigEntry } from "@agentrelay/core";
 import { applyConfigToEnv, loadConfigFile } from "@agentrelay/core";
+import type { ConfigShowResult } from "./commands.js";
 
 export { defaultStorePath } from "@agentrelay/core";
 
@@ -25,14 +27,48 @@ export function configPathFromArgv(argv: string[]): string | undefined {
 }
 
 /**
- * True when argv invokes `config validate`, whose whole job is to diagnose a
- * broken config file. The startup {@link bootstrapConfig} throws on a malformed
- * config, which would otherwise abort before the validate command can report
- * the problem — so bin.ts skips the throwing bootstrap for this one command.
+ * True when argv invokes a `config` diagnostic subcommand — `validate` or
+ * `show` — that must run *without* the startup {@link bootstrapConfig}:
+ *
+ * - `validate` diagnoses a possibly-malformed file; bootstrap throws on one,
+ *   which would abort before validate can report the problem.
+ * - `show` reports the env > file > default precedence; bootstrap would fold
+ *   the config file's values into `process.env` first, making them all look
+ *   like they came from the environment. Skipping it keeps the layers distinct
+ *   (`show` loads the file itself to attribute each value).
  */
+export function isConfigDiagnosticInvocation(argv: string[] = process.argv): boolean {
+  const args = subcommandTokens(argv);
+  return args[0] === "config" && (args[1] === "validate" || args[1] === "show");
+}
+
+/** Global program options that consume the following argv token as their value. */
+const VALUE_OPTIONS = new Set(["--store", "--config"]);
+
+/**
+ * The positional command tokens from argv, with flags and their values removed —
+ * e.g. `["--config", "x.json", "config", "show"]` → `["config", "show"]`. This
+ * matters because a global `--config <path>`/`--store <path>` sits *before* the
+ * subcommand, and its value would otherwise be mistaken for the command name.
+ */
+function subcommandTokens(argv: string[]): string[] {
+  const rest = argv.slice(2);
+  const tokens: string[] = [];
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i];
+    if (VALUE_OPTIONS.has(arg)) {
+      i++; // skip the option's value token too
+      continue;
+    }
+    if (arg.startsWith("-")) continue; // bare flag or --opt=value form
+    tokens.push(arg);
+  }
+  return tokens;
+}
+
+/** @deprecated Use {@link isConfigDiagnosticInvocation}. Kept for compatibility. */
 export function isConfigValidateInvocation(argv: string[] = process.argv): boolean {
-  const args = argv.slice(2).filter((arg) => !arg.startsWith("-"));
-  return args[0] === "config" && args[1] === "validate";
+  return isConfigDiagnosticInvocation(argv);
 }
 
 /**
@@ -47,4 +83,83 @@ export function bootstrapConfig(argv: string[] = process.argv): string | null {
   if (!loaded) return null;
   applyConfigToEnv(loaded.config);
   return loaded.path;
+}
+
+const BOLD = "\x1b[1m";
+const DIM = "\x1b[2m";
+const RESET = "\x1b[0m";
+
+/** Human-readable heading for each config group, in display order. */
+const GROUP_LABELS: Record<ConfigGroup, string> = {
+  store: "store",
+  notify: "notify",
+  retry: "retry",
+  autoPrune: "auto-prune",
+};
+const GROUP_ORDER: ConfigGroup[] = ["store", "notify", "retry", "autoPrune"];
+
+/**
+ * Masks a secret value (webhook URL / auth token) for terminal display, keeping
+ * enough of a hint (length + last 4 chars) to recognize it without leaking it
+ * into scrollback or a screen share. Short secrets are fully hidden.
+ */
+function maskSecret(value: string): string {
+  if (value.length <= 4) return "•".repeat(value.length);
+  return `${"•".repeat(value.length - 4)}${value.slice(-4)}`;
+}
+
+/**
+ * Renders {@link showConfig}'s result as a grouped, aligned table showing each
+ * setting's effective value and where it came from (env / config-file /
+ * default). Pure: no I/O. `color` gates ANSI codes (TTY only); `showSecrets`
+ * reveals webhook URLs/tokens that are otherwise masked.
+ */
+export function renderEffectiveConfig(
+  result: ConfigShowResult,
+  options: { color?: boolean; showSecrets?: boolean } = {}
+): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [];
+  lines.push(b("effective configuration") + d(" (env > config file > default)"));
+  if (result.path) {
+    lines.push(d(`config file: ${result.path}`));
+  } else {
+    lines.push(d("config file: none (using env vars and built-in defaults)"));
+  }
+  if (result.loadError) {
+    lines.push(`  warning: config file could not be loaded — ${result.loadError}`);
+  }
+
+  const keyWidth = Math.max(...result.entries.map((e) => e.key.length));
+  for (const group of GROUP_ORDER) {
+    const entries = result.entries.filter((e) => e.group === group);
+    if (entries.length === 0) continue;
+    lines.push("");
+    lines.push(b(GROUP_LABELS[group]));
+    for (const entry of entries) {
+      lines.push(
+        `  ${entry.key.padEnd(keyWidth)}  ${renderValue(entry, options.showSecrets ?? false)}  ${d(`[${entry.source}]`)}`
+      );
+    }
+  }
+
+  return lines.join("\n");
+}
+
+/** Formats a single entry's value: "(default)" when unset, masked when secret. */
+function renderValue(entry: EffectiveConfigEntry, showSecrets: boolean): string {
+  if (entry.value === undefined) return "(default)";
+  if (entry.secret && !showSecrets) return maskSecret(entry.value);
+  return entry.value;
+}
+
+/** Machine-readable snapshot for `config show --json` (scripts, jq, tooling). */
+export function renderEffectiveConfigJson(
+  result: ConfigShowResult,
+  generatedAt: string = new Date().toISOString()
+): string {
+  return JSON.stringify({ generatedAt, ...result }, null, 2);
 }
