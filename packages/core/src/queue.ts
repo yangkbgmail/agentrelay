@@ -25,6 +25,7 @@ import {
   type BackupResult,
   backupFilePath,
   DEFAULT_BACKUP_KEEP,
+  type RestorePreview,
   type RestoreResult,
   selectRotatableBackups,
 } from "./backup.js";
@@ -349,6 +350,28 @@ export class RelayQueue {
     this.jobs = new Map(jobs.map((job) => [job.id, job]));
     this.flush();
     return { from, jobCount: jobs.length, backedUpTo };
+  }
+
+  /**
+   * Reports what {@link restore} would do for snapshot `from` *without* touching
+   * the live store — a dry run. The snapshot is read and validated with the same
+   * rules as `restore` (must parse to a JSON array of jobs), so a broken snapshot
+   * throws here too and the preview never claims a bad file is restorable. The
+   * live store is only read (to count what would be replaced), never written.
+   */
+  previewRestore(options: { from: string; backupCurrent?: boolean }): RestorePreview {
+    const { from } = options;
+    const raw = readFileSync(from, "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      throw new Error(`snapshot ${from} is not a JSON array of jobs`);
+    }
+    const jobs = parsed as RelayJob[];
+
+    this.load();
+    const currentJobCount = this.jobs.size;
+    const wouldBackUp = (options.backupCurrent ?? true) && existsSync(this.filePath);
+    return { from, jobCount: jobs.length, currentJobCount, wouldBackUp };
   }
 
   /** Jobs whose reset time has already passed and are ready to be resumed now. */

@@ -230,6 +230,32 @@
       flaky). `compareJobsNewestFirst`(createdAt desc, id asc 타이브레이크)로 결정론화 + export
       테스트의 인덱스 의존 단언을 순서 무관으로 교체. branch `claude/wizardly-pascal-ru3nmz`)
 
+- [x] 👷 `agentrelay doctor` — 셋업 건강 진단(Node 버전·잡 스토어·설정 파일·알림 채널을 한 번에 점검).
+      (완료 — `@agentrelay/core/doctor.ts` 신설: 순수 판정 계층 `runDiagnostics(input)` +
+      `DiagnosticReport`/`DiagnosticCheck`(ok/warning/error·fix 힌트)·`counts`·`ok`. 파일시스템/env를
+      만지지 않고 이미 수집된 사실(nodeVersion·store·config·notify)만 판정 — 네 검사: node(engines
+      `>=22.5` 하한, `parseNodeVersion`/`isSupportedNode`·`MIN_NODE_*`), store(corrupt=error·부재=OK
+      "첫 실행 시 생성"·활성 잡 수 표기), config(loadError=error·validateConfig error/warning 전달·
+      파일 없음=OK), notify(채널 0개=warning[선택사항]·공백값 무시). `countActiveJobs` 헬퍼. CLI
+      `commands.ts`에 `runDoctor`(스토어 존재 여부를 큐 오픈 **전**에 캡처해 corrupt가 부재로 오인되지
+      않게, config는 loadConfigFile+validateConfig, notify는 env에서 수집; 절대 throw 안 함) +
+      `packages/cli/src/doctor.ts`에 순수 `renderDoctor`(색상 체크리스트+요약)·`renderDoctorJson`.
+      `agentrelay doctor [--json]` 커맨드, 검사 실패 시 exit 1(CI/pre-flight 게이트로 사용 가능).
+      부수: 타이밍에 따라 흔들리던 export.test.ts의 순서 의존 단언을 순서 무관으로 안정화(listAll이
+      createdAt 내림차순 정렬이라 같은 ms 삽입 시에만 통과하던 flaky 테스트). branch
+      `claude/wizardly-pascal-5rqier`)
+
+- [x] 👷 `agentrelay restore --dry-run` — 복원 전 무엇이 바뀔지 미리보기(라이브 스토어 미변경).
+      (완료 — `restore`가 되돌리기 어려운 파괴적 연산이라, 실행 전 "이 스냅샷을 복원하면 몇 개
+      job이 현재 몇 개를 대체하고 안전 백업이 만들어지는가"를 안전하게 확인하는 수단이 없었다.
+      `@agentrelay/core/backup.ts`에 `RestorePreview`(from·jobCount·currentJobCount·wouldBackUp)
+      타입 추가. `RelayQueue.previewRestore({from,backupCurrent})`가 실제 `restore`와 **동일한 검증**
+      (스냅샷 읽기+JSON 배열 체크 → 깨진 스냅샷은 미리보기에서도 throw)을 거치되, 라이브 스토어는
+      읽기만(대체될 현재 job 수 집계) 하고 절대 쓰지 않음. CLI `commands.ts`에 read-only
+      `previewRestoreStore`(선택자 해소는 `restoreStore`와 공유), `cli.ts` `restore`에 `--dry-run`
+      플래그 배선(백업 여부·대체 job 수를 리포트하고 "No changes made"로 종료, 미매칭 selector는
+      exit 1). branch `claude/wizardly-pascal-atytw7`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -9,10 +9,12 @@ import {
   initConfig,
   listStatus,
   listStoreBackups,
+  previewRestoreStore,
   pruneJobs,
   restoreStore,
   retryJob,
   runCommand,
+  runDoctor,
   showConfig,
   showJob,
   startDaemon,
@@ -20,6 +22,7 @@ import {
   validateConfigFile,
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
+import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import { renderStats, renderStatsJson } from "./stats.js";
 import {
@@ -250,6 +253,23 @@ export function buildCli(): Command {
     });
 
   program
+    .command("doctor")
+    .description("Health-check your setup: Node version, job store, config file, and notifications")
+    .option("--json", "Print the diagnostics as JSON (machine-readable, for scripts/CI)")
+    .action((opts: { json?: boolean }) => {
+      const { store, config: configPath } = program.opts();
+      const report = runDoctor({ storePath: store, configPath });
+      if (opts.json) {
+        console.log(renderDoctorJson(report));
+      } else {
+        console.log(renderDoctor(report, { color: Boolean(process.stdout.isTTY) }));
+      }
+      // Exit non-zero when any check failed, so `agentrelay doctor` is usable as
+      // a CI/pre-flight gate.
+      if (!report.ok) process.exitCode = 1;
+    });
+
+  program
     .command("export")
     .description("Export the job store to CSV or JSON for spreadsheets/BI/jq (stdout or a file)")
     .option("-f, --format <format>", `Output format: ${EXPORT_FORMATS.join(" | ")}`, "csv")
@@ -449,9 +469,28 @@ export function buildCli(): Command {
     .argument("[snapshot]", 'Snapshot to restore: "latest" (default), a stamp, a snapshot filename, or a path')
     .description("Restore the job store from a snapshot (the current store is backed up first)")
     .option("--no-backup", "Skip snapshotting the current store before overwriting it")
-    .action((snapshot: string | undefined, opts: { backup?: boolean }) => {
+    .option("--dry-run", "Show what would be restored without changing the store")
+    .action((snapshot: string | undefined, opts: { backup?: boolean; dryRun?: boolean }) => {
       const { store } = program.opts();
       try {
+        if (opts.dryRun) {
+          const preview = previewRestoreStore({
+            storePath: store,
+            selector: snapshot ?? "latest",
+            backupCurrent: opts.backup,
+          });
+          console.log(
+            `[agentrelay] Dry run: would restore ${preview.jobCount} job(s) from ${preview.from}, ` +
+              `replacing the current ${preview.currentJobCount} job(s).`
+          );
+          console.log(
+            preview.wouldBackUp
+              ? "[agentrelay] The current store would be backed up first."
+              : "[agentrelay] The current store would NOT be backed up."
+          );
+          console.log("[agentrelay] No changes made (--dry-run).");
+          return;
+        }
         const result = restoreStore({
           storePath: store,
           selector: snapshot ?? "latest",

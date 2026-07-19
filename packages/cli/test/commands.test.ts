@@ -11,6 +11,7 @@ import {
   initConfig,
   listStatus,
   listStoreBackups,
+  previewRestoreStore,
   pruneJobs,
   restoreStore,
   retryJob,
@@ -448,6 +449,57 @@ describe("restoreStore", () => {
     queue.enqueue({ project: "one", tool: "generic", command: ["a"], cwd: "/tmp" });
     queue.close();
     expect(() => restoreStore({ storePath, selector: "latest" })).toThrow(/No snapshot matches/);
+  });
+});
+
+describe("previewRestoreStore", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-preview-restore-cli-test-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("previews the latest snapshot without changing the store", () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    queue.backup({ now: new Date("2026-07-18T09:00:01.000Z") });
+    queue.enqueue({ project: "extra", tool: "generic", command: ["x"], cwd: "/tmp" });
+    queue.close();
+    expect(listStatus(storePath)).toHaveLength(2);
+
+    const preview = previewRestoreStore({ storePath });
+    expect(preview.jobCount).toBe(1);
+    expect(preview.currentJobCount).toBe(2);
+    expect(preview.wouldBackUp).toBe(true);
+    expect(preview.from.endsWith("jobs.json.backup-2026-07-18T09-00-01-000Z")).toBe(true);
+
+    // The store and its backups are untouched by the dry run.
+    expect(listStatus(storePath)).toHaveLength(2);
+    expect(listStoreBackups(storePath)).toHaveLength(1);
+  });
+
+  it("reports wouldBackUp=false when backupCurrent is false", () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "one", tool: "generic", command: ["a"], cwd: "/tmp" });
+    queue.backup({ now: new Date("2026-07-18T09:00:01.000Z") });
+    queue.close();
+
+    const preview = previewRestoreStore({ storePath, backupCurrent: false });
+    expect(preview.wouldBackUp).toBe(false);
+    expect(preview.currentJobCount).toBe(1);
+  });
+
+  it("throws a clear error when no snapshot matches the selector", () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "one", tool: "generic", command: ["a"], cwd: "/tmp" });
+    queue.close();
+    expect(() => previewRestoreStore({ storePath, selector: "latest" })).toThrow(/No snapshot matches/);
   });
 });
 

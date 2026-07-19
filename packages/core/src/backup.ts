@@ -116,3 +116,22 @@ export interface RestoreResult {
    */
   backedUpTo: string | null;
 }
+
+/**
+ * Outcome of a dry-run restore preview (see {@link RelayQueue.previewRestore}):
+ * what a real restore *would* do, without touching the live store. The snapshot
+ * is still validated, so a broken snapshot is reported in the preview too.
+ */
+export interface RestorePreview {
+  /** Absolute path of the snapshot that would be restored from. */
+  from: string;
+  /** Number of jobs the snapshot holds — what the store would become. */
+  jobCount: number;
+  /** Number of jobs currently in the store — what the restore would replace. */
+  currentJobCount: number;
+  /**
+   * Whether a real restore would first snapshot the current store for safety
+   * (true only when a safety backup is requested *and* a store file exists).
+   */
+  wouldBackUp: boolean;
+}
