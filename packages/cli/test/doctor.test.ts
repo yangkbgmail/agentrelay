@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DiagnosticReport } from "@agentrelay/core";
@@ -90,6 +90,57 @@ describe("runDoctor", () => {
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
     expect(find(report, "notify").level).toBe("warning");
     // notify warning alone still passes overall
+    expect(report.ok).toBe(true);
+  });
+
+  it("reports adapters OK when there are no active jobs to resume", () => {
+    const queue = new RelayQueue(storePath);
+    const done = queue.enqueue({ project: "p", tool: "claude-code", command: ["nope-binary"], cwd: dir });
+    queue.markCompleted(done.id); // terminal → never re-spawned
+    queue.close();
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    const adapters = find(report, "adapters");
+    expect(adapters.level).toBe("ok");
+    expect(adapters.message).toContain("no queued jobs");
+  });
+
+  it("errors when a queued job's binary is missing from PATH", () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "p", tool: "claude-code", command: ["definitely-not-installed-xyz"], cwd: dir });
+    queue.close();
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { PATH: dir, AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+    });
+    const adapters = find(report, "adapters");
+    expect(adapters.level).toBe("error");
+    expect(adapters.message).toContain("definitely-not-installed-xyz");
+    expect(report.ok).toBe(false);
+  });
+
+  it("reports adapters OK and resolves a real binary on PATH", () => {
+    // Drop a fake executable into the temp dir and point PATH at it.
+    const binName = "faketool";
+    const binPath = join(dir, binName);
+    writeFileSync(binPath, "#!/bin/sh\necho hi\n", "utf8");
+    chmodSync(binPath, 0o755);
+
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "p", tool: "generic", command: [binName, "--go"], cwd: dir });
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { PATH: dir, AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+    });
+    const adapters = find(report, "adapters");
+    expect(adapters.level).toBe("ok");
+    expect(adapters.message).toContain(binName);
+    expect(adapters.message).toContain(binPath);
     expect(report.ok).toBe(true);
   });
 });

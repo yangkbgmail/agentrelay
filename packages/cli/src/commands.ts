@@ -1,6 +1,15 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import {
+  accessSync,
+  constants,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, delimiter, dirname, join, resolve } from "node:path";
 import type {
   AgentRelayConfig,
   AgentTool,
@@ -20,6 +29,7 @@ import {
   canCancel,
   canRequeue,
   countActiveJobs,
+  distinctActiveBinaries,
   type EffectiveConfigEntry,
   type ExportFormat,
   exportJobs,
@@ -681,6 +691,42 @@ export interface DoctorOptions {
   nodeVersion?: string;
 }
 
+/** True when `p` is an existing, executable file. Errors (missing/perms) → false. */
+function isExecutableFile(p: string): boolean {
+  try {
+    if (!statSync(p).isFile()) return false;
+    accessSync(p, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `which`-style lookup: resolves a bare binary name against PATH (honoring
+ * PATHEXT on Windows), or checks a path-qualified name directly. Returns the
+ * absolute path it resolved to, or null when nothing executable was found.
+ * Pure enough to keep the doctor's PATH probing in one place.
+ */
+function resolveOnPath(binary: string, env: Record<string, string | undefined>): string | null {
+  if (binary.includes("/") || binary.includes("\\")) {
+    const direct = resolve(binary);
+    return isExecutableFile(direct) ? direct : null;
+  }
+  const pathVar = env.PATH ?? env.Path ?? "";
+  if (!pathVar) return null;
+  const isWin = process.platform === "win32";
+  const exts = isWin ? ["", ...(env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";").filter(Boolean)] : [""];
+  for (const dir of pathVar.split(delimiter)) {
+    if (!dir) continue;
+    for (const ext of exts) {
+      const candidate = join(dir, binary + ext);
+      if (isExecutableFile(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
 /**
  * Gathers real environment/store/config facts and runs them through the pure
  * {@link runDiagnostics} judge for `agentrelay doctor`. This is the filesystem +
@@ -716,6 +762,14 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     loadError = String(error);
   }
 
+  // --- adapter facts. The relay re-spawns each active job's `command[0]`; if
+  // that binary isn't on PATH, the resume fails silently. Probe each distinct
+  // one so `doctor` catches "the tool isn't installed" before a resume does.
+  const binaries = distinctActiveBinaries(jobs).map(({ binary, neededBy }) => {
+    const resolvedPath = resolveOnPath(binary, env);
+    return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
+  });
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -730,6 +784,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
       slackWebhook: env.AGENTRELAY_SLACK_WEBHOOK,
       webhookUrl: env.AGENTRELAY_WEBHOOK_URL,
     },
+    adapters: { binaries },
   });
 }
 

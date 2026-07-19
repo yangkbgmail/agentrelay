@@ -3,6 +3,7 @@ import type { ConfigIssue } from "../src/config.js";
 import {
   countActiveJobs,
   type DiagnosticInput,
+  distinctActiveBinaries,
   isSupportedNode,
   parseNodeVersion,
   runDiagnostics,
@@ -35,6 +36,7 @@ function input(overrides: Partial<DiagnosticInput> = {}): DiagnosticInput {
     store: { path: "/home/u/.agentrelay/jobs.json", exists: true, corrupt: false, jobCount: 0, activeCount: 0 },
     config: { path: null, loadError: null, issues: [] },
     notify: { slackWebhook: "https://hooks.slack.com/x" },
+    adapters: { binaries: [] },
     ...overrides,
   };
 }
@@ -101,6 +103,7 @@ describe("runDiagnostics", () => {
     expect(report.counts.error).toBe(0);
     expect(find(report, "node-version").level).toBe("ok");
     expect(find(report, "store").level).toBe("ok");
+    expect(find(report, "adapters").level).toBe("ok");
     expect(find(report, "config").level).toBe("ok");
     expect(find(report, "notify").level).toBe("ok");
   });
@@ -193,11 +196,77 @@ describe("runDiagnostics", () => {
     expect(notify.message).toContain("Slack + webhook");
   });
 
+  it("reports adapters OK (nothing to check) when no job is queued", () => {
+    const report = runDiagnostics(input({ adapters: { binaries: [] } }));
+    const adapters = find(report, "adapters");
+    expect(adapters.level).toBe("ok");
+    expect(adapters.message).toContain("no queued jobs");
+  });
+
+  it("reports adapters OK and lists resolved paths when every binary is on PATH", () => {
+    const report = runDiagnostics(
+      input({
+        adapters: { binaries: [{ binary: "claude", found: true, resolvedPath: "/usr/bin/claude", neededBy: 2 }] },
+      })
+    );
+    const adapters = find(report, "adapters");
+    expect(adapters.level).toBe("ok");
+    expect(adapters.message).toContain("claude (/usr/bin/claude)");
+    expect(report.ok).toBe(true);
+  });
+
+  it("errors when a queued job's binary is missing from PATH", () => {
+    const report = runDiagnostics(
+      input({
+        adapters: {
+          binaries: [
+            { binary: "claude", found: true, resolvedPath: "/usr/bin/claude", neededBy: 1 },
+            { binary: "codex", found: false, neededBy: 1 },
+          ],
+        },
+      })
+    );
+    const adapters = find(report, "adapters");
+    expect(adapters.level).toBe("error");
+    expect(adapters.message).toContain("1 of 2");
+    expect(adapters.message).toContain("codex");
+    expect(adapters.hint).toContain("which codex");
+    expect(report.ok).toBe(false);
+  });
+
   it("counts levels and computes ok across all checks", () => {
     const report = runDiagnostics(input({ nodeVersion: "v20.0.0", notify: {} }));
     expect(report.counts.error).toBe(1); // node
     expect(report.counts.warning).toBe(1); // notify
-    expect(report.counts.ok).toBe(2); // store + config
+    expect(report.counts.ok).toBe(3); // store + adapters + config
     expect(report.ok).toBe(false);
+  });
+});
+
+describe("distinctActiveBinaries", () => {
+  it("returns the distinct command[0] of active jobs with counts", () => {
+    const jobs = [
+      job({ status: "queued", command: ["claude", "-p", "a"] }),
+      job({ status: "waiting_for_reset", command: ["claude", "-p", "b"] }),
+      job({ status: "resuming", command: ["codex", "run"] }),
+    ];
+    expect(distinctActiveBinaries(jobs)).toEqual([
+      { binary: "claude", neededBy: 2 },
+      { binary: "codex", neededBy: 1 },
+    ]);
+  });
+
+  it("ignores terminal jobs — they are never re-spawned", () => {
+    const jobs = [
+      job({ status: "completed", command: ["claude"] }),
+      job({ status: "failed", command: ["codex"] }),
+      job({ status: "cancelled", command: ["gemini"] }),
+    ];
+    expect(distinctActiveBinaries(jobs)).toEqual([]);
+  });
+
+  it("skips a malformed job with an empty command[0]", () => {
+    const jobs = [job({ status: "queued", command: ["   "] }), job({ status: "queued", command: [] as string[] })];
+    expect(distinctActiveBinaries(jobs)).toEqual([]);
   });
 });

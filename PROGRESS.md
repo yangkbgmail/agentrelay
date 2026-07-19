@@ -852,3 +852,33 @@
     (어제 failed만 0%)·`--since 1d --until 7d`(빈 범위 exit 1).
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), `export`/`status`에도 `--since/--until` 확장(👷 후보),
   대시보드가 스코프/시간 창 필터 UI 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보).
+
+### [세션 28 — 누적 PR #56 병합 + `doctor` 어댑터 바이너리 PATH 검사] (2026-07-19, 무인 자율 세션)
+- **먼저: 다시 쌓인 열린 PR #56을 병합해 중복 루프를 끊었다.** 세션 시작 시 CI 초록(`actions_list`로
+  확인, head `9d939d4` success)·`mergeable_state:clean`인 열린 PR이 #56(status `--tool/--project` +
+  stats `--since/--until` 통합, #53·#54·#55 흡수) 1건이었다. main 브랜치 보호로 병합이 밀리면 매시간
+  무기억 세션이 같은 후보를 반복 구현하는 고질적 패턴(세션 3·8·10·16·22·24·26·27) → COLLAB.md 병합
+  정책("CI 초록이면 클로드 코드가 통합 가능")에 근거해 **#56을 main에 병합**(8a2e161).
+- 배경: BACKLOG의 👷 항목이 전부 [완료] 상태 → CLAUDE.md "다 소진되면 스스로 새 개선 항목을 발굴"
+  지침대로, 여러 세션이 "다음 할 일 👷 후보"로 남긴 **`doctor` 어댑터 바이너리 PATH 검사**를 골라
+  구현했다. 스케줄러는 재개 시 `job.command[0]`을 spawn하는데, 그 바이너리가 PATH에 없으면 모든
+  재개가 조용히 실패한다 — 실제 #1 실패 모드인데 `doctor`가 이를 잡지 못했다.
+- 한 일 (branch `claude/wizardly-pascal-66cnzs`): **`agentrelay doctor` 어댑터 PATH 검사**.
+  1. `@agentrelay/core/doctor.ts` — `BinaryFact`(binary·found·resolvedPath·neededBy)·`AdapterFacts`
+     타입 + `DiagnosticInput.adapters` 추가. 순수 `distinctActiveBinaries(jobs)`(활성 잡의 distinct
+     `command[0]`+카운트, 종료 잡·빈 command 제외, 첫 등장 순서 보존) 신설. `runDiagnostics`에
+     `adapterCheck` 추가(순서 node→store→**adapters**→config→notify): 대기 잡 없으면 OK(점검 대상
+     없음), 전부 PATH에 있으면 OK(해석 경로 표시), 하나라도 없으면 error("M of N … not on PATH" +
+     `which <bin>` 힌트). 여전히 순수(파일시스템/env/시계 미접촉) 유지.
+  2. CLI `commands.ts` — `which`식 `resolveOnPath(binary, env)`(PATH 스캔, Windows PATHEXT 대응,
+     경로 포함 바이너리는 직접 확인) + `isExecutableFile`(statSync isFile + accessSync X_OK) 신설.
+     `runDoctor`가 `distinctActiveBinaries`로 활성 잡 바이너리를 뽑아 각각 PATH 해석해 `AdapterFacts`
+     구성 후 `runDiagnostics`에 전달. 절대 throw 안 함, 검사 실패 시 exit 1(CI/pre-flight 게이트).
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **381개 전부 통과**(core 262 + cli 116 + dashboard 3 — core adapterCheck 3 +
+    distinctActiveBinaries 3 + cli runDoctor adapter e2e 3 신규). **실제 빌드된 CLI e2e**(mock 아님):
+    대기 잡 2개(`myagent`[PATH에 있음]·`missing-cli`[없음]) 시드 → `doctor`가 "1 of 2 … not on PATH:
+    missing-cli" error + exit 1 → `missing-cli` 심링크로 PATH에 추가하면 "all 2 … resolve on PATH"
+    (해석 절대경로 표시) + exit 0, 대기 잡 없으면 "no queued jobs … no agent binary to check" OK.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), `doctor`에 디스크 쓰기 권한·데몬 실행 여부 검사 추가(👷
+  후보), 대시보드가 timing/설정 파일 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보).

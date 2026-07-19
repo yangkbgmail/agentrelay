@@ -74,6 +74,31 @@ export interface NotifyFacts {
   webhookUrl?: string;
 }
 
+/**
+ * Whether a single agent binary (a job's `command[0]`) resolved on PATH. The CLI
+ * does the actual PATH lookup (filesystem); this module only judges the result.
+ */
+export interface BinaryFact {
+  /** The executable name as it appears in a job command, e.g. "claude". */
+  binary: string;
+  /** True when the binary resolved to an executable on PATH (or a direct path). */
+  found: boolean;
+  /** Absolute path it resolved to, when found — shown in the OK message. */
+  resolvedPath?: string;
+  /** How many active jobs will re-spawn this binary on resume. */
+  neededBy: number;
+}
+
+/** Facts about the agent binaries the queued jobs will re-spawn. */
+export interface AdapterFacts {
+  /**
+   * Distinct `command[0]` binaries across the *active* jobs (the only ones the
+   * relay will re-spawn), each with whether it resolved on PATH. Empty when no
+   * job is waiting to resume — there's nothing to launch, so nothing to check.
+   */
+  binaries: BinaryFact[];
+}
+
 /** Everything {@link runDiagnostics} needs — collected by the CLI, judged here. */
 export interface DiagnosticInput {
   /** Running Node version string, e.g. `process.version` ("v22.5.0"). */
@@ -81,6 +106,7 @@ export interface DiagnosticInput {
   store: StoreFacts;
   config: ConfigFacts;
   notify: NotifyFacts;
+  adapters: AdapterFacts;
 }
 
 /** Minimum supported Node version — mirrors the packages' `engines.node`. */
@@ -93,6 +119,25 @@ const ACTIVE_STATUSES = new Set<RelayJob["status"]>(["queued", "waiting_for_rese
 /** Count jobs still in flight — handy for the CLI to build {@link StoreFacts}. */
 export function countActiveJobs(jobs: RelayJob[]): number {
   return jobs.filter((job) => ACTIVE_STATUSES.has(job.status)).length;
+}
+
+/**
+ * The distinct agent binaries (`command[0]`) the *active* jobs will re-spawn on
+ * resume, each with how many active jobs need it — the CLI's `doctor` then does
+ * a PATH lookup per binary to fill in {@link BinaryFact.found}. Only active jobs
+ * count: terminal ones are never re-launched, so a missing binary there is moot.
+ * An empty/whitespace `command[0]` (a malformed job) is skipped. Insertion order
+ * of first appearance is preserved for a stable report.
+ */
+export function distinctActiveBinaries(jobs: RelayJob[]): { binary: string; neededBy: number }[] {
+  const counts = new Map<string, number>();
+  for (const job of jobs) {
+    if (!ACTIVE_STATUSES.has(job.status)) continue;
+    const binary = job.command[0]?.trim();
+    if (!binary) continue;
+    counts.set(binary, (counts.get(binary) ?? 0) + 1);
+  }
+  return [...counts.entries()].map(([binary, neededBy]) => ({ binary, neededBy }));
 }
 
 /**
@@ -123,9 +168,12 @@ export function isSupportedNode(version: string): boolean {
  * 1. **node** — the runtime meets the `>=22.5` engines floor.
  * 2. **store** — the job store is readable (corrupt → error; absent → an OK
  *    "will be created" note, since a fresh install has no store yet).
- * 3. **config** — the config file (if any) loads and validates; a broken file
+ * 3. **adapters** — every agent binary a queued job will re-spawn is on PATH
+ *    (a missing one is an error: those jobs can't resume). Skipped-as-OK when
+ *    nothing is queued to resume.
+ * 4. **config** — the config file (if any) loads and validates; a broken file
  *    is an error, semantic warnings are surfaced as warnings.
- * 4. **notify** — at least one notification channel is set (absence is a
+ * 5. **notify** — at least one notification channel is set (absence is a
  *    warning, not an error: notifications are optional but you'd want to know
  *    the relay can't reach you).
  */
@@ -134,6 +182,7 @@ export function runDiagnostics(input: DiagnosticInput): DiagnosticReport {
 
   checks.push(nodeCheck(input.nodeVersion));
   checks.push(storeCheck(input.store));
+  checks.push(adapterCheck(input.adapters));
   checks.push(configCheck(input.config));
   checks.push(notifyCheck(input.notify));
 
@@ -190,6 +239,33 @@ function storeCheck(store: StoreFacts): DiagnosticCheck {
     name: "store",
     level: "ok",
     message: `job store at ${store.path} is readable (${store.jobCount} job(s)${active})`,
+  };
+}
+
+function adapterCheck(adapters: AdapterFacts): DiagnosticCheck {
+  const { binaries } = adapters;
+  if (binaries.length === 0) {
+    return {
+      name: "adapters",
+      level: "ok",
+      message: "no queued jobs waiting to resume — no agent binary to check",
+    };
+  }
+  const missing = binaries.filter((b) => !b.found);
+  if (missing.length > 0) {
+    const names = missing.map((b) => b.binary).join(", ");
+    return {
+      name: "adapters",
+      level: "error",
+      message: `${missing.length} of ${binaries.length} agent binary/binaries not on PATH: ${names} — queued jobs will fail to resume`,
+      hint: `Install the tool(s) or add them to PATH (check with \`which ${missing[0].binary}\`).`,
+    };
+  }
+  const names = binaries.map((b) => (b.resolvedPath ? `${b.binary} (${b.resolvedPath})` : b.binary)).join(", ");
+  return {
+    name: "adapters",
+    level: "ok",
+    message: `all ${binaries.length} agent binary/binaries resolve on PATH: ${names}`,
   };
 }
 
