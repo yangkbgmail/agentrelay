@@ -58,6 +58,32 @@ describe("exportStore", () => {
     expect(commands).toContainEqual(["codex", "run"]);
   });
 
+  it("produces NDJSON with one JSON object per line that each round-trip", () => {
+    seed();
+    const result = exportStore({ storePath, format: "ndjson" });
+    expect(result.count).toBe(2);
+    const lines = result.content.split("\n");
+    expect(lines).toHaveLength(2); // one record per line, no header, no blank tail
+    const commands = lines.map((l) => (JSON.parse(l) as { command: string[] }).command);
+    expect(commands).toContainEqual(["claude", "-p", "go"]);
+    expect(commands).toContainEqual(["codex", "run"]);
+  });
+
+  it("writes NDJSON to a file with a trailing newline (POSIX text convention)", () => {
+    seed();
+    const out = join(dir, "sub", "jobs.ndjson");
+    const result = exportStore({ storePath, format: "ndjson", outPath: out });
+    expect(result.writtenTo).toBe(out);
+    const onDisk = readFileSync(out, "utf8");
+    expect(onDisk.endsWith("\n")).toBe(true);
+    // Every non-empty line is an independently parseable job record.
+    const records = onDisk.trimEnd().split("\n");
+    expect(records).toHaveLength(2);
+    for (const line of records) {
+      expect(() => JSON.parse(line)).not.toThrow();
+    }
+  });
+
   it("writes to a file with a trailing newline and reports the path", () => {
     seed();
     const out = join(dir, "sub", "jobs.csv");

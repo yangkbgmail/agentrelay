@@ -347,6 +347,19 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay export --format ndjson` — CSV/JSON에 이어 NDJSON(newline-delimited JSON) 포맷 추가.
+      스트리밍 분석 파이프라인(`jq -c`, `while read`, 로그/BigQuery 적재)의 사실상 표준 포맷으로,
+      CSV처럼 한 줄씩 소비 가능하면서 JSON처럼 무손실.
+      (완료 — `@agentrelay/core/export.ts`에 순수 `jobsToNdjson(jobs)` 신설: 잡당 compact `JSON.stringify`
+      한 줄, LF 구분, trailing newline 없음(`jobsToCsv`/`jobsToJson`과 동일 — CLI 파일 라이터가 최종 LF
+      부착). 각 줄이 전체 `RelayJob`을 무손실 왕복(JSON처럼) + 한 줄씩 스트리밍(CSV처럼). 내장 개행
+      (`lastError` 멀티라인)은 JSON 이스케이프돼 레코드를 쪼개지 않음. 빈 스토어는 빈 문자열. `EXPORT_FORMATS`에
+      `ndjson` 추가 + `exportJobs` 디스패처를 switch로 확장 — CLI가 `EXPORT_FORMATS`를 제네릭하게 소비하므로
+      `--format ndjson`·검증·에러 메시지(`Valid: csv, json, ndjson`)가 자동 전파, 새 CLI 코드는 설명 문구뿐.
+      export.test.ts에 jobsToNdjson 4 + 디스패치 1 + 포맷 목록, cli/export.test.ts에 exportStore ndjson
+      stdout/파일 2케이스. 빌드된 CLI e2e로 `jq -c` 스트리밍·`--status` 필터·멀티라인 이스케이프·bad format
+      exit 1 검증. branch `claude/wizardly-pascal-orbdgw`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

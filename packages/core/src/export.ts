@@ -99,11 +99,31 @@ export function jobsToJson(jobs: RelayJob[]): string {
   return JSON.stringify(jobs, null, 2);
 }
 
+/**
+ * Serialize jobs to NDJSON (newline-delimited JSON): one compact JSON object
+ * per line, LF-separated, no trailing newline (matching {@link jobsToCsv}/
+ * {@link jobsToJson}; the CLI file writer adds the final LF). Like the JSON
+ * form it is lossless — each line round-trips a full {@link RelayJob} — but,
+ * like CSV, it streams: tools such as `jq -c`, `while read line`, and
+ * log/BigQuery pipelines consume it a record at a time without parsing the
+ * whole file. An empty job list yields an empty string.
+ */
+export function jobsToNdjson(jobs: RelayJob[]): string {
+  return jobs.map((job) => JSON.stringify(job)).join("\n");
+}
+
 /** Supported export formats. */
-export const EXPORT_FORMATS = ["csv", "json"] as const;
+export const EXPORT_FORMATS = ["csv", "json", "ndjson"] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 /** Dispatch to the right serializer for the given format. */
 export function exportJobs(jobs: RelayJob[], format: ExportFormat, options: CsvOptions = {}): string {
-  return format === "json" ? jobsToJson(jobs) : jobsToCsv(jobs, options);
+  switch (format) {
+    case "json":
+      return jobsToJson(jobs);
+    case "ndjson":
+      return jobsToNdjson(jobs);
+    default:
+      return jobsToCsv(jobs, options);
+  }
 }

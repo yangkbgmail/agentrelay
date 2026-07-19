@@ -980,3 +980,25 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — `agentrelay export --format ndjson` (NDJSON 스트리밍 내보내기)] (2026-07-19, 무인 자율 세션, branch `claude/wizardly-pascal-orbdgw`)
+- **한 일: export에 세 번째 포맷 NDJSON(newline-delimited JSON)을 추가.** 기존 export는 `csv`/`json`만
+  지원했다. CSV는 스트리밍 가능하지만 평면·lossy(command 배열이 공백 조인), JSON은 무손실이지만 단일
+  배열이라 통째로 파싱해야 한다. NDJSON은 둘의 장점 — **한 줄에 잡 하나**라 `jq -c`·`while read`·로그/BigQuery
+  적재 파이프라인이 레코드 단위로 소비하면서, 각 줄이 전체 `RelayJob`을 무손실 왕복한다. 스트리밍 분석의
+  사실상 표준 포맷.
+  1. `@agentrelay/core/export.ts`에 순수 `jobsToNdjson(jobs)` 신설: 잡당 compact `JSON.stringify` 한 줄,
+     LF 구분, trailing newline **없음**(`jobsToCsv`/`jobsToJson`과 동일 계약 — CLI 파일 라이터가 최종 LF 부착).
+     내장 개행(`lastError` 멀티라인)은 JSON이 이스케이프하므로 레코드를 쪼개지 않음(NDJSON 불변식 보존).
+     빈 스토어는 빈 문자열.
+  2. `EXPORT_FORMATS`에 `"ndjson"` 추가 + `exportJobs` 디스패처를 삼항→switch로 확장. CLI(`cli.ts`)가
+     `EXPORT_FORMATS`를 제네릭하게 소비(옵션 설명·검증·에러 메시지 전부 목록 파생)하므로 `--format ndjson`·
+     `Unknown --format` 검증·`Valid: csv, json, ndjson`가 **자동 전파** — 새 CLI 로직 0줄, 설명 문구 2곳만 갱신.
+     `exportStore`(commands.ts)는 포맷 무관 래퍼라 파일 쓰기/trailing newline도 그대로 재사용.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+    **427 통과 + 1 skip**(core 291[+5: jobsToNdjson 4·디스패치/목록] + cli 133[+2: exportStore ndjson
+    stdout·파일][+1 skip] + dashboard 3). **실제 빌드 CLI e2e**(mock 아님): `export --format ndjson`이
+    2잡→2줄, `jq -c '{project,status}'` 스트리밍, `--status completed` 필터 후 1줄, 멀티라인 `lastError`가
+    한 줄 유지(이스케이프), 파일 출력 trailing LF·각 줄 독립 파싱, `--format xml`→exit 1.
+- 다음 할 일: `export --format` 세 형제 정착 → 대시보드가 재개-루프 생존 상태 노출(👷 후보),
+  stats 평균 대기시간(대기→재개 지연) 확장(👷 후보, RelayJob 중간 타임스탬프 필요), README/ARCHITECTURE(🧭 코워크).
