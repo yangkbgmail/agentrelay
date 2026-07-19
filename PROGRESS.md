@@ -705,3 +705,28 @@
     selector는 "No snapshot matches" + exit 1까지 확인.
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), 대시보드가 timing/설정 파일 노출(👷 후보),
   stats 평균 대기시간(대기→재개 지연) 확장(👷 후보), `restore --dry-run`(복원 전 미리보기, 👷 후보).
+
+### [세션 25 — `agentrelay stats` 스코프 필터(--status/--tool/--project) + 큐 정렬 flaky 수정] (2026-07-19, 무인 자율 세션)
+- 한 일: `stats`는 지금까지 큐 전체 지표만 냈다. 이제 부분집합(특정 프로젝트·툴·상태)에 대해서만
+  성공률·재시도·해결시간을 볼 수 있다. 구현 중 pre-existing한 큐 정렬 flaky 버그도 발견해 고쳤다.
+  1. `@agentrelay/core/stats.ts`에 순수 `scopeJobs(jobs, {statuses,tools,projects})` +
+     `isJobScopeActive` 추가. 차원 간 AND·차원 내 OR, 미지정 차원은 필터 안 함, 항상 새 배열 반환
+     (스토어 앨리어싱 방지). tool은 원시 문자열로 매칭해 미지 tool도 정확히 필터.
+  2. CLI `stats`에 `-s/--status`·`-t/--tool`·`-p/--project` 배선. 공용 `splitList` 헬퍼로 콤마 분리,
+     잘못된 status/tool은 명확한 에러 + exit 1. `renderStats`에 `scopeNote` 옵션 → 활성 시 "scope: …"
+     헤더 라인, 스코프가 스토어 전체를 걸러내면 온보딩 문구 대신 `NO_SCOPE_MATCH_MESSAGE`.
+     `renderStatsJson`은 활성 스코프를 `scope` 필드로 에코(스크립트/jq용).
+  3. **부수 버그 수정(pre-existing flaky)**: `queue.ts`의 리스트 정렬 comparator
+     `a.createdAt < b.createdAt ? 1 : -1`가 same-ms 타이에서 0을 안 돌려주는 비대칭 비교였다.
+     두 job이 같은 ms에 생성되면 정렬 결과가 엔진 내부에 의존 → 병렬 부하에서 export 테스트가
+     간헐 실패(clean main에서도 5회 중 ~2회 실패 재현). `compareJobsNewestFirst`(createdAt desc,
+     id asc 타이브레이크)로 결정론화하고, export 테스트의 인덱스 의존 단언을 순서 무관(set 비교)으로 교체.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **313개 전부 통과**(core 221 + cli 89 + dashboard 3 — core scopeJobs/isJobScopeActive
+    7 + cli renderStats/Json 스코프 3 신규). flaky 재현 후 수정 검증: cli 테스트 6연속·core 3연속
+    전부 green. **실제 빌드된 CLI e2e**(mock 아님): 3-job(web/api × claude/codex) 스토어로
+    `stats`(전체 67%)·`--project web`(50%)·`--tool claude-code`(100%)·`--status failed`(0%)·
+    `--project nope`(No match)·`--tool bogus`(exit 1)·`--json --project web`(scope 에코) 확인.
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), `stats --project`를 상위 프로젝트 랭킹과 연동한
+  드릴다운(👷 후보), `status`에도 `--tool`/`--project` 필터 확장(👷 후보), 대시보드가 스코프 필터
+  UI 노출(👷 후보).

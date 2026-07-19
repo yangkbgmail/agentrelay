@@ -70,6 +70,53 @@ export interface RelayStats {
   timing: TimingStats;
 }
 
+/**
+ * A subset selector for {@link scopeJobs}: keep only jobs matching every
+ * supplied dimension (AND across dimensions, OR within one). An omitted or
+ * empty list for a dimension means "don't filter on it".
+ */
+export interface JobScope {
+  /** Keep only jobs whose status is one of these. */
+  statuses?: JobStatus[];
+  /** Keep only jobs whose tool is one of these (matched as raw strings). */
+  tools?: string[];
+  /** Keep only jobs whose project is one of these (exact match). */
+  projects?: string[];
+}
+
+/** True when a scope would actually filter anything (any dimension is set). */
+export function isJobScopeActive(scope: JobScope): boolean {
+  return Boolean(
+    (scope.statuses && scope.statuses.length > 0) ||
+      (scope.tools && scope.tools.length > 0) ||
+      (scope.projects && scope.projects.length > 0)
+  );
+}
+
+/**
+ * Narrows a job list to those matching a {@link JobScope}, so `agentrelay stats`
+ * can report metrics for just a project, tool, or status subset. Pure and
+ * non-mutating: returns a fresh array (a shallow copy even when nothing filters)
+ * so callers never alias the store. Tools are matched as raw strings — an
+ * unknown tool string still filters correctly rather than being silently coerced.
+ */
+export function scopeJobs(jobs: RelayJob[], scope: JobScope = {}): RelayJob[] {
+  let result = jobs.slice();
+  if (scope.statuses && scope.statuses.length > 0) {
+    const wanted = new Set<JobStatus>(scope.statuses);
+    result = result.filter((job) => wanted.has(job.status));
+  }
+  if (scope.tools && scope.tools.length > 0) {
+    const wanted = new Set<string>(scope.tools);
+    result = result.filter((job) => wanted.has(job.tool));
+  }
+  if (scope.projects && scope.projects.length > 0) {
+    const wanted = new Set<string>(scope.projects);
+    result = result.filter((job) => wanted.has(job.project));
+  }
+  return result;
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 

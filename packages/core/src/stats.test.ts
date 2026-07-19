@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeStats } from "./stats.js";
+import { computeStats, isJobScopeActive, scopeJobs } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -239,5 +239,72 @@ describe("computeStats", () => {
       medianResolutionMs: null,
       p90ResolutionMs: null,
     });
+  });
+});
+
+describe("isJobScopeActive", () => {
+  it("is false for an empty scope or all-empty dimensions", () => {
+    expect(isJobScopeActive({})).toBe(false);
+    expect(isJobScopeActive({ statuses: [], tools: [], projects: [] })).toBe(false);
+  });
+
+  it("is true when any dimension has a value", () => {
+    expect(isJobScopeActive({ statuses: ["completed"] })).toBe(true);
+    expect(isJobScopeActive({ tools: ["codex-cli"] })).toBe(true);
+    expect(isJobScopeActive({ projects: ["web"] })).toBe(true);
+  });
+});
+
+describe("scopeJobs", () => {
+  it("returns a fresh copy (not the same array) when nothing filters", () => {
+    const jobs = [job(), job()];
+    const result = scopeJobs(jobs, {});
+    expect(result).toEqual(jobs);
+    expect(result).not.toBe(jobs);
+  });
+
+  it("filters by status", () => {
+    const jobs = [job({ status: "completed" }), job({ status: "failed" }), job({ status: "queued" })];
+    const result = scopeJobs(jobs, { statuses: ["completed", "failed"] });
+    expect(result.map((j) => j.status)).toEqual(["completed", "failed"]);
+  });
+
+  it("filters by tool, matching unknown tool strings literally", () => {
+    const jobs = [
+      job({ tool: "claude-code" as AgentTool }),
+      job({ tool: "codex-cli" as AgentTool }),
+      job({ tool: "mystery" as AgentTool }),
+    ];
+    expect(scopeJobs(jobs, { tools: ["codex-cli"] }).map((j) => j.tool)).toEqual(["codex-cli"]);
+    expect(scopeJobs(jobs, { tools: ["mystery"] }).map((j) => j.tool)).toEqual(["mystery"]);
+  });
+
+  it("filters by project (exact match)", () => {
+    const jobs = [job({ project: "web" }), job({ project: "api" }), job({ project: "web-2" })];
+    expect(scopeJobs(jobs, { projects: ["web"] }).map((j) => j.project)).toEqual(["web"]);
+  });
+
+  it("ANDs across dimensions and ORs within one", () => {
+    const jobs = [
+      job({ project: "web", status: "completed" }),
+      job({ project: "web", status: "failed" }),
+      job({ project: "api", status: "completed" }),
+      job({ project: "web", status: "queued" }),
+    ];
+    const result = scopeJobs(jobs, { projects: ["web"], statuses: ["completed", "failed"] });
+    expect(result).toHaveLength(2);
+    expect(result.every((j) => j.project === "web")).toBe(true);
+    expect(result.map((j) => j.status).sort()).toEqual(["completed", "failed"]);
+  });
+
+  it("feeds computeStats so metrics reflect only the scoped subset", () => {
+    const jobs = [
+      job({ project: "web", status: "completed" }),
+      job({ project: "web", status: "failed" }),
+      job({ project: "api", status: "completed" }),
+    ];
+    const stats = computeStats(scopeJobs(jobs, { projects: ["web"] }));
+    expect(stats.total).toBe(2);
+    expect(stats.successRate).toBe(0.5); // 1 of 2 resolved in "web"
   });
 });

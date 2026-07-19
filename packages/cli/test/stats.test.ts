@@ -1,7 +1,14 @@
 import type { RelayJob } from "@agentrelay/core";
 import { computeStats } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { formatDurationMs, formatSuccessRate, NO_STATS_MESSAGE, renderStats, renderStatsJson } from "../src/stats.js";
+import {
+  formatDurationMs,
+  formatSuccessRate,
+  NO_SCOPE_MATCH_MESSAGE,
+  NO_STATS_MESSAGE,
+  renderStats,
+  renderStatsJson,
+} from "../src/stats.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -130,7 +137,7 @@ describe("renderStats", () => {
 describe("renderStatsJson", () => {
   it("emits a stable machine-readable shape", () => {
     const stats = computeStats([job({ status: "completed" }), job({ status: "failed" })]);
-    const parsed = JSON.parse(renderStatsJson(stats, "/tmp/store.json", "2026-07-13T00:00:00.000Z"));
+    const parsed = JSON.parse(renderStatsJson(stats, "/tmp/store.json", { generatedAt: "2026-07-13T00:00:00.000Z" }));
     expect(parsed.storePath).toBe("/tmp/store.json");
     expect(parsed.generatedAt).toBe("2026-07-13T00:00:00.000Z");
     expect(parsed.stats.total).toBe(2);
@@ -138,5 +145,35 @@ describe("renderStatsJson", () => {
     // timing block is carried through untouched for scripts/jq.
     expect(parsed.stats.timing.resolvedCount).toBe(2);
     expect(typeof parsed.stats.timing.avgResolutionMs).toBe("number");
+  });
+
+  it("omits scope when inactive and echoes it back when set", () => {
+    const stats = computeStats([job()]);
+    const plain = JSON.parse(renderStatsJson(stats, "/tmp/store.json", { generatedAt: "2026-07-13T00:00:00.000Z" }));
+    expect(plain.scope).toBeUndefined();
+
+    const scoped = JSON.parse(
+      renderStatsJson(stats, "/tmp/store.json", {
+        generatedAt: "2026-07-13T00:00:00.000Z",
+        scope: { projects: ["demo"] },
+      })
+    );
+    expect(scoped.scope).toEqual({ projects: ["demo"] });
+  });
+});
+
+describe("renderStats with a scope", () => {
+  it("prepends a scope note when one is given", () => {
+    const stats = computeStats([job()]);
+    const out = renderStats(stats, { now: NOW, scopeNote: "project=demo" });
+    expect(out).toContain("scope: project=demo");
+    expect(out).toContain("1 job(s) tracked");
+  });
+
+  it("says no-match (not the onboarding hint) for an empty scoped subset", () => {
+    const empty = computeStats([]);
+    expect(renderStats(empty, { scopeNote: "project=nope" })).toBe(NO_SCOPE_MATCH_MESSAGE);
+    // Without a scope, an empty store still shows the onboarding hint.
+    expect(renderStats(empty)).toBe(NO_STATS_MESSAGE);
   });
 });

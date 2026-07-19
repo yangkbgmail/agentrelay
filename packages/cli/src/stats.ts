@@ -3,7 +3,8 @@
 // breakdown). Kept as pure functions here, separate from the commander wiring
 // in cli.ts, so the exact output is unit-testable without a store or a clock.
 
-import type { JobStatus, RelayStats } from "@agentrelay/core";
+import type { JobScope, JobStatus, RelayStats } from "@agentrelay/core";
+import { isJobScopeActive } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
 const BOLD = "\x1b[1m";
@@ -14,6 +15,9 @@ const RESET = "\x1b[0m";
 const STATUS_ORDER: JobStatus[] = ["queued", "waiting_for_reset", "resuming", "completed", "failed", "cancelled"];
 
 export const NO_STATS_MESSAGE = "No jobs yet. Run `agentrelay run -- <your agent command>` to get started.";
+
+/** Shown by `stats` when a `--status`/`--tool`/`--project` scope matches nothing. */
+export const NO_SCOPE_MATCH_MESSAGE = "No jobs match the current filter.";
 
 /** Format a nullable success rate as a percentage string, or "n/a". */
 export function formatSuccessRate(rate: number | null): string {
@@ -47,14 +51,21 @@ export function formatDurationMs(ms: number): string {
  * Renders the stats summary as a multi-line block. Pure: no I/O, no ambient
  * clock unless `now` is omitted. `color` gates ANSI codes (TTY only).
  */
-export function renderStats(stats: RelayStats, options: { now?: number; color?: boolean } = {}): string {
-  if (stats.total === 0) return NO_STATS_MESSAGE;
+export function renderStats(
+  stats: RelayStats,
+  options: { now?: number; color?: boolean; scopeNote?: string } = {}
+): string {
+  // With a scope active, an empty subset is "nothing matched", not "no jobs
+  // yet" — the store may be full. The command distinguishes the two before
+  // calling, but keep the render honest if handed an empty scoped stats.
+  if (stats.total === 0) return options.scopeNote ? NO_SCOPE_MATCH_MESSAGE : NO_STATS_MESSAGE;
   const now = options.now ?? Date.now();
   const color = options.color ?? false;
   const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
   const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
 
   const lines: string[] = [];
+  if (options.scopeNote) lines.push(d(`scope: ${options.scopeNote}`));
   lines.push(b(`${stats.total} job(s) tracked`));
   lines.push(`  active: ${stats.active}   terminal: ${stats.terminal}`);
 
@@ -113,7 +124,9 @@ export function renderStats(stats: RelayStats, options: { now?: number; color?: 
 export function renderStatsJson(
   stats: RelayStats,
   storePath: string,
-  generatedAt: string = new Date().toISOString()
+  options: { generatedAt?: string; scope?: JobScope } = {}
 ): string {
-  return JSON.stringify({ storePath, generatedAt, stats }, null, 2);
+  const generatedAt = options.generatedAt ?? new Date().toISOString();
+  const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, stats }, null, 2);
 }
