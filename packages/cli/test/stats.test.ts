@@ -1,11 +1,14 @@
 import type { RelayJob } from "@agentrelay/core";
-import { computeStats } from "@agentrelay/core";
+import { computeStats, groupStats } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
   formatDurationMs,
   formatSuccessRate,
+  NO_GROUP_STATS_MESSAGE,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
+  renderGroupedStats,
+  renderGroupedStatsJson,
   renderStats,
   renderStatsJson,
 } from "../src/stats.js";
@@ -175,5 +178,80 @@ describe("renderStats with a scope", () => {
     expect(renderStats(empty, { scopeNote: "project=nope" })).toBe(NO_SCOPE_MATCH_MESSAGE);
     // Without a scope, an empty store still shows the onboarding hint.
     expect(renderStats(empty)).toBe(NO_STATS_MESSAGE);
+  });
+});
+
+describe("renderGroupedStats", () => {
+  it("shows the no-jobs message for an empty group list", () => {
+    expect(renderGroupedStats([], "project")).toBe(NO_GROUP_STATS_MESSAGE);
+  });
+
+  it("shows the no-match message for an empty group list under an active scope", () => {
+    expect(renderGroupedStats([], "project", { scopeNote: "status=failed" })).toBe(NO_SCOPE_MATCH_MESSAGE);
+  });
+
+  it("renders a header and one row per group with headline metrics", () => {
+    const groups = groupStats(
+      [
+        job({
+          project: "web",
+          status: "completed",
+          createdAt: "2026-07-13T00:00:00.000Z",
+          updatedAt: "2026-07-13T01:00:00.000Z",
+        }),
+        job({ project: "web", status: "failed" }),
+        job({ project: "api", status: "queued" }),
+      ],
+      "project"
+    );
+    const out = renderGroupedStats(groups, "project");
+    expect(out).toContain("by project");
+    expect(out).toContain("(2 group(s))");
+    // header row carries the metric column labels
+    expect(out).toMatch(/project\s+jobs\s+actv\s+succ\s+avg\s+med/);
+    // web: 2 jobs, 0 active, 1 completed of 1 resolved -> not 100%? 1 completed / (1+1) = 50%
+    expect(out).toMatch(/web\s+2\s+0\s+50%/);
+    // api: 1 job, 1 active, nothing resolved -> n/a success, "-" durations
+    expect(out).toMatch(/api\s+1\s+1\s+n\/a\s+-\s+-/);
+  });
+
+  it("prepends a scope note when given", () => {
+    const groups = groupStats([job({ tool: "claude-code" })], "tool");
+    const out = renderGroupedStats(groups, "tool", { scopeNote: "status=completed" });
+    expect(out).toContain("scope: status=completed");
+  });
+
+  it("truncates long group names with an ellipsis", () => {
+    const longName = "a-really-long-project-name-that-overflows";
+    const groups = groupStats([job({ project: longName })], "project");
+    const out = renderGroupedStats(groups, "project");
+    expect(out).toContain("…");
+    expect(out).not.toContain(longName);
+  });
+});
+
+describe("renderGroupedStatsJson", () => {
+  it("emits a stable machine-readable shape with groupBy and per-group stats", () => {
+    const groups = groupStats([job({ project: "web" }), job({ project: "api" })], "project");
+    const parsed = JSON.parse(
+      renderGroupedStatsJson(groups, "project", "/tmp/store.json", { generatedAt: "2026-07-13T00:00:00.000Z" })
+    );
+    expect(parsed.storePath).toBe("/tmp/store.json");
+    expect(parsed.generatedAt).toBe("2026-07-13T00:00:00.000Z");
+    expect(parsed.groupBy).toBe("project");
+    expect(parsed.groups.map((g: { group: string }) => g.group)).toEqual(["api", "web"]);
+    expect(parsed.groups[0].stats.total).toBe(1);
+    expect(parsed.scope).toBeUndefined();
+  });
+
+  it("echoes an active scope back", () => {
+    const groups = groupStats([job()], "tool");
+    const parsed = JSON.parse(
+      renderGroupedStatsJson(groups, "tool", "/tmp/store.json", {
+        generatedAt: "2026-07-13T00:00:00.000Z",
+        scope: { statuses: ["completed"] },
+      })
+    );
+    expect(parsed.scope).toEqual({ statuses: ["completed"] });
   });
 });

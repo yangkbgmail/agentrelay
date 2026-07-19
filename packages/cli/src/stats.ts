@@ -3,7 +3,7 @@
 // breakdown). Kept as pure functions here, separate from the commander wiring
 // in cli.ts, so the exact output is unit-testable without a store or a clock.
 
-import type { JobScope, JobStatus, RelayStats } from "@agentrelay/core";
+import type { GroupByDimension, GroupStat, JobScope, JobStatus, RelayStats } from "@agentrelay/core";
 import { isJobScopeActive } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
@@ -118,6 +118,66 @@ export function renderStats(
   }
 
   return lines.join("\n");
+}
+
+/** Shown by `stats --group-by` when the (possibly scoped) store has no jobs. */
+export const NO_GROUP_STATS_MESSAGE = "No jobs to group.";
+
+/**
+ * Renders a `--group-by` comparison table: one row per group with the headline
+ * metrics side by side (jobs, active, success rate, avg/median resolution time),
+ * so groups can be compared at a glance. Pure: `color` gates ANSI, `now` is only
+ * used indirectly via the metrics (none needs a clock). An empty `groups` yields
+ * {@link NO_GROUP_STATS_MESSAGE} (unless a scope note explains a filtered subset).
+ */
+export function renderGroupedStats(
+  groups: GroupStat[],
+  dimension: GroupByDimension,
+  options: { color?: boolean; scopeNote?: string } = {}
+): string {
+  if (groups.length === 0) return options.scopeNote ? NO_SCOPE_MATCH_MESSAGE : NO_GROUP_STATS_MESSAGE;
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  // Column widths: the group column flexes to the longest (capped) name; the
+  // metric columns are fixed so rows line up regardless of value length.
+  const NAME_CAP = 24;
+  const nameWidth = Math.max(dimension.length, ...groups.map((g) => Math.min(g.group.length, NAME_CAP)));
+  const cell = (s: string, w: number) => s.padEnd(w);
+  const num = (s: string, w: number) => s.padStart(w);
+
+  const lines: string[] = [];
+  if (options.scopeNote) lines.push(d(`scope: ${options.scopeNote}`));
+  lines.push(b(`by ${dimension}`) + d(` (${groups.length} group(s))`));
+  lines.push(
+    d(
+      `  ${cell(dimension, nameWidth)}  ${num("jobs", 5)}  ${num("actv", 5)}  ${num("succ", 5)}  ` +
+        `${num("avg", 8)}  ${num("med", 8)}`
+    )
+  );
+  for (const { group, stats } of groups) {
+    const name = group.length > NAME_CAP ? `${group.slice(0, NAME_CAP - 1)}…` : group;
+    lines.push(
+      `  ${cell(name, nameWidth)}  ${num(String(stats.total), 5)}  ${num(String(stats.active), 5)}  ` +
+        `${num(formatSuccessRate(stats.successRate), 5)}  ` +
+        `${num(stats.timing.avgResolutionMs === null ? "-" : formatDurationMs(stats.timing.avgResolutionMs), 8)}  ` +
+        `${num(stats.timing.medianResolutionMs === null ? "-" : formatDurationMs(stats.timing.medianResolutionMs), 8)}`
+    );
+  }
+  return lines.join("\n");
+}
+
+/** Machine-readable snapshot of a `--group-by` run for `--json`. */
+export function renderGroupedStatsJson(
+  groups: GroupStat[],
+  dimension: GroupByDimension,
+  storePath: string,
+  options: { generatedAt?: string; scope?: JobScope } = {}
+): string {
+  const generatedAt = options.generatedAt ?? new Date().toISOString();
+  const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
+  return JSON.stringify({ storePath, generatedAt, groupBy: dimension, scope, groups }, null, 2);
 }
 
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */

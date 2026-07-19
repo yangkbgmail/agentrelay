@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import { computeStats, groupStats, isJobScopeActive, scopeJobs } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -366,5 +366,68 @@ describe("scopeJobs", () => {
       job({ id: "c", project: "api", createdAt: "2026-07-14T00:00:00.000Z" }), // wrong project
     ];
     expect(scopeJobs(jobs, { projects: ["web"], createdFrom: from }).map((j) => j.id)).toEqual(["a"]);
+  });
+});
+
+describe("groupStats", () => {
+  it("returns an empty list for no jobs", () => {
+    expect(groupStats([], "tool")).toEqual([]);
+  });
+
+  it("partitions by project and stamps the dimension on each group", () => {
+    const groups = groupStats([job({ project: "web" }), job({ project: "web" }), job({ project: "api" })], "project");
+    expect(groups.map((g) => g.group)).toEqual(["web", "api"]);
+    expect(groups.every((g) => g.dimension === "project")).toBe(true);
+    expect(groups.map((g) => g.stats.total)).toEqual([2, 1]);
+  });
+
+  it("ranks groups by job count desc, ties broken by name asc", () => {
+    const groups = groupStats(
+      [job({ project: "zeta" }), job({ project: "alpha" }), job({ project: "beta" }), job({ project: "beta" })],
+      "project"
+    );
+    // beta has 2 (wins on count); alpha before zeta on the name tiebreak.
+    expect(groups.map((g) => g.group)).toEqual(["beta", "alpha", "zeta"]);
+  });
+
+  it("groups by tool, keeping unknown tool strings as distinct groups", () => {
+    const groups = groupStats(
+      [
+        job({ tool: "claude-code" as AgentTool }),
+        job({ tool: "codex-cli" as AgentTool }),
+        job({ tool: "mystery" as AgentTool }),
+      ],
+      "tool"
+    );
+    expect(new Set(groups.map((g) => g.group))).toEqual(new Set(["claude-code", "codex-cli", "mystery"]));
+  });
+
+  it("groups by status", () => {
+    const groups = groupStats(
+      [job({ status: "completed" }), job({ status: "failed" }), job({ status: "completed" })],
+      "status"
+    );
+    const byGroup = new Map(groups.map((g) => [g.group, g.stats.total]));
+    expect(byGroup.get("completed")).toBe(2);
+    expect(byGroup.get("failed")).toBe(1);
+  });
+
+  it("each group's metrics match computeStats over that partition alone", () => {
+    const webJobs = [
+      job({
+        project: "web",
+        status: "completed",
+        createdAt: "2026-07-13T00:00:00.000Z",
+        updatedAt: "2026-07-13T01:00:00.000Z",
+      }),
+      job({ project: "web", status: "failed" }),
+    ];
+    const apiJobs = [job({ project: "api", status: "completed" })];
+    const groups = groupStats([...webJobs, ...apiJobs], "project");
+    const web = groups.find((g) => g.group === "web");
+    expect(web?.stats).toEqual(computeStats(webJobs));
+    // web: 1 of 2 resolved as completed → 50% success rate.
+    expect(web?.stats.successRate).toBe(0.5);
+    expect(web?.stats.timing.resolvedCount).toBe(2);
   });
 });

@@ -347,6 +347,19 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay stats --group-by <tool|project|status>` — 전체 집계가 아닌 그룹별 지표를
+      나란히 비교(어느 프로젝트/툴이 rate-limit에 자주 걸리고 릴레이가 잘 돌보는가).
+      (완료 — `@agentrelay/core/stats.ts`에 순수 `groupStats(jobs, dimension)` + `GROUP_BY_DIMENSIONS`
+      (`tool`/`project`/`status`) + `GroupStat`(dimension·group·stats) 추가. 잡을 한 차원으로 파티션한 뒤
+      각 파티션에 기존 `computeStats`를 **그대로 재사용** — 그룹 지표가 전체 뷰와 절대 드리프트 안 함.
+      그룹은 잡 수 desc·이름 asc로 랭킹(`projects` 랭킹과 동일 규칙). CLI `stats.ts`에 순수
+      `renderGroupedStats`(그룹당 한 행 비교표: jobs·active·success·avg/median resolution, 긴 이름은
+      NAME_CAP=24 말줄임, scope note·빈 그룹 처리)·`renderGroupedStatsJson`(groupBy+scope+per-group stats)
+      추가. `cli.ts` stats에 `-g/--group-by` 배선 — 스코프(`--status`/`--tool`/`--project`/`--since`/
+      `--until`)를 **먼저** 적용한 뒤 그룹화(창→선택→그룹 순서), 잘못된 dimension은 exit 1. 새 core
+      집계 로직 0줄(computeStats 재사용). core groupStats 5 + cli render 7케이스, 실제 빌드 CLI e2e로
+      project/tool/status·JSON·스코프 결합·invalid exit 1 검증. branch `claude/wizardly-pascal-gcgngr`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

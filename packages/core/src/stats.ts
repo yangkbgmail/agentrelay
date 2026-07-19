@@ -246,3 +246,51 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     timing,
   };
 }
+
+/** Dimensions `groupStats` can partition a job list on. */
+export const GROUP_BY_DIMENSIONS = ["tool", "project", "status"] as const;
+export type GroupByDimension = (typeof GROUP_BY_DIMENSIONS)[number];
+
+/** One partition of the store plus its own full {@link RelayStats}. */
+export interface GroupStat {
+  /** Which dimension the jobs were grouped on. */
+  dimension: GroupByDimension;
+  /** The shared value of that dimension (e.g. the tool name, project, status). */
+  group: string;
+  /** Full metrics computed over just this partition's jobs. */
+  stats: RelayStats;
+}
+
+/** The raw string value a job contributes for a given grouping dimension. */
+function groupKey(job: RelayJob, dimension: GroupByDimension): string {
+  switch (dimension) {
+    case "tool":
+      return job.tool;
+    case "status":
+      return job.status;
+    default:
+      return job.project;
+  }
+}
+
+/**
+ * Partitions a job list by one dimension (tool / project / status) and runs the
+ * full {@link computeStats} over each partition, so `agentrelay stats
+ * --group-by` can put groups side by side ("which project does the relay babysit
+ * longest?", "which tool fails most?"). Pure and non-mutating — reuses
+ * `computeStats` verbatim per group so a group's metrics never drift from the
+ * aggregate view. Groups are ranked by job count (desc), ties broken by group
+ * name (asc), matching how {@link RelayStats.projects} orders its ranking.
+ */
+export function groupStats(jobs: RelayJob[], dimension: GroupByDimension): GroupStat[] {
+  const partitions = new Map<string, RelayJob[]>();
+  for (const job of jobs) {
+    const key = groupKey(job, dimension);
+    const bucket = partitions.get(key);
+    if (bucket) bucket.push(job);
+    else partitions.set(key, [job]);
+  }
+  return [...partitions.entries()]
+    .map(([group, groupJobs]) => ({ dimension, group, stats: computeStats(groupJobs) }))
+    .sort((a, b) => (b.stats.total !== a.stats.total ? b.stats.total - a.stats.total : a.group.localeCompare(b.group)));
+}

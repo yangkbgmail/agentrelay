@@ -980,3 +980,29 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — `agentrelay stats --group-by <tool|project|status>`] (2026-07-19, 무인 자율 세션, branch `claude/wizardly-pascal-gcgngr`)
+- **한 일: 전체 집계 하나만 뱉던 `stats`에 그룹별 비교 뷰를 추가했다.** 기존 `stats`는 "성공률 75%"
+  같은 전역 숫자만 보여줘, "어느 프로젝트가 rate-limit에 자주 걸리는가?", "codex-cli와 claude-code 중
+  릴레이가 더 오래 돌보는 쪽은?" 같은 비교 질문에 답할 수 없었다. `--group-by`로 한 차원을 골라 그룹별
+  헤드라인 지표(잡 수·활성·성공률·avg/median 해결시간)를 나란히 놓는다.
+  1. `@agentrelay/core/stats.ts`: 순수 `groupStats(jobs, dimension)` + `GROUP_BY_DIMENSIONS`
+     (`tool`/`project`/`status`) + `GroupStat`(dimension·group·stats). 잡을 한 차원으로 파티션한 뒤
+     각 파티션에 **기존 `computeStats`를 그대로 재사용** — 그룹 지표가 전체 뷰와 절대 드리프트하지 않고,
+     새 집계 로직은 0줄. 그룹은 잡 수 desc·이름 asc로 랭킹(`projects` 랭킹과 동일 규칙, 결정론적).
+  2. CLI `stats.ts`: 순수 `renderGroupedStats`(그룹당 한 행 비교표 — `by <dim> (N group(s))` 헤더 +
+     `jobs/actv/succ/avg/med` 컬럼, 이름은 NAME_CAP=24 말줄임, 그룹 폭 flex·지표 폭 고정으로 정렬,
+     빈 그룹은 스코프 유무에 따라 `NO_GROUP_STATS_MESSAGE`/`NO_SCOPE_MATCH_MESSAGE`)·
+     `renderGroupedStatsJson`(storePath·generatedAt·groupBy·scope·per-group full stats).
+  3. `cli.ts` stats 액션에 `-g/--group-by` 배선 — 기존 스코프(`--status`/`--tool`/`--project`/`--since`/
+     `--until`)를 `scopeJobs`로 **먼저** 적용한 뒤 `groupStats`로 그룹화(창→선택→그룹 순서, stats/export와
+     동일 의미). 잘못된 dimension은 valid 목록과 함께 exit 1. `--json`도 그룹 뷰 지원.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 에러**,
+    `pnpm test` **433개 통과 + 1 skip**(core 292[+5: groupStats 파티션·랭킹·tool/status·computeStats 일치] +
+    cli 138[+7: renderGroupedStats 5·renderGroupedStatsJson 2][+1 skip] + dashboard 3). **실제 빌드 CLI e2e**
+    (mock 아님): 4-job 스토어로 `--group-by project`(api 100%·web 50% 정렬)·`-g tool`·`--group-by status --json`
+    (groupBy+per-group stats 형태)·`--tool codex-cli --group-by project`(스코프 결합, scope note)·
+    `--group-by nonsense`→exit 1 검증.
+- 다음 할 일: 그룹별 뷰를 `--sort`(성공률/해결시간 기준 정렬)로 확장(👷 후보), 대시보드가 그룹별 지표
+  노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보 — RelayJob 중간 타임스탬프 필요),
+  README/ARCHITECTURE(🧭 코워크).
