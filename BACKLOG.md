@@ -347,6 +347,20 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 데몬 이중 실행 가드 — 이미 살아있는 데몬이 있으면 두 번째 `agentrelay daemon`을 거부
+      (두 루프가 같은 due 잡을 둘 다 `resuming`으로 뒤집어 에이전트를 이중 spawn하는 것 방지).
+      (완료 — `@agentrelay/core/heartbeat.ts`에 순수 `evaluateDaemonConflict(hb, {nowMs,selfPid})` +
+      `DaemonConflict`/`DaemonConflictReason` 추가: `absent`(하트비트 없음)·`self`(내 pid)·`tick`(cron
+      일회성 tick은 경쟁 루프 아님 → 안 막음)·`stale`(aged-out=이전 데몬 크래시)·`live`(다른 pid의
+      신선한 daemon 하트비트=충돌)를 `heartbeatStaleAfterMs`와 **동일 freshness 규칙**으로 판정(경계
+      포함, 클럭 스큐 음수 age는 0으로 클램프, 파싱 불가 lastTickAt은 stale로 안전 처리). CLI
+      `commands.ts`에 `readDaemonHeartbeat`(raw 파싱, 절대 throw 안 함)·`isProcessAlive`(signal 0,
+      ESRCH=죽음·EPERM=타 유저 소유라 살아있음, 비정수/비양수 pid=죽음)·`checkDaemonConflict`(순수
+      verdict + OS pid 프로브를 **AND** — 신선한 하트비트 *그리고* pid 실제 생존일 때만 block →
+      크래시로 안 지워진 하트비트가 큐를 막지 않음). `startDaemon`이 시작 전 가드, block 시 stderr
+      안내(holder pid·last tick 경과) + exit 1, `--force`(`-f`)로 override. `DaemonOptions`에
+      `force`/`isAlive`(테스트 주입). branch `claude/wizardly-pascal-6l48rb`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
