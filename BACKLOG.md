@@ -256,6 +256,16 @@
       플래그 배선(백업 여부·대체 job 수를 리포트하고 "No changes made"로 종료, 미매칭 selector는
       exit 1). branch `claude/wizardly-pascal-atytw7`)
 
+- [x] 👷 `agentrelay status` 스코프 필터(`--tool`/`--project`) — `stats`와 동일한 부분집합
+      필터를 status 테이블/`--json`/`--watch`에도 제공.
+      (완료 — `packages/cli/src/status.ts`의 `JobSelection`에 `tools?`/`projects?` 추가,
+      `selectJobs`가 status·tool·project를 차원 간 AND·차원 내 OR로 필터(항상 새 배열, 정렬/역순
+      전에 적용). tool은 원시 문자열 매칭(미지 tool도 정확히 걸러냄). 순수 `isSelectionFiltering`
+      (core `isJobScopeActive`의 status 버전) export. CLI `status`에 `-t/--tool`·`-p/--project`
+      배선(공용 `splitList` 재사용, 잘못된 status/tool은 exit 1), 일회성·`--json`·`--watch` 세 뷰에
+      동일 `selection` 적용. status.test.ts에 selectJobs tool/project/AND 5 + isSelectionFiltering 2
+      신규. branch `claude/wizardly-pascal-6st1ab`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
