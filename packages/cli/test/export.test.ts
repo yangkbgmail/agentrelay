@@ -1,9 +1,10 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RelayQueue } from "@agentrelay/core";
+import { RelayQueue, scopeJobs } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { exportStore, listStatus } from "../src/commands.js";
+import { selectJobs } from "../src/status.js";
 
 describe("exportStore", () => {
   let dir: string;
@@ -71,5 +72,72 @@ describe("exportStore", () => {
     const result = exportStore({ storePath, format: "csv" });
     expect(result.count).toBe(0);
     expect(result.content.split("\n")).toHaveLength(1);
+  });
+
+  // The `export` command applies the same scope filters as `stats`/`status`:
+  // the --since/--until time window via core scopeJobs, then
+  // --status/--tool/--project/--sort/--reverse via selectJobs. These tests
+  // exercise that exact pipeline feeding exportStore, matching the CLI wiring.
+  it("exports only the jobs matching a --tool filter", () => {
+    seed();
+    const jobs = selectJobs(listStatus(storePath), { tools: ["codex-cli"] });
+    const result = exportStore({ storePath, format: "json", jobs });
+    const parsed = JSON.parse(result.content) as Array<{ tool: string; project: string }>;
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].tool).toBe("codex-cli");
+    expect(parsed[0].project).toBe("beta");
+  });
+
+  it("combines a --since time window with a --tool filter (window then select)", () => {
+    const now = Date.now();
+    const iso = (ms: number) => new Date(now - ms).toISOString();
+    const base = {
+      cwd: "/w",
+      status: "completed" as const,
+      resetAt: null,
+      attempts: 1,
+      lastError: null,
+      lastOutputTail: null,
+    };
+    // Old codex job (created before the window) that also matches the tool —
+    // it must be excluded by the time window even though the tool matches.
+    const all = [
+      {
+        ...base,
+        id: "old",
+        project: "alpha",
+        tool: "codex-cli" as const,
+        command: ["codex", "old"],
+        createdAt: iso(30 * 24 * 60 * 60 * 1000),
+        updatedAt: iso(30 * 24 * 60 * 60 * 1000),
+      },
+      {
+        ...base,
+        id: "new",
+        project: "beta",
+        tool: "codex-cli" as const,
+        command: ["codex", "new"],
+        createdAt: iso(60 * 60 * 1000),
+        updatedAt: iso(60 * 60 * 1000),
+      },
+      {
+        ...base,
+        id: "claude",
+        project: "gamma",
+        tool: "claude-code" as const,
+        command: ["claude", "-p", "x"],
+        createdAt: iso(60 * 60 * 1000),
+        updatedAt: iso(60 * 60 * 1000),
+      },
+    ];
+
+    const windowed = scopeJobs(all, { createdFrom: now - 24 * 60 * 60 * 1000 });
+    const jobs = selectJobs(windowed, { tools: ["codex-cli"] });
+    const result = exportStore({ storePath, format: "json", jobs });
+    const parsed = JSON.parse(result.content) as Array<{ project: string; command: string[] }>;
+    // Only the recent codex-cli job survives both the window and the tool filter.
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].project).toBe("beta");
+    expect(parsed[0].command).toEqual(["codex", "new"]);
   });
 });
