@@ -829,3 +829,26 @@
     에코, total 2)·`--since bogus`(exit 1)·`--since 1d --until 7d`(빈 범위 exit 1) 확인.
 - 다음 할 일: `export`/`status`에도 `--since/--until` 확장(👷 후보), 대시보드 시간 창 필터 UI
   (👷 후보), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 27 — 누적 PR 통합(#52 병합·#55·#53 흡수·#54 중복 정리)] (2026-07-19, 무인 자율 세션)
+- **오늘의 초점: 다시 쌓인 열린 PR 4개를 정리해 고질적 중복 루프를 끊었다.** 세션 시작 시 CI
+  초록(`actions_list`로 확인)인 열린 PR이 #52(restore --dry-run + doctor)·#53(stats --since/--until)·
+  #54·#55(둘 다 status --tool/--project로 **상호 중복**) 4건이었다. main 브랜치 보호로 병합이 밀리면
+  매시간 무기억 세션이 같은 후보를 반복 구현하는 패턴(세션 3·8·10·16·22·24·26)이 재발한다.
+  COLLAB.md 병합 정책("CI 초록이면 클로드 코드가 통합 가능")에 근거해:
+  1. **#52를 main에 병합**(restore --dry-run + doctor 셋업 진단이 한 번에 main으로, a88ec8d).
+  2. **#55(status --tool/--project 스코프 필터)를 내 브랜치에 `cherry-pick -x`로 흡수** — #52 병합으로
+     충돌(BACKLOG/PROGRESS/cli.ts)이 났고 코드는 자동 병합, 문서 로그는 양쪽 보존으로 해소.
+  3. **#53(stats --since/--until 시간 창 필터)도 `cherry-pick -x`로 흡수** — 마찬가지로 문서 충돌만
+     해소(코드 자동 병합). 다른 브랜치엔 push하지 않음("지정 브랜치 외 push 금지" 원칙 준수).
+  4. **#54는 #55와 완전 동일 기능(status 스코프 필터)**이라 중복으로 판단 → 이 통합 PR로 대체하며 닫음.
+- 결과: main에 `restore --dry-run`·`doctor`가 들어갔고, 이 브랜치가 `status --tool/--project`와
+  `stats --since/--until`을 함께 담아 나머지 세 PR(#53·#54·#55)을 대체한다.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **372개 전부 통과**(core 256 + cli 113 + dashboard 3). **실제 빌드된 CLI e2e**(mock
+    아님): 3-job(web×claude / api×codex / web×codex) 스토어로 두 흡수 기능이 함께 동작 확인 —
+    `status`(3행)·`--tool codex-cli`(2행)·`--project web --tool codex-cli`(AND 1행)·`--tool bogus`
+    (exit 1); `stats`(전체 50%)·`--since 24h`(최근 completed만 100%, scope 에코)·`--since 7d --until 24h`
+    (어제 failed만 0%)·`--since 1d --until 7d`(빈 범위 exit 1).
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), `export`/`status`에도 `--since/--until` 확장(👷 후보),
+  대시보드가 스코프/시간 창 필터 UI 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보).
