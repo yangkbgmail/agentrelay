@@ -35,6 +35,7 @@ import {
   type EffectiveConfigEntry,
   type ExportFormat,
   exportJobs,
+  findOverdueJobs,
   hasConfigErrors,
   listBackups,
   loadConfigFile,
@@ -691,6 +692,8 @@ export interface DoctorOptions {
   env?: Record<string, string | undefined>;
   /** Running Node version. Defaults to `process.version`. Injectable for tests. */
   nodeVersion?: string;
+  /** Wall-clock (epoch ms) used to judge overdue jobs. Defaults to `Date.now()`. Injectable for tests. */
+  now?: number;
 }
 
 /** True when `p` is an existing, executable file. Errors (missing/perms) → false. */
@@ -838,6 +841,14 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // --- queue-progress facts. A job parked in `waiting_for_reset` well past its
+  // `resetAt` means the reset window opened and nothing flipped it to resuming —
+  // i.e. no relay loop is running. AgentRelay has no pidfile, so this is the
+  // closest we get to a "is the daemon running?" check. Uses the injectable
+  // clock so `doctor` stays deterministic in tests.
+  const now = options.now ?? Date.now();
+  const overdueJobs = findOverdueJobs(jobs, now);
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -854,6 +865,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
       webhookUrl: env.AGENTRELAY_WEBHOOK_URL,
     },
     adapters: { binaries },
+    overdue: { jobs: overdueJobs },
   });
 }
 

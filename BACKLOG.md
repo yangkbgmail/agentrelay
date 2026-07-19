@@ -333,6 +333,25 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay doctor` 큐 진행(overdue) 검사 — 리셋 시각이 지났는데도 `waiting_for_reset`에
+      남은 잡을 감지해 "릴레이 루프(데몬/cron)가 안 돌고 있다"를 잡음(pidfile 없이 데몬 실행 여부의
+      가장 근접한 프록시).
+      (완료 — AgentRelay는 pidfile이 없어 `doctor`가 "데몬이 도는가?"를 직접 물을 수 없다. 하지만
+      리셋 창이 열렸는데도 `waiting_for_reset`에 계속 파킹된 잡은 강한 신호다: 실행 중인 릴레이는
+      창이 열리는 즉시 `resuming`으로 뒤집기 때문. `@agentrelay/core/doctor.ts`에 `OverdueJob`
+      (id·project·overdueByMs)·`OverdueFacts` 타입 + `DiagnosticInput.overdue` 추가, 순수
+      `findOverdueJobs(jobs, nowMs, graceMs?)` 신설: `waiting_for_reset` + resetAt 파싱 성공 +
+      `nowMs−resetMs > grace(기본 60s)`인 잡만 most-overdue-first로 반환(다른 상태·미래 리셋·
+      무효/누락 resetAt은 제외, 미시행 잡의 false-alarm 방지 grace는 데몬 폴 간격·`tick` cron 주기
+      고려). `runDiagnostics`에 `queue-progress` 검사 추가(node→store→writable→adapters→
+      **queue-progress**→config→notify): 오버듀 0=OK("keeping up"), 있으면 warning(개수 + 최장
+      오버듀 coarse-format "3h"/"2d" + 데몬/cron 힌트). error 아닌 warning — 아직 데몬을 안 띄운
+      것도 정상 상태라 CI를 깨지 않음. CLI `commands.ts` `runDoctor`가 주입 가능한 `now`
+      (`DoctorOptions.now`, 기본 `Date.now()`)로 `findOverdueJobs`를 호출해 `OverdueFacts` 구성.
+      core doctor 8(findOverdueJobs 7 + runDiagnostics 2 신규) + cli doctor 2 신규 테스트, 실제
+      빌드 CLI e2e로 오버듀→warning("2h")·미래 리셋→OK·`--json` 검증. branch
+      `claude/wizardly-pascal-xch6oi`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

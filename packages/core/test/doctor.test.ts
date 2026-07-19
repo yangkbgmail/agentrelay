@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { ConfigIssue } from "../src/config.js";
 import {
   countActiveJobs,
+  DEFAULT_OVERDUE_GRACE_MS,
   type DiagnosticInput,
   distinctActiveBinaries,
+  findOverdueJobs,
   isSupportedNode,
   parseNodeVersion,
   runDiagnostics,
@@ -38,6 +40,7 @@ function input(overrides: Partial<DiagnosticInput> = {}): DiagnosticInput {
     config: { path: null, loadError: null, issues: [] },
     notify: { slackWebhook: "https://hooks.slack.com/x" },
     adapters: { binaries: [] },
+    overdue: { jobs: [] },
     ...overrides,
   };
 }
@@ -106,6 +109,7 @@ describe("runDiagnostics", () => {
     expect(find(report, "store").level).toBe("ok");
     expect(find(report, "store-writable").level).toBe("ok");
     expect(find(report, "adapters").level).toBe("ok");
+    expect(find(report, "queue-progress").level).toBe("ok");
     expect(find(report, "config").level).toBe("ok");
     expect(find(report, "notify").level).toBe("ok");
   });
@@ -240,8 +244,35 @@ describe("runDiagnostics", () => {
     const report = runDiagnostics(input({ nodeVersion: "v20.0.0", notify: {} }));
     expect(report.counts.error).toBe(1); // node
     expect(report.counts.warning).toBe(1); // notify
-    expect(report.counts.ok).toBe(4); // store + store-writable + adapters + config
+    expect(report.counts.ok).toBe(5); // store + store-writable + adapters + queue-progress + config
     expect(report.ok).toBe(false);
+  });
+
+  it("reports queue-progress OK when nothing is overdue", () => {
+    const report = runDiagnostics(input({ overdue: { jobs: [] } }));
+    const progress = find(report, "queue-progress");
+    expect(progress.level).toBe("ok");
+    expect(progress.message).toContain("keeping up");
+    expect(report.ok).toBe(true);
+  });
+
+  it("warns (not errors) when jobs are overdue, naming the oldest and suggesting the daemon", () => {
+    const report = runDiagnostics(
+      input({
+        overdue: {
+          jobs: [
+            { id: "a", project: "demo", overdueByMs: 3 * 60 * 60 * 1000 },
+            { id: "b", project: "demo", overdueByMs: 5 * 60 * 1000 },
+          ],
+        },
+      })
+    );
+    const progress = find(report, "queue-progress");
+    expect(progress.level).toBe("warning");
+    expect(progress.message).toContain("2 job(s)");
+    expect(progress.message).toContain("3h"); // oldest, coarse-formatted
+    expect(progress.hint).toContain("agentrelay daemon");
+    expect(report.ok).toBe(true); // a warning, not an error
   });
 
   it("reports store-writable OK for a writable directory", () => {
@@ -305,5 +336,61 @@ describe("distinctActiveBinaries", () => {
   it("skips a malformed job with an empty command[0]", () => {
     const jobs = [job({ status: "queued", command: ["   "] }), job({ status: "queued", command: [] as string[] })];
     expect(distinctActiveBinaries(jobs)).toEqual([]);
+  });
+});
+
+describe("findOverdueJobs", () => {
+  const now = Date.parse("2026-07-19T12:00:00.000Z");
+  const iso = (deltaMs: number) => new Date(now + deltaMs).toISOString();
+
+  it("flags a waiting job whose reset passed beyond the grace period", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: iso(-10 * 60 * 1000) })];
+    const overdue = findOverdueJobs(jobs, now);
+    expect(overdue).toHaveLength(1);
+    expect(overdue[0].overdueByMs).toBe(10 * 60 * 1000);
+    expect(overdue[0].project).toBe("demo");
+  });
+
+  it("ignores a job still within the grace period", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: iso(-(DEFAULT_OVERDUE_GRACE_MS - 1000)) })];
+    expect(findOverdueJobs(jobs, now)).toEqual([]);
+  });
+
+  it("ignores a job whose reset is still in the future", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: iso(60 * 60 * 1000) })];
+    expect(findOverdueJobs(jobs, now)).toEqual([]);
+  });
+
+  it("only considers waiting_for_reset — not queued/resuming/terminal", () => {
+    const past = iso(-60 * 60 * 1000);
+    const jobs = [
+      job({ status: "queued", resetAt: past }),
+      job({ status: "resuming", resetAt: past }),
+      job({ status: "completed", resetAt: past }),
+      job({ status: "waiting_for_reset", resetAt: past }),
+    ];
+    expect(findOverdueJobs(jobs, now)).toHaveLength(1);
+  });
+
+  it("skips jobs with a missing or unparseable resetAt", () => {
+    const jobs = [
+      job({ status: "waiting_for_reset", resetAt: null }),
+      job({ status: "waiting_for_reset", resetAt: "not-a-date" }),
+    ];
+    expect(findOverdueJobs(jobs, now)).toEqual([]);
+  });
+
+  it("sorts most-overdue first", () => {
+    const jobs = [
+      job({ id: "recent", status: "waiting_for_reset", resetAt: iso(-5 * 60 * 1000) }),
+      job({ id: "ancient", status: "waiting_for_reset", resetAt: iso(-3 * 60 * 60 * 1000) }),
+    ];
+    expect(findOverdueJobs(jobs, now).map((o) => o.id)).toEqual(["ancient", "recent"]);
+  });
+
+  it("honors a custom grace period", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: iso(-30 * 1000) })];
+    expect(findOverdueJobs(jobs, now)).toEqual([]); // default 60s grace
+    expect(findOverdueJobs(jobs, now, 10 * 1000)).toHaveLength(1); // 10s grace
   });
 });
