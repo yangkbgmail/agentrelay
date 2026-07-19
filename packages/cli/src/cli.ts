@@ -22,6 +22,7 @@ import {
   parseDuration,
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
+  selectNextResume,
   sendTestNotification,
 } from "@agentrelay/core";
 import { Command } from "commander";
@@ -53,6 +54,7 @@ import {
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
+import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
@@ -498,6 +500,34 @@ export function buildCli(): Command {
         console.log(renderStatusTable(selected, { color: Boolean(process.stdout.isTTY), limit }));
       }
     );
+
+  program
+    .command("next")
+    .description("Show the single job the relay will resume next and how long until it's due")
+    .option("--json", "Print as JSON (machine-readable, for scripts/jq)")
+    .option(
+      "--exit-code",
+      "Reflect state in the exit code (0 = a job is due now, 3 = pending but not yet due, 4 = nothing waiting)"
+    )
+    .action((opts: { json?: boolean; exitCode?: boolean }) => {
+      const { store } = program.opts();
+      const next = selectNextResume(listStatus(store));
+
+      if (opts.json) {
+        console.log(renderNextJson(next, store));
+      } else {
+        console.log(renderNext(next, { color: Boolean(process.stdout.isTTY) }));
+      }
+
+      // Opt-in exit codes let scripts branch without jq: e.g. a cron that only
+      // pokes the relay when something is actually due (`agentrelay next
+      // --exit-code && agentrelay tick`).
+      if (opts.exitCode) {
+        if (next === null) process.exitCode = 4;
+        else if (!next.due) process.exitCode = 3;
+        // due-now → exit 0 (default).
+      }
+    });
 
   program
     .command("stats")
