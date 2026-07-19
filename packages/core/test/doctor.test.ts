@@ -34,6 +34,7 @@ function input(overrides: Partial<DiagnosticInput> = {}): DiagnosticInput {
   return {
     nodeVersion: "v22.5.0",
     store: { path: "/home/u/.agentrelay/jobs.json", exists: true, corrupt: false, jobCount: 0, activeCount: 0 },
+    writable: { dir: "/home/u/.agentrelay", writable: true, willCreate: false },
     config: { path: null, loadError: null, issues: [] },
     notify: { slackWebhook: "https://hooks.slack.com/x" },
     adapters: { binaries: [] },
@@ -103,6 +104,7 @@ describe("runDiagnostics", () => {
     expect(report.counts.error).toBe(0);
     expect(find(report, "node-version").level).toBe("ok");
     expect(find(report, "store").level).toBe("ok");
+    expect(find(report, "store-writable").level).toBe("ok");
     expect(find(report, "adapters").level).toBe("ok");
     expect(find(report, "config").level).toBe("ok");
     expect(find(report, "notify").level).toBe("ok");
@@ -238,7 +240,42 @@ describe("runDiagnostics", () => {
     const report = runDiagnostics(input({ nodeVersion: "v20.0.0", notify: {} }));
     expect(report.counts.error).toBe(1); // node
     expect(report.counts.warning).toBe(1); // notify
-    expect(report.counts.ok).toBe(3); // store + adapters + config
+    expect(report.counts.ok).toBe(4); // store + store-writable + adapters + config
+    expect(report.ok).toBe(false);
+  });
+
+  it("reports store-writable OK for a writable directory", () => {
+    const report = runDiagnostics(input());
+    const writable = find(report, "store-writable");
+    expect(writable.level).toBe("ok");
+    expect(writable.message).toContain("is writable");
+  });
+
+  it("notes that the store directory will be created on first run", () => {
+    const report = runDiagnostics(
+      input({ writable: { dir: "/home/u/.agentrelay", writable: true, willCreate: true } })
+    );
+    const writable = find(report, "store-writable");
+    expect(writable.level).toBe("ok");
+    expect(writable.message).toContain("will be created");
+  });
+
+  it("errors when the store directory is not writable, surfacing the OS error", () => {
+    const report = runDiagnostics(
+      input({
+        writable: {
+          dir: "/readonly/.agentrelay",
+          writable: false,
+          willCreate: false,
+          error: "EACCES: permission denied",
+        },
+      })
+    );
+    const writable = find(report, "store-writable");
+    expect(writable.level).toBe("error");
+    expect(writable.message).toContain("/readonly/.agentrelay");
+    expect(writable.message).toContain("EACCES: permission denied");
+    expect(writable.hint).toContain("AGENTRELAY_STORE");
     expect(report.ok).toBe(false);
   });
 });

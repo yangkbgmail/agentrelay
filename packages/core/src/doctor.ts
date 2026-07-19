@@ -56,6 +56,31 @@ export interface StoreFacts {
   activeCount: number;
 }
 
+/**
+ * Facts about whether the store *directory* can be written to, gathered by the
+ * CLI (which does the actual probe write) before judging. The store loader
+ * happily reads a file, but every `flush()` has to *write* it back — if the
+ * directory isn't writable the relay silently loses every state change (a job
+ * marked `resuming` never persists, so it re-runs or is lost on restart). This
+ * is the #2 "resume fails quietly" failure mode after a missing PATH binary.
+ */
+export interface WritableFacts {
+  /** The directory that must be writable to persist the store. */
+  dir: string;
+  /**
+   * True when a probe write into `dir` (or, for a not-yet-created store, its
+   * nearest existing ancestor) succeeded.
+   */
+  writable: boolean;
+  /**
+   * True when the store's own directory doesn't exist yet — the queue will
+   * `mkdir` it on first flush, so we probe the nearest existing ancestor.
+   */
+  willCreate: boolean;
+  /** When not writable, the OS error text (e.g. "EACCES: permission denied"). */
+  error?: string;
+}
+
 /** Facts about the config file, gathered by the CLI before judging. */
 export interface ConfigFacts {
   /** Resolved config-file path, or null when none was found. */
@@ -104,6 +129,7 @@ export interface DiagnosticInput {
   /** Running Node version string, e.g. `process.version` ("v22.5.0"). */
   nodeVersion: string;
   store: StoreFacts;
+  writable: WritableFacts;
   config: ConfigFacts;
   notify: NotifyFacts;
   adapters: AdapterFacts;
@@ -168,12 +194,14 @@ export function isSupportedNode(version: string): boolean {
  * 1. **node** — the runtime meets the `>=22.5` engines floor.
  * 2. **store** — the job store is readable (corrupt → error; absent → an OK
  *    "will be created" note, since a fresh install has no store yet).
- * 3. **adapters** — every agent binary a queued job will re-spawn is on PATH
+ * 3. **store-writable** — the store directory can actually be written to; if
+ *    not, every `flush()` fails and job state is silently lost (error).
+ * 4. **adapters** — every agent binary a queued job will re-spawn is on PATH
  *    (a missing one is an error: those jobs can't resume). Skipped-as-OK when
  *    nothing is queued to resume.
- * 4. **config** — the config file (if any) loads and validates; a broken file
+ * 5. **config** — the config file (if any) loads and validates; a broken file
  *    is an error, semantic warnings are surfaced as warnings.
- * 5. **notify** — at least one notification channel is set (absence is a
+ * 6. **notify** — at least one notification channel is set (absence is a
  *    warning, not an error: notifications are optional but you'd want to know
  *    the relay can't reach you).
  */
@@ -182,6 +210,7 @@ export function runDiagnostics(input: DiagnosticInput): DiagnosticReport {
 
   checks.push(nodeCheck(input.nodeVersion));
   checks.push(storeCheck(input.store));
+  checks.push(writableCheck(input.writable));
   checks.push(adapterCheck(input.adapters));
   checks.push(configCheck(input.config));
   checks.push(notifyCheck(input.notify));
@@ -240,6 +269,26 @@ function storeCheck(store: StoreFacts): DiagnosticCheck {
     level: "ok",
     message: `job store at ${store.path} is readable (${store.jobCount} job(s)${active})`,
   };
+}
+
+function writableCheck(writable: WritableFacts): DiagnosticCheck {
+  if (!writable.writable) {
+    const reason = writable.error ? ` (${writable.error})` : "";
+    return {
+      name: "store-writable",
+      level: "error",
+      message: `store directory ${writable.dir} is not writable${reason} — job state changes can't be persisted`,
+      hint: "Fix the directory's permissions, or set AGENTRELAY_STORE to a writable path.",
+    };
+  }
+  if (writable.willCreate) {
+    return {
+      name: "store-writable",
+      level: "ok",
+      message: `store directory ${writable.dir} will be created on first run (its parent is writable)`,
+    };
+  }
+  return { name: "store-writable", level: "ok", message: `store directory ${writable.dir} is writable` };
 }
 
 function adapterCheck(adapters: AdapterFacts): DiagnosticCheck {

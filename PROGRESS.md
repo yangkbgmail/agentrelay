@@ -904,3 +904,26 @@
     `--tool bogus`(exit 1)·`--since 1d --until 7d`(빈 범위 exit 1) 확인.
 - 다음 할 일: 대시보드가 스코프/시간 창 필터 UI 노출(👷 후보), stats 대기시간(대기→재개 지연) 지표
   (👷 후보 — 단 현재 RelayJob에 중간 타임스탬프가 없어 스키마 확장 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 28b — `agentrelay doctor` 스토어 디렉터리 쓰기 권한 검사] (2026-07-19, 무인 자율 세션, branch `claude/wizardly-pascal-nbitfy`)
+
+- 배경: `doctor`는 스토어 파일이 **읽히는지**만 봤는데(store 검사), 진짜 릴레이가 상태를 지속하려면
+  매 `flush()`가 파일을 **써야** 한다. 스토어 디렉터리가 쓰기 불가(권한·read-only 마운트·풀 디스크)면
+  잡 상태 변경이 조용히 유실된다 — PATH 부재 다음으로 흔한 "재개 조용히 실패" 원인인데 `doctor`가
+  이를 잡지 못했다.
+- 한 일: **`agentrelay doctor` 스토어 디렉터리 쓰기 권한 검사**.
+  1. `@agentrelay/core/doctor.ts` — `WritableFacts`(dir·writable·willCreate·error) + `DiagnosticInput.writable`
+     추가. 순수 `writableCheck`(검사 순서 node→store→**store-writable**→adapters→config→notify):
+     쓰기 가능=OK(dir 미존재면 "부모 쓰기 가능, 첫 실행 시 생성"), 쓰기 불가=error(OS 에러 텍스트 +
+     `AGENTRELAY_STORE` 재지정 힌트). 여전히 순수(파일시스템/env/시계 미접촉).
+  2. CLI `commands.ts` — `probeStoreWritable`(실제 throwaway 파일 write+rm으로 권한 비트뿐 아니라
+     read-only 마운트·풀 디스크까지 정직하게 검증, dir 미존재 시 `nearestExistingDir`로 가장 가까운
+     존재 조상을 프로브, 절대 throw 안 함) 신설. `runDoctor`가 **큐 오픈 전** 프로브(RelayQueue 생성자가
+     dir을 mkdir하므로 순서 중요). 부수 견고화: RelayQueue 생성이 dir 생성 불가로 throw할 때 크래시하던
+     것을 try/catch로 감싸 store-writable error로 진단(doctor "절대 throw 안 함" 계약 유지).
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+    **387개 통과 + 1 skip**(core 265 + cli 119 + dashboard 3 — core writable 5 + cli writable 4[root는
+    권한 비트 우회로 1 skip] 신규). **실제 빌드 CLI e2e**: 쓰기 가능→ok, 스토어 dir 미존재→"will be
+    created", 부모가 파일(ENOTDIR)→store-writable error + exit 1(크래시 없음).
+- 다음 할 일: README/ARCHITECTURE(🧭 코워크), `doctor` 데몬 실행 여부 검사(👷 후보), 대시보드가
+  timing/설정 파일 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보).
