@@ -927,3 +927,28 @@
     created", 부모가 파일(ENOTDIR)→store-writable error + exit 1(크래시 없음).
 - 다음 할 일: README/ARCHITECTURE(🧭 코워크), `doctor` 데몬 실행 여부 검사(👷 후보), 대시보드가
   timing/설정 파일 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장(👷 후보).
+
+### [세션 29 — 누적 PR #58·#59 통합 + `status --since/--until` 시간 창 필터] (2026-07-19, 무인 자율 세션)
+- **먼저: 다시 쌓인 열린 PR 2개를 통합해 중복 루프를 끊었다.** 세션 시작 시 CI 초록(`actions_list`로
+  확인)인 열린 PR이 #58(export 스코프/시간 창 필터)·#59(doctor 스토어 디렉터리 쓰기 권한 검사) 2건.
+  main 브랜치 보호로 병합이 밀리면 매시간 무기억 세션이 같은 후보를 반복 구현하는 고질적 패턴(세션
+  3·8·10·16·22·24·26·27·28)이 재발한다. COLLAB.md 병합 정책("CI 초록이면 클로드 코드가 통합 가능")에
+  근거해: (1) **#58을 main에 병합**(4a33970 — export에 `--tool`/`--project`/`--since`/`--until` 확장).
+  (2) #58 병합으로 문서 충돌(dirty)이 된 **#59를 내 브랜치에 `cherry-pick -x`로 흡수**(BACKLOG/PROGRESS
+  충돌은 양쪽 로그 보존으로 해소, 코드는 자동 병합 — 다른 브랜치엔 push 안 함).
+- **한 일: `agentrelay status --since/--until` 시간 창 필터.** `stats`(세션 26)·`export`(세션 28)에는
+  시간 차원이 있는데 `status`만 빠져 있던 비대칭을 메웠다. CLI `cli.ts`의 status 액션에 `--since`/`--until`
+  (now−기간=createdFrom/createdTo, 기존 `parseDuration` 재사용)을 배선하고, 시간 창을 core `scopeJobs`로
+  **먼저** 필터한 뒤 `selectJobs`(status/tool/project/sort/reverse)를 적용(창→선택 순서로 stats·export와
+  동일 의미). 일회성·`--json`·`--watch` 세 뷰 모두에 동일 적용 — `runWatch`에 optional `window`를 추가해
+  매 프레임 재적용(경계는 시작 시 고정된 절대 epoch-ms). 창이 전체를 걸러내면 `NO_MATCH_MESSAGE`, 파싱
+  불가 기간·빈 범위(since<until)는 exit 1. **새 core 코드 0줄** — 기존 검증된 순수 함수 재사용.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **392개 통과 + 1 skip**(core 265 + cli 124[+1 skip] + dashboard 3 — status.test.ts에
+    window→select 파이프라인 3케이스 신규). **실제 빌드된 CLI e2e**(mock 아님): 30일전/3일전/1시간전
+    3-job 스토어로 `status`(3행)·`--since 24h`(최근 gamma 1행)·`--since 7d --until 1d`(밴드 beta 1행)·
+    `--since 24h --tool codex-cli`(AND gamma 1행)·`--since 30m`(NO_MATCH 문구)·`--json --since 24h`
+    (total 1, gamma)·`--since bogus`(exit 1)·`--since 1d --until 7d`(빈 범위 exit 1) 확인.
+- 다음 할 일: 대시보드가 스코프/시간 창 필터 UI 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
+  (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), `doctor` 데몬 실행 여부 검사(👷 후보),
+  README/ARCHITECTURE(🧭 코워크).

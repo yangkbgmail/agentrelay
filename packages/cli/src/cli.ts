@@ -1,4 +1,4 @@
-import type { AgentTool, ExportFormat, JobScope, JobStatus } from "@agentrelay/core";
+import type { AgentTool, ExportFormat, JobScope, JobStatus, RelayJob } from "@agentrelay/core";
 import { ALL_TOOLS, computeStats, EXPORT_FORMATS, isJobScopeActive, parseDuration, scopeJobs } from "@agentrelay/core";
 import { Command } from "commander";
 import {
@@ -52,13 +52,17 @@ function splitList(raw: string): string[] {
  * Live `agentrelay status --watch`: clears the screen and re-renders the table
  * on an interval so countdowns tick down in place. `listStatus` re-reads the
  * JSON store each pass, so a running daemon's writes show up automatically.
- * The same `--status`/`--tool`/`--project`/`--sort`/`--reverse` selection is
- * re-applied every pass.
+ * The same `--status`/`--tool`/`--project`/`--sort`/`--reverse` selection and
+ * the `--since`/`--until` time window are re-applied every pass. The window
+ * boundaries are absolute epoch-ms (fixed when the command started), so live
+ * writes still show up while the window edges stay put.
  * Runs until the process is interrupted (Ctrl-C).
  */
-function runWatch(store: string, intervalMs: number, selection: JobSelection): void {
+function runWatch(store: string, intervalMs: number, selection: JobSelection, window?: JobScope): void {
   const draw = () => {
-    const selected = selectJobs(listStatus(store), selection);
+    const all = listStatus(store);
+    const windowed = window && isJobScopeActive(window) ? scopeJobs(all, window) : all;
+    const selected = selectJobs(windowed, selection);
     const frame = renderWatchFrame(selected, store, intervalMs);
     // Clear screen + move cursor home, then paint the frame.
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
@@ -139,6 +143,8 @@ export function buildCli(): Command {
     .option("-s, --status <statuses>", "Only show jobs with these comma-separated statuses (e.g. queued,failed)")
     .option("-t, --tool <tools>", `Only show jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
     .option("-p, --project <projects>", "Only show jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only show jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only show jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
     .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
     .action(
@@ -148,6 +154,8 @@ export function buildCli(): Command {
         status?: string;
         tool?: string;
         project?: string;
+        since?: string;
+        until?: string;
         sort?: string;
         reverse?: boolean;
       }) => {
@@ -196,20 +204,54 @@ export function buildCli(): Command {
           selection.sort = opts.sort as SortField;
         }
 
+        // Time window: --since/--until are "N ago" durations relative to now, so
+        // `--since 7d --until 1d` scopes to jobs created between 7 and 1 days ago.
+        // Applied via core scopeJobs before selectJobs, matching stats/export.
+        const now = Date.now();
+        const window: JobScope = {};
+        if (opts.since !== undefined) {
+          const ms = parseDuration(opts.since);
+          if (ms === null) {
+            console.error(`Invalid --since duration: "${opts.since}". Use e.g. 24h, 7d, 30m, 90s.`);
+            process.exitCode = 1;
+            return;
+          }
+          window.createdFrom = now - ms;
+        }
+        if (opts.until !== undefined) {
+          const ms = parseDuration(opts.until);
+          if (ms === null) {
+            console.error(`Invalid --until duration: "${opts.until}". Use e.g. 24h, 7d, 30m, 90s.`);
+            process.exitCode = 1;
+            return;
+          }
+          window.createdTo = now - ms;
+        }
+        if (
+          window.createdFrom !== undefined &&
+          window.createdTo !== undefined &&
+          window.createdFrom > window.createdTo
+        ) {
+          console.error("--since must be a longer window than --until (empty range otherwise).");
+          process.exitCode = 1;
+          return;
+        }
+        const scoped = (jobs: RelayJob[]): RelayJob[] => (isJobScopeActive(window) ? scopeJobs(jobs, window) : jobs);
+
         if (opts.json) {
-          console.log(renderStatusJson(selectJobs(listStatus(store), selection), store));
+          console.log(renderStatusJson(selectJobs(scoped(listStatus(store)), selection), store));
           return;
         }
 
         if (opts.watch !== undefined) {
           const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
           const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
-          runWatch(store, intervalMs, selection);
+          runWatch(store, intervalMs, selection, window);
           return; // setInterval keeps the process alive.
         }
 
         const all = listStatus(store);
-        const selected = selectJobs(all, selection);
+        const selected = selectJobs(scoped(all), selection);
         // Distinguish "store is empty" from "filter matched nothing" so the
         // hint to run a command doesn't show up when jobs simply got filtered out.
         if (selected.length === 0 && all.length > 0) {
