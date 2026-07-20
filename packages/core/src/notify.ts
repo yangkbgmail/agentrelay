@@ -158,3 +158,108 @@ export function notifiersFromEnv(
   if (configured.length === 0) return null;
   return combineNotifiers(...configured);
 }
+
+export type NotifyChannelKind = "slack" | "webhook";
+
+/** A notification channel configured through the environment. */
+export interface NotifyChannel {
+  kind: NotifyChannelKind;
+  /** Human-readable label ("Slack" / "Webhook"). */
+  label: string;
+  /** Destination URL (treat as a secret when displaying). */
+  url: string;
+  /** The environment variable the URL was read from. */
+  envVar: string;
+}
+
+/**
+ * Enumerates the notify channels configured through the environment, in a
+ * stable order (Slack first, then the generic webhook). Blank/whitespace-only
+ * values are skipped so an empty env var doesn't masquerade as a channel.
+ * This is the single source of truth for "which channels are configured";
+ * {@link sendTestNotification} builds on it.
+ */
+export function listNotifyChannels(env: Record<string, string | undefined> = process.env): NotifyChannel[] {
+  const channels: NotifyChannel[] = [];
+  const slack = env.AGENTRELAY_SLACK_WEBHOOK?.trim();
+  if (slack) {
+    channels.push({ kind: "slack", label: "Slack", url: slack, envVar: "AGENTRELAY_SLACK_WEBHOOK" });
+  }
+  const webhook = env.AGENTRELAY_WEBHOOK_URL?.trim();
+  if (webhook) {
+    channels.push({ kind: "webhook", label: "Webhook", url: webhook, envVar: "AGENTRELAY_WEBHOOK_URL" });
+  }
+  return channels;
+}
+
+/**
+ * The synthetic payload sent by `agentrelay notify test`. It uses the same
+ * shape a real event does, so it exercises the exact formatting/body path a
+ * production notification would take.
+ */
+export function testNotifyPayload(): NotifyPayload {
+  return {
+    jobId: "test-notification",
+    project: "agentrelay",
+    event: "completed",
+    message: "Test notification from `agentrelay notify test` — if you can read this, delivery works.",
+  };
+}
+
+/** The outcome of delivering the test payload to a single channel. */
+export interface TestNotifyResult {
+  channel: NotifyChannel;
+  /** True when the endpoint accepted the delivery (HTTP 2xx, no throw). */
+  ok: boolean;
+  /** Present when `ok` is false: the failure reason (HTTP status or thrown error). */
+  error?: string;
+}
+
+export interface SendTestNotificationOptions {
+  env?: Record<string, string | undefined>;
+  /** Injected for tests; defaults to global fetch. */
+  fetchFn?: typeof fetch;
+  /** Overrides the synthetic payload (defaults to {@link testNotifyPayload}). */
+  payload?: NotifyPayload;
+}
+
+/**
+ * Delivers the test payload to every configured channel independently and
+ * reports a per-channel result. Reuses the production notifier factories, so a
+ * pass here means the *real* delivery path (body shape, auth header, HTTP
+ * status handling) works — not merely that a URL is set. Each channel is
+ * awaited; a failure on one never throws or aborts the others. Returns an
+ * empty array when no channels are configured.
+ */
+export async function sendTestNotification(options: SendTestNotificationOptions = {}): Promise<TestNotifyResult[]> {
+  const env = options.env ?? process.env;
+  const payload = options.payload ?? testNotifyPayload();
+  const channels = listNotifyChannels(env);
+  return Promise.all(
+    channels.map(async (channel): Promise<TestNotifyResult> => {
+      let captured: unknown;
+      const onError = (error: unknown) => {
+        captured = error;
+      };
+      const notifier =
+        channel.kind === "slack"
+          ? createSlackNotifier({ webhookUrl: channel.url, fetchFn: options.fetchFn, onError })
+          : createWebhookNotifier({
+              url: channel.url,
+              headers: webhookAuthHeader(env),
+              fetchFn: options.fetchFn,
+              onError,
+            });
+      await notifier(payload);
+      if (captured === undefined) return { channel, ok: true };
+      const message = captured instanceof Error ? captured.message : String(captured);
+      return { channel, ok: false, error: message };
+    })
+  );
+}
+
+/** Builds the `Authorization` header for the generic webhook, if configured. */
+function webhookAuthHeader(env: Record<string, string | undefined>): Record<string, string> | undefined {
+  const auth = env.AGENTRELAY_WEBHOOK_AUTH?.trim();
+  return auth ? { Authorization: auth } : undefined;
+}
