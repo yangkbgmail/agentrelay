@@ -99,11 +99,54 @@ export function jobsToJson(jobs: RelayJob[]): string {
   return JSON.stringify(jobs, null, 2);
 }
 
+/**
+ * Escape a value for a single GitHub-flavored Markdown table cell. Pipes are the
+ * only column-breaking character, so they're backslash-escaped; newlines (which
+ * would end the table row) collapse to `<br>` so multi-line prompts and errors
+ * stay inside their cell. An empty value becomes an em dash so the table reads
+ * as "no value" rather than a blank that can look like a rendering glitch.
+ */
+export function escapeMarkdownCell(value: string): string {
+  if (value === "") {
+    return "—";
+  }
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/\|/g, "\\|")
+    .replace(/\r\n|\r|\n/g, "<br>");
+}
+
+/**
+ * Render jobs as a GitHub-flavored Markdown table — the human-readable
+ * counterpart to CSV/JSON, meant for pasting into an issue, a PR body, or a
+ * chat message where a rendered table is worth more than raw rows. Columns and
+ * cell values are shared with the CSV export ({@link JOB_CSV_COLUMNS} /
+ * {@link jobCsvValue}) so the two stay in lockstep. An empty job list still
+ * emits the header and separator rows, so the table's schema is visible.
+ */
+export function jobsToMarkdown(jobs: RelayJob[], options: Pick<CsvOptions, "columns"> = {}): string {
+  const columns = options.columns ?? JOB_CSV_COLUMNS;
+  const rows: string[] = [];
+  rows.push(`| ${columns.join(" | ")} |`);
+  rows.push(`| ${columns.map(() => "---").join(" | ")} |`);
+  for (const job of jobs) {
+    rows.push(`| ${columns.map((col) => escapeMarkdownCell(jobCsvValue(job, col))).join(" | ")} |`);
+  }
+  return rows.join("\n");
+}
+
 /** Supported export formats. */
-export const EXPORT_FORMATS = ["csv", "json"] as const;
+export const EXPORT_FORMATS = ["csv", "json", "md"] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 /** Dispatch to the right serializer for the given format. */
 export function exportJobs(jobs: RelayJob[], format: ExportFormat, options: CsvOptions = {}): string {
-  return format === "json" ? jobsToJson(jobs) : jobsToCsv(jobs, options);
+  switch (format) {
+    case "json":
+      return jobsToJson(jobs);
+    case "md":
+      return jobsToMarkdown(jobs, options);
+    default:
+      return jobsToCsv(jobs, options);
+  }
 }

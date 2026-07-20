@@ -33,19 +33,25 @@ import {
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
   type ExportFormat,
   exportJobs,
+  findConfigField,
   hasConfigErrors,
   heartbeatStaleAfterMs,
+  type IneligibleJob,
+  isJobScopeActive,
+  type JobScope,
   listBackups,
   loadConfigFile,
   notifiersFromEnv,
   parseConfig,
   parseDaemonHeartbeat,
+  partitionForControl,
   RelayQueue,
   RelayScheduler,
   type RestorePreview,
@@ -53,12 +59,16 @@ import {
   resolveAdapter,
   resolveBackup,
   resolveConfigPath,
+  resolveConfigWritePath,
   resolveEffectiveConfig,
   resolveJobId,
   retryPolicyFromEnv,
   runDiagnostics,
   sampleConfigJson,
+  scopeJobs,
   serializeDaemonHeartbeat,
+  setConfigValue,
+  unsetConfigValue,
   validateConfig,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
@@ -402,6 +412,72 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
   }
 }
 
+/** A bulk control action for {@link bulkControlJobs}. */
+export type BulkControlAction = "cancel" | "retry";
+
+export interface BulkControlOptions {
+  /** Which jobs to consider (status/tool/project/time). Omit to consider all. */
+  scope?: JobScope;
+  /** When true, report what would happen without mutating the store. */
+  dryRun?: boolean;
+  storePath?: string;
+}
+
+export interface BulkControlResult {
+  /** How many jobs matched the scope before the eligibility guard. */
+  matched: number;
+  /** Jobs that were (or, in a dry run, would be) transitioned. */
+  affected: RelayJob[];
+  /** Scoped jobs the guard rejected, each with a reason. */
+  skipped: IneligibleJob[];
+  /** True when this was a preview (no store changes were made). */
+  dryRun: boolean;
+  /** Summary line for the CLI to print. */
+  message: string;
+}
+
+/**
+ * Cancel or retry every job matching a scope in one pass — the bulk companion
+ * to {@link cancelJob}/{@link retryJob}. The scope is applied with the same
+ * core `scopeJobs` used by `stats`/`status`/`export`, and eligibility uses the
+ * same {@link canCancel}/{@link canRequeue} guards as the single-id path, so
+ * bulk and single behaviour never drift. A `dryRun` previews the effect without
+ * touching the store (mirroring `prune`/`restore --dry-run`).
+ */
+export function bulkControlJobs(action: BulkControlAction, options: BulkControlOptions = {}): BulkControlResult {
+  const queue = openQueue(options.storePath ?? defaultStorePath());
+  try {
+    const all = queue.listAll();
+    const scoped = options.scope && isJobScopeActive(options.scope) ? scopeJobs(all, options.scope) : all;
+    const guard = action === "cancel" ? canCancel : canRequeue;
+    const { eligible, ineligible } = partitionForControl(scoped, guard);
+
+    if (!options.dryRun) {
+      for (const job of eligible) {
+        if (action === "cancel") queue.markCancelled(job.id);
+        else queue.requeueNow(job.id);
+      }
+    }
+
+    const acted = action === "cancel" ? "cancelled" : "queued to resume";
+    const would = action === "cancel" ? "cancel" : "retry";
+    const tail = `(${scoped.length} matched, ${ineligible.length} skipped)`;
+    const message = options.dryRun
+      ? `would ${would} ${eligible.length} job(s) ${tail}`
+      : `${acted} ${eligible.length} job(s) ${tail}`;
+
+    return {
+      matched: scoped.length,
+      affected: eligible,
+      skipped: ineligible,
+      dryRun: Boolean(options.dryRun),
+      message,
+    };
+  } finally {
+    queue.close();
+  }
+}
+
 export interface ShowJobResult {
   /** True when exactly one job matched the given id/prefix. */
   ok: boolean;
@@ -575,6 +651,145 @@ export function validateConfigFile(options: ConfigValidateOptions = {}): ConfigV
 
   const issues = validateConfig(config);
   return { ok: !hasConfigErrors(issues), path, issues };
+}
+
+export interface ConfigSetOptions {
+  /** Dotted config key to set (e.g. `retry.maxAttempts`). */
+  key: string;
+  /** Raw value as typed on the command line; coerced to the field's type. */
+  value: string;
+  /** Explicit target file. When omitted, resolves via {@link resolveConfigWritePath}. */
+  path?: string;
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+}
+
+export interface ConfigUnsetOptions {
+  key: string;
+  path?: string;
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+}
+
+export interface ConfigMutateResult {
+  ok: boolean;
+  /** Absolute/target path that was (or would have been) written. */
+  path: string;
+  message: string;
+}
+
+/**
+ * Reads a config file for in-place editing: returns an empty config when the
+ * file is absent or blank (so a first `set` starts fresh), and throws a clear
+ * error on malformed JSON or a structurally invalid file (so `set`/`unset`
+ * never silently discard an existing broken config by overwriting it).
+ */
+function readConfigForEdit(path: string): AgentRelayConfig {
+  if (!existsSync(path)) return {};
+  const raw = readFileSync(path, "utf8");
+  if (raw.trim() === "") return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Invalid JSON in config ${path}: ${String(error)}`);
+  }
+  return parseConfig(parsed, path);
+}
+
+/** Masks a secret field's value when echoing it back, so tokens don't hit scrollback. */
+function echoConfigValue(key: string, value: string): string {
+  const field = findConfigField(key);
+  return field?.secret && value.length > 0 ? "***" : value;
+}
+
+/**
+ * Sets a single value in the config file (`agentrelay config set <key> <value>`),
+ * creating the file if needed. Returns a structured result instead of throwing:
+ *
+ * 1. resolve a definite target path (explicit → discovered → `<cwd>/…`);
+ * 2. read the current file (empty when absent; error on malformed JSON);
+ * 3. {@link setConfigValue} — unknown key or type-mismatched value → error;
+ * 4. refuse to persist a value that fails semantic {@link validateConfig} *for
+ *    that key* (e.g. `retry.factor 0.5`), so a known-bad value never lands on
+ *    disk; warnings are surfaced but still written;
+ * 5. write pretty JSON (matching `config init`'s formatting).
+ */
+export function setConfigFile(options: ConfigSetOptions): ConfigMutateResult {
+  const path = resolveConfigWritePath({ path: options.path, cwd: options.cwd, env: options.env });
+
+  let current: AgentRelayConfig;
+  try {
+    current = readConfigForEdit(path);
+  } catch (error) {
+    return { ok: false, path, message: error instanceof Error ? error.message : String(error) };
+  }
+
+  let next: AgentRelayConfig;
+  try {
+    next = setConfigValue(current, options.key, options.value);
+  } catch (error) {
+    return { ok: false, path, message: error instanceof Error ? error.message : String(error) };
+  }
+
+  // Only judge issues introduced by *this* key, so a pre-existing problem
+  // elsewhere in the file doesn't block an unrelated edit.
+  const issues = validateConfig(next).filter((i) => i.path === options.key);
+  const errors = issues.filter((i) => i.level === "error");
+  if (errors.length > 0) {
+    return { ok: false, path, message: `${options.key}: ${errors.map((e) => e.message).join("; ")}` };
+  }
+
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, configToJson(next), "utf8");
+  } catch (error) {
+    return { ok: false, path, message: `Could not write config to ${path}: ${String(error)}` };
+  }
+
+  const warnings = issues.filter((i) => i.level === "warning").map((w) => w.message);
+  const warnSuffix = warnings.length > 0 ? ` (warning: ${warnings.join("; ")})` : "";
+  return {
+    ok: true,
+    path,
+    message: `Set ${options.key} = ${echoConfigValue(options.key, options.value)} in ${path}${warnSuffix}`,
+  };
+}
+
+/**
+ * Removes a single value from the config file (`agentrelay config unset <key>`),
+ * so the built-in default applies again. Returns `ok:false` when there's no file
+ * to edit or the key is unknown. Emptied group objects are dropped by
+ * {@link unsetConfigValue} so the file stays tidy.
+ */
+export function unsetConfigFile(options: ConfigUnsetOptions): ConfigMutateResult {
+  const path = resolveConfigWritePath({ path: options.path, cwd: options.cwd, env: options.env });
+
+  if (!existsSync(path)) {
+    return { ok: false, path, message: `No config file at ${path} to remove "${options.key}" from.` };
+  }
+
+  let current: AgentRelayConfig;
+  try {
+    current = readConfigForEdit(path);
+  } catch (error) {
+    return { ok: false, path, message: error instanceof Error ? error.message : String(error) };
+  }
+
+  let next: AgentRelayConfig;
+  try {
+    next = unsetConfigValue(current, options.key);
+  } catch (error) {
+    return { ok: false, path, message: error instanceof Error ? error.message : String(error) };
+  }
+
+  try {
+    writeFileSync(path, configToJson(next), "utf8");
+  } catch (error) {
+    return { ok: false, path, message: `Could not write config to ${path}: ${String(error)}` };
+  }
+
+  return { ok: true, path, message: `Removed ${options.key} from ${path} (falls back to the default).` };
 }
 
 export interface BackupStoreOptions {

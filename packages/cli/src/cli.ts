@@ -1,12 +1,40 @@
-import type { AgentTool, ExportFormat, JobScope, JobStatus, RelayJob } from "@agentrelay/core";
-import { ALL_TOOLS, computeStats, EXPORT_FORMATS, isJobScopeActive, parseDuration, scopeJobs } from "@agentrelay/core";
+import type {
+  AgentTool,
+  CompletionCommandSpec,
+  CompletionShell,
+  CompletionSpec,
+  ExportFormat,
+  GroupDimension,
+  JobScope,
+  JobStatus,
+  RelayJob,
+} from "@agentrelay/core";
+import {
+  ALL_TOOLS,
+  COMPLETION_SHELLS,
+  computeStats,
+  EXPORT_FORMATS,
+  GROUP_DIMENSIONS,
+  generateCompletion,
+  groupStats,
+  isCompletionShell,
+  isJobScopeActive,
+  parseDuration,
+  SETTABLE_CONFIG_KEYS,
+  scopeJobs,
+  sendTestNotification,
+} from "@agentrelay/core";
 import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
+  type BulkControlAction,
+  type BulkControlResult,
   backupStore,
+  bulkControlJobs,
   cancelJob,
   exportStore,
   initConfig,
+  type JobControlResult,
   listStatus,
   listStoreBackups,
   previewRestoreStore,
@@ -15,16 +43,20 @@ import {
   retryJob,
   runCommand,
   runDoctor,
+  setConfigFile,
   showConfig,
   showJob,
   startDaemon,
   tickOnce,
+  unsetConfigFile,
   validateConfigFile,
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
+import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
+import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
-import { renderStats, renderStatsJson } from "./stats.js";
+import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson } from "./stats.js";
 import {
   type JobSelection,
   NO_MATCH_MESSAGE,
@@ -48,6 +80,198 @@ function splitList(raw: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+/** The `--status`/`--tool`/`--project`/`--since`/`--until` filter options. */
+interface ScopeOpts {
+  status?: string;
+  tool?: string;
+  project?: string;
+  since?: string;
+  until?: string;
+}
+
+type ScopeBuild = { scope: JobScope; note: string; active: boolean } | { error: string };
+
+/**
+ * Build a core {@link JobScope} from the shared `--status`/`--tool`/`--project`/
+ * `--since`/`--until` filter options, validating each and returning a single
+ * `{ error }` on the first bad value. `--since`/`--until` are "N ago" durations
+ * relative to `now`, so `--since 7d --until 1d` scopes to jobs created between 7
+ * and 1 days ago. Keeps the bulk `cancel`/`retry` commands in step with how
+ * `stats`/`status`/`export` interpret the same flags.
+ */
+function buildScope(opts: ScopeOpts, now: number): ScopeBuild {
+  const scope: JobScope = {};
+  const noteParts: string[] = [];
+
+  if (opts.status !== undefined) {
+    const requested = splitList(opts.status);
+    const invalid = requested.filter((s) => !ALL_JOB_STATUSES.includes(s as JobStatus));
+    if (invalid.length > 0) {
+      return { error: `Unknown status(es): ${invalid.join(", ")}. Valid: ${ALL_JOB_STATUSES.join(", ")}.` };
+    }
+    scope.statuses = requested as JobStatus[];
+    noteParts.push(`status=${requested.join(",")}`);
+  }
+
+  if (opts.tool !== undefined) {
+    const requested = splitList(opts.tool);
+    const invalid = requested.filter((t) => !ALL_TOOLS.includes(t as AgentTool));
+    if (invalid.length > 0) {
+      return { error: `Unknown tool(s): ${invalid.join(", ")}. Valid: ${ALL_TOOLS.join(", ")}.` };
+    }
+    scope.tools = requested;
+    noteParts.push(`tool=${requested.join(",")}`);
+  }
+
+  if (opts.project !== undefined) {
+    const requested = splitList(opts.project);
+    if (requested.length === 0) return { error: "--project needs at least one project name." };
+    scope.projects = requested;
+    noteParts.push(`project=${requested.join(",")}`);
+  }
+
+  if (opts.since !== undefined) {
+    const ms = parseDuration(opts.since);
+    if (ms === null) return { error: `Invalid --since duration: "${opts.since}". Use e.g. 24h, 7d, 30m, 90s.` };
+    scope.createdFrom = now - ms;
+    noteParts.push(`since=${opts.since}`);
+  }
+
+  if (opts.until !== undefined) {
+    const ms = parseDuration(opts.until);
+    if (ms === null) return { error: `Invalid --until duration: "${opts.until}". Use e.g. 24h, 7d, 30m, 90s.` };
+    scope.createdTo = now - ms;
+    noteParts.push(`until=${opts.until}`);
+  }
+
+  if (scope.createdFrom !== undefined && scope.createdTo !== undefined && scope.createdFrom > scope.createdTo) {
+    return { error: "--since must be a longer window than --until (empty range otherwise)." };
+  }
+
+  return { scope, note: noteParts.join(" "), active: isJobScopeActive(scope) };
+}
+
+/** Static config for a `cancel`/`retry` command registered by {@link registerBulkControl}. */
+interface BulkControlSpec {
+  name: string;
+  action: BulkControlAction;
+  /** The existing single-id handler, used when no `--all` is given. */
+  single: (idOrPrefix: string, storePath?: string) => JobControlResult;
+  describe: string;
+  allHelp: string;
+}
+
+/** Print a bulk cancel/retry result: one line per affected job, then a summary. */
+function printBulkResult(result: BulkControlResult, note: string): void {
+  for (const job of result.affected) {
+    console.log(`  ${job.id.slice(0, 8)}  ${job.project}  (${job.status})`);
+  }
+  const scopeLine = note ? ` [scope: ${note}]` : "";
+  const suffix = result.dryRun ? " — no changes made" : "";
+  console.log(`[agentrelay] ${result.message}${suffix}${scopeLine}`);
+}
+
+/**
+ * Register a `cancel` or `retry` command that acts on a single job by id, or —
+ * with `--all` plus the shared scope filters — on every matching job at once.
+ * Both paths share the same core guards, so bulk and single-id behaviour stay
+ * consistent. `--all` and an explicit id are mutually exclusive.
+ */
+function registerBulkControl(program: Command, spec: BulkControlSpec): void {
+  program
+    .command(spec.name)
+    .description(spec.describe)
+    .argument("[id]", "Job id or a short id prefix (see `agentrelay status`); omit when using --all")
+    .option("--all", spec.allHelp)
+    .option("-s, --status <statuses>", "Only jobs with these statuses (comma-separated)")
+    .option("-t, --tool <tools>", "Only jobs run with these tools (comma-separated)")
+    .option("-p, --project <projects>", "Only jobs in these projects (comma-separated)")
+    .option("--since <duration>", "Only jobs created within this long ago (e.g. 24h, 7d)")
+    .option("--until <duration>", "Only jobs created before this long ago (e.g. 1d)")
+    .option("--dry-run", "Preview which jobs would be affected without changing the store")
+    .action((id: string | undefined, opts: ScopeOpts & { all?: boolean; dryRun?: boolean }) => {
+      const { store } = program.opts();
+
+      if (!opts.all) {
+        if (!id) {
+          console.error(`Provide a job id, or --all to ${spec.action} matching jobs.`);
+          process.exitCode = 1;
+          return;
+        }
+        const result = spec.single(id, store);
+        console.log(`[agentrelay] ${result.message}`);
+        if (!result.ok) process.exitCode = 1;
+        return;
+      }
+
+      if (id) {
+        console.error("Pass either a job id or --all, not both.");
+        process.exitCode = 1;
+        return;
+      }
+
+      const built = buildScope(opts, Date.now());
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const result = bulkControlJobs(spec.action, { scope: built.scope, dryRun: opts.dryRun, storePath: store });
+      printBulkResult(result, built.note);
+    });
+}
+
+/**
+ * Read all of stdin as a UTF-8 string. Used by `agentrelay parse` when no
+ * message argument is given so users can pipe an agent's output straight in
+ * (`claude ... | agentrelay parse`). Resolves with "" if stdin is empty.
+ */
+function readStdin(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => {
+      data += chunk;
+    });
+    process.stdin.on("end", () => resolve(data));
+    process.stdin.on("error", reject);
+  });
+}
+
+/**
+ * Collect the flag tokens (long and short) a commander command accepts, so the
+ * completion script can offer them. Order: each option's long form then short
+ * form, in declaration order; deduped by the generator.
+ */
+function collectFlags(cmd: Command): string[] {
+  const flags: string[] = [];
+  for (const opt of cmd.options) {
+    if (opt.long) flags.push(opt.long);
+    if (opt.short) flags.push(opt.short);
+  }
+  return flags;
+}
+
+/**
+ * Derive a shell-completion spec from the live commander program, so the
+ * completion script always matches the real command surface (no hand-kept
+ * duplicate list to drift). Walks one level of nesting for parent commands like
+ * `config` that group subcommands.
+ */
+export function buildCompletionSpec(program: Command): CompletionSpec {
+  const commands: CompletionCommandSpec[] = program.commands.map((cmd) => {
+    const entry: CompletionCommandSpec = { name: cmd.name(), options: collectFlags(cmd) };
+    if (cmd.commands.length > 0) {
+      entry.subcommands = cmd.commands.map(
+        (sub): CompletionCommandSpec => ({ name: sub.name(), options: collectFlags(sub) })
+      );
+    }
+    return entry;
+  });
+  return { program: program.name(), options: collectFlags(program), commands };
+}
+
 /**
  * Live `agentrelay status --watch`: clears the screen and re-renders the table
  * on an interval so countdowns tick down in place. `listStatus` re-reads the
@@ -58,12 +282,12 @@ function splitList(raw: string): string[] {
  * writes still show up while the window edges stay put.
  * Runs until the process is interrupted (Ctrl-C).
  */
-function runWatch(store: string, intervalMs: number, selection: JobSelection, window?: JobScope): void {
+function runWatch(store: string, intervalMs: number, selection: JobSelection, window?: JobScope, limit?: number): void {
   const draw = () => {
     const all = listStatus(store);
     const windowed = window && isJobScopeActive(window) ? scopeJobs(all, window) : all;
     const selected = selectJobs(windowed, selection);
-    const frame = renderWatchFrame(selected, store, intervalMs);
+    const frame = renderWatchFrame(selected, store, intervalMs, Date.now(), limit);
     // Clear screen + move cursor home, then paint the frame.
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   };
@@ -147,6 +371,7 @@ export function buildCli(): Command {
     .option("--until <duration>", "Only show jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
     .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
+    .option("-n, --limit <n>", "Show at most N jobs (applied after filter/sort; the summary still counts all matches)")
     .action(
       (opts: {
         watch?: string | boolean;
@@ -158,10 +383,22 @@ export function buildCli(): Command {
         until?: string;
         sort?: string;
         reverse?: boolean;
+        limit?: string;
       }) => {
         const { store } = program.opts();
 
         const selection: JobSelection = { reverse: opts.reverse };
+
+        let limit: number | undefined;
+        if (opts.limit !== undefined) {
+          const n = Number.parseInt(opts.limit, 10);
+          if (!Number.isInteger(n) || n < 1) {
+            console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+            process.exitCode = 1;
+            return;
+          }
+          limit = n;
+        }
 
         if (opts.status !== undefined) {
           const requested = splitList(opts.status);
@@ -239,14 +476,14 @@ export function buildCli(): Command {
         const scoped = (jobs: RelayJob[]): RelayJob[] => (isJobScopeActive(window) ? scopeJobs(jobs, window) : jobs);
 
         if (opts.json) {
-          console.log(renderStatusJson(selectJobs(scoped(listStatus(store)), selection), store));
+          console.log(renderStatusJson(selectJobs(scoped(listStatus(store)), selection), store, undefined, limit));
           return;
         }
 
         if (opts.watch !== undefined) {
           const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
           const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
-          runWatch(store, intervalMs, selection, window);
+          runWatch(store, intervalMs, selection, window, limit);
           return; // setInterval keeps the process alive.
         }
 
@@ -258,7 +495,7 @@ export function buildCli(): Command {
           console.log(NO_MATCH_MESSAGE);
           return;
         }
-        console.log(renderStatusTable(selected, { color: Boolean(process.stdout.isTTY) }));
+        console.log(renderStatusTable(selected, { color: Boolean(process.stdout.isTTY), limit }));
       }
     );
 
@@ -270,9 +507,18 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("-g, --group-by <dimension>", `Break down metrics per group: ${GROUP_DIMENSIONS.join(", ")}`)
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
     .action(
-      (opts: { status?: string; tool?: string; project?: string; since?: string; until?: string; json?: boolean }) => {
+      (opts: {
+        status?: string;
+        tool?: string;
+        project?: string;
+        since?: string;
+        until?: string;
+        groupBy?: string;
+        json?: boolean;
+      }) => {
         const { store } = program.opts();
 
         const now = Date.now();
@@ -344,10 +590,31 @@ export function buildCli(): Command {
           return;
         }
 
+        let groupBy: GroupDimension | undefined;
+        if (opts.groupBy !== undefined) {
+          if (!GROUP_DIMENSIONS.includes(opts.groupBy as GroupDimension)) {
+            console.error(`Unknown --group-by: "${opts.groupBy}". Valid: ${GROUP_DIMENSIONS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          groupBy = opts.groupBy as GroupDimension;
+        }
+
         const allJobs = listStatus(store);
         const active = isJobScopeActive(scope);
         const jobs = active ? scopeJobs(allJobs, scope) : allJobs;
         const scopeNote = active ? noteParts.join(" ") : undefined;
+
+        if (groupBy !== undefined) {
+          const groups = groupStats(jobs, groupBy);
+          if (opts.json) {
+            console.log(renderGroupedStatsJson(groups, groupBy, store, { scope }));
+            return;
+          }
+          console.log(renderGroupedStats(groups, groupBy, { color: Boolean(process.stdout.isTTY), scopeNote }));
+          return;
+        }
+
         const stats = computeStats(jobs);
 
         if (opts.json) {
@@ -377,9 +644,29 @@ export function buildCli(): Command {
       if (!report.ok) process.exitCode = 1;
     });
 
+  const notify = program.command("notify").description("Inspect and test notification channels (Slack/webhook)");
+  notify
+    .command("test")
+    .description("Send a test notification to every configured channel to verify delivery works end-to-end")
+    .option("--json", "Print the results as JSON (machine-readable, for scripts/CI)")
+    .option("--show-secrets", "Reveal masked destination URLs in the human-readable output")
+    .action(async (opts: { json?: boolean; showSecrets?: boolean }) => {
+      const results = await sendTestNotification();
+      if (opts.json) {
+        console.log(renderTestNotifyResultsJson(results));
+      } else {
+        console.log(
+          renderTestNotifyResults(results, { color: Boolean(process.stdout.isTTY), showSecrets: opts.showSecrets })
+        );
+      }
+      // Exit non-zero when nothing was configured (nothing to test) or any
+      // channel failed, so scripts/CI can gate on working notifications.
+      if (results.length === 0 || results.some((r) => !r.ok)) process.exitCode = 1;
+    });
+
   program
     .command("export")
-    .description("Export the job store to CSV or JSON for spreadsheets/BI/jq (stdout or a file)")
+    .description("Export the job store to CSV, JSON, or Markdown for spreadsheets/BI/jq/issues (stdout or a file)")
     .option("-f, --format <format>", `Output format: ${EXPORT_FORMATS.join(" | ")}`, "csv")
     .option("-o, --out <file>", "Write to this file instead of stdout")
     .option("-s, --status <statuses>", "Only export jobs with these comma-separated statuses (e.g. completed,failed)")
@@ -520,6 +807,38 @@ export function buildCli(): Command {
       console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
     });
 
+  program
+    .command("parse")
+    .description(
+      "Test the rate-limit parser against a message: see if AgentRelay would detect a limit, which pattern matched, and when it would resume"
+    )
+    .argument("[text...]", "Message to parse; if omitted, read from stdin (e.g. pipe your agent's output)")
+    .option("-t, --tool <tool>", `Use one tool's adapter patterns before the generic ones: ${ALL_TOOLS.join(", ")}`)
+    .option("--json", "Print the result as JSON (machine-readable, for scripts/jq)")
+    .action(async (textParts: string[], opts: { tool?: string; json?: boolean }) => {
+      let text = (textParts ?? []).join(" ");
+      if (!text) {
+        if (process.stdin.isTTY) {
+          console.error("[agentrelay] No message given. Pass text as an argument or pipe it via stdin.");
+          process.exitCode = 1;
+          return;
+        }
+        text = await readStdin();
+      }
+      const tool = opts.tool;
+      if (tool !== undefined && !ALL_TOOLS.includes(tool as AgentTool)) {
+        console.error(`Unknown tool: ${tool}. Valid: ${ALL_TOOLS.join(", ")}.`);
+        process.exitCode = 1;
+        return;
+      }
+      const report = buildParseReport(text, { tool: tool as AgentTool | undefined });
+      if (opts.json) {
+        console.log(renderParseReportJson(report));
+        return;
+      }
+      console.log(renderParseReport(report, { color: Boolean(process.stdout.isTTY) }));
+    });
+
   const config = program.command("config").description("Manage the agentrelay.config.json defaults file");
   config
     .command("init")
@@ -580,28 +899,51 @@ export function buildCli(): Command {
       // still printed the env/default resolution above to aid debugging.
       if (result.loadError) process.exitCode = 1;
     });
-
-  program
-    .command("cancel")
-    .description("Cancel a pending job so the scheduler stops relaying it")
-    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
-    .action((id: string) => {
-      const { store } = program.opts();
-      const result = cancelJob(id, store);
-      console.log(`[agentrelay] ${result.message}`);
-      if (!result.ok) process.exitCode = 1;
+  config
+    .command("set")
+    .description("Set a single value in agentrelay.config.json (creates the file if needed)")
+    .argument("<key>", `Dotted config key, one of: ${SETTABLE_CONFIG_KEYS.join(", ")}`)
+    .argument("<value>", "New value (coerced to the field's type)")
+    .action((key: string, value: string) => {
+      const { config: configPath } = program.opts();
+      const result = setConfigFile({ key, value, path: configPath });
+      if (result.ok) {
+        console.log(`[agentrelay] ${result.message}`);
+      } else {
+        console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 1;
+      }
+    });
+  config
+    .command("unset")
+    .description("Remove a single value from agentrelay.config.json so its default applies again")
+    .argument("<key>", `Dotted config key to remove, one of: ${SETTABLE_CONFIG_KEYS.join(", ")}`)
+    .action((key: string) => {
+      const { config: configPath } = program.opts();
+      const result = unsetConfigFile({ key, path: configPath });
+      if (result.ok) {
+        console.log(`[agentrelay] ${result.message}`);
+      } else {
+        console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 1;
+      }
     });
 
-  program
-    .command("retry")
-    .description("Requeue a job to resume immediately (fresh attempt count)")
-    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
-    .action((id: string) => {
-      const { store } = program.opts();
-      const result = retryJob(id, store);
-      console.log(`[agentrelay] ${result.message}`);
-      if (!result.ok) process.exitCode = 1;
-    });
+  registerBulkControl(program, {
+    name: "cancel",
+    action: "cancel",
+    single: cancelJob,
+    describe: "Cancel a pending job (by id), or every matching job with --all",
+    allHelp: "Cancel every matching pending job (narrow with the scope filters below)",
+  });
+
+  registerBulkControl(program, {
+    name: "retry",
+    action: "retry",
+    single: retryJob,
+    describe: "Requeue a job to resume immediately (by id), or every matching job with --all",
+    allHelp: "Requeue every matching job to resume now (narrow with the scope filters below)",
+  });
 
   program
     .command("backup")
@@ -750,6 +1092,28 @@ export function buildCli(): Command {
         );
       }
       console.log(`${verb} ${pruned.length} job(s). ${remaining} remain.`);
+    });
+
+  program
+    .command("completion")
+    .description("Print a shell completion script for agentrelay (bash or zsh)")
+    .argument("<shell>", `Shell to generate completion for: ${COMPLETION_SHELLS.join(" | ")}`)
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # bash: source it now, or add the line to ~/.bashrc\n" +
+        "  source <(agentrelay completion bash)\n" +
+        "  # zsh: write it onto your $fpath, then restart your shell\n" +
+        "  agentrelay completion zsh > ~/.zfunc/_agentrelay"
+    )
+    .action((shell: string) => {
+      if (!isCompletionShell(shell)) {
+        console.error(`Unknown shell "${shell}". Valid: ${COMPLETION_SHELLS.join(", ")}.`);
+        process.exitCode = 1;
+        return;
+      }
+      const spec = buildCompletionSpec(program);
+      process.stdout.write(generateCompletion(shell as CompletionShell, spec));
     });
 
   return program;

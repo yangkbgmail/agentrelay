@@ -1008,3 +1008,30 @@
     concerning:true}` 확인.
 - 다음 할 일: stats 평균 대기시간(대기→재개 지연) 확장(👷 후보 — RelayJob에 중간 타임스탬프 필요),
   대시보드 자동 새로고침 표시/일시정지(👷 후보), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 32 — 누적 PR 대량 통합 + 중복 정리(20→소수)] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-yak0ld`)
+- **배경: 열린 PR이 20개까지 쌓이고 상당수가 서로 중복이었다.** main 브랜치 보호로 병합이 밀리면
+  매시간 무기억 세션이 같은 후보를 반복 구현하는 이 저장소의 고질 패턴(세션 3·8·10·16·22·24·26~30)이
+  최악으로 재발한 상태 — stats `--group-by` 5개(#80/#85/#86/#88/#91), 대시보드 재개-루프 4개
+  (#72/#74/#76/#89), stats `--trend` 2개(#81/#90)가 각각 동일 기능. 새 21번째 PR을 더하는 것보다
+  **CI 초록 PR을 통합하고 중복을 닫아 큐를 정리**하는 것이 압도적으로 높은 가치라 판단.
+- **한 일:**
+  1. **대시보드 재개-루프(하트비트) 생존 상태 노출 — #72를 main에 병합**(3a8a1b7). 세션 30의 하트비트
+     인프라 후속으로, 대시보드가 `daemon.json`을 읽어 `evaluateHeartbeat`로 alive/stale/absent + concerning
+     판정을 `ResumeLoopCard`로 노출. `mergeable_state:clean`·CI 초록 확인 후 병합(COLLAB 정책).
+  2. **중복 PR 8건을 사유 코멘트와 함께 닫음** — 대시보드 그룹 #74/#76/#89(대표 #72 유지),
+     stats `--group-by` 그룹 #85/#86/#88/#91(대표 #80 유지), stats `--trend` 그룹 #90(대표 #81 유지).
+  3. **distinct한 CI-초록 PR 8건을 내 브랜치에 cherry-pick으로 통합**(문서 충돌은 통합 항목으로 일괄 정리):
+     #80 stats `--group-by`, #73 status `--limit`, #79 `parse`, #82 cancel/retry `--all`, #83 `completion`,
+     #84 config `set/unset`, #87 export `--format md`, #77 `notify test`. cli.ts import 충돌 3건(completion·
+     config·notify)은 union으로 수동 해소, Biome organize-imports로 정렬 정규화.
+  - 남겨둔 distinct PR(다음 세션): #81 stats `--trend`, #75 stats 재개 지연(둘 다 stats.ts를 #80과 겹쳐
+     이번엔 대표 #80만 착지). #78은 코워크 roundup(사람/코워크 소관).
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **543 통과 + 1 skip**(core 358 + cli 178[+1 skip] + dashboard 7). **실제 빌드된 CLI e2e**
+    (mock 아님): `status --limit 2`(2행+"1 more not shown"), `stats --group-by tool`(claude-code 50%·
+    codex-cli n/a), `export --format md`(마크다운 테이블), `config set/unset`(파일 갱신·기본값 복귀),
+    `cancel --all --status waiting_for_reset --dry-run`(1건 스코프·미변경), `notify test`(채널 미설정 안내),
+    `completion bash`(스크립트 출력) 확인.
+- 다음 할 일: 남은 distinct PR(#81 trend, #75 latency) 통합, stats 평균 대기시간(RelayJob 중간 타임스탬프
+  필요), README/ARCHITECTURE(🧭 코워크).
