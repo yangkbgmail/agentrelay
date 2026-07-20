@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canCancel, canRequeue, resolveJobId } from "../src/control.js";
+import { canCancel, canRequeue, partitionForControl, resolveJobId } from "../src/control.js";
 import type { JobStatus, RelayJob } from "../src/types.js";
 
 function job(id: string, status: JobStatus): RelayJob {
@@ -47,6 +47,46 @@ describe("canRequeue", () => {
     const result = canRequeue(job("a", "resuming"));
     expect(result.ok).toBe(false);
     expect(result.reason).toContain("resuming");
+  });
+});
+
+describe("partitionForControl", () => {
+  it("splits jobs into eligible and ineligible by the guard", () => {
+    const jobs = [job("a", "queued"), job("b", "completed"), job("c", "waiting_for_reset"), job("d", "cancelled")];
+    const { eligible, ineligible } = partitionForControl(jobs, canCancel);
+    expect(eligible.map((j) => j.id)).toEqual(["a", "c"]);
+    expect(ineligible.map((i) => i.job.id)).toEqual(["b", "d"]);
+    // Every ineligible entry carries the guard's reason.
+    for (const entry of ineligible) expect(entry.reason).toBeTruthy();
+  });
+
+  it("preserves input order and never mutates the input", () => {
+    const jobs = [job("x", "resuming"), job("y", "queued")];
+    const snapshot = jobs.map((j) => j.id);
+    const { eligible, ineligible } = partitionForControl(jobs, canRequeue);
+    expect(eligible.map((j) => j.id)).toEqual(["y"]);
+    expect(ineligible.map((i) => i.job.id)).toEqual(["x"]);
+    expect(jobs.map((j) => j.id)).toEqual(snapshot);
+  });
+
+  it("returns all eligible when the guard accepts everything", () => {
+    const jobs = [job("a", "queued"), job("b", "waiting_for_reset")];
+    const { eligible, ineligible } = partitionForControl(jobs, canCancel);
+    expect(eligible).toHaveLength(2);
+    expect(ineligible).toHaveLength(0);
+  });
+
+  it("returns all ineligible when the guard rejects everything", () => {
+    const jobs = [job("a", "completed"), job("b", "failed")];
+    const { eligible, ineligible } = partitionForControl(jobs, canCancel);
+    expect(eligible).toHaveLength(0);
+    expect(ineligible).toHaveLength(2);
+  });
+
+  it("handles an empty job list", () => {
+    const { eligible, ineligible } = partitionForControl([], canCancel);
+    expect(eligible).toEqual([]);
+    expect(ineligible).toEqual([]);
   });
 });
 
