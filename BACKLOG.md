@@ -347,6 +347,18 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay stats --group-by <tool|project|status>` — 큐 전체 합산이 아니라 그룹별로
+      건수·성공률·해결시간을 쪼개 비교("어느 프로젝트가 빠른가/어느 툴이 성공률 좋은가").
+      (완료 — `@agentrelay/core/stats.ts`에 순수 `groupStats(jobs, dimension)` + `GroupDimension`
+      (`tool`/`project`/`status`)·`GROUP_DIMENSIONS`·`GroupedStat`(key·count·전체 RelayStats) 신설:
+      차원 값으로 버킷팅 후 각 버킷에 `computeStats` 재사용(성공률·타이밍·퍼센타일까지), 그룹 정렬은
+      count desc·key asc(기존 projects 랭킹 관례), 미지 tool 문자열도 자체 키 유지. CLI `stats.ts`에
+      순수 `renderGroupedStats`(그룹당 1행 정렬 테이블·scopeNote·`NO_GROUP_MESSAGE`)·
+      `renderGroupedStatsJson`(`groupBy`·`groups` 에코), `cli.ts` stats에 `-g/--group-by` 배선 —
+      기존 scope를 먼저 적용한 부분집합을 그룹핑, 잘못된 dimension은 exit 1. 새 로직은 검증된
+      `computeStats` 재사용. core 5 + cli 6 신규 테스트, 빌드된 CLI e2e 검증. branch
+      `claude/wizardly-pascal-cq3vt2`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

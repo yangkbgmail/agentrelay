@@ -3,7 +3,7 @@
 // breakdown). Kept as pure functions here, separate from the commander wiring
 // in cli.ts, so the exact output is unit-testable without a store or a clock.
 
-import type { JobScope, JobStatus, RelayStats } from "@agentrelay/core";
+import type { GroupDimension, GroupedStat, JobScope, JobStatus, RelayStats } from "@agentrelay/core";
 import { isJobScopeActive } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
@@ -120,6 +120,53 @@ export function renderStats(
   return lines.join("\n");
 }
 
+/** Shown by `stats --group-by` when the store (or scoped subset) has no jobs. */
+export const NO_GROUP_MESSAGE = "No jobs to group.";
+
+/**
+ * Renders a per-group stats breakdown as a compact multi-line block: one row
+ * per group with its count, success rate, and typical (median) resolution time,
+ * ranked by count. Pure: no I/O, no clock. `color` gates ANSI codes (TTY only).
+ * A `scopeNote` is echoed once at the top when a filter is active.
+ */
+export function renderGroupedStats(
+  groups: GroupedStat[],
+  dimension: GroupDimension,
+  options: { color?: boolean; scopeNote?: string } = {}
+): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [];
+  if (options.scopeNote) lines.push(d(`scope: ${options.scopeNote}`));
+  if (groups.length === 0) {
+    lines.push(options.scopeNote ? NO_SCOPE_MATCH_MESSAGE : NO_GROUP_MESSAGE);
+    return lines.join("\n");
+  }
+
+  const total = groups.reduce((sum, g) => sum + g.count, 0);
+  lines.push(b(`${total} job(s) across ${groups.length} ${dimension}(s)`));
+  lines.push("");
+  // Width the key column to the widest key (capped) so rows line up.
+  const keyWidth = Math.min(24, Math.max(dimension.length, ...groups.map((g) => Math.min(24, g.key.length))));
+  lines.push(`  ${d(pad(dimension, keyWidth))}  ${d("jobs")}  ${d("success")}  ${d("median resolve")}`);
+  for (const { key, count, stats } of groups) {
+    const { timing } = stats;
+    const median = timing.resolvedCount > 0 ? formatDurationMs(timing.medianResolutionMs ?? 0) : "-";
+    lines.push(
+      `  ${pad(key.slice(0, keyWidth), keyWidth)}  ${pad(String(count), 4)}  ` +
+        `${pad(formatSuccessRate(stats.successRate), 7)}  ${median}`
+    );
+  }
+  return lines.join("\n");
+}
+
+/** Right-pad a string to `width` (no truncation beyond what the caller slices). */
+function pad(s: string, width: number): string {
+  return s.length >= width ? s : s.padEnd(width);
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,
@@ -129,4 +176,16 @@ export function renderStatsJson(
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
   return JSON.stringify({ storePath, generatedAt, scope, stats }, null, 2);
+}
+
+/** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */
+export function renderGroupedStatsJson(
+  groups: GroupedStat[],
+  dimension: GroupDimension,
+  storePath: string,
+  options: { generatedAt?: string; scope?: JobScope } = {}
+): string {
+  const generatedAt = options.generatedAt ?? new Date().toISOString();
+  const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, groupBy: dimension, groups }, null, 2);
 }

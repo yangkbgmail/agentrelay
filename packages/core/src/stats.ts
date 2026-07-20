@@ -246,3 +246,56 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     timing,
   };
 }
+
+/**
+ * A dimension to split a job list on for {@link groupStats}. Each grouped subset
+ * gets its own full {@link RelayStats}, so questions like "which project resolves
+ * fastest?" or "which tool has the best success rate?" become answerable.
+ */
+export type GroupDimension = "tool" | "project" | "status";
+
+/** Every dimension {@link groupStats} accepts, for CLI validation/help text. */
+export const GROUP_DIMENSIONS: GroupDimension[] = ["tool", "project", "status"];
+
+/** One group's key and its full aggregate stats. */
+export interface GroupedStat {
+  /** The shared dimension value for every job in this group. */
+  key: string;
+  /** How many jobs fall in this group (mirrors `stats.total`, kept for sort/UX). */
+  count: number;
+  /** Full relay metrics computed over just this group's jobs. */
+  stats: RelayStats;
+}
+
+/** The raw job value used to bucket a job under a given dimension. */
+function groupKeyOf(job: RelayJob, dimension: GroupDimension): string {
+  switch (dimension) {
+    case "tool":
+      return job.tool;
+    case "project":
+      return job.project;
+    case "status":
+      return job.status;
+  }
+}
+
+/**
+ * Partitions a job list by `dimension` and computes a full {@link RelayStats}
+ * for each partition, so `agentrelay stats --group-by project|tool|status` can
+ * show a per-group breakdown. Pure and non-mutating. Groups are ranked by job
+ * count (desc), ties broken by key (asc) — same ordering convention as
+ * `RelayStats.projects`. Insertion into buckets preserves each job's original
+ * order so per-group timing/percentiles are deterministic.
+ */
+export function groupStats(jobs: RelayJob[], dimension: GroupDimension): GroupedStat[] {
+  const buckets = new Map<string, RelayJob[]>();
+  for (const job of jobs) {
+    const key = groupKeyOf(job, dimension);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(job);
+    else buckets.set(key, [job]);
+  }
+  return [...buckets.entries()]
+    .map(([key, groupJobs]) => ({ key, count: groupJobs.length, stats: computeStats(groupJobs) }))
+    .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.key.localeCompare(b.key)));
+}

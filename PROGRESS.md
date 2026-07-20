@@ -980,3 +980,23 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — `agentrelay stats --group-by <tool|project|status>`] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-cq3vt2`)
+- **한 일: `stats`를 큐 전체 합산이 아니라 그룹별로 쪼개 보여주게 했다.** 기존 `stats`는 전체
+  성공률·해결시간·툴/프로젝트 카운트만 냈을 뿐, "어느 프로젝트가 가장 빨리 해결되나?", "어느 툴이
+  성공률이 좋나?" 같은 비교 질문엔 답할 수 없었다.
+  1. `@agentrelay/core/stats.ts`에 순수 `groupStats(jobs, dimension)` + `GroupDimension`
+     (`tool`/`project`/`status`)·`GROUP_DIMENSIONS`·`GroupedStat`(key·count·전체 RelayStats) 신설.
+     차원 값으로 잡을 버킷팅 → 각 버킷에 `computeStats`를 그대로 재사용해 그룹마다 성공률·타이밍·
+     퍼센타일까지 완전한 지표 산출. 그룹 정렬은 count desc·key asc(기존 `projects` 랭킹 관례와 동일),
+     버킷 삽입은 원본 순서 보존(그룹별 퍼센타일 결정성). 미지 tool 문자열도 자체 키로 유지.
+  2. CLI `stats.ts`에 순수 `renderGroupedStats`(그룹당 1행: dimension·jobs·success·median resolve
+     정렬 테이블, scopeNote 에코, 빈 스토어=`NO_GROUP_MESSAGE`·빈 스코프 부분집합=`NO_SCOPE_MATCH_MESSAGE`)
+     + `renderGroupedStatsJson`(`groupBy`·`groups`·활성 scope 에코). `cli.ts` stats 액션에
+     `-g/--group-by` 배선 — 기존 scope(`--status`/`--tool`/`--project`/`--since`/`--until`)를 **먼저**
+     적용한 부분집합을 그룹핑, 잘못된 dimension은 exit 1.
+  - 검증: `pnpm build` 클린, `pnpm ci:lint`(Biome) 0 경고, `pnpm test` **431 통과 + 1 skip**
+    (core 292[+5: groupStats]·cli 136[+6: renderGroupedStats/Json]·dashboard 3). **실제 빌드 CLI e2e**:
+    4-job 스토어로 group-by project/tool/status·`--json`·잘못된 dimension→exit 1·scope 조합 검증.
+- 다음 할 일: `stats --group-by`에 정렬 옵션(success/median 기준) 확장(👷 후보), 대시보드가 그룹
+  브레이크다운 노출(👷 후보), README/ARCHITECTURE(🧭 코워크).
