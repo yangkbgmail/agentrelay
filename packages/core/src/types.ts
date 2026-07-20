@@ -23,6 +23,15 @@ export interface RelayJob {
   resetAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * ISO timestamp of the most recent time the scheduler actually resumed this
+   * job (its `waiting_for_reset` → `resuming` transition). Combined with
+   * `resetAt` it yields the resume latency — how long after the rate-limit
+   * reset was due the relay took to pick the job up — which `agentrelay stats`
+   * aggregates. `null`/absent for jobs that have never been resumed (freshly
+   * queued jobs) and for stores written before this field existed.
+   */
+  resumedAt?: string | null;
   attempts: number;
   lastError: string | null;
   lastOutputTail: string | null;

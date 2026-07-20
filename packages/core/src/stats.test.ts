@@ -240,6 +240,78 @@ describe("computeStats", () => {
       p90ResolutionMs: null,
     });
   });
+
+  it("reports empty resume latency when no job has been resumed", () => {
+    const stats = computeStats([job({ status: "queued", resumedAt: null }), job({ status: "completed" })]);
+    expect(stats.resumeLatency).toEqual({
+      resumedCount: 0,
+      avgLatencyMs: null,
+      minLatencyMs: null,
+      maxLatencyMs: null,
+      medianLatencyMs: null,
+      p90LatencyMs: null,
+    });
+  });
+
+  it("computes resume latency as resumedAt - resetAt across statuses", () => {
+    const stats = computeStats([
+      // resumed 30m after its reset was due, then completed
+      job({
+        status: "completed",
+        resetAt: "2026-07-13T00:00:00.000Z",
+        resumedAt: "2026-07-13T00:30:00.000Z",
+      }),
+      // resumed 90m after due, still in-flight (resuming) — status-agnostic
+      job({
+        status: "resuming",
+        resetAt: "2026-07-13T00:00:00.000Z",
+        resumedAt: "2026-07-13T01:30:00.000Z",
+      }),
+    ]);
+    expect(stats.resumeLatency.resumedCount).toBe(2);
+    expect(stats.resumeLatency.minLatencyMs).toBe(30 * 60_000);
+    expect(stats.resumeLatency.maxLatencyMs).toBe(90 * 60_000);
+    expect(stats.resumeLatency.avgLatencyMs).toBe(60 * 60_000); // (30m + 90m) / 2
+    expect(stats.resumeLatency.medianLatencyMs).toBe(60 * 60_000);
+  });
+
+  it("skips stale pairings (resumedAt before a newer resetAt) and missing halves", () => {
+    const stats = computeStats([
+      // re-queued to a FUTURE reset after its last resume → negative span → skipped
+      job({
+        status: "waiting_for_reset",
+        resetAt: "2026-07-13T02:00:00.000Z",
+        resumedAt: "2026-07-13T01:00:00.000Z",
+      }),
+      // has resumedAt but never had a resetAt → skipped
+      job({ status: "completed", resetAt: null, resumedAt: "2026-07-13T01:00:00.000Z" }),
+      // unparseable timestamp → skipped
+      job({ status: "completed", resetAt: "not-a-date", resumedAt: "2026-07-13T01:00:00.000Z" }),
+      // the one valid sample: 15m latency
+      job({
+        status: "failed",
+        resetAt: "2026-07-13T00:00:00.000Z",
+        resumedAt: "2026-07-13T00:15:00.000Z",
+      }),
+    ]);
+    expect(stats.resumeLatency.resumedCount).toBe(1);
+    expect(stats.resumeLatency.avgLatencyMs).toBe(15 * 60_000);
+    expect(stats.resumeLatency.p90LatencyMs).toBe(15 * 60_000);
+  });
+
+  it("treats an exactly-on-time resume as zero latency (not skipped)", () => {
+    const stats = computeStats([
+      job({
+        status: "completed",
+        resetAt: "2026-07-13T00:00:00.000Z",
+        resumedAt: "2026-07-13T00:00:00.000Z",
+      }),
+    ]);
+    expect(stats.resumeLatency.resumedCount).toBe(1);
+    expect(stats.resumeLatency.avgLatencyMs).toBe(0);
+    expect(stats.resumeLatency.minLatencyMs).toBe(0);
+    expect(stats.resumeLatency.maxLatencyMs).toBe(0);
+  });
 });
 
 describe("isJobScopeActive", () => {

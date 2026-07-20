@@ -95,6 +95,22 @@ export function renderStats(
     );
   }
 
+  const { resumeLatency } = stats;
+  if (resumeLatency.resumedCount > 0) {
+    lines.push("");
+    lines.push(b("resume latency") + d(" (reset due → resumed)"));
+    lines.push(
+      `  avg ${formatDurationMs(resumeLatency.avgLatencyMs ?? 0)}` +
+        `   min ${formatDurationMs(resumeLatency.minLatencyMs ?? 0)}` +
+        `   max ${formatDurationMs(resumeLatency.maxLatencyMs ?? 0)} ` +
+        d(`over ${resumeLatency.resumedCount} job(s)`)
+    );
+    lines.push(
+      `  median ${formatDurationMs(resumeLatency.medianLatencyMs ?? 0)}` +
+        `   p90 ${formatDurationMs(resumeLatency.p90LatencyMs ?? 0)}`
+    );
+  }
+
   const statusParts = STATUS_ORDER.filter((s) => stats.byStatus[s] > 0).map((s) => `${s}:${stats.byStatus[s]}`);
   lines.push("");
   lines.push(b("by status"));

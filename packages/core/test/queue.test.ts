@@ -56,6 +56,26 @@ describe("RelayQueue", () => {
     expect(queue.getById(job.id)?.attempts).toBe(2);
   });
 
+  it("records the resume timestamp (defaulting to now) on markResuming", () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: "/tmp/demo",
+    });
+    // Freshly queued jobs have no resume timestamp yet.
+    expect(queue.getById(job.id)?.resumedAt).toBeNull();
+
+    const at = "2026-07-13T00:30:00.000Z";
+    queue.markResuming(job.id, at);
+    expect(queue.getById(job.id)?.resumedAt).toBe(at);
+
+    // A later resume overwrites it with the newer time.
+    const later = "2026-07-13T01:30:00.000Z";
+    queue.markResuming(job.id, later);
+    expect(queue.getById(job.id)?.resumedAt).toBe(later);
+  });
+
   it("marks completion and failure with details", () => {
     const job = queue.enqueue({
       project: "demo",

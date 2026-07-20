@@ -156,7 +156,10 @@ export class RelayScheduler {
   }
 
   private async resume(job: RelayJob, referenceTime: Date): Promise<RelayJob> {
-    this.queue.markResuming(job.id);
+    // Stamp the resume with the tick's reference time (not wall-clock) so the
+    // resume-latency metric (resumedAt - resetAt) is deterministic in tests and
+    // reflects when the job was actually due-and-picked-up.
+    this.queue.markResuming(job.id, referenceTime.toISOString());
     // markResuming just bumped attempts; this is the attempt we're running now.
     const attemptNumber = job.attempts + 1;
     await this.notify({

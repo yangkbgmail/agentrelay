@@ -347,6 +347,20 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay stats` 재개 지연(resume latency, 대기→재개 지연) 지표 — 리셋이 지난 뒤 릴레이가
+      잡을 실제로 재개하기까지 얼마나 걸렸는지. 릴레이 루프 자체의 핵심 건강 신호(데몬이 제때 도는가).
+      (완료 — `RelayJob`에 optional `resumedAt`(most-recent `waiting_for_reset`→`resuming` 전이 시각)
+      추가. `enqueue`는 `null`로 초기화, `markResuming(id, at?)`가 재개 시각을 기록(스케줄러가 tick
+      referenceTime을 주입 → 결정론적). 구버전 스토어(필드 부재)는 undefined→스킵으로 하위호환. core
+      `stats.ts`에 `ResumeLatencyStats`(resumedCount·avg/min/max/median/p90 LatencyMs) + 순수
+      `resumeLatencyMs(job)`(`resumedAt−resetAt`, 둘 중 하나 없거나 파싱불가·음수[재큐잉된 stale 페어링]는
+      스킵) 신설. resolution-time과 percentile 집계 로직 중복을 `summarizeDurations` 헬퍼로 통합(DRY,
+      값 불변). status-agnostic — 유효 페어링을 가진 모든 잡이 표본. CLI `stats.ts`가 resumedCount>0일
+      때만 "resume latency (reset due → resumed)" 블록 렌더, `--json`은 자동 노출. 새 지표는 릴레이가
+      느린 poll·죽은 데몬으로 리셋 지나서도 잡을 늦게 집는지 한눈에 드러냄. core stats 4 + queue 1 +
+      scheduler 1 + cli stats 2 신규 테스트, 실제 빌드 CLI e2e로 재개 지연 블록·`--json`·필드부재 하위호환
+      검증. branch `claude/wizardly-pascal-qv8g5g`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

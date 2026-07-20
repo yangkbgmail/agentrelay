@@ -172,6 +172,7 @@ export class RelayQueue {
       resetAt: null,
       createdAt: now,
       updatedAt: now,
+      resumedAt: null,
       attempts: 0,
       lastError: null,
       lastOutputTail: null,
@@ -196,9 +197,16 @@ export class RelayQueue {
     this.update(id, { status: "waiting_for_reset", resetAt, lastError: error });
   }
 
-  markResuming(id: string) {
+  /**
+   * Move a due job into the `resuming` state and bump its attempt counter.
+   * `at` records *when* the resume happened (defaults to now) so the resume
+   * latency — the gap between the job's `resetAt` and this timestamp — can be
+   * measured later; the scheduler passes its tick reference time so the metric
+   * is deterministic rather than tied to wall-clock inside `update`.
+   */
+  markResuming(id: string, at: string = new Date().toISOString()) {
     const current = this.getById(id);
-    this.update(id, { status: "resuming", attempts: (current?.attempts ?? 0) + 1 });
+    this.update(id, { status: "resuming", attempts: (current?.attempts ?? 0) + 1, resumedAt: at });
   }
 
   markCompleted(id: string, outputTail?: string) {
