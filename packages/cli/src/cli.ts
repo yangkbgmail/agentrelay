@@ -67,12 +67,12 @@ function splitList(raw: string): string[] {
  * writes still show up while the window edges stay put.
  * Runs until the process is interrupted (Ctrl-C).
  */
-function runWatch(store: string, intervalMs: number, selection: JobSelection, window?: JobScope): void {
+function runWatch(store: string, intervalMs: number, selection: JobSelection, window?: JobScope, limit?: number): void {
   const draw = () => {
     const all = listStatus(store);
     const windowed = window && isJobScopeActive(window) ? scopeJobs(all, window) : all;
     const selected = selectJobs(windowed, selection);
-    const frame = renderWatchFrame(selected, store, intervalMs);
+    const frame = renderWatchFrame(selected, store, intervalMs, Date.now(), limit);
     // Clear screen + move cursor home, then paint the frame.
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   };
@@ -156,6 +156,7 @@ export function buildCli(): Command {
     .option("--until <duration>", "Only show jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
     .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
+    .option("-n, --limit <n>", "Show at most N jobs (applied after filter/sort; the summary still counts all matches)")
     .action(
       (opts: {
         watch?: string | boolean;
@@ -167,10 +168,22 @@ export function buildCli(): Command {
         until?: string;
         sort?: string;
         reverse?: boolean;
+        limit?: string;
       }) => {
         const { store } = program.opts();
 
         const selection: JobSelection = { reverse: opts.reverse };
+
+        let limit: number | undefined;
+        if (opts.limit !== undefined) {
+          const n = Number.parseInt(opts.limit, 10);
+          if (!Number.isInteger(n) || n < 1) {
+            console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+            process.exitCode = 1;
+            return;
+          }
+          limit = n;
+        }
 
         if (opts.status !== undefined) {
           const requested = splitList(opts.status);
@@ -248,14 +261,14 @@ export function buildCli(): Command {
         const scoped = (jobs: RelayJob[]): RelayJob[] => (isJobScopeActive(window) ? scopeJobs(jobs, window) : jobs);
 
         if (opts.json) {
-          console.log(renderStatusJson(selectJobs(scoped(listStatus(store)), selection), store));
+          console.log(renderStatusJson(selectJobs(scoped(listStatus(store)), selection), store, undefined, limit));
           return;
         }
 
         if (opts.watch !== undefined) {
           const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
           const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
-          runWatch(store, intervalMs, selection, window);
+          runWatch(store, intervalMs, selection, window, limit);
           return; // setInterval keeps the process alive.
         }
 
@@ -267,7 +280,7 @@ export function buildCli(): Command {
           console.log(NO_MATCH_MESSAGE);
           return;
         }
-        console.log(renderStatusTable(selected, { color: Boolean(process.stdout.isTTY) }));
+        console.log(renderStatusTable(selected, { color: Boolean(process.stdout.isTTY), limit }));
       }
     );
 
