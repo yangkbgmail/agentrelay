@@ -14,8 +14,8 @@ import {
   COMPLETION_SHELLS,
   computeStats,
   EXPORT_FORMATS,
-  generateCompletion,
   GROUP_DIMENSIONS,
+  generateCompletion,
   groupStats,
   isCompletionShell,
   isJobScopeActive,
@@ -53,8 +53,8 @@ import {
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
-import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
+import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson } from "./stats.js";
 import {

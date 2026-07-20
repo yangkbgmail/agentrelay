@@ -360,6 +360,33 @@
       대시보드 `next start`+임시 스토어 `/api/jobs` curl로 alive/absent-concerning e2e 검증.
       branch `claude/wizardly-pascal-2ksc89`)
 
+- [x] 👷 `agentrelay stats --group-by <tool|project|status>` — 큐 전체가 아니라 툴/프로젝트/상태
+      부분집합별로 릴레이 효과(성공률·해결 시간 등)를 나눠 비교.
+      (완료 — core `stats.ts`에 순수 `groupStats`/`GROUP_DIMENSIONS`/`GroupDimension`, CLI `stats.ts`에
+      `renderGroupedStats`/`renderGroupedStatsJson`. branch `claude/wizardly-pascal-cq3vt2`, PR #80)
+- [x] 👷 `agentrelay status --limit <n>` — 큰 큐에서 상위 N개 행만 표시(+"M more not shown" 푸터).
+      (완료 — `status.ts` `selectJobs`에 limit 적용, 세 뷰(테이블/--json/--watch) 공통.
+      branch `claude/wizardly-pascal-1tlqol`, PR #73)
+- [x] 👷 `agentrelay parse <message>` — rate-limit 파서 진단 커맨드(어떤 패턴이 잡히는지 즉시 확인).
+      (완료 — CLI `parse.ts` `buildParseReport`/`renderParseReport(Json)`, `--tool`로 어댑터 선택.
+      branch `claude/wizardly-pascal-fd2idj`, PR #79)
+- [x] 👷 `agentrelay cancel/retry --all` — 스코프 필터(--status/--tool/--project/--since/--until)로
+      대량 job 제어(+--dry-run 미리보기).
+      (완료 — core `control.ts` `bulkControlJobs`, CLI 공용 `buildScope`/`registerBulkControl`.
+      branch `claude/wizardly-pascal-fli139`, PR #82)
+- [x] 👷 `agentrelay completion <bash|zsh>` — 쉘 탭 완성 스크립트 생성(실제 커맨더 프로그램에서 파생).
+      (완료 — core `completion.ts` `generateCompletion`/`COMPLETION_SHELLS`/`isCompletionShell` +
+      `CompletionSpec` 타입. branch `claude/wizardly-pascal-y7t7r0`, PR #83)
+- [x] 👷 `agentrelay config set/unset <key> [value]` — 설정 파일을 손 편집 없이 CLI로 갱신.
+      (완료 — core `config.ts` `SETTABLE_CONFIG_KEYS`, CLI `setConfigFile`/`unsetConfigFile`.
+      branch `claude/wizardly-pascal-35ao82`, PR #84)
+- [x] 👷 `agentrelay export --format md` — 잡 이력을 Markdown 테이블로 내보내기(문서/이슈 붙여넣기용).
+      (완료 — core `export.ts`가 `EXPORT_FORMATS`에 `md` 추가 + Markdown 직렬화. RFC-4180 CSV/JSON과 병존.
+      branch `claude/wizardly-pascal-1s67y3`, PR #87)
+- [x] 👷 `agentrelay notify test` — 설정된 알림 채널(Slack/웹훅)로 실전 테스트 페이로드 전송·결과 리포트.
+      (완료 — core `notify.ts` `sendTestNotification`, CLI `notify.ts` `renderTestNotifyResults(Json)`.
+      branch `claude/wizardly-pascal-55aspp`, PR #77)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
