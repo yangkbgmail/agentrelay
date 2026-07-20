@@ -6,14 +6,21 @@ import {
   type AgentRelayConfig,
   applyConfigToEnv,
   CONFIG_ENV_KEYS,
+  CONFIG_FIELDS,
   configToEnv,
+  configToJson,
+  findConfigField,
   hasConfigErrors,
   loadConfigFile,
   parseConfig,
   resolveConfigPath,
+  resolveConfigWritePath,
   resolveEffectiveConfig,
+  SETTABLE_CONFIG_KEYS,
   sampleConfig,
   sampleConfigJson,
+  setConfigValue,
+  unsetConfigValue,
   validateConfig,
 } from "../src/config.js";
 
@@ -266,5 +273,133 @@ describe("resolveEffectiveConfig", () => {
     for (const key of emitted) expect(known.has(key)).toBe(true);
     // ...and no known key is dead (each maps to something configToEnv can emit).
     for (const { key } of CONFIG_ENV_KEYS) expect(emitted).toContain(key);
+  });
+});
+
+describe("CONFIG_FIELDS / setConfigValue / unsetConfigValue", () => {
+  it("has one settable field per env-backed key (no drift)", () => {
+    // `config set` must reach precisely the values `config show` reports.
+    expect(CONFIG_FIELDS).toHaveLength(CONFIG_ENV_KEYS.length);
+    // Each field, when set, projects onto exactly one AGENTRELAY_* env var.
+    const sample = (f: (typeof CONFIG_FIELDS)[number]): string =>
+      f.type === "boolean" ? "true" : f.type === "number" ? "1" : f.type === "duration" ? "1h" : "x";
+    const known = new Set(CONFIG_ENV_KEYS.map((k) => k.key));
+    for (const field of CONFIG_FIELDS) {
+      const keys = Object.keys(configToEnv(setConfigValue({}, field.key, sample(field))));
+      expect(keys).toHaveLength(1);
+      expect(known.has(keys[0])).toBe(true);
+    }
+  });
+
+  it("SETTABLE_CONFIG_KEYS matches CONFIG_FIELDS", () => {
+    expect(SETTABLE_CONFIG_KEYS).toEqual(CONFIG_FIELDS.map((f) => f.key));
+  });
+
+  it("sets a top-level string field", () => {
+    expect(setConfigValue({}, "store", "/tmp/x.json")).toEqual({ store: "/tmp/x.json" });
+  });
+
+  it("sets a nested field, creating the group", () => {
+    expect(setConfigValue({}, "retry.maxAttempts", "7")).toEqual({ retry: { maxAttempts: 7 } });
+  });
+
+  it("coerces booleans from several truthy/falsy spellings", () => {
+    for (const t of ["true", "1", "yes", "on", "ON"]) {
+      expect(setConfigValue({}, "autoPrune.enabled", t)).toEqual({ autoPrune: { enabled: true } });
+    }
+    for (const f of ["false", "0", "no", "off"]) {
+      expect(setConfigValue({}, "autoPrune.enabled", f)).toEqual({ autoPrune: { enabled: false } });
+    }
+  });
+
+  it("rejects a non-boolean for a boolean field", () => {
+    expect(() => setConfigValue({}, "autoPrune.enabled", "maybe")).toThrow(/boolean/);
+  });
+
+  it("rejects a non-number for a number field", () => {
+    expect(() => setConfigValue({}, "retry.factor", "abc")).toThrow(/finite number/);
+    expect(() => setConfigValue({}, "retry.maxAttempts", "")).toThrow(/finite number/);
+  });
+
+  it("validates duration fields at set time", () => {
+    expect(setConfigValue({}, "autoPrune.after", "14d")).toEqual({ autoPrune: { after: "14d" } });
+    expect(() => setConfigValue({}, "autoPrune.after", "banana")).toThrow(/duration/);
+  });
+
+  it("rejects an unknown key with the list of valid keys", () => {
+    expect(() => setConfigValue({}, "retry.nope", "1")).toThrow(/Unknown config key/);
+  });
+
+  it("does not mutate the input config", () => {
+    const original: AgentRelayConfig = { retry: { maxAttempts: 3 } };
+    const next = setConfigValue(original, "retry.factor", "4");
+    expect(original).toEqual({ retry: { maxAttempts: 3 } });
+    expect(next).toEqual({ retry: { maxAttempts: 3, factor: 4 } });
+  });
+
+  it("preserves sibling fields when setting a nested value", () => {
+    const cfg: AgentRelayConfig = { notify: { slackWebhook: "https://a" } };
+    expect(setConfigValue(cfg, "notify.webhookUrl", "https://b")).toEqual({
+      notify: { slackWebhook: "https://a", webhookUrl: "https://b" },
+    });
+  });
+
+  it("unsets a nested field and drops the emptied group", () => {
+    const cfg: AgentRelayConfig = { retry: { maxAttempts: 3 } };
+    expect(unsetConfigValue(cfg, "retry.maxAttempts")).toEqual({});
+  });
+
+  it("unsets a nested field but keeps a non-empty group", () => {
+    const cfg: AgentRelayConfig = { retry: { maxAttempts: 3, factor: 2 } };
+    expect(unsetConfigValue(cfg, "retry.factor")).toEqual({ retry: { maxAttempts: 3 } });
+  });
+
+  it("unsetting a missing key is a no-op (not an error)", () => {
+    expect(unsetConfigValue({}, "store")).toEqual({});
+  });
+
+  it("unset rejects an unknown key", () => {
+    expect(() => unsetConfigValue({}, "retry.nope")).toThrow(/Unknown config key/);
+  });
+
+  it("round-trips a set result through parseConfig and configToJson", () => {
+    const cfg = setConfigValue(setConfigValue({}, "retry.maxAttempts", "9"), "autoPrune.enabled", "true");
+    const json = configToJson(cfg);
+    expect(json.endsWith("\n")).toBe(true);
+    expect(parseConfig(JSON.parse(json))).toEqual(cfg);
+  });
+
+  it("findConfigField finds known fields and flags secrets", () => {
+    expect(findConfigField("notify.webhookAuth")?.secret).toBe(true);
+    expect(findConfigField("store")?.secret).toBeUndefined();
+    expect(findConfigField("nope")).toBeUndefined();
+  });
+});
+
+describe("resolveConfigWritePath", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cfgwrite-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("honors an explicit path", () => {
+    expect(resolveConfigWritePath({ path: "/x/custom.json", cwd: dir, env: {} })).toBe("/x/custom.json");
+  });
+
+  it("honors AGENTRELAY_CONFIG when no explicit path", () => {
+    expect(resolveConfigWritePath({ cwd: dir, env: { AGENTRELAY_CONFIG: "/x/env.json" } })).toBe("/x/env.json");
+  });
+
+  it("returns an existing discovered project-local file", () => {
+    const local = join(dir, "agentrelay.config.json");
+    writeFileSync(local, "{}\n", "utf8");
+    expect(resolveConfigWritePath({ cwd: dir, env: {} })).toBe(local);
+  });
+
+  it("defaults to <cwd>/agentrelay.config.json when nothing exists", () => {
+    expect(resolveConfigWritePath({ cwd: dir, env: { HOME: dir } })).toBe(join(dir, "agentrelay.config.json"));
   });
 });
