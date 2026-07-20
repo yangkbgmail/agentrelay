@@ -41,11 +41,15 @@ import {
   exportJobs,
   hasConfigErrors,
   heartbeatStaleAfterMs,
+  type IneligibleJob,
+  isJobScopeActive,
+  type JobScope,
   listBackups,
   loadConfigFile,
   notifiersFromEnv,
   parseConfig,
   parseDaemonHeartbeat,
+  partitionForControl,
   RelayQueue,
   RelayScheduler,
   type RestorePreview,
@@ -58,6 +62,7 @@ import {
   retryPolicyFromEnv,
   runDiagnostics,
   sampleConfigJson,
+  scopeJobs,
   serializeDaemonHeartbeat,
   validateConfig,
 } from "@agentrelay/core";
@@ -396,6 +401,72 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
       ok: true,
       job: updated,
       message: `job ${shortId(job.id)} (${job.project}) queued to resume now — run "agentrelay tick" or the daemon to pick it up`,
+    };
+  } finally {
+    queue.close();
+  }
+}
+
+/** A bulk control action for {@link bulkControlJobs}. */
+export type BulkControlAction = "cancel" | "retry";
+
+export interface BulkControlOptions {
+  /** Which jobs to consider (status/tool/project/time). Omit to consider all. */
+  scope?: JobScope;
+  /** When true, report what would happen without mutating the store. */
+  dryRun?: boolean;
+  storePath?: string;
+}
+
+export interface BulkControlResult {
+  /** How many jobs matched the scope before the eligibility guard. */
+  matched: number;
+  /** Jobs that were (or, in a dry run, would be) transitioned. */
+  affected: RelayJob[];
+  /** Scoped jobs the guard rejected, each with a reason. */
+  skipped: IneligibleJob[];
+  /** True when this was a preview (no store changes were made). */
+  dryRun: boolean;
+  /** Summary line for the CLI to print. */
+  message: string;
+}
+
+/**
+ * Cancel or retry every job matching a scope in one pass — the bulk companion
+ * to {@link cancelJob}/{@link retryJob}. The scope is applied with the same
+ * core `scopeJobs` used by `stats`/`status`/`export`, and eligibility uses the
+ * same {@link canCancel}/{@link canRequeue} guards as the single-id path, so
+ * bulk and single behaviour never drift. A `dryRun` previews the effect without
+ * touching the store (mirroring `prune`/`restore --dry-run`).
+ */
+export function bulkControlJobs(action: BulkControlAction, options: BulkControlOptions = {}): BulkControlResult {
+  const queue = openQueue(options.storePath ?? defaultStorePath());
+  try {
+    const all = queue.listAll();
+    const scoped = options.scope && isJobScopeActive(options.scope) ? scopeJobs(all, options.scope) : all;
+    const guard = action === "cancel" ? canCancel : canRequeue;
+    const { eligible, ineligible } = partitionForControl(scoped, guard);
+
+    if (!options.dryRun) {
+      for (const job of eligible) {
+        if (action === "cancel") queue.markCancelled(job.id);
+        else queue.requeueNow(job.id);
+      }
+    }
+
+    const acted = action === "cancel" ? "cancelled" : "queued to resume";
+    const would = action === "cancel" ? "cancel" : "retry";
+    const tail = `(${scoped.length} matched, ${ineligible.length} skipped)`;
+    const message = options.dryRun
+      ? `would ${would} ${eligible.length} job(s) ${tail}`
+      : `${acted} ${eligible.length} job(s) ${tail}`;
+
+    return {
+      matched: scoped.length,
+      affected: eligible,
+      skipped: ineligible,
+      dryRun: Boolean(options.dryRun),
+      message,
     };
   } finally {
     queue.close();

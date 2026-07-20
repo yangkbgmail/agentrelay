@@ -347,6 +347,21 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 대량 job 제어(`agentrelay cancel --all` / `retry --all` + 스코프 필터) — rate-limit 폭풍 뒤
+      실패/대기 잡을 하나씩이 아니라 한 번에 취소·재시도.
+      (완료 — 지금까지 `cancel`/`retry`는 단일 id만 받아, 여러 잡을 정리하려면 id를 반복 입력해야 했다.
+      core `control.ts`에 순수 `partitionForControl(jobs, guard)`(잡을 guard[canCancel/canRequeue] 통과분
+      eligible과 거부분 ineligible[+reason]으로 분리, 입력 순서 보존·비변형) + `BulkControlSelection`/
+      `IneligibleJob` 타입 추가. CLI `commands.ts`에 `bulkControlJobs(action, {scope,dryRun,storePath})` —
+      core `scopeJobs`(stats/status/export와 동일)로 스코프 후 `partitionForControl`로 eligible만 실제
+      전이(cancel→markCancelled·retry→requeueNow), dryRun이면 비파괴 미리보기(prune/restore --dry-run과
+      동일 패턴). `cli.ts`에 공유 `buildScope(opts,now)` 헬퍼(status/tool/project/since/until 검증을 한
+      곳에 모음)와 `registerBulkControl`로 `cancel`/`retry`를 재작성: `<id>`는 선택 인자가 되고 `--all`
+      추가(둘 다/둘 다 없음은 exit 1), `-s/--status`·`-t/--tool`·`-p/--project`·`--since`·`--until`·
+      `--dry-run` 배선. 단일 id 경로는 기존 동작 그대로. core `partitionForControl` 5 + cli
+      `bulkControlJobs` 6케이스 신규, 실제 빌드 CLI e2e로 dry-run 비파괴·tool/project/status 스코프·
+      retry attempts 리셋·id+all/무인자/잘못된 tool/빈 범위 exit 1 검증. branch `claude/wizardly-pascal-fli139`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

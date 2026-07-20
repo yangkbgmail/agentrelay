@@ -41,6 +41,42 @@ export function canRequeue(job: RelayJob): ControlResult {
   return { ok: true };
 }
 
+/** One job that a bulk-control guard rejected, paired with the reason why. */
+export interface IneligibleJob {
+  job: RelayJob;
+  reason: string;
+}
+
+/**
+ * The result of splitting a job list into those a guard accepts and those it
+ * rejects. Used by `agentrelay cancel --all` / `retry --all` to act on every
+ * eligible job while reporting precisely why the rest were left alone.
+ */
+export interface BulkControlSelection {
+  /** Jobs the guard accepts — these will be acted on. */
+  eligible: RelayJob[];
+  /** Jobs the guard rejects, each with a human-readable reason. */
+  ineligible: IneligibleJob[];
+}
+
+/**
+ * Partition `jobs` into the ones a control guard ({@link canCancel} /
+ * {@link canRequeue}) accepts and the ones it rejects. Pure and non-mutating:
+ * the input order is preserved and no job is copied. Callers scope the list
+ * first (by status/tool/project/time) and then use this to apply the guard,
+ * so the same guards drive both the single-id and bulk paths.
+ */
+export function partitionForControl(jobs: RelayJob[], guard: (job: RelayJob) => ControlResult): BulkControlSelection {
+  const eligible: RelayJob[] = [];
+  const ineligible: IneligibleJob[] = [];
+  for (const job of jobs) {
+    const result = guard(job);
+    if (result.ok) eligible.push(job);
+    else ineligible.push({ job, reason: result.reason ?? "not eligible" });
+  }
+  return { eligible, ineligible };
+}
+
 export interface ResolveIdResult {
   /** The full job id when exactly one job matched. */
   id?: string;

@@ -7,6 +7,7 @@ import { parseConfig, RelayQueue, sampleConfigJson } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   backupStore,
+  bulkControlJobs,
   cancelJob,
   initConfig,
   listStatus,
@@ -167,6 +168,97 @@ describe("cancelJob / retryJob", () => {
     expect(result.job?.status).toBe("waiting_for_reset");
     expect(result.job?.attempts).toBe(0);
     expect(result.job?.lastError).toBeNull();
+  });
+});
+
+describe("bulkControlJobs", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cli-bulk-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Seed a mixed store: 2 waiting, 1 failed, 1 completed across tools/projects. */
+  function seedMixed() {
+    const queue = new RelayQueue(storePath);
+    const soon = () => new Date(Date.now() + 60_000).toISOString();
+    const w1 = queue.enqueue({ project: "web", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(w1.id, soon());
+    const w2 = queue.enqueue({ project: "api", tool: "codex-cli", command: ["codex"], cwd: dir });
+    queue.markWaitingForReset(w2.id, soon());
+    const f1 = queue.enqueue({ project: "web", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markFailed(f1.id, "boom");
+    const c1 = queue.enqueue({ project: "api", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markCompleted(c1.id, "done");
+    queue.close();
+    return { w1: w1.id, w2: w2.id, f1: f1.id, c1: c1.id };
+  }
+
+  it("cancels every eligible job and skips terminal ones", () => {
+    const ids = seedMixed();
+    const result = bulkControlJobs("cancel", { storePath });
+    // 2 waiting are eligible; failed + completed are skipped.
+    expect(result.matched).toBe(4);
+    expect(result.affected.map((j) => j.id).sort()).toEqual([ids.w1, ids.w2].sort());
+    expect(result.skipped).toHaveLength(2);
+    const after = listStatus(storePath);
+    expect(after.filter((j) => j.status === "cancelled")).toHaveLength(2);
+    expect(after.find((j) => j.id === ids.c1)?.status).toBe("completed");
+  });
+
+  it("scopes cancellation by tool", () => {
+    const ids = seedMixed();
+    const result = bulkControlJobs("cancel", { storePath, scope: { tools: ["codex-cli"] } });
+    expect(result.matched).toBe(1);
+    expect(result.affected.map((j) => j.id)).toEqual([ids.w2]);
+    const after = listStatus(storePath);
+    expect(after.find((j) => j.id === ids.w1)?.status).toBe("waiting_for_reset");
+    expect(after.find((j) => j.id === ids.w2)?.status).toBe("cancelled");
+  });
+
+  it("scopes cancellation by project", () => {
+    const ids = seedMixed();
+    const result = bulkControlJobs("cancel", { storePath, scope: { projects: ["web"] } });
+    // web has 1 waiting (eligible) + 1 failed (skipped).
+    expect(result.matched).toBe(2);
+    expect(result.affected.map((j) => j.id)).toEqual([ids.w1]);
+    expect(result.skipped).toHaveLength(1);
+  });
+
+  it("retries every non-resuming job, resetting attempts", () => {
+    seedMixed();
+    const result = bulkControlJobs("retry", { storePath });
+    // All four jobs are requeueable (none are mid-flight).
+    expect(result.matched).toBe(4);
+    expect(result.affected).toHaveLength(4);
+    const after = listStatus(storePath);
+    expect(after.every((j) => j.status === "waiting_for_reset")).toBe(true);
+    expect(after.every((j) => j.attempts === 0)).toBe(true);
+  });
+
+  it("dry-run reports the effect without mutating the store", () => {
+    seedMixed();
+    const result = bulkControlJobs("cancel", { storePath, dryRun: true });
+    expect(result.dryRun).toBe(true);
+    expect(result.affected).toHaveLength(2);
+    expect(result.message).toContain("would cancel");
+    // Nothing changed on disk.
+    const after = listStatus(storePath);
+    expect(after.filter((j) => j.status === "cancelled")).toHaveLength(0);
+  });
+
+  it("reports zero matched when the scope excludes everything", () => {
+    seedMixed();
+    const result = bulkControlJobs("cancel", { storePath, scope: { projects: ["nope"] } });
+    expect(result.matched).toBe(0);
+    expect(result.affected).toHaveLength(0);
+    expect(result.message).toContain("0 job(s)");
   });
 });
 

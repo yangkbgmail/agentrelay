@@ -980,3 +980,31 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — 대량 job 제어(`cancel --all` / `retry --all` + 스코프 필터)] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-fli139`)
+- 배경: 세션 시작 시 열린 PR이 20건 넘게 쌓여 있고(#61~#81) 서로 중복이 많았다 — stats --trend/--group-by/
+  latency·parse·notify test·대시보드 생존 상태·export ndjson·status --limit·agentrelay next·daemon guard·
+  doctor overdue 등. 이미 점유된 주제를 모두 피해, 어떤 열린 PR과도 겹치지 않는 신규 👷 항목을 발굴했다:
+  기존 `cancel`/`retry`가 단일 id만 받아, rate-limit 폭풍 뒤 여러 실패/대기 잡을 정리하려면 id를 반복
+  입력해야 하는 불편을 없애는 **대량 제어**.
+- 한 일: **`agentrelay cancel --all` / `retry --all` + 스코프 필터**.
+  1. `@agentrelay/core/control.ts` — 순수 `partitionForControl(jobs, guard)`: 잡 목록을 guard
+     (`canCancel`/`canRequeue`) 통과분 `eligible`과 거부분 `ineligible`(각 `{job,reason}`)로 분리.
+     입력 순서 보존·비변형. `BulkControlSelection`/`IneligibleJob` 타입 신설. 단일 id 경로와 **같은
+     guard**를 써서 단일/대량 동작이 절대 어긋나지 않게 함.
+  2. CLI `commands.ts` — `bulkControlJobs(action, {scope,dryRun,storePath})`: 기존에 검증된 core
+     `scopeJobs`(stats/status/export 공용)로 스코프한 뒤 `partitionForControl`로 eligible만 실제 전이
+     (cancel→`markCancelled`·retry→`requeueNow`). `dryRun`이면 스토어를 건드리지 않고 미리보기
+     (prune/restore --dry-run과 동일 안전 패턴). matched/affected/skipped/message 반환.
+  3. `cli.ts` — 공유 `buildScope(opts,now)` 헬퍼로 status/tool/project/since/until 검증을 한 곳에
+     모으고, `registerBulkControl`로 `cancel`/`retry`를 재작성. `<id>`가 선택 인자가 되고 `--all` 추가
+     (둘 다 지정/둘 다 생략은 exit 1), `-s/--status`·`-t/--tool`·`-p/--project`·`--since`·`--until`·
+     `--dry-run` 플래그 배선. 단일 id 경로는 기존 동작·메시지 그대로 유지.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **431개 통과 + 1 skip**(core 291[+5 partitionForControl] + cli 137[+6 bulkControlJobs] +
+    dashboard 3). **실제 빌드된 CLI e2e**(mock 아님): web/api × claude/codex × waiting/failed/completed
+    혼합 스토어로 `cancel --all --dry-run`(2 eligible 미리보기·스토어 불변)·`cancel --all --tool codex-cli`
+    (스코프 1건만)·`cancel --all`(대기 1 취소·failed/completed skip)·`retry --all --status failed`(attempts
+    0 리셋)·id+`--all` 동시/무인자/잘못된 tool/빈 범위(since<until)는 exit 1·단일 id 경로 정상 확인.
+- 다음 할 일: 대량 제어 결과를 `--json`으로도 출력(👷 후보), 대시보드가 재개-루프 생존 상태 노출(👷 후보),
+  README/ARCHITECTURE(🧭 코워크).
