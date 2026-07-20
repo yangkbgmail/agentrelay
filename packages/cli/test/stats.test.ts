@@ -1,5 +1,5 @@
-import type { RelayJob } from "@agentrelay/core";
-import { computeStats } from "@agentrelay/core";
+import type { DailyActivity, RelayJob } from "@agentrelay/core";
+import { computeDailyTrend, computeStats } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
   formatDurationMs,
@@ -8,6 +8,7 @@ import {
   NO_STATS_MESSAGE,
   renderStats,
   renderStatsJson,
+  renderTrend,
 } from "../src/stats.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
@@ -175,5 +176,75 @@ describe("renderStats with a scope", () => {
     expect(renderStats(empty, { scopeNote: "project=nope" })).toBe(NO_SCOPE_MATCH_MESSAGE);
     // Without a scope, an empty store still shows the onboarding hint.
     expect(renderStats(empty)).toBe(NO_STATS_MESSAGE);
+  });
+});
+
+describe("renderTrend", () => {
+  const trend: DailyActivity[] = [
+    { date: "2026-07-18", count: 0 },
+    { date: "2026-07-19", count: 2 },
+    { date: "2026-07-20", count: 4 },
+  ];
+
+  it("renders a header, one row per day, and a footer total", () => {
+    const out = renderTrend(trend);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("activity");
+    expect(out).toContain("2026-07-18");
+    expect(out).toContain("2026-07-19");
+    expect(out).toContain("2026-07-20");
+    // Each day's count appears at the end of its row.
+    expect(out).toMatch(/2026-07-20 .* 4/);
+    expect(lines[lines.length - 1]).toContain("6 job(s) over 3 day(s)");
+  });
+
+  it("scales bars to the busiest day and draws blocks only for non-zero days", () => {
+    const out = renderTrend(trend);
+    const rows = out.split("\n");
+    const zeroRow = rows.find((r) => r.includes("2026-07-18")) ?? "";
+    const peakRow = rows.find((r) => r.includes("2026-07-20")) ?? "";
+    // Busiest day gets the widest bar; a zero day has no block char.
+    expect(peakRow).toContain("█");
+    expect(zeroRow).not.toContain("█");
+    // The peak bar is at least as wide as the 2-count day's bar.
+    const width = (r: string) => (r.match(/█/g) ?? []).length;
+    const midRow = rows.find((r) => r.includes("2026-07-19")) ?? "";
+    expect(width(peakRow)).toBeGreaterThanOrEqual(width(midRow));
+    expect(width(midRow)).toBeGreaterThanOrEqual(1);
+  });
+
+  it("handles an all-zero window without any bars", () => {
+    const out = renderTrend([
+      { date: "2026-07-19", count: 0 },
+      { date: "2026-07-20", count: 0 },
+    ]);
+    expect(out).not.toContain("█");
+    expect(out).toContain("0 job(s) over 2 day(s)");
+  });
+
+  it("round-trips a store subset through computeDailyTrend + renderTrend", () => {
+    const now = Date.parse("2026-07-20T10:00:00.000Z");
+    const jobs = [
+      job({ createdAt: "2026-07-20T01:00:00.000Z" }),
+      job({ createdAt: "2026-07-20T09:00:00.000Z" }),
+      job({ createdAt: "2026-07-19T09:00:00.000Z" }),
+    ];
+    const computed = computeDailyTrend(jobs, { nowMs: now, days: 2 });
+    expect(computed).toEqual([
+      { date: "2026-07-19", count: 1 },
+      { date: "2026-07-20", count: 2 },
+    ]);
+    expect(renderTrend(computed)).toContain("3 job(s) over 2 day(s)");
+  });
+});
+
+describe("renderStatsJson trend field", () => {
+  it("omits `trend` by default but includes it when provided", () => {
+    const stats = computeStats([job()]);
+    const withoutTrend = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("trend" in withoutTrend).toBe(false);
+    const trend: DailyActivity[] = [{ date: "2026-07-20", count: 1 }];
+    const withTrend = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", trend }));
+    expect(withTrend.trend).toEqual(trend);
   });
 });

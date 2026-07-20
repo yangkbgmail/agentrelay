@@ -980,3 +980,32 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — `agentrelay stats --trend [days]` 일별 활동 추이] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-7u14qq`)
+- 배경: 세션 시작 시 내 브랜치=main 동일(직전 PR #62 병합 완료, 열린 PR 0개, 중복/누적 없음).
+  명시적 👷 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다 — 여러 세션이
+  "다음 할 일 후보"로 반복해 남긴 "stats 시간대별 추이"를 골라 구현. 릴레이가 언제(어느 날) 가장
+  바빴는지=rate-limit이 언제 몰렸는지를 한눈에 보는 수단이 없었다.
+- 한 일: **일별 활동 히스토그램**.
+  1. `@agentrelay/core/stats.ts`에 순수 `computeDailyTrend(jobs, {nowMs, days})` + `DailyActivity`
+     신설. `nowMs`의 UTC 날부터 최근 `days`일을 잡 `createdAt`의 UTC 날짜로 버킷팅해 항상 정확히
+     `days`개 슬롯(오래된 순, 조용한 날 zero-fill)을 반환. epoch가 UTC 일 경계에 정렬돼
+     `Math.floor(ms/DAY)*DAY`로 타임존 연산 없이 UTC 자정을 구함 — `nowMs` 주입이라 앰비언트 클럭 없음.
+     createdAt 파싱 불가·창 밖(가장 오래된 날 이전·미래)인 잡은 타임라인에 못 놓아 스킵, `days`는
+     최소 1로 clamp·소수 floor. (`scopeJobs`의 시간 창 정책과 일관.)
+  2. CLI `packages/cli/src/stats.ts`에 순수 `renderTrend(trend, {color})` — 가장 바쁜 날 기준으로
+     막대 스케일(비영 날 최소 1블록 보장→spike 옆 작은 값도 안 사라짐, 0인 날은 dim 베이스라인 점),
+     카운트 열 정렬 위해 고정폭(24) 패딩, 푸터에 "N job(s) over M day(s)". `renderStatsJson`에 `trend`
+     필드 추가하되 **요청 시에만** 포함(기본 JSON 형태 불변 → 기존 소비자 하위호환).
+  3. `cli.ts` stats에 `--trend [days]` optional-value 플래그 배선 — bare `--trend`=기본 14일, 값
+     지정 시 1~90 정수 검증(벗어나면 exit 1). 스코프 적용 뒤 `jobs`로 계산해 `--status`/`--tool`/
+     `--project`/`--since`/`--until`과 자연스럽게 조합. 사람용 출력은 stats 블록 뒤에 histogram 추가,
+     `--json`은 top-level `trend` 배열로 에코.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **431개 통과**(core 291[+trend 5] + cli 136[+renderTrend 4·json 1][+1 skip] + dashboard 3).
+    **실제 빌드 CLI e2e**(mock 아님): 4일에 걸친 4-job 스토어 시드 → `--trend 5`가 UTC 일별 막대그래프
+    (0인 날 점·바쁜 날 24블록·"4 job(s) over 5 day(s)") 렌더, `--json`이 5슬롯 trend 배열 에코, bare
+    `--trend`=14일, `--tool codex-cli`와 조합 시 1 job으로 스코프, `--trend 999`→exit 1, plain stats의
+    JSON엔 trend 키 부재(하위호환) 확인.
+- 다음 할 일: 대시보드에 activity 히스토그램 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
+  (👷 후보 — RelayJob 중간 타임스탬프 필요), README/ARCHITECTURE(🧭 코워크).

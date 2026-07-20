@@ -347,6 +347,21 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay stats --trend [days]` 일별 활동 추이(histogram) — 여러 세션이 "다음 할 일 후보"로
+      남긴 "stats 시간대별 추이"를 구현. rate-limit이 언제 몰렸는지 한눈에 보는 UTC 일별 막대그래프.
+      (완료 — `@agentrelay/core/stats.ts`에 순수 `computeDailyTrend(jobs, {nowMs, days})` + `DailyActivity`
+      신설: `nowMs`의 UTC 날부터 최근 `days`일을 잡의 `createdAt` UTC 날짜로 버킷팅, 항상 정확히 `days`개
+      슬롯(오래된 순, 조용한 날 zero-fill)을 반환. epoch가 UTC 일 경계에 정렬돼 있어(`Math.floor(ms/DAY)*DAY`)
+      타임존 연산 없이 UTC 자정 계산 — 순수·`nowMs` 주입이라 앰비언트 클럭 없음. createdAt 파싱 불가·창
+      밖(가장 오래된 날보다 이전·미래)인 잡은 타임라인에 놓을 수 없어 스킵, `days`는 최소 1로 clamp·소수 floor.
+      CLI `stats.ts`에 순수 `renderTrend(trend, {color})` — 가장 바쁜 날 기준으로 막대 스케일(비영 날은 최소
+      1블록 보장, 0인 날은 dim 베이스라인 점), 카운트 열 정렬 위해 고정폭 패딩, 푸터에 총합. `cli.ts` stats에
+      `--trend [days]` optional-value 플래그 배선(bare=기본 14일, 값 지정 시 1~90 정수 검증, 벗어나면 exit 1),
+      스코프 뒤 `jobs`로 계산해 `--status`/`--tool`/`--since` 등과 조합. `renderStatsJson`에 `trend` 필드 추가
+      (요청 시에만 포함 — 기본 JSON 형태 불변, 기존 소비자 하위호환). core trend 5 + CLI renderTrend/json 5
+      신규 테스트, 빌드된 CLI e2e로 히스토그램·bare 기본 14일·스코프 조합·JSON trend·범위 밖 값 exit 1·plain
+      stats에 trend 키 부재 검증. branch `claude/wizardly-pascal-7u14qq`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

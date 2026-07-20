@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import { computeDailyTrend, computeStats, isJobScopeActive, scopeJobs } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -366,5 +366,52 @@ describe("scopeJobs", () => {
       job({ id: "c", project: "api", createdAt: "2026-07-14T00:00:00.000Z" }), // wrong project
     ];
     expect(scopeJobs(jobs, { projects: ["web"], createdFrom: from }).map((j) => j.id)).toEqual(["a"]);
+  });
+});
+
+describe("computeDailyTrend", () => {
+  const now = Date.parse("2026-07-20T12:34:56.000Z");
+
+  it("returns exactly `days` slots, oldest first, zero-filled", () => {
+    const trend = computeDailyTrend([], { nowMs: now, days: 3 });
+    expect(trend.map((d) => d.date)).toEqual(["2026-07-18", "2026-07-19", "2026-07-20"]);
+    expect(trend.every((d) => d.count === 0)).toBe(true);
+  });
+
+  it("buckets jobs by their UTC creation day", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-20T01:00:00.000Z" }),
+      job({ createdAt: "2026-07-20T23:59:59.000Z" }),
+      job({ createdAt: "2026-07-19T12:00:00.000Z" }),
+    ];
+    const trend = computeDailyTrend(jobs, { nowMs: now, days: 3 });
+    expect(trend).toEqual([
+      { date: "2026-07-18", count: 0 },
+      { date: "2026-07-19", count: 1 },
+      { date: "2026-07-20", count: 2 },
+    ]);
+  });
+
+  it("excludes jobs outside the window (older than the oldest day or in the future)", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-10T00:00:00.000Z" }), // too old for a 3-day window
+      job({ createdAt: "2026-07-25T00:00:00.000Z" }), // future
+      job({ createdAt: "2026-07-18T05:00:00.000Z" }), // in-window (oldest day)
+    ];
+    const trend = computeDailyTrend(jobs, { nowMs: now, days: 3 });
+    expect(trend.reduce((sum, d) => sum + d.count, 0)).toBe(1);
+    expect(trend[0]).toEqual({ date: "2026-07-18", count: 1 });
+  });
+
+  it("skips jobs with a missing/unparseable createdAt", () => {
+    const jobs = [job({ createdAt: "not-a-date" }), job({ createdAt: "2026-07-20T00:00:00.000Z" })];
+    const trend = computeDailyTrend(jobs, { nowMs: now, days: 2 });
+    expect(trend.reduce((sum, d) => sum + d.count, 0)).toBe(1);
+  });
+
+  it("clamps days to at least 1 and floors fractional days", () => {
+    expect(computeDailyTrend([], { nowMs: now, days: 0 }).map((d) => d.date)).toEqual(["2026-07-20"]);
+    expect(computeDailyTrend([], { nowMs: now, days: -5 })).toHaveLength(1);
+    expect(computeDailyTrend([], { nowMs: now, days: 2.9 })).toHaveLength(2);
   });
 });

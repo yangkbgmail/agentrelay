@@ -140,6 +140,63 @@ export function scopeJobs(jobs: RelayJob[], scope: JobScope = {}): RelayJob[] {
   return result;
 }
 
+/** Milliseconds in a UTC calendar day. Epoch day boundaries are UTC-aligned. */
+const DAY_MS = 86_400_000;
+
+/** One day's slot in a {@link computeDailyTrend} activity histogram. */
+export interface DailyActivity {
+  /** UTC calendar day, "YYYY-MM-DD". */
+  date: string;
+  /** Jobs created on this day (bucketed by `createdAt`, UTC). */
+  count: number;
+}
+
+/** UTC midnight (epoch ms) of the day containing `ms`. */
+function utcDayStart(ms: number): number {
+  // Epoch 0 is 1970-01-01T00:00:00Z and DAY_MS divides the epoch evenly, so
+  // flooring to a day boundary yields UTC midnight with no timezone math.
+  return Math.floor(ms / DAY_MS) * DAY_MS;
+}
+
+/** "YYYY-MM-DD" for a UTC-midnight epoch ms. */
+function utcDateKey(dayStartMs: number): string {
+  return new Date(dayStartMs).toISOString().slice(0, 10);
+}
+
+/**
+ * Buckets jobs by the UTC calendar day they were created, over the last `days`
+ * days ending on the day of `nowMs` (inclusive), so `agentrelay stats --trend`
+ * can show when rate-limits actually piled up. Pure and non-mutating: the day
+ * window is derived from the injected `nowMs`, never an ambient clock.
+ *
+ * The result is always exactly `days` entries, oldest first, zero-filled for
+ * quiet days so the histogram has a stable shape. Jobs with a missing or
+ * unparseable `createdAt`, or one that falls outside the window, are skipped —
+ * they can't be placed on the timeline. `days` is clamped to at least 1.
+ */
+export function computeDailyTrend(jobs: RelayJob[], options: { nowMs: number; days: number }): DailyActivity[] {
+  const days = Math.max(1, Math.floor(options.days));
+  const todayStart = utcDayStart(options.nowMs);
+  const windowStart = todayStart - (days - 1) * DAY_MS;
+
+  const counts = new Map<string, number>();
+  for (const job of jobs) {
+    const created = Date.parse(job.createdAt);
+    if (Number.isNaN(created)) continue;
+    const dayStart = utcDayStart(created);
+    if (dayStart < windowStart || dayStart > todayStart) continue;
+    const key = utcDateKey(dayStart);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  const trend: DailyActivity[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const key = utcDateKey(todayStart - i * DAY_MS);
+    trend.push({ date: key, count: counts.get(key) ?? 0 });
+  }
+  return trend;
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 

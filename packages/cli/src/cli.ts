@@ -1,5 +1,13 @@
 import type { AgentTool, ExportFormat, JobScope, JobStatus, RelayJob } from "@agentrelay/core";
-import { ALL_TOOLS, computeStats, EXPORT_FORMATS, isJobScopeActive, parseDuration, scopeJobs } from "@agentrelay/core";
+import {
+  ALL_TOOLS,
+  computeDailyTrend,
+  computeStats,
+  EXPORT_FORMATS,
+  isJobScopeActive,
+  parseDuration,
+  scopeJobs,
+} from "@agentrelay/core";
 import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
@@ -24,7 +32,7 @@ import {
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
-import { renderStats, renderStatsJson } from "./stats.js";
+import { renderStats, renderStatsJson, renderTrend } from "./stats.js";
 import {
   type JobSelection,
   NO_MATCH_MESSAGE,
@@ -270,9 +278,18 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--trend [days]", "Also show a per-day activity histogram over the last N days, UTC (default 14, max 90)")
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
     .action(
-      (opts: { status?: string; tool?: string; project?: string; since?: string; until?: string; json?: boolean }) => {
+      (opts: {
+        status?: string;
+        tool?: string;
+        project?: string;
+        since?: string;
+        until?: string;
+        trend?: string | boolean;
+        json?: boolean;
+      }) => {
         const { store } = program.opts();
 
         const now = Date.now();
@@ -344,19 +361,43 @@ export function buildCli(): Command {
           return;
         }
 
+        // --trend is an optional-value flag: bare `--trend` uses the default
+        // window, `--trend 30` overrides it. Reject non-positive/huge/garbage.
+        let trendDays: number | null = null;
+        if (opts.trend !== undefined && opts.trend !== false) {
+          if (opts.trend === true) {
+            trendDays = 14;
+          } else {
+            const parsed = Number(opts.trend);
+            if (!Number.isInteger(parsed) || parsed < 1 || parsed > 90) {
+              console.error(`Invalid --trend value: "${opts.trend}". Use a whole number of days from 1 to 90.`);
+              process.exitCode = 1;
+              return;
+            }
+            trendDays = parsed;
+          }
+        }
+
         const allJobs = listStatus(store);
         const active = isJobScopeActive(scope);
         const jobs = active ? scopeJobs(allJobs, scope) : allJobs;
         const scopeNote = active ? noteParts.join(" ") : undefined;
         const stats = computeStats(jobs);
+        const trend = trendDays !== null ? computeDailyTrend(jobs, { nowMs: now, days: trendDays }) : null;
 
         if (opts.json) {
-          console.log(renderStatsJson(stats, store, { scope }));
+          console.log(renderStatsJson(stats, store, { scope, trend }));
           return;
         }
         // A store with jobs but an empty scoped subset should say "no match",
         // not the onboarding hint — renderStats keys that off scopeNote.
         console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY), scopeNote }));
+        // Append the histogram only when the store has matching jobs (renderStats
+        // already handles the empty/no-match messaging on its own).
+        if (trend !== null && stats.total > 0) {
+          console.log("");
+          console.log(renderTrend(trend, { color: Boolean(process.stdout.isTTY) }));
+        }
       }
     );
 
