@@ -23,6 +23,7 @@ import {
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
+import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import { renderStats, renderStatsJson } from "./stats.js";
 import {
@@ -46,6 +47,23 @@ function splitList(raw: string): string[] {
     .split(",")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+}
+
+/**
+ * Read all of stdin as a UTF-8 string. Used by `agentrelay parse` when no
+ * message argument is given so users can pipe an agent's output straight in
+ * (`claude ... | agentrelay parse`). Resolves with "" if stdin is empty.
+ */
+function readStdin(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => {
+      data += chunk;
+    });
+    process.stdin.on("end", () => resolve(data));
+    process.stdin.on("error", reject);
+  });
 }
 
 /**
@@ -518,6 +536,38 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("parse")
+    .description(
+      "Test the rate-limit parser against a message: see if AgentRelay would detect a limit, which pattern matched, and when it would resume"
+    )
+    .argument("[text...]", "Message to parse; if omitted, read from stdin (e.g. pipe your agent's output)")
+    .option("-t, --tool <tool>", `Use one tool's adapter patterns before the generic ones: ${ALL_TOOLS.join(", ")}`)
+    .option("--json", "Print the result as JSON (machine-readable, for scripts/jq)")
+    .action(async (textParts: string[], opts: { tool?: string; json?: boolean }) => {
+      let text = (textParts ?? []).join(" ");
+      if (!text) {
+        if (process.stdin.isTTY) {
+          console.error("[agentrelay] No message given. Pass text as an argument or pipe it via stdin.");
+          process.exitCode = 1;
+          return;
+        }
+        text = await readStdin();
+      }
+      const tool = opts.tool;
+      if (tool !== undefined && !ALL_TOOLS.includes(tool as AgentTool)) {
+        console.error(`Unknown tool: ${tool}. Valid: ${ALL_TOOLS.join(", ")}.`);
+        process.exitCode = 1;
+        return;
+      }
+      const report = buildParseReport(text, { tool: tool as AgentTool | undefined });
+      if (opts.json) {
+        console.log(renderParseReportJson(report));
+        return;
+      }
+      console.log(renderParseReport(report, { color: Boolean(process.stdout.isTTY) }));
     });
 
   const config = program.command("config").description("Manage the agentrelay.config.json defaults file");

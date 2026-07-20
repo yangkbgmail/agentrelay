@@ -347,6 +347,21 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay parse <message>` — rate-limit 파서 진단 도구. 잡을 실제로 돌리지 않고
+      메시지를 붙여넣거나 파이프로 넣어 AgentRelay가 rate-limit을 감지하는지·어떤 패턴이 맞았는지·
+      언제 재개할지 미리 확인.
+      (완료 — 지금까지 파서 동작을 확인하려면 잡을 실행하는 수밖에 없었다. `packages/cli/src/parse.ts`
+      신설: 순수 `buildParseReport(text, {tool,now})`(core `resolveAdapter`로 어댑터 해소 후
+      `detectRateLimit` 호출 — `--tool`이면 그 어댑터의 extra 패턴을 generic보다 먼저 시도, 미지정은
+      generic. `ParseReport`= tool·matched·resetAt·rawMatch·pattern) + `renderParseReport`(사람용:
+      감지 시 pattern/matched substring/reset 시각+카운트다운, 미감지 시 어댑터명과 함께 "정상 종료로
+      취급" 안내, 색상 게이트) + `renderParseReportJson`(--json, `resetInMs` 파생 필드 추가). CLI
+      `agentrelay parse [text...]` 커맨드: 인자 없으면 stdin에서 읽어(`claude … | agentrelay parse`)
+      파이프 지원, TTY인데 인자·stdin 둘 다 없으면 exit 1, 잘못된 `--tool`은 exit 1. 새 core 코드 0줄 —
+      전부 기존 검증된 `resolveAdapter`/`detectRateLimit`(adapters.ts)·`parseRateLimitMessage`(parser.ts)
+      재사용. parse.test.ts 10케이스(generic ISO·relative·clock, codex 초 패턴, no-match, JSON resetInMs)
+      + 빌드된 CLI e2e로 arg/stdin/--tool/--json/에러 exit 검증. branch `claude/wizardly-pascal-fd2idj`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

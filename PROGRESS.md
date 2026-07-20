@@ -980,3 +980,25 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — `agentrelay parse` rate-limit 파서 진단 커맨드] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-fd2idj`)
+- 상황: 직전 브랜치(#62)가 main에 병합돼 HEAD==origin/main. 모든 👷 백로그 항목이 [x] 완료 상태라
+  CLAUDE.md 지침대로 새 개선 항목을 발굴. 파서(`parseRateLimitMessage`)와 어댑터(`detectRateLimit`)는
+  순수·검증됐지만, 그 동작을 잡을 실제로 돌리지 않고 확인할 CLI 진입점이 없다는 갭을 포착.
+- 한 일:
+  1. `packages/cli/src/parse.ts` 신설(순수): `buildParseReport(text,{tool,now})`가 core `resolveAdapter`로
+     어댑터를 해소(`--tool`이면 그 어댑터의 extra 패턴을 generic보다 먼저, 미지정은 generic)한 뒤
+     `detectRateLimit` 호출 → `ParseReport`(tool·matched·resetAt·rawMatch·pattern) 반환.
+  2. `renderParseReport`(사람용): 감지 시 pattern/matched substring/reset 시각+`formatCountdown` 카운트다운,
+     미감지 시 "정상 종료로 취급(adapter: …)" 안내. `color`로 ANSI 게이트. `renderParseReportJson`(--json)은
+     `resetInMs` 파생 필드 추가(호출자가 ISO 재파싱 불필요).
+  3. CLI `agentrelay parse [text...]` 커맨드 배선: 인자 없으면 stdin에서 읽어(`claude … | agentrelay parse`)
+     파이프 지원(`readStdin` 헬퍼 신설), TTY인데 인자·stdin 둘 다 없으면 exit 1, 잘못된 `--tool`은 기존
+     `ALL_TOOLS` 검증 패턴으로 exit 1. 새 core 코드 0줄 — 전부 기존 검증된 core 함수 재사용.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **430개 통과 + 1 skip**(core 286 + cli 141[+10: parse generic ISO·relative·clock, codex 초
+    패턴, no-match, JSON resetInMs] + dashboard 3). **실제 빌드 CLI e2e**(mock 아님): arg로 ISO 감지→
+    "iso-timestamp", no-match 메시지, stdin 파이프+`--tool codex-cli`로 "codex-relative-seconds" 감지,
+    `--json` resetInMs 필드, `--tool bogus`→exit 1 확인.
+- 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
+  (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
