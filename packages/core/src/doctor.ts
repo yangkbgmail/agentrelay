@@ -1,5 +1,6 @@
 import type { ConfigIssue } from "./config.js";
 import type { HeartbeatMode } from "./heartbeat.js";
+import { isHeartbeatAlive } from "./resumeLoop.js";
 import type { RelayJob } from "./types.js";
 
 /**
@@ -369,10 +370,9 @@ function humanizeAge(ms: number): string {
  */
 function daemonCheck(heartbeat: HeartbeatFacts, store: StoreFacts): DiagnosticCheck {
   const waiting = store.activeCount;
-  const alive =
-    heartbeat.present && heartbeat.ageMs !== undefined && heartbeat.staleAfterMs !== undefined
-      ? heartbeat.ageMs <= heartbeat.staleAfterMs
-      : false;
+  // Shared "is the loop alive right now?" rule, so `doctor` and the dashboard's
+  // resumeLoopStatus never drift on the staleness call.
+  const alive = isHeartbeatAlive(heartbeat);
 
   if (heartbeat.present && alive) {
     const age = heartbeat.ageMs !== undefined ? humanizeAge(heartbeat.ageMs) : "just now";

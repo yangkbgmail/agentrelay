@@ -219,3 +219,37 @@ details.tail pre {
   color: var(--ink-primary);
   background: var(--surface);
 }
+
+.warn-banner {
+  margin: 16px 0 0;
+  padding: 10px 14px;
+  border: 1px solid var(--status-warning);
+  border-radius: 8px;
+  color: var(--ink-primary);
+  background: var(--surface);
+}
+
+.warn-banner code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-subtle, rgba(127, 127, 127, 0.12));
+  font-size: 0.9em;
+}
+
+.resume-loop {
+  margin-top: 14px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.resume-loop-label {
+  font-weight: 600;
+  color: var(--ink-primary);
+}
+
+.resume-loop-detail {
+  color: var(--ink-muted);
+}

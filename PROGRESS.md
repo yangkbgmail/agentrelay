@@ -980,3 +980,29 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — 대시보드가 재개 루프(daemon/tick) 생존 상태 노출] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-gtk2km`)
+- **한 일: 세션 30에서 `doctor`가 잡게 된 "#1 무음 실패"(대기 job은 있는데 아무도 재개 안 함)를**
+  **로컬 대시보드에서도 볼 수 있게 했다.** CLI 없이 대시보드만 열어둔 사용자도 "내 대기 job이 재개될까?"를
+  한눈에 알 수 있다.
+  1. `@agentrelay/core/resumeLoop.ts` 신설(순수): `isHeartbeatAlive(facts)`(present·age·staleAfter가
+     있고 age≤staleAfter일 때만 true — "지금 루프가 살아있나" 단일 규칙) + `resumeLoopStatus(facts,
+     waitingCount)`→`{state:"alive"/"stale"/"absent", concern, waitingCount, mode/pid/ageMs/staleAfterMs}`.
+     `concern`은 **대기 job과 교차 판정**: 루프가 alive가 아니면서 대기 job이 있을 때만 true(alive는 절대
+     concern 아님, 아무것도 안 기다리면 부재/stale도 무해). `waitingCount`는 위생 처리(음수/NaN/소수→0 이상 정수).
+  2. `doctor.ts`의 `daemonCheck`가 인라인 alive 계산을 `isHeartbeatAlive`로 교체 — 두 표면(doctor·대시보드)이
+     staleness 판정에서 절대 어긋나지 않게. 동작 동일(doctor 28 테스트 그대로 통과).
+  3. 대시보드 `lib/jobs.ts`: 하트비트 파일(`daemon.json`)을 앱 계층에서 읽어(파일 I/O+시계) `HeartbeatFacts`
+     조립 후 core의 `resumeLoopStatus`로 판정 — "core 순수, I/O는 앱/CLI" 컨벤션 유지(doctor와 동일 패턴).
+     `waitingCount`는 `ACTIVE_STATUSES`(queued/waiting_for_reset/resuming) 합. `JobsSnapshot.resumeLoop`에 노출.
+     불량/부재 하트비트는 절대 throw 안 함 → absent.
+  4. `dashboard-client.tsx`: 헤더 아래에 live(초록)/stopped(주황)/idle(회색) 인디케이터 + `concern` 시
+     조치 안내 경고 배너("N job(s) 대기 중인데 재개 루프 멈춤 — `agentrelay daemon` 실행"). `globals.css`에
+     `.warn-banner`/`.resume-loop` 스타일(기존 `--status-*` 토큰 재사용, 라이트/다크 자동).
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 정적 생성 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **436개 통과 + 1 skip**(core 297[+11: resumeLoop isHeartbeatAlive 5·resumeLoopStatus 6] +
+    dashboard 8[+5: absent/no-concern·waiting+부재→concern·fresh→alive·stale+waiting→concern·garbled→absent] +
+    cli 131[불변 — doctor 리팩터 무해 확인]). dashboard 테스트는 **실제 `RelayQueue` 스토어 + 실제
+    `daemon.json` 하트비트 파일**로 e2e(mock 아님).
+- 다음 할 일: stats 평균 대기시간(대기→재개 지연) 확장(👷 후보 — RelayJob에 중간 타임스탬프 추가 필요),
+  대시보드 스코프/시간 창 필터 UI(👷 후보), README/ARCHITECTURE(🧭 코워크).

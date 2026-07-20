@@ -176,6 +176,15 @@
       tick-mode 하트비트 기록(cron 사용자도 생존 신호). `runDoctor`가 `nowMs` 주입 가능(테스트용).
       heartbeat.test.ts 13 + doctor daemon 6 + scheduler onTick 2 + CLI 7케이스, 실제 빌드 CLI로
       before/after·daemon 수명주기·stale 경고 e2e 검증. branch `claude/wizardly-pascal-hb7k2m`)
+- [x] 👷 대시보드가 재개 루프(daemon/tick) 생존 상태 노출 — `doctor`의 하트비트 판정을
+      대시보드에서도 재사용해 "대기 job은 있는데 아무도 재개 안 함" 무음 실패를 UI에서 경고.
+      (완료 — `@agentrelay/core/resumeLoop.ts` 신설(순수): `isHeartbeatAlive`(단일 생존 규칙,
+      `doctor`와 공유) + `resumeLoopStatus(facts, waitingCount)`→`{state:alive/stale/absent,
+      concern, ...}`(대기 job과 교차 판정, waitingCount 위생 처리). `doctor.ts`의 daemonCheck가
+      `isHeartbeatAlive` 재사용(로직 드리프트 방지). 대시보드 `lib/jobs.ts`가 하트비트 파일 읽어
+      (앱 계층 I/O, core 순수 함수 재사용) `JobsSnapshot.resumeLoop` 채움. 클라이언트가 live/
+      stopped/idle 인디케이터 + concern 시 조치 안내 배너 렌더. core 11 + dashboard 5 테스트 추가.
+      branch `claude/wizardly-pascal-gtk2km`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

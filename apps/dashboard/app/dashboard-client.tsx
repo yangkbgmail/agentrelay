@@ -36,6 +36,61 @@ function formatClock(iso: string | null): string {
   return date.toLocaleString();
 }
 
+/** Compact human age ("3s", "5m", "2h", "1d") for a heartbeat's last tick. */
+function formatAge(ms: number | undefined): string {
+  if (ms === undefined || !Number.isFinite(ms)) return "—";
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.round(h / 24)}d`;
+}
+
+type ResumeLoop = JobsSnapshot["resumeLoop"];
+
+/**
+ * A live/stopped/idle indicator for the resume loop plus, on concern, an
+ * actionable warning banner. The resume loop is what actually re-runs a job when
+ * its rate limit resets; if it isn't running, waiting jobs sit forever — so the
+ * banner spells out how to start it.
+ */
+function ResumeLoopStatus({ loop }: { loop: ResumeLoop | undefined }) {
+  if (!loop) return null;
+
+  const meta: Record<ResumeLoop["state"], { label: string; colorVar: string }> = {
+    alive: { label: "Resume loop live", colorVar: "var(--status-good)" },
+    stale: { label: "Resume loop stopped", colorVar: "var(--status-warning)" },
+    absent: { label: "No resume loop running", colorVar: "var(--ink-muted)" },
+  };
+  const { label, colorVar } = meta[loop.state];
+
+  const detail =
+    loop.state === "alive"
+      ? `${loop.mode ?? "daemon"}${loop.pid !== undefined ? ` · pid ${loop.pid}` : ""} · last tick ${formatAge(loop.ageMs)} ago`
+      : loop.state === "stale"
+        ? `last tick ${formatAge(loop.ageMs)} ago${loop.pid !== undefined ? ` · pid ${loop.pid}` : ""}`
+        : "start it to auto-resume jobs";
+
+  return (
+    <>
+      {loop.concern && (
+        <div className="warn-banner" role="alert">
+          <strong>Waiting jobs won&apos;t resume.</strong> {loop.waitingCount} job(s) are queued to resume, but the
+          resume loop {loop.state === "stale" ? "looks stopped" : "isn't running"}. Start it with{" "}
+          <code>agentrelay daemon</code> (or schedule <code>agentrelay tick</code> via cron).
+        </div>
+      )}
+      <div className="resume-loop">
+        <span className="dot" style={{ background: colorVar }} aria-hidden />
+        <span className="resume-loop-label">{label}</span>
+        <span className="resume-loop-detail">{detail}</span>
+      </div>
+    </>
+  );
+}
+
 function StatusBadge({ status }: { status: JobStatus }) {
   const meta = STATUS_META[status] ?? { label: status, colorVar: "var(--ink-muted)" };
   return (
@@ -122,6 +177,8 @@ export default function DashboardClient() {
           Could not read the job store: {fetchError}
         </div>
       )}
+
+      <ResumeLoopStatus loop={snapshot?.resumeLoop} />
 
       <section className="tile-row" aria-label="Queue summary">
         <div className="tile">
