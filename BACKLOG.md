@@ -347,6 +347,21 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay stats --group-by tool|project|status` — 차원별 지표 분해(어느 툴/프로젝트/상태가
+      성공률·해결시간이 나쁜지 한눈에).
+      (완료 — 전체 큐 단일 요약만으론 "codex-cli만 성공률이 낮다"·"web 프로젝트가 오래 걸린다" 같은
+      비교가 안 보였다. `@agentrelay/core/stats.ts`에 `StatsGroupDimension`(`tool`/`project`/`status`)·
+      `STATS_GROUP_DIMENSIONS`·`StatGroup{key,stats}` + 순수 `computeGroupedStats(jobs, dimension)` 신설:
+      원시 dimension 값으로 버킷팅 후 각 버킷에 기존 `computeStats`를 그대로 적용(성공률·active/terminal·
+      해결시간 percentile까지 재사용) → count desc·key asc(projects 랭킹과 동일 규칙)로 정렬. 미지 tool
+      문자열도 자기 그룹 형성(coerce/drop 안 함). CLI `stats.ts`에 순수 `renderGroupedStats`(그룹당 1행
+      테이블: key·jobs·success·active·term·median·p90, resolved 없으면 median/p90=`-`)·
+      `renderGroupedStatsJson`(`groupBy`+ranked groups). `cli.ts` stats에 `-g/--group-by` 배선 —
+      스코프(status/tool/project/시간창) **먼저** 적용 후 그 부분집합을 그룹핑(`--tool codex-cli
+      -g project` = 그 툴의 프로젝트 랭킹), 잘못된 dimension은 exit 1. 새 core는 순수·기존 로직 재사용,
+      core 6 + cli 6 신규 테스트 + 빌드 CLI e2e(tool/project 그룹·--json·스코프 결합·에러 exit) 검증.
+      branch `claude/wizardly-pascal-k9blwh`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

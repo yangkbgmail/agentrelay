@@ -980,3 +980,26 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — `agentrelay stats --group-by tool|project|status`] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-k9blwh`)
+- **한 일: 큐 전체 단일 요약을 차원별로 쪼개 "어느 툴/프로젝트/상태가 성공률·해결시간이 나쁜지"를
+  한눈에 비교하게 했다.** 기존 `stats`는 byTool/byProject를 카운트만 보여줘서, 예컨대 "codex-cli만
+  성공률이 낮다"거나 "web 프로젝트가 해결에 오래 걸린다" 같은 그룹 간 비교가 안 보였다.
+  1. `@agentrelay/core/stats.ts`에 `StatsGroupDimension`(`tool`/`project`/`status`)·`STATS_GROUP_DIMENSIONS`·
+     `StatGroup{key,stats}` + 순수 `computeGroupedStats(jobs, dimension)` 신설: 원시 dimension 값으로
+     버킷팅 후 각 버킷에 기존 `computeStats`를 그대로 적용(성공률·active/terminal·해결시간 percentile까지
+     전부 재사용 — 두 표면이 절대 안 드리프트) → count desc·key asc(projects 랭킹과 동일 규칙, 가장 바쁜
+     버킷이 리드)로 정렬. 미지 tool 문자열도 coerce/drop 없이 자기 그룹 형성.
+  2. CLI `stats.ts`에 순수 `renderGroupedStats`(그룹당 1행 정렬 테이블: key·jobs·success·active·term·
+     median·p90, resolved 없는 그룹은 median/p90=`-`, 빈 스토어=`NO_GROUP_MESSAGE`·스코프 하 빈 부분집합=
+     `NO_SCOPE_MATCH_MESSAGE`)·`renderGroupedStatsJson`(`groupBy`+ranked groups+활성 스코프 에코) 신설.
+  3. `cli.ts` stats에 `-g/--group-by <dimension>` 배선 — 잘못된 dimension은 스토어 접근 전에 exit 1.
+     스코프(status/tool/project/시간창)를 **먼저** 적용한 뒤 그 부분집합을 그룹핑(`--tool codex-cli
+     -g project` = 그 툴의 프로젝트만 랭킹, stats/export의 "창→선택" 순서와 동일 의미).
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **432개 통과 + 1 skip**(core 292[+6: computeGroupedStats] + cli 137[+6: renderGroupedStats/
+    Json][+1 skip] + dashboard 3). **실제 빌드 CLI e2e**(mock 아님): 4-job 스토어에 group-by tool/project
+    랭킹 테이블·`--json` groups 형태·미지 dimension→exit 1·`--tool claude-code -g project` 스코프 결합
+    검증.
+- 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
+  (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).

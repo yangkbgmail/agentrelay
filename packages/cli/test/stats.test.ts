@@ -1,11 +1,14 @@
 import type { RelayJob } from "@agentrelay/core";
-import { computeStats } from "@agentrelay/core";
+import { computeGroupedStats, computeStats } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
   formatDurationMs,
   formatSuccessRate,
+  NO_GROUP_MESSAGE,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
+  renderGroupedStats,
+  renderGroupedStatsJson,
   renderStats,
   renderStatsJson,
 } from "../src/stats.js";
@@ -159,6 +162,81 @@ describe("renderStatsJson", () => {
       })
     );
     expect(scoped.scope).toEqual({ projects: ["demo"] });
+  });
+});
+
+describe("renderGroupedStats", () => {
+  it("shows the no-group message for an empty store, no-match under a scope", () => {
+    expect(renderGroupedStats([], "tool")).toBe(NO_GROUP_MESSAGE);
+    expect(renderGroupedStats([], "tool", { scopeNote: "project=nope" })).toBe(NO_SCOPE_MATCH_MESSAGE);
+  });
+
+  it("renders one row per group with count, success rate and split", () => {
+    const groups = computeGroupedStats(
+      [
+        job({ tool: "claude-code", status: "completed" }),
+        job({ tool: "claude-code", status: "failed" }),
+        job({ tool: "codex-cli", status: "completed" }),
+      ],
+      "tool"
+    );
+    const out = renderGroupedStats(groups, "tool");
+    expect(out).toContain("by tool");
+    expect(out).toContain("2 group(s)");
+    // claude-code leads (2 jobs, 50%), codex-cli second (1 job, 100%).
+    expect(out).toMatch(/claude-code\s+2\s+50%/);
+    expect(out).toMatch(/codex-cli\s+1\s+100%/);
+  });
+
+  it("shows median/p90 for groups with resolved jobs, dashes otherwise", () => {
+    const groups = computeGroupedStats(
+      [
+        job({ tool: "claude-code", status: "completed", updatedAt: "2026-07-12T01:00:00.000Z" }),
+        job({ tool: "codex-cli", status: "queued" }),
+      ],
+      "tool"
+    );
+    const out = renderGroupedStats(groups, "tool");
+    const claudeLine = out.split("\n").find((l) => l.includes("claude-code")) ?? "";
+    const codexLine = out.split("\n").find((l) => l.includes("codex-cli")) ?? "";
+    expect(claudeLine).toContain("1h 0m");
+    // A group with no resolved jobs shows "-" for median and p90.
+    expect(codexLine).toMatch(/-\s+-\s*$/);
+  });
+
+  it("prepends a scope note when given", () => {
+    const groups = computeGroupedStats([job({ project: "web" })], "project");
+    expect(renderGroupedStats(groups, "project", { scopeNote: "tool=claude-code" })).toContain(
+      "scope: tool=claude-code"
+    );
+  });
+});
+
+describe("renderGroupedStatsJson", () => {
+  it("emits groupBy and the ranked groups", () => {
+    const groups = computeGroupedStats(
+      [job({ project: "web" }), job({ project: "web" }), job({ project: "api" })],
+      "project"
+    );
+    const parsed = JSON.parse(
+      renderGroupedStatsJson(groups, "project", "/tmp/store.json", { generatedAt: "2026-07-13T00:00:00.000Z" })
+    );
+    expect(parsed.groupBy).toBe("project");
+    expect(parsed.storePath).toBe("/tmp/store.json");
+    expect(parsed.groups.map((g: { key: string }) => g.key)).toEqual(["web", "api"]);
+    expect(parsed.groups[0].stats.total).toBe(2);
+    expect(parsed.scope).toBeUndefined();
+  });
+
+  it("echoes an active scope back", () => {
+    const groups = computeGroupedStats([job({ project: "web" })], "project");
+    const parsed = JSON.parse(
+      renderGroupedStatsJson(groups, "project", "/tmp/store.json", {
+        generatedAt: "2026-07-13T00:00:00.000Z",
+        scope: { tools: ["claude-code"] },
+      })
+    );
+    expect(parsed.scope).toEqual({ tools: ["claude-code"] });
   });
 });
 

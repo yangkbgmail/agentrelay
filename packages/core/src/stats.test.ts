@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import { computeGroupedStats, computeStats, isJobScopeActive, scopeJobs } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -239,6 +239,58 @@ describe("computeStats", () => {
       medianResolutionMs: null,
       p90ResolutionMs: null,
     });
+  });
+});
+
+describe("computeGroupedStats", () => {
+  it("returns no groups for an empty job list", () => {
+    expect(computeGroupedStats([], "tool")).toEqual([]);
+  });
+
+  it("groups by tool and computes per-group stats", () => {
+    const groups = computeGroupedStats(
+      [
+        job({ tool: "claude-code" as AgentTool, status: "completed" }),
+        job({ tool: "claude-code" as AgentTool, status: "failed" }),
+        job({ tool: "codex-cli" as AgentTool, status: "completed" }),
+      ],
+      "tool"
+    );
+    expect(groups.map((g) => g.key)).toEqual(["claude-code", "codex-cli"]);
+    expect(groups[0].stats.total).toBe(2);
+    expect(groups[0].stats.successRate).toBe(0.5);
+    expect(groups[1].stats.total).toBe(1);
+    expect(groups[1].stats.successRate).toBe(1);
+  });
+
+  it("ranks groups by count desc, then key asc on ties", () => {
+    const groups = computeGroupedStats(
+      [job({ project: "zeta" }), job({ project: "alpha" }), job({ project: "beta" }), job({ project: "beta" })],
+      "project"
+    );
+    // beta has 2 (leads); alpha and zeta tie at 1, broken by name asc.
+    expect(groups.map((g) => `${g.key}:${g.stats.total}`)).toEqual(["beta:2", "alpha:1", "zeta:1"]);
+  });
+
+  it("groups by status", () => {
+    const groups = computeGroupedStats(
+      [job({ status: "queued" }), job({ status: "queued" }), job({ status: "cancelled" })],
+      "status"
+    );
+    expect(groups.map((g) => `${g.key}:${g.stats.total}`)).toEqual(["queued:2", "cancelled:1"]);
+  });
+
+  it("forms a group for an unknown tool string rather than dropping it", () => {
+    const groups = computeGroupedStats([job({ tool: "mystery-tool" as AgentTool })], "tool");
+    expect(groups.map((g) => g.key)).toEqual(["mystery-tool"]);
+    expect(groups[0].stats.total).toBe(1);
+  });
+
+  it("does not mutate the input array", () => {
+    const jobs = [job({ tool: "codex-cli" as AgentTool }), job({ tool: "claude-code" as AgentTool })];
+    const snapshot = jobs.slice();
+    computeGroupedStats(jobs, "tool");
+    expect(jobs).toEqual(snapshot);
   });
 });
 

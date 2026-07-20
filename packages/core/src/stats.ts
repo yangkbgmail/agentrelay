@@ -171,6 +171,48 @@ function percentile(sortedAsc: number[], p: number): number {
   return Math.round(sortedAsc[lower] + frac * (sortedAsc[lower + 1] - sortedAsc[lower]));
 }
 
+/** Dimensions `agentrelay stats --group-by` can break the queue down by. */
+export type StatsGroupDimension = "tool" | "project" | "status";
+/** Every valid `--group-by` dimension, for CLI validation and help text. */
+export const STATS_GROUP_DIMENSIONS: StatsGroupDimension[] = ["tool", "project", "status"];
+
+/** One group's key (e.g. a tool/project/status value) plus its full metrics. */
+export interface StatGroup {
+  /** The dimension value shared by every job in this group (raw string). */
+  key: string;
+  /** Full headline metrics computed over just this group's jobs. */
+  stats: RelayStats;
+}
+
+/** The raw grouping value of a job for a given dimension (always a string). */
+function groupKey(job: RelayJob, dimension: StatsGroupDimension): string {
+  if (dimension === "tool") return job.tool;
+  if (dimension === "project") return job.project;
+  return job.status;
+}
+
+/**
+ * Splits a job list into buckets by a dimension and computes full {@link RelayStats}
+ * for each, so `agentrelay stats --group-by tool` can surface which tool (or
+ * project, or status) has the worst success rate or the longest resolution time.
+ * Pure and non-mutating. Groups are ranked by job count (desc), ties broken by
+ * key (asc) — the same ordering convention as the `projects` ranking, so the
+ * busiest bucket leads. Keys are the raw dimension values (an unknown tool
+ * string still forms its own group rather than being coerced or dropped).
+ */
+export function computeGroupedStats(jobs: RelayJob[], dimension: StatsGroupDimension): StatGroup[] {
+  const buckets = new Map<string, RelayJob[]>();
+  for (const job of jobs) {
+    const key = groupKey(job, dimension);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(job);
+    else buckets.set(key, [job]);
+  }
+  return [...buckets.entries()]
+    .map(([key, groupJobs]) => ({ key, stats: computeStats(groupJobs) }))
+    .sort((a, b) => (b.stats.total !== a.stats.total ? b.stats.total - a.stats.total : a.key.localeCompare(b.key)));
+}
+
 /**
  * Aggregates a job list into headline relay metrics for `agentrelay stats`.
  * Pure and non-mutating: no I/O, no ambient clock. Reuses {@link summarizeJobs}
