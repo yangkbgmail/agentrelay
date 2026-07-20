@@ -74,6 +74,23 @@ describe("exportStore", () => {
     expect(result.content.split("\n")).toHaveLength(1);
   });
 
+  it("produces NDJSON with one JSON object per line that round-trips", () => {
+    seed();
+    const result = exportStore({ storePath, format: "ndjson" });
+    expect(result.count).toBe(2);
+    const lines = result.content.split("\n");
+    expect(lines).toHaveLength(2); // no header, one object per job
+    const commands = lines.map((line) => (JSON.parse(line) as { command: string[] }).command);
+    expect(commands).toContainEqual(["claude", "-p", "go"]);
+    expect(commands).toContainEqual(["codex", "run"]);
+  });
+
+  it("exports nothing (empty string) for an empty store in NDJSON", () => {
+    const result = exportStore({ storePath, format: "ndjson" });
+    expect(result.count).toBe(0);
+    expect(result.content).toBe("");
+  });
+
   // The `export` command applies the same scope filters as `stats`/`status`:
   // the --since/--until time window via core scopeJobs, then
   // --status/--tool/--project/--sort/--reverse via selectJobs. These tests

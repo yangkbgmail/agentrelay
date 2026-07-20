@@ -7,6 +7,7 @@ import {
   jobCsvValue,
   jobsToCsv,
   jobsToJson,
+  jobsToNdjson,
 } from "../src/export.js";
 import type { RelayJob } from "../src/types.js";
 
@@ -126,6 +127,33 @@ describe("jobsToJson", () => {
   });
 });
 
+describe("jobsToNdjson", () => {
+  it("emits the empty string for an empty store (valid empty NDJSON stream)", () => {
+    expect(jobsToNdjson([])).toBe("");
+  });
+
+  it("emits one compact JSON object per line, LF-separated, no trailing newline", () => {
+    const jobs = [job({ id: "j1" }), job({ id: "j2" })];
+    const out = jobsToNdjson(jobs);
+    const lines = out.split("\n");
+    expect(lines).toHaveLength(2);
+    expect(out.endsWith("\n")).toBe(false);
+    // Compact (no pretty-print indentation inside a line).
+    expect(lines[0]).not.toContain("\n  ");
+    expect(JSON.parse(lines[0]).id).toBe("j1");
+    expect(JSON.parse(lines[1]).id).toBe("j2");
+  });
+
+  it("round-trips losslessly per line, preserving the command array", () => {
+    const jobs = [job({ command: ["claude", "-p", "a b"], lastOutputTail: "tail" })];
+    const parsed = jobsToNdjson(jobs)
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(parsed).toEqual(jobs);
+    expect(parsed[0].command).toEqual(["claude", "-p", "a b"]);
+  });
+});
+
 describe("exportJobs", () => {
   it("dispatches to CSV by default format", () => {
     const jobs = [job({ id: "d" })];
@@ -137,7 +165,12 @@ describe("exportJobs", () => {
     expect(exportJobs(jobs, "json")).toBe(jobsToJson(jobs));
   });
 
+  it("dispatches to NDJSON", () => {
+    const jobs = [job({ id: "d" })];
+    expect(exportJobs(jobs, "ndjson")).toBe(jobsToNdjson(jobs));
+  });
+
   it("exposes the supported formats", () => {
-    expect(EXPORT_FORMATS).toEqual(["csv", "json"]);
+    expect(EXPORT_FORMATS).toEqual(["csv", "json", "ndjson"]);
   });
 });

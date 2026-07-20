@@ -347,6 +347,14 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay export` NDJSON 포맷 — CSV(평면)·JSON(배열) 사이의 스트리밍/append 친화 줄단위
+      무손실 포맷 추가(`jq -c`·로그 append·BI 벌크 적재용).
+      (완료 — `@agentrelay/core/export.ts`에 순수 `jobsToNdjson`(한 줄당 compact JSON, LF 구분, trailing
+      newline 없음, 빈 스토어=빈 문자열) + `EXPORT_FORMATS`에 `"ndjson"` 추가 + `exportJobs` switch 디스패치.
+      CLI는 새 배선 0줄 — 기존 `format as ExportFormat` 검증·스코프 파이프라인·파일 출력을 그대로 상속,
+      `--format`/description만 갱신. core 4 + cli 2 신규 테스트, 빌드 CLI e2e로 2-job NDJSON·스코프·파일·
+      에러 exit 검증. branch `claude/wizardly-pascal-we1y6q`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
