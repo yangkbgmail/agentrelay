@@ -980,3 +980,25 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — `agentrelay stats --group-by tool|project|status`] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-m8z83q`)
+- **한 일: 하나의 집계 대신 툴/프로젝트/상태별 지표 분해표.** `stats`는 지금까지 큐 전체(또는 스코프한
+  부분집합)의 단일 집계만 보여줘 "어느 프로젝트·툴이 가장 잘 릴레이되나?"를 답할 수 없었다. 이제
+  `--group-by`가 그 축으로 분해해 그룹마다 성공률·재시도·해결시간을 나란히 비교한다.
+  1. `@agentrelay/core/stats.ts`: 순수 `GroupDimension`(`tool`/`project`/`status`)·`GROUP_DIMENSIONS`·
+     `StatGroup`(key·count·stats) + `groupStats(jobs, dimension)`. 지정 차원으로 버킷팅 후 각 버킷에 기존
+     검증된 `computeStats`를 그대로 재적용 → 그룹마다 full `RelayStats`. 데이터에 실제 존재하는 값만
+     그룹(빈 스토어=`[]`, zero 행 미발명), 정렬은 count desc·key asc(projects 랭킹과 동일 규칙). 비파괴.
+     계산 로직 재사용이라 core 중복 0줄.
+  2. CLI `stats.ts`: 순수 `renderStatGroups`(정렬 컬럼 표 total·active·done·success·retried·avg·median,
+     key 컬럼은 최장 키 기준 24자 상한 정렬, 미해결 그룹 timing은 `-`)·`renderStatGroupsJson`·`NO_GROUPS_MESSAGE`.
+  3. `cli.ts` stats: `-g/--group-by <dimension>` 배선. 잘못된 차원은 exit 1. 기존 `--status`/`--tool`/
+     `--project`/`--since`/`--until` 스코프를 **먼저** 적용한 뒤 그룹핑(스코프→그룹 순서). 스코프가 전부
+     걸러내면 온보딩 문구 대신 no-match. `--json`은 `groupBy`+`groups` 에코.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **431개 통과 + 1 skip**(core 292[+6 groupStats] + cli 136[+11 renderStatGroups/Json][+1 skip] +
+    dashboard 3). **실제 빌드 CLI e2e**(mock 아님): 4-job 스토어로 `--group-by project`(web 50%·api 100%
+    정렬·해결시간 표시)·`-g tool`·`--group-by status --json`·`--tool` 스코프 조합(scope 라인+1 그룹)·
+    스코프가 전부 걸러냄→no-match·잘못된 차원→exit 1 검증.
+- 다음 할 일: 대시보드가 그룹별 지표 카드 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
+  (👷 후보 — RelayJob에 중간 타임스탬프 필요), README/ARCHITECTURE(🧭 코워크).

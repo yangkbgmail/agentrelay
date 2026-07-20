@@ -140,6 +140,56 @@ export function scopeJobs(jobs: RelayJob[], scope: JobScope = {}): RelayJob[] {
   return result;
 }
 
+/**
+ * A dimension to partition jobs by for a per-group stats breakdown. Answers
+ * "which tool/project/status relays best?" — e.g. success rate per project.
+ */
+export type GroupDimension = "tool" | "project" | "status";
+
+/** All group dimensions, for CLI validation and help text. */
+export const GROUP_DIMENSIONS: GroupDimension[] = ["tool", "project", "status"];
+
+/** One partition of a {@link groupStats} breakdown: a key plus its own metrics. */
+export interface StatGroup {
+  /** The dimension value shared by every job in this group (raw string). */
+  key: string;
+  /** Number of jobs in this group (mirrors `stats.total`, hoisted for sorting). */
+  count: number;
+  /** Full relay metrics computed over just this group's jobs. */
+  stats: RelayStats;
+}
+
+/** Extract the grouping key for a job along a given dimension (raw string). */
+function groupKey(job: RelayJob, dimension: GroupDimension): string {
+  if (dimension === "tool") return job.tool;
+  if (dimension === "status") return job.status;
+  return job.project;
+}
+
+/**
+ * Partitions a job list by `dimension` and computes full {@link RelayStats} for
+ * each group, so `agentrelay stats --group-by project` can compare success
+ * rates, retries, and resolution times across tools/projects/statuses. Pure and
+ * non-mutating. Only dimension values actually present in `jobs` become groups
+ * (an empty store yields `[]`) — the shape stays honest instead of inventing
+ * zero rows. Groups are ordered by job count (desc), ties broken by key (asc),
+ * matching how {@link computeStats} ranks projects.
+ */
+export function groupStats(jobs: RelayJob[], dimension: GroupDimension): StatGroup[] {
+  const buckets = new Map<string, RelayJob[]>();
+  // Preserve first-seen order for a stable tiebreak feed; the sort below makes
+  // the final order deterministic regardless.
+  for (const job of jobs) {
+    const key = groupKey(job, dimension);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(job);
+    else buckets.set(key, [job]);
+  }
+  return [...buckets.entries()]
+    .map(([key, groupJobs]) => ({ key, count: groupJobs.length, stats: computeStats(groupJobs) }))
+    .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.key.localeCompare(b.key)));
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 

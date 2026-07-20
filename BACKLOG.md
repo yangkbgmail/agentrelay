@@ -347,6 +347,22 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay stats --group-by tool|project|status` — 하나의 집계 대신 툴/프로젝트/상태별
+      지표 분해표. "어느 프로젝트·툴이 가장 잘 릴레이되나?"를 성공률·재시도·해결시간으로 한눈에 비교.
+      (완료 — `@agentrelay/core/stats.ts`에 순수 `GroupDimension`(`tool`/`project`/`status`)·
+      `GROUP_DIMENSIONS`·`StatGroup`(key·count·stats) + `groupStats(jobs, dimension)` 신설: 지정
+      차원으로 잡을 버킷팅하고 각 버킷에 기존 검증된 `computeStats`를 그대로 재적용 → 그룹마다 full
+      `RelayStats`(성공률·재시도·타이밍 포함). 데이터에 실제로 존재하는 차원 값만 그룹이 됨(빈 스토어는
+      `[]`, zero 행 미발명), 그룹 정렬은 count desc·key asc(`computeStats`의 projects 랭킹과 동일).
+      비파괴(입력 배열 불변). CLI `stats.ts`에 순수 `renderStatGroups`(정렬 컬럼 표: total·active·done·
+      success·retried·avg·median, key 컬럼은 최장 키에 맞춰 24자 상한 정렬, 미해결 그룹의 timing은 `-`)·
+      `renderStatGroupsJson`(`--json`은 `groupBy`+`groups` 에코)·`NO_GROUPS_MESSAGE`. `cli.ts` stats에
+      `-g/--group-by <dimension>` 배선 — 잘못된 차원은 exit 1, 기존 `--status`/`--tool`/`--project`/
+      `--since`/`--until` 스코프를 **먼저** 적용한 뒤 그룹핑(스코프→그룹 순서, 스코프가 전부 걸러내면
+      온보딩 대신 no-match). 새 core stats 로직은 `computeStats` 재사용이라 계산 중복 0. core groupStats
+      6 + cli renderStatGroups/Json 6케이스 + 빌드된 CLI e2e로 project/tool/status·JSON·스코프 조합·
+      잘못된 차원 exit 검증. branch `claude/wizardly-pascal-m8z83q`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

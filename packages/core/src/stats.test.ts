@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import { computeStats, groupStats, isJobScopeActive, scopeJobs } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -366,5 +366,61 @@ describe("scopeJobs", () => {
       job({ id: "c", project: "api", createdAt: "2026-07-14T00:00:00.000Z" }), // wrong project
     ];
     expect(scopeJobs(jobs, { projects: ["web"], createdFrom: from }).map((j) => j.id)).toEqual(["a"]);
+  });
+});
+
+describe("groupStats", () => {
+  it("returns an empty array for an empty store", () => {
+    expect(groupStats([], "tool")).toEqual([]);
+    expect(groupStats([], "project")).toEqual([]);
+    expect(groupStats([], "status")).toEqual([]);
+  });
+
+  it("partitions by project and computes per-group stats", () => {
+    const groups = groupStats(
+      [
+        job({ project: "web", status: "completed" }),
+        job({ project: "web", status: "failed" }),
+        job({ project: "api", status: "completed" }),
+      ],
+      "project"
+    );
+    expect(groups.map((g) => g.key)).toEqual(["web", "api"]);
+    const web = groups.find((g) => g.key === "web");
+    expect(web?.count).toBe(2);
+    expect(web?.stats.total).toBe(2);
+    // web: 1 completed / (1 completed + 1 failed) = 50%.
+    expect(web?.stats.successRate).toBe(0.5);
+    const api = groups.find((g) => g.key === "api");
+    expect(api?.stats.successRate).toBe(1);
+  });
+
+  it("orders groups by count desc, key asc on ties", () => {
+    const groups = groupStats(
+      [job({ project: "b" }), job({ project: "a" }), job({ project: "c" }), job({ project: "c" })],
+      "project"
+    );
+    // c has 2 jobs (first), then a and b (tie at 1) broken by name asc.
+    expect(groups.map((g) => g.key)).toEqual(["c", "a", "b"]);
+  });
+
+  it("groups by tool using the raw tool string (unknown tools become their own group)", () => {
+    const groups = groupStats([job({ tool: "claude-code" }), job({ tool: "mystery" as AgentTool })], "tool");
+    expect(groups.map((g) => g.key).sort()).toEqual(["claude-code", "mystery"]);
+  });
+
+  it("groups by status", () => {
+    const groups = groupStats(
+      [job({ status: "completed" }), job({ status: "completed" }), job({ status: "queued" })],
+      "status"
+    );
+    expect(groups.map((g) => `${g.key}:${g.count}`)).toEqual(["completed:2", "queued:1"]);
+  });
+
+  it("does not mutate the input array", () => {
+    const jobs = [job({ project: "a" }), job({ project: "b" })];
+    const snapshot = jobs.slice();
+    groupStats(jobs, "project");
+    expect(jobs).toEqual(snapshot);
   });
 });

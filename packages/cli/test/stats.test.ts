@@ -1,11 +1,14 @@
 import type { RelayJob } from "@agentrelay/core";
-import { computeStats } from "@agentrelay/core";
+import { computeStats, groupStats } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
   formatDurationMs,
   formatSuccessRate,
+  NO_GROUPS_MESSAGE,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
+  renderStatGroups,
+  renderStatGroupsJson,
   renderStats,
   renderStatsJson,
 } from "../src/stats.js";
@@ -175,5 +178,63 @@ describe("renderStats with a scope", () => {
     expect(renderStats(empty, { scopeNote: "project=nope" })).toBe(NO_SCOPE_MATCH_MESSAGE);
     // Without a scope, an empty store still shows the onboarding hint.
     expect(renderStats(empty)).toBe(NO_STATS_MESSAGE);
+  });
+});
+
+describe("renderStatGroups", () => {
+  it("shows the empty message when there are no groups", () => {
+    expect(renderStatGroups(groupStats([], "project"), "project")).toBe(NO_GROUPS_MESSAGE);
+    // With a scope active, an empty subset says "no match" instead.
+    expect(renderStatGroups(groupStats([], "project"), "project", { scopeNote: "tool=codex-cli" })).toBe(
+      NO_SCOPE_MATCH_MESSAGE
+    );
+  });
+
+  it("renders one aligned row per group with its own metrics", () => {
+    const jobs = [
+      job({ project: "web", status: "completed" }),
+      job({ project: "web", status: "failed" }),
+      job({ project: "api", status: "completed" }),
+    ];
+    const out = renderStatGroups(groupStats(jobs, "project"), "project");
+    expect(out).toContain("by project");
+    expect(out).toContain("(2 group(s))");
+    // web comes first (2 jobs), 50% success; api second (1 job), 100%.
+    const lines = out.split("\n");
+    const webLine = lines.find((l) => l.startsWith("web"));
+    const apiLine = lines.find((l) => l.startsWith("api"));
+    expect(webLine).toContain("50%");
+    expect(apiLine).toContain("100%");
+    // web (count 2) is listed before api (count 1).
+    expect(out.indexOf("web")).toBeLessThan(out.indexOf("api"));
+  });
+
+  it("includes a scope note when provided", () => {
+    const out = renderStatGroups(groupStats([job({ project: "web" })], "project"), "project", {
+      scopeNote: "status=completed",
+    });
+    expect(out).toContain("scope: status=completed");
+  });
+
+  it("renders a dash for groups with no resolved timing", () => {
+    const out = renderStatGroups(groupStats([job({ project: "web", status: "queued" })], "project"), "project");
+    const webLine = out.split("\n").find((l) => l.startsWith("web"));
+    // queued jobs have no resolution timing -> avg/median columns are "-".
+    expect(webLine).toContain("-");
+    expect(webLine).toContain("n/a"); // success rate is n/a with nothing resolved
+  });
+});
+
+describe("renderStatGroupsJson", () => {
+  it("echoes the dimension and groups", () => {
+    const groups = groupStats([job({ project: "web" }), job({ project: "api" })], "project");
+    const json = JSON.parse(
+      renderStatGroupsJson(groups, "project", "/tmp/jobs.json", { generatedAt: "2026-07-13T00:00:00.000Z" })
+    );
+    expect(json.groupBy).toBe("project");
+    expect(json.storePath).toBe("/tmp/jobs.json");
+    expect(json.generatedAt).toBe("2026-07-13T00:00:00.000Z");
+    expect(json.groups.map((g: { key: string }) => g.key)).toEqual(["api", "web"]);
+    expect(json.groups[0].stats.total).toBe(1);
   });
 });

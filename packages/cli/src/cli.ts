@@ -1,5 +1,14 @@
-import type { AgentTool, ExportFormat, JobScope, JobStatus, RelayJob } from "@agentrelay/core";
-import { ALL_TOOLS, computeStats, EXPORT_FORMATS, isJobScopeActive, parseDuration, scopeJobs } from "@agentrelay/core";
+import type { AgentTool, ExportFormat, GroupDimension, JobScope, JobStatus, RelayJob } from "@agentrelay/core";
+import {
+  ALL_TOOLS,
+  computeStats,
+  EXPORT_FORMATS,
+  GROUP_DIMENSIONS,
+  groupStats,
+  isJobScopeActive,
+  parseDuration,
+  scopeJobs,
+} from "@agentrelay/core";
 import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
@@ -24,7 +33,7 @@ import {
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
-import { renderStats, renderStatsJson } from "./stats.js";
+import { renderStatGroups, renderStatGroupsJson, renderStats, renderStatsJson } from "./stats.js";
 import {
   type JobSelection,
   NO_MATCH_MESSAGE,
@@ -270,14 +279,36 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option(
+      "-g, --group-by <dimension>",
+      `Break metrics down per group instead of one aggregate: ${GROUP_DIMENSIONS.join(", ")}`
+    )
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
     .action(
-      (opts: { status?: string; tool?: string; project?: string; since?: string; until?: string; json?: boolean }) => {
+      (opts: {
+        status?: string;
+        tool?: string;
+        project?: string;
+        since?: string;
+        until?: string;
+        groupBy?: string;
+        json?: boolean;
+      }) => {
         const { store } = program.opts();
 
         const now = Date.now();
         const scope: JobScope = {};
         const noteParts: string[] = [];
+
+        let dimension: GroupDimension | undefined;
+        if (opts.groupBy !== undefined) {
+          if (!GROUP_DIMENSIONS.includes(opts.groupBy as GroupDimension)) {
+            console.error(`Unknown --group-by dimension: "${opts.groupBy}". Valid: ${GROUP_DIMENSIONS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          dimension = opts.groupBy as GroupDimension;
+        }
 
         if (opts.status !== undefined) {
           const requested = splitList(opts.status);
@@ -348,6 +379,19 @@ export function buildCli(): Command {
         const active = isJobScopeActive(scope);
         const jobs = active ? scopeJobs(allJobs, scope) : allJobs;
         const scopeNote = active ? noteParts.join(" ") : undefined;
+
+        // --group-by trades the single aggregate block for a per-group table so
+        // you can compare success rates/resolution times across tools/projects.
+        if (dimension) {
+          const groups = groupStats(jobs, dimension);
+          if (opts.json) {
+            console.log(renderStatGroupsJson(groups, dimension, store, { scope }));
+            return;
+          }
+          console.log(renderStatGroups(groups, dimension, { color: Boolean(process.stdout.isTTY), scopeNote }));
+          return;
+        }
+
         const stats = computeStats(jobs);
 
         if (opts.json) {
