@@ -3,7 +3,7 @@
 // breakdown). Kept as pure functions here, separate from the commander wiring
 // in cli.ts, so the exact output is unit-testable without a store or a clock.
 
-import type { GroupDimension, GroupedStat, JobScope, JobStatus, RelayStats } from "@agentrelay/core";
+import type { DailyActivity, GroupDimension, GroupedStat, JobScope, JobStatus, RelayStats } from "@agentrelay/core";
 import { isJobScopeActive } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
@@ -167,15 +167,55 @@ function pad(s: string, width: number): string {
   return s.length >= width ? s : s.padEnd(width);
 }
 
+/** Max width (chars) of a full-scale bar in the trend histogram. */
+const TREND_BAR_WIDTH = 24;
+
+/**
+ * Renders a daily activity histogram (jobs created per UTC day) as a compact
+ * ASCII bar chart. Bars are scaled to the busiest day so the shape is readable
+ * regardless of absolute volume; a zero day shows a dim baseline dot. Pure: no
+ * I/O, no clock. Callers pass the already-computed trend so it stays testable.
+ */
+export function renderTrend(trend: DailyActivity[], options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [b("activity") + d(" (jobs created per day, UTC)")];
+  if (trend.length === 0) {
+    lines.push("  none");
+    return lines.join("\n");
+  }
+
+  const max = trend.reduce((m, day) => Math.max(m, day.count), 0);
+  const total = trend.reduce((sum, day) => sum + day.count, 0);
+  for (const { date, count } of trend) {
+    // Scale each bar to the busiest day; guarantee at least one block for any
+    // non-zero day so small counts don't vanish next to a spike.
+    const filled = max === 0 || count === 0 ? 0 : Math.max(1, Math.round((count / max) * TREND_BAR_WIDTH));
+    // Pad the plain bar to a fixed width so the count column stays aligned; a
+    // zero day shows a single baseline dot (dimmed only when color is on).
+    const plain = count === 0 ? "·" : "█".repeat(filled);
+    const padded = plain.padEnd(TREND_BAR_WIDTH);
+    const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
+    lines.push(`  ${date}  ${shown} ${count}`);
+  }
+  lines.push(d(`  ${total} job(s) over ${trend.length} day(s)`));
+  return lines.join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,
   storePath: string,
-  options: { generatedAt?: string; scope?: JobScope } = {}
+  options: { generatedAt?: string; scope?: JobScope; trend?: DailyActivity[] | null } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, stats }, null, 2);
+  // Only emit `trend` when --trend was requested; omit it entirely otherwise so
+  // the default JSON shape is unchanged for existing consumers.
+  const trend = options.trend ?? undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, trend, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */

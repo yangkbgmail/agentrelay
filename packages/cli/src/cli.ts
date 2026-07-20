@@ -12,6 +12,7 @@ import type {
 import {
   ALL_TOOLS,
   COMPLETION_SHELLS,
+  computeDailyTrend,
   computeStats,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
@@ -58,7 +59,7 @@ import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
-import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson } from "./stats.js";
+import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson, renderTrend } from "./stats.js";
 import {
   type JobSelection,
   NO_MATCH_MESSAGE,
@@ -538,6 +539,7 @@ export function buildCli(): Command {
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("-g, --group-by <dimension>", `Break down metrics per group: ${GROUP_DIMENSIONS.join(", ")}`)
+    .option("--trend [days]", "Also show a per-day activity histogram over the last N days, UTC (default 14, max 90)")
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
     .action(
       (opts: {
@@ -547,6 +549,7 @@ export function buildCli(): Command {
         since?: string;
         until?: string;
         groupBy?: string;
+        trend?: string | boolean;
         json?: boolean;
       }) => {
         const { store } = program.opts();
@@ -630,6 +633,23 @@ export function buildCli(): Command {
           groupBy = opts.groupBy as GroupDimension;
         }
 
+        // --trend is an optional-value flag: bare `--trend` uses the default
+        // window, `--trend 30` overrides it. Reject non-positive/huge/garbage.
+        let trendDays: number | null = null;
+        if (opts.trend !== undefined && opts.trend !== false) {
+          if (opts.trend === true) {
+            trendDays = 14;
+          } else {
+            const parsed = Number(opts.trend);
+            if (!Number.isInteger(parsed) || parsed < 1 || parsed > 90) {
+              console.error(`Invalid --trend value: "${opts.trend}". Use a whole number of days from 1 to 90.`);
+              process.exitCode = 1;
+              return;
+            }
+            trendDays = parsed;
+          }
+        }
+
         const allJobs = listStatus(store);
         const active = isJobScopeActive(scope);
         const jobs = active ? scopeJobs(allJobs, scope) : allJobs;
@@ -646,14 +666,21 @@ export function buildCli(): Command {
         }
 
         const stats = computeStats(jobs);
+        const trend = trendDays !== null ? computeDailyTrend(jobs, { nowMs: now, days: trendDays }) : null;
 
         if (opts.json) {
-          console.log(renderStatsJson(stats, store, { scope }));
+          console.log(renderStatsJson(stats, store, { scope, trend }));
           return;
         }
         // A store with jobs but an empty scoped subset should say "no match",
         // not the onboarding hint — renderStats keys that off scopeNote.
         console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY), scopeNote }));
+        // Append the histogram only when the store has matching jobs (renderStats
+        // already handles the empty/no-match messaging on its own).
+        if (trend !== null && stats.total > 0) {
+          console.log("");
+          console.log(renderTrend(trend, { color: Boolean(process.stdout.isTTY) }));
+        }
       }
     );
 
