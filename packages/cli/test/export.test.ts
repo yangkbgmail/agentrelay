@@ -74,6 +74,18 @@ describe("exportStore", () => {
     expect(result.content.split("\n")).toHaveLength(1);
   });
 
+  it("produces a Markdown table with a header, separator, and one row per job", () => {
+    seed();
+    const result = exportStore({ storePath, format: "md" });
+    expect(result.count).toBe(2);
+    const lines = result.content.split("\n");
+    expect(lines).toHaveLength(4); // header + separator + 2 rows
+    expect(lines[0].startsWith("| id | project | tool | status |")).toBe(true);
+    expect(lines[1]).toContain("| --- |");
+    expect(lines[2].startsWith("| ")).toBe(true);
+    expect(lines[2].endsWith(" |")).toBe(true);
+  });
+
   // The `export` command applies the same scope filters as `stats`/`status`:
   // the --since/--until time window via core scopeJobs, then
   // --status/--tool/--project/--sort/--reverse via selectJobs. These tests

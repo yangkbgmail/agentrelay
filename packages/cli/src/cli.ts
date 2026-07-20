@@ -379,7 +379,7 @@ export function buildCli(): Command {
 
   program
     .command("export")
-    .description("Export the job store to CSV or JSON for spreadsheets/BI/jq (stdout or a file)")
+    .description("Export the job store to CSV, JSON, or Markdown for spreadsheets/BI/jq/issues (stdout or a file)")
     .option("-f, --format <format>", `Output format: ${EXPORT_FORMATS.join(" | ")}`, "csv")
     .option("-o, --out <file>", "Write to this file instead of stdout")
     .option("-s, --status <statuses>", "Only export jobs with these comma-separated statuses (e.g. completed,failed)")

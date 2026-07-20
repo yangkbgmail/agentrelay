@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   EXPORT_FORMATS,
   escapeCsvField,
+  escapeMarkdownCell,
   exportJobs,
   JOB_CSV_COLUMNS,
   jobCsvValue,
   jobsToCsv,
   jobsToJson,
+  jobsToMarkdown,
 } from "../src/export.js";
 import type { RelayJob } from "../src/types.js";
 
@@ -126,6 +128,68 @@ describe("jobsToJson", () => {
   });
 });
 
+describe("escapeMarkdownCell", () => {
+  it("renders an empty value as an em dash", () => {
+    expect(escapeMarkdownCell("")).toBe("—");
+  });
+
+  it("leaves plain values untouched", () => {
+    expect(escapeMarkdownCell("hello")).toBe("hello");
+    expect(escapeMarkdownCell("a b c")).toBe("a b c");
+  });
+
+  it("backslash-escapes pipes so they don't break the column", () => {
+    expect(escapeMarkdownCell("a|b")).toBe("a\\|b");
+  });
+
+  it("escapes backslashes before pipes (so an escape isn't misread)", () => {
+    expect(escapeMarkdownCell("a\\|b")).toBe("a\\\\\\|b");
+  });
+
+  it("collapses newlines to <br> to keep the row on one line", () => {
+    expect(escapeMarkdownCell("line1\nline2")).toBe("line1<br>line2");
+    expect(escapeMarkdownCell("line1\r\nline2")).toBe("line1<br>line2");
+    expect(escapeMarkdownCell("line1\rline2")).toBe("line1<br>line2");
+  });
+});
+
+describe("jobsToMarkdown", () => {
+  it("emits header + separator rows for an empty store", () => {
+    const md = jobsToMarkdown([]);
+    const lines = md.split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toBe(`| ${JOB_CSV_COLUMNS.join(" | ")} |`);
+    expect(lines[1]).toBe(`| ${JOB_CSV_COLUMNS.map(() => "---").join(" | ")} |`);
+  });
+
+  it("emits one row per job with piped cells", () => {
+    const md = jobsToMarkdown([job({ id: "j1", project: "p1", attempts: 2 })]);
+    const lines = md.split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[2].startsWith("| j1 | p1 | claude-code | completed | 2 |")).toBe(true);
+  });
+
+  it("escapes pipes and newlines so a cell never breaks the table", () => {
+    const md = jobsToMarkdown([job({ command: ["claude", "-p", "a | b"], lastError: "boom\nnext" })], {});
+    const lines = md.split("\n");
+    // Still exactly header + separator + one data row.
+    expect(lines).toHaveLength(3);
+    expect(lines[2]).toContain("claude -p a \\| b");
+    expect(lines[2]).toContain("boom<br>next");
+  });
+
+  it("renders null resetAt/lastError cells as em dashes", () => {
+    const md = jobsToMarkdown([job({ resetAt: null, lastError: null })]);
+    const row = md.split("\n")[2];
+    expect(row).toContain("| — |");
+  });
+
+  it("honors a custom column subset and order", () => {
+    const md = jobsToMarkdown([job({ id: "x", status: "queued" })], { columns: ["status", "id"] });
+    expect(md).toBe("| status | id |\n| --- | --- |\n| queued | x |");
+  });
+});
+
 describe("exportJobs", () => {
   it("dispatches to CSV by default format", () => {
     const jobs = [job({ id: "d" })];
@@ -137,7 +201,12 @@ describe("exportJobs", () => {
     expect(exportJobs(jobs, "json")).toBe(jobsToJson(jobs));
   });
 
+  it("dispatches to Markdown", () => {
+    const jobs = [job({ id: "d" })];
+    expect(exportJobs(jobs, "md")).toBe(jobsToMarkdown(jobs));
+  });
+
   it("exposes the supported formats", () => {
-    expect(EXPORT_FORMATS).toEqual(["csv", "json"]);
+    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md"]);
   });
 });

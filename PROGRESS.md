@@ -980,3 +980,26 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — `agentrelay export --format md` (Markdown 테이블 내보내기)] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-1s67y3`)
+- **한 일: export 계열(CSV/JSON)에 사람이 읽기 좋은 Markdown 테이블 포맷을 추가했다.**
+  기존 export는 스프레드시트/BI(csv)와 무손실 기계 판독(json)만 지원해, 잡 이력을 GitHub 이슈·PR
+  본문·채팅에 **바로 붙여넣어 렌더되는 표**로 공유할 방법이 없었다. Markdown은 그 사람용 뷰를 채운다.
+  1. `@agentrelay/core/export.ts`에 순수 함수 2개 추가:
+     - `escapeMarkdownCell(value)` — GFM 셀 이스케이프. 컬럼을 깨는 유일 문자인 `|`를 백슬래시
+       이스케이프(그 전에 `\` 자체를 이중화해 이스케이프가 오독되지 않게), 행을 끝내는 개행(CRLF/CR/LF)은
+       `<br>`로 접어 멀티라인 프롬프트·에러가 셀 안에 머물게, 빈 값은 `—`(em dash)로 "값 없음"을 명시.
+     - `jobsToMarkdown(jobs, {columns?})` — 헤더 + 구분선(`| --- |`) + 잡당 1행. 셀 컬럼·값은
+       CSV export의 `JOB_CSV_COLUMNS`/`jobCsvValue`를 **그대로 재사용**해 두 포맷이 lockstep. 빈 스토어도
+       헤더+구분선을 내 스키마가 보이게 함.
+  2. `EXPORT_FORMATS`에 `"md"` 추가, `exportJobs` 디스패처를 switch로 전환(csv/json/md). CLI는 포맷
+     목록을 `EXPORT_FORMATS`에서 자동 생성하고 `exportStore`가 포맷 불가지(agnostic)라 **CLI 신규 코드
+     0줄** — `-f md`가 즉시 동작(파일 출력·스코프 필터 `--status/--tool/--project/--since/--until`·
+     `--sort/--reverse` 전부 기존 파이프라인 재사용). export 커맨드 설명만 "CSV, JSON, or Markdown"으로 갱신.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **432개 통과 + 1 skip**(core 297[+12: escapeMarkdownCell 6·jobsToMarkdown 5·exportJobs md 1]
+    + cli 132[+1: md 테이블 e2e] + dashboard 3). **실제 빌드 CLI e2e**(mock 아님): 파이프 포함 project·command
+    (`my\|proj`, `refactor \| fix, please`)·멀티라인 lastError(`boom line1<br>line2`)·빈 resetAt(`—`)가
+    올바로 이스케이프, `--tool` 스코프 필터·파일 출력(trailing newline)·잘못된 `-f yaml`→exit 1 확인.
+- 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간 확장(👷 후보),
+  README/ARCHITECTURE(🧭 코워크).
