@@ -124,6 +124,26 @@ describe("renderStats", () => {
     expect(out).not.toContain("resolution time");
   });
 
+  it("renders a resume-latency block when jobs have been resumed", () => {
+    const stats = computeStats([
+      job({ status: "completed", resetAt: "2026-07-13T00:00:00.000Z", resumedAt: "2026-07-13T00:30:00.000Z" }),
+      job({ status: "failed", resetAt: "2026-07-13T00:00:00.000Z", resumedAt: "2026-07-13T01:30:00.000Z" }),
+    ]);
+    const out = renderStats(stats, { now: NOW });
+    expect(out).toContain("resume latency");
+    expect(out).toContain("reset due → resumed");
+    expect(out).toContain("avg 1h 0m"); // (30m + 90m) / 2
+    expect(out).toContain("min 30m 0s");
+    expect(out).toContain("max 1h 30m");
+    expect(out).toContain("over 2 job(s)");
+  });
+
+  it("omits the resume-latency block when no job has been resumed", () => {
+    const stats = computeStats([job({ status: "queued", resumedAt: null }), job({ status: "completed" })]);
+    const out = renderStats(stats, { now: NOW });
+    expect(out).not.toContain("resume latency");
+  });
+
   it("caps the project list at five entries", () => {
     const jobs: RelayJob[] = [];
     for (const p of ["a", "b", "c", "d", "e", "f", "g"]) jobs.push(job({ project: p }));
@@ -145,6 +165,9 @@ describe("renderStatsJson", () => {
     // timing block is carried through untouched for scripts/jq.
     expect(parsed.stats.timing.resolvedCount).toBe(2);
     expect(typeof parsed.stats.timing.avgResolutionMs).toBe("number");
+    // resume-latency block is present (zero-filled here — no resumes) for a stable shape.
+    expect(parsed.stats.resumeLatency.resumedCount).toBe(0);
+    expect(parsed.stats.resumeLatency.avgLatencyMs).toBeNull();
   });
 
   it("omits scope when inactive and echoes it back when set", () => {

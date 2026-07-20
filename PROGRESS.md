@@ -980,3 +980,31 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — `agentrelay stats` 재개 지연(resume latency, 대기→재개 지연) 지표] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-qv8g5g`)
+- **한 일: 세션 30의 "다음 할 일"에 👷 후보로 남긴 "stats 대기→재개 지연 지표(RelayJob 중간 타임스탬프
+  필요)"를 구현했다.** 기존 `stats`의 timing은 **resolution time**(전체 라이프사이클 `updatedAt−createdAt`)만
+  봤는데, 이건 릴레이 루프 자체의 건강(데몬이 리셋 시각이 지나면 **얼마나 빨리** 잡을 집는가)을 못 보여준다.
+  느린 poll·죽은 데몬이면 리셋 후에도 잡이 오래 대기하는데 그게 안 드러났다.
+  1. **스키마**: `RelayJob`에 optional `resumedAt`(가장 최근 `waiting_for_reset`→`resuming` 전이 시각) 추가.
+     `enqueue`는 `null`로 초기화. 구버전 `jobs.json`(필드 부재)은 로드 시 undefined→지표에서 스킵으로 **하위
+     호환**(load는 스키마 검증 안 하고 캐스팅만 하므로 안전).
+  2. **큐/스케줄러**: `markResuming(id, at?)`가 재개 시각을 기록(기본 now). 스케줄러 `resume()`이 tick의
+     `referenceTime.toISOString()`을 주입 → 지표가 wall-clock이 아닌 결정론적(테스트 가능). resetAt은
+     resume 전이에서 보존되므로 재개 후 잡은 `resetAt`(이번 재개를 촉발한 리셋 시각)+`resumedAt`(재개 시각)을
+     함께 들고 있어 latency = `resumedAt − resetAt`.
+  3. **core stats**: `ResumeLatencyStats`(resumedCount·avg/min/max/median/p90 LatencyMs) + 순수
+     `resumeLatencyMs(job)`(둘 중 하나 없거나 파싱 불가·음수는 스킵 — 음수=재큐잉으로 resetAt이 last resume보다
+     최신인 stale 페어링, 클램프 대신 스킵, resolutionMs의 클럭스큐 정책과 동일). resolution/latency 두 지표의
+     percentile 집계 중복을 `summarizeDurations` 헬퍼로 통합(DRY, 기존 timing 값 불변). **status-agnostic** —
+     유효 페어링을 가진 모든 잡이 표본(완료/실패/진행중 무관).
+  4. **CLI stats**: resumedCount>0일 때만 "resume latency (reset due → resumed)" 블록(avg/min/max +
+     median/p90, `formatDurationMs` 재사용), `--json`은 `stats.resumeLatency`로 자동 노출.
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **428개 통과 + 1 skip**(core 292[+6: stats 4·queue 1·scheduler 1] + cli 133[+2: renderStats
+  블록 유무][+1 skip] + dashboard 3). **실제 빌드된 CLI e2e**(mock 아님): alpha(30m 지연)·beta(2h 지연)·
+  gamma(미재개) 3-job 스토어로 `stats`가 "resume latency avg 1h 15m / min 30m 0s / max 2h 0m / median 1h 15m"
+  렌더 확인, `--json`의 `resumeLatency`(resumedCount 2·avgLatencyMs 4500000 등) 확인, `resumedAt` 키가 아예
+  없는 구버전 스토어도 크래시 없이 블록 생략(하위호환) 확인.
+- 다음 할 일: 대시보드가 재개 지연/재개-루프 생존 상태 노출(👷 후보), `agentrelay show`/`export`에 resumedAt
+  노출(👷 후보 — 이번 세션은 stats 범위로 한정), README/ARCHITECTURE(🧭 코워크).

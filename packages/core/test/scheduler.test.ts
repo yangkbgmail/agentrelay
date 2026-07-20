@@ -75,6 +75,30 @@ describe("RelayScheduler", () => {
     expect(results[0].status).toBe("completed");
   });
 
+  it("stamps resumedAt with the tick reference time so resume latency is measurable", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    const resetAt = new Date(Date.now() - 60_000).toISOString();
+    queue.markWaitingForReset(job.id, resetAt);
+    const now = new Date(Date.now() + 1000); // reference time the tick runs at
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({ "claude -p continue": "All done, task finished successfully." }),
+    });
+
+    await scheduler.tick(now);
+    const resumed = queue.getById(job.id);
+    // resumedAt reflects the tick reference time, not the job's resetAt, so
+    // `stats` can compute latency = resumedAt - resetAt.
+    expect(resumed?.resumedAt).toBe(now.toISOString());
+    expect(new Date(resumed?.resumedAt ?? "").getTime() - new Date(resetAt).getTime()).toBe(61_000);
+  });
+
   it("re-queues a job that hits the rate limit again during resume", async () => {
     const job = queue.enqueue({
       project: "demo",

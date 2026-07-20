@@ -42,6 +42,31 @@ export interface TimingStats {
   p90ResolutionMs: number | null;
 }
 
+/**
+ * Resume-latency metrics: how long after a rate-limit reset was *due* the relay
+ * actually resumed the job (`resumedAt - resetAt`). This is the headline health
+ * signal for the relay loop itself — a low latency means the daemon/cron picks
+ * jobs up promptly once their window reopens; a high one means jobs sit idle
+ * past their reset (a slow poll interval, or a daemon that isn't running).
+ * Computed over every job that carries a valid `resumedAt`/`resetAt` pair
+ * regardless of status; a stale pairing (a job re-queued to a *future* reset
+ * after its last resume, giving a negative span) is skipped, not clamped.
+ */
+export interface ResumeLatencyStats {
+  /** Number of jobs that contributed a valid, non-negative latency sample. */
+  resumedCount: number;
+  /** Mean resume latency (ms) over {@link resumedCount} jobs, or null when none. */
+  avgLatencyMs: number | null;
+  /** Shortest resume latency (ms), or null when none. */
+  minLatencyMs: number | null;
+  /** Longest resume latency (ms), or null when none. */
+  maxLatencyMs: number | null;
+  /** Median (p50) resume latency (ms) — the typical pickup delay — or null when none. */
+  medianLatencyMs: number | null;
+  /** 90th-percentile resume latency (ms) — the near-worst-case delay — or null when none. */
+  p90LatencyMs: number | null;
+}
+
 export interface RelayStats {
   total: number;
   /** Count per job status (all statuses present, zero-filled). */
@@ -68,6 +93,8 @@ export interface RelayStats {
   projects: ProjectStat[];
   /** Resolution-time metrics over completed + failed jobs. */
   timing: TimingStats;
+  /** Resume-latency metrics (reset-due → actually-resumed) over resumed jobs. */
+  resumeLatency: ResumeLatencyStats;
 }
 
 /**
@@ -156,6 +183,53 @@ function resolutionMs(job: RelayJob): number | null {
 }
 
 /**
+ * Resume latency of a job in ms (`resumedAt - resetAt`), or null when the job
+ * has never been resumed, is missing `resetAt`, has an unparseable timestamp,
+ * or the span is negative. A negative span means the current `resetAt` is newer
+ * than the last resume (the job was re-queued to a future reset after resuming),
+ * so the pairing is stale and shouldn't count — skipped rather than clamped,
+ * mirroring how {@link resolutionMs} treats clock skew.
+ */
+function resumeLatencyMs(job: RelayJob): number | null {
+  if (!job.resumedAt || !job.resetAt) return null;
+  const resumed = Date.parse(job.resumedAt);
+  const reset = Date.parse(job.resetAt);
+  if (Number.isNaN(resumed) || Number.isNaN(reset)) return null;
+  const span = resumed - reset;
+  return span >= 0 ? span : null;
+}
+
+/** The count/avg/min/max/median/p90 shape shared by every duration metric. */
+interface DurationSummary {
+  count: number;
+  avg: number | null;
+  min: number | null;
+  max: number | null;
+  median: number | null;
+  p90: number | null;
+}
+
+/**
+ * Reduce a list of durations (ms) to summary statistics. Sorts once ascending;
+ * min/max are the ends, median/p90 read via {@link percentile}, avg is the
+ * rounded mean. An empty list yields an all-null summary with count 0. Shared by
+ * the resolution-time and resume-latency metrics so they can never drift.
+ */
+function summarizeDurations(durations: number[]): DurationSummary {
+  const count = durations.length;
+  if (count === 0) return { count: 0, avg: null, min: null, max: null, median: null, p90: null };
+  const sorted = [...durations].sort((a, b) => a - b);
+  return {
+    count,
+    avg: Math.round(sorted.reduce((sum, d) => sum + d, 0) / count),
+    min: sorted[0],
+    max: sorted[count - 1],
+    median: percentile(sorted, 0.5),
+    p90: percentile(sorted, 0.9),
+  };
+}
+
+/**
  * Linear-interpolated percentile (0..1) over an ascending-sorted, non-empty
  * array. p=0.5 → median, p=0.9 → p90. Matches the common "type 7" / NumPy
  * default: rank = p·(n−1), interpolate between the two straddling samples.
@@ -184,6 +258,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
   let totalAttempts = 0;
   let retriedJobs = 0;
   const resolutionDurations: number[] = [];
+  const resumeLatencies: number[] = [];
 
   for (const job of jobs) {
     // A job may carry a tool we don't statically know about; only bump known
@@ -196,6 +271,10 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       const span = resolutionMs(job);
       if (span !== null) resolutionDurations.push(span);
     }
+    // Resume latency is status-agnostic: any job with a valid resumedAt/resetAt
+    // pairing has been picked up by the relay at least once and contributes.
+    const latency = resumeLatencyMs(job);
+    if (latency !== null) resumeLatencies.push(latency);
   }
 
   const active = ACTIVE_STATUSES.reduce((sum, s) => sum + byStatus[s], 0);
@@ -208,29 +287,25 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     .map(([project, count]) => ({ project, count }))
     .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.project.localeCompare(b.project)));
 
-  const resolvedCount = resolutionDurations.length;
-  let timing: TimingStats;
-  if (resolvedCount === 0) {
-    timing = {
-      resolvedCount: 0,
-      avgResolutionMs: null,
-      minResolutionMs: null,
-      maxResolutionMs: null,
-      medianResolutionMs: null,
-      p90ResolutionMs: null,
-    };
-  } else {
-    // Sort once ascending; percentiles read from it, min/max are its ends.
-    const sorted = [...resolutionDurations].sort((a, b) => a - b);
-    timing = {
-      resolvedCount,
-      avgResolutionMs: Math.round(sorted.reduce((sum, d) => sum + d, 0) / resolvedCount),
-      minResolutionMs: sorted[0],
-      maxResolutionMs: sorted[resolvedCount - 1],
-      medianResolutionMs: percentile(sorted, 0.5),
-      p90ResolutionMs: percentile(sorted, 0.9),
-    };
-  }
+  const resolution = summarizeDurations(resolutionDurations);
+  const timing: TimingStats = {
+    resolvedCount: resolution.count,
+    avgResolutionMs: resolution.avg,
+    minResolutionMs: resolution.min,
+    maxResolutionMs: resolution.max,
+    medianResolutionMs: resolution.median,
+    p90ResolutionMs: resolution.p90,
+  };
+
+  const latency = summarizeDurations(resumeLatencies);
+  const resumeLatency: ResumeLatencyStats = {
+    resumedCount: latency.count,
+    avgLatencyMs: latency.avg,
+    minLatencyMs: latency.min,
+    maxLatencyMs: latency.max,
+    medianLatencyMs: latency.median,
+    p90LatencyMs: latency.p90,
+  };
 
   return {
     total,
@@ -244,5 +319,6 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     nextResetAt,
     projects,
     timing,
+    resumeLatency,
   };
 }
