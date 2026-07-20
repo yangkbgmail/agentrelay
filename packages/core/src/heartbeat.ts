@@ -123,3 +123,82 @@ export function heartbeatStaleAfterMs(mode: HeartbeatMode, pollIntervalMs: numbe
   if (mode === "tick" || pollIntervalMs <= 0) return HEARTBEAT_TICK_STALE_AFTER_MS;
   return Math.max(pollIntervalMs * HEARTBEAT_STALE_FACTOR, HEARTBEAT_MIN_STALE_AFTER_MS);
 }
+
+/**
+ * The liveness of the resume loop, distilled to three states the way a human
+ * reads it:
+ * - `alive` — a daemon/tick heartbeat exists and ticked within its staleness
+ *   window; queued jobs will be picked up.
+ * - `stale` — a heartbeat exists but hasn't ticked recently; the loop probably
+ *   stopped (crash, killed, cron not firing).
+ * - `absent` — no heartbeat file at all; no resume loop has run.
+ */
+export type HeartbeatLiveness = "alive" | "stale" | "absent";
+
+/**
+ * A UI-ready judgment of the resume loop's health. Unlike `doctor`'s
+ * {@link DiagnosticCheck} (which bakes in CLI-flavored messages/hints), this is
+ * plain structured data any surface — the dashboard, a status endpoint — can
+ * render however it likes, while still agreeing with `doctor` on the underlying
+ * alive/stale/absent decision.
+ */
+export interface HeartbeatStatus {
+  /** The distilled liveness — see {@link HeartbeatLiveness}. */
+  state: HeartbeatLiveness;
+  /** How the writer runs (only when a heartbeat is present). */
+  mode?: HeartbeatMode;
+  /** Writer PID, so a user can locate/kill the process (present only). */
+  pid?: number;
+  /** ISO timestamp of the last tick (present only). */
+  lastTickAt?: string;
+  /** Age in ms of the last tick (`now - lastTickAt`), when parseable. */
+  ageMs?: number;
+  /** Staleness threshold in ms; an {@link ageMs} beyond it means "not alive". */
+  staleAfterMs?: number;
+  /** Active jobs that depend on the loop running (queued/waiting/resuming). */
+  waitingJobs: number;
+  /**
+   * True when the state is actually a problem: jobs are waiting to resume but
+   * the loop isn't alive, so they won't resume on their own. A stale/absent
+   * loop with nothing waiting is fine and reads as not concerning.
+   */
+  concerning: boolean;
+}
+
+/**
+ * Judge a (possibly missing) heartbeat into a {@link HeartbeatStatus}, pure. The
+ * caller supplies `nowMs` and how many jobs are waiting so this stays clock- and
+ * filesystem-free. Mirrors `doctor`'s alive/stale rule (`ageMs <= staleAfterMs`)
+ * so both surfaces agree, but returns structured data instead of a message.
+ *
+ * A `lastTickAt` that won't parse (NaN age) is treated as stale — an unusable
+ * timestamp is not evidence the loop is alive.
+ */
+export function evaluateHeartbeat(
+  heartbeat: DaemonHeartbeat | null,
+  options: { nowMs: number; waitingJobs: number }
+): HeartbeatStatus {
+  const waitingJobs = Math.max(0, Math.floor(options.waitingJobs));
+
+  if (heartbeat === null) {
+    return { state: "absent", waitingJobs, concerning: waitingJobs > 0 };
+  }
+
+  const lastTickMs = new Date(heartbeat.lastTickAt).getTime();
+  const rawAge = options.nowMs - lastTickMs;
+  const ageMs = Number.isFinite(rawAge) ? rawAge : undefined;
+  const staleAfterMs = heartbeatStaleAfterMs(heartbeat.mode, heartbeat.pollIntervalMs);
+  const alive = ageMs !== undefined && ageMs <= staleAfterMs;
+  const state: HeartbeatLiveness = alive ? "alive" : "stale";
+
+  return {
+    state,
+    mode: heartbeat.mode,
+    pid: heartbeat.pid,
+    lastTickAt: heartbeat.lastTickAt,
+    ageMs,
+    staleAfterMs,
+    waitingJobs,
+    concerning: !alive && waitingJobs > 0,
+  };
+}
