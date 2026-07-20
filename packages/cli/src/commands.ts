@@ -932,7 +932,7 @@ export interface ExportJobsResult {
 }
 
 /**
- * Serialize the job store to CSV or JSON. The heavy lifting (escaping,
+ * Serialize the job store to CSV, JSON, or NDJSON. The heavy lifting (escaping,
  * column layout) lives in the pure `@agentrelay/core` `exportJobs`; this wrapper
  * only handles the store read and optional file write so the CLI stays thin.
  * A file write appends a trailing newline (POSIX text convention); the returned

@@ -386,6 +386,15 @@
 - [x] 👷 `agentrelay notify test` — 설정된 알림 채널(Slack/웹훅)로 실전 테스트 페이로드 전송·결과 리포트.
       (완료 — core `notify.ts` `sendTestNotification`, CLI `notify.ts` `renderTestNotifyResults(Json)`.
       branch `claude/wizardly-pascal-55aspp`, PR #77)
+- [x] 👷 `agentrelay export --format ndjson` — 스트리밍/append 친화 줄단위 무손실 내보내기(`jq -c`용).
+      (완료 — core `export.ts` `jobsToNdjson` + `EXPORT_FORMATS`에 `ndjson`. branch
+      `claude/wizardly-pascal-orbdgw`, PR #70)
+- [x] 👷 `agentrelay next` — 다음에 재개될 잡 하나를 카운트다운과 함께 한 줄로(스크립트/상태바 친화, `--exit-code`).
+      (완료 — core `next.ts` `selectNextResume`, CLI `next.ts` `renderNext(Json)`. branch
+      `claude/wizardly-pascal-lgawzr`, PR #64)
+- [x] 👷 `agentrelay stats --trend [days]` — UTC 일별 활동 히스토그램(릴레이가 언제 바빴는지 시간 축).
+      (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
+      `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
