@@ -16,8 +16,10 @@ import {
   restoreStore,
   retryJob,
   runCommand,
+  setConfigFile,
   showConfig,
   showJob,
+  unsetConfigFile,
   validateConfigFile,
 } from "../src/commands.js";
 import { isConfigDiagnosticInvocation, renderEffectiveConfig } from "../src/config.js";
@@ -357,6 +359,100 @@ describe("validateConfigFile", () => {
     const result = validateConfigFile({ path });
     expect(result.ok).toBe(true);
     expect(result.issues).toEqual([expect.objectContaining({ level: "warning", path: "notify.slackWebhook" })]);
+  });
+});
+
+describe("setConfigFile / unsetConfigFile", () => {
+  let dir: string;
+  let path: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cfgset-"));
+    path = join(dir, "agentrelay.config.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("creates the file on first set with pretty JSON", () => {
+    const result = setConfigFile({ key: "retry.maxAttempts", value: "7", path });
+    expect(result.ok).toBe(true);
+    expect(existsSync(path)).toBe(true);
+    const written = readFileSync(path, "utf8");
+    expect(written.endsWith("\n")).toBe(true);
+    expect(parseConfig(JSON.parse(written))).toEqual({ retry: { maxAttempts: 7 } });
+    expect(result.message).toMatch(/Set retry.maxAttempts = 7/);
+  });
+
+  it("merges into an existing file, preserving other values", () => {
+    writeFileSync(path, JSON.stringify({ store: "/keep.json", retry: { factor: 3 } }));
+    const result = setConfigFile({ key: "retry.maxAttempts", value: "9", path });
+    expect(result.ok).toBe(true);
+    expect(parseConfig(JSON.parse(readFileSync(path, "utf8")))).toEqual({
+      store: "/keep.json",
+      retry: { factor: 3, maxAttempts: 9 },
+    });
+  });
+
+  it("masks a secret value in the confirmation message", () => {
+    const result = setConfigFile({ key: "notify.webhookAuth", value: "Bearer super-secret", path });
+    expect(result.ok).toBe(true);
+    expect(result.message).not.toMatch(/super-secret/);
+    expect(result.message).toMatch(/\*\*\*/);
+    // ...but the real value is written to the file.
+    expect(parseConfig(JSON.parse(readFileSync(path, "utf8")))).toEqual({
+      notify: { webhookAuth: "Bearer super-secret" },
+    });
+  });
+
+  it("refuses an unknown key and does not write", () => {
+    const result = setConfigFile({ key: "retry.bogus", value: "1", path });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/Unknown config key/);
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it("refuses a value that fails semantic validation (factor < 1)", () => {
+    const result = setConfigFile({ key: "retry.factor", value: "0.5", path });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/at least 1/);
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it("refuses a type-mismatched value (non-number)", () => {
+    const result = setConfigFile({ key: "retry.maxAttempts", value: "many", path });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/finite number/);
+  });
+
+  it("errors clearly on a malformed existing file instead of clobbering it", () => {
+    writeFileSync(path, "{ not json");
+    const result = setConfigFile({ key: "store", value: "/x.json", path });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/Invalid JSON/);
+    // Original bytes preserved.
+    expect(readFileSync(path, "utf8")).toBe("{ not json");
+  });
+
+  it("unset removes a value and drops the emptied group", () => {
+    writeFileSync(path, JSON.stringify({ retry: { maxAttempts: 5 } }));
+    const result = unsetConfigFile({ key: "retry.maxAttempts", path });
+    expect(result.ok).toBe(true);
+    expect(parseConfig(JSON.parse(readFileSync(path, "utf8")))).toEqual({});
+  });
+
+  it("unset reports when there is no file to edit", () => {
+    const result = unsetConfigFile({ key: "store", path });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/No config file/);
+  });
+
+  it("unset rejects an unknown key", () => {
+    writeFileSync(path, "{}");
+    const result = unsetConfigFile({ key: "retry.bogus", path });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/Unknown config key/);
   });
 });
 

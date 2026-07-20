@@ -97,6 +97,162 @@ export function sampleConfigJson(): string {
   return `${JSON.stringify(sampleConfig(), null, 2)}\n`;
 }
 
+/**
+ * The value type of a settable config field, used to coerce the raw string a
+ * user types on the command line (`agentrelay config set <key> <value>`) into
+ * the JSON type the config schema expects.
+ *
+ * - `string` — stored verbatim.
+ * - `number` — parsed with {@link Number}; must be finite.
+ * - `boolean` — accepts true/false, 1/0, yes/no, on/off (case-insensitive).
+ * - `duration` — stored as the raw string but must parse via {@link parseDuration}
+ *   (e.g. `7d`, `24h`, `30m`), so a typo is rejected at set time rather than
+ *   silently ignored later.
+ */
+export type ConfigFieldType = "string" | "number" | "boolean" | "duration";
+
+/** One dotted config key that {@link setConfigValue}/{@link unsetConfigValue} understand. */
+export interface ConfigField {
+  /** Dotted path used on the CLI, e.g. `retry.maxAttempts`. */
+  key: string;
+  group: ConfigGroup;
+  type: ConfigFieldType;
+  /** Webhook URLs/auth tokens — masked when echoed back. */
+  secret?: boolean;
+}
+
+/**
+ * Every settable config field, keyed by its dotted CLI path. Mirrors the
+ * {@link AgentRelayConfig} schema and {@link CONFIG_ENV_KEYS} exactly (a test
+ * asserts they stay in sync), so `config set` can reach precisely the values
+ * `config show` reports and no more.
+ */
+export const CONFIG_FIELDS: ConfigField[] = [
+  { key: "store", group: "store", type: "string" },
+  { key: "notify.slackWebhook", group: "notify", type: "string", secret: true },
+  { key: "notify.webhookUrl", group: "notify", type: "string", secret: true },
+  { key: "notify.webhookAuth", group: "notify", type: "string", secret: true },
+  { key: "retry.maxAttempts", group: "retry", type: "number" },
+  { key: "retry.baseDelayMs", group: "retry", type: "number" },
+  { key: "retry.factor", group: "retry", type: "number" },
+  { key: "retry.maxDelayMs", group: "retry", type: "number" },
+  { key: "autoPrune.enabled", group: "autoPrune", type: "boolean" },
+  { key: "autoPrune.after", group: "autoPrune", type: "duration" },
+  { key: "autoPrune.keep", group: "autoPrune", type: "number" },
+  { key: "autoPrune.every", group: "autoPrune", type: "duration" },
+  { key: "autoPrune.everyTicks", group: "autoPrune", type: "number" },
+];
+
+/** Dotted keys of all settable config fields, in display order. */
+export const SETTABLE_CONFIG_KEYS: string[] = CONFIG_FIELDS.map((f) => f.key);
+
+/** Looks up a settable field by its dotted key, or `undefined` when unknown. */
+export function findConfigField(key: string): ConfigField | undefined {
+  return CONFIG_FIELDS.find((f) => f.key === key);
+}
+
+/**
+ * Coerces the raw CLI string for `field` into its typed JSON value, throwing a
+ * clear error when the input doesn't fit the field's type. Pure.
+ */
+export function coerceConfigValue(field: ConfigField, raw: string): string | number | boolean {
+  switch (field.type) {
+    case "string":
+      return raw;
+    case "number": {
+      const trimmed = raw.trim();
+      const n = trimmed === "" ? Number.NaN : Number(trimmed);
+      if (!Number.isFinite(n)) {
+        throw new Error(`${field.key} must be a finite number, got "${raw}"`);
+      }
+      return n;
+    }
+    case "boolean": {
+      const v = raw.trim().toLowerCase();
+      if (v === "true" || v === "1" || v === "yes" || v === "on") return true;
+      if (v === "false" || v === "0" || v === "no" || v === "off") return false;
+      throw new Error(`${field.key} must be a boolean (true/false, 1/0, yes/no, on/off), got "${raw}"`);
+    }
+    case "duration": {
+      const trimmed = raw.trim();
+      if (parseDuration(trimmed) === null) {
+        throw new Error(`${field.key} must be a duration like "7d", "24h", "30m", "90s" or "500ms", got "${raw}"`);
+      }
+      return trimmed;
+    }
+  }
+}
+
+/** Shallow-clones a config, copying each present group object so edits don't mutate the input. */
+function cloneConfig(config: AgentRelayConfig): AgentRelayConfig {
+  const clone: AgentRelayConfig = {};
+  if (config.store !== undefined) clone.store = config.store;
+  if (config.notify) clone.notify = { ...config.notify };
+  if (config.retry) clone.retry = { ...config.retry };
+  if (config.autoPrune) clone.autoPrune = { ...config.autoPrune };
+  return clone;
+}
+
+/**
+ * Returns a new config with `key` set to the coerced `raw` value. Throws on an
+ * unknown key or a value that doesn't fit the field's type. Never mutates the
+ * input. Pure — no filesystem — so the CLI `config set` command and tests share
+ * exactly this logic.
+ */
+export function setConfigValue(config: AgentRelayConfig, key: string, raw: string): AgentRelayConfig {
+  const field = findConfigField(key);
+  if (!field) {
+    throw new Error(`Unknown config key "${key}". Valid keys: ${SETTABLE_CONFIG_KEYS.join(", ")}.`);
+  }
+  const value = coerceConfigValue(field, raw);
+  const next = cloneConfig(config) as Record<string, unknown>;
+  const parts = key.split(".");
+  if (parts.length === 1) {
+    next[parts[0]] = value;
+  } else {
+    const [group, leaf] = parts;
+    const groupObj = { ...((next[group] as Record<string, unknown> | undefined) ?? {}) };
+    groupObj[leaf] = value;
+    next[group] = groupObj;
+  }
+  return next as AgentRelayConfig;
+}
+
+/**
+ * Returns a new config with `key` removed (falling back to the built-in default
+ * at runtime). Emptied group objects are dropped so the file doesn't accumulate
+ * `"retry": {}`. Throws on an unknown key. Never mutates the input. Pure.
+ */
+export function unsetConfigValue(config: AgentRelayConfig, key: string): AgentRelayConfig {
+  const field = findConfigField(key);
+  if (!field) {
+    throw new Error(`Unknown config key "${key}". Valid keys: ${SETTABLE_CONFIG_KEYS.join(", ")}.`);
+  }
+  const next = cloneConfig(config) as Record<string, unknown>;
+  const parts = key.split(".");
+  if (parts.length === 1) {
+    delete next[parts[0]];
+  } else {
+    const [group, leaf] = parts;
+    const groupObj = next[group] as Record<string, unknown> | undefined;
+    if (groupObj) {
+      delete groupObj[leaf];
+      if (Object.keys(groupObj).length === 0) delete next[group];
+    }
+  }
+  return next as AgentRelayConfig;
+}
+
+/**
+ * Serializes a config to the same pretty-printed JSON (2-space indent, trailing
+ * newline) that `config init` writes, so a hand-written file and a
+ * `config set`-edited one stay formatted identically. Round-trips through
+ * {@link parseConfig}.
+ */
+export function configToJson(config: AgentRelayConfig): string {
+  return `${JSON.stringify(config, null, 2)}\n`;
+}
+
 export interface LoadConfigOptions {
   /** Explicit file path (skips discovery). Falls back to `AGENTRELAY_CONFIG`. */
   path?: string;
@@ -133,6 +289,26 @@ export function resolveConfigPath(options: LoadConfigOptions = {}): string | nul
     if (existsSync(candidate)) return candidate;
   }
   return null;
+}
+
+/**
+ * Resolves a *definite* target path for writing a config file (used by
+ * `config set`/`unset`, which must always have somewhere to write, unlike the
+ * read-side {@link resolveConfigPath} that returns `null` when nothing exists):
+ *
+ * 1. an explicit `path` argument or `AGENTRELAY_CONFIG` env var;
+ * 2. an already-existing discovered file (project-local or per-user);
+ * 3. otherwise `<cwd>/agentrelay.config.json` — so a first `set` creates the
+ *    project-local file rather than silently editing the per-user one.
+ */
+export function resolveConfigWritePath(options: LoadConfigOptions = {}): string {
+  const env = options.env ?? process.env;
+  const cwd = options.cwd ?? process.cwd();
+  const explicit = options.path?.trim() || env.AGENTRELAY_CONFIG?.trim();
+  if (explicit) return explicit;
+  const discovered = resolveConfigPath({ cwd, env });
+  if (discovered) return discovered;
+  return join(cwd, CONFIG_FILENAME);
 }
 
 /**

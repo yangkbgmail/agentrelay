@@ -26,9 +26,12 @@ export function configPathFromArgv(argv: string[]): string | undefined {
   return undefined;
 }
 
+/** `config` subcommands that must run without the startup {@link bootstrapConfig}. */
+const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "set", "unset"]);
+
 /**
- * True when argv invokes a `config` diagnostic subcommand — `validate` or
- * `show` — that must run *without* the startup {@link bootstrapConfig}:
+ * True when argv invokes a `config` subcommand that must run *without* the
+ * startup {@link bootstrapConfig}:
  *
  * - `validate` diagnoses a possibly-malformed file; bootstrap throws on one,
  *   which would abort before validate can report the problem.
@@ -36,10 +39,13 @@ export function configPathFromArgv(argv: string[]): string | undefined {
  *   the config file's values into `process.env` first, making them all look
  *   like they came from the environment. Skipping it keeps the layers distinct
  *   (`show` loads the file itself to attribute each value).
+ * - `set`/`unset` edit the file directly; bootstrap would abort on a malformed
+ *   existing file before the command can report its own clear error, and its
+ *   env-folding is irrelevant since these commands never read env-driven options.
  */
 export function isConfigDiagnosticInvocation(argv: string[] = process.argv): boolean {
   const args = subcommandTokens(argv);
-  return args[0] === "config" && (args[1] === "validate" || args[1] === "show");
+  return args[0] === "config" && BOOTSTRAP_SKIP_SUBCOMMANDS.has(args[1]);
 }
 
 /** Global program options that consume the following argv token as their value. */

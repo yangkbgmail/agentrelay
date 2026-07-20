@@ -347,6 +347,19 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay config set <key> <value>` / `config unset <key>` — 설정 파일을 손 편집 없이 CLI로
+      갱신(config CRUD의 마지막 조각: init/validate/show에 이어 쓰기 수단).
+      (완료 — `@agentrelay/core/config.ts`에 순수 계층 신설: `ConfigField`/`CONFIG_FIELDS`(13개 dotted 키,
+      `CONFIG_ENV_KEYS`와 1:1·드리프트 방지 테스트)·`SETTABLE_CONFIG_KEYS`·`findConfigField`·
+      `coerceConfigValue`(string/number[finite]/boolean[true·1·yes·on]/duration[`parseDuration` 검증])·
+      불변 `setConfigValue`(그룹 자동 생성·형제 보존)·`unsetConfigValue`(빈 그룹 제거)·`configToJson`(init과
+      동일 포맷·왕복 무손실)·`resolveConfigWritePath`(명시→기존 발견 파일→`<cwd>/agentrelay.config.json`).
+      CLI `setConfigFile`/`unsetConfigFile`(throw 대신 결과 객체): 손상 JSON은 덮지 않고 명확 에러, **해당 키의
+      의미 검증 실패면 디스크에 안 씀**(예 factor 0.5 거부), 시크릿 값은 확인 메시지에서 `***` 마스킹(파일엔
+      원문). `config set`/`unset` 서브커맨드 배선, 부트스트랩 스킵에 set/unset 추가(손상 파일에 abort 안 하고
+      자기 에러). core 18 + cli 10 신규 테스트, 빌드된 CLI e2e로 set/merge/마스킹/거부/show 왕복/unset/손상보호
+      검증. branch `claude/wizardly-pascal-35ao82`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

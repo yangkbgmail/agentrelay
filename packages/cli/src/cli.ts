@@ -1,5 +1,13 @@
 import type { AgentTool, ExportFormat, JobScope, JobStatus, RelayJob } from "@agentrelay/core";
-import { ALL_TOOLS, computeStats, EXPORT_FORMATS, isJobScopeActive, parseDuration, scopeJobs } from "@agentrelay/core";
+import {
+  ALL_TOOLS,
+  computeStats,
+  EXPORT_FORMATS,
+  isJobScopeActive,
+  parseDuration,
+  SETTABLE_CONFIG_KEYS,
+  scopeJobs,
+} from "@agentrelay/core";
 import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
@@ -15,10 +23,12 @@ import {
   retryJob,
   runCommand,
   runDoctor,
+  setConfigFile,
   showConfig,
   showJob,
   startDaemon,
   tickOnce,
+  unsetConfigFile,
   validateConfigFile,
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
@@ -579,6 +589,35 @@ export function buildCli(): Command {
       // A broken config file is a real problem worth a non-zero exit, but we
       // still printed the env/default resolution above to aid debugging.
       if (result.loadError) process.exitCode = 1;
+    });
+  config
+    .command("set")
+    .description("Set a single value in agentrelay.config.json (creates the file if needed)")
+    .argument("<key>", `Dotted config key, one of: ${SETTABLE_CONFIG_KEYS.join(", ")}`)
+    .argument("<value>", "New value (coerced to the field's type)")
+    .action((key: string, value: string) => {
+      const { config: configPath } = program.opts();
+      const result = setConfigFile({ key, value, path: configPath });
+      if (result.ok) {
+        console.log(`[agentrelay] ${result.message}`);
+      } else {
+        console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 1;
+      }
+    });
+  config
+    .command("unset")
+    .description("Remove a single value from agentrelay.config.json so its default applies again")
+    .argument("<key>", `Dotted config key to remove, one of: ${SETTABLE_CONFIG_KEYS.join(", ")}`)
+    .action((key: string) => {
+      const { config: configPath } = program.opts();
+      const result = unsetConfigFile({ key, path: configPath });
+      if (result.ok) {
+        console.log(`[agentrelay] ${result.message}`);
+      } else {
+        console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 1;
+      }
     });
 
   program

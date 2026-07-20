@@ -980,3 +980,35 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — `agentrelay config set/unset` — 설정 CRUD 완성] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-35ao82`)
+- 배경: 세션 시작 시 열린 PR 22개가 completion·cancel/retry --all·stats --trend/--group-by/resume-latency·
+  parse·notify test·대시보드 생존 배너·export NDJSON·daemon 이중 실행 가드·status --limit·next·doctor overdue를
+  이미 점유. 중복을 피해 CLAUDE.md 지침대로 **어느 열린 PR과도 겹치지 않는 신규 항목을 발굴**했다 — config
+  명령군이 init/validate/show만 있고 값을 **쓰는** 수단(set/unset)이 없어, 한 값만 바꾸려도 JSON을 손으로
+  편집해야 했다. CRUD의 마지막 조각.
+- 한 일: **`agentrelay config set <key> <value>` / `config unset <key>`**.
+  1. `@agentrelay/core/config.ts`에 순수 계층 신설: `ConfigFieldType`(string/number/boolean/duration)·
+     `ConfigField`·`CONFIG_FIELDS`(13개 dotted 키, `CONFIG_ENV_KEYS`와 1:1 — 드리프트 방지 테스트 포함)·
+     `SETTABLE_CONFIG_KEYS`·`findConfigField`. `coerceConfigValue`(CLI 문자열→타입: number는 finite 검증,
+     boolean은 true/1/yes/on·false/0/no/off, duration은 `parseDuration`으로 set 시점에 검증해 오타를 즉시
+     거부). `setConfigValue`(불변 — 입력 미변형, 그룹 자동 생성, 형제 필드 보존)·`unsetConfigValue`(빈 그룹
+     자동 제거)·`configToJson`(init과 동일 2-스페이스+개행 포맷, `parseConfig` 왕복 무손실)·
+     `resolveConfigWritePath`(쓰기용 확정 경로: 명시→발견된 기존 파일→`<cwd>/agentrelay.config.json`).
+  2. CLI `commands.ts`에 `setConfigFile`/`unsetConfigFile`(throw 대신 구조화 결과): 파일 읽기(없으면 빈
+     config로 시작, **손상 JSON은 덮어쓰지 않고 명확한 에러**)→set/unset→**해당 키의 의미 검증 실패면
+     디스크에 안 씀**(예: `retry.factor 0.5` 거부)·경고는 표시하고 씀→pretty JSON 쓰기. 시크릿 값(webhook
+     auth/URL)은 확인 메시지에서 `***`로 마스킹(실제 파일엔 원문 기록). `readConfigForEdit` 헬퍼.
+  3. `cli.ts`에 `config set`/`config unset` 서브커맨드 배선(도움말에 유효 키 목록, 실패 시 exit 1).
+     `config.ts`의 부트스트랩 스킵 목록(`isConfigDiagnosticInvocation`)에 set/unset 추가 — 손상된 기존 파일에
+     부트스트랩이 먼저 abort하지 않고 커맨드가 자기 에러를 내게 함(validate/show와 동일 이유).
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **451개 통과 + 1 skip**(core 307[+18: set/unset/coerce/round-trip/드리프트·resolveConfigWritePath 4] +
+    cli 141[+10: setConfigFile/unsetConfigFile 파일 I/O·시크릿 마스킹·손상 파일 보호·의미 검증 거부] + dashboard 3).
+    **실제 빌드된 CLI e2e**(mock 아님): `config set retry.maxAttempts 7`이 파일 생성 → `notify.webhookAuth`
+    set이 그룹 병합+메시지 `***` 마스킹(파일엔 원문) → `autoPrune.after 14d` 통과 → 잘못된 factor 0.5·미지 키·
+    비숫자는 exit 1 + 파일 미변경 → `config show`가 set 값을 `[config-file]` 출처로 표시 → `config validate` 통과 →
+    `unset autoPrune.after`가 값 제거+빈 그룹 삭제 → 미지 키/파일 없음 unset은 exit 1 → 손상 JSON에 set은 clean
+    에러+원본 바이트 보존 확인.
+- 다음 할 일: `config set`을 대시보드 설정 UI로 노출(👷 후보), stats 재개 지연 지표(👷 후보 — PR #75),
+  README/ARCHITECTURE(🧭 코워크).

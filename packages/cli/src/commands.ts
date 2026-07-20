@@ -33,12 +33,14 @@ import {
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
   type ExportFormat,
   exportJobs,
+  findConfigField,
   hasConfigErrors,
   heartbeatStaleAfterMs,
   listBackups,
@@ -53,12 +55,15 @@ import {
   resolveAdapter,
   resolveBackup,
   resolveConfigPath,
+  resolveConfigWritePath,
   resolveEffectiveConfig,
   resolveJobId,
   retryPolicyFromEnv,
   runDiagnostics,
   sampleConfigJson,
   serializeDaemonHeartbeat,
+  setConfigValue,
+  unsetConfigValue,
   validateConfig,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
@@ -575,6 +580,145 @@ export function validateConfigFile(options: ConfigValidateOptions = {}): ConfigV
 
   const issues = validateConfig(config);
   return { ok: !hasConfigErrors(issues), path, issues };
+}
+
+export interface ConfigSetOptions {
+  /** Dotted config key to set (e.g. `retry.maxAttempts`). */
+  key: string;
+  /** Raw value as typed on the command line; coerced to the field's type. */
+  value: string;
+  /** Explicit target file. When omitted, resolves via {@link resolveConfigWritePath}. */
+  path?: string;
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+}
+
+export interface ConfigUnsetOptions {
+  key: string;
+  path?: string;
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+}
+
+export interface ConfigMutateResult {
+  ok: boolean;
+  /** Absolute/target path that was (or would have been) written. */
+  path: string;
+  message: string;
+}
+
+/**
+ * Reads a config file for in-place editing: returns an empty config when the
+ * file is absent or blank (so a first `set` starts fresh), and throws a clear
+ * error on malformed JSON or a structurally invalid file (so `set`/`unset`
+ * never silently discard an existing broken config by overwriting it).
+ */
+function readConfigForEdit(path: string): AgentRelayConfig {
+  if (!existsSync(path)) return {};
+  const raw = readFileSync(path, "utf8");
+  if (raw.trim() === "") return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Invalid JSON in config ${path}: ${String(error)}`);
+  }
+  return parseConfig(parsed, path);
+}
+
+/** Masks a secret field's value when echoing it back, so tokens don't hit scrollback. */
+function echoConfigValue(key: string, value: string): string {
+  const field = findConfigField(key);
+  return field?.secret && value.length > 0 ? "***" : value;
+}
+
+/**
+ * Sets a single value in the config file (`agentrelay config set <key> <value>`),
+ * creating the file if needed. Returns a structured result instead of throwing:
+ *
+ * 1. resolve a definite target path (explicit → discovered → `<cwd>/…`);
+ * 2. read the current file (empty when absent; error on malformed JSON);
+ * 3. {@link setConfigValue} — unknown key or type-mismatched value → error;
+ * 4. refuse to persist a value that fails semantic {@link validateConfig} *for
+ *    that key* (e.g. `retry.factor 0.5`), so a known-bad value never lands on
+ *    disk; warnings are surfaced but still written;
+ * 5. write pretty JSON (matching `config init`'s formatting).
+ */
+export function setConfigFile(options: ConfigSetOptions): ConfigMutateResult {
+  const path = resolveConfigWritePath({ path: options.path, cwd: options.cwd, env: options.env });
+
+  let current: AgentRelayConfig;
+  try {
+    current = readConfigForEdit(path);
+  } catch (error) {
+    return { ok: false, path, message: error instanceof Error ? error.message : String(error) };
+  }
+
+  let next: AgentRelayConfig;
+  try {
+    next = setConfigValue(current, options.key, options.value);
+  } catch (error) {
+    return { ok: false, path, message: error instanceof Error ? error.message : String(error) };
+  }
+
+  // Only judge issues introduced by *this* key, so a pre-existing problem
+  // elsewhere in the file doesn't block an unrelated edit.
+  const issues = validateConfig(next).filter((i) => i.path === options.key);
+  const errors = issues.filter((i) => i.level === "error");
+  if (errors.length > 0) {
+    return { ok: false, path, message: `${options.key}: ${errors.map((e) => e.message).join("; ")}` };
+  }
+
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, configToJson(next), "utf8");
+  } catch (error) {
+    return { ok: false, path, message: `Could not write config to ${path}: ${String(error)}` };
+  }
+
+  const warnings = issues.filter((i) => i.level === "warning").map((w) => w.message);
+  const warnSuffix = warnings.length > 0 ? ` (warning: ${warnings.join("; ")})` : "";
+  return {
+    ok: true,
+    path,
+    message: `Set ${options.key} = ${echoConfigValue(options.key, options.value)} in ${path}${warnSuffix}`,
+  };
+}
+
+/**
+ * Removes a single value from the config file (`agentrelay config unset <key>`),
+ * so the built-in default applies again. Returns `ok:false` when there's no file
+ * to edit or the key is unknown. Emptied group objects are dropped by
+ * {@link unsetConfigValue} so the file stays tidy.
+ */
+export function unsetConfigFile(options: ConfigUnsetOptions): ConfigMutateResult {
+  const path = resolveConfigWritePath({ path: options.path, cwd: options.cwd, env: options.env });
+
+  if (!existsSync(path)) {
+    return { ok: false, path, message: `No config file at ${path} to remove "${options.key}" from.` };
+  }
+
+  let current: AgentRelayConfig;
+  try {
+    current = readConfigForEdit(path);
+  } catch (error) {
+    return { ok: false, path, message: error instanceof Error ? error.message : String(error) };
+  }
+
+  let next: AgentRelayConfig;
+  try {
+    next = unsetConfigValue(current, options.key);
+  } catch (error) {
+    return { ok: false, path, message: error instanceof Error ? error.message : String(error) };
+  }
+
+  try {
+    writeFileSync(path, configToJson(next), "utf8");
+  } catch (error) {
+    return { ok: false, path, message: `Could not write config to ${path}: ${String(error)}` };
+  }
+
+  return { ok: true, path, message: `Removed ${options.key} from ${path} (falls back to the default).` };
 }
 
 export interface BackupStoreOptions {
