@@ -1035,3 +1035,23 @@
     `completion bash`(스크립트 출력) 확인.
 - 다음 할 일: 남은 distinct PR(#81 trend, #75 latency) 통합, stats 평균 대기시간(RelayJob 중간 타임스탬프
   필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 32b — 2차 누적 PR 통합(ndjson/next/trend) + 잔여 중복 정리] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-yak0ld`)
+- **배경: 첫 PR 목록이 20개로 잘려 있어 못 봤던 더 오래된 열린 PR(#61~#71)에 2차 중복 무리가 있었다.**
+  #66/#68(stats group-by 중복), #67(대시보드 재개-루프 중복), #65(notify test 중복), #63(stats trend 중복),
+  #71(export ndjson 중복 — #70과) → 사유 코멘트와 함께 닫아 큐를 추가로 줄임.
+- **한 일: distinct 신규 기능 3건을 내 브랜치에 cherry-pick으로 통합(2차)** — #70 export `--format ndjson`,
+  #64 `agentrelay next`, #81 stats `--trend [days]`. 충돌 해소:
+  - export.ts: 이미 통합된 #87(export md)의 `EXPORT_FORMATS`/디스패처와 ndjson을 union(`["csv","json","md","ndjson"]`).
+  - cli.ts: import union 및 `stats` 명령이 `--group-by`와 `--trend`를 **공존**(group-by 지정 시 우선 반환, 그 외 stats+trend).
+  - stats.ts(cli): `renderGroupedStats`와 `renderTrend` 두 함수를 각각 완결 형태로 재구성(충돌 마커가 공유 헬퍼를 뒤엉키게 한 것을 정리).
+  - 테스트 파일(core/cli stats.test): 양쪽 describe 블록 모두 보존.
+  - stats.ts core(`computeDailyTrend`)는 group-by와 다른 함수라 깔끔히 적용.
+- **이번 세션 통합 제외(다음 세션)**: #61(doctor 큐 진행 검사)·#69(데몬 이중실행 가드)는 구버전 base라 세션 30의
+  doctor/heartbeat 변경과 충돌 영역이 커 잘못 해소 시 회귀 위험 → 전용 세션에서 신중히 리베이스 권장. #75(stats
+  resume latency)는 `RelayJob` 스키마 변경 포함이라 별도.
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **575 통과 + 1 skip**(core 375 + cli 193[+1 skip] + dashboard 7). **실제 빌드된 CLI e2e**(mock 아님):
+  `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
+  `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
