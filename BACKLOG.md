@@ -347,6 +347,19 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 대시보드에 재개-루프(하트비트) 생존 상태 노출 — CLI `doctor` 없이도 데몬/tick이 살아있는지
+      대시보드에서 바로 확인. 세션 30의 하트비트 인프라 후속.
+      (완료 — `@agentrelay/core/heartbeat.ts`에 순수 `evaluateHeartbeat(heartbeat|null,{nowMs,waitingJobs})` +
+      `HeartbeatStatus`/`HeartbeatLiveness`(alive/stale/absent) 신설. `doctor`의 alive/stale 규칙
+      (`ageMs<=staleAfterMs`)을 미러링해 두 표면 판정이 일치하되, 메시지 대신 UI가 렌더할 구조화 데이터
+      반환 + `concerning`(대기 job 있는데 루프 비생존) 필드. 파싱 불가 lastTickAt=stale, 음수 대기수=0 floor.
+      대시보드 `lib/jobs.ts`가 스토어 옆 `daemon.json`을 읽어 `countActiveJobs`+`evaluateHeartbeat`로
+      판정→`JobsSnapshot.heartbeat`에 실어 API가 매 폴링 반환(파일 없음/깨짐은 absent로 흡수, throw 없음).
+      클라이언트에 `ResumeLoopCard`(상태별 색점·mode·pid·last tick age, concerning이면 경고 보더+
+      `agentrelay daemon`/`tick` 힌트)+`.resume-loop*` CSS. core 8 + dashboard 4 신규 테스트, 실제 빌드
+      대시보드 `next start`+임시 스토어 `/api/jobs` curl로 alive/absent-concerning e2e 검증.
+      branch `claude/wizardly-pascal-2ksc89`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

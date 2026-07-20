@@ -1,6 +1,6 @@
 "use client";
 
-import type { JobStatus, RelayJob } from "@agentrelay/core";
+import type { HeartbeatStatus, JobStatus, RelayJob } from "@agentrelay/core";
 import { useEffect, useState } from "react";
 import type { JobsSnapshot } from "../lib/jobs";
 
@@ -34,6 +34,62 @@ function formatClock(iso: string | null): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleString();
+}
+
+function formatAge(ms: number | undefined): string {
+  if (ms === undefined) return "unknown";
+  if (ms <= 1000) return "just now";
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (days > 0) return `${days}d ${hours}h ago`;
+  if (hours > 0) return `${hours}h ${minutes}m ago`;
+  if (minutes > 0) return `${minutes}m ${seconds}s ago`;
+  return `${seconds}s ago`;
+}
+
+const HEARTBEAT_META: Record<HeartbeatStatus["state"], { label: string; colorVar: string }> = {
+  alive: { label: "Resume loop running", colorVar: "var(--status-good)" },
+  stale: { label: "Resume loop stopped", colorVar: "var(--status-warning)" },
+  absent: { label: "No resume loop", colorVar: "var(--ink-muted)" },
+};
+
+function heartbeatDetail(hb: HeartbeatStatus): string {
+  const who = hb.mode === "tick" ? "tick" : "daemon";
+  if (hb.state === "alive") {
+    const pid = hb.pid !== undefined ? ` (pid ${hb.pid})` : "";
+    return `${who}${pid} · last tick ${formatAge(hb.ageMs)}`;
+  }
+  if (hb.state === "stale") {
+    const pid = hb.pid !== undefined ? ` (pid ${hb.pid})` : "";
+    return `last tick ${formatAge(hb.ageMs)}${pid} — it may have crashed or been stopped`;
+  }
+  return "no daemon or tick has run yet";
+}
+
+function ResumeLoopCard({ heartbeat }: { heartbeat: HeartbeatStatus | undefined }) {
+  if (!heartbeat) return null;
+  const meta = HEARTBEAT_META[heartbeat.state];
+  const waiting = heartbeat.waitingJobs;
+
+  return (
+    <section className={`resume-loop${heartbeat.concerning ? " concerning" : ""}`} aria-label="Resume loop status">
+      <div className="resume-loop-head">
+        <span className="dot" style={{ background: meta.colorVar }} aria-hidden />
+        <span className="resume-loop-label">{meta.label}</span>
+        {waiting > 0 && <span className="resume-loop-waiting numeric">{waiting} waiting to resume</span>}
+      </div>
+      <div className="resume-loop-detail">{heartbeatDetail(heartbeat)}</div>
+      {heartbeat.concerning && (
+        <div className="resume-loop-hint">
+          {waiting} job(s) are waiting to resume but nothing is running to pick them up. Start{" "}
+          <code>agentrelay daemon</code> (or schedule <code>agentrelay tick</code> via cron).
+        </div>
+      )}
+    </section>
+  );
 }
 
 function StatusBadge({ status }: { status: JobStatus }) {
@@ -122,6 +178,8 @@ export default function DashboardClient() {
           Could not read the job store: {fetchError}
         </div>
       )}
+
+      <ResumeLoopCard heartbeat={snapshot?.heartbeat} />
 
       <section className="tile-row" aria-label="Queue summary">
         <div className="tile">

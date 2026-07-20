@@ -980,3 +980,31 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — 대시보드에 재개-루프(하트비트) 생존 상태 노출] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-2ksc89`)
+- **한 일: 세션 30에서 `doctor`가 잡던 #1 무음 실패("job은 대기 중인데 아무도 재개 안 함")를 이제
+  대시보드에서도 한눈에 보이게 했다.** 그동안 대시보드는 큐/카운트다운만 보여주고, 정작 재개 루프가
+  살아있는지는 CLI `doctor`를 따로 돌려야만 알 수 있었다. 데몬이 죽었는데 대시보드는 "waiting_for_reset
+  1"만 태연히 표시하는 게 최악의 함정.
+  1. `@agentrelay/core/heartbeat.ts`에 순수 `evaluateHeartbeat(heartbeat|null, {nowMs, waitingJobs})` +
+     `HeartbeatStatus`/`HeartbeatLiveness`(`alive`/`stale`/`absent`) 신설. `doctor`의 alive/stale 규칙
+     (`ageMs <= staleAfterMs`)을 그대로 미러링해 두 표면이 판정에서 어긋나지 않게 하되, 메시지/힌트
+     대신 UI가 자유롭게 렌더할 **구조화 데이터**를 반환. `concerning`(대기 job 있는데 루프 비생존)로
+     "지금 문제인가"를 한 필드로 노출. 파싱 불가 `lastTickAt`은 stale(살아있단 증거 아님), 음수 대기수는
+     0으로 floor. 순수 유지 — 시계·파일 미접촉(호출자가 nowMs·waitingJobs 주입).
+  2. 대시보드 `lib/jobs.ts`: 스토어 옆 `daemon.json`을 읽어(core `daemonHeartbeatPath`·
+     `parseDaemonHeartbeat`) `countActiveJobs`로 대기수를 세고 `evaluateHeartbeat`로 판정,
+     `JobsSnapshot.heartbeat`에 실어 API가 매 폴링마다 반환. 파일 없음/깨짐/못 읽음은 모두 absent로
+     흡수(절대 throw 안 함 — 첫 실행에도 렌더돼야 함). `generatedAt`과 하트비트 판정이 같은 `nowMs`를 씀.
+  3. 대시보드 클라이언트: 에러 배너 아래 `ResumeLoopCard` — 상태별 색점(alive=good/stale=warning/
+     absent=muted)+라벨, mode(daemon/tick)·pid·last tick age 디테일, `concerning`이면 좌측 경고 보더 +
+     `agentrelay daemon`/`tick` 시작 힌트. `formatAge`(초~일). `globals.css`에 `.resume-loop*` 토큰
+     기반 스타일(라이트/다크 자동).
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **432개 통과 + 1 skip**(core 294[+8: evaluateHeartbeat] + cli 131[+1 skip] +
+    dashboard 7[+4: absent/concerning/alive/corrupt]). **실제 빌드 대시보드 e2e**(mock 아님):
+    `next start` + `AGENTRELAY_STORE` 임시 스토어로 `/api/jobs` curl → 신선한 daemon 하트비트+대기 job 1개
+    →`{state:alive, mode:daemon, pid, concerning:false}`, 하트비트 삭제→`{state:absent, waitingJobs:1,
+    concerning:true}` 확인.
+- 다음 할 일: stats 평균 대기시간(대기→재개 지연) 확장(👷 후보 — RelayJob에 중간 타임스탬프 필요),
+  대시보드 자동 새로고침 표시/일시정지(👷 후보), README/ARCHITECTURE(🧭 코워크).

@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RelayQueue } from "@agentrelay/core";
+import { type DaemonHeartbeat, daemonHeartbeatPath, RelayQueue, serializeDaemonHeartbeat } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readJobsSnapshot } from "../lib/jobs";
 
@@ -46,5 +46,52 @@ describe("readJobsSnapshot", () => {
     const snapshot = readJobsSnapshot(storePath);
     expect(snapshot.jobs).toEqual([]);
     expect(snapshot.summary.total).toBe(0);
+  });
+
+  it("reports an absent resume loop when no heartbeat file exists", () => {
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.heartbeat.state).toBe("absent");
+    expect(snapshot.heartbeat.waitingJobs).toBe(0);
+    expect(snapshot.heartbeat.concerning).toBe(false);
+  });
+
+  it("flags a concerning gap: jobs waiting but no resume loop running", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "p", tool: "generic", command: ["echo"], cwd: dir });
+    queue.markWaitingForReset(job.id, "2099-01-01T00:00:00.000Z");
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.heartbeat.state).toBe("absent");
+    expect(snapshot.heartbeat.waitingJobs).toBe(1);
+    expect(snapshot.heartbeat.concerning).toBe(true);
+  });
+
+  it("reports an alive resume loop from a fresh daemon heartbeat", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "p", tool: "generic", command: ["echo"], cwd: dir });
+    queue.markWaitingForReset(job.id, "2099-01-01T00:00:00.000Z");
+    queue.close();
+
+    const heartbeat: DaemonHeartbeat = {
+      pid: 4242,
+      mode: "daemon",
+      startedAt: new Date().toISOString(),
+      lastTickAt: new Date().toISOString(),
+      pollIntervalMs: 30_000,
+    };
+    writeFileSync(daemonHeartbeatPath(storePath), serializeDaemonHeartbeat(heartbeat), "utf8");
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.heartbeat.state).toBe("alive");
+    expect(snapshot.heartbeat.mode).toBe("daemon");
+    expect(snapshot.heartbeat.pid).toBe(4242);
+    expect(snapshot.heartbeat.concerning).toBe(false);
+  });
+
+  it("treats a corrupt heartbeat file as an absent resume loop", () => {
+    writeFileSync(daemonHeartbeatPath(storePath), "{ broken", "utf8");
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.heartbeat.state).toBe("absent");
   });
 });
