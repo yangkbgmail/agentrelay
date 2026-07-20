@@ -140,6 +140,55 @@ export function scopeJobs(jobs: RelayJob[], scope: JobScope = {}): RelayJob[] {
   return result;
 }
 
+/**
+ * A dimension to partition jobs on for {@link groupStats}: one full
+ * {@link RelayStats} block per distinct tool, project, or status. Lets
+ * `agentrelay stats --group-by tool` compare success rate / resolution time
+ * across groups instead of only seeing store-wide aggregates.
+ */
+export type StatGroupDimension = "tool" | "project" | "status";
+
+/** One partition from {@link groupStats}: the group key and its own metrics. */
+export interface StatGroup {
+  /** The distinct dimension value (tool name, project name, or status). */
+  key: string;
+  /** Full {@link RelayStats} computed over just this group's jobs. */
+  stats: RelayStats;
+}
+
+/** Reads the grouping key off a job for a given dimension. */
+function groupKeyOf(job: RelayJob, dimension: StatGroupDimension): string {
+  switch (dimension) {
+    case "tool":
+      return job.tool;
+    case "project":
+      return job.project;
+    case "status":
+      return job.status;
+  }
+}
+
+/**
+ * Partitions a job list by a {@link StatGroupDimension} and computes full
+ * {@link RelayStats} per group. Pure and non-mutating. Groups are ordered by
+ * job count (desc), ties broken by key (asc) — the same ranking convention as
+ * {@link RelayStats.projects} — so the busiest group leads. First-seen order is
+ * preserved among jobs within a group (they feed `computeStats` in list order).
+ * An empty job list yields an empty array (no groups, not a single empty group).
+ */
+export function groupStats(jobs: RelayJob[], dimension: StatGroupDimension): StatGroup[] {
+  const buckets = new Map<string, RelayJob[]>();
+  for (const job of jobs) {
+    const key = groupKeyOf(job, dimension);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(job);
+    else buckets.set(key, [job]);
+  }
+  return [...buckets.entries()]
+    .map(([key, groupJobs]) => ({ key, stats: computeStats(groupJobs) }))
+    .sort((a, b) => (b.stats.total !== a.stats.total ? b.stats.total - a.stats.total : a.key.localeCompare(b.key)));
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 

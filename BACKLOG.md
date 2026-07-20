@@ -347,6 +347,22 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay stats --group-by <tool|project|status>` — 스토어 전체 집계 하나가 아니라
+      툴/프로젝트/상태별로 나눠 성공률·해결시간을 나란히 비교(가장 실패 많은 프로젝트·성공률 높은
+      툴을 한눈에).
+      (완료 — 기존 `stats`는 `byTool`/`byStatus`/`projects` 플랫 카운트만 줘서 "claude-code vs codex-cli
+      성공률·중앙 해결시간"처럼 그룹별 지표를 비교할 수 없었다. `@agentrelay/core/stats.ts`에 순수
+      `groupStats(jobs, dimension)` + `StatGroup`/`StatGroupDimension` 신설: 차원(tool/project/status)
+      값으로 잡을 파티션하고 그룹마다 기존 `computeStats`를 돌려 완전한 `RelayStats`를 계산. 그룹 순서는
+      잡 수 desc·동수는 key asc(projects 랭킹 컨벤션과 동일)라 가장 바쁜 그룹이 앞. 빈 스토어는 빈 배열
+      (단일 빈 그룹 아님), 입력 불변. CLI `stats.ts`에 순수 `renderGroupedStats`(그룹당 한 줄 비교 테이블:
+      jobs·active·done·success·median resolution, key 폭 24자 캡·초과 시 … 절단)·`renderGroupedStatsJson`
+      (`groupBy`+`groups`+활성 scope 에코) 추가. CLI `cli.ts` stats에 `-g/--group-by <dimension>` 배선 —
+      잘못된 차원은 스토어 읽기 전에 exit 1, 스코프(status/tool/project/since/until)를 **먼저** 적용한 뒤
+      파티션(플랫 뷰와 동일 부분집합). 새 로직은 검증된 `computeStats`/`scopeJobs` 재사용. core groupStats
+      5 + cli grouped 6 신규 테스트, 빌드된 CLI e2e로 group-by tool/status·--json·스코프 결합·잘못된 차원
+      exit 1 검증. branch `claude/wizardly-pascal-zbtxgg`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

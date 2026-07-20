@@ -1,11 +1,13 @@
 import type { RelayJob } from "@agentrelay/core";
-import { computeStats } from "@agentrelay/core";
+import { computeStats, groupStats } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
   formatDurationMs,
   formatSuccessRate,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
+  renderGroupedStats,
+  renderGroupedStatsJson,
   renderStats,
   renderStatsJson,
 } from "../src/stats.js";
@@ -175,5 +177,65 @@ describe("renderStats with a scope", () => {
     expect(renderStats(empty, { scopeNote: "project=nope" })).toBe(NO_SCOPE_MATCH_MESSAGE);
     // Without a scope, an empty store still shows the onboarding hint.
     expect(renderStats(empty)).toBe(NO_STATS_MESSAGE);
+  });
+});
+
+describe("renderGroupedStats", () => {
+  it("shows the onboarding hint for an empty (unscoped) store", () => {
+    expect(renderGroupedStats([], "tool")).toBe(NO_STATS_MESSAGE);
+  });
+
+  it("shows the no-match message for an empty scoped subset", () => {
+    expect(renderGroupedStats([], "tool", { scopeNote: "project=nope" })).toBe(NO_SCOPE_MATCH_MESSAGE);
+  });
+
+  it("renders a header, column row, and one line per group in rank order", () => {
+    const jobs = [
+      job({ tool: "claude-code", status: "completed" }),
+      job({ tool: "claude-code", status: "failed" }),
+      job({ tool: "codex-cli", status: "completed" }),
+    ];
+    const out = renderGroupedStats(groupStats(jobs, "tool"), "tool", { now: NOW });
+    expect(out).toContain("grouped by tool");
+    expect(out).toContain("(2 group(s))");
+    // claude-code (2 jobs) ranks above codex-cli (1 job).
+    const claudeIdx = out.indexOf("claude-code");
+    const codexIdx = out.indexOf("codex-cli");
+    expect(claudeIdx).toBeGreaterThan(-1);
+    expect(codexIdx).toBeGreaterThan(claudeIdx);
+    // Per-group success rate is shown (claude-code: 1/2 resolved = 50%).
+    expect(out).toContain("50%");
+    expect(out).toContain("100%");
+  });
+
+  it("prepends a scope note when given", () => {
+    const out = renderGroupedStats(groupStats([job()], "project"), "project", { scopeNote: "tool=claude-code" });
+    expect(out).toContain("scope: tool=claude-code");
+  });
+});
+
+describe("renderGroupedStatsJson", () => {
+  it("emits groupBy, groups, and echoes an active scope", () => {
+    const groups = groupStats([job({ tool: "codex-cli" }), job({ tool: "claude-code" })], "tool");
+    const out = JSON.parse(
+      renderGroupedStatsJson(groups, "tool", "/tmp/store.json", {
+        generatedAt: "2026-07-13T00:00:00.000Z",
+        scope: { tools: ["codex-cli", "claude-code"] },
+      })
+    );
+    expect(out.groupBy).toBe("tool");
+    expect(out.storePath).toBe("/tmp/store.json");
+    expect(out.scope).toEqual({ tools: ["codex-cli", "claude-code"] });
+    expect(out.groups.map((g: { key: string }) => g.key).sort()).toEqual(["claude-code", "codex-cli"]);
+    expect(out.groups[0].stats.total).toBe(1);
+  });
+
+  it("omits an inactive (empty) scope", () => {
+    const out = JSON.parse(
+      renderGroupedStatsJson(groupStats([job()], "status"), "status", "/tmp/s.json", {
+        generatedAt: "2026-07-13T00:00:00.000Z",
+      })
+    );
+    expect(out.scope).toBeUndefined();
   });
 });

@@ -3,7 +3,7 @@
 // breakdown). Kept as pure functions here, separate from the commander wiring
 // in cli.ts, so the exact output is unit-testable without a store or a clock.
 
-import type { JobScope, JobStatus, RelayStats } from "@agentrelay/core";
+import type { JobScope, JobStatus, RelayStats, StatGroup, StatGroupDimension } from "@agentrelay/core";
 import { isJobScopeActive } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
@@ -118,6 +118,62 @@ export function renderStats(
   }
 
   return lines.join("\n");
+}
+
+/** Longest group key we print before truncating, keeping the table aligned. */
+const MAX_GROUP_KEY_WIDTH = 24;
+
+/**
+ * Renders a comparative table — one row per group — for
+ * `agentrelay stats --group-by <tool|project|status>`. Where {@link renderStats}
+ * shows one store-wide block, this puts the headline metrics (jobs, active,
+ * done, success rate, median resolution) side-by-side so groups can be compared
+ * at a glance. Pure: no I/O, no ambient clock unless omitted.
+ */
+export function renderGroupedStats(
+  groups: StatGroup[],
+  dimension: StatGroupDimension,
+  options: { color?: boolean; scopeNote?: string } = {}
+): string {
+  // Empty means either an empty store or a scope that matched nothing — the
+  // command distinguishes them, but keep the render honest via scopeNote.
+  if (groups.length === 0) return options.scopeNote ? NO_SCOPE_MATCH_MESSAGE : NO_STATS_MESSAGE;
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [];
+  if (options.scopeNote) lines.push(d(`scope: ${options.scopeNote}`));
+  lines.push(b(`grouped by ${dimension}`) + d(` (${groups.length} group(s))`));
+  lines.push("");
+
+  const keyWidth = Math.min(MAX_GROUP_KEY_WIDTH, Math.max(dimension.length, ...groups.map((g) => g.key.length)));
+  const cell = (s: string, width: number) => s.padEnd(width);
+  const header = `  ${cell(dimension, keyWidth)}  ${cell("jobs", 5)} ${cell("active", 6)} ${cell("done", 5)} ${cell("success", 7)} median`;
+  lines.push(d(header));
+
+  for (const { key, stats } of groups) {
+    const label = key.length > keyWidth ? `${key.slice(0, keyWidth - 1)}…` : key;
+    const median = stats.timing.medianResolutionMs !== null ? formatDurationMs(stats.timing.medianResolutionMs) : "-";
+    lines.push(
+      `  ${cell(label, keyWidth)}  ${cell(String(stats.total), 5)} ${cell(String(stats.active), 6)} ` +
+        `${cell(String(stats.terminal), 5)} ${cell(formatSuccessRate(stats.successRate), 7)} ${median}`
+    );
+  }
+
+  return lines.join("\n");
+}
+
+/** Machine-readable snapshot of grouped stats for `--json`. */
+export function renderGroupedStatsJson(
+  groups: StatGroup[],
+  dimension: StatGroupDimension,
+  storePath: string,
+  options: { generatedAt?: string; scope?: JobScope } = {}
+): string {
+  const generatedAt = options.generatedAt ?? new Date().toISOString();
+  const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
+  return JSON.stringify({ storePath, generatedAt, groupBy: dimension, scope, groups }, null, 2);
 }
 
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */

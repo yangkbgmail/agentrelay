@@ -980,3 +980,26 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — `agentrelay stats --group-by <tool|project|status>`] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-zbtxgg`)
+- **한 일: `stats`를 스토어 전체 집계 하나가 아니라 툴/프로젝트/상태별로 나눠 비교할 수 있게 했다.**
+  기존 `stats`는 `byTool`/`byStatus`/`projects` 플랫 카운트만 줘서 "claude-code vs codex-cli의
+  성공률·중앙 해결시간"처럼 그룹별 지표를 나란히 비교할 방법이 없었다. 👷 백로그가 전부 소진돼(모든
+  §3·§8 빌더 항목 `[x]`) 새 개선 항목을 발굴·구현·백로그 추가.
+  1. `@agentrelay/core/stats.ts`에 순수 `groupStats(jobs, dimension)` + `StatGroup`/`StatGroupDimension`
+     신설: 차원(tool/project/status) 값으로 잡을 파티션하고 그룹마다 기존 `computeStats`를 돌려 완전한
+     `RelayStats`를 계산. 그룹 순서는 잡 수 desc·동수는 key asc(`RelayStats.projects` 랭킹 컨벤션과 동일)라
+     가장 바쁜 그룹이 앞. 빈 스토어는 빈 배열(단일 빈 그룹 아님), 입력 배열 불변.
+  2. CLI `stats.ts`에 순수 `renderGroupedStats`(그룹당 한 줄 비교 테이블: jobs·active·done·success·median
+     resolution, key 폭 24자 캡·초과 시 … 절단, 빈 그룹 목록은 scopeNote 유무로 온보딩 vs no-match 구분)·
+     `renderGroupedStatsJson`(`groupBy`+`groups`+활성 scope 에코) 추가.
+  3. CLI `cli.ts` stats에 `-g/--group-by <dimension>` 배선 — 잘못된 차원은 스토어 읽기 **전에** exit 1,
+     스코프(status/tool/project/since/until)를 먼저 적용한 뒤 파티션(플랫 뷰와 동일 부분집합). 새 로직은
+     전부 검증된 `computeStats`/`scopeJobs` 재사용 — core 순수 유지, CLI는 배선·렌더만.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) 0 경고/0 에러,
+    `pnpm test` **431개 통과 + 1 skip**(core 291[+5: groupStats] + cli 137[+6: grouped stats][+1 skip] +
+    dashboard 3). **실제 빌드 CLI e2e**(mock 아님, 4-job 스토어): `stats -g tool`→claude-code(2, 50%,
+    2h)·codex-cli(2, 100%, 30m) 랭크 테이블, `-g status`→completed/failed/waiting 분리, `-g tool --json`→
+    `groupBy`+`groups[].stats` 구조, `-g bogus`→exit 1, `-g tool -p web`→스코프 먼저 적용 확인.
+- 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
+  (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).

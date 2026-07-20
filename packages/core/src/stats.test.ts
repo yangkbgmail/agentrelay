@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import { computeStats, groupStats, isJobScopeActive, scopeJobs } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -366,5 +366,56 @@ describe("scopeJobs", () => {
       job({ id: "c", project: "api", createdAt: "2026-07-14T00:00:00.000Z" }), // wrong project
     ];
     expect(scopeJobs(jobs, { projects: ["web"], createdFrom: from }).map((j) => j.id)).toEqual(["a"]);
+  });
+});
+
+describe("groupStats", () => {
+  it("returns no groups for an empty store", () => {
+    expect(groupStats([], "tool")).toEqual([]);
+  });
+
+  it("partitions by tool and computes per-group stats", () => {
+    const jobs = [
+      job({ tool: "claude-code" as AgentTool, status: "completed" as JobStatus }),
+      job({ tool: "claude-code" as AgentTool, status: "failed" as JobStatus }),
+      job({ tool: "codex-cli" as AgentTool, status: "completed" as JobStatus }),
+    ];
+    const groups = groupStats(jobs, "tool");
+    expect(groups.map((g) => g.key)).toEqual(["claude-code", "codex-cli"]);
+    const claude = groups.find((g) => g.key === "claude-code");
+    expect(claude?.stats.total).toBe(2);
+    expect(claude?.stats.successRate).toBe(0.5); // 1 completed / (1 completed + 1 failed)
+    const codex = groups.find((g) => g.key === "codex-cli");
+    expect(codex?.stats.total).toBe(1);
+    expect(codex?.stats.successRate).toBe(1);
+  });
+
+  it("orders groups by job count desc, ties broken by key asc", () => {
+    const jobs = [
+      job({ project: "beta" }),
+      job({ project: "beta" }),
+      job({ project: "alpha" }), // ties with gamma at 1 → alpha before gamma
+      job({ project: "gamma" }),
+    ];
+    const groups = groupStats(jobs, "project");
+    expect(groups.map((g) => g.key)).toEqual(["beta", "alpha", "gamma"]);
+    expect(groups.map((g) => g.stats.total)).toEqual([2, 1, 1]);
+  });
+
+  it("partitions by status", () => {
+    const jobs = [
+      job({ status: "queued" as JobStatus }),
+      job({ status: "queued" as JobStatus }),
+      job({ status: "failed" as JobStatus }),
+    ];
+    const groups = groupStats(jobs, "status");
+    expect(groups.map((g) => `${g.key}:${g.stats.total}`)).toEqual(["queued:2", "failed:1"]);
+  });
+
+  it("does not mutate the input array", () => {
+    const jobs = [job({ project: "z" }), job({ project: "a" })];
+    const snapshot = jobs.map((j) => j.id);
+    groupStats(jobs, "project");
+    expect(jobs.map((j) => j.id)).toEqual(snapshot);
   });
 });
