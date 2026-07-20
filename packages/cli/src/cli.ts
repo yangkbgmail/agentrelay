@@ -5,6 +5,8 @@ import type {
   CompletionSpec,
   ExportFormat,
   GroupDimension,
+  ImportFormat,
+  ImportStrategy,
   JobScope,
   JobStatus,
   RelayJob,
@@ -18,6 +20,8 @@ import {
   GROUP_DIMENSIONS,
   generateCompletion,
   groupStats,
+  IMPORT_FORMATS,
+  IMPORT_STRATEGIES,
   isCompletionShell,
   isJobScopeActive,
   parseDuration,
@@ -35,6 +39,7 @@ import {
   bulkControlJobs,
   cancelJob,
   exportStore,
+  importStore,
   initConfig,
   type JobControlResult,
   listStatus,
@@ -845,6 +850,73 @@ export function buildCli(): Command {
         }
       }
     );
+
+  program
+    .command("import")
+    .description("Import jobs from a previously exported JSON/NDJSON file into the store (the inverse of `export`)")
+    .argument("<file>", "Path to a JSON (array) or NDJSON file exported by `agentrelay export`")
+    .option("-f, --format <format>", `Input format: ${IMPORT_FORMATS.join(" | ")} (default: from file extension)`)
+    .option(
+      "--strategy <strategy>",
+      `On id collision: ${IMPORT_STRATEGIES.join(" | ")} (skip keeps existing, overwrite replaces)`,
+      "skip"
+    )
+    .option("--dry-run", "Show what would be imported without writing to the store")
+    .action((file: string, opts: { format?: string; strategy?: string; dryRun?: boolean }) => {
+      const { store } = program.opts();
+
+      let format: ImportFormat | undefined;
+      if (opts.format !== undefined) {
+        const requested = opts.format.toLowerCase();
+        if (!IMPORT_FORMATS.includes(requested as ImportFormat)) {
+          console.error(`Unknown --format "${opts.format}". Valid: ${IMPORT_FORMATS.join(", ")}.`);
+          process.exitCode = 1;
+          return;
+        }
+        format = requested as ImportFormat;
+      }
+
+      const strategy = (opts.strategy ?? "skip").toLowerCase();
+      if (!IMPORT_STRATEGIES.includes(strategy as ImportStrategy)) {
+        console.error(`Unknown --strategy "${opts.strategy}". Valid: ${IMPORT_STRATEGIES.join(", ")}.`);
+        process.exitCode = 1;
+        return;
+      }
+
+      let result: ReturnType<typeof importStore>;
+      try {
+        result = importStore({
+          storePath: store,
+          inPath: file,
+          format,
+          strategy: strategy as ImportStrategy,
+          dryRun: opts.dryRun,
+        });
+      } catch (error) {
+        console.error(`[agentrelay] could not import from ${file}: ${(error as Error).message}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const { plan, errors } = result;
+      const prefix = result.dryRun ? "[agentrelay] dry run — would import" : "[agentrelay] imported";
+      const verb = result.dryRun ? "would be skipped" : "skipped";
+      console.log(
+        `${prefix} from ${result.from} (${result.format}): ${plan.added.length} added, ${plan.updated.length} updated, ${plan.skipped.length} ${verb}.`
+      );
+      if (plan.skipped.length > 0 && strategy === "skip") {
+        console.log("  (pass --strategy overwrite to replace jobs whose id already exists)");
+      }
+      if (errors.length > 0) {
+        console.error(`[agentrelay] warning: ${errors.length} record(s) were invalid and ignored:`);
+        for (const err of errors.slice(0, 10)) {
+          console.error(`  - record ${err.index}: ${err.message}`);
+        }
+        if (errors.length > 10) {
+          console.error(`  … and ${errors.length - 10} more.`);
+        }
+      }
+    });
 
   program
     .command("show")

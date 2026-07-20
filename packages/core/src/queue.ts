@@ -29,6 +29,7 @@ import {
   type RestoreResult,
   selectRotatableBackups,
 } from "./backup.js";
+import { type ImportPlan, type ImportStrategy, planImport } from "./import.js";
 import { type PruneOptions, selectPrunableJobs } from "./prune.js";
 import type { CreateJobInput, JobStatus, RelayJob } from "./types.js";
 
@@ -372,6 +373,27 @@ export class RelayQueue {
     const currentJobCount = this.jobs.size;
     const wouldBackUp = (options.backupCurrent ?? true) && existsSync(this.filePath);
     return { from, jobCount: jobs.length, currentJobCount, wouldBackUp };
+  }
+
+  /**
+   * Merges previously-exported jobs into the store (the inverse of `export`).
+   * The merge itself is the pure {@link planImport} so the write and a dry-run
+   * preview share identical logic: new ids are added, and a colliding id is
+   * either left alone (`skip`, the default) or replaced (`overwrite`). Returns
+   * the full {@link ImportPlan} (merged/added/updated/skipped). With
+   * `dryRun: true` nothing is written — the plan is computed against the current
+   * store and the file is left untouched. Only actually flushes when the merge
+   * changes something (added or updated), so a pure no-op import doesn't rewrite
+   * the file.
+   */
+  importJobs(incoming: RelayJob[], options: { strategy?: ImportStrategy; dryRun?: boolean } = {}): ImportPlan {
+    this.load();
+    const plan = planImport(Array.from(this.jobs.values()), incoming, options.strategy);
+    if (options.dryRun) return plan;
+    if (plan.added.length === 0 && plan.updated.length === 0) return plan;
+    this.jobs = new Map(plan.merged.map((job) => [job.id, job]));
+    this.flush();
+    return plan;
   }
 
   /** Jobs whose reset time has already passed and are ready to be resumed now. */

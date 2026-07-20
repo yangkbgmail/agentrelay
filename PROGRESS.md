@@ -1055,3 +1055,34 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay import` (export의 역연산)] (2026-07-20, 무인 자율 세션)
+- 배경: 세션 시작 시 명시적 👷 백로그 항목은 전부 완료, 남은 미완은 전부 🧭(코워크). 열린 PR
+  4개(#78 cowork·#75 resume latency·#69 데몬 이중실행 가드·#61 doctor queue-progress)와 겹치지
+  않는 신규 개선 항목을 CLAUDE.md 지침대로 발굴 — `export`(csv/json/md/ndjson)는 있는데 그 역연산
+  `import`가 없어, 다른 머신·백업에서 내보낸 잡 이력을 스토어로 되돌릴 방법이 없었다.
+- 한 일 (branch `claude/wizardly-pascal-58elkl`): **`agentrelay import <file>`**.
+  1. `@agentrelay/core/import.ts` 신설(순수·파일시스템 미접촉): `IMPORT_FORMATS`(json/ndjson —
+     export의 **무손실** 서브셋; CSV/MD는 command 공백조인·lastOutputTail 누락으로 lossy라 export
+     전용) + `IMPORT_STRATEGIES`(skip 기본=충돌 id 시 기존 보존, overwrite=교체). `validateJobRecord`
+     (RelayJob 형태 엄격 검증 — 미지 status/tool·비배열 command·비유한 attempts·잘못된 타입 거부,
+     이유 문자열/null 반환). `parseImportContent(content,format)`가 **레코드별** 검증(한 줄이 깨져도
+     나머지는 임포트, 무효 레코드는 `errors[]`로 수집; 구조적 실패[비-JSON·JSON 루트 비배열]만 throw,
+     NDJSON 빈/후행 줄 관용). `planImport(existing,incoming,strategy)`가 순수 병합 → merged/added/
+     updated/skipped, 입력 절대 불변(incoming 내 중복 id는 last-wins).
+  2. `RelayQueue.importJobs(incoming,{strategy,dryRun})` — `planImport`을 재사용해 쓰기·dry-run이
+     **동일 로직**, add/update가 있을 때만 flush(순수 no-op 재임포트는 파일 미기록).
+  3. CLI `commands.ts` `importStore`(파일 읽기 → core 파싱 → 큐 병합, `dryRun`/`wrote` 구분)·
+     `detectImportFormat`(확장자 `.ndjson`→ndjson, 그 외 json). `agentrelay import <file>
+     [-f json|ndjson] [--strategy skip|overwrite] [--dry-run]` 배선 — 잘못된 format/strategy·비배열
+     JSON은 exit 1, 무효 레코드는 stderr 경고 요약(최대 10개), skip으로 걸린 게 있으면 overwrite 힌트.
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **613 통과 + 1 skip**(core 405[+30: import 26·queue 4] + cli 201[+8: import CLI][+1 skip]
+  + dashboard 7). **실제 빌드된 CLI e2e**(mock 아님): 손으로 쓴 2-job export.json으로 `import --dry-run`
+  이 "2 added" 예고하고 스토어 미변경 → 실임포트로 2건 반영(status/attempts 보존) → 재임포트 skip이
+  "2 skipped"+overwrite 힌트 → `--strategy overwrite`가 "2 updated" → dst를 ndjson으로 재export 후
+  3번째 스토어에 확장자 auto-detect 임포트 → `show job-alpha`로 command 배열·cwd·타임스탬프 무손실
+  왕복 확인. 비배열 JSON은 "must be an array" + exit 1, `--strategy merge`는 exit 1, 무효 NDJSON
+  레코드는 경고 후 스킵.
+- 다음 할 일: #61·#69·#75 통합, README/ARCHITECTURE(🧭 코워크), `agentrelay import`에 시간창/툴
+  필터로 부분 임포트(👷 후보).

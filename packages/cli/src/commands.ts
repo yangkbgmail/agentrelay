@@ -43,6 +43,10 @@ import {
   findConfigField,
   hasConfigErrors,
   heartbeatStaleAfterMs,
+  type ImportFormat,
+  type ImportPlan,
+  type ImportRecordError,
+  type ImportStrategy,
   type IneligibleJob,
   isJobScopeActive,
   type JobScope,
@@ -51,6 +55,7 @@ import {
   notifiersFromEnv,
   parseConfig,
   parseDaemonHeartbeat,
+  parseImportContent,
   partitionForControl,
   RelayQueue,
   RelayScheduler,
@@ -949,6 +954,71 @@ export function exportStore(options: ExportJobsOptions): ExportJobsResult {
     writtenTo = path;
   }
   return { content, count: jobs.length, writtenTo };
+}
+
+export interface ImportStoreOptions {
+  storePath?: string;
+  /** Path to the file to import (absolute or relative to cwd). */
+  inPath: string;
+  /** Serialization format. Auto-detected from the file extension when omitted. */
+  format?: ImportFormat;
+  /** Id-collision strategy (default: skip). */
+  strategy?: ImportStrategy;
+  /** Compute the merge without writing to the store. */
+  dryRun?: boolean;
+}
+
+export interface ImportStoreResult {
+  /** Absolute path the jobs were read from. */
+  from: string;
+  /** The format used (after auto-detection). */
+  format: ImportFormat;
+  /** Number of valid jobs parsed from the file. */
+  parsed: number;
+  /** The merge outcome (added/updated/skipped counts derive from these). */
+  plan: ImportPlan;
+  /** Per-record validation errors (bad records are skipped, not fatal). */
+  errors: ImportRecordError[];
+  /** True when the caller requested a dry run (preview only, never writes). */
+  dryRun: boolean;
+  /** True when the store was actually modified (a live run that added/updated ≥1 job). */
+  wrote: boolean;
+}
+
+/**
+ * Detect the import format from a file extension: `.ndjson` → ndjson, `.json`
+ * (and anything else) → json. An explicit `--format` always wins over this.
+ */
+export function detectImportFormat(inPath: string): ImportFormat {
+  return inPath.toLowerCase().endsWith(".ndjson") ? "ndjson" : "json";
+}
+
+/**
+ * Read a previously-exported JSON/NDJSON file and merge its jobs into the store
+ * (the inverse of `agentrelay export`). Parsing/validation is the pure core
+ * `parseImportContent`; the merge is `RelayQueue.importJobs` (which shares its
+ * plan with `--dry-run`). A structurally invalid file (bad JSON, or a JSON root
+ * that isn't an array) throws; individual malformed records are collected in
+ * `errors` and skipped so a mostly-good file still imports its good rows.
+ */
+export function importStore(options: ImportStoreOptions): ImportStoreResult {
+  const storePath = options.storePath ?? defaultStorePath();
+  const from = resolve(process.cwd(), options.inPath);
+  const format = options.format ?? detectImportFormat(from);
+  const content = readFileSync(from, "utf8");
+  const { jobs, errors } = parseImportContent(content, format);
+
+  const dryRun = options.dryRun ?? false;
+  const queue = openQueue(storePath);
+  try {
+    const plan = queue.importJobs(jobs, { strategy: options.strategy, dryRun });
+    // A live run only touches disk when it adds or updates at least one job;
+    // a dry run never writes.
+    const wrote = !dryRun && (plan.added.length > 0 || plan.updated.length > 0);
+    return { from, format, parsed: jobs.length, plan, errors, dryRun, wrote };
+  } finally {
+    queue.close();
+  }
 }
 
 export interface ConfigShowOptions {

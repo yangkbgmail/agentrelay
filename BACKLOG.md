@@ -395,6 +395,20 @@
 - [x] 👷 `agentrelay stats --trend [days]` — UTC 일별 활동 히스토그램(릴레이가 언제 바빴는지 시간 축).
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
+- [x] 👷 `agentrelay import <file>` — `export`의 역연산. 다른 머신/백업에서 내보낸 JSON/NDJSON 잡
+      이력을 현재 스토어로 병합(skip/overwrite 전략, --dry-run 미리보기).
+      (완료 — core `import.ts` 신설(순수·파일시스템 미접촉): `IMPORT_FORMATS`(json/ndjson=export의
+      무손실 서브셋, CSV/MD는 lossy라 제외)·`IMPORT_STRATEGIES`(skip 기본=기존 보존·overwrite=교체),
+      `validateJobRecord`(RelayJob 형태 엄격 검증, 미지 status/tool·비배열 command·비유한 attempts
+      거부), `parseImportContent`(레코드별 검증 — 한 줄이 깨져도 나머지는 임포트, 구조적 실패[비-JSON·
+      비배열 루트]만 throw, NDJSON 빈 줄 관용), `planImport`(existing×incoming 순수 병합 → merged/
+      added/updated/skipped, 입력 불변). `RelayQueue.importJobs(incoming,{strategy,dryRun})`가
+      `planImport`을 공유(쓰기·dry-run 동일 로직), add/update 있을 때만 flush(no-op은 미기록). CLI
+      `commands.ts` `importStore`/`detectImportFormat`(확장자→포맷) + `agentrelay import <file>
+      [-f json|ndjson] [--strategy skip|overwrite] [--dry-run]`. 잘못된 format/strategy·비배열 JSON은
+      exit 1, 무효 레코드는 stderr 경고로 요약(최대 10개). import 26 + queue 4 + CLI 8 신규 테스트,
+      빌드된 CLI e2e로 dry-run/실임포트/skip/overwrite/ndjson 왕복(show로 무손실 확인) 검증.
+      branch `claude/wizardly-pascal-58elkl`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

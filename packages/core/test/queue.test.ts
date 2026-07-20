@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { corruptBackupPath, RelayQueue } from "../src/queue.js";
+import type { RelayJob } from "../src/types.js";
 
 describe("RelayQueue", () => {
   let dir: string;
@@ -152,6 +153,65 @@ describe("RelayQueue", () => {
     it("corruptBackupPath produces a filesystem-safe, deterministic suffix", () => {
       const at = new Date("2026-07-18T12:34:56.789Z");
       expect(corruptBackupPath("/a/b/jobs.json", at)).toBe("/a/b/jobs.json.corrupt-2026-07-18T12-34-56-789Z");
+    });
+  });
+
+  describe("importJobs", () => {
+    function extern(id: string, project = "imported"): RelayJob {
+      return {
+        id,
+        project,
+        tool: "claude-code",
+        command: ["claude", "-p", "go"],
+        cwd: "/tmp/x",
+        status: "completed",
+        resetAt: null,
+        createdAt: "2026-07-20T00:00:00.000Z",
+        updatedAt: "2026-07-20T01:00:00.000Z",
+        attempts: 1,
+        lastError: null,
+        lastOutputTail: null,
+      };
+    }
+
+    it("adds new jobs and persists them to disk", () => {
+      const seed = queue.enqueue({ project: "local", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+      const plan = queue.importJobs([extern("ext-1"), extern("ext-2")]);
+      expect(plan.added.map((j) => j.id).sort()).toEqual(["ext-1", "ext-2"]);
+      expect(plan.updated).toHaveLength(0);
+
+      // Persisted: a fresh queue over the same file sees all three jobs.
+      const reopened = new RelayQueue(join(dir, "test.db"));
+      expect(
+        reopened
+          .listAll()
+          .map((j) => j.id)
+          .sort()
+      ).toEqual([seed.id, "ext-1", "ext-2"].sort());
+    });
+
+    it("skips a colliding id by default and does not overwrite", () => {
+      queue.importJobs([extern("dup", "original")]);
+      const plan = queue.importJobs([extern("dup", "changed")]);
+      expect(plan.skipped.map((j) => j.id)).toEqual(["dup"]);
+      expect(plan.added).toHaveLength(0);
+      expect(queue.getById("dup")?.project).toBe("original");
+    });
+
+    it("overwrites a colliding id under the overwrite strategy", () => {
+      queue.importJobs([extern("dup", "original")]);
+      const plan = queue.importJobs([extern("dup", "changed")], { strategy: "overwrite" });
+      expect(plan.updated.map((j) => j.id)).toEqual(["dup"]);
+      expect(queue.getById("dup")?.project).toBe("changed");
+    });
+
+    it("dryRun computes the plan without writing", () => {
+      const plan = queue.importJobs([extern("ext-1")], { dryRun: true });
+      expect(plan.added.map((j) => j.id)).toEqual(["ext-1"]);
+      // Nothing was persisted.
+      expect(queue.getById("ext-1")).toBeUndefined();
+      const reopened = new RelayQueue(join(dir, "test.db"));
+      expect(reopened.listAll()).toHaveLength(0);
     });
   });
 
