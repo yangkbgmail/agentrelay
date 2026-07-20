@@ -1055,3 +1055,33 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay wait <id>` 잡 종료 대기 + 결과 반영 exit code] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-21fyfk`)
+- **배경: 명시적 👷 백로그 항목이 전부 완료돼 있고, 열린 PR들(#95 config get·#94 import·#75 resume
+  latency·#69 데몬 이중실행 가드·#61 doctor 큐 진행·#78 코워크 roundup)과 겹치지 않는 신규 개선 항목을
+  발굴했다.** 기존엔 `agentrelay run`이 rate-limit으로 잡을 큐잉하면, 그 잡이 실제로 재개돼 끝났는지
+  스크립트가 알 방법이 없었다(폴링 루프를 직접 짜야 함). `next`가 큐 전체의 "다음 재개"를 보여준다면,
+  `wait`는 **한 잡을 결말까지 따라가** 결과를 exit code로 돌려줘 셸 체인(`&&`/`||`)·CI 스텝에 물릴 수 있다.
+- **한 일: `agentrelay wait <id>` — 특정 잡이 종료 상태에 도달할 때까지 블록.**
+  1. `@agentrelay/core/wait.ts` 신설(순수): `isTerminalStatus`(stats의 기존 `TERMINAL_STATUSES` 재사용해
+     드리프트 방지) · `WaitOutcome`(completed/failed/cancelled + 루프 종료 2종 timeout/missing) ·
+     `WAIT_EXIT_CODES`/`waitExitCode`(completed 0·failed 1·cancelled 2·timeout **124**[GNU coreutils
+     `timeout(1)` 관례로 스크립트가 이미 분기하는 코드]·missing 5) · `evaluateWait(job|null)`(스냅샷
+     하나로 "대기 계속 vs 종료+outcome" 판정, null=잡이 스토어에서 사라짐=missing). 시계·스토어 미접촉.
+  2. CLI `commands.ts` `waitForJob(idOrPrefix, options)` — id를 **1회 해소**(짧은 prefix→full id) 후
+     full id로 추적(다른 잡이 오가도 계속 매칭), 매 폴링마다 스토어를 **재오픈**해 별도 daemon/tick
+     프로세스의 쓰기를 관측. 첫 검사는 즉시(이미 종료된 잡은 sleep 없이 반환), `--timeout`은 sleep
+     **전** 데드라인 검사로 1인터벌 이상 초과 안 함. clock(`now`)·`sleep`·`readJob` 주입 가능 →
+     실타이머 없이 폴링 루프 유닛 테스트. 순수 판정은 core `evaluateWait`에 위임(I/O만 담당).
+  3. CLI `wait.ts` `renderWaitJson`(--json, `next`/`show`와 동일 `{storePath,generatedAt,outcome,exitCode,job}`
+     형태). `cli.ts`에 `agentrelay wait <id> [--timeout <dur>] [--interval <dur>] [--json] [-q]` 배선 —
+     기존 `parseDuration` 재사용, 잘못된 interval/timeout은 exit 1, 미존재/모호 id는 exit 1, 블록 중
+     stderr에 "waiting…" 안내(--json stdout은 청정). exit code는 항상 outcome 반영(quiet도 동일).
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **587 통과 + 1 skip**(core 381[+7: wait] + cli 199[+6: waitForJob 폴링/타임아웃/missing/
+    unknown-id][+1 skip] + dashboard 7). **실제 빌드된 CLI e2e**(mock 아님): completed→exit 0·failed→
+    exit 1(+lastError)·waiting_for_reset `--timeout 1s`→exit 124·`--json`(outcome/exitCode/job)·
+    잘못된 interval→exit 1·`-q`(무출력, exit 0), 그리고 **백그라운드 `wait`가 별도 `tick` 프로세스의
+    재개→completed를 폴링으로 관측해 exit 0 반환**(크로스-프로세스 관측 데모).
+- 다음 할 일: #61·#69·#75·#94·#95 등 열린 PR 통합, `wait --all`/여러 잡 동시 대기(👷 후보),
+  README/ARCHITECTURE(🧭 코워크).

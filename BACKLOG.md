@@ -396,6 +396,18 @@
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
 
+- [x] 👷 `agentrelay wait <id>` — 특정 잡이 종료 상태(completed/failed/cancelled)에 도달할 때까지
+      블록 후 결과를 반영한 exit code로 종료(스크립트/CI `&&`·`||` 체인 친화).
+      (완료 — core `wait.ts` 신설(순수): `isTerminalStatus`(stats의 `TERMINAL_STATUSES` 재사용)·
+      `WaitOutcome`(completed/failed/cancelled/timeout/missing)·`WAIT_EXIT_CODES`/`waitExitCode`
+      (0/1/2, timeout=124[GNU `timeout(1)` 관례], missing=5)·`evaluateWait(job|null)`(스냅샷 하나로
+      "대기 계속 vs 종료+outcome" 판정, null=missing). CLI `commands.ts` `waitForJob`(id 1회 해소 후
+      full id로 추적, 매 폴링마다 스토어 재오픈해 **별도 daemon/tick 프로세스**의 쓰기 관측; 첫 검사
+      즉시라 이미 종료된 잡은 sleep 없이 반환, `--timeout`은 sleep 전 데드라인 검사로 1인터벌 이상
+      초과 안 함; clock/sleeper/reader 주입 가능=테스트). CLI `wait.ts` `renderWaitJson`(--json,
+      next/show와 동일 형태). `agentrelay wait <id> [--timeout <dur>] [--interval <dur>] [--json] [-q]`
+      배선. 잘못된 interval/timeout·미존재 id는 exit 1. branch `claude/wizardly-pascal-21fyfk`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

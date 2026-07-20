@@ -39,6 +39,7 @@ import {
   distinctActiveBinaries,
   type EffectiveConfigEntry,
   type ExportFormat,
+  evaluateWait,
   exportJobs,
   findConfigField,
   hasConfigErrors,
@@ -70,6 +71,8 @@ import {
   setConfigValue,
   unsetConfigValue,
   validateConfig,
+  type WaitOutcome,
+  waitExitCode,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
 
@@ -503,6 +506,120 @@ export function showJob(idOrPrefix: string, storePath?: string): ShowJobResult {
     return { ok: true, job };
   } finally {
     queue.close();
+  }
+}
+
+export interface WaitJobOptions {
+  storePath?: string;
+  /** How often to re-read the store while polling, in ms. Default 2000. */
+  intervalMs?: number;
+  /** Give up after this many ms of waiting. `null`/omitted = wait forever. */
+  timeoutMs?: number | null;
+  /** Injected clock (ms since epoch). Defaults to `Date.now`. */
+  now?: () => number;
+  /** Injected sleeper. Defaults to a `setTimeout`-based delay. */
+  sleep?: (ms: number) => Promise<void>;
+  /**
+   * Injected store reader by full id (returns `null` when the job is gone).
+   * Defaults to opening the store fresh on each poll so a *separate*
+   * daemon/tick process's writes are observed. Overridable for tests.
+   */
+  readJob?: (id: string) => RelayJob | null;
+  /** Called once per poll with the still-pending job (for progress output). */
+  onPoll?: (job: RelayJob, elapsedMs: number) => void;
+}
+
+export interface WaitJobResult {
+  /** `false` only when the id couldn't be resolved to a job at all. */
+  ok: boolean;
+  outcome?: WaitOutcome;
+  /** The last job snapshot seen (may be `null` for a `missing` outcome). */
+  job: RelayJob | null;
+  /** Human-readable line for the CLI to print. */
+  message: string;
+  exitCode: number;
+}
+
+function waitMessage(outcome: WaitOutcome, job: RelayJob | null, fullId: string): string {
+  const id = shortId(fullId);
+  const suffix = job ? ` (${job.project})` : "";
+  switch (outcome) {
+    case "completed":
+      return `job ${id}${suffix} completed`;
+    case "failed":
+      return `job ${id}${suffix} failed${job?.lastError ? `: ${job.lastError}` : ""}`;
+    case "cancelled":
+      return `job ${id}${suffix} was cancelled`;
+    case "timeout":
+      return `timed out waiting for job ${id}${suffix}; still ${job?.status ?? "pending"}`;
+    case "missing":
+      return `job ${id} is no longer in the store (removed or pruned while waiting)`;
+  }
+}
+
+/**
+ * Block until the job identified by `idOrPrefix` reaches a terminal state,
+ * polling the store as a separate daemon/tick process advances it. The id is
+ * resolved once (so a short prefix keeps tracking the same job even as others
+ * come and go), then re-read each interval. Returns the outcome plus an exit
+ * code so the CLI — and any script chaining on it — can branch on the relay's
+ * result. Pure decision logic lives in core's {@link evaluateWait}; this owns
+ * only the I/O loop, with the clock/sleeper/reader injectable for tests.
+ */
+export async function waitForJob(idOrPrefix: string, options: WaitJobOptions = {}): Promise<WaitJobResult> {
+  const storePath = options.storePath ?? defaultStorePath();
+  const intervalMs = options.intervalMs ?? 2000;
+  const timeoutMs = options.timeoutMs ?? null;
+  const now = options.now ?? (() => Date.now());
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  // Resolve the id once against the current store, then track by full id.
+  const queue = openQueue(storePath);
+  let fullId: string;
+  try {
+    const resolved = resolveJobId(queue.listAll(), idOrPrefix);
+    if (resolved.error || !resolved.id) {
+      return { ok: false, job: null, message: resolved.error ?? "job not found", exitCode: 1 };
+    }
+    fullId = resolved.id;
+  } finally {
+    queue.close();
+  }
+
+  const readJob =
+    options.readJob ??
+    ((id: string): RelayJob | null => {
+      const q = openQueue(storePath);
+      try {
+        return q.getById(id) ?? null;
+      } finally {
+        q.close();
+      }
+    });
+
+  const start = now();
+  // First check is immediate so an already-terminal job returns without a
+  // sleep. The deadline is checked before each sleep so `--timeout` can't be
+  // overshot by more than one interval.
+  while (true) {
+    const job = readJob(fullId);
+    const verdict = evaluateWait(job);
+    if (verdict.done) {
+      const outcome = verdict.outcome as WaitOutcome;
+      return { ok: true, outcome, job, message: waitMessage(outcome, job, fullId), exitCode: waitExitCode(outcome) };
+    }
+    const elapsed = now() - start;
+    if (timeoutMs !== null && elapsed >= timeoutMs) {
+      return {
+        ok: true,
+        outcome: "timeout",
+        job,
+        message: waitMessage("timeout", job, fullId),
+        exitCode: waitExitCode("timeout"),
+      };
+    }
+    if (job) options.onPoll?.(job, elapsed);
+    await sleep(intervalMs);
   }
 }
 
