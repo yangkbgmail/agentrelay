@@ -1,11 +1,14 @@
 import type { RelayJob } from "@agentrelay/core";
-import { computeStats } from "@agentrelay/core";
+import { computeStats, groupStats } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
   formatDurationMs,
   formatSuccessRate,
+  NO_GROUPS_MESSAGE,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
+  renderGroupedStats,
+  renderGroupedStatsJson,
   renderStats,
   renderStatsJson,
 } from "../src/stats.js";
@@ -175,5 +178,73 @@ describe("renderStats with a scope", () => {
     expect(renderStats(empty, { scopeNote: "project=nope" })).toBe(NO_SCOPE_MATCH_MESSAGE);
     // Without a scope, an empty store still shows the onboarding hint.
     expect(renderStats(empty)).toBe(NO_STATS_MESSAGE);
+  });
+});
+
+describe("renderGroupedStats", () => {
+  it("renders a header and one row per group", () => {
+    const groups = groupStats(
+      [
+        job({ project: "web", status: "completed" }),
+        job({ project: "web", status: "failed" }),
+        job({ project: "api", status: "completed" }),
+      ],
+      "project"
+    );
+    const out = renderGroupedStats(groups, "project");
+    expect(out).toContain("grouped by project (2 groups)");
+    // web is the bigger group (2 jobs) and appears with a 50% success rate.
+    const lines = out.split("\n");
+    const webLine = lines.find((l) => l.includes("web"));
+    const apiLine = lines.find((l) => l.includes("api"));
+    expect(webLine).toContain("2 job(s)");
+    expect(webLine).toContain("success 50%");
+    expect(apiLine).toContain("1 job(s)");
+    expect(apiLine).toContain("success 100%");
+    // Ordered by count desc: web's row precedes api's row.
+    expect(lines.indexOf(webLine as string)).toBeLessThan(lines.indexOf(apiLine as string));
+  });
+
+  it("uses a singular label for a single group", () => {
+    const groups = groupStats([job({ project: "solo" })], "project");
+    expect(renderGroupedStats(groups, "project")).toContain("(1 group)");
+  });
+
+  it("shows a dash for median when a group has no resolved jobs", () => {
+    const groups = groupStats([job({ project: "waiting", status: "queued" })], "project");
+    expect(renderGroupedStats(groups, "project")).toContain("median -");
+  });
+
+  it("distinguishes an empty store from an empty scoped subset", () => {
+    expect(renderGroupedStats([], "project")).toContain(NO_GROUPS_MESSAGE);
+    const out = renderGroupedStats([], "project", { scopeNote: "project=nope" });
+    expect(out).toContain("scope: project=nope");
+    expect(out).toContain(NO_SCOPE_MATCH_MESSAGE);
+  });
+});
+
+describe("renderGroupedStatsJson", () => {
+  it("echoes the dimension, groups, and active scope", () => {
+    const groups = groupStats([job({ project: "web" }), job({ project: "api" })], "project");
+    const parsed = JSON.parse(
+      renderGroupedStatsJson(groups, "project", "/tmp/store.json", {
+        generatedAt: "2026-07-13T00:00:00.000Z",
+        scope: { statuses: ["completed"] },
+      })
+    );
+    expect(parsed.groupBy).toBe("project");
+    expect(parsed.storePath).toBe("/tmp/store.json");
+    expect(parsed.groups).toHaveLength(2);
+    expect(parsed.groups[0]).toHaveProperty("key");
+    expect(parsed.groups[0]).toHaveProperty("stats");
+    expect(parsed.scope).toEqual({ statuses: ["completed"] });
+  });
+
+  it("omits scope when none is active", () => {
+    const groups = groupStats([job()], "tool");
+    const parsed = JSON.parse(
+      renderGroupedStatsJson(groups, "tool", "/tmp/s.json", { generatedAt: "2026-07-13T00:00:00.000Z" })
+    );
+    expect(parsed.scope).toBeUndefined();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import { computeStats, groupStats, isJobScopeActive, scopeJobs } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -366,5 +366,63 @@ describe("scopeJobs", () => {
       job({ id: "c", project: "api", createdAt: "2026-07-14T00:00:00.000Z" }), // wrong project
     ];
     expect(scopeJobs(jobs, { projects: ["web"], createdFrom: from }).map((j) => j.id)).toEqual(["a"]);
+  });
+});
+
+describe("groupStats", () => {
+  it("returns an empty array for no jobs", () => {
+    expect(groupStats([], "project")).toEqual([]);
+  });
+
+  it("groups by project and computes per-group stats", () => {
+    const jobs = [
+      job({ project: "web", status: "completed" }),
+      job({ project: "web", status: "failed" }),
+      job({ project: "api", status: "completed" }),
+    ];
+    const groups = groupStats(jobs, "project");
+    const web = groups.find((g) => g.key === "web");
+    const api = groups.find((g) => g.key === "api");
+    expect(web?.stats.total).toBe(2);
+    expect(web?.stats.successRate).toBe(0.5);
+    expect(api?.stats.total).toBe(1);
+    expect(api?.stats.successRate).toBe(1);
+  });
+
+  it("orders groups by job count desc, ties broken by key asc", () => {
+    const jobs = [
+      job({ project: "solo" }),
+      job({ project: "big" }),
+      job({ project: "big" }),
+      job({ project: "big" }),
+      job({ project: "aaa" }), // ties with "solo" at 1, sorts first by name
+    ];
+    expect(groupStats(jobs, "project").map((g) => g.key)).toEqual(["big", "aaa", "solo"]);
+  });
+
+  it("groups by tool", () => {
+    const jobs = [
+      job({ tool: "claude-code" as AgentTool }),
+      job({ tool: "codex-cli" as AgentTool }),
+      job({ tool: "codex-cli" as AgentTool }),
+    ];
+    const groups = groupStats(jobs, "tool");
+    expect(groups.map((g) => `${g.key}:${g.stats.total}`)).toEqual(["codex-cli:2", "claude-code:1"]);
+  });
+
+  it("groups by status", () => {
+    const jobs = [
+      job({ status: "queued" as JobStatus }),
+      job({ status: "completed" as JobStatus }),
+      job({ status: "completed" as JobStatus }),
+    ];
+    const groups = groupStats(jobs, "status");
+    expect(groups.map((g) => g.key)).toEqual(["completed", "queued"]);
+  });
+
+  it("group totals sum back to the input length", () => {
+    const jobs = [job({ project: "a" }), job({ project: "b" }), job({ project: "a" }), job({ project: "c" })];
+    const total = groupStats(jobs, "project").reduce((sum, g) => sum + g.stats.total, 0);
+    expect(total).toBe(jobs.length);
   });
 });

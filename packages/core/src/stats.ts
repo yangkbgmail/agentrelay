@@ -140,6 +140,50 @@ export function scopeJobs(jobs: RelayJob[], scope: JobScope = {}): RelayJob[] {
   return result;
 }
 
+/**
+ * Dimension `agentrelay stats --group-by` can split the queue along. Each is a
+ * plain per-job attribute so a group's membership is unambiguous.
+ */
+export type GroupDimension = "project" | "tool" | "status";
+
+/** Every group-by dimension, for CLI validation and help text. */
+export const GROUP_DIMENSIONS: GroupDimension[] = ["project", "tool", "status"];
+
+/** One group in a {@link groupStats} result: a dimension value and its metrics. */
+export interface StatGroup {
+  /** The shared dimension value (project name, tool id, or status). */
+  key: string;
+  /** Full relay metrics computed over just this group's jobs. */
+  stats: RelayStats;
+}
+
+/** Extract the grouping key for a job along the given dimension. */
+function groupKey(job: RelayJob, dimension: GroupDimension): string {
+  if (dimension === "project") return job.project;
+  if (dimension === "tool") return job.tool;
+  return job.status;
+}
+
+/**
+ * Splits a job list by a dimension and computes full {@link RelayStats} per
+ * group, so `agentrelay stats --group-by project` shows success rate / timing
+ * for each project rather than one blended aggregate. Pure and non-mutating.
+ * Groups are ordered by job count (desc), ties broken by key (asc) for a stable
+ * deterministic output. An empty input yields an empty array.
+ */
+export function groupStats(jobs: RelayJob[], dimension: GroupDimension): StatGroup[] {
+  const buckets = new Map<string, RelayJob[]>();
+  for (const job of jobs) {
+    const key = groupKey(job, dimension);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(job);
+    else buckets.set(key, [job]);
+  }
+  return [...buckets.entries()]
+    .map(([key, groupJobs]) => ({ key, stats: computeStats(groupJobs) }))
+    .sort((a, b) => (b.stats.total !== a.stats.total ? b.stats.total - a.stats.total : a.key.localeCompare(b.key)));
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 

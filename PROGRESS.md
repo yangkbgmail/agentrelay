@@ -980,3 +980,28 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay stats --group-by`] (2026-07-20, 무인)
+- 배경: `stats`는 큐 전체를 하나의 blended 집계로만 보여줘, "어느 프로젝트가 성공률이
+  낮은가", "어느 툴이 가장 오래 대기하는가" 같은 차원별 비교가 불가능했다. 스코프 필터
+  (`--project foo`)로 한 번에 하나씩 볼 수는 있었지만 나란히 비교할 수단이 없었음.
+- 한 일: `stats --group-by <project|tool|status>` 추가 — 스코프한 잡셋을 지정 차원으로
+  쪼개 그룹마다 전체 `RelayStats`(성공률·재시도·해결시간 등)를 계산.
+  1. `@agentrelay/core/stats.ts`: 순수 `groupStats(jobs, dimension)` + `GroupDimension`
+     (`project`/`tool`/`status`)·`GROUP_DIMENSIONS`·`StatGroup{key,stats}` 신설. 그룹은
+     잡 수 desc·키 asc로 결정론 정렬, 각 그룹은 기존 `computeStats` 재사용(로직 무중복),
+     빈 입력은 빈 배열. 순수·무I/O 유지.
+  2. CLI `packages/cli/src/stats.ts`: 순수 `renderGroupedStats`(차원·그룹 수 헤더 + 그룹당
+     한 줄: 키·잡 수·active/done·성공률·median 해결시간, 미해결 그룹은 median `-`)·
+     `renderGroupedStatsJson`(`--json`: groupBy·groups·scope 에코)·`NO_GROUPS_MESSAGE`.
+     빈 그룹셋은 스코프 유무로 "no match" vs "no jobs to group" 구분.
+  3. `cli.ts` stats에 `-g/--group-by` 배선 — 기존 스코프/시간창 필터를 **먼저** 적용한 뒤
+     그룹화(스코프한 부분집합만 쪼갬). 잘못된 차원은 exit 1. 새 core 코드는 groupStats
+     한 함수뿐, 렌더는 기존 `formatSuccessRate`/`formatDurationMs` 재사용.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고**,
+    `pnpm test` **432개 통과 + 1 skip**(core 298[+6 groupStats] + cli 143[+8 grouped render/json]
+    + dashboard 3). **실제 빌드 CLI e2e**(mock 아님): 4-job 스토어로 group-by project/tool/status·
+    `-g` 단축·스코프 결합·`--json` 형태·잘못된 차원 exit 1·빈 부분집합 "no match" 확인.
+  - branch `claude/wizardly-pascal-byj4r7`.
+- 다음 할 일: 대시보드가 그룹별 통계 노출(👷 후보), stats 대기시간(대기→재개 지연) 지표
+  확장(👷 후보 — RelayJob 중간 타임스탬프 필요), README/ARCHITECTURE(🧭 코워크).

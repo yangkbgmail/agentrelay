@@ -347,6 +347,20 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay stats --group-by <project|tool|status>` — 큐 전체 blended 집계 대신
+      차원별로 통계를 쪼개, 어느 프로젝트/툴/상태가 성공률·해결시간이 다른지 나란히 비교.
+      (완료 — `@agentrelay/core/stats.ts`에 순수 `groupStats(jobs, dimension)` + `GroupDimension`
+      (`project`/`tool`/`status`)·`GROUP_DIMENSIONS`·`StatGroup{key,stats}` 신설: 잡을 차원 값으로
+      버킷팅해 그룹마다 기존 `computeStats`를 돌림(로직 무중복). 그룹은 잡 수 desc·키 asc로 결정론
+      정렬, 빈 입력은 빈 배열, 순수·무I/O. CLI `stats.ts`에 순수 `renderGroupedStats`(차원·그룹 수
+      헤더 + 그룹당 한 줄: 키·잡 수·active/done·성공률·median 해결시간, 미해결 그룹은 median `-`)·
+      `renderGroupedStatsJson`(groupBy·groups·scope 에코)·`NO_GROUPS_MESSAGE`(빈 그룹셋은 스코프
+      유무로 "no match" vs "no jobs to group" 구분). `cli.ts` stats에 `-g/--group-by` 배선 —
+      기존 스코프/시간창 필터를 **먼저** 적용한 뒤 그룹화, 잘못된 차원은 exit 1. 새 core 코드는
+      groupStats 한 함수뿐(렌더는 `formatSuccessRate`/`formatDurationMs` 재사용). stats.test.ts에
+      groupStats 6 + grouped render/json 8케이스, 빌드된 CLI e2e로 3차원·`-g` 단축·스코프 결합·
+      `--json`·에러 exit·빈 부분집합 검증. branch `claude/wizardly-pascal-byj4r7`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
