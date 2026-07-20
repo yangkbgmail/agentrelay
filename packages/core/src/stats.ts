@@ -140,6 +140,71 @@ export function scopeJobs(jobs: RelayJob[], scope: JobScope = {}): RelayJob[] {
   return result;
 }
 
+/** One bucket in an activity trend: how many jobs landed in a time window. */
+export interface ActivityBucket {
+  /** Inclusive start of the bucket window (epoch ms). */
+  startMs: number;
+  /**
+   * End of the bucket window (epoch ms). Half-open `[startMs, endMs)` for every
+   * bucket except the final one, which includes `now` so a job stamped exactly
+   * at `now` still counts.
+   */
+  endMs: number;
+  /** Number of jobs whose bucketed timestamp fell in this window. */
+  count: number;
+}
+
+/** Which timestamp {@link computeActivityTrend} buckets jobs by. */
+export type TrendField = "createdAt" | "updatedAt";
+
+export interface ActivityTrendOptions {
+  /**
+   * Reference "now" (epoch ms). Injected rather than read from the clock so the
+   * function stays pure and testable; the newest bucket ends here.
+   */
+  now: number;
+  /** Width of each bucket in ms. Ignored (returns `[]`) when not positive. */
+  bucketMs: number;
+  /** Number of buckets to produce, oldest → newest. Ignored (`[]`) when < 1. */
+  bucketCount: number;
+  /** Which timestamp to bucket by. Default `"createdAt"`. */
+  field?: TrendField;
+}
+
+/**
+ * Buckets jobs into a fixed-width time histogram ending at `now`, so
+ * `agentrelay stats --trend` can show relay activity over time (e.g. jobs
+ * created per day for the last two weeks). Pure and non-mutating: no I/O, no
+ * ambient clock — the caller injects `now`.
+ *
+ * The window spans `[now - bucketCount*bucketMs, now]`; bucket `i` covers
+ * `[windowStart + i*bucketMs, windowStart + (i+1)*bucketMs)`. Jobs outside the
+ * window, or with a missing/unparseable timestamp, are dropped (they can't be
+ * placed on the timeline). Returns `[]` for a degenerate config so a bad CLI
+ * value can't crash the render.
+ */
+export function computeActivityTrend(jobs: RelayJob[], options: ActivityTrendOptions): ActivityBucket[] {
+  const { now, bucketMs, bucketCount, field = "createdAt" } = options;
+  if (!Number.isFinite(now) || bucketMs <= 0 || bucketCount < 1) return [];
+
+  const windowStart = now - bucketCount * bucketMs;
+  const buckets: ActivityBucket[] = [];
+  for (let i = 0; i < bucketCount; i++) {
+    buckets.push({ startMs: windowStart + i * bucketMs, endMs: windowStart + (i + 1) * bucketMs, count: 0 });
+  }
+
+  for (const job of jobs) {
+    const raw = job[field];
+    const ts = Date.parse(raw);
+    if (Number.isNaN(ts) || ts < windowStart || ts > now) continue;
+    // ts === now lands one past the last index; clamp it into the final bucket.
+    const idx = Math.min(bucketCount - 1, Math.floor((ts - windowStart) / bucketMs));
+    buckets[idx].count += 1;
+  }
+
+  return buckets;
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 

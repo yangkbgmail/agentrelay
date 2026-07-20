@@ -980,3 +980,33 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — `agentrelay stats --trend` 시간대별 활동 히스토그램] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-m8o42o`)
+- 배경: 세션 시작 시 열린 PR 0개(#62 병합됨), main=현재 브랜치 동일(중복/누적 없음). 남은 명시적
+  👷 항목은 모두 완료, 미완은 🧭(코워크 소유) 문서뿐이라 CLAUDE.md 지침대로 **새 개선 항목을 발굴**
+  했다 — 여러 세션(12·13·14·28·29·30)이 "다음 할 일 👷 후보"로 반복 언급한 **stats 시간대별 추이**.
+  기존 stats는 총계·성공률·해결시간 백분위는 보여줬지만 "언제 얼마나 릴레이가 돌았나"의 시간축이
+  없었다.
+- 한 일: **`agentrelay stats --trend` 활동 히스토그램**.
+  1. `@agentrelay/core/stats.ts` — 순수 `computeActivityTrend(jobs, {now,bucketMs,bucketCount,field?})`
+     + `ActivityBucket`(startMs·endMs·count)·`TrendField`·`ActivityTrendOptions` 신설. `[now−count·
+     bucketMs, now]` 윈도를 고정폭 버킷으로 나눠 각 잡을 `createdAt`(기본)/`updatedAt`로 배치.
+     윈도 밖·파싱불가 타임스탬프는 드롭(타임라인에 못 놓음), `now`에 정확히 찍힌 잡은 마지막
+     버킷에 클램프, 퇴화 설정(bucketMs≤0·bucketCount<1·비유한 now)은 `[]`. 순수·비변형(now 주입).
+  2. CLI `packages/cli/src/stats.ts` — 순수 `renderActivityTrend`(버킷당 라벨+블록바(█) 히스토그램,
+     busiest 기준 스케일, 비영 버킷은 최소 1블록으로 미표시 방지, 빈 윈도 안전)·`formatTrendLabel`
+     (UTC라 타임존 독립: day/week=`YYYY-MM-DD`·hour=`YYYY-MM-DD HH:00`)·`alignTrendNow`(now를 다음
+     단위 경계로 올림 → 버킷이 달력 경계에 정렬돼 "오늘 잡=오늘 라벨")·`TREND_UNITS`/`TREND_UNIT_MS`.
+  3. `cli.ts` stats 액션에 `--trend`·`--trend-unit hour|day|week`(기본 day)·`--trend-buckets N`
+     (기본 14) 배선. 히스토그램은 **스코프된 잡**(`--status`/`--tool`/`--project`/`--since`/`--until`)에
+     동일 적용, `--json`은 trend를 `{unit,buckets}`로 에코(`renderStatsJson`에 optional trend 추가),
+     잘못된 unit·1–500 정수 아닌 buckets는 exit 1. 잡 0개면 히스토그램 생략(온보딩/no-match 문구만).
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **437개 통과 + 1 skip**(core 294[+8: computeActivityTrend] + cli 140[+12: formatTrendLabel
+    2·alignTrendNow 3·renderActivityTrend 4·json 1 등][+1 skip] + dashboard 3). **실제 빌드된 CLI e2e**
+    (mock 아님): 3-job(web/api, claude/codex) 스토어로 `--trend --trend-buckets 4`(달력 정렬돼 07-18=1·
+    07-19=2 바), `--trend-unit hour`, `--tool codex-cli --trend`(스코프 1잡), `--json --trend`(unit/
+    buckets/counts), 에러(`--trend-unit bogus`·`--trend-buckets 0`·`abc` 모두 exit 1), 회귀(무-trend
+    출력 불변), 빈 스토어(온보딩 문구·히스토그램 없음) 확인.
+- 다음 할 일: 대시보드가 활동 추이 차트 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
+  (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).

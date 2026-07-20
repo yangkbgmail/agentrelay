@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import { computeActivityTrend, computeStats, isJobScopeActive, scopeJobs } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -366,5 +366,78 @@ describe("scopeJobs", () => {
       job({ id: "c", project: "api", createdAt: "2026-07-14T00:00:00.000Z" }), // wrong project
     ];
     expect(scopeJobs(jobs, { projects: ["web"], createdFrom: from }).map((j) => j.id)).toEqual(["a"]);
+  });
+});
+
+describe("computeActivityTrend", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const now = Date.parse("2026-07-20T00:00:00.000Z");
+
+  it("produces exactly bucketCount buckets, oldest → newest, ending at now", () => {
+    const buckets = computeActivityTrend([], { now, bucketMs: DAY, bucketCount: 3 });
+    expect(buckets).toHaveLength(3);
+    expect(buckets[0].startMs).toBe(now - 3 * DAY);
+    expect(buckets[2].endMs).toBe(now);
+    // Contiguous, non-overlapping windows.
+    expect(buckets[0].endMs).toBe(buckets[1].startMs);
+    expect(buckets[1].endMs).toBe(buckets[2].startMs);
+  });
+
+  it("counts jobs into the bucket containing their createdAt", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-17T06:00:00.000Z" }), // bucket 0 (17th)
+      job({ createdAt: "2026-07-18T12:00:00.000Z" }), // bucket 1 (18th)
+      job({ createdAt: "2026-07-18T23:00:00.000Z" }), // bucket 1 (18th)
+      job({ createdAt: "2026-07-19T01:00:00.000Z" }), // bucket 2 (19th)
+    ];
+    const buckets = computeActivityTrend(jobs, { now, bucketMs: DAY, bucketCount: 3 });
+    expect(buckets.map((b) => b.count)).toEqual([1, 2, 1]);
+  });
+
+  it("drops jobs outside the window (older than start, or after now)", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-10T00:00:00.000Z" }), // way before window
+      job({ createdAt: "2026-07-25T00:00:00.000Z" }), // after now (future)
+      job({ createdAt: "2026-07-18T00:00:00.000Z" }), // inside
+    ];
+    const buckets = computeActivityTrend(jobs, { now, bucketMs: DAY, bucketCount: 3 });
+    expect(buckets.reduce((s, b) => s + b.count, 0)).toBe(1);
+  });
+
+  it("clamps a job stamped exactly at now into the final bucket", () => {
+    const jobs = [job({ createdAt: new Date(now).toISOString() })];
+    const buckets = computeActivityTrend(jobs, { now, bucketMs: DAY, bucketCount: 3 });
+    expect(buckets[2].count).toBe(1);
+  });
+
+  it("drops jobs with a missing/unparseable timestamp", () => {
+    const jobs = [job({ createdAt: "not-a-date" }), job({ createdAt: "2026-07-18T00:00:00.000Z" })];
+    const buckets = computeActivityTrend(jobs, { now, bucketMs: DAY, bucketCount: 3 });
+    expect(buckets.reduce((s, b) => s + b.count, 0)).toBe(1);
+  });
+
+  it("buckets by updatedAt when field is set", () => {
+    const jobs = [job({ createdAt: "2026-07-10T00:00:00.000Z", updatedAt: "2026-07-19T00:00:00.000Z" })];
+    // createdAt is outside the window, updatedAt is inside → counted only via updatedAt.
+    expect(computeActivityTrend(jobs, { now, bucketMs: DAY, bucketCount: 3 }).reduce((s, b) => s + b.count, 0)).toBe(0);
+    expect(
+      computeActivityTrend(jobs, { now, bucketMs: DAY, bucketCount: 3, field: "updatedAt" }).reduce(
+        (s, b) => s + b.count,
+        0
+      )
+    ).toBe(1);
+  });
+
+  it("returns [] for a degenerate config (non-positive bucketMs or count < 1)", () => {
+    expect(computeActivityTrend([job()], { now, bucketMs: 0, bucketCount: 3 })).toEqual([]);
+    expect(computeActivityTrend([job()], { now, bucketMs: DAY, bucketCount: 0 })).toEqual([]);
+    expect(computeActivityTrend([job()], { now: Number.NaN, bucketMs: DAY, bucketCount: 3 })).toEqual([]);
+  });
+
+  it("does not mutate the input job list", () => {
+    const jobs = [job({ createdAt: "2026-07-18T00:00:00.000Z" })];
+    const snapshot = JSON.stringify(jobs);
+    computeActivityTrend(jobs, { now, bucketMs: DAY, bucketCount: 3 });
+    expect(JSON.stringify(jobs)).toBe(snapshot);
   });
 });

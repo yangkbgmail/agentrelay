@@ -347,6 +347,24 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay stats --trend` 시간대별 활동 히스토그램 — 잡 생성 추이를 시간/일/주 단위
+      버킷으로 한눈에(여러 세션에서 "stats 시간대별 추이" 👷 후보로 반복 등장한 항목).
+      (완료 — `@agentrelay/core/stats.ts`에 순수 `computeActivityTrend(jobs, {now,bucketMs,bucketCount,
+      field?})` + `ActivityBucket`/`TrendField`/`ActivityTrendOptions` 신설: `[now−count·bucketMs, now]`
+      윈도를 고정폭 버킷으로 나눠 각 잡을 `createdAt`(기본)/`updatedAt`로 배치, 윈도 밖·파싱불가
+      타임스탬프는 드롭, `now`에 정확히 찍힌 잡은 마지막 버킷에 클램프, 퇴화 설정(bucketMs≤0·count<1·
+      비유한 now)은 `[]` 반환(나쁜 CLI 값이 렌더를 깨지 않음). 순수·비변형(now 주입). CLI
+      `packages/cli/src/stats.ts`에 순수 `renderActivityTrend`(버킷당 라벨+블록바 히스토그램, busiest
+      기준 스케일, 비영 버킷은 최소 1블록으로 미표시 방지)·`formatTrendLabel`(UTC라 타임존 독립,
+      day/week=`YYYY-MM-DD`·hour=`YYYY-MM-DD HH:00`)·`alignTrendNow`(now를 다음 단위 경계로 올림 →
+      버킷이 달력 경계에 정렬돼 오늘 잡이 오늘 라벨에 표시)·`TREND_UNITS`/`TREND_UNIT_MS` 추가.
+      `agentrelay stats --trend [--trend-unit hour|day|week] [--trend-buckets N]` 배선 — 스코프된
+      잡(`--status`/`--tool`/`--project`/`--since`/`--until`)에 동일 적용, `--json`은 trend를
+      `{unit,buckets}`로 에코, 잘못된 unit/buckets(1–500 정수 아님)는 exit 1. stats.test.ts에 core
+      computeActivityTrend 8 + CLI formatTrendLabel/alignTrendNow/renderActivityTrend/json 12케이스
+      추가, 실제 빌드된 CLI e2e로 정렬된 day/hour 버킷·스코프·JSON·에러 exit·회귀(무-trend 불변)·빈
+      스토어 검증. branch `claude/wizardly-pascal-m8o42o`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

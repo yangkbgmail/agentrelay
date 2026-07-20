@@ -1,13 +1,17 @@
 import type { RelayJob } from "@agentrelay/core";
-import { computeStats } from "@agentrelay/core";
+import { computeActivityTrend, computeStats } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
+  alignTrendNow,
   formatDurationMs,
   formatSuccessRate,
+  formatTrendLabel,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
+  renderActivityTrend,
   renderStats,
   renderStatsJson,
+  TREND_UNIT_MS,
 } from "../src/stats.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
@@ -175,5 +179,89 @@ describe("renderStats with a scope", () => {
     expect(renderStats(empty, { scopeNote: "project=nope" })).toBe(NO_SCOPE_MATCH_MESSAGE);
     // Without a scope, an empty store still shows the onboarding hint.
     expect(renderStats(empty)).toBe(NO_STATS_MESSAGE);
+  });
+});
+
+describe("formatTrendLabel", () => {
+  const start = Date.parse("2026-07-18T09:00:00.000Z");
+  it("formats day/week as YYYY-MM-DD (UTC, timezone-independent)", () => {
+    expect(formatTrendLabel(start, "day")).toBe("2026-07-18");
+    expect(formatTrendLabel(start, "week")).toBe("2026-07-18");
+  });
+  it("formats hour with the hour appended", () => {
+    expect(formatTrendLabel(start, "hour")).toBe("2026-07-18 09:00");
+  });
+});
+
+describe("alignTrendNow", () => {
+  it("rounds up to the next UTC midnight for day/week", () => {
+    const mid = Date.parse("2026-07-20T14:37:12.000Z");
+    expect(alignTrendNow(mid, "day")).toBe(Date.parse("2026-07-21T00:00:00.000Z"));
+    expect(alignTrendNow(mid, "week")).toBe(Date.parse("2026-07-21T00:00:00.000Z"));
+  });
+  it("rounds up to the top of the next hour for hour", () => {
+    const t = Date.parse("2026-07-20T14:37:12.000Z");
+    expect(alignTrendNow(t, "hour")).toBe(Date.parse("2026-07-20T15:00:00.000Z"));
+  });
+  it("leaves a value already on the boundary unchanged", () => {
+    const midnight = Date.parse("2026-07-20T00:00:00.000Z");
+    expect(alignTrendNow(midnight, "day")).toBe(midnight);
+  });
+});
+
+describe("renderActivityTrend", () => {
+  const DAY = TREND_UNIT_MS.day;
+  const NOW_TREND = Date.parse("2026-07-20T00:00:00.000Z");
+
+  function trend(jobs: RelayJob[], bucketCount = 3) {
+    return computeActivityTrend(jobs, { now: NOW_TREND, bucketMs: DAY, bucketCount });
+  }
+
+  it("renders one labelled row per bucket with its count", () => {
+    const buckets = trend([
+      job({ createdAt: "2026-07-17T06:00:00.000Z" }),
+      job({ createdAt: "2026-07-19T06:00:00.000Z" }),
+      job({ createdAt: "2026-07-19T12:00:00.000Z" }),
+    ]);
+    const out = renderActivityTrend(buckets, { unit: "day" });
+    expect(out).toContain("activity (jobs created per day)");
+    expect(out).toContain("3 over 3 day(s)");
+    expect(out).toContain("2026-07-17");
+    expect(out).toContain("2026-07-19");
+    // The busiest bucket (2 jobs) gets the widest bar; ends in its count.
+    const lines = out.split("\n");
+    const busiest = lines.find((l) => l.includes("2026-07-19"));
+    expect(busiest?.trim().endsWith("2")).toBe(true);
+    expect(busiest).toContain("█");
+  });
+
+  it("gives any non-zero bucket at least one block, and empty buckets none", () => {
+    const buckets = trend([
+      job({ createdAt: "2026-07-17T06:00:00.000Z" }), // 1 job → smallest non-zero
+      ...Array.from({ length: 20 }, () => job({ createdAt: "2026-07-19T06:00:00.000Z" })), // 20 jobs
+    ]);
+    const out = renderActivityTrend(buckets, { unit: "day" });
+    const lines = out.split("\n");
+    const small = lines.find((l) => l.includes("2026-07-17"));
+    const empty = lines.find((l) => l.includes("2026-07-18"));
+    expect(small).toContain("█"); // present, not invisible
+    expect(empty).not.toContain("█"); // zero → no bar
+    expect(empty?.trim().endsWith("0")).toBe(true);
+  });
+
+  it("handles an all-empty window without dividing by zero", () => {
+    const out = renderActivityTrend(trend([]), { unit: "day" });
+    expect(out).toContain("0 over 3 day(s)");
+    expect(out).not.toContain("█");
+  });
+
+  it("renderStatsJson embeds the trend when supplied, omits it otherwise", () => {
+    const stats = computeStats([job()]);
+    const buckets = trend([job({ createdAt: "2026-07-19T06:00:00.000Z" })]);
+    const withTrend = JSON.parse(renderStatsJson(stats, "/s", { trend: { unit: "day", buckets } }));
+    expect(withTrend.trend.unit).toBe("day");
+    expect(withTrend.trend.buckets).toHaveLength(3);
+    const without = JSON.parse(renderStatsJson(stats, "/s", {}));
+    expect(without.trend).toBeUndefined();
   });
 });

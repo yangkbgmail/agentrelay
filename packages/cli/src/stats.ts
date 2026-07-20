@@ -3,7 +3,7 @@
 // breakdown). Kept as pure functions here, separate from the commander wiring
 // in cli.ts, so the exact output is unit-testable without a store or a clock.
 
-import type { JobScope, JobStatus, RelayStats } from "@agentrelay/core";
+import type { ActivityBucket, JobScope, JobStatus, RelayStats } from "@agentrelay/core";
 import { isJobScopeActive } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
@@ -45,6 +45,81 @@ export function formatDurationMs(ms: number): string {
   if (totalHours > 0) return `${totalHours}h ${minutes}m`;
   if (totalMinutes > 0) return `${totalMinutes}m ${seconds}s`;
   return `${totalSeconds}s`;
+}
+
+/** Trend bucket granularities and their width in ms, for `stats --trend`. */
+export const TREND_UNITS = ["hour", "day", "week"] as const;
+export type TrendUnit = (typeof TREND_UNITS)[number];
+export const TREND_UNIT_MS: Record<TrendUnit, number> = {
+  hour: 60 * 60 * 1000,
+  day: 24 * 60 * 60 * 1000,
+  week: 7 * 24 * 60 * 60 * 1000,
+};
+
+/** Widest bar (in block chars) drawn for the busiest bucket. */
+const TREND_BAR_WIDTH = 24;
+
+/**
+ * Round `now` up to the next unit boundary so trend buckets land on calendar
+ * lines instead of rolling off the wall-clock minute. `hour` snaps to the top
+ * of the next hour, `day`/`week` to the next UTC midnight (a week bucket is then
+ * a 7-day block ending on a midnight). Keeps the newest bucket's label — a job
+ * created today shows under today's date, not yesterday's. Returns `now`
+ * unchanged when it's not finite.
+ */
+export function alignTrendNow(now: number, unit: TrendUnit): number {
+  if (!Number.isFinite(now)) return now;
+  const step = unit === "hour" ? TREND_UNIT_MS.hour : TREND_UNIT_MS.day;
+  return Math.ceil(now / step) * step;
+}
+
+/**
+ * Label a bucket's start time for the given granularity, in UTC so the output
+ * is deterministic regardless of the host timezone. `day`/`week` → `YYYY-MM-DD`,
+ * `hour` → `YYYY-MM-DD HH:00`.
+ */
+export function formatTrendLabel(startMs: number, unit: TrendUnit): string {
+  const iso = new Date(startMs).toISOString();
+  if (unit === "hour") return `${iso.slice(0, 10)} ${iso.slice(11, 13)}:00`;
+  return iso.slice(0, 10);
+}
+
+/**
+ * Renders an activity histogram (one row per bucket, oldest → newest) as a
+ * block-bar chart with per-bucket counts. Pure: no I/O, no clock. Bars are
+ * scaled to the busiest bucket; any non-zero bucket shows at least one block so
+ * a small-but-present count is never invisible. `color` gates ANSI codes.
+ */
+export function renderActivityTrend(
+  buckets: ActivityBucket[],
+  options: { unit: TrendUnit; color?: boolean } = { unit: "day" }
+): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
+  const lines: string[] = [];
+  lines.push(
+    b(`activity (jobs created per ${options.unit})`) + d(`  ${total} over ${buckets.length} ${options.unit}(s)`)
+  );
+
+  if (buckets.length === 0) {
+    lines.push("  (no window)");
+    return lines.join("\n");
+  }
+
+  const max = buckets.reduce((m, bucket) => Math.max(m, bucket.count), 0);
+  const labelWidth = Math.max(...buckets.map((bucket) => formatTrendLabel(bucket.startMs, options.unit).length));
+  for (const bucket of buckets) {
+    const label = formatTrendLabel(bucket.startMs, options.unit).padEnd(labelWidth);
+    const barLen =
+      max === 0 ? 0 : Math.max(bucket.count > 0 ? 1 : 0, Math.round((bucket.count / max) * TREND_BAR_WIDTH));
+    const bar = "█".repeat(barLen);
+    lines.push(`  ${d(label)} ${bar}${bar ? " " : ""}${bucket.count}`);
+  }
+
+  return lines.join("\n");
 }
 
 /**
@@ -124,9 +199,10 @@ export function renderStats(
 export function renderStatsJson(
   stats: RelayStats,
   storePath: string,
-  options: { generatedAt?: string; scope?: JobScope } = {}
+  options: { generatedAt?: string; scope?: JobScope; trend?: { unit: TrendUnit; buckets: ActivityBucket[] } } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, stats }, null, 2);
+  const trend = options.trend ? { unit: options.trend.unit, buckets: options.trend.buckets } : undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, stats, trend }, null, 2);
 }

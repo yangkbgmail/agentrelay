@@ -1,5 +1,13 @@
 import type { AgentTool, ExportFormat, JobScope, JobStatus, RelayJob } from "@agentrelay/core";
-import { ALL_TOOLS, computeStats, EXPORT_FORMATS, isJobScopeActive, parseDuration, scopeJobs } from "@agentrelay/core";
+import {
+  ALL_TOOLS,
+  computeActivityTrend,
+  computeStats,
+  EXPORT_FORMATS,
+  isJobScopeActive,
+  parseDuration,
+  scopeJobs,
+} from "@agentrelay/core";
 import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
@@ -24,7 +32,15 @@ import {
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
-import { renderStats, renderStatsJson } from "./stats.js";
+import {
+  alignTrendNow,
+  renderActivityTrend,
+  renderStats,
+  renderStatsJson,
+  TREND_UNIT_MS,
+  TREND_UNITS,
+  type TrendUnit,
+} from "./stats.js";
 import {
   type JobSelection,
   NO_MATCH_MESSAGE,
@@ -270,9 +286,22 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--trend", "Also show an activity histogram of jobs created over time")
+    .option("--trend-unit <unit>", `Trend bucket size: ${TREND_UNITS.join(" | ")}`, "day")
+    .option("--trend-buckets <n>", "Number of trend buckets to show (default 14)", "14")
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
     .action(
-      (opts: { status?: string; tool?: string; project?: string; since?: string; until?: string; json?: boolean }) => {
+      (opts: {
+        status?: string;
+        tool?: string;
+        project?: string;
+        since?: string;
+        until?: string;
+        trend?: boolean;
+        trendUnit?: string;
+        trendBuckets?: string;
+        json?: boolean;
+      }) => {
         const { store } = program.opts();
 
         const now = Date.now();
@@ -344,19 +373,54 @@ export function buildCli(): Command {
           return;
         }
 
+        // --trend renders an activity histogram over the (scoped) jobs. Validate
+        // its knobs up front so a bad value errors instead of producing garbage.
+        const wantTrend = Boolean(opts.trend);
+        let trendUnit: TrendUnit = "day";
+        let trendBuckets = 14;
+        if (wantTrend) {
+          if (!TREND_UNITS.includes(opts.trendUnit as TrendUnit)) {
+            console.error(`Unknown --trend-unit: "${opts.trendUnit}". Valid: ${TREND_UNITS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          trendUnit = opts.trendUnit as TrendUnit;
+          const n = Number(opts.trendBuckets);
+          if (!Number.isInteger(n) || n < 1 || n > 500) {
+            console.error(`Invalid --trend-buckets: "${opts.trendBuckets}". Use a whole number 1–500.`);
+            process.exitCode = 1;
+            return;
+          }
+          trendBuckets = n;
+        }
+
         const allJobs = listStatus(store);
         const active = isJobScopeActive(scope);
         const jobs = active ? scopeJobs(allJobs, scope) : allJobs;
         const scopeNote = active ? noteParts.join(" ") : undefined;
         const stats = computeStats(jobs);
+        const trendBucketList = wantTrend
+          ? computeActivityTrend(jobs, {
+              now: alignTrendNow(now, trendUnit),
+              bucketMs: TREND_UNIT_MS[trendUnit],
+              bucketCount: trendBuckets,
+            })
+          : null;
 
         if (opts.json) {
-          console.log(renderStatsJson(stats, store, { scope }));
+          const trend = trendBucketList ? { unit: trendUnit, buckets: trendBucketList } : undefined;
+          console.log(renderStatsJson(stats, store, { scope, trend }));
           return;
         }
         // A store with jobs but an empty scoped subset should say "no match",
         // not the onboarding hint — renderStats keys that off scopeNote.
-        console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY), scopeNote }));
+        const color = Boolean(process.stdout.isTTY);
+        console.log(renderStats(stats, { color, scopeNote }));
+        // Only append the histogram when there are jobs to chart (stats already
+        // printed the onboarding/no-match line otherwise).
+        if (trendBucketList && stats.total > 0) {
+          console.log(`\n${renderActivityTrend(trendBucketList, { unit: trendUnit, color })}`);
+        }
       }
     );
 
