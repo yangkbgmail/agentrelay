@@ -347,6 +347,18 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay completion <bash|zsh>` — 쉘 탭 완성 스크립트 생성(서브커맨드·플래그 자동완성).
+      (완료 — `agentrelay <TAB>`으로 서브커맨드(`status`/`stats`/`restore`…)와 플래그(`--json`/`--since`…)를
+      완성하는 클래식 DX 기능이 없었다. `@agentrelay/core/completion.ts` 신설(순수·commander/fs 미접촉):
+      `generateCompletion(shell, spec)`가 `CompletionSpec`(program/global options/commands[+subcommands])에서
+      bash `complete -F` 함수·zsh `#compdef` 함수 스크립트 문자열을 생성. `COMPLETION_SHELLS`/`isCompletionShell`
+      타입 가드. bash 스크립트는 라인의 첫 비-옵션 단어로 서브커맨드를 찾아 그 커맨드의 플래그(부모 커맨드는
+      중첩 서브커맨드)를, 라인 시작에선 커맨드 목록/글로벌 옵션을 제안. 셸 메타문자 토큰은
+      `assertSafeToken`으로 거부(소싱 시 예기치 않은 실행 원천 차단), 중복 플래그는 first-seen 순서 유지
+      dedupe. CLI `cli.ts`에 `buildCompletionSpec(program)`(라이브 commander 프로그램을 walk해 스펙 유도 →
+      실제 커맨드 표면과 드리프트 없음) + `agentrelay completion <shell>` 커맨드(잘못된 셸은 exit 1). branch
+      `claude/wizardly-pascal-y7t7r0`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

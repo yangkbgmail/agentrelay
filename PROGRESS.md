@@ -980,3 +980,29 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — `agentrelay completion` 쉘 탭 완성 스크립트] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-y7t7r0`)
+- 배경: 세션 시작 시 열린 PR이 20건 이상(#63~#82) 쌓여 있었고 대부분 서로 중복된 후보
+  (stats `--group-by`/`--trend`, notify test, 대시보드 재개-루프 노출, export ndjson, status `--limit`,
+  cancel/retry `--all`, `next`, `parse`, resume latency, 데몬 이중 실행 가드)를 이미 점유 중이었다.
+  중복 재구현을 피해 CLAUDE.md 지침대로 **어떤 열린 PR과도 겹치지 않는 신규 개선 항목을 발굴**했다 —
+  지금까지 CLI에 **쉘 탭 완성**이 전혀 없어 `agentrelay <TAB>`이 아무것도 완성하지 못했다.
+- 한 일: **`agentrelay completion <bash|zsh>` — 쉘 완성 스크립트 생성.**
+  1. `@agentrelay/core/completion.ts` 신설(순수·commander/파일시스템 미접촉): `generateCompletion(shell, spec)`가
+     `CompletionSpec`(program·global options·commands[+subcommands])에서 bash `complete -F` 함수·zsh
+     `#compdef` 함수 스크립트 문자열을 생성. `CompletionShell`·`COMPLETION_SHELLS`·`isCompletionShell`
+     타입 가드. bash 스크립트는 라인의 첫 비-옵션 단어로 서브커맨드를 찾아 그 커맨드의 플래그(부모
+     커맨드는 중첩 서브커맨드 이름)를, 라인 시작에선 커맨드 목록/글로벌 옵션을 제안. `assertSafeToken`이
+     셸 메타문자 포함 토큰을 거부(소싱 시 예기치 않은 실행 원천 차단), 중복 플래그는 first-seen 순서
+     유지 dedupe(commander가 자동 추가하는 `-V/--version` 중복도 정리).
+  2. CLI `cli.ts`에 `buildCompletionSpec(program)` — 라이브 commander 프로그램을 walk해(`program.commands`·
+     `cmd.options`의 long/short) 스펙을 유도하므로 실제 커맨드 표면과 절대 드리프트 없음. `agentrelay
+     completion <shell>` 커맨드 배선(설치 예시 help 텍스트 포함, 잘못된 셸은 stderr + exit 1).
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **433개 통과 + 1 skip**(core 299[+13: completion 순수/셸가드/dedupe/안전성] + cli 131[+1 skip] +
+    dashboard 3). **실제 빌드 CLI e2e**(mock 아님): `completion bash`를 `bash -n`으로 문법 검증 통과 후
+    **실제로 source하여 `_agentrelay_completion`을 구동** — `sta`→`status stats`, `status --`→상태 플래그
+    전체, `config`→서브커맨드(`init validate show`), `config show --`→그 플래그 완성 확인. 잘못된 셸
+    (`fish`)은 exit 1.
+- 다음 할 일: `completion fish` 지원 추가(👷 후보), 대시보드가 재개-루프 생존 상태 노출(👷 후보),
+  누적된 열린 PR 통합으로 중복 루프 해소(운영), README/ARCHITECTURE(🧭 코워크).
