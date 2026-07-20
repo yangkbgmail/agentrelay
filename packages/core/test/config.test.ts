@@ -10,6 +10,7 @@ import {
   configToEnv,
   configToJson,
   findConfigField,
+  getConfigValue,
   hasConfigErrors,
   loadConfigFile,
   parseConfig,
@@ -276,6 +277,57 @@ describe("resolveEffectiveConfig", () => {
   });
 });
 
+describe("getConfigValue", () => {
+  it("resolves a top-level key from the config file", () => {
+    const resolved = getConfigValue("store", { store: "/tmp/jobs.json" }, {});
+    expect(resolved).toMatchObject({
+      key: "store",
+      envKey: "AGENTRELAY_STORE",
+      group: "store",
+      value: "/tmp/jobs.json",
+      source: "config-file",
+      secret: false,
+    });
+  });
+
+  it("resolves a nested key and reports the default when unset", () => {
+    const resolved = getConfigValue("retry.maxAttempts", null, {});
+    expect(resolved).toMatchObject({
+      key: "retry.maxAttempts",
+      envKey: "AGENTRELAY_MAX_ATTEMPTS",
+      value: undefined,
+      source: "default",
+    });
+  });
+
+  it("lets an env var win over the config file (precedence)", () => {
+    const resolved = getConfigValue("store", { store: "/from/file.json" }, { AGENTRELAY_STORE: "/from/env.json" });
+    expect(resolved).toMatchObject({ value: "/from/env.json", source: "env" });
+  });
+
+  it("projects the boolean autoPrune flag as its 1/0 env form", () => {
+    expect(getConfigValue("autoPrune.enabled", { autoPrune: { enabled: true } }, {})).toMatchObject({
+      value: "1",
+      source: "config-file",
+    });
+  });
+
+  it("flags secret keys", () => {
+    expect(getConfigValue("notify.webhookAuth", null, {}).secret).toBe(true);
+    expect(getConfigValue("store", null, {}).secret).toBe(false);
+  });
+
+  it("throws on an unknown key, listing the valid ones", () => {
+    expect(() => getConfigValue("retry.nope", null, {})).toThrow(/Unknown config key/);
+  });
+
+  it("resolves every settable key without throwing", () => {
+    for (const { key } of CONFIG_FIELDS) {
+      expect(() => getConfigValue(key, sampleConfig(), {})).not.toThrow();
+    }
+  });
+});
+
 describe("CONFIG_FIELDS / setConfigValue / unsetConfigValue", () => {
   it("has one settable field per env-backed key (no drift)", () => {
     // `config set` must reach precisely the values `config show` reports.
@@ -288,6 +340,9 @@ describe("CONFIG_FIELDS / setConfigValue / unsetConfigValue", () => {
       const keys = Object.keys(configToEnv(setConfigValue({}, field.key, sample(field))));
       expect(keys).toHaveLength(1);
       expect(known.has(keys[0])).toBe(true);
+      // The field's declared env key must be exactly the one it projects onto,
+      // so getConfigValue can look it up by name (no positional coupling).
+      expect(field.env).toBe(keys[0]);
     }
   });
 

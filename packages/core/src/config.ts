@@ -117,6 +117,13 @@ export interface ConfigField {
   key: string;
   group: ConfigGroup;
   type: ConfigFieldType;
+  /**
+   * The single `AGENTRELAY_*` env var this field projects onto (see
+   * {@link configToEnv}). It's the join between the file's dotted keys and the
+   * env-keyed {@link resolveEffectiveConfig} table, so {@link getConfigValue}
+   * can resolve one dotted key's effective value without positional coupling.
+   */
+  env: string;
   /** Webhook URLs/auth tokens — masked when echoed back. */
   secret?: boolean;
 }
@@ -128,19 +135,19 @@ export interface ConfigField {
  * `config show` reports and no more.
  */
 export const CONFIG_FIELDS: ConfigField[] = [
-  { key: "store", group: "store", type: "string" },
-  { key: "notify.slackWebhook", group: "notify", type: "string", secret: true },
-  { key: "notify.webhookUrl", group: "notify", type: "string", secret: true },
-  { key: "notify.webhookAuth", group: "notify", type: "string", secret: true },
-  { key: "retry.maxAttempts", group: "retry", type: "number" },
-  { key: "retry.baseDelayMs", group: "retry", type: "number" },
-  { key: "retry.factor", group: "retry", type: "number" },
-  { key: "retry.maxDelayMs", group: "retry", type: "number" },
-  { key: "autoPrune.enabled", group: "autoPrune", type: "boolean" },
-  { key: "autoPrune.after", group: "autoPrune", type: "duration" },
-  { key: "autoPrune.keep", group: "autoPrune", type: "number" },
-  { key: "autoPrune.every", group: "autoPrune", type: "duration" },
-  { key: "autoPrune.everyTicks", group: "autoPrune", type: "number" },
+  { key: "store", group: "store", type: "string", env: "AGENTRELAY_STORE" },
+  { key: "notify.slackWebhook", group: "notify", type: "string", env: "AGENTRELAY_SLACK_WEBHOOK", secret: true },
+  { key: "notify.webhookUrl", group: "notify", type: "string", env: "AGENTRELAY_WEBHOOK_URL", secret: true },
+  { key: "notify.webhookAuth", group: "notify", type: "string", env: "AGENTRELAY_WEBHOOK_AUTH", secret: true },
+  { key: "retry.maxAttempts", group: "retry", type: "number", env: "AGENTRELAY_MAX_ATTEMPTS" },
+  { key: "retry.baseDelayMs", group: "retry", type: "number", env: "AGENTRELAY_RETRY_BASE_MS" },
+  { key: "retry.factor", group: "retry", type: "number", env: "AGENTRELAY_RETRY_FACTOR" },
+  { key: "retry.maxDelayMs", group: "retry", type: "number", env: "AGENTRELAY_RETRY_MAX_MS" },
+  { key: "autoPrune.enabled", group: "autoPrune", type: "boolean", env: "AGENTRELAY_AUTOPRUNE" },
+  { key: "autoPrune.after", group: "autoPrune", type: "duration", env: "AGENTRELAY_AUTOPRUNE_AFTER" },
+  { key: "autoPrune.keep", group: "autoPrune", type: "number", env: "AGENTRELAY_AUTOPRUNE_KEEP" },
+  { key: "autoPrune.every", group: "autoPrune", type: "duration", env: "AGENTRELAY_AUTOPRUNE_EVERY" },
+  { key: "autoPrune.everyTicks", group: "autoPrune", type: "number", env: "AGENTRELAY_AUTOPRUNE_EVERY_TICKS" },
 ];
 
 /** Dotted keys of all settable config fields, in display order. */
@@ -598,6 +605,54 @@ export function resolveEffectiveConfig(
     if (fileEnv[key] !== undefined) return { key, group, value: fileEnv[key], source: "config-file", secret: flag };
     return { key, group, value: undefined, source: "default", secret: flag };
   });
+}
+
+/**
+ * One dotted config key resolved to its effective value, source, and the
+ * `AGENTRELAY_*` env var it maps to. The single-key counterpart to
+ * {@link resolveEffectiveConfig} (which returns the whole table), returned by
+ * {@link getConfigValue} so `config get <key>` can print exactly one value.
+ */
+export interface ResolvedConfigValue {
+  /** Dotted config key, e.g. `retry.maxAttempts`. */
+  key: string;
+  /** The `AGENTRELAY_*` env var this key projects onto. */
+  envKey: string;
+  group: ConfigGroup;
+  /** Effective value, or `undefined` when the built-in default applies. */
+  value: string | undefined;
+  source: ConfigValueSource;
+  secret: boolean;
+}
+
+/**
+ * Resolves a single dotted config key (e.g. `store`, `retry.maxAttempts`) to
+ * its effective value and source, applying the same env > file > default
+ * precedence as {@link resolveEffectiveConfig}. Throws on an unknown key (the
+ * error lists the valid keys), so a typo is caught rather than silently
+ * yielding the default. Pure — no filesystem, no ambient env unless `env` is
+ * omitted — so the CLI `config get` command and tests share this resolution.
+ */
+export function getConfigValue(
+  key: string,
+  fileConfig: AgentRelayConfig | null,
+  env: Record<string, string | undefined> = process.env
+): ResolvedConfigValue {
+  const field = findConfigField(key);
+  if (!field) {
+    throw new Error(`Unknown config key "${key}". Valid keys: ${SETTABLE_CONFIG_KEYS.join(", ")}.`);
+  }
+  // field.env is always one of CONFIG_ENV_KEYS (a test asserts no drift), so
+  // the lookup below can't miss.
+  const entry = resolveEffectiveConfig(fileConfig, env).find((e) => e.key === field.env) as EffectiveConfigEntry;
+  return {
+    key,
+    envKey: field.env,
+    group: field.group,
+    value: entry.value,
+    source: entry.source,
+    secret: Boolean(field.secret),
+  };
 }
 
 /**

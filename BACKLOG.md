@@ -395,6 +395,20 @@
 - [x] 👷 `agentrelay stats --trend [days]` — UTC 일별 활동 히스토그램(릴레이가 언제 바빴는지 시간 축).
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
+- [x] 👷 `agentrelay config get <key>` — 단일 설정 키의 유효 값(env > 파일 > 기본값)을 스크립트 친화적으로
+      한 줄 출력(`set`/`unset`/`show`와 대칭인 읽기 연산).
+      (완료 — `config show`는 전체 표를 뿌려 스크립트가 한 값만 캡처하려면 grep이 필요했다. core
+      `config.ts`에 `ConfigField.env`(각 dotted key가 투영되는 유일 `AGENTRELAY_*` — dotted↔env 조인점,
+      위치 결합 제거) + 순수 `getConfigValue(key, fileConfig, env)`/`ResolvedConfigValue` 추가:
+      `resolveEffectiveConfig`와 동일한 env>파일>기본값 우선순위로 단일 키를 해소하고, 미지 키는
+      유효 키 목록과 함께 throw(오타가 조용히 기본값으로 위장하지 않음). CLI `commands.ts`
+      `getConfigFile`(`show`와 동일한 non-throwing 계약 — 깨진 파일은 `loadError`로 보고하되 env/기본값
+      해소는 계속, 미지 키만 `ok:false`), `config.ts` `renderConfigGet`(기본은 값만 출력→스크립트
+      `store=$(agentrelay config get store)`, 기본값은 빈 캡처, `--source`로 출처 부기, 마스킹 안 함=
+      사용자가 명시한 키의 실제 값 반환)·`renderConfigGetJson`(`--json`). `config get`도 `show`처럼
+      startup `bootstrapConfig`를 건너뛰어 파일 값이 [env]로 오표기되지 않게 함. core 7 + cli 7 신규
+      테스트, 실제 빌드 CLI e2e로 파일값/기본값/env우선/시크릿/`--source`/`--json`/미지키 exit 1 검증.
+      branch `claude/wizardly-pascal-lwy5t5`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

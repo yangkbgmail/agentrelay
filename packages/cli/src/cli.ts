@@ -35,6 +35,7 @@ import {
   bulkControlJobs,
   cancelJob,
   exportStore,
+  getConfigFile,
   initConfig,
   type JobControlResult,
   listStatus,
@@ -53,7 +54,13 @@ import {
   unsetConfigFile,
   validateConfigFile,
 } from "./commands.js";
-import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
+import {
+  defaultStorePath,
+  renderConfigGet,
+  renderConfigGetJson,
+  renderEffectiveConfig,
+  renderEffectiveConfigJson,
+} from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
@@ -956,6 +963,29 @@ export function buildCli(): Command {
       }
       // A broken config file is a real problem worth a non-zero exit, but we
       // still printed the env/default resolution above to aid debugging.
+      if (result.loadError) process.exitCode = 1;
+    });
+  config
+    .command("get")
+    .description("Print one setting's effective value (env > file > default) — script-friendly")
+    .argument("<key>", `Dotted config key, one of: ${SETTABLE_CONFIG_KEYS.join(", ")}`)
+    .option("--json", "Print the resolved value with its source as JSON (machine-readable)")
+    .option("--source", "Append the value's origin ([env]/[config-file]/[default]) after the value")
+    .action((key: string, opts: { json?: boolean; source?: boolean }) => {
+      const { config: configPath } = program.opts();
+      const result = getConfigFile({ key, path: configPath });
+      if (!result.ok) {
+        console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 1;
+        return;
+      }
+      if (opts.json) {
+        console.log(renderConfigGetJson(result));
+      } else {
+        console.log(renderConfigGet(result, { withSource: opts.source }));
+      }
+      // A broken config file that couldn't be loaded is still worth flagging,
+      // even though env/default resolution proceeded above.
       if (result.loadError) process.exitCode = 1;
     });
   config

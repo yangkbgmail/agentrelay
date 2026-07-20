@@ -1055,3 +1055,24 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay config get <key>` 단일 설정 값 조회] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-lwy5t5`)
+- **배경:** BACKLOG의 👷 항목이 전부 완료 상태라 config 커맨드 계열의 갭을 메우는 신규 개선 항목을 발굴.
+  `config set`/`unset`/`show`는 있는데, 스크립트가 **한 값만** 뽑으려면 `config show`를 grep해야 했다.
+- **한 일: `agentrelay config get <key>` 추가** — `set`/`unset`과 대칭인 읽기 연산.
+  - core `config.ts`: `ConfigField`에 `env`(각 dotted key가 투영되는 유일 `AGENTRELAY_*`) 추가 —
+    dotted↔env 조인점을 명시해 위치 결합 제거. 순수 `getConfigValue(key, fileConfig, env)` +
+    `ResolvedConfigValue` 신설: `resolveEffectiveConfig`와 동일한 env>파일>기본값 우선순위로 단일 키를
+    해소, 미지 키는 유효 키 목록과 함께 throw(오타가 조용히 기본값으로 위장하지 않음).
+  - CLI `commands.ts` `getConfigFile`: `show`와 동일한 non-throwing 계약(깨진 파일→`loadError`로 보고하되
+    env/기본값 해소는 계속, 미지 키만 `ok:false`). `config.ts` `renderConfigGet`(기본은 값만 출력→
+    `store=$(agentrelay config get store)` 캡처용, 기본값은 빈 문자열, `--source`로 출처 부기, 시크릿도
+    마스킹 안 함=사용자가 명시한 키의 실제 값 반환)·`renderConfigGetJson`(`--json`).
+  - `cli.ts`: `config get <key> [--json] [--source]` 서브커맨드 배선. `config get`도 `show`처럼 startup
+    `bootstrapConfig`를 건너뛰어(BOOTSTRAP_SKIP_SUBCOMMANDS) 파일 값이 [env]로 오표기되지 않게 함.
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **589 통과 + 1 skip**(core 382 + cli 200[+1 skip] + dashboard 7). **실제 빌드된 CLI e2e**(mock 아님):
+  `config get store`(파일값)·`get retry.maxAttempts --source`(`9\t[config-file]`)·`get retry.factor`(기본값→
+  빈 출력·exit 0)·`get notify.webhookAuth`(실제 시크릿 값)·`AGENTRELAY_STORE=… get store --source`([env] 우선)·
+  `get retry.maxAttempts --json`·`get retry.bogus`(미지 키 exit 1) 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).

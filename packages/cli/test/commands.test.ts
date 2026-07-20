@@ -9,6 +9,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  getConfigFile,
   initConfig,
   listStatus,
   listStoreBackups,
@@ -23,7 +24,7 @@ import {
   unsetConfigFile,
   validateConfigFile,
 } from "../src/commands.js";
-import { isConfigDiagnosticInvocation, renderEffectiveConfig } from "../src/config.js";
+import { isConfigDiagnosticInvocation, renderConfigGet, renderEffectiveConfig } from "../src/config.js";
 
 describe("runCommand", () => {
   let dir: string;
@@ -545,6 +546,68 @@ describe("setConfigFile / unsetConfigFile", () => {
     const result = unsetConfigFile({ key: "retry.bogus", path });
     expect(result.ok).toBe(false);
     expect(result.message).toMatch(/Unknown config key/);
+  });
+});
+
+describe("getConfigFile", () => {
+  let dir: string;
+  let path: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cfgget-"));
+    path = join(dir, "agentrelay.config.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("reads a value from the config file with its source", () => {
+    writeFileSync(path, JSON.stringify({ retry: { maxAttempts: 9 } }));
+    const result = getConfigFile({ key: "retry.maxAttempts", path, env: {} });
+    expect(result).toMatchObject({ ok: true, key: "retry.maxAttempts", value: "9", source: "config-file", path });
+  });
+
+  it("reports the default (no explicit value) without erroring", () => {
+    writeFileSync(path, "{}");
+    const result = getConfigFile({ key: "store", path, env: {} });
+    expect(result).toMatchObject({ ok: true, value: undefined, source: "default" });
+  });
+
+  it("lets an env var win over the file", () => {
+    writeFileSync(path, JSON.stringify({ store: "/from/file.json" }));
+    const result = getConfigFile({ key: "store", path, env: { AGENTRELAY_STORE: "/from/env.json" } });
+    expect(result).toMatchObject({ value: "/from/env.json", source: "env" });
+  });
+
+  it("returns the real secret value (get is for scripting, not display)", () => {
+    writeFileSync(path, JSON.stringify({ notify: { webhookAuth: "Bearer top-secret" } }));
+    const result = getConfigFile({ key: "notify.webhookAuth", path, env: {} });
+    expect(result).toMatchObject({ ok: true, value: "Bearer top-secret", secret: true });
+  });
+
+  it("fails on an unknown key", () => {
+    const result = getConfigFile({ key: "retry.bogus", path, env: {} });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/Unknown config key/);
+  });
+
+  it("still resolves env/default when the file is malformed, surfacing loadError", () => {
+    writeFileSync(path, "{ not json");
+    const result = getConfigFile({ key: "store", path, env: { AGENTRELAY_STORE: "/env.json" } });
+    expect(result).toMatchObject({ ok: true, value: "/env.json", source: "env" });
+    expect(result.loadError).toMatch(/Invalid JSON/);
+  });
+
+  it("renderConfigGet prints the bare value, and the source when asked", () => {
+    writeFileSync(path, JSON.stringify({ retry: { maxAttempts: 9 } }));
+    const result = getConfigFile({ key: "retry.maxAttempts", path, env: {} });
+    expect(renderConfigGet(result)).toBe("9");
+    expect(renderConfigGet(result, { withSource: true })).toBe("9\t[config-file]");
+    // A default value renders as an empty capture, not a label.
+    const def = getConfigFile({ key: "retry.factor", path, env: {} });
+    expect(renderConfigGet(def)).toBe("");
+    expect(renderConfigGet(def, { withSource: true })).toBe("\t[default]");
   });
 });
 

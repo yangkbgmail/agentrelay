@@ -31,6 +31,7 @@ import {
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
   CONFIG_FILENAME,
+  type ConfigValueSource,
   canCancel,
   canRequeue,
   configToJson,
@@ -41,6 +42,7 @@ import {
   type ExportFormat,
   exportJobs,
   findConfigField,
+  getConfigValue,
   hasConfigErrors,
   heartbeatStaleAfterMs,
   type IneligibleJob,
@@ -999,6 +1001,80 @@ export function showConfig(options: ConfigShowOptions = {}): ConfigShowResult {
   }
   const entries = resolveEffectiveConfig(fileConfig, env);
   return { path, entries, loadError };
+}
+
+export interface ConfigGetOptions {
+  /** The dotted config key to read, e.g. `store` or `retry.maxAttempts`. */
+  key: string;
+  /** Explicit file path. When omitted, the usual discovery order is used. */
+  path?: string;
+  /** Directory searched for `agentrelay.config.json`. Defaults to `process.cwd()`. */
+  cwd?: string;
+  /** Environment consulted for precedence + `AGENTRELAY_CONFIG`. Defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
+}
+
+export interface ConfigGetResult {
+  /** False only when the key is unknown; a broken/missing file is not fatal. */
+  ok: boolean;
+  key: string;
+  /** Effective value, or undefined when the built-in default applies. */
+  value?: string;
+  /** Which layer supplied the value (env > config-file > default). */
+  source?: ConfigValueSource;
+  /** True for webhook URLs/tokens (callers may choose to mask). */
+  secret?: boolean;
+  /** The config file that fed the resolution, or null when none was found. */
+  path?: string | null;
+  /** Error message when ok:false (unknown key). */
+  message?: string;
+  /** Set when a config file was found but couldn't be loaded — env/default still resolve. */
+  loadError?: string;
+}
+
+/**
+ * Resolves a single config key's effective value (`agentrelay config get <key>`)
+ * — the read-side counterpart to `config set`/`unset` and a focused slice of
+ * `config show`, meant for scripting (`store=$(agentrelay config get store)`).
+ * Mirrors `show`'s non-throwing contract: a malformed file surfaces as
+ * `loadError` while env/default resolution still proceeds. Only an *unknown key*
+ * makes this `ok:false` (a typo shouldn't masquerade as "the default").
+ */
+export function getConfigFile(options: ConfigGetOptions): ConfigGetResult {
+  const env = options.env ?? process.env;
+  let fileConfig: AgentRelayConfig | null = null;
+  let path: string | null = null;
+  let loadError: string | undefined;
+  try {
+    const loaded = loadConfigFile({ path: options.path, cwd: options.cwd, env });
+    if (loaded) {
+      fileConfig = loaded.config;
+      path = loaded.path;
+    }
+  } catch (error) {
+    path = resolveConfigPath({ path: options.path, cwd: options.cwd, env });
+    loadError = String(error);
+  }
+  try {
+    const resolved = getConfigValue(options.key, fileConfig, env);
+    return {
+      ok: true,
+      key: resolved.key,
+      value: resolved.value,
+      source: resolved.source,
+      secret: resolved.secret,
+      path,
+      loadError,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      key: options.key,
+      path,
+      message: error instanceof Error ? error.message : String(error),
+      loadError,
+    };
+  }
 }
 
 export interface DoctorOptions {
