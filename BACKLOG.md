@@ -347,6 +347,20 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 대시보드 재개-루프 생존 상태 노출 — `doctor`가 잡던 "job은 큐에 있는데 아무것도 재개 안 됨"
+      최다 무음 실패를 로컬 대시보드에서도 한눈에.
+      (완료 — 세션 30에서 데몬/tick 하트비트 인프라와 `doctor` daemon 체크를 만들었지만, 대시보드는
+      큐 상태만 보여줄 뿐 "재개 루프가 실제로 살아있는가"는 알 수 없었다. `@agentrelay/core/doctor.ts`에
+      순수 `classifyResumeLoop(heartbeat, waiting)` + `ResumeLoopStatus`/`ResumeLoopState` 신설 —
+      하트비트 사실과 대기 잡 수를 교차해 `alive`/`stale`/`absent` 상태와 `ok`/`warning` 심각도를 판정
+      (stale은 항상 warning, absent는 대기 잡 있을 때만 warning). 기존 `daemonCheck`를 이 함수로 리팩터해
+      **단일 판정원**으로 통일(메시지·레벨 100% 동일 유지, 회귀 없음). 대시보드 `lib/jobs.ts`가
+      하트비트 파일을 읽어(CLI `readHeartbeatFacts` 미러 — 앱이 I/O 소유, core는 순수) `classifyResumeLoop`로
+      스냅샷에 `resumeLoop` 필드 추가, `dashboard-client.tsx`에 `ResumeLoopBanner`(초록=alive/앰버=warning/
+      회색=idle, mode·pid·마지막 tick 나이·대기 잡 수 표기, `doctor` 문구와 정렬). core doctor 6 + 대시보드
+      5 신규 테스트, `pnpm build`(Next 포함)·`biome ci` 0 경고·전체 431 통과. branch
+      `claude/wizardly-pascal-1wrh6m`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

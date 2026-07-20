@@ -980,3 +980,25 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — 대시보드 재개-루프 생존 배너 + `classifyResumeLoop` 순수 판정 추출] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-1wrh6m`)
+- **한 일: 세션 30에서 만든 하트비트 인프라를 로컬 대시보드에 surfacing — "job은 큐에 있는데 아무것도
+  재개 안 됨"(이 도구 #1 무음 실패)을 이제 대시보드에서도 즉시 본다.** `doctor`만 알던 신호를 UI로.
+  1. `@agentrelay/core/doctor.ts`에 순수 `classifyResumeLoop(heartbeat, waiting)` + `ResumeLoopStatus`/
+     `ResumeLoopState` 신설: 하트비트 사실(present·ageMs·staleAfterMs)과 대기 잡 수를 교차해 `alive`/
+     `stale`/`absent` 상태 + `ok`/`warning` 심각도 판정. 규칙은 `doctor`와 동일 — alive=ok, stale=항상
+     warning, absent=대기 잡 있을 때만 warning(빈 큐면 ok). 시계·파일 미접촉(순수).
+  2. 기존 `daemonCheck`(core doctor)를 이 함수로 **리팩터해 단일 판정원으로 통일** — 메시지·레벨은
+     100% 그대로(기존 6개 daemon 테스트 무회귀), alive/stale/absent 분기만 `classifyResumeLoop` 결과로.
+  3. 대시보드 `apps/dashboard/lib/jobs.ts`: 하트비트 파일(`daemon.json`)을 읽는 `readHeartbeatFacts`
+     (CLI `commands.ts`의 동명 헬퍼 미러 — "core 순수, 앱이 I/O 소유" 컨벤션 유지, 절대 throw 안 함)
+     추가 후 `classifyResumeLoop(facts, countActiveJobs(jobs))`로 스냅샷에 `resumeLoop` 필드 노출.
+  4. `dashboard-client.tsx`에 `ResumeLoopBanner`: 초록(alive)/앰버(warning)/회색(idle) 좌측 보더 배너,
+     mode(daemon/one-shot tick)·pid·마지막 tick 나이(`formatAge`, doctor humanizeAge 미러)·대기 잡 수를
+     `doctor` 문구와 정렬해 표시. globals.css에 `.resume-banner` 심각도 변형 3종(라이트/다크 대응).
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 4페이지 프리렌더 포함), `pnpm ci:lint`(Biome) **0 경고**,
+    `pnpm test` **431 통과 + 1 skip**(core 292[+6: classifyResumeLoop alive/stale/absent×waiting 조합·
+    경계값·불완전 하트비트] + cli 131[무회귀][+1 skip] + dashboard 8[+5: absent-ok/absent-warning/fresh-alive/
+    stale/garbled 하트비트]). 대시보드 스냅샷 셰이프를 실 파일 I/O로 검증(하트비트 write→읽기→판정 e2e).
+- 다음 할 일: stats 평균 대기시간(대기→재개 지연) 확장(👷 후보 — RelayJob에 중간 타임스탬프 필요),
+  대시보드 자동 새로고침 시 배너 나이 실시간 카운트업(👷 후보), README/ARCHITECTURE(🧭 코워크).

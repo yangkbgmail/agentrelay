@@ -1,6 +1,6 @@
 "use client";
 
-import type { JobStatus, RelayJob } from "@agentrelay/core";
+import type { JobStatus, RelayJob, ResumeLoopStatus } from "@agentrelay/core";
 import { useEffect, useState } from "react";
 import type { JobsSnapshot } from "../lib/jobs";
 
@@ -34,6 +34,62 @@ function formatClock(iso: string | null): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleString();
+}
+
+/** Compact human age ("3s", "5m", "2h", "1d") mirroring core doctor's humanizeAge. */
+function formatAge(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.round(h / 24)}d`;
+}
+
+/**
+ * Surfaces whether a resume loop (daemon/tick) is actually running — the answer
+ * to "I have jobs waiting, why isn't anything resuming?". Mirrors the wording of
+ * `agentrelay doctor`'s daemon check, driven by the same core `ResumeLoopStatus`.
+ */
+function ResumeLoopBanner({ resumeLoop }: { resumeLoop: ResumeLoopStatus }) {
+  const { state, severity, waiting, mode, pid, ageMs } = resumeLoop;
+  const variant = severity === "warning" ? "is-warning" : state === "absent" ? "is-idle" : "is-ok";
+  const dotVar =
+    severity === "warning" ? "var(--status-warning)" : state === "alive" ? "var(--status-good)" : "var(--ink-muted)";
+  const pidLabel = pid !== undefined ? ` (pid ${pid})` : "";
+  const age = ageMs !== undefined ? formatAge(ageMs) : null;
+
+  let headline: string;
+  let detail: string | null = null;
+  if (state === "alive") {
+    const who = mode === "tick" ? "one-shot tick" : "daemon";
+    headline = `Resume loop is running — ${who}${pidLabel}`;
+    detail = [age ? `last tick ${age} ago` : null, waiting > 0 ? `${waiting} job(s) will resume` : null]
+      .filter(Boolean)
+      .join(" · ");
+  } else if (state === "stale") {
+    headline = `Resume loop looks stopped${pidLabel}`;
+    detail = [age ? `last tick ${age} ago` : null, waiting > 0 ? `${waiting} job(s) waiting won't resume` : null]
+      .filter(Boolean)
+      .join(" · ");
+  } else if (waiting > 0) {
+    headline = "No resume loop running";
+    detail = `${waiting} job(s) waiting won't resume on their own — start \`agentrelay daemon\``;
+  } else {
+    headline = "No resume loop running";
+    detail = "nothing is waiting to resume";
+  }
+
+  return (
+    <div className={`resume-banner ${variant}`} role="status">
+      <span className="dot" style={{ background: dotVar }} aria-hidden />
+      <span>
+        {headline}
+        {detail ? <span className="resume-detail"> — {detail}</span> : null}
+      </span>
+    </div>
+  );
 }
 
 function StatusBadge({ status }: { status: JobStatus }) {
@@ -122,6 +178,8 @@ export default function DashboardClient() {
           Could not read the job store: {fetchError}
         </div>
       )}
+
+      {snapshot?.resumeLoop && <ResumeLoopBanner resumeLoop={snapshot.resumeLoop} />}
 
       <section className="tile-row" aria-label="Queue summary">
         <div className="tile">

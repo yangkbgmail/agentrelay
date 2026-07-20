@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { ConfigIssue } from "../src/config.js";
 import {
+  classifyResumeLoop,
   countActiveJobs,
   type DiagnosticInput,
   distinctActiveBinaries,
+  type HeartbeatFacts,
   isSupportedNode,
   parseNodeVersion,
   runDiagnostics,
@@ -389,5 +391,41 @@ describe("distinctActiveBinaries", () => {
   it("skips a malformed job with an empty command[0]", () => {
     const jobs = [job({ status: "queued", command: ["   "] }), job({ status: "queued", command: [] as string[] })];
     expect(distinctActiveBinaries(jobs)).toEqual([]);
+  });
+});
+
+describe("classifyResumeLoop", () => {
+  const fresh: HeartbeatFacts = { present: true, mode: "daemon", pid: 42, ageMs: 5_000, staleAfterMs: 90_000 };
+  const stale: HeartbeatFacts = { present: true, mode: "daemon", pid: 42, ageMs: 300_000, staleAfterMs: 90_000 };
+
+  it("is alive & ok when a fresh heartbeat is within its staleness window", () => {
+    const status = classifyResumeLoop(fresh, 2);
+    expect(status.state).toBe("alive");
+    expect(status.severity).toBe("ok");
+    expect(status).toMatchObject({ waiting: 2, mode: "daemon", pid: 42, ageMs: 5_000 });
+  });
+
+  it("treats a heartbeat exactly at the staleness threshold as still alive", () => {
+    const status = classifyResumeLoop({ present: true, mode: "daemon", ageMs: 90_000, staleAfterMs: 90_000 }, 0);
+    expect(status.state).toBe("alive");
+  });
+
+  it("is stale & warning once the heartbeat is past its window, regardless of waiting", () => {
+    expect(classifyResumeLoop(stale, 3)).toMatchObject({ state: "stale", severity: "warning" });
+    expect(classifyResumeLoop(stale, 0)).toMatchObject({ state: "stale", severity: "warning" });
+  });
+
+  it("is absent & warning when no heartbeat but jobs are waiting", () => {
+    const status = classifyResumeLoop({ present: false }, 4);
+    expect(status).toMatchObject({ state: "absent", severity: "warning", waiting: 4 });
+    expect(status.mode).toBeUndefined();
+  });
+
+  it("is absent & ok when no heartbeat and nothing is waiting", () => {
+    expect(classifyResumeLoop({ present: false }, 0)).toMatchObject({ state: "absent", severity: "ok" });
+  });
+
+  it("treats a present-but-incomplete heartbeat (no ageMs) as stale, not alive", () => {
+    expect(classifyResumeLoop({ present: true, mode: "tick" }, 1)).toMatchObject({ state: "stale" });
   });
 });

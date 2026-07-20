@@ -135,6 +135,52 @@ export interface HeartbeatFacts {
   pid?: number;
 }
 
+/** Liveness state of the resume loop, derived from its heartbeat. */
+export type ResumeLoopState = "alive" | "stale" | "absent";
+
+/**
+ * A structured verdict on resume-loop liveness, cross-referenced against how
+ * many jobs are actually waiting. This is the single source of truth shared by
+ * `doctor`'s human-readable daemon check and any other surface that wants to
+ * show the same "is the relay actually running?" signal (e.g. the dashboard),
+ * so the two can never drift.
+ *
+ * `severity` mirrors doctor's rule exactly: a missing or stale loop only rises
+ * to a `warning` when it actually matters — either the loop is stale (it left a
+ * heartbeat but stopped ticking) or it's absent while jobs are waiting to
+ * resume. An absent loop with an empty queue is `ok` (nothing to run).
+ */
+export interface ResumeLoopStatus {
+  state: ResumeLoopState;
+  /** `warning` when the loop is stale, or absent while jobs wait; otherwise `ok`. */
+  severity: "ok" | "warning";
+  /** Active (waiting-to-resume) job count this verdict was cross-referenced against. */
+  waiting: number;
+  /** How the loop runs (only when a heartbeat was present). */
+  mode?: HeartbeatMode;
+  /** Writer PID (only when a heartbeat was present). */
+  pid?: number;
+  /** Age in ms of the last tick (only when present & parseable). */
+  ageMs?: number;
+}
+
+/**
+ * Pure classification of resume-loop liveness from heartbeat facts and the
+ * number of waiting jobs. `alive` when a present heartbeat is within its
+ * staleness window, `stale` when present but past it, `absent` when there's no
+ * usable heartbeat at all. Consumed by {@link daemonCheck} and the dashboard.
+ */
+export function classifyResumeLoop(heartbeat: HeartbeatFacts, waiting: number): ResumeLoopStatus {
+  const alive =
+    heartbeat.present && heartbeat.ageMs !== undefined && heartbeat.staleAfterMs !== undefined
+      ? heartbeat.ageMs <= heartbeat.staleAfterMs
+      : false;
+  const state: ResumeLoopState = alive ? "alive" : heartbeat.present ? "stale" : "absent";
+  const severity: "ok" | "warning" =
+    state === "alive" ? "ok" : state === "stale" ? "warning" : waiting > 0 ? "warning" : "ok";
+  return { state, severity, waiting, mode: heartbeat.mode, pid: heartbeat.pid, ageMs: heartbeat.ageMs };
+}
+
 /** Facts about the agent binaries the queued jobs will re-spawn. */
 export interface AdapterFacts {
   /**
@@ -368,16 +414,13 @@ function humanizeAge(ms: number): string {
  *   fine (there's nothing to resume), a stale one is a mild "may have stopped".
  */
 function daemonCheck(heartbeat: HeartbeatFacts, store: StoreFacts): DiagnosticCheck {
-  const waiting = store.activeCount;
-  const alive =
-    heartbeat.present && heartbeat.ageMs !== undefined && heartbeat.staleAfterMs !== undefined
-      ? heartbeat.ageMs <= heartbeat.staleAfterMs
-      : false;
+  const status = classifyResumeLoop(heartbeat, store.activeCount);
+  const waiting = status.waiting;
+  const pid = status.pid !== undefined ? ` (pid ${status.pid})` : "";
 
-  if (heartbeat.present && alive) {
-    const age = heartbeat.ageMs !== undefined ? humanizeAge(heartbeat.ageMs) : "just now";
-    const who = heartbeat.mode === "tick" ? "tick" : "daemon";
-    const pid = heartbeat.pid !== undefined ? ` (pid ${heartbeat.pid})` : "";
+  if (status.state === "alive") {
+    const age = status.ageMs !== undefined ? humanizeAge(status.ageMs) : "just now";
+    const who = status.mode === "tick" ? "tick" : "daemon";
     const tail = waiting > 0 ? ` — ${waiting} waiting job(s) will resume` : "";
     return {
       name: "daemon",
@@ -387,9 +430,8 @@ function daemonCheck(heartbeat: HeartbeatFacts, store: StoreFacts): DiagnosticCh
   }
 
   // Present but stale: the writer left a heartbeat but hasn't ticked in a while.
-  if (heartbeat.present) {
-    const age = heartbeat.ageMs !== undefined ? humanizeAge(heartbeat.ageMs) : "a while";
-    const pid = heartbeat.pid !== undefined ? ` (pid ${heartbeat.pid})` : "";
+  if (status.state === "stale") {
+    const age = status.ageMs !== undefined ? humanizeAge(status.ageMs) : "a while";
     if (waiting > 0) {
       return {
         name: "daemon",

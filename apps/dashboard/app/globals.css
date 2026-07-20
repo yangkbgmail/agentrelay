@@ -219,3 +219,36 @@ details.tail pre {
   color: var(--ink-primary);
   background: var(--surface);
 }
+
+.resume-banner {
+  margin: 16px 0 0;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 13px;
+}
+
+.resume-banner .dot {
+  flex: none;
+}
+
+.resume-banner .resume-detail {
+  color: var(--ink-muted);
+}
+
+.resume-banner.is-ok {
+  border-left-color: var(--status-good);
+}
+
+.resume-banner.is-warning {
+  border-left-color: var(--status-warning);
+}
+
+.resume-banner.is-idle {
+  border-left-color: var(--ink-muted);
+}
