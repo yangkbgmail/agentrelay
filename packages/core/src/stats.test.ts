@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import { computeStats, GROUP_DIMENSIONS, groupStats, isJobScopeActive, scopeJobs } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -366,5 +366,67 @@ describe("scopeJobs", () => {
       job({ id: "c", project: "api", createdAt: "2026-07-14T00:00:00.000Z" }), // wrong project
     ];
     expect(scopeJobs(jobs, { projects: ["web"], createdFrom: from }).map((j) => j.id)).toEqual(["a"]);
+  });
+});
+
+describe("groupStats", () => {
+  it("exposes every dimension it accepts", () => {
+    expect(GROUP_DIMENSIONS).toEqual(["tool", "project", "status"]);
+  });
+
+  it("returns an empty array for no jobs", () => {
+    expect(groupStats([], "project")).toEqual([]);
+  });
+
+  it("groups by project and computes full per-group stats", () => {
+    const groups = groupStats(
+      [
+        job({ project: "web", status: "completed" }),
+        job({ project: "web", status: "failed" }),
+        job({ project: "api", status: "completed" }),
+      ],
+      "project"
+    );
+    expect(groups.map((g) => [g.key, g.count])).toEqual([
+      ["web", 2],
+      ["api", 1],
+    ]);
+    const web = groups.find((g) => g.key === "web");
+    expect(web?.stats.total).toBe(2);
+    expect(web?.stats.successRate).toBe(0.5); // 1 completed of 2 resolved
+    const api = groups.find((g) => g.key === "api");
+    expect(api?.stats.successRate).toBe(1);
+  });
+
+  it("groups by tool, keeping unknown tool strings as their own key", () => {
+    const groups = groupStats(
+      [
+        job({ tool: "claude-code" as AgentTool }),
+        job({ tool: "codex-cli" as AgentTool }),
+        job({ tool: "mystery" as AgentTool }),
+      ],
+      "tool"
+    );
+    expect(groups.map((g) => g.key).sort()).toEqual(["claude-code", "codex-cli", "mystery"]);
+  });
+
+  it("groups by status", () => {
+    const groups = groupStats(
+      [job({ status: "queued" }), job({ status: "queued" }), job({ status: "completed" })],
+      "status"
+    );
+    expect(groups.map((g) => [g.key, g.count])).toEqual([
+      ["queued", 2],
+      ["completed", 1],
+    ]);
+  });
+
+  it("ranks groups by count desc, ties broken by key asc", () => {
+    const groups = groupStats(
+      [job({ project: "zeta" }), job({ project: "alpha" }), job({ project: "mid" }), job({ project: "mid" })],
+      "project"
+    );
+    // mid (2) first; the two singletons tie on count and sort alpha < zeta.
+    expect(groups.map((g) => g.key)).toEqual(["mid", "alpha", "zeta"]);
   });
 });
