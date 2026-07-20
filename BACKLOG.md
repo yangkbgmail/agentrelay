@@ -347,6 +347,19 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 대시보드 재개-루프(daemon/tick) 생존 상태 노출 — 세션 30 하트비트 인프라를
+      `doctor`뿐 아니라 대시보드에도 노출. "잡은 큐에 있는데 아무것도 재개 안 됨" 무음 실패를
+      브라우저에서도 바로 보이게.
+      (완료 — `@agentrelay/core/heartbeat.ts`에 순수 `ResumeLoopState`(alive/stale/absent)·
+      `ResumeLoopLevel`(ok/warning)·`ResumeLoopHealth`·`ResumeLoopFacts` 타입 + `heartbeatFactsFrom`
+      (파싱된 하트비트+nowMs→age·staleAfter 파생, CLI `readHeartbeatFacts`의 clock-injected 순수
+      절반, 파일 I/O 없음)·`classifyResumeLoop(facts, waitingCount)`(doctor daemonCheck와 동일 심각도
+      규칙: 대기 잡 유무로 absent의 warning/ok 결정) 추가. 대시보드 `lib/jobs.ts`가 스토어 옆
+      `daemon.json`을 읽어(절대 throw 안 함, 손상/부재=absent) `JobsSnapshot.resumeLoop`로 노출,
+      `dashboard-client.tsx`에 색상 배너(`.resume-banner` ok=녹색/warning=노랑, warning은 role=alert).
+      core heartbeat 11 + dashboard 5 신규 테스트(실제 파일로 alive/stale/absent/waiting 교차 e2e).
+      branch `claude/wizardly-pascal-g0niu3`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

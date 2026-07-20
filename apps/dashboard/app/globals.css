@@ -219,3 +219,25 @@ details.tail pre {
   color: var(--ink-primary);
   background: var(--surface);
 }
+
+.resume-banner {
+  margin: 16px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  color: var(--ink-primary);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.resume-banner.ok {
+  border-left-color: var(--status-good);
+}
+
+.resume-banner.warning {
+  border-left-color: var(--status-warning);
+}

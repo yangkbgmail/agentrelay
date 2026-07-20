@@ -36,6 +36,21 @@ function formatClock(iso: string | null): string {
   return date.toLocaleString();
 }
 
+function ResumeLoopBanner({ health }: { health: JobsSnapshot["resumeLoop"] }) {
+  const colorVar =
+    health.level === "warning"
+      ? "var(--status-warning)"
+      : health.state === "alive"
+        ? "var(--status-good)"
+        : "var(--ink-muted)";
+  return (
+    <div className={`resume-banner ${health.level}`} role={health.level === "warning" ? "alert" : undefined}>
+      <span className="dot" style={{ background: colorVar }} aria-hidden />
+      <span>{health.message}</span>
+    </div>
+  );
+}
+
 function StatusBadge({ status }: { status: JobStatus }) {
   const meta = STATUS_META[status] ?? { label: status, colorVar: "var(--ink-muted)" };
   return (
@@ -122,6 +137,8 @@ export default function DashboardClient() {
           Could not read the job store: {fetchError}
         </div>
       )}
+
+      {snapshot?.resumeLoop && <ResumeLoopBanner health={snapshot.resumeLoop} />}
 
       <section className="tile-row" aria-label="Queue summary">
         <div className="tile">

@@ -980,3 +980,24 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — 대시보드 재개-루프(daemon/tick) 생존 상태 노출] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-g0niu3`)
+- **한 일: 세션 30이 `doctor`에 넣은 재개-루프 하트비트를 대시보드로도 끌어와, "잡은 큐에 있는데
+  아무것도 재개 안 됨"이라는 #1 무음 실패를 브라우저에서도 바로 볼 수 있게 했다.** 그동안 대시보드는
+  잡 목록·리셋 카운트다운만 보여줘서, 데몬/tick이 실제로 돌고 있는지는 알 방법이 없었다.
+  1. `@agentrelay/core/heartbeat.ts`에 순수 계층 추가: `ResumeLoopState`(alive/stale/absent)·
+     `ResumeLoopLevel`(ok/warning)·`ResumeLoopFacts`(HeartbeatFacts와 구조 동일 — doctor 역의존 회피)·
+     `ResumeLoopHealth` 타입 + `heartbeatFactsFrom(hb, nowMs)`(파싱된 하트비트→age·staleAfter 파생,
+     CLI `readHeartbeatFacts`의 clock-injected 순수 절반, 파일 I/O 없음; null·파싱불가 lastTickAt·
+     미래시각[클럭 스큐]은 absent/0 클램프) + `classifyResumeLoop(facts, waitingCount)`(doctor
+     `daemonCheck`와 동일 심각도 규칙 — 대기 잡 유무가 absent를 warning/ok로 가름, 배너용 한 줄 메시지).
+  2. 대시보드 `lib/jobs.ts`: 스토어 옆 `daemon.json`을 읽어(절대 throw 안 함 — 부재/손상=absent)
+     `heartbeatFactsFrom`+`classifyResumeLoop`으로 판정해 `JobsSnapshot.resumeLoop`로 노출. 파일 I/O·
+     시계는 대시보드(Node 서버 라우트)에, 판정은 core 순수로 — doctor의 fact-gathering 컨벤션과 동일.
+  3. `dashboard-client.tsx`: 헤더 아래 색상 배너(`.resume-banner` ok=녹색 좌측선/warning=노랑,
+     warning은 `role="alert"`)로 재개-루프 상태 메시지 렌더. globals.css에 라이트/다크 겸용 스타일 추가.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 타입체크 포함), `pnpm ci:lint`(Biome) 0 경고,
+    `pnpm test` **436개 통과 + 1 skip**(core 297[+11: heartbeatFactsFrom 4·classifyResumeLoop 7] +
+    cli 131 + dashboard 8[+5: absent/ok·absent/warning·alive·stale·손상 하트비트 무시, 실제 파일 e2e]).
+- 다음 할 일: stats 평균 대기시간(대기→재개 지연) 확장(👷 후보 — RelayJob에 중간 타임스탬프 추가 필요),
+  대시보드 `--json`/CLI `doctor` 메시지 문구 공유 리팩터(👷 후보), README/ARCHITECTURE(🧭 코워크).
