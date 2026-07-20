@@ -347,6 +347,17 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay status --limit <n>` — 큰 큐에서 상위 N개 잡만 표시(요약은 전체 반영).
+      (완료 — 큐가 커지면 `status` 테이블이 전체를 쏟아내 화면을 넘겼다. `packages/cli/src/status.ts`의
+      `RenderOptions`에 `limit?` 추가 + 순수 `limitTruncates(limit,count)` 가드(미설정·비양수·`count<=limit`은
+      캡 없음). `renderStatusTable`이 표시 행만 `slice(0,limit)`하되 **요약 푸터는 전체 잡 집합**을 그대로
+      집계(캡이 카운트를 왜곡하지 않게) + 잘림 시 "… K more not shown (showing N of M)" 노트 행 추가.
+      `renderStatusJson`은 `jobs`를 캡하되 `summary`는 전체, `total`/`returned` 필드로 잘림을 명시.
+      `renderWatchFrame`에 limit 전달. CLI `status`에 `-n/--limit <n>` 배선(양의 정수만, 아니면 exit 1),
+      일회성·`--json`·`--watch` 세 뷰에 동일 적용. `--sort reset --limit 5`로 "다음 재개될 5개"를 볼 수 있음.
+      status.test.ts에 renderStatusTable/renderStatusJson/renderWatchFrame limit 케이스 신규. branch
+      `claude/wizardly-pascal-1tlqol`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -128,6 +128,18 @@ export interface RenderOptions {
   now?: number;
   /** Emit ANSI color codes (only makes sense on a TTY). */
   color?: boolean;
+  /**
+   * Show at most this many rows. The summary footer still counts every job
+   * passed in (the full filtered set), and a truncation note names how many
+   * were hidden. Undefined / non-positive means "no cap". Applied last, after
+   * any filter/sort the caller already did.
+   */
+  limit?: number;
+}
+
+/** True when `limit` would actually hide some of `count` rows. */
+function limitTruncates(limit: number | undefined, count: number): boolean {
+  return typeof limit === "number" && Number.isFinite(limit) && limit > 0 && count > limit;
 }
 
 /**
@@ -185,7 +197,11 @@ export function renderStatusTable(jobs: RelayJob[], options: RenderOptions = {})
     "ATTEMPTS",
   ].join(" ");
 
-  const lines = jobs.map((job) => {
+  // Cap the rows we print, but keep the summary over the whole set below.
+  const truncated = limitTruncates(options.limit, jobs.length);
+  const shown = truncated ? jobs.slice(0, options.limit) : jobs;
+
+  const lines = shown.map((job) => {
     const statusCell = job.status.padEnd(COL.status);
     return [
       job.id.slice(0, 8).padEnd(COL.id),
@@ -196,6 +212,14 @@ export function renderStatusTable(jobs: RelayJob[], options: RenderOptions = {})
     ].join(" ");
   });
 
+  if (truncated) {
+    const hidden = jobs.length - shown.length;
+    const note = `… ${hidden} more not shown (showing ${shown.length} of ${jobs.length}). Raise --limit to see more.`;
+    lines.push(color ? `${DIM}${note}${RESET}` : note);
+  }
+
+  // Summary reflects every job passed in, not just the shown rows, so the
+  // counts stay honest even when --limit hides some.
   const footer = summaryLine(summarizeJobs(jobs), now);
   const headerLine = color ? `${BOLD}${header}${RESET}` : header;
   const footerLine = color ? `${DIM}${footer}${RESET}` : footer;
@@ -209,9 +233,26 @@ export function renderStatusTable(jobs: RelayJob[], options: RenderOptions = {})
 export function renderStatusJson(
   jobs: RelayJob[],
   storePath: string,
-  generatedAt: string = new Date().toISOString()
+  generatedAt: string = new Date().toISOString(),
+  limit?: number
 ): string {
-  return JSON.stringify({ storePath, generatedAt, summary: summarizeJobs(jobs), jobs }, null, 2);
+  // Summary spans the full filtered set; `jobs` is capped by --limit so the
+  // emitted list matches what a table with the same flags would show. `total`
+  // vs `returned` makes any truncation explicit for scripts.
+  const truncated = limitTruncates(limit, jobs.length);
+  const emitted = truncated ? jobs.slice(0, limit) : jobs;
+  return JSON.stringify(
+    {
+      storePath,
+      generatedAt,
+      summary: summarizeJobs(jobs),
+      total: jobs.length,
+      returned: emitted.length,
+      jobs: emitted,
+    },
+    null,
+    2
+  );
 }
 
 /**
@@ -223,12 +264,13 @@ export function renderWatchFrame(
   jobs: RelayJob[],
   storePath: string,
   intervalMs: number,
-  now: number = Date.now()
+  now: number = Date.now(),
+  limit?: number
 ): string {
   const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
   const title = `${BOLD}agentrelay status${RESET} ${DIM}(live, every ${Math.round(
     intervalMs / 1000
   )}s — Ctrl-C to exit)${RESET}`;
   const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
-  return [title, meta, "", renderStatusTable(jobs, { now, color: true })].join("\n");
+  return [title, meta, "", renderStatusTable(jobs, { now, color: true, limit })].join("\n");
 }

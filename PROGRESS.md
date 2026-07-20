@@ -980,3 +980,30 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay status --limit <n>` 행 제한] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-1tlqol`)
+- 배경: 세션 시작 시 열린 PR 11개(#61~#72)가 doctor(overdue)·stats(trend/group-by)·export(ndjson)·
+  next·notify test·데몬 이중 실행 가드·대시보드 하트비트를 이미 점유(일부는 서로 중복: #66/#68 group-by,
+  #70/#71 ndjson, #67/#72 대시보드 하트비트). 명시적 👷 백로그는 전부 완료 상태라, 열린 PR 어느 것과도
+  겹치지 않는 **새 개선 항목을 발굴**했다 — 큐가 커지면 `status` 테이블이 전체를 쏟아내 터미널을 넘기는데
+  상위 몇 개만 보는 방법이 없었다.
+- 한 일: **`agentrelay status --limit <n>` 행 제한.**
+  1. `packages/cli/src/status.ts` — `RenderOptions`에 `limit?: number` + 순수 `limitTruncates(limit,count)`
+     가드(미설정·비유한·비양수·`count<=limit`은 캡 없음). `renderStatusTable`이 표시 행만 `slice(0,limit)`,
+     **요약 푸터는 전체 잡 집합**을 그대로 집계(캡이 상태별 카운트·next reset을 왜곡하지 않게), 잘림 시
+     "… K more not shown (showing N of M). Raise --limit to see more." 노트 행 추가(색상 게이트 존중).
+  2. `renderStatusJson`이 `jobs`를 limit로 캡하되 `summary`는 전체 집합, `total`/`returned` 필드로 잘림을
+     스크립트에 명시. `renderWatchFrame`에 limit 전달해 라이브 뷰도 동일 캡.
+  3. CLI `cli.ts` `status`에 `-n/--limit <n>` 배선(양의 정수만, 아니면 "Use a positive integer" + exit 1).
+     limit은 **필터/정렬 뒤** 적용되는 표시 캡이라 `selectJobs`(순수 필터/정렬)는 불변 — `--sort reset
+     --limit 5`로 "다음 재개될 5개"를 볼 수 있음. 일회성 테이블·`--json`·`--watch(runWatch)` 세 뷰에 동일 적용.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` 그린(cli 138 통과 + 1 skip — status.test.ts에 renderStatusTable limit 4 + renderStatusJson
+    limit 2 + renderWatchFrame limit 1 케이스 신규). **실제 빌드된 CLI e2e**(mock 아님): 5-job 스토어로
+    `status`(5행)·`--limit 2`(2행 + "3 more not shown" 노트, 요약은 5 job)·`--sort reset --limit 2`(다음
+    재개 2개)·`--status waiting_for_reset --limit 1`(필터 집합 3 중 1행 표시, 요약 3 job)·`--json --limit 2`
+    (total 5·returned 2·summary.total 5·jobs 2)·`--json`(total==returned==5)·`--limit 99`(노트 없음)·
+    `--limit 0`/`--limit abc`(exit 1) 확인.
+- 다음 할 일: 쌓인 열린 PR들의 중복 정리·통합(코워크/사람 병합 대기), 대시보드가 재개-루프 생존 상태 노출
+  (#67/#72 중 하나 병합), stats 평균 대기시간(대기→재개 지연, RelayJob 중간 타임스탬프 필요, 👷 후보),
+  README/ARCHITECTURE(🧭 코워크).

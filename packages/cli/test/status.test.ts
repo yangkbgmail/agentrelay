@@ -130,6 +130,27 @@ describe("renderStatusJson", () => {
     expect(parsed.jobs).toHaveLength(1);
     expect(parsed.jobs[0].project).toBe("demo");
   });
+
+  it("caps `jobs` by limit while summary/total span the full set", () => {
+    const jobs = [
+      job({ id: "aaaa1111", project: "one" }),
+      job({ id: "bbbb2222", project: "two" }),
+      job({ id: "cccc3333", project: "three" }),
+    ];
+    const parsed = JSON.parse(renderStatusJson(jobs, "/tmp/store.json", "2026-07-13T00:00:00.000Z", 2));
+    expect(parsed.total).toBe(3);
+    expect(parsed.returned).toBe(2);
+    expect(parsed.summary.total).toBe(3);
+    expect(parsed.jobs).toHaveLength(2);
+    expect(parsed.jobs.map((j: RelayJob) => j.id)).toEqual(["aaaa1111", "bbbb2222"]);
+  });
+
+  it("returns every job when no limit is given (total === returned)", () => {
+    const parsed = JSON.parse(renderStatusJson([job(), job()], "/tmp/store.json", "2026-07-13T00:00:00.000Z"));
+    expect(parsed.total).toBe(2);
+    expect(parsed.returned).toBe(2);
+    expect(parsed.jobs).toHaveLength(2);
+  });
 });
 
 describe("renderWatchFrame", () => {
@@ -140,6 +161,55 @@ describe("renderWatchFrame", () => {
     expect(frame).toContain("/tmp/store.json");
     expect(frame).toContain("2026-07-13 00:00:00");
     expect(frame).toContain("waiting_for_reset");
+  });
+
+  it("passes --limit through to the underlying table", () => {
+    const jobs = [
+      job({ id: "aaaa1111", project: "one" }),
+      job({ id: "bbbb2222", project: "two" }),
+      job({ id: "cccc3333", project: "three" }),
+    ];
+    const frame = renderWatchFrame(jobs, "/tmp/store.json", 2000, NOW, 1);
+    expect(frame).toContain("aaaa1111");
+    expect(frame).not.toContain("bbbb2222");
+    expect(frame).toContain("2 more not shown");
+  });
+});
+
+describe("renderStatusTable --limit", () => {
+  const jobs = [
+    job({ id: "aaaa1111", project: "one" }),
+    job({ id: "bbbb2222", project: "two" }),
+    job({ id: "cccc3333", project: "three" }),
+  ];
+
+  it("caps the shown rows and adds a truncation note", () => {
+    const out = renderStatusTable(jobs, { now: NOW, limit: 2 });
+    expect(out).toContain("aaaa1111");
+    expect(out).toContain("bbbb2222");
+    expect(out).not.toContain("cccc3333");
+    expect(out).toContain("… 1 more not shown (showing 2 of 3). Raise --limit to see more.");
+  });
+
+  it("keeps the summary counting every job, not just the shown rows", () => {
+    const out = renderStatusTable(jobs, { now: NOW, limit: 1 });
+    // Footer still reports the full set of 3 jobs.
+    expect(out).toContain("3 job(s)");
+    expect(out).toContain("waiting_for_reset:3");
+  });
+
+  it("adds no note when the limit is not smaller than the job count", () => {
+    expect(renderStatusTable(jobs, { now: NOW, limit: 3 })).not.toContain("more not shown");
+    expect(renderStatusTable(jobs, { now: NOW, limit: 99 })).not.toContain("more not shown");
+  });
+
+  it("treats a missing or non-positive limit as no cap", () => {
+    expect(renderStatusTable(jobs, { now: NOW })).not.toContain("more not shown");
+    expect(renderStatusTable(jobs, { now: NOW, limit: 0 })).not.toContain("more not shown");
+    // All three rows survive without a cap.
+    for (const id of ["aaaa1111", "bbbb2222", "cccc3333"]) {
+      expect(renderStatusTable(jobs, { now: NOW })).toContain(id);
+    }
   });
 });
 
