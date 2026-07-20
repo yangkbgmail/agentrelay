@@ -4,8 +4,11 @@ import {
   createSlackNotifier,
   createWebhookNotifier,
   formatSlackText,
+  listNotifyChannels,
   notifiersFromEnv,
+  sendTestNotification,
   slackNotifierFromEnv,
+  testNotifyPayload,
   webhookNotifierFromEnv,
 } from "../src/notify.js";
 import type { NotifyPayload } from "../src/types.js";
@@ -235,5 +238,103 @@ describe("notifiersFromEnv", () => {
     await notify!(payload);
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(fetchFn.mock.calls[0][0]).toBe("https://hooks.example.test/relay");
+  });
+});
+
+describe("listNotifyChannels", () => {
+  it("returns an empty list when nothing is configured", () => {
+    expect(listNotifyChannels({})).toEqual([]);
+    expect(listNotifyChannels({ AGENTRELAY_SLACK_WEBHOOK: "  ", AGENTRELAY_WEBHOOK_URL: "" })).toEqual([]);
+  });
+
+  it("lists Slack first, then the generic webhook, with source env vars", () => {
+    const channels = listNotifyChannels({
+      AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+      AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/abc",
+    });
+    expect(channels).toEqual([
+      { kind: "slack", label: "Slack", url: "https://hooks.slack.test/abc", envVar: "AGENTRELAY_SLACK_WEBHOOK" },
+      { kind: "webhook", label: "Webhook", url: "https://hooks.example.test/relay", envVar: "AGENTRELAY_WEBHOOK_URL" },
+    ]);
+  });
+});
+
+describe("testNotifyPayload", () => {
+  it("is a well-formed NotifyPayload", () => {
+    const p = testNotifyPayload();
+    expect(p.event).toBe("completed");
+    expect(p.project).toBe("agentrelay");
+    expect(typeof p.jobId).toBe("string");
+    expect(p.message.length).toBeGreaterThan(0);
+  });
+});
+
+describe("sendTestNotification", () => {
+  it("returns an empty array when no channels are configured", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const results = await sendTestNotification({ env: {}, fetchFn });
+    expect(results).toEqual([]);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("delivers to every channel and reports each as ok on 2xx", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const results = await sendTestNotification({
+      env: {
+        AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/abc",
+        AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+      },
+      fetchFn,
+    });
+
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(results.map((r) => r.channel.kind)).toEqual(["slack", "webhook"]);
+    expect(results.every((r) => r.ok)).toBe(true);
+    expect(results.every((r) => r.error === undefined)).toBe(true);
+  });
+
+  it("reports a per-channel failure without failing the other channels", async () => {
+    const fetchFn = vi.fn(async (url: string) =>
+      url.includes("slack") ? okResponse(500) : okResponse(200)
+    ) as unknown as typeof fetch;
+    const results = await sendTestNotification({
+      env: {
+        AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/abc",
+        AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+      },
+      fetchFn,
+    });
+
+    const slack = results.find((r) => r.channel.kind === "slack");
+    const webhook = results.find((r) => r.channel.kind === "webhook");
+    expect(slack?.ok).toBe(false);
+    expect(slack?.error).toContain("500");
+    expect(webhook?.ok).toBe(true);
+  });
+
+  it("captures thrown network errors as a failure message", async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new Error("ECONNREFUSED");
+    });
+    const results = await sendTestNotification({
+      env: { AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay" },
+      fetchFn,
+    });
+    expect(results).toHaveLength(1);
+    expect(results[0].ok).toBe(false);
+    expect(results[0].error).toContain("ECONNREFUSED");
+  });
+
+  it("applies AGENTRELAY_WEBHOOK_AUTH as the Authorization header", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    await sendTestNotification({
+      env: {
+        AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+        AGENTRELAY_WEBHOOK_AUTH: "Bearer t0ken",
+      },
+      fetchFn,
+    });
+    const [, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer t0ken");
   });
 });

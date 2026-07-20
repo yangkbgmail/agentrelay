@@ -1,5 +1,13 @@
 import type { AgentTool, ExportFormat, JobScope, JobStatus, RelayJob } from "@agentrelay/core";
-import { ALL_TOOLS, computeStats, EXPORT_FORMATS, isJobScopeActive, parseDuration, scopeJobs } from "@agentrelay/core";
+import {
+  ALL_TOOLS,
+  computeStats,
+  EXPORT_FORMATS,
+  isJobScopeActive,
+  parseDuration,
+  scopeJobs,
+  sendTestNotification,
+} from "@agentrelay/core";
 import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
@@ -23,6 +31,7 @@ import {
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
+import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import { renderStats, renderStatsJson } from "./stats.js";
 import {
@@ -375,6 +384,26 @@ export function buildCli(): Command {
       // Exit non-zero when any check failed, so `agentrelay doctor` is usable as
       // a CI/pre-flight gate.
       if (!report.ok) process.exitCode = 1;
+    });
+
+  const notify = program.command("notify").description("Inspect and test notification channels (Slack/webhook)");
+  notify
+    .command("test")
+    .description("Send a test notification to every configured channel to verify delivery works end-to-end")
+    .option("--json", "Print the results as JSON (machine-readable, for scripts/CI)")
+    .option("--show-secrets", "Reveal masked destination URLs in the human-readable output")
+    .action(async (opts: { json?: boolean; showSecrets?: boolean }) => {
+      const results = await sendTestNotification();
+      if (opts.json) {
+        console.log(renderTestNotifyResultsJson(results));
+      } else {
+        console.log(
+          renderTestNotifyResults(results, { color: Boolean(process.stdout.isTTY), showSecrets: opts.showSecrets })
+        );
+      }
+      // Exit non-zero when nothing was configured (nothing to test) or any
+      // channel failed, so scripts/CI can gate on working notifications.
+      if (results.length === 0 || results.some((r) => !r.ok)) process.exitCode = 1;
     });
 
   program

@@ -103,7 +103,7 @@ const GROUP_ORDER: ConfigGroup[] = ["store", "notify", "retry", "autoPrune"];
  * enough of a hint (length + last 4 chars) to recognize it without leaking it
  * into scrollback or a screen share. Short secrets are fully hidden.
  */
-function maskSecret(value: string): string {
+export function maskSecret(value: string): string {
   if (value.length <= 4) return "•".repeat(value.length);
   return `${"•".repeat(value.length - 4)}${value.slice(-4)}`;
 }

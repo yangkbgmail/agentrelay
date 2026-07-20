@@ -980,3 +980,27 @@
     `--json` daemon 체크 형태 확인.
 - 다음 할 일: 대시보드가 재개-루프 생존 상태 노출(👷 후보), stats 평균 대기시간(대기→재개 지연) 확장
   (👷 후보 — RelayJob에 중간 타임스탬프 추가 필요), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 31 — `agentrelay notify test` (알림 채널 실전 전송 검증)] (2026-07-20, 무인 자율 세션, branch `claude/wizardly-pascal-55aspp`)
+- 배경: `doctor`의 notify 체크는 채널이 **설정됐는지**만 본다(env var 존재). 하지만 "URL은 설정했는데
+  실제로 전달이 되나?"(오타·죽은 webhook·인증 헤더 누락)는 못 잡았다 — 셋업 후 가장 흔한 무음 실패.
+- 한 일:
+  1. `@agentrelay/core/notify.ts`: `NotifyChannel`/`NotifyChannelKind` + `listNotifyChannels(env)`
+     (Slack→webhook 안정 순서, 공백값 스킵 → "어떤 채널이 설정됐나"의 단일 진실원) 신설.
+     `testNotifyPayload()`(실제 이벤트와 동일 shape → 프로덕션 포맷/바디 경로를 그대로 탐).
+     `sendTestNotification({env,fetchFn,payload})` → `TestNotifyResult[]`: **프로덕션 notifier
+     팩토리 재사용**해 각 채널 독립 전송, `onError` 캡처로 per-channel ok/error. 통과=실제 전송
+     경로(바디·`AGENTRELAY_WEBHOOK_AUTH` 헤더·HTTP 상태) 동작 확인이지 단순 URL 설정 아님.
+     한 채널 실패가 throw/다른 채널 중단 안 함(릴레이 루프 보호), 채널 0개면 빈 배열.
+  2. `packages/cli/src/notify.ts`: 순수 `renderTestNotifyResults`(색상 체크리스트·기본 URL 마스킹
+     [config show의 `maskSecret` 재사용, export로 승격]·`--show-secrets`·"N of M failed" 요약)·
+     `renderTestNotifyResultsJson`(--json, 시크릿 URL 미노출). `NO_CHANNELS_MESSAGE`로 무음 no-op 방지.
+  3. CLI `agentrelay notify test [--json] [--show-secrets]` 커맨드(commander 서브커맨드). 채널 0개
+     (테스트할 게 없음) 또는 하나라도 실패 시 exit 1 → CI/pre-flight 게이트로 사용 가능.
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **436 통과 + 1 skip**(core 294[+8: notify 채널/테스트전송] + cli 139[+8: render/json/마스킹]
+  + dashboard 3). **실제 빌드 CLI e2e**(mock 아님, 로컬 200/503 http 서버): 채널 0개→hint+exit 1,
+  Slack(503)+webhook(200) 동시→per-channel 결과·URL 마스킹·"1 of 2 failed"·exit 1, webhook만(200)+
+  `--show-secrets`→전체 URL 노출·"all 1 delivered"·exit 0, 서버가 실제 구조화 payload 수신 확인.
+- 다음 할 일: 대시보드에 "notify 채널 테스트" 버튼(👷 후보), `doctor`가 notify 체크에서 선택적 라이브
+  전송 옵션(`--probe-notify`) 제안(👷 후보), README/ARCHITECTURE(🧭 코워크).

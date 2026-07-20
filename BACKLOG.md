@@ -347,6 +347,23 @@
       window→select 파이프라인 회귀 3케이스 추가 + 빌드된 CLI e2e로 시간 창·AND·NO_MATCH·JSON·에러 exit
       검증. branch `claude/wizardly-pascal-uxx5os`)
 
+- [x] 👷 `agentrelay notify test` — 설정된 알림 채널(Slack/webhook)로 실제 테스트 알림을 보내
+      배선이 동작하는지 end-to-end 검증. `doctor`는 채널 "설정 여부"만 보지만 이건 실제 전송을 검증.
+      (완료 — `@agentrelay/core/notify.ts`에 순수/재사용 계층: `NotifyChannel`/`NotifyChannelKind` +
+      `listNotifyChannels(env)`(Slack→webhook 안정 순서, 공백값 스킵 — "어떤 채널이 설정됐나"의 단일
+      진실원) + `testNotifyPayload()`(실제 이벤트와 동일 shape라 프로덕션 포맷/바디 경로를 그대로 탐) +
+      `TestNotifyResult` + `sendTestNotification({env,fetchFn,payload})`. 후자는 **프로덕션 notifier
+      팩토리**(`createSlackNotifier`/`createWebhookNotifier`)를 재사용해 각 채널로 독립 전송 — 통과하면
+      실제 전송 경로(바디 shape·`AGENTRELAY_WEBHOOK_AUTH` 헤더·HTTP 상태 처리)가 동작한다는 뜻이지
+      단순 "URL이 설정됨"이 아님. 각 채널은 개별 await·`onError` 캡처로 per-channel ok/error 리포트,
+      한 채널 실패가 throw하거나 다른 채널을 중단시키지 않음(릴레이 루프 보호 계약 유지), 채널 0개면
+      빈 배열. CLI `packages/cli/src/notify.ts`에 순수 `renderTestNotifyResults`(색상 체크리스트·기본
+      URL 마스킹[config show와 동일 `maskSecret` 재사용]·`--show-secrets`·실패 요약)·
+      `renderTestNotifyResultsJson`(--json, 시크릿 URL 미노출). `agentrelay notify test [--json]
+      [--show-secrets]` 커맨드 — 채널 0개(테스트할 게 없음) 또는 하나라도 실패 시 exit 1(CI/pre-flight
+      게이트). core 8 + cli 8 신규 테스트, **실제 빌드 CLI e2e**(로컬 200/503 서버)로 전송·마스킹·
+      per-channel 실패·exit 코드 검증. branch `claude/wizardly-pascal-55aspp`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
