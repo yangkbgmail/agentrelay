@@ -1,10 +1,23 @@
-import type { AgentTool, ExportFormat, GroupDimension, JobScope, JobStatus, RelayJob } from "@agentrelay/core";
+import type {
+  AgentTool,
+  CompletionCommandSpec,
+  CompletionShell,
+  CompletionSpec,
+  ExportFormat,
+  GroupDimension,
+  JobScope,
+  JobStatus,
+  RelayJob,
+} from "@agentrelay/core";
 import {
   ALL_TOOLS,
+  COMPLETION_SHELLS,
   computeStats,
   EXPORT_FORMATS,
+  generateCompletion,
   GROUP_DIMENSIONS,
   groupStats,
+  isCompletionShell,
   isJobScopeActive,
   parseDuration,
   scopeJobs,
@@ -219,6 +232,39 @@ function readStdin(): Promise<string> {
     process.stdin.on("end", () => resolve(data));
     process.stdin.on("error", reject);
   });
+}
+
+/**
+ * Collect the flag tokens (long and short) a commander command accepts, so the
+ * completion script can offer them. Order: each option's long form then short
+ * form, in declaration order; deduped by the generator.
+ */
+function collectFlags(cmd: Command): string[] {
+  const flags: string[] = [];
+  for (const opt of cmd.options) {
+    if (opt.long) flags.push(opt.long);
+    if (opt.short) flags.push(opt.short);
+  }
+  return flags;
+}
+
+/**
+ * Derive a shell-completion spec from the live commander program, so the
+ * completion script always matches the real command surface (no hand-kept
+ * duplicate list to drift). Walks one level of nesting for parent commands like
+ * `config` that group subcommands.
+ */
+export function buildCompletionSpec(program: Command): CompletionSpec {
+  const commands: CompletionCommandSpec[] = program.commands.map((cmd) => {
+    const entry: CompletionCommandSpec = { name: cmd.name(), options: collectFlags(cmd) };
+    if (cmd.commands.length > 0) {
+      entry.subcommands = cmd.commands.map(
+        (sub): CompletionCommandSpec => ({ name: sub.name(), options: collectFlags(sub) })
+      );
+    }
+    return entry;
+  });
+  return { program: program.name(), options: collectFlags(program), commands };
 }
 
 /**
@@ -992,6 +1038,28 @@ export function buildCli(): Command {
         );
       }
       console.log(`${verb} ${pruned.length} job(s). ${remaining} remain.`);
+    });
+
+  program
+    .command("completion")
+    .description("Print a shell completion script for agentrelay (bash or zsh)")
+    .argument("<shell>", `Shell to generate completion for: ${COMPLETION_SHELLS.join(" | ")}`)
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # bash: source it now, or add the line to ~/.bashrc\n" +
+        "  source <(agentrelay completion bash)\n" +
+        "  # zsh: write it onto your $fpath, then restart your shell\n" +
+        "  agentrelay completion zsh > ~/.zfunc/_agentrelay"
+    )
+    .action((shell: string) => {
+      if (!isCompletionShell(shell)) {
+        console.error(`Unknown shell "${shell}". Valid: ${COMPLETION_SHELLS.join(", ")}.`);
+        process.exitCode = 1;
+        return;
+      }
+      const spec = buildCompletionSpec(program);
+      process.stdout.write(generateCompletion(shell as CompletionShell, spec));
     });
 
   return program;
