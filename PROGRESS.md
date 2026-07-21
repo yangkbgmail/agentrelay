@@ -1055,3 +1055,17 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay export --format html` 독립형 HTML 리포트] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-mldthq`)
+- 한 일: export에 다섯 번째 포맷 `html`을 추가 — 실행 중 Next.js 대시보드 없이도 브라우저에서 바로
+  열고 이메일/아카이브할 수 있는 단일 self-contained HTML 잡 이력 리포트. core `export.ts`에 순수
+  `escapeHtml`(마크업 깨는 5문자만 치환) + `jobsToHtml(jobs,{columns,title})` 신설(외부 리소스 0,
+  테마 인식[prefers-color-scheme], status 셀 `data-status` 색상, 빈 큐도 명시 행). `EXPORT_FORMATS`에
+  `html` 추가 + 디스패처 배선 → CLI가 이미 `EXPORT_FORMATS`로 포맷 검증·전달하므로 기존 스코프 필터
+  (`--status/--tool/--project/--since/--until/--sort/--reverse`)·`-o` 파일 쓰기가 새 CLI 코드 0줄로 자동 적용.
+  CSV/Markdown과 `JOB_CSV_COLUMNS`/`jobCsvValue` 공유(표 3종 lockstep). export 커맨드 설명·help 문구 갱신.
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **586 통과 + 1 skip**(core 385 + cli 194[+1 skip] + dashboard 7). **실제 빌드된 CLI e2e**(mock 아님):
+  `export --format html -o report.html`(2잡, `<!doctype html>` 시작, status 색상, `<b>`→`&lt;b&gt;` 이스케이프,
+  외부 호스트 0, "2 jobs"), `--status failed`(1잡 스코프·completed 제외·"1 job" 단수 요약), `export --help`(html 노출).
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).

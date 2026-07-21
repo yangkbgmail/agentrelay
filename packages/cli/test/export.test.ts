@@ -112,6 +112,17 @@ describe("exportStore", () => {
     expect(lines[2].endsWith(" |")).toBe(true);
   });
 
+  it("produces a self-contained HTML report with one row per job", () => {
+    seed();
+    const result = exportStore({ storePath, format: "html" });
+    expect(result.count).toBe(2);
+    expect(result.content.startsWith("<!doctype html>")).toBe(true);
+    expect(result.content).toContain("<table>");
+    expect(result.content).toContain("2 jobs");
+    // Self-contained: no external resources referenced.
+    expect(result.content).not.toMatch(/https?:\/\//);
+  });
+
   // The `export` command applies the same scope filters as `stats`/`status`:
   // the --since/--until time window via core scopeJobs, then
   // --status/--tool/--project/--sort/--reverse via selectJobs. These tests

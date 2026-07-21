@@ -395,6 +395,18 @@
 - [x] 👷 `agentrelay stats --trend [days]` — UTC 일별 활동 히스토그램(릴레이가 언제 바빴는지 시간 축).
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
+- [x] 👷 `agentrelay export --format html` — 대시보드(실행 중 서버 필요) 없이도 브라우저에서 바로
+      보고 이메일/아카이브할 수 있는 독립형(self-contained) HTML 잡 이력 리포트.
+      (완료 — core `export.ts`에 순수 `escapeHtml`(마크업 깨는 5문자만 치환, 나머지는 UTF-8로 그대로) +
+      `jobsToHtml(jobs,{columns,title})` 신설: 외부 CSS/JS/폰트/네트워크 0개인 단일 문서, 테마 인식
+      (prefers-color-scheme 라이트/다크), `status` 셀에 `data-status` 속성을 달아 상태별 색상, 빈 큐도
+      "No jobs to show." 행을 렌더(혼란스러운 백지 방지). CSV/Markdown과 동일한 `JOB_CSV_COLUMNS`/
+      `jobCsvValue`를 공유해 표 형식 3종이 lockstep. `EXPORT_FORMATS`에 `html` 추가 + 디스패처 배선 →
+      CLI는 이미 `EXPORT_FORMATS`로 포맷을 검증·전달하므로 `--status`/`--tool`/`--project`/`--since`/
+      `--until`/`--sort`/`--reverse` 스코프 필터가 자동으로 그대로 적용, `-o`로 파일 쓰기. 새 CLI 로직
+      0줄. export.test.ts에 escapeHtml 3 + jobsToHtml 6 + 디스패처 1 + formats 갱신, cli export.test.ts에
+      html 1케이스, 실제 빌드 CLI e2e로 HTML 이스케이프·상태 색상·외부 호스트 0·스코프 필터·단복수 요약
+      검증. branch `claude/wizardly-pascal-mldthq`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

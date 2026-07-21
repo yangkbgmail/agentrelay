@@ -148,8 +148,131 @@ export function jobsToNdjson(jobs: RelayJob[]): string {
   return jobs.map((job) => JSON.stringify(job)).join("\n");
 }
 
+/**
+ * Escape a value for safe embedding in HTML text/attribute content. Only the
+ * five characters that can break out of a text node or a double-quoted
+ * attribute are replaced; everything else (including non-ASCII) is emitted
+ * verbatim since the document declares UTF-8. This keeps a prompt containing
+ * `<`, `&`, or quotes from injecting markup into the report.
+ */
+export function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+export interface HtmlOptions extends Pick<CsvOptions, "columns"> {
+  /** Document `<title>` and page heading. Defaults to "AgentRelay job export". */
+  title?: string;
+}
+
+/**
+ * Render jobs as a single self-contained HTML document — the shareable,
+ * browsable counterpart to the live Next.js dashboard. Where the dashboard
+ * needs a running server, this is one static file you can open, email, or
+ * archive: no external CSS/JS/fonts, no network, theme-aware (honours the
+ * viewer's light/dark preference). Columns and cell values are shared with the
+ * CSV/Markdown exports ({@link JOB_CSV_COLUMNS} / {@link jobCsvValue}) so all
+ * the tabular formats stay in lockstep; the `status` cell additionally gets a
+ * `data-status` attribute so the stylesheet can colour it. An empty job list
+ * still renders the table header plus an explicit "no jobs" row, so the report
+ * is never a confusing blank page.
+ */
+export function jobsToHtml(jobs: RelayJob[], options: HtmlOptions = {}): string {
+  const columns = options.columns ?? JOB_CSV_COLUMNS;
+  const title = options.title ?? "AgentRelay job export";
+  const safeTitle = escapeHtml(title);
+
+  const head = columns.map((col) => `<th>${escapeHtml(col)}</th>`).join("");
+
+  let body: string;
+  if (jobs.length === 0) {
+    body = `<tr><td class="empty" colspan="${columns.length}">No jobs to show.</td></tr>`;
+  } else {
+    body = jobs
+      .map((job) => {
+        const cells = columns
+          .map((col) => {
+            const cell = escapeHtml(jobCsvValue(job, col));
+            if (col === "status") {
+              return `<td class="status" data-status="${escapeHtml(job.status)}">${cell}</td>`;
+            }
+            return `<td>${cell}</td>`;
+          })
+          .join("");
+        return `<tr>${cells}</tr>`;
+      })
+      .join("\n");
+  }
+
+  const summary = `${jobs.length} job${jobs.length === 1 ? "" : "s"}`;
+
+  // Inline everything so the file is portable and CSP-safe (no external hosts).
+  // Colours are declared for light by default and overridden under a dark
+  // prefers-color-scheme media query so the report matches the dashboard's
+  // theme-aware behaviour.
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${safeTitle}</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff; --fg: #1a1a1a; --muted: #666; --border: #e2e2e2;
+  --header-bg: #f6f6f6; --row-alt: #fafafa;
+  --completed: #128a4c; --failed: #c0392b; --cancelled: #8a6d0b; --active: #1f6feb;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181d; --fg: #e6e6e6; --muted: #9aa0a6; --border: #2a2d34;
+    --header-bg: #1d2026; --row-alt: #1a1c22;
+    --completed: #3fb950; --failed: #f85149; --cancelled: #d29922; --active: #58a6ff;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px; background: var(--bg); color: var(--fg);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+h1 { font-size: 18px; margin: 0 0 4px; }
+.meta { color: var(--muted); margin: 0 0 16px; font-size: 13px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border);
+  white-space: nowrap; vertical-align: top; }
+th { background: var(--header-bg); font-weight: 600; position: sticky; top: 0; }
+tbody tr:nth-child(even) { background: var(--row-alt); }
+tbody tr:last-child td { border-bottom: none; }
+td.empty { text-align: center; color: var(--muted); padding: 24px; white-space: normal; }
+td.status { font-weight: 600; }
+td.status[data-status="completed"] { color: var(--completed); }
+td.status[data-status="failed"] { color: var(--failed); }
+td.status[data-status="cancelled"] { color: var(--cancelled); }
+td.status[data-status="queued"],
+td.status[data-status="waiting_for_reset"],
+td.status[data-status="resuming"] { color: var(--active); }
+</style>
+</head>
+<body>
+<h1>${safeTitle}</h1>
+<p class="meta">${escapeHtml(summary)}</p>
+<div class="table-wrap">
+<table>
+<thead><tr>${head}</tr></thead>
+<tbody>
+${body}
+</tbody>
+</table>
+</div>
+</body>
+</html>`;
+}
+
 /** Supported export formats. */
-export const EXPORT_FORMATS = ["csv", "json", "md", "ndjson"] as const;
+export const EXPORT_FORMATS = ["csv", "json", "md", "ndjson", "html"] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 /** Dispatch to the right serializer for the given format. */
@@ -161,6 +284,8 @@ export function exportJobs(jobs: RelayJob[], format: ExportFormat, options: CsvO
       return jobsToMarkdown(jobs, options);
     case "ndjson":
       return jobsToNdjson(jobs);
+    case "html":
+      return jobsToHtml(jobs, options);
     default:
       return jobsToCsv(jobs, options);
   }
