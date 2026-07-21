@@ -1055,3 +1055,21 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay stats --hourly` UTC 시간대 활동 히스토그램] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-neh61q`)
+- **한 일:** `stats --trend`(일별)를 보완하는 **`agentrelay stats --hourly`**(UTC hour-of-day 분포)를 신규 구현.
+  하루 중 어느 시간에 rate-limit이 몰리는지(예: 매일 15:00 UTC 스파이크)를 드러내 작업 스케줄에 도움.
+  - core `stats.ts`: 순수 `computeHourlyDistribution(jobs)` + `HourlyActivity{hour,count}`. 항상 24슬롯
+    (0시 먼저·zero-fill), `createdAt`을 `getUTCHours()`로 버킷팅해 전 날짜에 걸쳐 합산, 파싱 불가는 스킵.
+    `--trend`와 달리 clock 불필요(잡 자체의 속성) — nowMs 안 받음, 순수·테스트 가능 유지.
+  - CLI `stats.ts`: 순수 `renderHourly`(24행 "00h".."23h" ASCII 막대, 최대 시 스케일·zero=베이스라인 점,
+    footer 총합) + `renderStatsJson`에 `hourly` 필드 추가(요청 시에만 방출 → 기본 JSON shape 불변).
+  - CLI `cli.ts`: `--hourly`(불리언) 플래그. `--trend`와 공존(둘 다 렌더), `--group-by`가 우선. `--since`/
+    `--until` 등 기존 스코프 필터가 그대로 적용(scopeJobs 후 분포 계산).
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **584 통과 + 1 skip**(core 379 + cli 198[+1 skip] + dashboard 7). **실제 빌드된 CLI e2e**(mock 아님):
+  3-job 임시 스토어로 `stats --hourly`(09h=1·15h=2 스파이크 막대)·`--hourly --json`(hourly 24슬롯·비영 시각만)·
+  `stats`(미요청 시 JSON에 hourly 키 부재)·`--trend 3 --hourly`(두 히스토그램 공존)·`--group-by tool --hourly`
+  (group-by 우선·hourly 무시)·빈 스토어(온보딩 문구, 히스토그램 없음) 확인.
+- **다음 할 일:** `stats --hourly`에 `--weekday`(요일별 분포) 형제 추가 검토, #61(doctor 큐 진행)·#69(데몬
+  이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).

@@ -396,6 +396,17 @@
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
 
+- [x] 👷 `agentrelay stats --hourly` — UTC 시간대(hour-of-day) 활동 히스토그램(하루 중 어느 시간에
+      rate-limit이 몰리는지). `--trend`(일별)의 보완: 날짜를 접고 벽시계 시(0~23)만 집계.
+      (완료 — core `stats.ts`에 순수 `computeHourlyDistribution(jobs)` + `HourlyActivity{hour,count}`:
+      항상 24슬롯(0시 먼저·zero-fill), `createdAt`을 `getUTCHours()`로 버킷팅해 모든 날짜에 걸쳐 합산,
+      파싱 불가 `createdAt`은 스킵. 시계 불필요(잡 자체의 속성이라 `--trend`와 달리 nowMs 안 받음).
+      CLI `stats.ts`에 순수 `renderHourly`(24행 "00h".."23h" 막대, 최댓값 스케일·zero=베이스라인 점)
+      + `renderStatsJson`에 `hourly` 필드(요청 시에만 방출, 기본 shape 불변). `stats --hourly`(불리언)
+      플래그, `--trend`와 공존·`--group-by`가 우선. core 4 + cli 5 신규 테스트, 실제 빌드 CLI e2e로
+      15h 스파이크·JSON hourly·미요청 시 키 부재·빈 스토어 온보딩 검증. branch
+      `claude/wizardly-pascal-neh61q`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
