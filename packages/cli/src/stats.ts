@@ -3,7 +3,15 @@
 // breakdown). Kept as pure functions here, separate from the commander wiring
 // in cli.ts, so the exact output is unit-testable without a store or a clock.
 
-import type { DailyActivity, GroupDimension, GroupedStat, JobScope, JobStatus, RelayStats } from "@agentrelay/core";
+import type {
+  DailyActivity,
+  GroupDimension,
+  GroupedStat,
+  HourlyActivity,
+  JobScope,
+  JobStatus,
+  RelayStats,
+} from "@agentrelay/core";
 import { isJobScopeActive } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
@@ -204,18 +212,66 @@ export function renderTrend(trend: DailyActivity[], options: { color?: boolean }
   return lines.join("\n");
 }
 
+/** Max width (chars) of a full-scale bar in the hourly histogram. */
+const HOURLY_BAR_WIDTH = 24;
+
+/**
+ * Renders a per-hour-of-day activity histogram (jobs created per UTC hour,
+ * 0..23) as a compact ASCII bar chart — the "what time of day" companion to
+ * {@link renderTrend}'s "what day". Bars scale to the busiest hour so the shape
+ * reads regardless of volume; a quiet hour shows a dim baseline dot. A footer
+ * calls out the peak hour(s). Pure: no I/O, no clock. Callers pass the
+ * already-computed distribution so it stays testable.
+ */
+export function renderHourly(hourly: HourlyActivity[], options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [b("by hour") + d(" (jobs created per hour of day, UTC)")];
+  if (hourly.length === 0) {
+    lines.push("  none");
+    return lines.join("\n");
+  }
+
+  const max = hourly.reduce((m, h) => Math.max(m, h.count), 0);
+  const total = hourly.reduce((sum, h) => sum + h.count, 0);
+  for (const { hour, count } of hourly) {
+    // Scale each bar to the busiest hour; guarantee at least one block for any
+    // non-zero hour so small counts don't vanish next to a spike.
+    const filled = max === 0 || count === 0 ? 0 : Math.max(1, Math.round((count / max) * HOURLY_BAR_WIDTH));
+    const plain = count === 0 ? "·" : "█".repeat(filled);
+    const padded = plain.padEnd(HOURLY_BAR_WIDTH);
+    const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
+    // Two-digit 24h label so the hour column stays aligned (00..23).
+    lines.push(`  ${String(hour).padStart(2, "0")}:00  ${shown} ${count}`);
+  }
+  // Peak hour(s) are the actionable takeaway ("your limits cluster around 14:00").
+  const peakHours =
+    max === 0 ? [] : hourly.filter((h) => h.count === max).map((h) => `${String(h.hour).padStart(2, "0")}:00`);
+  const peakNote = peakHours.length > 0 ? `, peak ${peakHours.join(" ")}` : "";
+  lines.push(d(`  ${total} job(s) over 24 hour(s)${peakNote}`));
+  return lines.join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,
   storePath: string,
-  options: { generatedAt?: string; scope?: JobScope; trend?: DailyActivity[] | null } = {}
+  options: {
+    generatedAt?: string;
+    scope?: JobScope;
+    trend?: DailyActivity[] | null;
+    hourly?: HourlyActivity[] | null;
+  } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
-  // Only emit `trend` when --trend was requested; omit it entirely otherwise so
-  // the default JSON shape is unchanged for existing consumers.
+  // Only emit `trend`/`hourly` when the matching flag was requested; omit them
+  // entirely otherwise so the default JSON shape is unchanged for existing consumers.
   const trend = options.trend ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, stats }, null, 2);
+  const hourly = options.hourly ?? undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, trend, hourly, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */

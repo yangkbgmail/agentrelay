@@ -1055,3 +1055,23 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay stats --by-hour` 시간대별 활동 히스토그램] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-wc9auf`)
+- **배경:** BACKLOG의 👷 항목이 사실상 전부 완료 상태라, CLAUDE.md 지침대로 새 개선 항목을 발굴해 구현.
+  `--trend`(일별 타임라인)는 "어느 날 바빴나"만 보여주고 "하루 중 어느 시간대에 rate-limit이 몰리나"라는
+  사용 리듬은 못 보여줬다 → 시간대별(0..23 UTC) 분포 뷰로 보완.
+- **한 일:** `agentrelay stats --by-hour` 추가.
+  - core `stats.ts`: 순수 `computeHourlyDistribution(jobs)` + `HourlyActivity{hour,count}`. `createdAt`을 UTC
+    시(`getUTCHours`)로 버킷팅해 모든 날짜를 24시간 시계 하나로 접음. 항상 24슬롯(hour 0 우선)·zero-fill,
+    파싱 불가 `createdAt`은 스킵. 클록/스코프 미접촉(CLI가 스코프한 잡 배열을 넘김) → 순수·테스트 가능.
+  - CLI `stats.ts`: `renderHourly`(busiest 시간 기준 스케일 ASCII 막대, 조용한 시간은 dim 베이스라인 점,
+    피크 시각 콜아웃 — 동점이면 전부 나열). `renderStatsJson`에 `hourly` 필드 추가(요청 시에만 방출,
+    기존 기본 JSON 형태 불변 — `trend`와 동일 정책).
+  - `cli.ts`: `--by-hour` 플래그 배선. `--trend`와 공존, 스코프(`--tool`/`--project`/`--since`/`--until`) 적용
+    **후** 계산, `--group-by` 경로는 조기 반환이라 미적용(trend와 동일 의미).
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **585 통과 + 1 skip**(core 379 + cli 199[+1 skip] + dashboard 7). **실제 빌드된 CLI e2e**(mock 아님):
+  3-job 스토어로 `stats --by-hour`(09:00/14:00 막대·`peak 14:00`), `--by-hour --json`(hourly 24슬롯·trend 미방출),
+  `--trend 3 --by-hour`(두 히스토그램 공존), `--tool codex-cli --by-hour`(스코프 후 09:00만·`peak 09:00`),
+  plain `stats`(by-hour 블록 없음 — 기본 불변) 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
