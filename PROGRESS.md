@@ -1055,3 +1055,22 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay export --format html` 자체 완결형 리포트] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-td7c5s`)
+- 배경: origin/main이 PR #93까지 반영돼 지정 브랜치가 main과 동일. BACKLOG의 모든 👷 항목이 [완료] 상태라
+  SPEC §8 원칙대로 **스스로 신규 개선 항목을 발굴**. export 계열(csv/json/md/ndjson)에 자연스러운 확장으로
+  HTML 리포트를 선택 — Next.js 대시보드를 띄우지 않고도 "파일 하나 열면 보이는" 오프라인·공유용 뷰가 없었음.
+- 한 일: core `export.ts`에 순수 `jobsToHtml(jobs, {generatedAt?})` + `escapeHtml` + `HtmlOptions` 추가,
+  `EXPORT_FORMATS`에 `html` 편입, `exportJobs` 디스패처에 케이스 추가. 문서는 인라인 CSS만(외부 자산·스크립트
+  0개), `prefers-color-scheme`로 라이트/다크 대응. 요약은 기존 `computeStats` 재사용(total/active/terminal/
+  success rate/retried 카드 + 실제 발생한 상태만 칩으로), 테이블은 CSV와 동일 `jobCsvValue`로 셀 값 공유 +
+  상태 색상 칩. **모든 보간 값을 `escapeHtml`로 이스케이프**해 프롬프트·에러 속 `<script>`/`<`가 마크업으로
+  새지 않게 함(XSS 불가). 빈 스토어도 유효 문서 + "No jobs" 안내. `generatedAt`은 옵션이라 미지정 시 헤더
+  미렌더 → 순수·결정론 유지(테스트 가능). CLI는 `exportStore`가 제네릭이라 `-f html` 검증만 통과하면
+  자동 동작 — status/tool/project/since/until 스코프 필터가 그대로 적용됨(설명 텍스트만 갱신).
+- 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 에러**, `pnpm test` **589 통과 + 1 skip**
+  (core 388 + cli 194[+1 skip] + dashboard 7). **실제 빌드된 CLI e2e**(mock 아님): 임시 스토어에 2잡 시드
+  후 `export -f html -o report.html` → 요약 카드(Total 2/Active 1/Terminal 1/Success 100%)·XSS 이스케이프
+  (`<b>`→`&lt;b&gt;`, 원본 마크업 셀에 누출 없음)·`-s completed` 상태 필터(1잡만) 확인, `-f xml`은 exit 1.
+- 다음 할 일: export html에 `--generated-at`/타임스탬프 CLI 배선 검토, 대시보드와 스타일 토큰 공유 여부 검토,
+  누적 미통합 PR(#61 doctor 큐 진행·#69 데몬 이중실행 가드·#75 resume latency) 통합, README/ARCHITECTURE(🧭 코워크).

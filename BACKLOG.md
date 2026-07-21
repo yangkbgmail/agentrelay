@@ -395,6 +395,16 @@
 - [x] 👷 `agentrelay stats --trend [days]` — UTC 일별 활동 히스토그램(릴레이가 언제 바빴는지 시간 축).
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
+- [x] 👷 `agentrelay export --format html` — 대시보드를 띄우지 않고 브라우저에서 바로 볼 수 있는
+      자체 완결형(self-contained) HTML 리포트. 스스로 발굴한 신규 항목(모든 👷 항목 소진 후).
+      (완료 — core `export.ts`에 순수 `jobsToHtml`/`escapeHtml`/`HtmlOptions` 추가 + `EXPORT_FORMATS`에
+      `html` 편입. 인라인 CSS만(외부 자산·JS 0), `prefers-color-scheme` 라이트/다크 대응, `computeStats`
+      재사용 요약 카드(total/active/terminal/success rate/retried) + 상태별 칩 + 상태 색상 테이블. 모든
+      보간 값은 `escapeHtml`로 이스케이프(프롬프트·에러 속 `<script>` 마크업 주입 차단). 빈 스토어도
+      유효 문서 + "No jobs" 상태. `generatedAt`는 옵션(미지정 시 미렌더 → 순수·결정론). CLI는
+      제네릭 `exportStore`가 `exportJobs(jobs,"html")`로 자동 디스패치 — status/tool/project/since/until
+      필터가 그대로 적용. core export.test 13 + cli export.test 1 신규, 실제 빌드 CLI e2e로
+      요약·XSS 이스케이프·상태 필터 검증. branch `claude/wizardly-pascal-td7c5s`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
