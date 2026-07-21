@@ -396,6 +396,16 @@
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
 
+- [x] 👷 `agentrelay upcoming [--limit N]` — 앞으로 재개될 잡들을 **재개 순서대로** 카운트다운과 함께
+      스케줄(테이블)로 보기(`next`는 헤드 1개만, `status`는 정렬/필터 임의). 스크립트용 `--json`.
+      (완료 — core `next.ts`에 순수 `selectUpcomingResumes(jobs,{now,limit})` + `UpcomingResume`/
+      `UpcomingResumes`(entries[position 1-based·due·dueInMs]·totalWaiting·truncated). `next`의 waiting
+      필터·`compareNext` 정렬(reset asc→createdAt→id)을 `isWaitingForReset`로 공유해 `next`와 동일 순서,
+      입력 배열 불변. limit 없음/비양수는 전량, limit≥waiting은 truncated=false. CLI `upcoming.ts`에
+      순수 `renderUpcoming`(정렬 테이블·due now·절단 푸터[단/복수])·`renderUpcomingJson`, `agentrelay
+      upcoming [-n/--limit] [--json]` 배선(기본 10, 잘못된 limit exit 1). core 9 + cli 8 신규 테스트,
+      실제 빌드 CLI e2e로 정렬·절단·json·완료잡 제외 검증. branch `claude/wizardly-pascal-vnvsal`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
