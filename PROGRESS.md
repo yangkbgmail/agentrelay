@@ -1055,3 +1055,21 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay next --tool/--project` 스코프 필터] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-bm7ann`)
+- **배경**: `next`는 큐 전역에서 가장 임박한 재개 잡 하나만 보여줘, 큐에 여러 프로젝트·툴이 섞이면
+  "내 프로젝트의 다음 재개는 언제"를 짚어낼 수 없었다. `stats`/`status`/`export`엔 이미 있는 스코프
+  필터가 `next`에만 빠져 있던 일관성 갭.
+- **한 일**: `next`에 `-t/--tool`·`-p/--project` 스코프 필터 추가.
+  - CLI `cli.ts` next 액션이 공용 `buildScope`로 검증·스코프 구성 → 활성이면 core `scopeJobs`로 먼저
+    필터한 뒤 기존 `selectNextResume`로 최소 재개 잡 선택(새 core 코드 0줄 — 검증된 재사용).
+  - `next.ts`: `renderNext`에 `scopeNote` 옵션(잡 발견 시 말미 `scope: …` 라인, 무매칭 시
+    `NO_SCOPED_PENDING_MESSAGE`로 "빈 큐"와 "스코프 무매칭" 구분), `renderNextJson`은 활성 스코프를
+    `scope` 필드로 에코. 시간 창·상태는 `next`가 본질적으로 `waiting_for_reset`만 다뤄 의미 없어 제외.
+  - completion 스펙은 라이브 커맨더 프로그램에서 파생돼 새 플래그 자동 포함.
+- **검증**: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) 0 경고/0 에러,
+  `pnpm test` 전체 통과(cli next.test.ts 9→14). **실제 빌드된 CLI e2e**: 2-프로젝트/2-툴 스토어로
+  unscoped(최소=alpha)·`--project beta`·`--tool codex-cli`·무매칭 스코프 메시지·`--json` scope echo·
+  잘못된 tool exit 1 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합,
+  README/ARCHITECTURE(🧭 코워크).

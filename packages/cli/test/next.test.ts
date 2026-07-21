@@ -1,6 +1,6 @@
 import type { NextResume, RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_PENDING_MESSAGE, renderNext, renderNextJson } from "../src/next.js";
+import { NO_PENDING_MESSAGE, NO_SCOPED_PENDING_MESSAGE, renderNext, renderNextJson } from "../src/next.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -68,11 +68,36 @@ describe("renderNext", () => {
     // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting no ANSI escapes leak.
     expect(renderNext(next({ waitingBehind: 2 }), { now: NOW, color: false })).not.toMatch(/\x1b\[/);
   });
+
+  it("shows the scoped empty message when a filter is active but nothing matches", () => {
+    expect(renderNext(null, { now: NOW, scopeNote: "project=demo" })).toBe(NO_SCOPED_PENDING_MESSAGE);
+    // Without a scope note it falls back to the plain empty message.
+    expect(renderNext(null, { now: NOW })).toBe(NO_PENDING_MESSAGE);
+  });
+
+  it("appends a trailing scope line when a filter is active and a job is found", () => {
+    const out = renderNext(next(), { now: NOW, scopeNote: "tool=claude-code project=demo" });
+    expect(out).toContain("scope: tool=claude-code project=demo");
+    // The scope line comes after the job line and any "waiting behind" note.
+    const lines = out.split("\n");
+    expect(lines[lines.length - 1]).toContain("scope:");
+  });
+
+  it("keeps the scope line after the 'waiting behind' note", () => {
+    const out = renderNext(next({ waitingBehind: 2 }), { now: NOW, scopeNote: "tool=codex-cli" });
+    const lines = out.split("\n");
+    expect(lines[1]).toContain("2 more jobs waiting behind it.");
+    expect(lines[2]).toContain("scope: tool=codex-cli");
+  });
+
+  it("omits the scope line entirely when no filter is active", () => {
+    expect(renderNext(next(), { now: NOW })).not.toContain("scope:");
+  });
 });
 
 describe("renderNextJson", () => {
   it("produces valid JSON with storePath and a null next when idle", () => {
-    const parsed = JSON.parse(renderNextJson(null, "/tmp/store.json", "2026-07-13T00:00:00.000Z"));
+    const parsed = JSON.parse(renderNextJson(null, "/tmp/store.json", { generatedAt: "2026-07-13T00:00:00.000Z" }));
     expect(parsed.storePath).toBe("/tmp/store.json");
     expect(parsed.generatedAt).toBe("2026-07-13T00:00:00.000Z");
     expect(parsed.next).toBeNull();
@@ -84,5 +109,18 @@ describe("renderNextJson", () => {
     expect(parsed.next.due).toBe(true);
     expect(parsed.next.dueInMs).toBe(-500);
     expect(parsed.next.waitingBehind).toBe(0);
+  });
+
+  it("omits the scope field when no filter is active", () => {
+    const parsed = JSON.parse(renderNextJson(next(), "/tmp/store.json"));
+    expect(parsed.scope).toBeUndefined();
+  });
+
+  it("echoes the active scope so a scoped no-match is distinguishable", () => {
+    const parsed = JSON.parse(
+      renderNextJson(null, "/tmp/store.json", { scope: { tools: ["claude-code"], projects: ["demo"] } })
+    );
+    expect(parsed.next).toBeNull();
+    expect(parsed.scope).toEqual({ tools: ["claude-code"], projects: ["demo"] });
   });
 });

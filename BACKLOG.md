@@ -395,6 +395,19 @@
 - [x] 👷 `agentrelay stats --trend [days]` — UTC 일별 활동 히스토그램(릴레이가 언제 바빴는지 시간 축).
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
+- [x] 👷 `agentrelay next --tool/--project` 스코프 필터 — 멀티툴·멀티프로젝트 큐에서 "특정 툴/
+      프로젝트의 다음 재개 잡"만 조회(stats·status·export의 스코프 필터를 next에도 일관 적용).
+      (완료 — `next`는 지금까지 큐 전역에서 가장 임박한 재개 잡 하나만 보여줘, 큐에 여러 프로젝트·툴이
+      섞이면 "내 프로젝트의 다음 재개"를 짚어낼 수 없었다. CLI `cli.ts`의 next 액션에 `-t/--tool`·
+      `-p/--project` 배선(공용 `buildScope`로 검증·스코프 구성, 잘못된 tool은 exit 1). 시간 창·상태는
+      `next`가 본질적으로 `waiting_for_reset` 잡만 다루므로 의미 없어 제외. 스코프가 활성이면 core
+      `scopeJobs`로 **먼저** 필터한 뒤 기존 `selectNextResume`로 최소 재개 잡 선택(새 core 코드 0줄 —
+      검증된 `scopeJobs`/`buildScope` 재사용). CLI `next.ts`: `renderNext`에 `scopeNote` 옵션(잡 발견 시
+      말미에 `scope: …` 라인, 미매칭 시 `NO_PENDING_MESSAGE` 대신 `NO_SCOPED_PENDING_MESSAGE`로
+      "빈 큐"와 "스코프 무매칭" 구분), `renderNextJson`은 활성 스코프를 `scope` 필드로 에코(스코프한
+      no-match를 소비자가 구별 가능). completion 스펙은 라이브 프로그램에서 파생돼 새 플래그 자동 포함.
+      next.test.ts에 scopeNote/JSON scope 5케이스 추가 + 빌드된 CLI e2e로 project/tool 스코프·무매칭·
+      JSON echo·잘못된 tool exit 1 검증. branch `claude/wizardly-pascal-bm7ann`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
