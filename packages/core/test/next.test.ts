@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectNextResume } from "../src/next.js";
+import { selectNextResume, selectUpcomingResumes } from "../src/next.js";
 import type { RelayJob } from "../src/types.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
@@ -100,5 +100,79 @@ describe("selectNextResume", () => {
       NOW
     );
     expect(byId?.job.id).toBe("alpha");
+  });
+});
+
+describe("selectUpcomingResumes", () => {
+  it("returns an empty array when nothing is waiting for a reset", () => {
+    expect(selectUpcomingResumes([], NOW)).toEqual([]);
+    const noneWaiting = [
+      job({ id: "a", status: "completed", resetAt: at(-3600_000) }),
+      job({ id: "b", status: "queued", resetAt: null }),
+    ];
+    expect(selectUpcomingResumes(noneWaiting, NOW)).toEqual([]);
+  });
+
+  it("orders all waiting jobs soonest-first", () => {
+    const upcoming = selectUpcomingResumes(
+      [
+        job({ id: "a", resetAt: at(3 * 3600_000) }),
+        job({ id: "b", resetAt: at(1 * 3600_000) }),
+        job({ id: "c", resetAt: at(2 * 3600_000) }),
+      ],
+      NOW
+    );
+    expect(upcoming.map((u) => u.job.id)).toEqual(["b", "c", "a"]);
+    expect(upcoming.map((u) => u.dueInMs)).toEqual([1 * 3600_000, 2 * 3600_000, 3 * 3600_000]);
+    expect(upcoming.every((u) => u.due === false)).toBe(true);
+  });
+
+  it("excludes waiting jobs with a null or unparseable resetAt", () => {
+    const upcoming = selectUpcomingResumes(
+      [
+        job({ id: "a", resetAt: null }),
+        job({ id: "b", resetAt: "not-a-date" }),
+        job({ id: "c", resetAt: at(90 * 60_000) }),
+      ],
+      NOW
+    );
+    expect(upcoming.map((u) => u.job.id)).toEqual(["c"]);
+  });
+
+  it("marks entries whose reset has passed as due", () => {
+    const upcoming = selectUpcomingResumes(
+      [job({ id: "a", resetAt: at(-60_000) }), job({ id: "b", resetAt: at(60_000) })],
+      NOW
+    );
+    expect(upcoming[0].job.id).toBe("a");
+    expect(upcoming[0].due).toBe(true);
+    expect(upcoming[0].dueInMs).toBe(-60_000);
+    expect(upcoming[1].due).toBe(false);
+  });
+
+  it("caps the agenda to a positive limit, floors a fractional one", () => {
+    const jobs = [
+      job({ id: "a", resetAt: at(1 * 3600_000) }),
+      job({ id: "b", resetAt: at(2 * 3600_000) }),
+      job({ id: "c", resetAt: at(3 * 3600_000) }),
+    ];
+    expect(selectUpcomingResumes(jobs, NOW, 2).map((u) => u.job.id)).toEqual(["a", "b"]);
+    expect(selectUpcomingResumes(jobs, NOW, 2.9).map((u) => u.job.id)).toEqual(["a", "b"]);
+  });
+
+  it("returns the whole ordered list for an omitted or non-positive limit", () => {
+    const jobs = [job({ id: "a", resetAt: at(2 * 3600_000) }), job({ id: "b", resetAt: at(1 * 3600_000) })];
+    expect(selectUpcomingResumes(jobs, NOW).map((u) => u.job.id)).toEqual(["b", "a"]);
+    expect(selectUpcomingResumes(jobs, NOW, 0).map((u) => u.job.id)).toEqual(["b", "a"]);
+    expect(selectUpcomingResumes(jobs, NOW, -5).map((u) => u.job.id)).toEqual(["b", "a"]);
+  });
+
+  it("agrees with selectNextResume on which job comes first", () => {
+    const jobs = [
+      job({ id: "a", resetAt: at(3 * 3600_000) }),
+      job({ id: "b", resetAt: at(1 * 3600_000) }),
+      job({ id: "c", resetAt: at(2 * 3600_000) }),
+    ];
+    expect(selectUpcomingResumes(jobs, NOW)[0].job.id).toBe(selectNextResume(jobs, NOW)?.job.id);
   });
 });
