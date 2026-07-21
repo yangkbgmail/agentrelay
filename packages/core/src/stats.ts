@@ -197,6 +197,44 @@ export function computeDailyTrend(jobs: RelayJob[], options: { nowMs: number; da
   return trend;
 }
 
+/** One hour-of-day slot in a {@link computeHourlyTrend} histogram. */
+export interface HourlyActivity {
+  /** Hour of day in UTC, 0–23. */
+  hour: number;
+  /** Jobs created during this UTC hour-of-day (across every day). */
+  count: number;
+}
+
+/** UTC hour-of-day (0–23) of an epoch ms. */
+function utcHourOfDay(ms: number): number {
+  // Epoch 0 is 1970-01-01T00:00:00Z and both DAY_MS and the hour divide the
+  // epoch evenly, so integer math yields the UTC hour with no timezone lookup.
+  return Math.floor((((ms % DAY_MS) + DAY_MS) % DAY_MS) / 3_600_000);
+}
+
+/**
+ * Buckets jobs by the UTC hour of day they were created (0–23), collapsing
+ * every calendar day onto a single 24-hour clock, so `agentrelay stats
+ * --by-hour` can reveal *what time of day* rate-limits pile up (complements
+ * `--trend`, which spreads activity across days). Pure and non-mutating: no
+ * ambient clock, no window — every passed job is bucketed, so callers scope the
+ * job list upstream (via `scopeJobs`) exactly as they do for `computeStats`.
+ *
+ * The result is always exactly 24 entries, hour 0 first through hour 23, zero-
+ * filled for quiet hours so the histogram has a stable shape. Jobs with a
+ * missing or unparseable `createdAt` are skipped — they can't be placed on the
+ * clock.
+ */
+export function computeHourlyTrend(jobs: RelayJob[]): HourlyActivity[] {
+  const counts = new Array<number>(24).fill(0);
+  for (const job of jobs) {
+    const created = Date.parse(job.createdAt);
+    if (Number.isNaN(created)) continue;
+    counts[utcHourOfDay(created)] += 1;
+  }
+  return counts.map((count, hour) => ({ hour, count }));
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 

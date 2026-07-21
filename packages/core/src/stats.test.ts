@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { computeDailyTrend, computeStats, GROUP_DIMENSIONS, groupStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import {
+  computeDailyTrend,
+  computeHourlyTrend,
+  computeStats,
+  GROUP_DIMENSIONS,
+  groupStats,
+  isJobScopeActive,
+  scopeJobs,
+} from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -475,5 +483,41 @@ describe("computeDailyTrend", () => {
     expect(computeDailyTrend([], { nowMs: now, days: 0 }).map((d) => d.date)).toEqual(["2026-07-20"]);
     expect(computeDailyTrend([], { nowMs: now, days: -5 })).toHaveLength(1);
     expect(computeDailyTrend([], { nowMs: now, days: 2.9 })).toHaveLength(2);
+  });
+});
+
+describe("computeHourlyTrend", () => {
+  it("returns exactly 24 slots, hour 0 through 23, zero-filled for an empty store", () => {
+    const byHour = computeHourlyTrend([]);
+    expect(byHour).toHaveLength(24);
+    expect(byHour.map((h) => h.hour)).toEqual(Array.from({ length: 24 }, (_, i) => i));
+    expect(byHour.every((h) => h.count === 0)).toBe(true);
+  });
+
+  it("buckets jobs by their UTC hour of day, collapsing across days", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-20T09:15:00.000Z" }),
+      job({ createdAt: "2026-07-18T09:59:59.000Z" }), // same hour-of-day, different day
+      job({ createdAt: "2026-07-19T23:00:00.000Z" }),
+      job({ createdAt: "2026-07-20T00:00:00.000Z" }),
+    ];
+    const byHour = computeHourlyTrend(jobs);
+    expect(byHour[0].count).toBe(1); // 00h
+    expect(byHour[9].count).toBe(2); // 09h (two different days collapsed)
+    expect(byHour[23].count).toBe(1); // 23h
+    expect(byHour.reduce((sum, h) => sum + h.count, 0)).toBe(4);
+  });
+
+  it("places the last millisecond of an hour in that same hour (never spills over)", () => {
+    const byHour = computeHourlyTrend([job({ createdAt: "2026-07-20T13:59:59.999Z" })]);
+    expect(byHour[13].count).toBe(1);
+    expect(byHour[14].count).toBe(0);
+  });
+
+  it("skips jobs with a missing/unparseable createdAt", () => {
+    const jobs = [job({ createdAt: "not-a-date" }), job({ createdAt: "2026-07-20T06:00:00.000Z" })];
+    const byHour = computeHourlyTrend(jobs);
+    expect(byHour.reduce((sum, h) => sum + h.count, 0)).toBe(1);
+    expect(byHour[6].count).toBe(1);
   });
 });
