@@ -1055,3 +1055,30 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay import`: 잡 이력 가져오기(`export`의 역연산)] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-3bznrg`)
+- **배경:** 👷 백로그가 사실상 전부 소진된 상태라 CLAUDE.md 지침대로 새 개선 항목을 발굴. `export`는
+  CSV/JSON/md/ndjson 4포맷을 지원하는데 그 **역연산(가져오기)** 이 전무해, 머신 간 이력 이전·팀원 스냅샷
+  병합·아카이브 복원이 불가능했다(전체 파일 교체인 `backup`/`restore`와 달리, 선택적 병합이 필요).
+- **한 일:** `agentrelay import <file>` 구현.
+  - **core `import.ts`(순수·fs 미접촉)**: 무손실 포맷만 취급하는 `IMPORT_FORMATS`(`json`/`ndjson`;
+    CSV/md는 `command` 평탄화·`lastOutputTail` 유실이라 의도적 비지원) + `isImportFormat`·
+    `inferImportFormat`(확장자 추론, `.jsonl`→ndjson). 엄격한 `validateJobRecord`(미지 tool/status·
+    비배열/빈 command·음수 attempts 거부, 미지 추가 키는 무시=전방호환) + `parseImportJobs`(json=배열
+    루트 검증, ndjson=줄단위 — 깨진 줄만 건너뛰고 나머지 진행, 절대 throw 안 함, 에러를 line/index로
+    보고). 순수 `planImport`(add/overwrite/skipExisting/skipActive 결정, in-batch 중복 id는 last-wins)
+    + `summarizeImportPlan`.
+  - **안전 기본값(다른 명령의 opt-in 관례 답습)**: 활성 상태 잡은 기본 제외(로컬 스케줄러가 남의
+    command를 spawn하는 footgun 차단) → `--include-active`로 opt-in, id 충돌은 기본 skip → `--overwrite`.
+  - **`RelayQueue.importJobs`**: plan을 원자적 flush로 적용, 순수-skip이면 파일(및 mtime) 미변경.
+  - **CLI**: `commands.ts` `importStore`(파일 읽기 + dryRun 시 plan만 계산) + `agentrelay import <file>
+    [-f json|ndjson] [--include-active] [--overwrite] [--dry-run]`. 잘못된 format/CSV·추론 실패·전부-무효
+    import은 exit 1(스크립트 감지용).
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 에러/0 경고**,
+  `pnpm test` **609 통과 + 1 skip**(core 405 + cli 197[+1 skip] + dashboard 7; core +30, cli +4).
+  **실제 빌드 CLI e2e**(mock 아님): `run`으로 rate-limit 잡 생성→`export -f json`→`import`(활성 1 skip)→
+  `import --include-active`(1 added) 왕복; NDJSON 이력(2 valid + 깨진 줄 + 무효 레코드) import 시 valid만
+  착지·무효는 line별 보고·재import는 existing skip·`stats`가 가져온 이력을 집계; `--dry-run`은 스토어
+  미생성; 확장자 추론 실패·CSV 명시는 exit 1 확인.
+- **다음 할 일:** `import`의 대칭 개선(예: `--json` 요약 출력), README/ARCHITECTURE(🧭 코워크),
+  잔여 구버전 PR(#61 doctor 큐 진행·#69 데몬 이중실행 가드·#75 resume latency) 통합.

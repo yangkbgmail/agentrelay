@@ -9,6 +9,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  importStore,
   initConfig,
   listStatus,
   listStoreBackups,
@@ -771,5 +772,85 @@ describe("isConfigDiagnosticInvocation", () => {
     expect(isConfigDiagnosticInvocation(argv("config", "init"))).toBe(false);
     expect(isConfigDiagnosticInvocation(argv("status"))).toBe(false);
     expect(isConfigDiagnosticInvocation(argv("config"))).toBe(false);
+  });
+});
+
+describe("importStore", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cli-import-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const record = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    project: "p",
+    tool: "claude-code",
+    command: ["claude", "-p", "go"],
+    cwd: "/tmp",
+    status: "completed",
+    resetAt: null,
+    createdAt: "2026-07-10T00:00:00.000Z",
+    updatedAt: "2026-07-10T01:00:00.000Z",
+    attempts: 1,
+    lastError: null,
+    lastOutputTail: null,
+    ...extra,
+  });
+
+  it("merges a JSON export file into the store", () => {
+    const src = join(dir, "dump.json");
+    writeFileSync(src, JSON.stringify([record("a"), record("b")]), "utf8");
+
+    const result = importStore({ filePath: src, format: "json", storePath });
+    expect(result).toMatchObject({ added: 2, updated: 0, dryRun: false });
+    expect(result.parseErrors).toEqual([]);
+    expect(
+      listStatus(storePath)
+        .map((j) => j.id)
+        .sort()
+    ).toEqual(["a", "b"]);
+  });
+
+  it("imports an NDJSON file and reports invalid lines without aborting", () => {
+    const src = join(dir, "dump.ndjson");
+    writeFileSync(src, [JSON.stringify(record("ok")), "{ broken", JSON.stringify({ id: "" })].join("\n"), "utf8");
+
+    const result = importStore({ filePath: src, format: "ndjson", storePath });
+    expect(result.added).toBe(1);
+    expect(result.parseErrors).toHaveLength(2);
+    expect(listStatus(storePath).map((j) => j.id)).toEqual(["ok"]);
+  });
+
+  it("dry-run reports the plan without writing the store", () => {
+    const src = join(dir, "dump.json");
+    writeFileSync(src, JSON.stringify([record("x")]), "utf8");
+
+    const result = importStore({ filePath: src, format: "json", storePath, dryRun: true });
+    expect(result).toMatchObject({ added: 1, dryRun: true });
+    expect(existsSync(storePath)).toBe(false);
+  });
+
+  it("skips active jobs by default and imports them with includeActive", () => {
+    const src = join(dir, "dump.json");
+    writeFileSync(
+      src,
+      JSON.stringify([record("live", { status: "waiting_for_reset", resetAt: "2026-07-11T00:00:00.000Z" })]),
+      "utf8"
+    );
+
+    const skipped = importStore({ filePath: src, format: "json", storePath });
+    expect(skipped).toMatchObject({ added: 0, skippedActive: 1 });
+    expect(listStatus(storePath)).toHaveLength(0);
+
+    const included = importStore({ filePath: src, format: "json", storePath, includeActive: true });
+    expect(included).toMatchObject({ added: 1, skippedActive: 0 });
+    expect(listStatus(storePath)[0].id).toBe("live");
   });
 });

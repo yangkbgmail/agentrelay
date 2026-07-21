@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { corruptBackupPath, RelayQueue } from "../src/queue.js";
+import type { RelayJob } from "../src/types.js";
 
 describe("RelayQueue", () => {
   let dir: string;
@@ -168,5 +169,66 @@ describe("RelayQueue", () => {
     expect(requeued?.lastError).toBeNull();
     // resetAt is now (or earlier), so the job is immediately due.
     expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(1);
+  });
+
+  describe("importJobs", () => {
+    const historyJob = (id: string, project = "imported"): RelayJob => ({
+      id,
+      project,
+      tool: "claude-code",
+      command: ["claude", "-p", "go"],
+      cwd: "/tmp",
+      status: "completed",
+      resetAt: null,
+      createdAt: "2026-07-10T00:00:00.000Z",
+      updatedAt: "2026-07-10T01:00:00.000Z",
+      attempts: 1,
+      lastError: null,
+      lastOutputTail: null,
+    });
+
+    it("adds new history jobs and persists them across reloads", () => {
+      const result = queue.importJobs([historyJob("a"), historyJob("b")]);
+      expect(result).toEqual({ added: 2, updated: 0, skippedExisting: 0, skippedActive: 0 });
+
+      const reopened = new RelayQueue(join(dir, "test.db"));
+      expect(reopened.getById("a")?.project).toBe("imported");
+      expect(reopened.getById("b")?.project).toBe("imported");
+    });
+
+    it("skips existing ids by default and overwrites when asked", () => {
+      queue.importJobs([historyJob("dup", "original")]);
+
+      const skip = queue.importJobs([historyJob("dup", "changed")]);
+      expect(skip).toMatchObject({ added: 0, updated: 0, skippedExisting: 1 });
+      expect(queue.getById("dup")?.project).toBe("original");
+
+      const over = queue.importJobs([historyJob("dup", "changed")], { overwrite: true });
+      expect(over).toMatchObject({ added: 0, updated: 1 });
+      expect(queue.getById("dup")?.project).toBe("changed");
+    });
+
+    it("excludes active jobs unless includeActive is set", () => {
+      const active: RelayJob = {
+        ...historyJob("live"),
+        status: "waiting_for_reset",
+        resetAt: "2026-07-11T00:00:00.000Z",
+      };
+      const skipped = queue.importJobs([active]);
+      expect(skipped).toMatchObject({ added: 0, skippedActive: 1 });
+      expect(queue.getById("live")).toBeUndefined();
+
+      const included = queue.importJobs([active], { includeActive: true });
+      expect(included).toMatchObject({ added: 1, skippedActive: 0 });
+      expect(queue.getById("live")?.status).toBe("waiting_for_reset");
+    });
+
+    it("does not rewrite the store when the plan is a pure skip", () => {
+      queue.importJobs([historyJob("keep")]);
+      const before = readFileSync(join(dir, "test.db"), "utf8");
+      const result = queue.importJobs([historyJob("keep", "different")]);
+      expect(result).toMatchObject({ added: 0, updated: 0, skippedExisting: 1 });
+      expect(readFileSync(join(dir, "test.db"), "utf8")).toBe(before);
+    });
   });
 });
