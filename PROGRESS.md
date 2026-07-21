@@ -1055,3 +1055,22 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay next --count N` 룩어헤드 스케줄] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-13vje2`)
+- **배경: BACKLOG의 순수 👷 항목이 모두 완료 상태 → CLAUDE.md 지침대로 새 개선 항목을 발굴해 구현.**
+  기존 `agentrelay next`는 "다음에 재개될 잡 **하나**"만 보여줬는데, 상태바/타임라인 용도로는 "다음 N개가
+  각각 언제 재개되나"를 한눈에 보고 싶다. `next`(단일)의 자연스러운 look-ahead 확장.
+- **한 일:**
+  1. core `next.ts`: 순수 `selectUpcomingResumes(jobs,{now,limit})` + `UpcomingResume`/`UpcomingResumes` 타입.
+     기존 `compareNext`(reset→createdAt→id, 스케줄러와 동일 순서) 재사용해 대기 잡 정렬, `limit`은
+     `[0,totalWaiting]`로 클램프(큰 값이 유령 행 안 만들고, 비양수는 show-none이되 `more`엔 전체 대기 수 유지),
+     미지정=전부. `selectNextResume`의 인라인 필터도 공용 `isWaitingForResume`로 DRY.
+  2. CLI `next.ts`: `renderUpcoming`(행별 스케줄 + 숨겨진 잡 있을 때만 "M more waiting" 푸터, 색/무색)·
+     `renderUpcomingJson`(entries/totalWaiting/more).
+  3. CLI `cli.ts` `next` 커맨드에 `-n/--count <n>` 배선 — 미지정 시 기존 단일 한 줄 그대로(하위호환),
+     지정 시 스케줄 뷰로 전환. `--exit-code`는 가장 임박한 항목 기준(due→0/pending→3/none→4), 잘못된 count는 exit 1.
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **587 통과 + 1 skip**(core 381 + cli 199[+1 skip] + dashboard 7). **실제 빌드된 CLI e2e**(mock 아님):
+  3-대기잡+1-완료 스토어로 `next`(단일·하위호환)·`next --count 2`(정렬 2행+"1 more")·`next -n 10`(전부 3행, 유령/푸터 없음)·
+  `next --count 2 --json`(entries/totalWaiting=3/more=1)·`next --count 0`·`--count abc`(둘 다 exit 1) 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).

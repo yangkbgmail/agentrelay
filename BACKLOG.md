@@ -395,6 +395,18 @@
 - [x] 👷 `agentrelay stats --trend [days]` — UTC 일별 활동 히스토그램(릴레이가 언제 바빴는지 시간 축).
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
+- [x] 👷 `agentrelay next --count <n>` — 다음 하나가 아니라 **다음 N개의 재개 일정**을 소진 순서대로
+      한눈에(상태바/타임라인 친화). 기존 `next`(단일)의 자연스러운 look-ahead 확장.
+      (완료 — core `next.ts`에 순수 `selectUpcomingResumes(jobs,{now,limit})` + `UpcomingResume`/
+      `UpcomingResumes` 타입 신설: 기존 `compareNext`(reset→createdAt→id) 재사용해 대기 잡을
+      소진 순서대로 정렬, `limit`은 `[0,totalWaiting]`로 클램프(큰 값이 유령 행을 만들지 않고,
+      비양수는 show-none이되 `more`엔 전체 대기 수 유지), 미지정=전부. `selectNextResume`의 필터도
+      공용 `isWaitingForResume`로 DRY. CLI `next.ts`에 `renderUpcoming`(행별 스케줄 + 숨겨진 잡이
+      있을 때만 "M more waiting" 푸터)·`renderUpcomingJson`(entries/totalWaiting/more). `next`에
+      `-n/--count <n>` 배선 — 미지정 시 기존 단일 한 줄 그대로(하위호환), 지정 시 스케줄 뷰로 전환.
+      `--exit-code`는 가장 임박한 항목 기준(due→0/pending→3/none→4), 잘못된 count는 exit 1.
+      core next 6 + cli next 8 신규 테스트, 실제 빌드 CLI e2e로 정렬·클램프·JSON·에러 검증.
+      branch `claude/wizardly-pascal-13vje2`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

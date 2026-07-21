@@ -16,6 +16,30 @@ export interface NextResume {
   waitingBehind: number;
 }
 
+/** One waiting job in an upcoming-resume schedule, with its derived due state. */
+export interface UpcomingResume {
+  /** A `waiting_for_reset` job with a parseable `resetAt`. */
+  job: RelayJob;
+  /** Milliseconds from `now` until its reset; zero/negative once it has passed. */
+  dueInMs: number;
+  /** True once the reset time has passed — a scheduler tick would pick it up now. */
+  due: boolean;
+}
+
+/**
+ * An ordered look-ahead at the relay's next resumes. Where {@link NextResume}
+ * answers "what's next?", this answers "what are the next few, and when?" — a
+ * schedule/timeline view for a status bar or `agentrelay next --count N`.
+ */
+export interface UpcomingResumes {
+  /** Resumes soonest-first, capped at the requested limit. */
+  entries: UpcomingResume[];
+  /** Every `waiting_for_reset` job with a parseable `resetAt` (may exceed `entries`). */
+  totalWaiting: number;
+  /** How many waiting jobs are not shown (`totalWaiting - entries.length`). */
+  more: number;
+}
+
 /**
  * Order two waiting jobs by which the scheduler will resume first: earliest
  * reset time wins, then oldest `createdAt`, then id — so the pick is fully
@@ -38,9 +62,7 @@ function compareNext(a: RelayJob, b: RelayJob): number {
  * is waiting for a reset (an empty queue, or only active/terminal jobs).
  */
 export function selectNextResume(jobs: RelayJob[], now: number = Date.now()): NextResume | null {
-  const waiting = jobs.filter(
-    (job) => job.status === "waiting_for_reset" && job.resetAt !== null && !Number.isNaN(Date.parse(job.resetAt))
-  );
+  const waiting = jobs.filter(isWaitingForResume);
   if (waiting.length === 0) return null;
 
   const job = waiting.reduce((best, candidate) => (compareNext(candidate, best) < 0 ? candidate : best));
@@ -51,4 +73,38 @@ export function selectNextResume(jobs: RelayJob[], now: number = Date.now()): Ne
     due: resetMs <= now,
     waitingBehind: waiting.length - 1,
   };
+}
+
+/** True when a job is waiting for a reset with a resetAt the scheduler can act on. */
+function isWaitingForResume(job: RelayJob): boolean {
+  return job.status === "waiting_for_reset" && job.resetAt !== null && !Number.isNaN(Date.parse(job.resetAt));
+}
+
+/**
+ * Look ahead at the next several resumes, not just the single soonest one.
+ * Returns every `waiting_for_reset` job with a parseable `resetAt` ordered by
+ * the same rule the scheduler uses ({@link compareNext}), capped at `limit`
+ * (a positive integer; `undefined` returns all, and `limit <= 0` returns none
+ * while still reporting the full waiting count in `more`). Pure: driven only by
+ * the job list and an injected `now`, so `agentrelay next --count N` is fully
+ * unit-testable.
+ */
+export function selectUpcomingResumes(
+  jobs: RelayJob[],
+  options: { now?: number; limit?: number } = {}
+): UpcomingResumes {
+  const now = options.now ?? Date.now();
+  const waiting = jobs.filter(isWaitingForResume).sort(compareNext);
+  const totalWaiting = waiting.length;
+
+  // `undefined` = no cap (show all); a numeric limit clamps to [0, totalWaiting]
+  // so a huge --count never invents rows and a non-positive one shows none.
+  const capped = options.limit === undefined ? waiting : waiting.slice(0, Math.max(0, Math.trunc(options.limit)));
+
+  const entries: UpcomingResume[] = capped.map((job) => {
+    const resetMs = Date.parse(job.resetAt as string);
+    return { job, dueInMs: resetMs - now, due: resetMs <= now };
+  });
+
+  return { entries, totalWaiting, more: totalWaiting - entries.length };
 }

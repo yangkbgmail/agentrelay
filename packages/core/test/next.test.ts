@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectNextResume } from "../src/next.js";
+import { selectNextResume, selectUpcomingResumes } from "../src/next.js";
 import type { RelayJob } from "../src/types.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
@@ -100,5 +100,76 @@ describe("selectNextResume", () => {
       NOW
     );
     expect(byId?.job.id).toBe("alpha");
+  });
+});
+
+describe("selectUpcomingResumes", () => {
+  it("returns an empty schedule for an empty queue", () => {
+    const upcoming = selectUpcomingResumes([], { now: NOW });
+    expect(upcoming.entries).toEqual([]);
+    expect(upcoming.totalWaiting).toBe(0);
+    expect(upcoming.more).toBe(0);
+  });
+
+  it("orders every waiting job soonest-first with derived due state", () => {
+    const upcoming = selectUpcomingResumes(
+      [
+        job({ id: "a", resetAt: at(3 * 3600_000) }),
+        job({ id: "b", resetAt: at(-5 * 60_000) }),
+        job({ id: "c", resetAt: at(1 * 3600_000) }),
+      ],
+      { now: NOW }
+    );
+    expect(upcoming.entries.map((e) => e.job.id)).toEqual(["b", "c", "a"]);
+    expect(upcoming.entries[0].due).toBe(true);
+    expect(upcoming.entries[0].dueInMs).toBe(-5 * 60_000);
+    expect(upcoming.entries[1].due).toBe(false);
+    expect(upcoming.entries[1].dueInMs).toBe(1 * 3600_000);
+    expect(upcoming.totalWaiting).toBe(3);
+    expect(upcoming.more).toBe(0);
+  });
+
+  it("excludes non-waiting and unparseable-reset jobs from the schedule", () => {
+    const upcoming = selectUpcomingResumes(
+      [
+        job({ id: "a", status: "completed", resetAt: at(60_000) }),
+        job({ id: "b", resetAt: null }),
+        job({ id: "c", resetAt: "not-a-date" }),
+        job({ id: "d", resetAt: at(60_000) }),
+      ],
+      { now: NOW }
+    );
+    expect(upcoming.entries.map((e) => e.job.id)).toEqual(["d"]);
+    expect(upcoming.totalWaiting).toBe(1);
+  });
+
+  it("caps entries at the limit and reports the remainder in `more`", () => {
+    const jobs = [
+      job({ id: "a", resetAt: at(1 * 3600_000) }),
+      job({ id: "b", resetAt: at(2 * 3600_000) }),
+      job({ id: "c", resetAt: at(3 * 3600_000) }),
+      job({ id: "d", resetAt: at(4 * 3600_000) }),
+    ];
+    const upcoming = selectUpcomingResumes(jobs, { now: NOW, limit: 2 });
+    expect(upcoming.entries.map((e) => e.job.id)).toEqual(["a", "b"]);
+    expect(upcoming.totalWaiting).toBe(4);
+    expect(upcoming.more).toBe(2);
+  });
+
+  it("shows all waiting jobs when no limit is given and never invents rows", () => {
+    const jobs = [job({ id: "a", resetAt: at(1 * 3600_000) }), job({ id: "b", resetAt: at(2 * 3600_000) })];
+    expect(selectUpcomingResumes(jobs, { now: NOW }).entries).toHaveLength(2);
+    // A limit larger than the queue clamps to the queue size (no phantom rows).
+    const big = selectUpcomingResumes(jobs, { now: NOW, limit: 99 });
+    expect(big.entries).toHaveLength(2);
+    expect(big.more).toBe(0);
+  });
+
+  it("treats a non-positive limit as show-none while still counting the queue", () => {
+    const jobs = [job({ id: "a", resetAt: at(1 * 3600_000) }), job({ id: "b", resetAt: at(2 * 3600_000) })];
+    const upcoming = selectUpcomingResumes(jobs, { now: NOW, limit: 0 });
+    expect(upcoming.entries).toEqual([]);
+    expect(upcoming.totalWaiting).toBe(2);
+    expect(upcoming.more).toBe(2);
   });
 });

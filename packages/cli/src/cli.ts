@@ -24,6 +24,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
   selectNextResume,
+  selectUpcomingResumes,
   sendTestNotification,
 } from "@agentrelay/core";
 import { Command } from "commander";
@@ -55,7 +56,7 @@ import {
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
-import { renderNext, renderNextJson } from "./next.js";
+import { renderNext, renderNextJson, renderUpcoming, renderUpcomingJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
@@ -506,13 +507,43 @@ export function buildCli(): Command {
     .command("next")
     .description("Show the single job the relay will resume next and how long until it's due")
     .option("--json", "Print as JSON (machine-readable, for scripts/jq)")
+    .option("-n, --count <n>", "Look ahead at the next N resumes as a schedule (soonest first) instead of just one")
     .option(
       "--exit-code",
       "Reflect state in the exit code (0 = a job is due now, 3 = pending but not yet due, 4 = nothing waiting)"
     )
-    .action((opts: { json?: boolean; exitCode?: boolean }) => {
+    .action((opts: { json?: boolean; count?: string; exitCode?: boolean }) => {
       const { store } = program.opts();
-      const next = selectNextResume(listStatus(store));
+      const jobs = listStatus(store);
+
+      // `--count N` widens the single "what's next?" line into an N-row
+      // look-ahead schedule; without it the classic one-liner is unchanged.
+      if (opts.count !== undefined) {
+        const n = Number.parseInt(opts.count, 10);
+        if (!Number.isFinite(n) || n < 1 || String(n) !== opts.count.trim()) {
+          console.error(`Invalid --count value "${opts.count}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+
+        const upcoming = selectUpcomingResumes(jobs, { limit: n });
+        if (opts.json) {
+          console.log(renderUpcomingJson(upcoming, store));
+        } else {
+          console.log(renderUpcoming(upcoming, { color: Boolean(process.stdout.isTTY) }));
+        }
+
+        // Exit code mirrors the single-job semantics against the soonest resume:
+        // due-now → 0, pending → 3, nothing waiting → 4.
+        if (opts.exitCode) {
+          const soonest = upcoming.entries[0];
+          if (!soonest) process.exitCode = 4;
+          else if (!soonest.due) process.exitCode = 3;
+        }
+        return;
+      }
+
+      const next = selectNextResume(jobs);
 
       if (opts.json) {
         console.log(renderNextJson(next, store));
