@@ -13,6 +13,7 @@ import {
   ALL_TOOLS,
   COMPLETION_SHELLS,
   computeDailyTrend,
+  computeErrorBreakdown,
   computeStats,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
@@ -55,6 +56,7 @@ import {
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
+import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
@@ -683,6 +685,49 @@ export function buildCli(): Command {
         }
       }
     );
+
+  program
+    .command("errors")
+    .description("Break down why jobs failed, grouped by error reason and ranked by frequency")
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. failed,cancelled)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("-n, --limit <n>", "Show at most N error reasons (the totals still count all)")
+    .option("--json", "Print the breakdown as JSON (machine-readable, for scripts/jq)")
+    .action((opts: ScopeOpts & { limit?: string; json?: boolean }) => {
+      const { store } = program.opts();
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      const built = buildScope(opts, Date.now());
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const all = listStatus(store);
+      const jobs = built.active ? scopeJobs(all, built.scope) : all;
+      const scopeNote = built.active ? built.note : undefined;
+      const breakdown = computeErrorBreakdown(jobs);
+
+      if (opts.json) {
+        console.log(renderErrorBreakdownJson(breakdown, store, { scopeNote }));
+        return;
+      }
+      console.log(renderErrorBreakdown(breakdown, { color: Boolean(process.stdout.isTTY), limit, scopeNote }));
+    });
 
   program
     .command("doctor")

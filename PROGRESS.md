@@ -1055,3 +1055,21 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay errors` 실패 사유 진단 커맨드] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-ziyovo`)
+- **한 일:** BACKLOG를 새로 발굴한 👷 항목 하나를 실제 동작 코드로 구현. `agentrelay errors` —
+  실패/취소 잡의 `lastError`를 정규화 시그니처로 묶어 빈도순으로 보여주는 진단 커맨드로,
+  릴레이의 핵심 운영 질문("왜 재개가 조용히 실패하나?")에 한눈에 답한다.
+  - core `errors.ts`(순수): `errorSignature`(첫 비어있지 않은 줄+공백 정규화+200자 캡, null/공백은 제외)
+    + `computeErrorBreakdown`→`ErrorBreakdown`(count desc·시그니처 asc 랭킹, 그룹 내 first-seen 순서 보존).
+    후행 공백·줄바꿈·스택 tail만 다른 near-identical 실패를 한 행으로 합침.
+  - cli `errors.ts`(순수): `renderErrorBreakdown`(랭크 헤더+시그니처+`show`용 짧은 id+"+N more" elision,
+    `--limit`은 상위 N그룹+숨김 푸터)·`renderErrorBreakdownJson`. stats/status/export와 동일한
+    스코프 필터(`--status`/`--tool`/`--project`/`--since`/`--until`)를 공용 `buildScope`로 재사용.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **595 통과 + 1 skip**(core 388 + cli 200[+1 skip] + dashboard 7, 신규 core 13 + cli 7).
+  **실제 빌드된 CLI e2e**(mock 아님): `errors`(공백만 다른 2건 한 행 병합·빈도 랭킹)·`errors --limit 1`
+  (숨김 푸터)·`errors --status failed`(스코프 노트)·`errors --json`(store/scope/totals/groups)·
+  `errors --status bogus`(exit 1) 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합,
+  README/ARCHITECTURE(🧭 코워크).
