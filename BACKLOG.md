@@ -396,6 +396,18 @@
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
 
+- [x] 👷 `agentrelay export --format html` — 잡 이력을 자체완결형 스타일 HTML 리포트로 내보내기
+      (서버 없이 브라우저에서 바로 열람/공유/보관).
+      (완료 — core `export.ts`에 순수 `escapeHtml`(5개 마크업 문자 엔티티화, `&` 우선) + `jobsToHtml(jobs,
+      {columns,title})` 추가. CSS 인라인된 단일 `<!doctype html>` 문서(외부 자산 0개), `prefers-color-scheme`
+      라이트/다크, 좁은 뷰포트에서 테이블 가로 스크롤, 상태별 색상 배지. 컬럼/셀 값은 CSV/MD와 공유
+      (`JOB_CSV_COLUMNS`/`jobCsvValue`)해 락스텝, 모든 셀 escapeHtml 처리(프롬프트·에러의 `<`/`&`가 마크업으로
+      해석되지 않음). 잡 리스트에서 순수 파생한 상태별 요약 라인, 빈 리스트도 유효 문서("No jobs to show").
+      임베드된 시계 없어 결정론적(테스트 왕복). `EXPORT_FORMATS`에 `html` 추가 → CLI `export -f html [-o
+      report.html]`와 status/tool/project/since/until/sort 필터가 기존 배선으로 자동 흐름(CLI 코드 0줄 추가).
+      export.test.ts에 escapeHtml 3 + jobsToHtml 8 + 디스패치 1케이스 추가, 빌드된 CLI e2e로 배지·요약·이스케이프·
+      필터·잘못된 포맷 exit 1 검증. branch `claude/wizardly-pascal-html-export`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

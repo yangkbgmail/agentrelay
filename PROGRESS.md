@@ -1055,3 +1055,29 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 34 — `agentrelay export --format html`] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-html-export`)
+- 배경: 세션 시작 시 열린 PR 7개(#96 wait·#95 config get·#94 import·#78 코워크·#75 resume latency·
+  #69 데몬 이중실행 가드·#61 doctor 큐 진행)가 각 항목을 점유. 명시적 👷 백로그는 전부 완료 상태라
+  CLAUDE.md 지침대로 이들과 겹치지 않는 **새 개선 항목을 발굴**했다 — export 형식군(csv/json/md/ndjson)에
+  자체완결형 HTML 리포트를 더해, 데몬(대시보드 서버) 없이도 잡 이력을 브라우저에서 바로 보고/공유/보관.
+- 한 일: **export HTML 형식** —
+  1. core `export.ts`에 순수 `escapeHtml(value)`(HTML 텍스트/속성 컨텍스트의 5개 문자 `&<>"'`를 엔티티화,
+     `&`를 먼저 처리해 이중 이스케이프 방지) + `jobsToHtml(jobs, {columns?, title?})` 추가.
+  2. `jobsToHtml`는 CSS가 인라인된 **단일 `<!doctype html>` 문서**(외부 자산 0개)를 생성 —
+     `prefers-color-scheme` 라이트/다크 테마, 좁은 뷰포트에서 테이블이 페이지 대신 자기 컨테이너에서
+     가로 스크롤, 상태별 색상 배지(`badge-<status>`). 컬럼/셀 값은 CSV·Markdown export와 공유
+     (`JOB_CSV_COLUMNS`/`jobCsvValue`)해 세 형식이 락스텝, 모든 셀을 `escapeHtml` 처리(프롬프트·에러의
+     `<script>`/`&`가 마크업으로 실행/해석되지 않고 리터럴로). 잡 리스트에서 **순수 파생**한 상태별 요약 라인
+     (총계 + status: N 분해), 빈 리스트도 유효 문서("No jobs to show", `colspan`). 임베드된 시계가 없어
+     출력이 결정론적(테스트 왕복).
+  3. `EXPORT_FORMATS`에 `html` 추가 + `exportJobs` 디스패처에 `case "html"`. CLI export 액션은 유효 포맷을
+     `EXPORT_FORMATS`에서 파생하고 `exportStore`가 core `exportJobs`에 위임하므로, `export -f html [-o
+     report.html]`와 기존 status/tool/project/since/until/sort/reverse 필터가 **CLI 코드 추가 0줄**로 자동 흐름.
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **전부 통과**(core export.test에 escapeHtml 3 + jobsToHtml 8 + exportJobs 디스패치/포맷목록 갱신).
+  **실제 빌드된 CLI e2e**(mock 아님): 3-job(completed/failed/waiting) 스토어로 `export -f html`이 stdout에
+  자체완결 문서, `-o report.html` 파일 쓰기, 상태별 배지(`badge-completed`/`badge-failed`/`badge-waiting_for_reset`),
+  요약 "3 job(s) — waiting_for_reset: 1 · failed: 1 · completed: 1", `<refactor>`/`&`가 엔티티로 이스케이프
+  (원문 마크업 0건), `-s failed` 필터 시 "1 job(s) — failed: 1", 잘못된 `-f xml`은 유효 목록에 html 포함해 exit 1 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마)·#94~#96 통합, README/ARCHITECTURE(🧭 코워크).

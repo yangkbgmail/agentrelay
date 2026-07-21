@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   EXPORT_FORMATS,
   escapeCsvField,
+  escapeHtml,
   escapeMarkdownCell,
   exportJobs,
   JOB_CSV_COLUMNS,
   jobCsvValue,
   jobsToCsv,
+  jobsToHtml,
   jobsToJson,
   jobsToMarkdown,
   jobsToNdjson,
@@ -224,6 +226,92 @@ describe("jobsToNdjson", () => {
   });
 });
 
+describe("escapeHtml", () => {
+  it("leaves plain values untouched", () => {
+    expect(escapeHtml("hello world")).toBe("hello world");
+    expect(escapeHtml("")).toBe("");
+  });
+
+  it("escapes the five markup-significant characters", () => {
+    expect(escapeHtml('<a href="x">&y\'z</a>')).toBe("&lt;a href=&quot;x&quot;&gt;&amp;y&#39;z&lt;/a&gt;");
+  });
+
+  it("escapes ampersand before the others so entities aren't double-escaped", () => {
+    expect(escapeHtml("a & <b>")).toBe("a &amp; &lt;b&gt;");
+  });
+});
+
+describe("jobsToHtml", () => {
+  it("emits a self-contained HTML document with inlined styles", () => {
+    const html = jobsToHtml([job({ id: "j1" })]);
+    expect(html.startsWith("<!doctype html>")).toBe(true);
+    expect(html.trimEnd().endsWith("</html>")).toBe(true);
+    expect(html).toContain("<style>");
+    // No external assets — a single self-contained file.
+    expect(html).not.toContain("http://");
+    expect(html).not.toContain("https://");
+  });
+
+  it("renders one table row per job with all columns as headers", () => {
+    const html = jobsToHtml([job({ id: "j1", project: "web" }), job({ id: "j2", project: "api" })]);
+    for (const col of JOB_CSV_COLUMNS) {
+      expect(html).toContain(`<th>${col}</th>`);
+    }
+    expect(html).toContain("j1");
+    expect(html).toContain("j2");
+    expect(html).toContain("web");
+    expect(html).toContain("api");
+    // Two data rows (each opens with <tr> inside <tbody>).
+    expect((html.match(/<tr>/g) ?? []).length).toBe(3); // 1 header + 2 body
+  });
+
+  it("renders status as a colored badge", () => {
+    const html = jobsToHtml([job({ status: "failed" })]);
+    expect(html).toContain('<span class="badge badge-failed">failed</span>');
+  });
+
+  it("escapes cell content so prompts with markup stay literal", () => {
+    const html = jobsToHtml([job({ command: ["claude", "-p", "<script>alert(1)</script>"], lastError: "a & b" })]);
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(html).toContain("a &amp; b");
+    expect(html).not.toContain("<script>alert(1)</script>");
+  });
+
+  it("shows a status breakdown summary derived purely from the jobs", () => {
+    const html = jobsToHtml([job({ status: "completed" }), job({ status: "completed" }), job({ status: "failed" })]);
+    expect(html).toContain("3 job(s)");
+    expect(html).toContain("completed: 2");
+    expect(html).toContain("failed: 1");
+  });
+
+  it("still produces a valid document with an empty note for no jobs", () => {
+    const html = jobsToHtml([]);
+    expect(html.startsWith("<!doctype html>")).toBe(true);
+    expect(html).toContain("0 job(s)");
+    expect(html).toContain("No jobs to show.");
+    expect(html).toContain(`colspan="${JOB_CSV_COLUMNS.length}"`);
+  });
+
+  it("honors a custom title and escapes it", () => {
+    const html = jobsToHtml([], { title: "My <Relay> Report" });
+    expect(html).toContain("<title>My &lt;Relay&gt; Report</title>");
+    expect(html).toContain("<h1>My &lt;Relay&gt; Report</h1>");
+  });
+
+  it("respects a custom column selection", () => {
+    const html = jobsToHtml([job({ id: "x", status: "queued" })], { columns: ["status", "id"] });
+    const headerBlock = html.slice(html.indexOf("<thead>"), html.indexOf("</thead>"));
+    expect(headerBlock).toContain("<th>status</th>");
+    expect(headerBlock).toContain("<th>id</th>");
+    expect(headerBlock).not.toContain("<th>project</th>");
+  });
+
+  it("is deterministic (no embedded clock)", () => {
+    const jobs = [job({ id: "same" })];
+    expect(jobsToHtml(jobs)).toBe(jobsToHtml(jobs));
+  });
+});
+
 describe("exportJobs", () => {
   it("dispatches to CSV by default format", () => {
     const jobs = [job({ id: "d" })];
@@ -245,7 +333,12 @@ describe("exportJobs", () => {
     expect(exportJobs(jobs, "ndjson")).toBe(jobsToNdjson(jobs));
   });
 
+  it("dispatches to HTML", () => {
+    const jobs = [job({ id: "d" })];
+    expect(exportJobs(jobs, "html")).toBe(jobsToHtml(jobs));
+  });
+
   it("exposes the supported formats", () => {
-    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md", "ndjson"]);
+    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md", "ndjson", "html"]);
   });
 });
