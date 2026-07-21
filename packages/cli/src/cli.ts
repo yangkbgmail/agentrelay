@@ -505,19 +505,34 @@ export function buildCli(): Command {
   program
     .command("next")
     .description("Show the single job the relay will resume next and how long until it's due")
+    .option("-t, --tool <tools>", `Only consider jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only consider jobs from these comma-separated project names (exact match)")
     .option("--json", "Print as JSON (machine-readable, for scripts/jq)")
     .option(
       "--exit-code",
       "Reflect state in the exit code (0 = a job is due now, 3 = pending but not yet due, 4 = nothing waiting)"
     )
-    .action((opts: { json?: boolean; exitCode?: boolean }) => {
+    .action((opts: { tool?: string; project?: string; json?: boolean; exitCode?: boolean }) => {
       const { store } = program.opts();
-      const next = selectNextResume(listStatus(store));
+
+      // `next` is inherently about jobs waiting for a reset, so status and time
+      // window don't apply — but scoping to a tool or project is genuinely useful
+      // ("when does my next claude-code job for project X resume?"). Reuse the
+      // shared scope builder and core scopeJobs, matching stats/status/export.
+      const built = buildScope({ tool: opts.tool, project: opts.project }, Date.now());
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+      const jobs = built.active ? scopeJobs(listStatus(store), built.scope) : listStatus(store);
+      const scopeNote = built.active ? built.note : undefined;
+      const next = selectNextResume(jobs);
 
       if (opts.json) {
-        console.log(renderNextJson(next, store));
+        console.log(renderNextJson(next, store, built.active ? { scope: built.scope } : {}));
       } else {
-        console.log(renderNext(next, { color: Boolean(process.stdout.isTTY) }));
+        console.log(renderNext(next, { color: Boolean(process.stdout.isTTY), scopeNote }));
       }
 
       // Opt-in exit codes let scripts branch without jq: e.g. a cron that only
