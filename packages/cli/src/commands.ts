@@ -31,6 +31,7 @@ import {
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
   CONFIG_FILENAME,
+  type ConfigGetResult,
   canCancel,
   canRequeue,
   configToJson,
@@ -41,6 +42,7 @@ import {
   type ExportFormat,
   exportJobs,
   findConfigField,
+  getEffectiveConfigValue,
   hasConfigErrors,
   heartbeatStaleAfterMs,
   type IneligibleJob,
@@ -999,6 +1001,53 @@ export function showConfig(options: ConfigShowOptions = {}): ConfigShowResult {
   }
   const entries = resolveEffectiveConfig(fileConfig, env);
   return { path, entries, loadError };
+}
+
+export interface ConfigGetOptions extends ConfigShowOptions {
+  /** The dotted config key to look up, e.g. `retry.maxAttempts`. */
+  key: string;
+}
+
+export interface ConfigGetOutcome {
+  /** The resolved setting, or null when the key is unknown or the file couldn't be loaded. */
+  result: ConfigGetResult | null;
+  /** The config file that fed the resolution, or null when none was found. */
+  path: string | null;
+  /** Set when the requested key isn't a settable config key. */
+  unknownKey?: string;
+  /** Set when a config file was found but couldn't be loaded/parsed. */
+  loadError?: string;
+}
+
+/**
+ * Resolves a *single* config setting by its dotted key — the scripting
+ * counterpart to `config show`, so `agentrelay config get store` prints one
+ * value instead of the whole grouped table. Reuses the same env > file > default
+ * precedence via {@link getEffectiveConfigValue}. Never throws: an unknown key
+ * or a malformed file is reported in the outcome so the CLI can exit non-zero
+ * with a clear message. A broken file is *not* silently treated as "no file" —
+ * unlike `show`, a single-value lookup can't fall back to env/default and still
+ * be trustworthy, so the load error is surfaced and no value is returned.
+ */
+export function getConfigValue(options: ConfigGetOptions): ConfigGetOutcome {
+  const env = options.env ?? process.env;
+  let fileConfig: AgentRelayConfig | null = null;
+  let path: string | null = null;
+  let loadError: string | undefined;
+  try {
+    const loaded = loadConfigFile({ path: options.path, cwd: options.cwd, env });
+    if (loaded) {
+      fileConfig = loaded.config;
+      path = loaded.path;
+    }
+  } catch (error) {
+    path = resolveConfigPath({ path: options.path, cwd: options.cwd, env });
+    loadError = String(error);
+  }
+  if (loadError) return { result: null, path, loadError };
+  const result = getEffectiveConfigValue(options.key, fileConfig, env);
+  if (!result) return { result: null, path, unknownKey: options.key };
+  return { result, path };
 }
 
 export interface DoctorOptions {

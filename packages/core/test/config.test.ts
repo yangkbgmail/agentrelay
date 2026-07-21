@@ -7,9 +7,11 @@ import {
   applyConfigToEnv,
   CONFIG_ENV_KEYS,
   CONFIG_FIELDS,
+  configEnvKeyFor,
   configToEnv,
   configToJson,
   findConfigField,
+  getEffectiveConfigValue,
   hasConfigErrors,
   loadConfigFile,
   parseConfig,
@@ -273,6 +275,79 @@ describe("resolveEffectiveConfig", () => {
     for (const key of emitted) expect(known.has(key)).toBe(true);
     // ...and no known key is dead (each maps to something configToEnv can emit).
     for (const { key } of CONFIG_ENV_KEYS) expect(emitted).toContain(key);
+  });
+});
+
+describe("configEnvKeyFor", () => {
+  it("maps every settable dotted key to a known env var", () => {
+    const known = new Set(CONFIG_ENV_KEYS.map((k) => k.key));
+    for (const field of CONFIG_FIELDS) {
+      const envKey = configEnvKeyFor(field.key);
+      expect(envKey).toBeDefined();
+      expect(known.has(envKey as string)).toBe(true);
+    }
+  });
+
+  it("maps a nested key to its env var", () => {
+    expect(configEnvKeyFor("retry.maxAttempts")).toBe("AGENTRELAY_MAX_ATTEMPTS");
+    expect(configEnvKeyFor("autoPrune.enabled")).toBe("AGENTRELAY_AUTOPRUNE");
+    expect(configEnvKeyFor("store")).toBe("AGENTRELAY_STORE");
+  });
+
+  it("is injective — no two dotted keys share an env var", () => {
+    const seen = new Map<string, string>();
+    for (const field of CONFIG_FIELDS) {
+      const envKey = configEnvKeyFor(field.key) as string;
+      expect(seen.has(envKey)).toBe(false);
+      seen.set(envKey, field.key);
+    }
+  });
+
+  it("returns undefined for an unknown key", () => {
+    expect(configEnvKeyFor("nope")).toBeUndefined();
+    expect(configEnvKeyFor("retry.bogus")).toBeUndefined();
+  });
+});
+
+describe("getEffectiveConfigValue", () => {
+  it("returns undefined for an unknown key", () => {
+    expect(getEffectiveConfigValue("nope", null, {})).toBeUndefined();
+  });
+
+  it("reports the built-in default when nothing is set", () => {
+    const result = getEffectiveConfigValue("retry.maxAttempts", null, {});
+    expect(result).toMatchObject({
+      key: "retry.maxAttempts",
+      envKey: "AGENTRELAY_MAX_ATTEMPTS",
+      group: "retry",
+      value: undefined,
+      source: "default",
+      isDefault: true,
+    });
+  });
+
+  it("reads a value from the config file", () => {
+    const result = getEffectiveConfigValue("store", { store: "/tmp/jobs.json" }, {});
+    expect(result).toMatchObject({ value: "/tmp/jobs.json", source: "config-file", isDefault: false });
+  });
+
+  it("lets an env var win over the config file (precedence)", () => {
+    const result = getEffectiveConfigValue(
+      "store",
+      { store: "/from/file.json" },
+      { AGENTRELAY_STORE: "/from/env.json" }
+    );
+    expect(result).toMatchObject({ value: "/from/env.json", source: "env", isDefault: false });
+  });
+
+  it("projects the boolean autoPrune flag as the file's 1/0 env form", () => {
+    const result = getEffectiveConfigValue("autoPrune.enabled", { autoPrune: { enabled: true } }, {});
+    expect(result).toMatchObject({ value: "1", source: "config-file" });
+  });
+
+  it("flags secret keys so the CLI can decide whether to mask", () => {
+    expect(getEffectiveConfigValue("notify.webhookAuth", null, {})?.secret).toBe(true);
+    expect(getEffectiveConfigValue("store", null, {})?.secret).toBe(false);
   });
 });
 

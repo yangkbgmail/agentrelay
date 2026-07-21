@@ -395,6 +395,17 @@
 - [x] 👷 `agentrelay stats --trend [days]` — UTC 일별 활동 히스토그램(릴레이가 언제 바빴는지 시간 축).
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
+- [x] 👷 `agentrelay config get <key>` — 단일 설정 값을 env>파일>기본값 우선순위로 한 줄 출력(스크립트 친화).
+      (완료 — config 명령 계열(init/set/unset/show/validate)에 단일 키 조회가 빠져 있던 갭. core
+      `config.ts`에 순수 `configEnvKeyFor`(점표기 키→`AGENTRELAY_*` env 키, `configToEnv`에서 파생해
+      드리프트 방지) + `getEffectiveConfigValue`/`ConfigGetResult`(`resolveEffectiveConfig` 재사용,
+      unknown 키는 undefined). CLI `commands.ts` `getConfigValue`(손상 파일은 loadError로 보고하고 값
+      미반환 — 단일 값은 env/기본값 fallback이 신뢰 불가), `config.ts` 순수 `renderConfigGet`(plain=값만,
+      `--source`면 `값<TAB>출처`; 시크릿은 마스킹 없이 전체 출력 — 명시적 단일 조회는 스크립트용)·
+      `renderConfigGetJson`. `agentrelay config get <key> [--json] [--source]` 배선, unknown 키/손상 파일은
+      exit 1, `get`도 startup bootstrap-skip에 추가(출처 [env] 오표기 방지). core 11 + cli 8 신규 테스트,
+      실제 빌드 CLI e2e로 파일값/env 우선/기본값→빈 문자열/`--source`/시크릿 전체/`--json`/unknown·손상
+      exit 1 검증. branch `claude/wizardly-pascal-cxtrgb`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

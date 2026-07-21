@@ -2,7 +2,7 @@
 // resolves the same store file.
 import type { ConfigGroup, EffectiveConfigEntry } from "@agentrelay/core";
 import { applyConfigToEnv, loadConfigFile } from "@agentrelay/core";
-import type { ConfigShowResult } from "./commands.js";
+import type { ConfigGetOutcome, ConfigShowResult } from "./commands.js";
 
 export { defaultStorePath } from "@agentrelay/core";
 
@@ -27,7 +27,7 @@ export function configPathFromArgv(argv: string[]): string | undefined {
 }
 
 /** `config` subcommands that must run without the startup {@link bootstrapConfig}. */
-const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "set", "unset"]);
+const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "get", "set", "unset"]);
 
 /**
  * True when argv invokes a `config` subcommand that must run *without* the
@@ -35,10 +35,10 @@ const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "set", "unset"])
  *
  * - `validate` diagnoses a possibly-malformed file; bootstrap throws on one,
  *   which would abort before validate can report the problem.
- * - `show` reports the env > file > default precedence; bootstrap would fold
- *   the config file's values into `process.env` first, making them all look
- *   like they came from the environment. Skipping it keeps the layers distinct
- *   (`show` loads the file itself to attribute each value).
+ * - `show`/`get` report the env > file > default precedence; bootstrap would
+ *   fold the config file's values into `process.env` first, making them all
+ *   look like they came from the environment. Skipping it keeps the layers
+ *   distinct (both load the file themselves to attribute each value).
  * - `set`/`unset` edit the file directly; bootstrap would abort on a malformed
  *   existing file before the command can report its own clear error, and its
  *   env-folding is irrelevant since these commands never read env-driven options.
@@ -168,4 +168,42 @@ export function renderEffectiveConfigJson(
   generatedAt: string = new Date().toISOString()
 ): string {
   return JSON.stringify({ generatedAt, ...result }, null, 2);
+}
+
+/**
+ * Plain single-value output for `config get` (script-friendly): just the
+ * effective value on one line, or an empty string when the built-in default
+ * applies — so `$(agentrelay config get store)` yields "" for an unset key.
+ *
+ * Secrets are printed in full here, unlike the masked `config show` overview:
+ * `config get` is an explicit single-value fetch meant for scripting, where
+ * masking would hand the caller a useless `••••` string. With `source: true`
+ * the origin is appended after a tab (`value<TAB>env`) so a script can still
+ * split on the first column.
+ */
+export function renderConfigGet(outcome: ConfigGetOutcome, options: { source?: boolean } = {}): string {
+  const result = outcome.result;
+  if (!result) return "";
+  const value = result.value ?? "";
+  return options.source ? `${value}\t${result.source}` : value;
+}
+
+/** Machine-readable single-value snapshot for `config get --json`. */
+export function renderConfigGetJson(outcome: ConfigGetOutcome, generatedAt: string = new Date().toISOString()): string {
+  const result = outcome.result;
+  return JSON.stringify(
+    {
+      generatedAt,
+      key: result?.key ?? null,
+      envKey: result?.envKey ?? null,
+      group: result?.group ?? null,
+      value: result?.value ?? null,
+      source: result?.source ?? null,
+      isDefault: result?.isDefault ?? null,
+      secret: result?.secret ?? null,
+      path: outcome.path,
+    },
+    null,
+    2
+  );
 }

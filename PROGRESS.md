@@ -1055,3 +1055,25 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay config get <key>` 단일 설정 값 조회] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-cxtrgb`)
+- **배경**: config 명령 계열이 init/set/unset/show/validate까지 갖춰졌지만, 스크립트에서 값 하나만
+  꺼내 쓰는 수단(`$(agentrelay config get store)`)이 없었다. `config show`는 전체 그룹 표라 파이프하기 무겁고
+  시크릿을 마스킹한다.
+- **한 일**: `agentrelay config get <key> [--json] [--source]` 신설 — `show`와 동일한 env>파일>기본값
+  우선순위로 단일 값을 한 줄 출력.
+  - core `config.ts`: 순수 `configEnvKeyFor(dottedKey)`(점표기 키→`AGENTRELAY_*` env 키를 `configToEnv`에서
+    **파생** — 별도 매핑 테이블을 만들지 않아 드리프트 불가) + `getEffectiveConfigValue`/`ConfigGetResult`
+    (`resolveEffectiveConfig` 재사용, unknown 키는 undefined). 새 병렬 구조 0개.
+  - CLI `commands.ts` `getConfigValue`: 손상 파일은 loadError로 보고하고 **값을 반환하지 않음**(`show`와 달리
+    단일 값 조회는 env/기본값 fallback으로는 신뢰할 수 없으므로). `config.ts`에 순수 `renderConfigGet`
+    (plain=값만·기본값이면 빈 문자열, `--source`면 `값<TAB>출처`; 시크릿도 전체 출력 — 명시적 단일 조회는
+    스크립트용이라 마스킹이 오히려 무의미)·`renderConfigGetJson`. `get`을 startup bootstrap-skip 집합에 추가해
+    출처가 [env]로 오표기되지 않게 함.
+  - unknown 키·손상 파일은 exit 1.
+- **검증**: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **593 통과 + 1 skip**(core 385 + cli 201[+1 skip] + dashboard 7). **실제 빌드된 CLI e2e**(mock 아님):
+  `config get store`(파일값)·`config get retry.maxAttempts`(9)·`config get retry.factor`(기본값→빈 줄)·
+  `--source`(`값<TAB>config-file`)·`AGENTRELAY_STORE=… config get store --source`(env 우선·`<TAB>env`)·
+  `config get notify.webhookAuth`(시크릿 전체)·`--json`(구조화)·unknown 키(exit 1)·손상 파일(exit 1) 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).

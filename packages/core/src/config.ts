@@ -601,6 +601,84 @@ export function resolveEffectiveConfig(
 }
 
 /**
+ * Placeholder value of the right type for `field`, used only to drive
+ * {@link configToEnv} when deriving a field's env-var name (see
+ * {@link configEnvKeyFor}). The value itself is irrelevant — only which env key
+ * `configToEnv` emits matters.
+ */
+function envKeyProbeValue(field: ConfigField): string {
+  switch (field.type) {
+    case "boolean":
+      return "true";
+    case "number":
+      return "1";
+    case "duration":
+      return "1h";
+    default:
+      return "x";
+  }
+}
+
+/**
+ * Maps a dotted config key (the form `config set`/`unset`/`get` use, e.g.
+ * `retry.maxAttempts`) to the single `AGENTRELAY_*` env var it projects onto, or
+ * `undefined` for an unknown key. Derived from {@link configToEnv} — the one
+ * source of truth for the file↔env mapping — rather than a separate table, so it
+ * can never drift out of sync. Pure.
+ */
+export function configEnvKeyFor(dottedKey: string): string | undefined {
+  const field = findConfigField(dottedKey);
+  if (!field) return undefined;
+  // A settable field projects onto exactly one env var (asserted by the sync
+  // test); set a throwaway value and read back which key that produced.
+  const keys = Object.keys(configToEnv(setConfigValue({}, dottedKey, envKeyProbeValue(field))));
+  return keys[0];
+}
+
+/** One resolved setting looked up by its dotted key via {@link getEffectiveConfigValue}. */
+export interface ConfigGetResult {
+  /** Dotted key requested, e.g. `retry.maxAttempts`. */
+  key: string;
+  /** The `AGENTRELAY_*` env var this key projects onto. */
+  envKey: string;
+  group: ConfigGroup;
+  /** The effective value, or `undefined` when the built-in default applies. */
+  value: string | undefined;
+  source: ConfigValueSource;
+  secret: boolean;
+  /** True when no env var or config-file value was set (the built-in default applies). */
+  isDefault: boolean;
+}
+
+/**
+ * Resolves a *single* config-backed setting by its dotted key to its effective
+ * value and source, applying the same env > config file > default precedence as
+ * {@link resolveEffectiveConfig} (which it reuses). Returns `undefined` for an
+ * unknown key so the caller can report it. Pure — no filesystem — so the CLI
+ * `config get` command and tests share exactly this resolution.
+ */
+export function getEffectiveConfigValue(
+  key: string,
+  fileConfig: AgentRelayConfig | null,
+  env: Record<string, string | undefined> = process.env
+): ConfigGetResult | undefined {
+  const envKey = configEnvKeyFor(key);
+  if (!envKey) return undefined;
+  const entry = resolveEffectiveConfig(fileConfig, env).find((e) => e.key === envKey);
+  // Every env key resolves to an entry, so this is defensive.
+  if (!entry) return undefined;
+  return {
+    key,
+    envKey,
+    group: entry.group,
+    value: entry.value,
+    source: entry.source,
+    secret: entry.secret,
+    isDefault: entry.source === "default",
+  };
+}
+
+/**
  * Fills the derived config values into `targetEnv` (defaults to `process.env`)
  * *without overwriting anything already set*, so an explicit environment
  * variable always beats the file. Mutates `targetEnv` in place and returns the

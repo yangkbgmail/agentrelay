@@ -35,6 +35,7 @@ import {
   bulkControlJobs,
   cancelJob,
   exportStore,
+  getConfigValue,
   initConfig,
   type JobControlResult,
   listStatus,
@@ -53,7 +54,13 @@ import {
   unsetConfigFile,
   validateConfigFile,
 } from "./commands.js";
-import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
+import {
+  defaultStorePath,
+  renderConfigGet,
+  renderConfigGetJson,
+  renderEffectiveConfig,
+  renderEffectiveConfigJson,
+} from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
@@ -957,6 +964,33 @@ export function buildCli(): Command {
       // A broken config file is a real problem worth a non-zero exit, but we
       // still printed the env/default resolution above to aid debugging.
       if (result.loadError) process.exitCode = 1;
+    });
+  config
+    .command("get")
+    .description("Print a single effective config value (env > file > default), for scripts")
+    .argument("<key>", `Dotted config key, one of: ${SETTABLE_CONFIG_KEYS.join(", ")}`)
+    .option("--json", "Print the value with its source/origin as JSON (machine-readable)")
+    .option("--source", "Append the value's origin (env/config-file/default) after a tab")
+    .action((key: string, opts: { json?: boolean; source?: boolean }) => {
+      const { config: configPath } = program.opts();
+      const outcome = getConfigValue({ key, path: configPath });
+      if (outcome.unknownKey) {
+        console.error(
+          `[agentrelay] unknown config key "${outcome.unknownKey}". Valid keys: ${SETTABLE_CONFIG_KEYS.join(", ")}.`
+        );
+        process.exitCode = 1;
+        return;
+      }
+      if (outcome.loadError) {
+        console.error(`[agentrelay] config file could not be loaded — ${outcome.loadError}`);
+        process.exitCode = 1;
+        return;
+      }
+      if (opts.json) {
+        console.log(renderConfigGetJson(outcome));
+      } else {
+        console.log(renderConfigGet(outcome, { source: opts.source }));
+      }
     });
   config
     .command("set")
