@@ -20,16 +20,17 @@ const SPEC: CompletionSpec = {
 };
 
 describe("completion shell helpers", () => {
-  it("COMPLETION_SHELLS lists bash and zsh", () => {
-    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh"]);
+  it("COMPLETION_SHELLS lists bash, zsh, and fish", () => {
+    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh", "fish"]);
   });
 
   it("isCompletionShell accepts known shells and rejects others", () => {
     expect(isCompletionShell("bash")).toBe(true);
     expect(isCompletionShell("zsh")).toBe(true);
-    expect(isCompletionShell("fish")).toBe(false);
+    expect(isCompletionShell("fish")).toBe(true);
     expect(isCompletionShell("")).toBe(false);
     expect(isCompletionShell("BASH")).toBe(false);
+    expect(isCompletionShell("pwsh")).toBe(false);
   });
 });
 
@@ -97,6 +98,60 @@ describe("generateCompletion — zsh", () => {
     // parent command lists subcommands
     expect(script).toContain("'init'");
     expect(script).toContain("'validate'");
+  });
+});
+
+describe("generateCompletion — fish", () => {
+  const script = generateCompletion("fish", SPEC);
+
+  it("starts with the fish install header and defines the arg helper", () => {
+    expect(script.startsWith("# fish completion for agentrelay")).toBe(true);
+    expect(script).toContain("function __fish_agentrelay_args");
+    expect(script).toContain("function __fish_agentrelay_no_subcommand");
+    expect(script).toContain("function __fish_agentrelay_using_command");
+    expect(script).toContain("function __fish_agentrelay_using_subcommand");
+  });
+
+  it("offers the top-level command names before any subcommand", () => {
+    expect(script).toContain("complete -c agentrelay -f -n '__fish_agentrelay_no_subcommand' -a 'run status config'");
+  });
+
+  it("offers global options plus --help/--version at the top level", () => {
+    expect(script).toContain("complete -c agentrelay -n '__fish_agentrelay_no_subcommand' -l store");
+    expect(script).toContain("complete -c agentrelay -n '__fish_agentrelay_no_subcommand' -l help");
+    expect(script).toContain("complete -c agentrelay -n '__fish_agentrelay_no_subcommand' -l version");
+  });
+
+  it("maps long, short, and old-style option tokens", () => {
+    // long flag → -l, short flag → -s
+    expect(script).toContain("complete -c agentrelay -n '__fish_agentrelay_using_command status' -l json");
+    expect(script).toContain("complete -c agentrelay -n '__fish_agentrelay_using_command status' -s r");
+  });
+
+  it("offers subcommand names only while the subcommand slot is bare", () => {
+    expect(script).toContain(
+      "complete -c agentrelay -f -n '__fish_agentrelay_command_bare config' -a 'init validate show'"
+    );
+    // per-subcommand flags gate on using_subcommand
+    expect(script).toContain("complete -c agentrelay -n '__fish_agentrelay_using_subcommand config init' -l force");
+    expect(script).toContain("complete -c agentrelay -n '__fish_agentrelay_using_subcommand config init' -s f");
+    expect(script).toContain(
+      "complete -c agentrelay -n '__fish_agentrelay_using_subcommand config show' -l show-secrets"
+    );
+  });
+
+  it("does not emit a leaf-command condition for a parent command", () => {
+    expect(script).not.toContain("__fish_agentrelay_using_command config' -l");
+  });
+
+  it("throws on an unsafe command name rather than emitting it", () => {
+    expect(() =>
+      generateCompletion("fish", {
+        program: "agentrelay",
+        options: [],
+        commands: [{ name: "run; rm -rf /", options: [] }],
+      })
+    ).toThrow(/unsafe command name/);
   });
 });
 

@@ -377,6 +377,14 @@
 - [x] 👷 `agentrelay completion <bash|zsh>` — 쉘 탭 완성 스크립트 생성(실제 커맨더 프로그램에서 파생).
       (완료 — core `completion.ts` `generateCompletion`/`COMPLETION_SHELLS`/`isCompletionShell` +
       `CompletionSpec` 타입. branch `claude/wizardly-pascal-y7t7r0`, PR #83)
+- [x] 👷 `agentrelay completion fish` — fish 셸 탭 완성 스크립트(bash/zsh에 이은 세 번째 셸).
+      (완료 — core `completion.ts` `CompletionShell`/`COMPLETION_SHELLS`에 `fish` 추가 + 순수
+      `generateFish(spec)`. fish의 `complete -n <predicate>` 모델에 맞춰 `__fish_<prog>_args`(비옵션
+      인자 추출)·`_no_subcommand`·`_using_command`·`_command_bare`·`_using_subcommand` 헬퍼를 emit하고,
+      각 top-level 명령·글로벌 옵션·leaf 명령 플래그·부모(config/notify) 서브명령/서브플래그를 조건부
+      `complete` 규칙으로 배선. `fishOptionFragment`가 `--long→-l`·`-x→-s`·`-xy→-o`로 매핑, 기존
+      `assertSafeToken`으로 셸 메타문자 차단. bash/zsh와 동일하게 라이브 커맨더 프로그램에서 파생돼
+      드리프트 없음. branch `claude/wizardly-pascal-cjbkgo`)
 - [x] 👷 `agentrelay config set/unset <key> [value]` — 설정 파일을 손 편집 없이 CLI로 갱신.
       (완료 — core `config.ts` `SETTABLE_CONFIG_KEYS`, CLI `setConfigFile`/`unsetConfigFile`.
       branch `claude/wizardly-pascal-35ao82`, PR #84)

@@ -1155,7 +1155,7 @@ export function buildCli(): Command {
 
   program
     .command("completion")
-    .description("Print a shell completion script for agentrelay (bash or zsh)")
+    .description("Print a shell completion script for agentrelay (bash, zsh, or fish)")
     .argument("<shell>", `Shell to generate completion for: ${COMPLETION_SHELLS.join(" | ")}`)
     .addHelpText(
       "after",
@@ -1163,7 +1163,9 @@ export function buildCli(): Command {
         "  # bash: source it now, or add the line to ~/.bashrc\n" +
         "  source <(agentrelay completion bash)\n" +
         "  # zsh: write it onto your $fpath, then restart your shell\n" +
-        "  agentrelay completion zsh > ~/.zfunc/_agentrelay"
+        "  agentrelay completion zsh > ~/.zfunc/_agentrelay\n" +
+        "  # fish: drop it in your completions directory\n" +
+        "  agentrelay completion fish > ~/.config/fish/completions/agentrelay.fish"
     )
     .action((shell: string) => {
       if (!isCompletionShell(shell)) {

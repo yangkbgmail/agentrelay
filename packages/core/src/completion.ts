@@ -11,10 +11,10 @@
 // and deterministic.
 
 /** Shells we can emit a completion script for. */
-export type CompletionShell = "bash" | "zsh";
+export type CompletionShell = "bash" | "zsh" | "fish";
 
 /** Every shell `agentrelay completion` accepts, in a stable order. */
-export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh"] as const;
+export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh", "fish"] as const;
 
 /** Type guard: is `value` one of the shells we support? */
 export function isCompletionShell(value: string): value is CompletionShell {
@@ -86,6 +86,7 @@ export function generateCompletion(shell: CompletionShell, spec: CompletionSpec)
     for (const sub of cmd.subcommands ?? []) assertSafeToken(sub.name, "subcommand name");
   }
   if (shell === "bash") return generateBash(spec);
+  if (shell === "fish") return generateFish(spec);
   return generateZsh(spec);
 }
 
@@ -267,4 +268,128 @@ ${caseArms.join("\n")}
 }
 ${fn} "$@"
 `;
+}
+
+/**
+ * Map a single option token (`--json`, `-r`, `-xy`) to the `complete` fragment
+ * fish expects: `-l json` (long), `-s r` (short, one char), or `-o xy`
+ * (old-style single-dash, multi-char). Returns null for a token we can't
+ * express (empty or a bare word) so the caller can skip it.
+ */
+function fishOptionFragment(opt: string): string | null {
+  if (opt.startsWith("--")) {
+    const name = opt.slice(2);
+    if (name.length === 0) return null;
+    assertSafeToken(name, "option");
+    return `-l ${name}`;
+  }
+  if (opt.startsWith("-")) {
+    const name = opt.slice(1);
+    if (name.length === 0) return null;
+    assertSafeToken(name, "option");
+    return name.length === 1 ? `-s ${name}` : `-o ${name}`;
+  }
+  return null;
+}
+
+/**
+ * Fish: a set of `complete` rules gated by small predicate functions. Unlike
+ * bash/zsh (which walk the line inside one big function), fish drives each rule
+ * from a `-n <condition>`; we emit helper functions that report which
+ * command/subcommand is currently on the line and hang the rules off them. The
+ * whole script is written to `~/.config/fish/completions/agentrelay.fish`.
+ */
+function generateFish(spec: CompletionSpec): string {
+  const prog = spec.program;
+  const helper = `__fish_${prog.replace(/[^A-Za-z0-9_]/g, "_")}`;
+  const lines: string[] = [];
+
+  lines.push(`# fish completion for ${prog}`);
+  lines.push(`# Install: ${prog} completion fish > ~/.config/fish/completions/${prog}.fish`);
+  lines.push("");
+
+  // Helper: emit the non-option argument words after the program name, one per
+  // line, so callers can capture them as a list with (…).
+  lines.push(`function ${helper}_args`);
+  lines.push("    set -l cmd (commandline -opc)");
+  lines.push("    set -e cmd[1]");
+  lines.push("    for word in $cmd");
+  lines.push("        switch $word");
+  lines.push("            case '-*'");
+  lines.push("                continue");
+  lines.push("            case '*'");
+  lines.push("                echo $word");
+  lines.push("        end");
+  lines.push("    end");
+  lines.push("end");
+  lines.push("");
+  lines.push(`function ${helper}_no_subcommand`);
+  lines.push(`    set -l args (${helper}_args)`);
+  lines.push("    test (count $args) -eq 0");
+  lines.push("end");
+  lines.push("");
+  lines.push(`function ${helper}_using_command`);
+  lines.push(`    set -l args (${helper}_args)`);
+  lines.push('    test (count $args) -ge 1; and test "$args[1]" = "$argv[1]"');
+  lines.push("end");
+  lines.push("");
+  lines.push(`function ${helper}_command_bare`);
+  lines.push(`    set -l args (${helper}_args)`);
+  lines.push('    test (count $args) -eq 1; and test "$args[1]" = "$argv[1]"');
+  lines.push("end");
+  lines.push("");
+  lines.push(`function ${helper}_using_subcommand`);
+  lines.push(`    set -l args (${helper}_args)`);
+  lines.push('    test (count $args) -ge 2; and test "$args[1]" = "$argv[1]"; and test "$args[2]" = "$argv[2]"');
+  lines.push("end");
+  lines.push("");
+
+  // Top-level command names (offered before any subcommand is on the line).
+  const commandNames = wordList(
+    spec.commands.map((c) => c.name),
+    "command name"
+  );
+  if (commandNames.length > 0) {
+    lines.push(`complete -c ${prog} -f -n '${helper}_no_subcommand' -a '${commandNames}'`);
+  }
+  // Global options, also only before a subcommand.
+  for (const opt of uniq([...spec.options, "--help", "--version"])) {
+    const frag = fishOptionFragment(opt);
+    if (frag) lines.push(`complete -c ${prog} -n '${helper}_no_subcommand' ${frag}`);
+  }
+  lines.push("");
+
+  for (const cmd of spec.commands) {
+    const subs = cmd.subcommands ?? [];
+    if (subs.length > 0) {
+      // Parent command: offer subcommand names (and the parent's own flags)
+      // only while the subcommand slot is still empty.
+      const subNames = wordList(
+        subs.map((s) => s.name),
+        "subcommand name"
+      );
+      lines.push(`complete -c ${prog} -f -n '${helper}_command_bare ${cmd.name}' -a '${subNames}'`);
+      for (const opt of uniq([...cmd.options, "--help"])) {
+        const frag = fishOptionFragment(opt);
+        if (frag) lines.push(`complete -c ${prog} -n '${helper}_command_bare ${cmd.name}' ${frag}`);
+      }
+      for (const sub of subs) {
+        for (const opt of uniq([...sub.options, "--help"])) {
+          const frag = fishOptionFragment(opt);
+          if (frag) {
+            lines.push(`complete -c ${prog} -n '${helper}_using_subcommand ${cmd.name} ${sub.name}' ${frag}`);
+          }
+        }
+      }
+    } else {
+      // Leaf command: offer its flags whenever it's the active command.
+      for (const opt of uniq([...cmd.options, "--help"])) {
+        const frag = fishOptionFragment(opt);
+        if (frag) lines.push(`complete -c ${prog} -n '${helper}_using_command ${cmd.name}' ${frag}`);
+      }
+    }
+  }
+  lines.push("");
+
+  return `${lines.join("\n")}`;
 }
