@@ -396,6 +396,19 @@
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
 
+- [x] 👷 데몬 단일 인스턴스 가드 — 같은 스토어에서 두 번째 `agentrelay daemon`을 거부해 이중 재개(한 잡을 두 번 실행) 방지.
+      (완료 — 두 데몬이 같은 JSON 스토어를 폴링하면 due 잡마다 양쪽이 resume command를 spawn해 잡이 **두 번**
+      실행되는 정합성 footgun이 있었다. `@agentrelay/core/heartbeat.ts`에 순수 `detectDaemonConflict(heartbeat,
+      {nowMs,ownPid,pidAlive?})` + `DaemonConflict`/`DaemonConflictReason` 신설: 하트비트 없음/tick 모드
+      (락 없음)/자기 pid는 no-conflict, daemon 모드는 pid 생존 여부로 판정 — `pidAlive===false`면 크래시
+      잔여로 take over, `true`면 conflict, 미상(EPERM/프로브 불가)이면 staleness 창으로 폴백(fresh=live=conflict,
+      stale=dead). 보수적 설계로 크래시 후 재시작은 절대 막지 않음. CLI `commands.ts`에 `probeProcessAlive`
+      (signal-0 `process.kill`: 성공/EPERM=alive, ESRCH=dead, 그 외=미상)·`detectDaemonConflictOnDisk`(하트비트
+      읽기+프로브+core 위임, throw 없음) 신설. `startDaemon`이 시작 전 가드 — conflict면 stderr 경고+`null`
+      반환, `cli.ts` daemon 커맨드가 `exitCode=1`. `--force`로 오버라이드. core 8 + cli 11 신규 테스트, 실제
+      빌드 CLI e2e로 무하트비트→시작·생존 데몬→거부(exit 1)·`--force`→시작·죽은 pid 잔여→시작 검증.
+      branch `claude/wizardly-pascal-6naq4g`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

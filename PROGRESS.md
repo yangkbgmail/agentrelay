@@ -1055,3 +1055,24 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — 데몬 단일 인스턴스 가드(이중 재개 방지)] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-6naq4g`)
+- **배경: 세션 32의 "다음 할 일"에 있던 #69(데몬 이중실행 가드)를 구버전 PR 리베이스 대신 현행 main 위에
+  신규 구현.** 두 `agentrelay daemon`이 같은 JSON 스토어를 폴링하면 due 잡마다 양쪽이 resume command를
+  spawn → **한 잡이 두 번 실행**되는 정합성 footgun(릴레이 핵심 가치를 깨뜨림)을 막는다. 세션 30의 하트비트
+  인프라(pid·mode·lastTickAt)를 락 신호로 재사용.
+- **한 일:**
+  - core `heartbeat.ts`에 순수 `detectDaemonConflict(heartbeat,{nowMs,ownPid,pidAlive?})` + `DaemonConflict`/
+    `DaemonConflictReason`(no-heartbeat/not-daemon/self/stale-dead/live). 하트비트 없음·tick 모드(락 없음)·자기
+    pid는 no-conflict, daemon 모드는 pid 생존으로 판정 — `pidAlive===false`=크래시 잔여 take over, `true`=conflict,
+    미상(EPERM/프로브 불가)이면 staleness 창 폴백(fresh=conflict, stale=dead). 보수적 설계라 크래시 후 재시작 미차단.
+  - CLI `commands.ts`에 `probeProcessAlive`(signal-0 `process.kill`: 성공/EPERM=alive, ESRCH=dead, 그 외=미상)·
+    `detectDaemonConflictOnDisk`(하트비트 읽기+프로브+core 위임, throw 없음). `startDaemon`이 시작 전 가드 —
+    conflict면 stderr 경고+`null` 반환, 반환 타입 `RelayScheduler|null`로. `DaemonOptions.force`로 오버라이드.
+  - `cli.ts` daemon 커맨드에 `-f/--force` + `null` 반환 시 `process.exitCode=1`.
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **594 통과 + 1 skip**(core 383 + cli 204[+1 skip] + dashboard 7). core detectDaemonConflict 8 + cli
+  probeProcessAlive/detectDaemonConflictOnDisk/startDaemon 가드 11 신규. **실제 빌드된 CLI e2e**(mock 아님):
+  무하트비트→데몬 시작(하트비트 기록), 생존 데몬 존재→2번째 거부(exit 1·명확한 안내), `--force`→시작,
+  죽은 pid(999999) 잔여 하트비트→시작(재시작 미차단) 확인.
+- 다음 할 일: #61(doctor 큐 진행 검사)·#75(resume latency, `RelayJob` 스키마 변경) 통합, README/ARCHITECTURE(🧭 코워크).

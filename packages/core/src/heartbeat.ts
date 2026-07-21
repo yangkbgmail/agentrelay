@@ -202,3 +202,91 @@ export function evaluateHeartbeat(
     concerning: !alive && waitingJobs > 0,
   };
 }
+
+/**
+ * Why a would-be second daemon should (or shouldn't) refuse to start:
+ * - `no-heartbeat` — no heartbeat file; nothing is running, safe to start.
+ * - `not-daemon` — the heartbeat is from a one-shot `tick`, which exits
+ *   immediately and holds no long-lived lock; a daemon can start alongside it.
+ * - `self` — the heartbeat's pid is our own process; not a competitor.
+ * - `stale-dead` — a daemon heartbeat exists but the writer is gone (its pid is
+ *   not alive, or — when we can't probe — it's past its staleness window), so
+ *   it's a crash leftover we can safely take over from.
+ * - `live` — a daemon heartbeat exists and its writer appears to still be
+ *   running; starting a second one would double-resume every job.
+ */
+export type DaemonConflictReason = "no-heartbeat" | "not-daemon" | "self" | "stale-dead" | "live";
+
+/**
+ * A pure judgment of whether starting a new daemon on this store would collide
+ * with one that's already running. Two daemons polling the same JSON store both
+ * spawn the resume command for every due job — the job runs twice. This guards
+ * against that most-damaging footgun.
+ */
+export interface DaemonConflict {
+  /** True only when a live competing daemon appears to be running. */
+  conflict: boolean;
+  /** Why — see {@link DaemonConflictReason}. */
+  reason: DaemonConflictReason;
+  /** The existing heartbeat's writer pid, when there is a heartbeat. */
+  pid?: number;
+  /** How the existing writer runs (present only when a heartbeat exists). */
+  mode?: HeartbeatMode;
+  /** ISO timestamp of the existing writer's last tick (present only). */
+  lastTickAt?: string;
+  /** Whether the existing daemon heartbeat is past its staleness window. */
+  stale?: boolean;
+}
+
+/**
+ * Decide, purely, whether a new daemon should refuse to start because another
+ * daemon is already watching this store. The caller supplies `nowMs`, its own
+ * `ownPid`, and — best-effort — whether the heartbeat's pid is currently alive
+ * (`pidAlive`), which the CLI probes with a signal-0 `process.kill`. When
+ * liveness can't be determined (`pidAlive` undefined, e.g. a cross-user EPERM or
+ * no probe available), we fall back to the staleness window: a fresh daemon
+ * heartbeat is assumed alive (conflict), a stale one is assumed dead.
+ *
+ * Conservative by design — we only report a conflict when there's real evidence
+ * a daemon is running, so a legitimate restart after a crash is never blocked.
+ * Filesystem/OS/clock all stay in the caller.
+ */
+export function detectDaemonConflict(
+  heartbeat: DaemonHeartbeat | null,
+  options: { nowMs: number; ownPid: number; pidAlive?: boolean }
+): DaemonConflict {
+  if (heartbeat === null) {
+    return { conflict: false, reason: "no-heartbeat" };
+  }
+
+  const base = { pid: heartbeat.pid, mode: heartbeat.mode, lastTickAt: heartbeat.lastTickAt };
+
+  // A one-shot `tick` heartbeat is not a long-lived competitor.
+  if (heartbeat.mode !== "daemon") {
+    return { conflict: false, reason: "not-daemon", ...base };
+  }
+  // Our own heartbeat (e.g. a re-entrant start) is never a conflict.
+  if (heartbeat.pid === options.ownPid) {
+    return { conflict: false, reason: "self", ...base };
+  }
+
+  const lastTickMs = new Date(heartbeat.lastTickAt).getTime();
+  const rawAge = options.nowMs - lastTickMs;
+  const staleAfterMs = heartbeatStaleAfterMs(heartbeat.mode, heartbeat.pollIntervalMs);
+  // An unparseable timestamp counts as stale — not evidence the loop is alive.
+  const stale = !Number.isFinite(rawAge) || rawAge > staleAfterMs;
+
+  // A definitive "not alive" from the OS probe wins over staleness: the writer
+  // is gone even if its heartbeat is recent (a crash that left a fresh file).
+  if (options.pidAlive === false) {
+    return { conflict: false, reason: "stale-dead", stale, ...base };
+  }
+  // Definitively alive, or (probe unavailable) a still-fresh daemon heartbeat.
+  const alive = options.pidAlive === true || !stale;
+  return {
+    conflict: alive,
+    reason: alive ? "live" : "stale-dead",
+    stale,
+    ...base,
+  };
+}

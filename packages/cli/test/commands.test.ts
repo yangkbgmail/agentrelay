@@ -9,10 +9,12 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  detectDaemonConflictOnDisk,
   initConfig,
   listStatus,
   listStoreBackups,
   previewRestoreStore,
+  probeProcessAlive,
   pruneJobs,
   restoreStore,
   retryJob,
@@ -20,6 +22,7 @@ import {
   setConfigFile,
   showConfig,
   showJob,
+  startDaemon,
   unsetConfigFile,
   validateConfigFile,
 } from "../src/commands.js";
@@ -771,5 +774,128 @@ describe("isConfigDiagnosticInvocation", () => {
     expect(isConfigDiagnosticInvocation(argv("config", "init"))).toBe(false);
     expect(isConfigDiagnosticInvocation(argv("status"))).toBe(false);
     expect(isConfigDiagnosticInvocation(argv("config"))).toBe(false);
+  });
+});
+
+describe("probeProcessAlive", () => {
+  it("reports the current process as alive", () => {
+    expect(probeProcessAlive(process.pid)).toBe(true);
+  });
+
+  it("reports a definitely-absent pid as dead", () => {
+    // A very high pid is exceedingly unlikely to exist; ESRCH -> false.
+    expect(probeProcessAlive(2 ** 30)).toBe(false);
+  });
+
+  it("returns undefined for an invalid pid (can't tell)", () => {
+    expect(probeProcessAlive(0)).toBeUndefined();
+    expect(probeProcessAlive(-1)).toBeUndefined();
+    expect(probeProcessAlive(1.5)).toBeUndefined();
+  });
+});
+
+describe("detectDaemonConflictOnDisk", () => {
+  let dir: string;
+  let store: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-daemon-guard-"));
+    store = join(dir, "jobs.json");
+    writeFileSync(store, "[]");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const writeHeartbeat = (fields: Record<string, unknown>) =>
+    writeFileSync(join(dir, "daemon.json"), JSON.stringify(fields));
+
+  it("reports no conflict when there is no heartbeat", () => {
+    const c = detectDaemonConflictOnDisk(store);
+    expect(c.conflict).toBe(false);
+    expect(c.reason).toBe("no-heartbeat");
+  });
+
+  it("conflicts with a live daemon heartbeat (this very process)", () => {
+    const now = new Date().toISOString();
+    // Use a pid that is alive but not our own so 'self' doesn't short-circuit:
+    // parent pid (ppid) is alive during the test run.
+    writeHeartbeat({ pid: process.ppid, mode: "daemon", startedAt: now, lastTickAt: now, pollIntervalMs: 60000 });
+    const c = detectDaemonConflictOnDisk(store);
+    expect(c.conflict).toBe(true);
+    expect(c.reason).toBe("live");
+    expect(c.pid).toBe(process.ppid);
+  });
+
+  it("does not conflict with a crash leftover (dead pid), even if fresh", () => {
+    const now = new Date().toISOString();
+    writeHeartbeat({ pid: 2 ** 30, mode: "daemon", startedAt: now, lastTickAt: now, pollIntervalMs: 60000 });
+    const c = detectDaemonConflictOnDisk(store);
+    expect(c.conflict).toBe(false);
+    expect(c.reason).toBe("stale-dead");
+  });
+
+  it("ignores a one-shot tick heartbeat", () => {
+    const now = new Date().toISOString();
+    writeHeartbeat({ pid: process.ppid, mode: "tick", startedAt: now, lastTickAt: now, pollIntervalMs: 0 });
+    const c = detectDaemonConflictOnDisk(store);
+    expect(c.conflict).toBe(false);
+    expect(c.reason).toBe("not-daemon");
+  });
+
+  it("treats a garbled heartbeat file as no conflict", () => {
+    writeFileSync(join(dir, "daemon.json"), "{not json");
+    const c = detectDaemonConflictOnDisk(store);
+    expect(c.conflict).toBe(false);
+    expect(c.reason).toBe("no-heartbeat");
+  });
+});
+
+describe("startDaemon single-instance guard", () => {
+  let dir: string;
+  let store: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-daemon-start-"));
+    store = join(dir, "jobs.json");
+    writeFileSync(store, "[]");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("refuses to start when a live daemon is already watching the store", () => {
+    const now = new Date().toISOString();
+    writeFileSync(
+      join(dir, "daemon.json"),
+      JSON.stringify({ pid: process.ppid, mode: "daemon", startedAt: now, lastTickAt: now, pollIntervalMs: 60000 })
+    );
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const scheduler = startDaemon({ storePath: store, pollIntervalMs: 60000, remoteNotify: null });
+    errSpy.mockRestore();
+    expect(scheduler).toBeNull();
+  });
+
+  it("starts (and returns a scheduler) with --force despite a live heartbeat", () => {
+    const now = new Date().toISOString();
+    writeFileSync(
+      join(dir, "daemon.json"),
+      JSON.stringify({ pid: process.ppid, mode: "daemon", startedAt: now, lastTickAt: now, pollIntervalMs: 60000 })
+    );
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const scheduler = startDaemon({ storePath: store, pollIntervalMs: 60000, remoteNotify: null, force: true });
+    scheduler?.stop();
+    logSpy.mockRestore();
+    expect(scheduler).not.toBeNull();
+  });
+
+  it("starts normally when no daemon is running", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const scheduler = startDaemon({ storePath: store, pollIntervalMs: 60000, remoteNotify: null });
+    scheduler?.stop();
+    logSpy.mockRestore();
+    expect(scheduler).not.toBeNull();
   });
 });

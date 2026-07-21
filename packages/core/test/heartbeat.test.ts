@@ -3,6 +3,7 @@ import {
   DAEMON_HEARTBEAT_FILENAME,
   type DaemonHeartbeat,
   daemonHeartbeatPath,
+  detectDaemonConflict,
   evaluateHeartbeat,
   HEARTBEAT_MIN_STALE_AFTER_MS,
   HEARTBEAT_STALE_FACTOR,
@@ -154,5 +155,69 @@ describe("evaluateHeartbeat", () => {
     const status = evaluateHeartbeat(null, { nowMs: lastTick, waitingJobs: -4 });
     expect(status.waitingJobs).toBe(0);
     expect(status.concerning).toBe(false);
+  });
+});
+
+describe("detectDaemonConflict", () => {
+  const lastTick = Date.parse(sample.lastTickAt);
+  const ownPid = 9999;
+
+  it("reports no conflict when there is no heartbeat", () => {
+    const c = detectDaemonConflict(null, { nowMs: lastTick, ownPid });
+    expect(c.conflict).toBe(false);
+    expect(c.reason).toBe("no-heartbeat");
+    expect(c.pid).toBeUndefined();
+  });
+
+  it("ignores a one-shot tick heartbeat (holds no lock)", () => {
+    const tick: DaemonHeartbeat = { ...sample, mode: "tick", pollIntervalMs: 0 };
+    const c = detectDaemonConflict(tick, { nowMs: lastTick, ownPid, pidAlive: true });
+    expect(c.conflict).toBe(false);
+    expect(c.reason).toBe("not-daemon");
+    expect(c.pid).toBe(sample.pid);
+  });
+
+  it("does not conflict with our own heartbeat pid", () => {
+    const mine: DaemonHeartbeat = { ...sample, pid: ownPid };
+    const c = detectDaemonConflict(mine, { nowMs: lastTick, ownPid, pidAlive: true });
+    expect(c.conflict).toBe(false);
+    expect(c.reason).toBe("self");
+  });
+
+  it("conflicts when the daemon pid is alive, even if the heartbeat is old", () => {
+    const c = detectDaemonConflict(sample, { nowMs: lastTick + 10 * 60_000, ownPid, pidAlive: true });
+    expect(c.conflict).toBe(true);
+    expect(c.reason).toBe("live");
+    expect(c.stale).toBe(true); // old heartbeat, but the process is verifiably up
+    expect(c.pid).toBe(sample.pid);
+    expect(c.lastTickAt).toBe(sample.lastTickAt);
+  });
+
+  it("does not conflict when the daemon pid is verifiably dead, even if fresh", () => {
+    const c = detectDaemonConflict(sample, { nowMs: lastTick + 1_000, ownPid, pidAlive: false });
+    expect(c.conflict).toBe(false);
+    expect(c.reason).toBe("stale-dead");
+    expect(c.stale).toBe(false); // fresh, but the process is gone (crash leftover)
+  });
+
+  it("falls back to staleness when liveness is unknown: fresh → conflict", () => {
+    const c = detectDaemonConflict(sample, { nowMs: lastTick + 30_000, ownPid });
+    expect(c.conflict).toBe(true);
+    expect(c.reason).toBe("live");
+    expect(c.stale).toBe(false);
+  });
+
+  it("falls back to staleness when liveness is unknown: stale → no conflict", () => {
+    const c = detectDaemonConflict(sample, { nowMs: lastTick + 10 * 60_000, ownPid });
+    expect(c.conflict).toBe(false);
+    expect(c.reason).toBe("stale-dead");
+    expect(c.stale).toBe(true);
+  });
+
+  it("treats an unparseable lastTickAt as stale (no conflict without a live probe)", () => {
+    const bad: DaemonHeartbeat = { ...sample, lastTickAt: "not-a-date" };
+    const c = detectDaemonConflict(bad, { nowMs: lastTick, ownPid });
+    expect(c.conflict).toBe(false);
+    expect(c.stale).toBe(true);
   });
 });
