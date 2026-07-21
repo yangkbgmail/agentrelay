@@ -1,5 +1,5 @@
-import type { DailyActivity, RelayJob } from "@agentrelay/core";
-import { computeDailyTrend, computeStats, groupStats } from "@agentrelay/core";
+import type { DailyActivity, RelayJob, WeekdayActivity } from "@agentrelay/core";
+import { computeDailyTrend, computeStats, computeWeekdayActivity, groupStats } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
   formatDurationMs,
@@ -12,6 +12,7 @@ import {
   renderStats,
   renderStatsJson,
   renderTrend,
+  renderWeekday,
 } from "../src/stats.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
@@ -314,5 +315,59 @@ describe("renderStatsJson trend field", () => {
     const trend: DailyActivity[] = [{ date: "2026-07-20", count: 1 }];
     const withTrend = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", trend }));
     expect(withTrend.trend).toEqual(trend);
+  });
+
+  it("omits `weekday` by default but includes it when provided", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("weekday" in without).toBe(false);
+    const weekday = computeWeekdayActivity([job({ createdAt: "2026-07-20T00:00:00.000Z" })]);
+    const withWeekday = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", weekday }));
+    expect(withWeekday.weekday).toEqual(weekday);
+    expect(withWeekday.weekday[0]).toEqual({ weekday: 0, label: "Mon", count: 1 });
+  });
+});
+
+describe("renderWeekday", () => {
+  const week: WeekdayActivity[] = [
+    { weekday: 0, label: "Mon", count: 4 },
+    { weekday: 1, label: "Tue", count: 0 },
+    { weekday: 2, label: "Wed", count: 2 },
+    { weekday: 3, label: "Thu", count: 0 },
+    { weekday: 4, label: "Fri", count: 0 },
+    { weekday: 5, label: "Sat", count: 0 },
+    { weekday: 6, label: "Sun", count: 0 },
+  ];
+
+  it("renders a header, one row per weekday, and a footer total", () => {
+    const out = renderWeekday(week);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("activity");
+    for (const label of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) {
+      expect(out).toContain(label);
+    }
+    expect(out).toMatch(/Mon .* 4/);
+    expect(lines[lines.length - 1]).toContain("6 job(s) across 7 weekday(s)");
+  });
+
+  it("scales bars to the busiest weekday and draws no block for zero days", () => {
+    const out = renderWeekday(week);
+    const rows = out.split("\n");
+    const width = (label: string) => ((rows.find((r) => r.includes(label)) ?? "").match(/█/g) ?? []).length;
+    expect(width("Mon")).toBeGreaterThanOrEqual(width("Wed"));
+    expect(width("Wed")).toBeGreaterThanOrEqual(1);
+    expect(width("Tue")).toBe(0);
+  });
+
+  it("round-trips a store subset through computeWeekdayActivity + renderWeekday", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-20T01:00:00.000Z" }), // Mon
+      job({ createdAt: "2026-07-20T09:00:00.000Z" }), // Mon
+      job({ createdAt: "2026-07-21T09:00:00.000Z" }), // Tue
+    ];
+    const computed = computeWeekdayActivity(jobs);
+    expect(computed[0].count).toBe(2);
+    expect(computed[1].count).toBe(1);
+    expect(renderWeekday(computed)).toContain("3 job(s) across 7 weekday(s)");
   });
 });

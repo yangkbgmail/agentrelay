@@ -396,6 +396,18 @@
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
 
+- [x] 👷 `agentrelay stats --by-weekday` — UTC 요일별(Mon..Sun) 활동 히스토그램(주간 계절성).
+      (완료 — `--trend`[달력일]·`--group-by`[툴/프로젝트/상태]와 다른 세 번째 축: 모든 잡을
+      생성 요일 7개 버킷에 접어 "평일 vs 주말" 같은 주기성을 노출. core `stats.ts`에 순수
+      `computeWeekdayActivity(jobs)` + `WeekdayActivity`(weekday 0=Mon..6=Sun·label·count) 신설 —
+      `Date.getUTCDay()`(0=Sun) → Monday-first 재매핑, 항상 7슬롯 zero-fill, 파싱 불가 createdAt은
+      스킵, ambient clock 미사용(각 잡의 createdAt에서 요일 산출)이라 순수·테스트 가능. 시간 창은
+      기존 `--since`/`--until` scope로 위임(중복 없음). CLI `stats.ts`에 `renderWeekday`(renderTrend와
+      동일 막대 스케일) + `renderStatsJson`에 `weekday` 필드(요청 시만 방출, 기본 JSON 모양 불변).
+      `cli.ts` stats에 `--by-weekday` 플래그 배선 — `--trend`와 독립 공존, `--group-by`는 조기 반환.
+      core 4 + cli 4 신규 테스트, 실제 빌드 CLI e2e로 Mon/Tue/Sun 버킷·JSON 필드·trend 공존·기본
+      JSON 하위호환 검증. branch `claude/wizardly-pascal-wf436f`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
