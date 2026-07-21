@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { computeDailyTrend, computeStats, GROUP_DIMENSIONS, groupStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import {
+  computeDailyTrend,
+  computeStats,
+  computeWeekdayActivity,
+  GROUP_DIMENSIONS,
+  groupStats,
+  isJobScopeActive,
+  scopeJobs,
+} from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -475,5 +483,44 @@ describe("computeDailyTrend", () => {
     expect(computeDailyTrend([], { nowMs: now, days: 0 }).map((d) => d.date)).toEqual(["2026-07-20"]);
     expect(computeDailyTrend([], { nowMs: now, days: -5 })).toHaveLength(1);
     expect(computeDailyTrend([], { nowMs: now, days: 2.9 })).toHaveLength(2);
+  });
+});
+
+describe("computeWeekdayActivity", () => {
+  it("returns exactly 7 Monday-first slots, zero-filled, for an empty list", () => {
+    const week = computeWeekdayActivity([]);
+    expect(week.map((w) => w.label)).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
+    expect(week.map((w) => w.weekday)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(week.every((w) => w.count === 0)).toBe(true);
+  });
+
+  it("buckets jobs by their UTC weekday (Monday-first)", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-20T00:00:00.000Z" }), // Mon
+      job({ createdAt: "2026-07-20T23:59:59.000Z" }), // Mon (same weekday, different time)
+      job({ createdAt: "2026-07-21T12:00:00.000Z" }), // Tue
+      job({ createdAt: "2026-07-26T06:00:00.000Z" }), // Sun
+    ];
+    const week = computeWeekdayActivity(jobs);
+    expect(week[0]).toEqual({ weekday: 0, label: "Mon", count: 2 });
+    expect(week[1]).toEqual({ weekday: 1, label: "Tue", count: 1 });
+    expect(week[6]).toEqual({ weekday: 6, label: "Sun", count: 1 });
+    expect(week.reduce((sum, w) => sum + w.count, 0)).toBe(4);
+  });
+
+  it("folds jobs from different calendar weeks onto the same weekday bucket", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-20T00:00:00.000Z" }), // Mon
+      job({ createdAt: "2026-07-13T00:00:00.000Z" }), // Mon, previous week
+    ];
+    const week = computeWeekdayActivity(jobs);
+    expect(week[0].count).toBe(2);
+  });
+
+  it("skips jobs with a missing/unparseable createdAt", () => {
+    const jobs = [job({ createdAt: "not-a-date" }), job({ createdAt: "2026-07-21T00:00:00.000Z" })];
+    const week = computeWeekdayActivity(jobs);
+    expect(week.reduce((sum, w) => sum + w.count, 0)).toBe(1);
+    expect(week[1].count).toBe(1); // Tue
   });
 });

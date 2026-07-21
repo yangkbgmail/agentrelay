@@ -1055,3 +1055,22 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay stats --by-weekday`(요일별 활동 히스토그램)] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-wf436f`)
+- **배경: BACKLOG의 👷 항목이 전부 [x]로 소진됨. 열린 PR 27개를 훑어 이미 다뤄진 기능(stats --by-hour ×7,
+  export html, config get, import, daemon guard, wait, errors 등)과 겹치지 않는 새 개선 항목을 발굴.**
+- **한 일: `stats --by-weekday` — UTC 요일별(Mon..Sun) 활동 히스토그램 신설.** `--trend`(절대 달력일)·
+  `--by-hour`(미병합 PR, 0-23시)와 구별되는 세 번째 축 — 모든 잡을 생성 요일 7개 버킷에 접어 주간 계절성
+  (평일 vs 주말)을 노출.
+  - core `stats.ts`: 순수 `computeWeekdayActivity(jobs)` + `WeekdayActivity`(weekday 0=Mon..6=Sun·label·count).
+    `Date.getUTCDay()`(0=Sun) → Monday-first `(day+6)%7` 재매핑, 항상 7슬롯 zero-fill, 파싱 불가 createdAt 스킵,
+    ambient clock 미사용(각 잡 createdAt에서 산출)이라 순수. 시간 창은 기존 scope(`--since`/`--until`)에 위임.
+  - CLI `stats.ts`: `renderWeekday`(renderTrend와 동일 막대 스케일: 최대 대비 상대폭·비제로 최소 1블록),
+    `renderStatsJson`에 `weekday` 필드(요청 시만 방출 → 기본 JSON 모양 불변, 하위호환).
+  - CLI `cli.ts`: `--by-weekday` 플래그 배선 — `--trend`와 독립 공존(둘 다 렌더 가능), `--group-by`는 조기 반환.
+- 검증: `pnpm build` 클린, `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test` **583 통과 + 1 skip**
+  (core 379 + cli 197[+1 skip] + dashboard 7). **실제 빌드된 CLI e2e**(mock 아님): 4-job 임시 스토어로
+  `stats --by-weekday`(Mon 2·Tue 1·Sun 1 막대)·`--by-weekday --json`(weekday 배열)·`--trend 3 --by-weekday`
+  (공존)·`stats --json`(weekday 키 부재=하위호환) 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, `stats --by-hour`
+  중복 PR 정리, README/ARCHITECTURE(🧭 코워크).

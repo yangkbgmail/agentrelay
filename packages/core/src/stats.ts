@@ -197,6 +197,52 @@ export function computeDailyTrend(jobs: RelayJob[], options: { nowMs: number; da
   return trend;
 }
 
+/** One weekday slot in a {@link computeWeekdayActivity} histogram. */
+export interface WeekdayActivity {
+  /** Day of week, Monday-first: 0 = Mon … 6 = Sun. */
+  weekday: number;
+  /** Short English label for the weekday, e.g. "Mon". */
+  label: string;
+  /** Jobs created on this weekday (bucketed by `createdAt`, UTC). */
+  count: number;
+}
+
+/** Monday-first weekday labels, index 0..6 → Mon..Sun. */
+const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+
+/**
+ * UTC day-of-week for `ms`, remapped to Monday-first (0 = Mon … 6 = Sun).
+ * `Date.getUTCDay()` returns 0 = Sun … 6 = Sat, so we rotate by shifting Sunday
+ * (0) to the end of the week.
+ */
+function utcWeekdayMondayFirst(ms: number): number {
+  return (new Date(ms).getUTCDay() + 6) % 7;
+}
+
+/**
+ * Buckets jobs by the UTC day of week they were created (Monday-first), so
+ * `agentrelay stats --by-weekday` can reveal weekly seasonality — e.g. whether
+ * rate-limits pile up on weekdays vs weekends. Distinct from
+ * {@link computeDailyTrend} (absolute calendar days) — this folds every job
+ * onto one of seven weekday buckets regardless of date.
+ *
+ * Pure and non-mutating: no ambient clock (weekday is derived from each job's
+ * own `createdAt`), no I/O. The result is always exactly 7 entries, Mon..Sun,
+ * zero-filled for quiet days so the histogram has a stable shape. Jobs with a
+ * missing or unparseable `createdAt` are skipped — they can't be placed on a
+ * weekday. Callers scope the job list beforehand (`--since`/`--tool`/…), so no
+ * filtering happens here.
+ */
+export function computeWeekdayActivity(jobs: RelayJob[]): WeekdayActivity[] {
+  const counts = new Array<number>(7).fill(0);
+  for (const job of jobs) {
+    const created = Date.parse(job.createdAt);
+    if (Number.isNaN(created)) continue;
+    counts[utcWeekdayMondayFirst(created)] += 1;
+  }
+  return WEEKDAY_LABELS.map((label, weekday) => ({ weekday, label, count: counts[weekday] }));
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 
