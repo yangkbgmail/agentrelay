@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { computeDailyTrend, computeStats, GROUP_DIMENSIONS, groupStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import {
+  computeDailyTrend,
+  computeHourlyTrend,
+  computeStats,
+  GROUP_DIMENSIONS,
+  groupStats,
+  isJobScopeActive,
+  scopeJobs,
+} from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -475,5 +483,51 @@ describe("computeDailyTrend", () => {
     expect(computeDailyTrend([], { nowMs: now, days: 0 }).map((d) => d.date)).toEqual(["2026-07-20"]);
     expect(computeDailyTrend([], { nowMs: now, days: -5 })).toHaveLength(1);
     expect(computeDailyTrend([], { nowMs: now, days: 2.9 })).toHaveLength(2);
+  });
+});
+
+describe("computeHourlyTrend", () => {
+  it("returns exactly 24 slots, hour 0 through 23, zero-filled", () => {
+    const hourly = computeHourlyTrend([]);
+    expect(hourly).toHaveLength(24);
+    expect(hourly.map((h) => h.hour)).toEqual(Array.from({ length: 24 }, (_, i) => i));
+    expect(hourly.every((h) => h.count === 0)).toBe(true);
+  });
+
+  it("buckets jobs by their UTC hour of day, aggregating across days", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-20T09:15:00.000Z" }),
+      job({ createdAt: "2026-07-19T09:45:00.000Z" }), // same hour, different day
+      job({ createdAt: "2026-07-18T23:00:00.000Z" }),
+      job({ createdAt: "2026-07-20T00:30:00.000Z" }),
+    ];
+    const hourly = computeHourlyTrend(jobs);
+    expect(hourly[9].count).toBe(2);
+    expect(hourly[23].count).toBe(1);
+    expect(hourly[0].count).toBe(1);
+    // Everything else stays zero.
+    expect(hourly.reduce((sum, h) => sum + h.count, 0)).toBe(4);
+  });
+
+  it("uses UTC, not local time, for the hour bucket", () => {
+    // 23:30Z lands in hour 23 regardless of the machine's timezone.
+    const hourly = computeHourlyTrend([job({ createdAt: "2026-07-20T23:30:00.000Z" })]);
+    expect(hourly[23].count).toBe(1);
+  });
+
+  it("skips jobs with a missing/unparseable createdAt", () => {
+    const jobs = [job({ createdAt: "not-a-date" }), job({ createdAt: "2026-07-20T05:00:00.000Z" })];
+    const hourly = computeHourlyTrend(jobs);
+    expect(hourly.reduce((sum, h) => sum + h.count, 0)).toBe(1);
+    expect(hourly[5].count).toBe(1);
+  });
+
+  it("does not window jobs out by age — every parseable job counts", () => {
+    const jobs = [
+      job({ createdAt: "2020-01-01T03:00:00.000Z" }), // years old
+      job({ createdAt: "2030-01-01T03:00:00.000Z" }), // years future
+    ];
+    const hourly = computeHourlyTrend(jobs);
+    expect(hourly[3].count).toBe(2);
   });
 });

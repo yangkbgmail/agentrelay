@@ -13,6 +13,7 @@ import {
   ALL_TOOLS,
   COMPLETION_SHELLS,
   computeDailyTrend,
+  computeHourlyTrend,
   computeStats,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
@@ -59,7 +60,14 @@ import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
-import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson, renderTrend } from "./stats.js";
+import {
+  renderGroupedStats,
+  renderGroupedStatsJson,
+  renderHourly,
+  renderStats,
+  renderStatsJson,
+  renderTrend,
+} from "./stats.js";
 import {
   type JobSelection,
   NO_MATCH_MESSAGE,
@@ -540,6 +548,7 @@ export function buildCli(): Command {
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("-g, --group-by <dimension>", `Break down metrics per group: ${GROUP_DIMENSIONS.join(", ")}`)
     .option("--trend [days]", "Also show a per-day activity histogram over the last N days, UTC (default 14, max 90)")
+    .option("--by-hour", "Also show an hour-of-day activity histogram (0–23, UTC) aggregated across all days")
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
     .action(
       (opts: {
@@ -550,6 +559,7 @@ export function buildCli(): Command {
         until?: string;
         groupBy?: string;
         trend?: string | boolean;
+        byHour?: boolean;
         json?: boolean;
       }) => {
         const { store } = program.opts();
@@ -667,19 +677,24 @@ export function buildCli(): Command {
 
         const stats = computeStats(jobs);
         const trend = trendDays !== null ? computeDailyTrend(jobs, { nowMs: now, days: trendDays }) : null;
+        const hourly = opts.byHour ? computeHourlyTrend(jobs) : null;
 
         if (opts.json) {
-          console.log(renderStatsJson(stats, store, { scope, trend }));
+          console.log(renderStatsJson(stats, store, { scope, trend, hourly }));
           return;
         }
         // A store with jobs but an empty scoped subset should say "no match",
         // not the onboarding hint — renderStats keys that off scopeNote.
         console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY), scopeNote }));
-        // Append the histogram only when the store has matching jobs (renderStats
+        // Append the histograms only when the store has matching jobs (renderStats
         // already handles the empty/no-match messaging on its own).
         if (trend !== null && stats.total > 0) {
           console.log("");
           console.log(renderTrend(trend, { color: Boolean(process.stdout.isTTY) }));
+        }
+        if (hourly !== null && stats.total > 0) {
+          console.log("");
+          console.log(renderHourly(hourly, { color: Boolean(process.stdout.isTTY) }));
         }
       }
     );

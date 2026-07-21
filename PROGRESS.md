@@ -1055,3 +1055,27 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay stats --by-hour` 시간대별 활동 히스토그램] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-jynyka`)
+- **배경**: 내 지정 브랜치의 이전 PR(#93)이 이미 main에 머지됨 → 지침대로 최신 main에서 브랜치를
+  새로 파고(같은 이름) 후속 작업을 신규 변경으로 진행. BACKLOG의 👷 항목은 사실상 전부 완료 상태라
+  CLAUDE.md 지침대로 새 개선 항목을 발굴해 구현.
+- **한 일**: `agentrelay stats --by-hour` — UTC 시간대별(0–23시) 활동 히스토그램 신규 커맨드 옵션.
+  기존 `--trend`(일별: "어느 날 바빴나")를 보완해 "하루 중 언제 rate-limit이 몰리나"를 보여줌 →
+  고정 wall-clock 시각에 리셋되는 일일 쿼터 패턴 포착에 유용.
+  - core `stats.ts`: 순수 `computeHourlyTrend(jobs)` + `HourlyActivity`. 모든 날에 걸쳐 `createdAt`의
+    `getUTCHours()`로 버킷, 항상 24슬롯 zero-fill(0→23), 파싱 불가 타임스탬프 스킵. `--trend`와 달리
+    시간 창 없음(모든 파싱 가능 잡이 기여).
+  - cli `stats.ts`: `renderHourly`(기존 `TREND_BAR_WIDTH` 재사용, `HHh` zero-pad 라벨, 최대 시간에
+    스케일한 막대·zero 시간은 dim 점) + `renderStatsJson`에 optional `hourly` 필드(요청 시에만 방출,
+    기본 JSON 모양 불변 — 기존 소비자 영향 0).
+  - cli `cli.ts`: `--by-hour` 플래그를 `--trend`/`--group-by`와 공존 배선(group-by 우선, 그 외
+    stats→trend→hourly 순차 렌더).
+- **검증**: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) 0 경고/0 에러,
+  `pnpm test` **585 통과 + 1 skip**(core 380 + cli 198[+1 skip] + dashboard 7; core +5·cli +6 신규).
+  **실제 빌드된 CLI e2e**(mock 아님): 3-job 스토어로 `stats --by-hour`(09h=2·23h=1 시간대 버킷 확인),
+  `--by-hour --json`(hourly 24슬롯 방출·non-zero만 필터), 무플래그 `--json`(hourly 생략 확인),
+  `--trend 3 --by-hour`(두 히스토그램 공존), `stats --help`(옵션 노출) 확인.
+- **다음 할 일**: 남은 distinct 오픈 PR(#61 doctor 큐 진행·#69 데몬 이중실행 가드·#75 resume latency[스키마])
+  전용 세션 리베이스, README/ARCHITECTURE(🧭 코워크). 새 👷 개선 후보: `stats --by-weekday`(요일별),
+  `export --format html`, doctor의 설정파일 권한 검사 등.
