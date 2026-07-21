@@ -1055,3 +1055,26 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay completion fish`(fish 셸 탭 완성)] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-cjbkgo`)
+- **배경: 명시적 👷 백로그 항목이 전부 [완료]이고, 열린 PR들(#99 stats --by-hour · #97/#98 export html · #96 wait ·
+  #95 config get · #94 import · #75 resume latency · #69 데몬 이중실행 가드 · #61 doctor 큐 진행)과 겹치지 않는
+  신규 개선 항목을 발굴했다.** `agentrelay completion`이 bash/zsh만 지원해 fish 사용자는 탭 완성을 못 받았다.
+- **한 일: fish 완성 스크립트 생성 지원.** core `completion.ts`의 `CompletionShell`/`COMPLETION_SHELLS`에
+  `fish`를 추가하고 순수 `generateFish(spec)`를 신설. fish는 bash/zsh처럼 한 함수가 라인을 훑는 게 아니라
+  각 규칙을 `complete -n <predicate>`로 구동하므로, 현재 라인의 명령/서브명령을 보고하는 헬퍼 함수
+  (`__fish_agentrelay_args`로 비옵션 인자 추출 → `_no_subcommand`/`_using_command`/`_command_bare`/
+  `_using_subcommand`)를 emit하고 그 위에 규칙을 매단다: top-level 명령명(`-a`), 글로벌 옵션, leaf 명령
+  플래그, 부모 명령(config/notify)의 서브명령명은 서브슬롯이 비었을 때만(`_command_bare`) + 각 서브명령
+  플래그(`_using_subcommand`). `fishOptionFragment`가 `--long→-l name`·`-x→-s x`·`-xy→-o xy`로 매핑,
+  기존 `assertSafeToken`으로 셸 메타문자를 차단(주입 방지). bash/zsh와 **동일하게 라이브 커맨더 프로그램에서
+  파생**(`buildCompletionSpec`)돼 실제 명령 표면과 드리프트하지 않음. CLI `completion` 설명/예시에 fish 추가.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **582 통과 + 1 skip**(core 382[+6: completion fish] + cli 193[+1 skip] + dashboard 7). 신규:
+    `COMPLETION_SHELLS`=[bash,zsh,fish]·`isCompletionShell("fish")`·fish 헤더/헬퍼·top-level 명령·글로벌
+    옵션·long/short 플래그 매핑·부모 서브명령 게이팅·부모엔 leaf 조건 미방출·불안전 명령명 throw.
+    **실제 빌드된 CLI e2e**(mock 아님): `completion fish`가 `__fish_agentrelay_*` 헬퍼 + 전체 명령셋
+    `-a` 리스트 + `config`/`notify` 서브명령(`_command_bare`)·서브플래그(`_using_subcommand`)를 정확히
+    방출, 결정론적(두 번 실행 동일), 미지 셸(`pwsh`)은 "Valid: bash, zsh, fish" + exit 1 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency) 통합, PowerShell 완성(👷 후보),
+  README/ARCHITECTURE(🧭 코워크).
