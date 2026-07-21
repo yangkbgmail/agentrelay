@@ -341,10 +341,17 @@ export function buildCli(): Command {
     .command("daemon")
     .description("Poll the job queue and auto-resume jobs once their rate limit resets")
     .option("-i, --interval <ms>", "Poll interval in milliseconds", "30000")
-    .action((opts: { interval: string }) => {
+    .option("-f, --force", "Start even if another daemon appears to be watching this store")
+    .action((opts: { interval: string; force?: boolean }) => {
       const { store } = program.opts();
-      startDaemon({ storePath: store, pollIntervalMs: parseInt(opts.interval, 10) });
-      // Keep the process alive; RelayScheduler uses setInterval internally.
+      const scheduler = startDaemon({
+        storePath: store,
+        pollIntervalMs: parseInt(opts.interval, 10),
+        force: opts.force,
+      });
+      // A null scheduler means the single-instance guard refused to start.
+      if (scheduler === null) process.exitCode = 1;
+      // Otherwise keep the process alive; RelayScheduler uses setInterval internally.
     });
 
   program
