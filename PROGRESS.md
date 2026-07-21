@@ -1055,3 +1055,33 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 34 — 파서: 요일 기반 리셋 창(주간 사용량 한도) 인식] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-tcu7ud`)
+- **배경: 세션 시작 시 열린 PR 다수(#94~#100, #75, #69, #61)가 completion fish·stats `--by-hour`·
+  export html·`wait`·config get·import·resume latency·데몬 가드·doctor 큐 진행을 이미 점유** 중이라,
+  이들과 겹치지 않는 신규 개선 항목을 발굴했다. 코드를 읽던 중 **핵심 파서의 실제 갭**을 찾았다:
+  기존 `clock-time` 패턴은 `"reset at <time>"`(요일 없이 바로 시각)만 매칭해, Claude Code의 **주간
+  사용량 한도** 메시지에서 흔한 `"resets on Monday at 9am"`·`"resets Thursday 14:30"`·`"resets
+  Wednesday"` 같은 **요일(day-of-week) 기반 리셋**을 전부 놓치고 있었다. 이 잡은 조용히 5시간
+  fallback으로 잘못 큐잉되거나 아예 감지 실패했다. 파서는 이 제품의 심장이면서 어떤 열린 PR도 안
+  건드리는 격리된 파일이라 최적의 대상.
+- **한 일** (`packages/core/src/parser.ts`, 순수):
+  1. `resolveWeekday(weekday, hour?, minute?, meridiem?, now)` + `WEEKDAY_INDEX` 신설 — 요일을 다음
+     발생일로 해소(오늘이 그 요일이고 시각이 이미 지났으면 다음 주로 롤), 범위 밖 시각(hour>23/
+     minute>59)·미지 요일은 클램프 대신 **null 반환**(malformed ISO와 동일 정책, fallthrough).
+     시각대는 기존 `clock-time`과 동일하게 로컬 해석(문서화된 한계).
+  2. **additive 패턴 2개**를 기존 패턴 뒤에 삽입 → 기존 매칭엔 **회귀 0**, 지금까지 null이던
+     문자열만 새로 잡는다:
+     - `weekday-clock`: `reset[s] (on)? <weekday> (at)? <h[:mm]> (am|pm)?` — 12/24h, `on`·`at` 옵션.
+     - `weekday-only`: `reset[s] (on)? <weekday>` — 시각 없이 자정 폴백. `weekday-clock` **뒤에** 둬
+       시각이 있으면 clock이 우선. 범위 밖 시각인 weekday-clock이 null이면 여기서 요일만이라도 건짐.
+  3. 사전 필터 `LOOKS_LIKE_RATE_LIMIT`에 `resets?\s+(on|<weekday>)` 분기 추가 → `"usage limit"`
+     문구가 근처에 없는 bare 요일 메시지(`"resets Monday at 9am"`)도 패턴 루프에 도달.
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **583 통과 + 1 skip**(core 383[+9: parser weekday] + cli 193[+1 skip] + dashboard 7).
+  **실제 빌드된 CLI `parse` e2e**(mock 아님, 오늘=2026-07-21 화):
+  `"Resets on Monday at 9am"`→weekday-clock·2026-07-27T09:00Z, `"resets Thursday"`→weekday-only·
+  2026-07-23T00:00Z, `"resets Wednesday at 4pm"` `--json`→weekday-clock·2026-07-22T16:00Z,
+  `"The standup meeting is on Monday."`→미감지(정상 종료) 확인.
+- 다음 할 일: 요일+시각대(TZ) 인식 확장(현재 로컬 해석, 👷 후보), `"resets in N days"` 일 단위
+  상대 기간(👷 후보), 누적 열린 PR(#94~#100 등) 통합(👷), README/ARCHITECTURE(🧭 코워크).

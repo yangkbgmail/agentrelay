@@ -396,6 +396,19 @@
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
 
+- [x] 👷 파서: 요일 기반 리셋 창(주간 사용량 한도) 인식 — `"resets on Monday at 9am"`/
+      `"resets Thursday 14:30"`/`"resets Wednesday"` 같은 day-of-week 리셋 메시지를 파싱.
+      (완료 — 기존 `clock-time` 패턴은 `"reset at <time>"`(요일 없이 바로 시각)만 잡아 Claude Code의
+      **주간 한도** 메시지에서 흔한 요일 기반 리셋을 놓쳤다. `packages/core/src/parser.ts`에 순수
+      `resolveWeekday`(요일→다음 발생일, 시각 지나면 다음 주로 롤, 범위 밖 시각·미지 요일은 null로
+      fallthrough) + `WEEKDAY_INDEX` 추가, 두 **additive** 패턴 신설: `weekday-clock`(요일+시각,
+      `"on"`·`"at"` 옵션, 12/24h) → `weekday-only`(요일만, 자정 폴백, 시각 있으면 clock이 우선).
+      기존 패턴을 먼저 시도하므로 **회귀 0** — 지금까지 null이던 문자열만 새로 매칭. 사전 필터
+      `LOOKS_LIKE_RATE_LIMIT`에 `resets? (on|<weekday>)` 분기 추가해 `"usage limit"` 문구 없는 bare
+      요일 메시지도 도달. 시각대(timezone)는 기존 `clock-time`과 동일하게 로컬 시각 해석(문서화된 한계).
+      parser.test.ts에 9케이스 추가, 빌드된 CLI `parse` e2e로 weekday-clock/weekday-only/JSON/무관
+      메시지 미감지 검증. branch `claude/wizardly-pascal-tcu7ud`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -126,6 +126,84 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
   });
 
+  // --- weekday-based reset windows (weekly usage limits) ---
+
+  it("parses 'resets on Monday at 9am' to the next Monday at 09:00 local", () => {
+    // 2026-07-12 is a Sunday; the next Monday is 2026-07-13.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("You've reached your weekly usage limit. Resets on Monday at 9am.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("weekday-clock");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(1); // Monday
+    expect(reset.getHours()).toBe(9);
+    expect(reset.getMinutes()).toBe(0);
+    expect(reset.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses a weekday with a 24-hour clock and no 'at' ('resets Thursday 14:30')", () => {
+    const now = new Date("2026-07-12T10:00:00Z"); // Sunday
+    const result = parseRateLimitMessage("usage limit reached — resets Thursday 14:30", { now });
+    expect(result?.pattern).toBe("weekday-clock");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(4); // Thursday
+    expect(reset.getHours()).toBe(14);
+    expect(reset.getMinutes()).toBe(30);
+  });
+
+  it("rolls a same-weekday reset to next week when the time has already passed", () => {
+    // now is a Sunday 20:00 local; "resets Sunday at 9am" should be next Sunday.
+    const now = new Date("2026-07-12T12:00:00");
+    now.setHours(20, 0, 0, 0);
+    const result = parseRateLimitMessage("rate limit — resets Sunday at 9am", { now });
+    expect(result?.pattern).toBe("weekday-clock");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(0); // Sunday
+    expect(reset.getHours()).toBe(9);
+    // ~7 days out, not earlier today.
+    expect(reset.getTime()).toBeGreaterThan(now.getTime());
+    expect(reset.getTime() - now.getTime()).toBeGreaterThan(6 * 24 * 60 * 60_000);
+  });
+
+  it("parses a bare weekday with no time ('resets Monday') to next Monday midnight", () => {
+    const now = new Date("2026-07-12T10:00:00Z"); // Sunday
+    const result = parseRateLimitMessage("You've hit your usage limit. Resets Monday.", { now });
+    expect(result?.pattern).toBe("weekday-only");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(1); // Monday
+    expect(reset.getHours()).toBe(0);
+    expect(reset.getMinutes()).toBe(0);
+  });
+
+  it("prefers a weekday+time over the bare-weekday fallback", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("usage limit; resets on Wednesday at 4pm", { now });
+    expect(result?.pattern).toBe("weekday-clock");
+    expect(new Date(result!.resetAt).getHours()).toBe(16);
+  });
+
+  it("recognizes full weekday names ('resets Wednesday')", () => {
+    const now = new Date("2026-07-12T10:00:00Z"); // Sunday
+    const result = parseRateLimitMessage("rate limit reached. resets Wednesday", { now });
+    expect(result?.pattern).toBe("weekday-only");
+    expect(new Date(result!.resetAt).getDay()).toBe(3); // Wednesday
+  });
+
+  it("falls back to the bare weekday when the clock time is out of range", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    // Hour 25 is impossible -> weekday-clock yields no valid date, but the
+    // weekday itself is still meaningful, so weekday-only catches it at midnight.
+    const result = parseRateLimitMessage("usage limit — resets Monday at 25:00", { now });
+    expect(result?.pattern).toBe("weekday-only");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(1); // Monday
+    expect(reset.getHours()).toBe(0);
+  });
+
+  it("still returns null for weekday mentions unrelated to a reset", () => {
+    expect(parseRateLimitMessage("The standup meeting is on Monday.")).toBeNull();
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [
