@@ -116,6 +116,25 @@ describe("exportStore", () => {
   // the --since/--until time window via core scopeJobs, then
   // --status/--tool/--project/--sort/--reverse via selectJobs. These tests
   // exercise that exact pipeline feeding exportStore, matching the CLI wiring.
+  it("restricts output to a --fields column subset (CSV order follows the request)", () => {
+    seed();
+    const result = exportStore({ storePath, format: "csv", columns: ["status", "project"] });
+    const lines = result.content.split("\n");
+    expect(lines[0]).toBe("status,project");
+    // Both seeded jobs are freshly queued.
+    expect(lines.slice(1).every((l) => l.startsWith("queued,"))).toBe(true);
+  });
+
+  it("projects JSON output to just the selected keys, keeping native types", () => {
+    seed();
+    const jobs = selectJobs(listStatus(storePath), { tools: ["codex-cli"] });
+    const result = exportStore({ storePath, format: "json", jobs, columns: ["project", "command"] });
+    const parsed = JSON.parse(result.content) as Array<Record<string, unknown>>;
+    expect(parsed).toHaveLength(1);
+    expect(Object.keys(parsed[0])).toEqual(["project", "command"]);
+    expect(parsed[0]).toEqual({ project: "beta", command: ["codex", "run"] });
+  });
+
   it("exports only the jobs matching a --tool filter", () => {
     seed();
     const jobs = selectJobs(listStatus(storePath), { tools: ["codex-cli"] });

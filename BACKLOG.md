@@ -396,6 +396,12 @@
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
 
+- [x] 👷 `agentrelay export --fields <col,...>` — 내보낼 컬럼을 골라 순서대로 투영(BI/스프레드시트/`jq`용).
+      (완료 — core `export.ts` 순수 `parseColumns`(콤마 리스트→순서 유지·중복 제거, 미지 이름은 `invalid`로 수집) +
+      `projectJob`(선택 열만 원시 타입 유지해 투영). `jobsToJson`/`jobsToNdjson`이 `columns` 옵션을 받아 각 잡 투영
+      (비면 무손실 폴백), `exportJobs`가 4개 포맷 전부에 옵션 전달. CSV/MD의 기존 `columns` 옵션 재사용. CLI `export`에
+      `--fields` 배선(미지/빈 목록은 exit 1), `exportStore`에 `columns` 추가. branch `claude/wizardly-pascal-i7yrz3`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

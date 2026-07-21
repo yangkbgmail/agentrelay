@@ -10,6 +10,8 @@ import {
   jobsToJson,
   jobsToMarkdown,
   jobsToNdjson,
+  parseColumns,
+  projectJob,
 } from "../src/export.js";
 import type { RelayJob } from "../src/types.js";
 
@@ -221,6 +223,84 @@ describe("jobsToNdjson", () => {
 
   it("yields an empty string for an empty job list", () => {
     expect(jobsToNdjson([])).toBe("");
+  });
+});
+
+describe("parseColumns", () => {
+  it("parses a comma-separated list into ordered columns", () => {
+    expect(parseColumns("status,id,attempts")).toEqual({ columns: ["status", "id", "attempts"], invalid: [] });
+  });
+
+  it("trims whitespace and drops empty entries", () => {
+    expect(parseColumns(" status , id ,")).toEqual({ columns: ["status", "id"], invalid: [] });
+  });
+
+  it("de-duplicates keeping first occurrence order", () => {
+    expect(parseColumns("id,status,id")).toEqual({ columns: ["id", "status"], invalid: [] });
+  });
+
+  it("collects unknown names in invalid (first-seen order) instead of throwing", () => {
+    expect(parseColumns("id,bogus,status,nope")).toEqual({ columns: ["id", "status"], invalid: ["bogus", "nope"] });
+  });
+
+  it("returns empty columns for an all-empty input", () => {
+    expect(parseColumns("  , ,")).toEqual({ columns: [], invalid: [] });
+  });
+});
+
+describe("projectJob", () => {
+  it("picks only the selected columns, in order, with native types", () => {
+    const j = job({ id: "x", status: "queued", attempts: 4, command: ["claude", "-p", "go"], resetAt: null });
+    const projected = projectJob(j, ["status", "attempts", "command", "resetAt"]);
+    expect(Object.keys(projected)).toEqual(["status", "attempts", "command", "resetAt"]);
+    expect(projected).toEqual({ status: "queued", attempts: 4, command: ["claude", "-p", "go"], resetAt: null });
+  });
+
+  it("yields an empty object for no columns", () => {
+    expect(projectJob(job(), [])).toEqual({});
+  });
+});
+
+describe("field projection across formats", () => {
+  it("jobsToJson projects each job to the selected keys, preserving array/number types", () => {
+    const jobs = [job({ id: "a", status: "failed", attempts: 3, command: ["claude", "-p", "x"] })];
+    const parsed = JSON.parse(jobsToJson(jobs, { columns: ["id", "attempts", "command"] }));
+    expect(parsed).toEqual([{ id: "a", attempts: 3, command: ["claude", "-p", "x"] }]);
+  });
+
+  it("jobsToJson stays lossless when no columns are given", () => {
+    const jobs = [job({ lastOutputTail: "tail" })];
+    expect(JSON.parse(jobsToJson(jobs))).toEqual(jobs);
+  });
+
+  it("jobsToNdjson projects each record to the selected keys", () => {
+    const jobs = [job({ id: "a", status: "failed" }), job({ id: "b", status: "completed" })];
+    const lines = jobsToNdjson(jobs, { columns: ["id", "status"] }).split("\n");
+    expect(lines.map((l) => JSON.parse(l))).toEqual([
+      { id: "a", status: "failed" },
+      { id: "b", status: "completed" },
+    ]);
+  });
+
+  it("an empty columns array falls back to the full lossless shape", () => {
+    const jobs = [job({ lastOutputTail: "tail" })];
+    expect(JSON.parse(jobsToJson(jobs, { columns: [] }))).toEqual(jobs);
+    expect(JSON.parse(jobsToNdjson(jobs, { columns: [] }))).toEqual(jobs[0]);
+  });
+
+  it("exportJobs threads columns to every format", () => {
+    const jobs = [job({ id: "a", status: "queued" })];
+    expect(exportJobs(jobs, "csv", { columns: ["status", "id"] })).toBe("status,id\nqueued,a");
+    expect(exportJobs(jobs, "md", { columns: ["status", "id"] })).toBe(
+      "| status | id |\n| --- | --- |\n| queued | a |"
+    );
+    expect(JSON.parse(exportJobs(jobs, "json", { columns: ["status", "id"] }))).toEqual([
+      { status: "queued", id: "a" },
+    ]);
+    expect(JSON.parse(exportJobs(jobs, "ndjson", { columns: ["status", "id"] }))).toEqual({
+      status: "queued",
+      id: "a",
+    });
   });
 });
 

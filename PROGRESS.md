@@ -1055,3 +1055,25 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay export --fields` 컬럼 투영] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-i7yrz3`)
+- 배경: 세션 시작 시 열린 PR이 20+개로 쌓여 있어(중복 누적) 어느 것과도 겹치지 않는 신규 항목을 발굴했다.
+  점유 목록: stats --by-hour(#108/#99), errors(#107), config get(#106/#95), upcoming(#105), 데몬 단일가드(#104/#69),
+  export html(#103/#98/#97), Gemini 어댑터(#102), 주간 리셋 파서(#101), completion fish(#100), wait(#96),
+  import(#94), resume latency(#75), doctor overdue(#61). 이 중 어느 것도 export **컬럼 선택**을 다루지 않아,
+  BI/스프레드시트/`jq` 사용자가 원하는 열만 골라 내보내는 `--fields`를 구현했다.
+- 한 일: **`agentrelay export --fields <col,...>`** — 컬럼 투영을 4개 포맷(csv/json/md/ndjson)에 일관 적용.
+  1. core `export.ts`에 순수 `parseColumns(input)`(콤마 리스트→순서 유지·중복 제거된 `JobCsvColumn[]` + 미지 이름은
+     throw 대신 `invalid`로 수집해 CLI가 한 번에 리포트) + `projectJob(job, columns)`(선택 열만 순서대로 골라 원시
+     타입 유지 — command는 배열, attempts는 숫자, resetAt/lastError는 string|null) 신설. `jobsToJson`/`jobsToNdjson`이
+     `columns` 옵션을 받아(비었으면 무손실 폴백) 각 잡을 투영, `exportJobs`가 모든 포맷에 옵션을 전달(기존엔 json/ndjson이
+     무시). CSV/MD는 이미 있던 `columns` 옵션 재사용. 선택 가능 열은 문서화된 `JOB_CSV_COLUMNS` 집합.
+  2. CLI `cli.ts` export 액션에 `--fields <fields>` 배선 — `parseColumns`로 검증(미지 열 전부 나열 + exit 1, 빈 목록도
+     exit 1), `exportStore`에 `columns` 옵션 추가해 core로 위임. `commands.ts` `ExportJobsOptions.columns` 추가.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **582 통과 + 1 skip**(core 387 + cli 195[+1 skip] + dashboard 7 — core export 15 + CLI export 2 신규).
+    **실제 빌드된 CLI e2e**(mock 아님): 2-job 스토어 시드 → `export --format csv --fields status,project`(요청 순서대로
+    2열)·`--format json --fields project,command`(command 배열 보존)·`--format ndjson --fields id,status`(줄단위 투영)·
+    `--format md --fields status,attempts`(마크다운 2열)·미지 열(`bogus,nope`)·빈 목록은 각각 에러 + exit 1 확인.
+- 다음 할 일: 쌓인 중복 PR 통합/정리(코워크 병합 권한 확인 후), #61(doctor 큐 진행)·#69(데몬 단일가드)·#75(resume
+  latency) 통합, README/ARCHITECTURE(🧭 코워크).

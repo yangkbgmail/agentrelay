@@ -35,6 +35,50 @@ export const JOB_CSV_COLUMNS = [
 export type JobCsvColumn = (typeof JOB_CSV_COLUMNS)[number];
 
 /**
+ * Parse a comma-separated `--fields` list into an ordered, de-duplicated set of
+ * export columns. Each name is trimmed and empty entries are dropped, so
+ * `"status, id ,"` yields `["status", "id"]`. Names outside {@link JOB_CSV_COLUMNS}
+ * are collected in `invalid` (first-seen order) rather than throwing, so the CLI
+ * can report every bad name at once. Order and de-duplication follow the user's
+ * input (first occurrence wins), so the exported column order is exactly what
+ * was asked for.
+ */
+export function parseColumns(input: string): { columns: JobCsvColumn[]; invalid: string[] } {
+  const columns: JobCsvColumn[] = [];
+  const invalid: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of input.split(",")) {
+    const name = raw.trim();
+    if (name === "" || seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
+    if ((JOB_CSV_COLUMNS as readonly string[]).includes(name)) {
+      columns.push(name as JobCsvColumn);
+    } else {
+      invalid.push(name);
+    }
+  }
+  return { columns, invalid };
+}
+
+/**
+ * Project a job down to just the selected columns, in the given order, keeping
+ * each field's native type (so `command` stays an array, `attempts` a number,
+ * `resetAt`/`lastError` their string-or-null). Used by the JSON/NDJSON exports
+ * when `--fields` narrows the output — CSV/Markdown flatten via {@link jobCsvValue}
+ * instead. Every column in {@link JOB_CSV_COLUMNS} is a direct key on
+ * {@link RelayJob}, so the projection is a straight key pick.
+ */
+export function projectJob(job: RelayJob, columns: readonly JobCsvColumn[]): Partial<RelayJob> {
+  const out: Partial<RelayJob> = {};
+  for (const col of columns) {
+    (out as Record<string, unknown>)[col] = job[col];
+  }
+  return out;
+}
+
+/**
  * RFC 4180 field escaping: a field is wrapped in double quotes when it contains
  * a comma, a double quote, or a newline (CR or LF), and any embedded double
  * quotes are doubled. Everything else is emitted verbatim. This keeps commas in
@@ -91,12 +135,16 @@ export function jobsToCsv(jobs: RelayJob[], options: CsvOptions = {}): string {
 }
 
 /**
- * Serialize jobs to pretty-printed JSON (2-space indent). Unlike the CSV form
- * this is lossless — the full {@link RelayJob} shape, including the `command`
- * array and `lastOutputTail`, round-trips exactly.
+ * Serialize jobs to pretty-printed JSON (2-space indent). Without a `columns`
+ * subset this is lossless — the full {@link RelayJob} shape, including the
+ * `command` array and `lastOutputTail`, round-trips exactly. When `columns` is
+ * given (via `--fields`), each job is projected to just those keys, in order,
+ * with their native types preserved.
  */
-export function jobsToJson(jobs: RelayJob[]): string {
-  return JSON.stringify(jobs, null, 2);
+export function jobsToJson(jobs: RelayJob[], options: Pick<CsvOptions, "columns"> = {}): string {
+  const cols = options.columns && options.columns.length > 0 ? options.columns : null;
+  const payload = cols ? jobs.map((job) => projectJob(job, cols)) : jobs;
+  return JSON.stringify(payload, null, 2);
 }
 
 /**
@@ -142,10 +190,12 @@ export function jobsToMarkdown(jobs: RelayJob[], options: Pick<CsvOptions, "colu
  * form it is lossless — each line round-trips a full {@link RelayJob} — but,
  * like CSV, it streams: tools such as `jq -c`, `while read line`, and
  * log/BigQuery pipelines consume it a record at a time without parsing the
- * whole file. An empty job list yields an empty string.
+ * whole file. An empty job list yields an empty string. Like {@link jobsToJson},
+ * a `columns` subset (via `--fields`) projects each record to just those keys.
  */
-export function jobsToNdjson(jobs: RelayJob[]): string {
-  return jobs.map((job) => JSON.stringify(job)).join("\n");
+export function jobsToNdjson(jobs: RelayJob[], options: Pick<CsvOptions, "columns"> = {}): string {
+  const cols = options.columns && options.columns.length > 0 ? options.columns : null;
+  return jobs.map((job) => JSON.stringify(cols ? projectJob(job, cols) : job)).join("\n");
 }
 
 /** Supported export formats. */
@@ -156,11 +206,11 @@ export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 export function exportJobs(jobs: RelayJob[], format: ExportFormat, options: CsvOptions = {}): string {
   switch (format) {
     case "json":
-      return jobsToJson(jobs);
+      return jobsToJson(jobs, options);
     case "md":
       return jobsToMarkdown(jobs, options);
     case "ndjson":
-      return jobsToNdjson(jobs);
+      return jobsToNdjson(jobs, options);
     default:
       return jobsToCsv(jobs, options);
   }

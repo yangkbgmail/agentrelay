@@ -5,6 +5,7 @@ import type {
   CompletionSpec,
   ExportFormat,
   GroupDimension,
+  JobCsvColumn,
   JobScope,
   JobStatus,
   RelayJob,
@@ -20,6 +21,8 @@ import {
   groupStats,
   isCompletionShell,
   isJobScopeActive,
+  JOB_CSV_COLUMNS,
+  parseColumns,
   parseDuration,
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
@@ -728,6 +731,10 @@ export function buildCli(): Command {
     )
     .option("-f, --format <format>", `Output format: ${EXPORT_FORMATS.join(" | ")}`, "csv")
     .option("-o, --out <file>", "Write to this file instead of stdout")
+    .option(
+      "--fields <fields>",
+      `Only emit these comma-separated columns, in this order: ${JOB_CSV_COLUMNS.join(", ")}`
+    )
     .option("-s, --status <statuses>", "Only export jobs with these comma-separated statuses (e.g. completed,failed)")
     .option("-t, --tool <tools>", `Only export jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
     .option("-p, --project <projects>", "Only export jobs from these comma-separated project names (exact match)")
@@ -739,6 +746,7 @@ export function buildCli(): Command {
       (opts: {
         format?: string;
         out?: string;
+        fields?: string;
         status?: string;
         tool?: string;
         project?: string;
@@ -754,6 +762,25 @@ export function buildCli(): Command {
           console.error(`Unknown --format "${opts.format}". Valid: ${EXPORT_FORMATS.join(", ")}.`);
           process.exitCode = 1;
           return;
+        }
+
+        // --fields projects the output down to a chosen column subset/order,
+        // applied uniformly across all four formats (CSV/MD flatten, JSON/NDJSON
+        // keep native types). Unknown names are reported all at once.
+        let columns: JobCsvColumn[] | undefined;
+        if (opts.fields !== undefined) {
+          const { columns: parsed, invalid } = parseColumns(opts.fields);
+          if (invalid.length > 0) {
+            console.error(`Unknown field(s): ${invalid.join(", ")}. Valid: ${JOB_CSV_COLUMNS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          if (parsed.length === 0) {
+            console.error(`--fields needs at least one field. Valid: ${JOB_CSV_COLUMNS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          columns = parsed;
         }
 
         // status/tool/project/sort/reverse go through selectJobs (which also sorts);
@@ -836,7 +863,13 @@ export function buildCli(): Command {
         const all = listStatus(store);
         const windowed = isJobScopeActive(window) ? scopeJobs(all, window) : all;
         const jobs = selectJobs(windowed, selection);
-        const result = exportStore({ storePath: store, format: format as ExportFormat, jobs, outPath: opts.out });
+        const result = exportStore({
+          storePath: store,
+          format: format as ExportFormat,
+          jobs,
+          outPath: opts.out,
+          columns,
+        });
         if (result.writtenTo) {
           // Keep stdout clean for redirection; status goes to stderr.
           console.error(`[agentrelay] exported ${result.count} job(s) to ${result.writtenTo}`);
