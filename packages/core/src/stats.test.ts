@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { computeDailyTrend, computeStats, GROUP_DIMENSIONS, groupStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import {
+  computeDailyTrend,
+  computeHourlyDistribution,
+  computeStats,
+  GROUP_DIMENSIONS,
+  groupStats,
+  isJobScopeActive,
+  scopeJobs,
+} from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -475,5 +483,47 @@ describe("computeDailyTrend", () => {
     expect(computeDailyTrend([], { nowMs: now, days: 0 }).map((d) => d.date)).toEqual(["2026-07-20"]);
     expect(computeDailyTrend([], { nowMs: now, days: -5 })).toHaveLength(1);
     expect(computeDailyTrend([], { nowMs: now, days: 2.9 })).toHaveLength(2);
+  });
+});
+
+describe("computeHourlyDistribution", () => {
+  it("returns exactly 24 zero-filled slots, hour 0 first, for an empty list", () => {
+    const dist = computeHourlyDistribution([]);
+    expect(dist).toHaveLength(24);
+    expect(dist.map((s) => s.hour)).toEqual([...Array(24).keys()]);
+    expect(dist.every((s) => s.count === 0)).toBe(true);
+  });
+
+  it("buckets jobs by their UTC hour of day, ignoring the calendar date", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-20T09:15:00.000Z" }),
+      job({ createdAt: "2026-07-18T09:59:59.000Z" }), // same hour, different day
+      job({ createdAt: "2026-07-01T23:00:00.000Z" }),
+    ];
+    const dist = computeHourlyDistribution(jobs);
+    expect(dist[9].count).toBe(2);
+    expect(dist[23].count).toBe(1);
+    expect(dist.reduce((sum, s) => sum + s.count, 0)).toBe(3);
+  });
+
+  it("places the top and bottom of the hour in the correct hour bucket", () => {
+    const jobs = [job({ createdAt: "2026-07-20T00:00:00.000Z" }), job({ createdAt: "2026-07-20T00:59:59.999Z" })];
+    const dist = computeHourlyDistribution(jobs);
+    expect(dist[0].count).toBe(2);
+    expect(dist[1].count).toBe(0);
+  });
+
+  it("skips jobs with a missing/unparseable createdAt", () => {
+    const jobs = [job({ createdAt: "nope" }), job({ createdAt: "2026-07-20T05:00:00.000Z" })];
+    const dist = computeHourlyDistribution(jobs);
+    expect(dist.reduce((sum, s) => sum + s.count, 0)).toBe(1);
+    expect(dist[5].count).toBe(1);
+  });
+
+  it("does not mutate the input list", () => {
+    const jobs = [job({ createdAt: "2026-07-20T07:00:00.000Z" })];
+    const snapshot = JSON.stringify(jobs);
+    computeHourlyDistribution(jobs);
+    expect(JSON.stringify(jobs)).toBe(snapshot);
   });
 });

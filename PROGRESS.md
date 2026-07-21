@@ -1055,3 +1055,17 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — stats `--by-hour` UTC 시간대 히스토그램] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-o383q2`)
+- 한 일: `agentrelay stats --by-hour` 신규 — 잡 생성 시각을 UTC 시(hour-of-day, 0–23)로 버킷팅한 활동
+  히스토그램. 일별 `--trend`(어느 날)를 보완해 "하루 중 언제 rate-limit이 몰리는지"(사용량 창 타이밍) 노출.
+  - core `stats.ts`: 순수 `computeHourlyDistribution(jobs)` + `HourlyActivity`(항상 24슬롯 zero-fill,
+    파싱 불가 createdAt 스킵, clock-free — 이동 창 없으니 `nowMs` 불필요).
+  - CLI `stats.ts`: `renderHourly`(00–23 막대 + busiest hour 푸터, `--trend`와 동일 스케일링/제로 dot),
+    `renderStatsJson`에 `byHour` 필드(요청 시만 방출 → 기본 JSON 형태 불변).
+  - CLI `cli.ts`: `--by-hour` 플래그(`--trend`와 공존, `--group-by`는 기존대로 우선 반환).
+- 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **586 통과 + 1 skip**(core 380 + cli 199[+1 skip] + dashboard 7). **실제 빌드된 CLI e2e**(mock 아님):
+  3-job 임시 스토어로 `stats --by-hour`(09시=2·23시=1 막대·busiest 09:00), `--by-hour --json`(byHour 24슬롯),
+  `--trend 3 --by-hour`(두 히스토그램 공존), 기본 `stats --json`(byHour/trend 생략) 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).

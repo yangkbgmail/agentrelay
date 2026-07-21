@@ -3,7 +3,15 @@
 // breakdown). Kept as pure functions here, separate from the commander wiring
 // in cli.ts, so the exact output is unit-testable without a store or a clock.
 
-import type { DailyActivity, GroupDimension, GroupedStat, JobScope, JobStatus, RelayStats } from "@agentrelay/core";
+import type {
+  DailyActivity,
+  GroupDimension,
+  GroupedStat,
+  HourlyActivity,
+  JobScope,
+  JobStatus,
+  RelayStats,
+} from "@agentrelay/core";
 import { isJobScopeActive } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
@@ -204,18 +212,63 @@ export function renderTrend(trend: DailyActivity[], options: { color?: boolean }
   return lines.join("\n");
 }
 
+/**
+ * Renders an hour-of-day activity histogram (jobs created per UTC hour) as a
+ * compact ASCII bar chart, hours 00–23 down the left. Bars scale to the busiest
+ * hour so the shape reads regardless of absolute volume; a zero hour shows a dim
+ * baseline dot. Pure: no I/O, no clock. Callers pass the already-computed
+ * distribution (always 24 slots) so it stays testable.
+ */
+export function renderHourly(dist: HourlyActivity[], options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [b("activity") + d(" (jobs created per hour of day, UTC)")];
+  if (dist.length === 0) {
+    lines.push("  none");
+    return lines.join("\n");
+  }
+
+  const max = dist.reduce((m, slot) => Math.max(m, slot.count), 0);
+  const total = dist.reduce((sum, slot) => sum + slot.count, 0);
+  for (const { hour, count } of dist) {
+    // Scale each bar to the busiest hour; guarantee at least one block for any
+    // non-zero hour so small counts don't vanish next to a spike.
+    const filled = max === 0 || count === 0 ? 0 : Math.max(1, Math.round((count / max) * TREND_BAR_WIDTH));
+    const plain = count === 0 ? "·" : "█".repeat(filled);
+    const padded = plain.padEnd(TREND_BAR_WIDTH);
+    const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
+    lines.push(`  ${String(hour).padStart(2, "0")}:00  ${shown} ${count}`);
+  }
+  if (max > 0) {
+    // Busiest hour for the footer; earliest hour wins ties (stable, first-max).
+    const peakHour = dist.reduce((best, slot) => (slot.count > dist[best].count ? slot.hour : best), 0);
+    lines.push(d(`  ${total} job(s); busiest hour ${String(peakHour).padStart(2, "0")}:00 UTC`));
+  } else {
+    lines.push(d(`  ${total} job(s)`));
+  }
+  return lines.join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,
   storePath: string,
-  options: { generatedAt?: string; scope?: JobScope; trend?: DailyActivity[] | null } = {}
+  options: {
+    generatedAt?: string;
+    scope?: JobScope;
+    trend?: DailyActivity[] | null;
+    byHour?: HourlyActivity[] | null;
+  } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
-  // Only emit `trend` when --trend was requested; omit it entirely otherwise so
-  // the default JSON shape is unchanged for existing consumers.
+  // Only emit `trend`/`byHour` when the matching flag was requested; omit them
+  // entirely otherwise so the default JSON shape is unchanged for existing consumers.
   const trend = options.trend ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, stats }, null, 2);
+  const byHour = options.byHour ?? undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, trend, byHour, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */
