@@ -396,6 +396,17 @@
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
 
+- [x] 👷 Gemini CLI 어댑터 — Google Gemini API의 `RESOURCE_EXHAUSTED`(429) 리셋 힌트(`retryDelay`) 인식.
+      (완료 — `@agentrelay/core`에 `gemini-cli` 툴 추가: `types.ts`의 `AgentTool` union 확장,
+      `adapters.ts`에 `GEMINI_CLI_ADAPTER`(binaries `["gemini","gemini-cli"]`) + `ADAPTERS` 등록,
+      `stats.ts`의 `ALL_TOOLS` 편입(byTool zero-fill·`--tool` 검증에 자동 반영). 순수
+      `GEMINI_RETRY_DELAY_PATTERN`이 Google 429 에러의 `RetryInfo` 필드 `"retryDelay": "56s"`/
+      `retryDelay = 30 s`(따옴표·`=`/`:`·공백 관용, 초/분 단위)를 정확히 파싱해 재개 시각 산출 —
+      분수 초는 올림(조기 재개 방지), 모호한 `ms`는 의도적으로 무시. codex-cli 어댑터와 달리
+      OpenAI식 초 대기가 아니라 Google의 구조화된 retryDelay 필드가 특징. generic 파서는 이
+      필드를 못 잡으므로 어댑터 전용. 새 스키마·잡 로직 변경 없음, 기존 어댑터/파서 인프라 재사용.
+      branch `claude/wizardly-pascal-ym2315`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

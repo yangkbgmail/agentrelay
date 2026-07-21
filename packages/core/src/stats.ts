@@ -6,7 +6,7 @@ export const ACTIVE_STATUSES: JobStatus[] = ["queued", "waiting_for_reset", "res
 /** Statuses where the job has reached a final state. */
 export const TERMINAL_STATUSES: JobStatus[] = ["completed", "failed", "cancelled"];
 /** Every known agent tool, so `byTool` always has a stable, zero-filled shape. */
-export const ALL_TOOLS: AgentTool[] = ["claude-code", "codex-cli", "generic"];
+export const ALL_TOOLS: AgentTool[] = ["claude-code", "codex-cli", "gemini-cli", "generic"];
 
 export interface ProjectStat {
   project: string;

@@ -325,7 +325,7 @@ export function buildCli(): Command {
     .argument("<command...>", 'Command to run, e.g. agentrelay run -- claude -p "continue"')
     .option(
       "--tool <tool>",
-      "Agent tool adapter to use (claude-code | codex-cli | generic). Inferred from the command when omitted."
+      "Agent tool adapter to use (claude-code | codex-cli | gemini-cli | generic). Inferred from the command when omitted."
     )
     .action(async (command: string[], opts: { tool?: string }) => {
       const { store } = program.opts();

@@ -61,6 +61,30 @@ const CODEX_SECONDS_PATTERN: RateLimitPattern = {
   },
 };
 
+/**
+ * Google's Gemini API (which the `gemini` CLI talks to) rejects over-quota
+ * requests with a gRPC `RESOURCE_EXHAUSTED` / HTTP 429 error that embeds a
+ * precise retry hint in a `RetryInfo` payload, e.g. `"retryDelay": "56s"` or
+ * `retryDelay: 56s`. Seconds are by far the most common unit (free-tier
+ * per-minute quotas), but the field can also carry minutes. The generic
+ * `relative-duration` pattern only understands the "try again in Xh Ym" phrasing
+ * and would miss this structured field entirely, so match it directly and round
+ * fractional values up so we never resume before the quota window reopens.
+ *
+ * "ms" (milliseconds) is deliberately NOT matched: it is ambiguous against the
+ * `s`/`m` units and a sub-second wait is not worth queuing a resume for.
+ */
+const GEMINI_RETRY_DELAY_PATTERN: RateLimitPattern = {
+  name: "gemini-retry-delay",
+  regex: /retry[-_ ]?delay"?\s*[=:]\s*"?(\d+(?:\.\d+)?)\s*([sm])\b/i,
+  resolve: (m, now) => {
+    const value = parseFloat(m[1]);
+    if (!Number.isFinite(value) || value <= 0) return null;
+    const unitMs = m[2].toLowerCase() === "m" ? 60_000 : 1000;
+    return new Date(now.getTime() + Math.ceil(value * unitMs));
+  },
+};
+
 export const CLAUDE_CODE_ADAPTER: AgentAdapter = makeAdapter({
   tool: "claude-code",
   displayName: "Claude Code",
@@ -75,6 +99,13 @@ export const CODEX_CLI_ADAPTER: AgentAdapter = makeAdapter({
   patterns: [CODEX_SECONDS_PATTERN],
 });
 
+export const GEMINI_CLI_ADAPTER: AgentAdapter = makeAdapter({
+  tool: "gemini-cli",
+  displayName: "Gemini CLI",
+  binaries: ["gemini", "gemini-cli"],
+  patterns: [GEMINI_RETRY_DELAY_PATTERN],
+});
+
 export const GENERIC_ADAPTER: AgentAdapter = makeAdapter({
   tool: "generic",
   displayName: "Generic agent",
@@ -86,6 +117,7 @@ export const GENERIC_ADAPTER: AgentAdapter = makeAdapter({
 export const ADAPTERS: Record<AgentTool, AgentAdapter> = {
   "claude-code": CLAUDE_CODE_ADAPTER,
   "codex-cli": CODEX_CLI_ADAPTER,
+  "gemini-cli": GEMINI_CLI_ADAPTER,
   generic: GENERIC_ADAPTER,
 };
 
