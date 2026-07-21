@@ -395,6 +395,18 @@
 - [x] 👷 `agentrelay stats --trend [days]` — UTC 일별 활동 히스토그램(릴레이가 언제 바빴는지 시간 축).
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
+- [x] 👷 `agentrelay stats --by-hour` — UTC 시간대(00–23) 활동 히스토그램(하루 중 언제 rate-limit이 몰리는지).
+      `--trend`(어느 "날"이 바빴나)의 자매 뷰로, 모든 날을 접어 "시각"별 분포를 보여줌 → 재개/작업
+      스케줄링 판단에 유용.
+      (완료 — core `stats.ts`에 순수 `computeHourlyActivity(jobs)`/`HourlyActivity`(항상 24슬롯 0시
+      먼저·zero-fill, `createdAt` UTC 시로 버킷, 파싱 불가는 스킵, 클럭/스코프 미접촉 — 스코프는 호출부
+      `scopeJobs`가 선적용). CLI `stats.ts`에 순수 `renderHourlyActivity`(피크 스케일 ASCII 막대·0시
+      dim 점·`HH:00` 라벨·"N job(s) across 24h" 푸터) + `renderStatsJson`에 optional `hourly` 필드
+      (플래그 있을 때만 방출, 기본 JSON 형태 불변). `cli.ts` `stats`에 boolean `--by-hour` 배선 —
+      `--trend`와 **공존**(둘 다 렌더), `--group-by` 지정 시 group-by 우선(by-hour 무시, trend와 동일
+      규칙), `stats.total>0`일 때만 블록 출력. 새 스키마 변경 0. core 4 + cli 5 신규 테스트, 실제 빌드
+      CLI e2e로 시간대 버킷·JSON hourly·미플래그 시 부재·trend 공존·group-by 우선 검증. branch
+      `claude/wizardly-pascal-st3qlq`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

@@ -1055,3 +1055,24 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay stats --by-hour` UTC 시간대 활동 히스토그램] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-st3qlq`)
+- **배경**: BACKLOG의 👷 항목이 전부 완료 상태 → CLAUDE.md 지침대로 새 개선 항목을 스스로 발굴. `--trend`는
+  "어느 날이 바빴나"(일별)를 보여주지만, "하루 중 언제 rate-limit이 몰리나"(시각별)를 볼 수단이 없었다.
+  재개/작업 스케줄링 판단에 직접 쓰이는 자매 뷰.
+- **한 일**: `agentrelay stats --by-hour` 추가 — 모든 날을 접어 UTC 시간대(00–23)별 잡 생성 분포를 ASCII
+  막대로. 기존 `computeDailyTrend`/`renderTrend` 패턴을 그대로 미러링(순수·테스트 가능, 스키마 변경 0).
+  - core `stats.ts`: 순수 `computeHourlyActivity(jobs)` + `HourlyActivity`(항상 24슬롯, 0시 먼저,
+    zero-fill, `createdAt` UTC 시로 버킷, 파싱 불가는 스킵, 클럭/I·O 미접촉). 스코프는 호출부 `scopeJobs`가
+    선적용하므로 이 함수는 이미 스코프된 잡만 받음.
+  - CLI `stats.ts`: 순수 `renderHourlyActivity`(피크 스케일 막대·0시 dim 점·`HH:00` 라벨·"N job(s)
+    across 24h" 푸터) + `renderStatsJson`에 optional `hourly` 필드(플래그 있을 때만 방출 → 기본 JSON 불변).
+  - `cli.ts`: boolean `--by-hour` 배선. `--trend`와 **공존**(둘 다 렌더), `--group-by` 지정 시 group-by가
+    우선(by-hour 무시, trend와 동일 규칙), `stats.total>0`일 때만 블록 출력.
+- **검증**: `pnpm build` 클린, `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test` **584 통과 + 1 skip**
+  (core 379[+4] + cli 198[+5, +1 skip] + dashboard 7). **실제 빌드된 CLI e2e**(mock 아님): 3-잡 임시 스토어로
+  `stats --by-hour`(09시 2건·23시 1건 막대), `--by-hour --json`(hourly 24슬롯·non-zero 슬롯), 미플래그 시
+  by-hour 블록/JSON 필드 부재, `--trend 3 --by-hour` 공존(양쪽 블록), `--group-by tool --by-hour`(group-by
+  우선·by-hour 억제) 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, `stats --by-hour`
+  요일(day-of-week) 변형, README/ARCHITECTURE(🧭 코워크).
