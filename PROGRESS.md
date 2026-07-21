@@ -1055,3 +1055,30 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 34 — Gemini CLI 어댑터(RESOURCE_EXHAUSTED retryDelay 인식)] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-ym2315`)
+- **배경: 명시적 👷 백로그 항목이 전부 [완료]이고, 열린 PR이 12개(#94~#101 등)까지 쌓여 상당수가 중복**
+  (export html #97/#98 쌍 등). 세션 32의 교훈대로 13번째 중복 PR을 더하지 않으려고, **어떤 열린 PR도
+  건드리지 않는 격리된 파일**을 골랐다 — 열린 PR이 touch하는 영역(parser/completion/stats 함수/export/
+  wait/config/import/heartbeat/doctor)과 겹치지 않는 `adapters.ts`가 SPEC §8 "다른 툴 어댑터" 항목에
+  정확히 해당.
+- **한 일: `@agentrelay/core`에 `gemini-cli` 툴 + Gemini CLI 어댑터 신설.**
+  - `types.ts`: `AgentTool` union에 `"gemini-cli"` 추가.
+  - `adapters.ts`: 순수 `GEMINI_RETRY_DELAY_PATTERN`(Google 429 `RESOURCE_EXHAUSTED`의 `RetryInfo`
+    필드 `"retryDelay": "56s"`/`retryDelay = 30 s` — 따옴표·`=`/`:`·공백 관용, 초/분 단위, 분수 초
+    올림[조기 재개 방지], 모호한 `ms`는 의도적 무시) + `GEMINI_CLI_ADAPTER`(binaries `["gemini",
+    "gemini-cli"]`) + `ADAPTERS` 레지스트리 등록(TypeScript가 Record 완전성 강제).
+  - `stats.ts`: `ALL_TOOLS`에 편입 → byTool zero-fill·CLI `--tool` 검증 목록에 자동 반영.
+  - `cli.ts`: `run --tool` 설명에 gemini-cli 표기. codex-cli 어댑터가 OpenAI식 초 대기를 잡는다면,
+    이 어댑터는 Google의 구조화된 retryDelay 필드가 특징 — generic 파서는 이 필드를 못 잡으므로 어댑터 전용.
+  - 새 스키마·잡 로직 변경 없음. 기존 어댑터/파서 인프라(`makeAdapter`/`extraPatterns`/`inferToolFromCommand`)
+    전면 재사용이라 회귀 표면 최소.
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **582 통과 + 1 skip**(core 382[+8: adapters gemini 5 detection·2 infer/resolve·1 registry] +
+  cli 193[+1 skip] + dashboard 7). 부수: 기존 stats.test.ts의 byTool 기대값 3곳에 gemini-cli:0 반영.
+  **실제 빌드된 CLI e2e**(mock 아님): `parse --tool gemini-cli '…"retryDelay":"56s"'`→`gemini-retry-delay`,
+  resets in 1m · `"retryDelay":"2m"`→2m · generic 어댑터는 retryDelay 미감지(정상 종료) · 잘못된 `--tool`
+  거부 목록에 `gemini-cli` 노출 확인.
+- 다음 할 일: 열린 PR 중 distinct 신규 기능(#94 import·#95 config get·#96 wait·#99 by-hour·#100 completion
+  fish·#101 parser weekday·#61 doctor 큐 진행·#69 데몬 이중실행 가드·#75 resume latency) 통합/정리,
+  추가 어댑터(Aider 등) 발굴, README/ARCHITECTURE(🧭 코워크).
