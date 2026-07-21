@@ -395,6 +395,18 @@
 - [x] 👷 `agentrelay stats --trend [days]` — UTC 일별 활동 히스토그램(릴레이가 언제 바빴는지 시간 축).
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
+- [x] 👷 `agentrelay next --limit <n>` — 단일 다음 재개 잡뿐 아니라 앞으로 재개될 상위 N개를 순서대로
+      보여주는 재개 예정표(agenda). 큰 큐에서 "다음 몇 시간 스케줄"을 한눈에.
+      (완료 — 기존 `next`는 가장 임박한 재개 1건만 한 줄로 보여줘, 그 뒤에 무엇이 언제 재개될지 보려면
+      `status`로 큐 전체를 훑어야 했다. core `next.ts`에 순수 `selectUpcomingResumes(jobs, now, limit?)`
+      + `UpcomingResume` 신설 — `selectNextResume`와 공유하는 `sortedWaiting`(waiting_for_reset +
+      파싱가능 resetAt만, soonest-first 정렬)로 "다음 1개"와 "다음 N개"가 절대 불일치하지 않게 함.
+      `limit≤0`/미지정은 전체, 소수는 floor. CLI `next.ts`에 순수 `renderUpcoming`(번호 매긴 agenda +
+      잘렸을 때 "N more waiting" 푸터, `formatCountdown` 재사용으로 status/next와 카운트다운 일치)·
+      `renderUpcomingJson`(total/count/upcoming). `next -n/--limit <count>` 배선 — `--json`·`--exit-code`
+      (임박 재개 기준, 단일 뷰와 동일)와 공존, 잘못된 limit(비양수/비정수)은 exit 1. core next 6 +
+      cli next 8 신규 테스트, 실제 빌드 CLI e2e로 agenda 순서·푸터·JSON·exit-code·잘못된 limit 검증.
+      branch `claude/wizardly-pascal-hy36k9`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

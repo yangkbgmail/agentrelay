@@ -1055,3 +1055,23 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay next --limit N` 재개 예정표(agenda)] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-hy36k9`)
+- **배경: 열린 👷 BACKLOG 항목이 사실상 모두 완료 상태라 CLAUDE.md 지침대로 새 개선 항목을 스스로 발굴.**
+  기존 `next`는 가장 임박한 재개 1건만 한 줄로 보여줘, 그 뒤에 무엇이 언제 재개될지 보려면 `status`로 큐
+  전체를 훑어야 했다 — 큰 큐에서 "다음 몇 시간의 재개 스케줄"을 빠르게 볼 수단이 없었다.
+- **한 일: `agentrelay next --limit N`(별칭 `-n`)으로 재개 예정표(agenda) 추가.**
+  - core `next.ts`: 순수 `selectUpcomingResumes(jobs, now, limit?)` + `UpcomingResume` 타입 신설. 기존
+    `selectNextResume`와 필터+정렬을 공유하는 `sortedWaiting`(waiting_for_reset + 파싱가능 resetAt만,
+    soonest-first)로 리팩터 → "다음 1개"와 "다음 N개"가 잡 집합·순서에서 절대 불일치하지 않음. `limit≤0`/
+    미지정=전체, 소수=floor. `selectNextResume` 동작은 불변(기존 테스트 그대로 통과).
+  - CLI `next.ts`: 순수 `renderUpcoming`(번호 매긴 agenda, 잘렸을 때 "N more waiting" 푸터, `formatCountdown`
+    재사용으로 status/next와 카운트다운 표기 일치)·`renderUpcomingJson`(storePath/total/count/upcoming).
+  - `cli.ts`: `next`에 `-n, --limit <count>` 배선 — `--json`·`--exit-code`(임박 재개 기준, 단일 뷰와 동일
+    의미론)와 공존. 잘못된 limit(비양수/비정수)은 명확한 에러 + exit 1.
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **590 통과 + 1 skip**(core 382 + cli 201[+1 skip] + dashboard 7). **실제 빌드된 CLI e2e**(mock 아님):
+  4개 waiting + 1 completed 스토어로 `next`(단일)·`next --limit 3`(agenda + "1 more" 푸터)·`next --limit 10`
+  (전부 4개·푸터 없음)·`next --limit 2 --json`(total 4/count 2)·`next --limit 2 --exit-code`(due-now→0)·
+  `next --limit abc`(exit 1) 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).

@@ -5,7 +5,7 @@
 // functions (separate from the commander wiring) so the output is testable
 // without a TTY, a clock, or a spawned process.
 
-import type { NextResume } from "@agentrelay/core";
+import type { NextResume, UpcomingResume } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
 const DIM = "\x1b[2m";
@@ -46,4 +46,58 @@ export function renderNextJson(
   generatedAt: string = new Date().toISOString()
 ): string {
   return JSON.stringify({ storePath, generatedAt, next }, null, 2);
+}
+
+/**
+ * Human-friendly agenda for `agentrelay next --limit N`: the upcoming resumes,
+ * one numbered line each, soonest first. Where `renderNext` surfaces a single
+ * imminent resume, this shows the schedule — a mini timeline of what the daemon
+ * will do and when. Reuses `formatCountdown` so countdowns match `status`/`next`
+ * exactly. Pure: no ambient clock unless `now` is omitted.
+ *
+ * `total` is the full count of waiting jobs (before any `--limit` cap) so a
+ * "N more waiting" footer can be shown when the agenda is truncated; pass the
+ * list length itself when nothing was capped.
+ */
+export function renderUpcoming(
+  upcoming: UpcomingResume[],
+  options: { now?: number; color?: boolean; total?: number } = {}
+): string {
+  const now = options.now ?? Date.now();
+  const color = options.color ?? false;
+  if (upcoming.length === 0) return NO_PENDING_MESSAGE;
+
+  const b = (s: string): string => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string): string => (color ? `${DIM}${s}${RESET}` : s);
+
+  // Right-align the "#N" index so the id/project columns line up in the agenda.
+  const width = String(upcoming.length).length;
+  const lines = upcoming.map((entry, i) => {
+    const idx = d(`${String(i + 1).padStart(width)}.`);
+    const id = b(entry.job.id.slice(0, 8));
+    const countdown = entry.due ? "due now" : `resets in ${formatCountdown(entry.job.resetAt, now)}`;
+    return `${idx} ${id}  ${entry.job.project}  ${countdown}  ${d(`(${entry.job.resetAt})`)}`;
+  });
+
+  const total = options.total ?? upcoming.length;
+  const hidden = total - upcoming.length;
+  if (hidden > 0) {
+    const plural = hidden === 1 ? "job" : "jobs";
+    lines.push(d(`${hidden} more ${plural} waiting (raise --limit to see them).`));
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Machine-readable form of the agenda for `next --limit N --json`. `total` is
+ * the full waiting count before the cap so scripts can tell a truncated view
+ * from a complete one; `count` is how many entries are actually included.
+ */
+export function renderUpcomingJson(
+  upcoming: UpcomingResume[],
+  storePath: string,
+  total: number,
+  generatedAt: string = new Date().toISOString()
+): string {
+  return JSON.stringify({ storePath, generatedAt, total, count: upcoming.length, upcoming }, null, 2);
 }
