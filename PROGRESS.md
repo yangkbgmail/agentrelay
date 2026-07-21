@@ -1055,3 +1055,22 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay upcoming` 재개 스케줄 뷰 신규 구현] (2026-07-21, 무인 자율 세션, branch `claude/wizardly-pascal-vnvsal`)
+- **배경:** BACKLOG의 👷 항목이 사실상 전부 완료 상태라, CLAUDE.md "무한 개선 백로그를 스스로 발굴" 지침에 따라
+  기존 인프라를 재사용하는 순수·테스트 가능한 신규 개선 항목을 발굴. `next`는 다음 재개 잡 **1개**만 보여주고
+  `status`는 정렬/필터 임의 순서라, "앞으로 뭐가 언제 재개되나"라는 스케줄 뷰가 빠져 있었음.
+- **한 일: `agentrelay upcoming [--limit N] [--json]` 신규 커맨드**
+  - core `next.ts`: 순수 `selectUpcomingResumes(jobs,{now,limit})` + `UpcomingResume`(position 1-based·due·
+    dueInMs)/`UpcomingResumes`(entries·totalWaiting·truncated) 신설. `next`의 waiting 필터와 `compareNext`
+    정렬(resetAt asc→createdAt→id)을 공유 헬퍼 `isWaitingForReset`로 추출해 두 커맨드가 **동일 재개 순서**를
+    보장(입력 배열 불변). limit 없음/비양수는 전량, limit≥waiting은 truncated=false.
+  - CLI `upcoming.ts`: 순수 `renderUpcoming`(정렬 테이블·"due now"·절단 시 단/복수 푸터)·`renderUpcomingJson`.
+    `cli.ts`에 `upcoming` 커맨드 배선(기본 `--limit 10`, 잘못된 limit exit 1). completion 스펙은 라이브
+    프로그램에서 파생되므로 자동 반영.
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **592 통과 + 1 skip**(core 384 + cli 201[+1 skip] + dashboard 7; upcoming core 9 + cli 8 신규).
+  **실제 빌드된 CLI e2e**(mock 아님): 3개 대기 잡 스토어로 `upcoming`(reset 순서: due now→45m→3h, 완료 잡 제외)·
+  `--limit 2`("1 more waiting job not shown" 푸터)·`--limit 2 --json`(entries+totalWaiting:3+truncated:true)·
+  `--limit 0`(exit 1) 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
