@@ -29,6 +29,7 @@ import {
   type RestoreResult,
   selectRotatableBackups,
 } from "./backup.js";
+import { type ImportOptions, type ImportResult, planImport, summarizeImportPlan } from "./import.js";
 import { type PruneOptions, selectPrunableJobs } from "./prune.js";
 import type { CreateJobInput, JobStatus, RelayJob } from "./types.js";
 
@@ -372,6 +373,29 @@ export class RelayQueue {
     const currentJobCount = this.jobs.size;
     const wouldBackUp = (options.backupCurrent ?? true) && existsSync(this.filePath);
     return { from, jobCount: jobs.length, currentJobCount, wouldBackUp };
+  }
+
+  /**
+   * Merge already-validated jobs into the store — the write side of the
+   * `import` command (the inverse of {@link backup}/export). Delegates the
+   * decision of what happens to each record to the pure {@link planImport}
+   * (add / overwrite / skip existing / skip active), then applies `toAdd` +
+   * `toUpdate` in one atomic flush. By default only terminal-state jobs are
+   * ingested and existing ids are never overwritten (see {@link ImportOptions});
+   * nothing is written when the plan touches no jobs, so a pure-skip import
+   * leaves the file (and its mtime) untouched.
+   */
+  importJobs(incoming: RelayJob[], options: ImportOptions = {}): ImportResult {
+    this.load();
+    const plan = planImport(Array.from(this.jobs.values()), incoming, options);
+    const applied = [...plan.toAdd, ...plan.toUpdate];
+    if (applied.length > 0) {
+      for (const job of applied) {
+        this.jobs.set(job.id, job);
+      }
+      this.flush();
+    }
+    return summarizeImportPlan(plan);
   }
 
   /** Jobs whose reset time has already passed and are ready to be resumed now. */

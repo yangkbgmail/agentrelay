@@ -395,6 +395,22 @@
 - [x] 👷 `agentrelay stats --trend [days]` — UTC 일별 활동 히스토그램(릴레이가 언제 바빴는지 시간 축).
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
+- [x] 👷 `agentrelay import <file>` — 잡 이력을 JSON/NDJSON 덤프에서 스토어로 병합(`export`의 역연산).
+      (완료 — `export`(CSV/JSON/md/ndjson)는 있지만 그 역연산인 가져오기가 없어 머신 간 이력 이전·
+      팀원 스냅샷 병합·아카이브 복원이 불가능했다. `@agentrelay/core/import.ts` 신설(순수·파일시스템
+      미접촉): 무손실 포맷만 취급하는 `IMPORT_FORMATS`(`json`/`ndjson` — CSV/md는 `command` 평탄화·
+      `lastOutputTail` 유실이라 의도적 제외) + `isImportFormat`/`inferImportFormat`(확장자 추론,
+      `.jsonl`→ndjson). 엄격한 `validateJobRecord`(미지 tool/status·비배열·빈 command·음수 attempts
+      거부, 미지 *추가* 키는 무시=전방호환) + `parseImportJobs`(json=배열 루트, ndjson=줄단위 —
+      한 줄이 깨져도 나머지 진행, 절대 throw 안 함, 에러를 line/index로 리포트). 순수 `planImport`
+      (add/overwrite/skip-existing/skip-active 결정) + `summarizeImportPlan`. **안전 기본값**: 활성
+      상태(queued/waiting/resuming) 잡은 제외(로컬 스케줄러가 남의 command를 spawn하는 footgun 방지) →
+      `--include-active`로 opt-in, id 충돌은 기본 skip → `--overwrite`로 대체. `RelayQueue.importJobs`
+      가 plan을 원자적 flush로 적용(순수-skip이면 파일 미변경). CLI `commands.ts` `importStore`(파일
+      읽기+선택적 dryRun) + `agentrelay import <file> [-f json|ndjson] [--include-active] [--overwrite]
+      [--dry-run]`. 잘못된 format/CSV·추론 실패·전부-무효는 exit 1. core 30 + cli 4 신규 테스트, 실제
+      빌드 CLI e2e로 export→import 왕복·history-only·include-active·dry-run·NDJSON 깨진 줄·CSV 거부 검증.
+      branch `claude/wizardly-pascal-3bznrg`)
 
 - [x] 👷 `agentrelay export --columns <list>` — CSV/Markdown 내보내기 컬럼 선택·재정렬(스프레드시트/이슈에
       필요한 열만·원하는 순서로).

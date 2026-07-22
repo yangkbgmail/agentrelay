@@ -43,6 +43,9 @@ import {
   findConfigField,
   hasConfigErrors,
   heartbeatStaleAfterMs,
+  type ImportFormat,
+  type ImportParseError,
+  type ImportResult,
   type IneligibleJob,
   isJobScopeActive,
   type JobCsvColumn,
@@ -52,7 +55,9 @@ import {
   notifiersFromEnv,
   parseConfig,
   parseDaemonHeartbeat,
+  parseImportJobs,
   partitionForControl,
+  planImport,
   RelayQueue,
   RelayScheduler,
   type RestorePreview,
@@ -69,6 +74,7 @@ import {
   scopeJobs,
   serializeDaemonHeartbeat,
   setConfigValue,
+  summarizeImportPlan,
   unsetConfigValue,
   validateConfig,
 } from "@agentrelay/core";
@@ -952,6 +958,53 @@ export function exportStore(options: ExportJobsOptions): ExportJobsResult {
     writtenTo = path;
   }
   return { content, count: jobs.length, writtenTo };
+}
+
+export interface ImportStoreOptions {
+  /** Path to the JSON/NDJSON file to read jobs from. */
+  filePath: string;
+  /** Source format. */
+  format: ImportFormat;
+  /** Store to merge into. Defaults to the standard store path. */
+  storePath?: string;
+  /** Ingest active-status jobs too (default: terminal history only). */
+  includeActive?: boolean;
+  /** Overwrite jobs whose id already exists (default: skip them). */
+  overwrite?: boolean;
+  /** Compute the plan without writing to the store. */
+  dryRun?: boolean;
+}
+
+export interface ImportStoreResult extends ImportResult {
+  /** Records that failed structural validation (skipped), in source order. */
+  parseErrors: ImportParseError[];
+  /** Whether the store was left untouched (dry run). */
+  dryRun: boolean;
+}
+
+/**
+ * Read jobs from a JSON/NDJSON file and merge them into the store — the inverse
+ * of {@link exportStore}. The pure `@agentrelay/core` `parseImportJobs`/
+ * `planImport` do all the validation and merge-decision logic; this wrapper
+ * only reads the file and (unless `dryRun`) applies the plan via the queue.
+ * Invalid records are collected in `parseErrors` and skipped rather than
+ * aborting the whole import, so one bad row doesn't lose the good ones.
+ */
+export function importStore(options: ImportStoreOptions): ImportStoreResult {
+  const storePath = options.storePath ?? defaultStorePath();
+  const raw = readFileSync(resolve(process.cwd(), options.filePath), "utf8");
+  const { jobs, errors } = parseImportJobs(raw, options.format);
+  const mergeOptions = { includeActive: options.includeActive, overwrite: options.overwrite };
+
+  if (options.dryRun) {
+    const queue = openQueue(storePath);
+    const plan = planImport(queue.listAll(), jobs, mergeOptions);
+    return { ...summarizeImportPlan(plan), parseErrors: errors, dryRun: true };
+  }
+
+  const queue = openQueue(storePath);
+  const result = queue.importJobs(jobs, mergeOptions);
+  return { ...result, parseErrors: errors, dryRun: false };
 }
 
 export interface ConfigShowOptions {

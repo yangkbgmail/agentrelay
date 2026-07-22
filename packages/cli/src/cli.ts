@@ -5,6 +5,7 @@ import type {
   CompletionSpec,
   ExportFormat,
   GroupDimension,
+  ImportFormat,
   JobCsvColumn,
   JobScope,
   JobStatus,
@@ -20,6 +21,8 @@ import {
   GROUP_DIMENSIONS,
   generateCompletion,
   groupStats,
+  IMPORT_FORMATS,
+  inferImportFormat,
   isCompletionShell,
   isJobScopeActive,
   JOB_CSV_COLUMNS,
@@ -39,6 +42,7 @@ import {
   bulkControlJobs,
   cancelJob,
   exportStore,
+  importStore,
   initConfig,
   type JobControlResult,
   listStatus,
@@ -878,6 +882,81 @@ export function buildCli(): Command {
           console.error(`[agentrelay] exported ${result.count} job(s) to ${result.writtenTo}`);
         } else {
           console.log(result.content);
+        }
+      }
+    );
+
+  program
+    .command("import")
+    .description(
+      "Merge jobs from a JSON or NDJSON export back into the store (inverse of `export`; history-only by default)"
+    )
+    .argument("<file>", "Path to a JSON array or NDJSON file produced by `agentrelay export`")
+    .option(
+      "-f, --format <format>",
+      `Source format: ${IMPORT_FORMATS.join(" | ")} (inferred from extension if omitted)`
+    )
+    .option("--include-active", "Also import jobs in an active status (queued/waiting/resuming), not just history")
+    .option("--overwrite", "Replace jobs whose id already exists (default: skip existing)")
+    .option("--dry-run", "Report what would be imported without writing to the store")
+    .action(
+      (file: string, opts: { format?: string; includeActive?: boolean; overwrite?: boolean; dryRun?: boolean }) => {
+        const { store } = program.opts();
+
+        // Resolve the format from --format, else infer from the file extension.
+        let format: ImportFormat;
+        if (opts.format !== undefined) {
+          const requested = opts.format.toLowerCase();
+          if (!IMPORT_FORMATS.includes(requested as ImportFormat)) {
+            console.error(`Unknown --format "${opts.format}". Valid: ${IMPORT_FORMATS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          format = requested as ImportFormat;
+        } else {
+          const inferred = inferImportFormat(file);
+          if (inferred === null) {
+            console.error(
+              `Cannot infer format from "${file}". Pass --format ${IMPORT_FORMATS.join("|")} (CSV/Markdown are not importable — they're lossy).`
+            );
+            process.exitCode = 1;
+            return;
+          }
+          format = inferred;
+        }
+
+        let result: ReturnType<typeof importStore>;
+        try {
+          result = importStore({
+            filePath: file,
+            format,
+            storePath: store,
+            includeActive: opts.includeActive,
+            overwrite: opts.overwrite,
+            dryRun: opts.dryRun,
+          });
+        } catch (error) {
+          console.error(`[agentrelay] could not read ${file}: ${(error as Error).message}`);
+          process.exitCode = 1;
+          return;
+        }
+
+        // Surface each rejected record so a malformed dump is diagnosable.
+        for (const err of result.parseErrors) {
+          console.error(`[agentrelay] skipped ${err.kind} ${err.index}: ${err.reason}`);
+        }
+
+        const verb = result.dryRun ? "would import" : "imported";
+        const parts = [`${result.added} added`, `${result.updated} updated`];
+        if (result.skippedExisting > 0) parts.push(`${result.skippedExisting} existing skipped`);
+        if (result.skippedActive > 0) parts.push(`${result.skippedActive} active skipped`);
+        if (result.parseErrors.length > 0) parts.push(`${result.parseErrors.length} invalid`);
+        console.error(`[agentrelay] ${verb}: ${parts.join(", ")}${result.dryRun ? " (no changes made)" : ""}`);
+
+        // Non-zero exit when nothing valid could be ingested AND the file had
+        // problems, so scripts can detect a wholly-failed import.
+        if (result.added === 0 && result.updated === 0 && result.parseErrors.length > 0) {
+          process.exitCode = 1;
         }
       }
     );
