@@ -436,6 +436,19 @@
       이제 놓치지 않고 큐잉. 초(second)는 어댑터 소관이라는 기존 설계 결정 존중. parser.test +4 회귀
       (days-only/1d 4h/singular 1 day/"3 minutes"를 days로 오인 안 함). PR #123 발원 → 세션 34에서
       cherry-pick 통합. branch `claude/wizardly-pascal-ig4v29`)
+- [x] 👷 `agentrelay export --format html` — 브라우저에서 열거나 리포트로 첨부하는 독립형 HTML 표
+      (인라인 CSS·라이트/다크·상태별 색상). Markdown(붙여넣기용)과 달리 더블클릭해 여는 완결 문서.
+      (완료 — core `export.ts`에 순수 `escapeHtml`(5개 HTML 특수문자, `&` 먼저 → 이중 이스케이프
+      방지)·`escapeHtmlCell`(빈 값 em dash·개행 `<br>`, `escapeMarkdownCell` 관례 일치)·`jobsToHtml`
+      (외부 요청 0인 `<!doctype>` 완결 문서, `prefers-color-scheme` 라이트/다크, `status-<state>`
+      색상 클래스, 빈 스토어는 "(no jobs)" placeholder row, `title` 옵션) 추가 + `EXPORT_FORMATS`에
+      `html` 등록·`exportJobs` 디스패치. 기존 CSV/Markdown과 컬럼·셀 값 lockstep(`JOB_CSV_COLUMNS`/
+      `jobCsvValue` 공유) — `COLUMN_AWARE_FORMATS`에 `html` 추가해 `--columns`와도 조합. CLI export는
+      `EXPORT_FORMATS.includes`로 검증하므로 `-f html` 자동 배선(설명 문구만 갱신), `--out`으로 파일
+      저장. 세션 33의 PR #127(구버전 base·`--columns` 미조합)을 **최신 main 위로 통합**하고 컬럼 조합을
+      더해 대체. core export.test 15케이스 + cli export.test 3케이스, 실제 빌드 CLI e2e로 문서 구조·
+      상태 색상·주입 이스케이프(`<script>`→`&lt;script&gt;`)·개행 `<br>`·빈 스토어·컬럼 조합·잘못된
+      포맷 exit 1·파일 출력 검증. branch `claude/wizardly-pascal-e06tu1`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

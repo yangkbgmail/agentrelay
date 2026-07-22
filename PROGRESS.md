@@ -1146,3 +1146,30 @@
   html·#126 tools·#125 --no-color·#124 stats --by-hour·#122 paths·#118 stats --by-weekday·#114/#112 next·
   #105 upcoming·#107 errors·#104/#69 데몬 가드·#102 Gemini 어댑터·#101 파서 요일·#100 completion fish·#96 wait·
   #75 resume latency·#61 doctor 큐 진행). #61/#69/#75는 스키마·doctor 충돌 주의. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 36 — `agentrelay export --format html` 통합(#127 최신화·대체) + `--columns` 조합] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-e06tu1`)
+- **배경:** BACKLOG의 👷 항목이 사실상 전부 완료 상태라 새 개선 항목(`export --format html`)을 발굴해
+  구현했더니, 이미 세션 33의 열린 PR #127이 정확히 동일 기능을 담고 있었다(세션 34/35가 반복 경고한
+  중복 패턴). 새 중복 PR을 더하는 대신, **#127의 더 완성된 구현(`escapeHtmlCell` em dash/`<br>`·`title`
+  옵션)을 최신 main 위로 통합**하는 편이 압도적으로 높은 가치(COLLAB 병합 정책·세션 35 선례). #127은
+  구버전 base(7997577, `--columns`/#132 이전)라 그대로 병합하면 BACKLOG/PROGRESS 충돌 + `html`이
+  `--columns`와 조합 안 됨.
+- **한 일:** `@agentrelay/core/export.ts`에 순수 `escapeHtml`(HTML 5개 특수문자, `&` 먼저 → 이중
+  이스케이프 방지)·`escapeHtmlCell`(빈 값→em dash, 개행→`<br>`, `escapeMarkdownCell` 관례 일치)·
+  `jobsToHtml`(외부 요청 0인 `<!doctype html>` 완결 문서 — 인라인 CSS, `prefers-color-scheme`
+  라이트/다크, `status-<state>` 색상 클래스, 빈 스토어 "(no jobs)" placeholder, `title` 옵션) 추가.
+  `EXPORT_FORMATS`에 `html` 등록 + `exportJobs` 디스패치. **`COLUMN_AWARE_FORMATS`에 `html`을 추가**해
+  세션 33의 `--columns` 기능과 조합(csv/md/html이 컬럼 subset·재정렬 honor, json/ndjson은 무손실이라
+  거부). 컬럼·셀 값은 CSV/Markdown과 `JOB_CSV_COLUMNS`/`jobCsvValue` 공유로 lockstep. CLI는
+  `EXPORT_FORMATS.includes`로 검증하므로 `-f html` 자동 배선(export 설명 문구만 갱신). 세션 33 PR
+  #127은 이 통합 PR로 대체하고 superseded 코멘트와 함께 닫음.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **634 통과 + 1 skip**(core 432[+17 export] + cli 195[+3 export, 1 skip] + dashboard 7).
+  **실제 빌드된 CLI e2e**(mock 아님): 2-job 스토어로 `export -f html -o r.html`(doctype·인라인 style·
+  외부 요청 0), 명령어 `fix <bug> & ship`→`fix &lt;bug&gt; &amp; ship`·멀티라인 에러 `boom<br>second
+  line`(주입 방지), 빈 `lastError`→em dash, `status status-completed` 색상 클래스, `--columns status,id`
+  조합, 빈 스토어 `(no jobs)`, `-f xml` 잘못된 포맷 exit 1(valid 목록에 html 포함) 확인.
+- **다음 할 일:** 남은 distinct PR 통합(#131 show --watch·#130 대시보드 스코프 UI·#128 config get·
+  #126 tools·#125 --no-color·#124 stats --by-hour·#122 paths·#118 stats --by-weekday·#114/#112 next·
+  #96 wait·#75 resume latency·#61 doctor 큐 진행 등). #61/#69/#75는 스키마·doctor 충돌 주의.
+  README/ARCHITECTURE(🧭 코워크).
