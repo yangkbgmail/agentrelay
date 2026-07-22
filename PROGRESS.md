@@ -1055,3 +1055,21 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay show --watch` 단일-잡 라이브 상세 뷰(신규 발굴)] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-showwatch`)
+- **배경: BACKLOG의 👷 항목이 전부 완료 상태 → CLAUDE.md 지침대로 새 개선 항목을 스스로 발굴.**
+  `status --watch`는 큐 전체 테이블만 라이브로 보여줘, 특정 잡 하나가 "언제 재개되고 어떻게
+  끝나는지"를 붙어서 지켜볼 수단이 없었다. `show <id>`는 스냅샷 한 번뿐이었다.
+- **한 일: `agentrelay show <id> --watch [seconds]` 구현.** CLI `show.ts`에 순수
+  `isTerminalStatus`(core `TERMINAL_STATUSES` 재사용)·`renderJobDetailWatchFrame`(제목/시각/스토어
+  헤더 + 기존 `renderJobDetail` 컬러 블록; 종료 잡이면 "settled — no further updates" 표기) 추가.
+  `cli.ts`에 `runShowWatch` 루프 — `showJob`로 매 패스 스토어 재읽기(데몬 쓰기 자동 반영), Ctrl-C
+  외에도 ① 잡이 종료 상태로 안착하면 마지막 프레임 후 exit 0, ② 잡이 스토어에서 사라지면(prune 등)
+  해소 에러 후 exit 1. `show`에 `-w/--watch [seconds]`(기본 2초) 플래그 배선. 새 core 코드 0줄.
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **581 통과 + 1 skip**(core 375 + cli 199[+1 skip] + dashboard 7; show.test.ts에
+  isTerminalStatus 2 + renderJobDetailWatchFrame 4 신규). **실제 빌드된 CLI e2e**(mock 아님):
+  종료-잡 `--watch`(한 프레임+exit 0)·미존재 id `--watch`(exit 1)·대기(waiting_for_reset)→완료
+  전이를 워치 중 스토어를 갈아끼워 자동 종료(exit 0) 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합,
+  README/ARCHITECTURE(🧭 코워크). 형제 명령 아이디어: `next --watch`(다음 재개 한 줄 라이브).

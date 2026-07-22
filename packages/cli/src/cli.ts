@@ -58,7 +58,7 @@ import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
-import { renderJobDetail, renderJobDetailJson } from "./show.js";
+import { isTerminalStatus, renderJobDetail, renderJobDetailJson, renderJobDetailWatchFrame } from "./show.js";
 import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson, renderTrend } from "./stats.js";
 import {
   type JobSelection,
@@ -298,6 +298,44 @@ function runWatch(store: string, intervalMs: number, selection: JobSelection, wi
   const timer = setInterval(draw, intervalMs);
   const stop = () => {
     clearInterval(timer);
+    process.stdout.write("\n");
+    process.exit(0);
+  };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+}
+
+/**
+ * Live `agentrelay show <id> --watch`: clears the screen and re-renders one
+ * job's detail block on an interval so its reset countdown ticks down in place.
+ * Like {@link runWatch} it re-reads the store each pass (via `showJob`), so a
+ * running daemon's writes — a status change, a new error/output tail — show up
+ * automatically. Two things end the loop by themselves (beyond Ctrl-C):
+ *   - the job settling into a terminal state (nothing left to count down to) —
+ *     it paints one final frame and exits 0;
+ *   - the job vanishing from the store (e.g. pruned mid-watch) — it prints the
+ *     resolution error and exits 1.
+ */
+function runShowWatch(store: string, idOrPrefix: string, intervalMs: number): void {
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const draw = () => {
+    const result = showJob(idOrPrefix, store);
+    if (!result.ok || !result.job) {
+      if (timer) clearInterval(timer);
+      process.stdout.write(`\x1b[2J\x1b[H[agentrelay] ${result.error ?? "job not found"}\n`);
+      process.exit(1);
+    }
+    const frame = renderJobDetailWatchFrame(result.job, store, intervalMs, Date.now());
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+    if (isTerminalStatus(result.job.status)) {
+      if (timer) clearInterval(timer);
+      process.exit(0);
+    }
+  };
+  draw();
+  timer = setInterval(draw, intervalMs);
+  const stop = () => {
+    if (timer) clearInterval(timer);
     process.stdout.write("\n");
     process.exit(0);
   };
@@ -851,8 +889,18 @@ export function buildCli(): Command {
     .description("Show full details for one job: command, cwd, timestamps, last error, and captured output")
     .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
     .option("--json", "Print the job as JSON (machine-readable, for scripts/jq)")
-    .action((id: string, opts: { json?: boolean }) => {
+    .option(
+      "-w, --watch [seconds]",
+      "Continuously refresh the detail view with a live countdown; exits when the job settles (Ctrl-C to stop early)"
+    )
+    .action((id: string, opts: { json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
+      if (opts.watch !== undefined) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        runShowWatch(store, id, intervalMs);
+        return;
+      }
       const result = showJob(id, store);
       if (!result.ok || !result.job) {
         console.error(`[agentrelay] ${result.error ?? "job not found"}`);

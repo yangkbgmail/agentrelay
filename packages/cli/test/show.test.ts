@@ -1,6 +1,12 @@
 import type { RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { formatCommand, renderJobDetail, renderJobDetailJson } from "../src/show.js";
+import {
+  formatCommand,
+  isTerminalStatus,
+  renderJobDetail,
+  renderJobDetailJson,
+  renderJobDetailWatchFrame,
+} from "../src/show.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -95,6 +101,48 @@ describe("renderJobDetail", () => {
   it("emits ANSI codes only when color is enabled", () => {
     expect(renderJobDetail(job(), { now: NOW, color: false })).not.toContain("\x1b[");
     expect(renderJobDetail(job(), { now: NOW, color: true })).toContain("\x1b[");
+  });
+});
+
+describe("isTerminalStatus", () => {
+  it("is true for the three final states", () => {
+    expect(isTerminalStatus("completed")).toBe(true);
+    expect(isTerminalStatus("failed")).toBe(true);
+    expect(isTerminalStatus("cancelled")).toBe(true);
+  });
+
+  it("is false for active states", () => {
+    expect(isTerminalStatus("queued")).toBe(false);
+    expect(isTerminalStatus("waiting_for_reset")).toBe(false);
+    expect(isTerminalStatus("resuming")).toBe(false);
+  });
+});
+
+describe("renderJobDetailWatchFrame", () => {
+  it("wraps the detail block with a live header showing the interval and store", () => {
+    const out = renderJobDetailWatchFrame(job(), "/store/jobs.json", 2000, NOW);
+    expect(out).toContain("agentrelay show");
+    expect(out).toContain("live, every 2s");
+    expect(out).toContain("/store/jobs.json");
+    // The underlying detail block is still present (color codes split the
+    // label from its value, so match the value alone).
+    expect(out).toContain("Job abcdef1234567890");
+    expect(out).toContain("1h 30m");
+  });
+
+  it("rounds the interval to whole seconds in the header", () => {
+    expect(renderJobDetailWatchFrame(job(), "/s.json", 1500, NOW)).toContain("every 2s");
+    expect(renderJobDetailWatchFrame(job(), "/s.json", 5000, NOW)).toContain("every 5s");
+  });
+
+  it("notes the job has settled instead of the live hint when terminal", () => {
+    const out = renderJobDetailWatchFrame(job({ status: "completed", resetAt: null }), "/s.json", 2000, NOW);
+    expect(out).toContain("settled — no further updates");
+    expect(out).not.toContain("Ctrl-C to exit");
+  });
+
+  it("always emits color (it targets a TTY watch loop)", () => {
+    expect(renderJobDetailWatchFrame(job(), "/s.json", 2000, NOW)).toContain("\x1b[");
   });
 });
 

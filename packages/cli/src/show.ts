@@ -4,7 +4,7 @@
 // Pure functions here (separate from the commander wiring in cli.ts) so the
 // output is unit-testable without a store, a TTY, or a spawned process.
 
-import type { JobStatus, RelayJob } from "@agentrelay/core";
+import { type JobStatus, type RelayJob, TERMINAL_STATUSES } from "@agentrelay/core";
 import { formatDurationMs } from "./stats.js";
 import { formatCountdown } from "./status.js";
 
@@ -105,6 +105,41 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
   }
 
   return lines.join("\n");
+}
+
+/** Set form of {@link TERMINAL_STATUSES} for O(1) lookups in the watch loop. */
+const TERMINAL_STATUS_SET = new Set<JobStatus>(TERMINAL_STATUSES);
+
+/**
+ * True when a job has reached a final state (`completed`/`failed`/`cancelled`)
+ * and will never change again. The `show --watch` loop uses this to stop once
+ * there is nothing left to count down toward.
+ */
+export function isTerminalStatus(status: JobStatus): boolean {
+  return TERMINAL_STATUS_SET.has(status);
+}
+
+/**
+ * One frame of the live `show --watch` view: a title/header block plus the
+ * colored detail block for a single job. Mirrors `status`'s
+ * {@link renderWatchFrame} so the two live views read consistently. When the
+ * job is already terminal the header notes it has settled (the loop then
+ * stops); otherwise it hints that the view is live until Ctrl-C or resolution.
+ */
+export function renderJobDetailWatchFrame(
+  job: RelayJob,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now()
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const settled = isTerminalStatus(job.status);
+  const hint = settled
+    ? "settled — no further updates"
+    : `live, every ${Math.round(intervalMs / 1000)}s — Ctrl-C to exit`;
+  const title = `${BOLD}agentrelay show${RESET} ${DIM}(${hint})${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderJobDetail(job, { now, color: true })].join("\n");
 }
 
 /** Machine-readable single-job snapshot for `--json` (scripts, jq, tooling). */

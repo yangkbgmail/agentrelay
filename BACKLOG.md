@@ -395,6 +395,17 @@
 - [x] 👷 `agentrelay stats --trend [days]` — UTC 일별 활동 히스토그램(릴레이가 언제 바빴는지 시간 축).
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
+- [x] 👷 `agentrelay show <id> --watch [seconds]` — 단일 job 라이브 상세 뷰(리셋 카운트다운이
+      제자리에서 흐르고, 잡이 종료 상태로 안착하면 자동 종료). `status --watch`의 단일-잡 대응.
+      (완료 — 스스로 발굴한 항목. `status --watch`는 큐 전체 테이블만 라이브로 보여줘, 특정 잡
+      하나가 "언제 재개되고 어떻게 끝나는지"를 붙어서 지켜볼 수단이 없었다. CLI `show.ts`에 순수
+      `isTerminalStatus`(core `TERMINAL_STATUSES` 재사용)·`renderJobDetailWatchFrame`(제목/시각/스토어
+      헤더 + 기존 `renderJobDetail` 컬러 블록, 종료 잡이면 "settled" 표기) 추가. `cli.ts`에
+      `runShowWatch` 루프: `showJob`로 매 패스 스토어 재읽기(데몬 쓰기 자동 반영), Ctrl-C 외에도
+      ① 잡이 종료 상태로 안착하면 마지막 프레임 그리고 exit 0, ② 잡이 스토어에서 사라지면(prune 등)
+      해소 에러 후 exit 1. `show`에 `-w/--watch [seconds]`(기본 2초) 플래그 배선. show.test.ts에
+      isTerminalStatus 2 + renderJobDetailWatchFrame 4 신규, 실제 빌드된 CLI e2e로 종료-잡 자동
+      종료·미존재 id exit 1·대기→완료 전이 감지 검증. branch `claude/wizardly-pascal-showwatch`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
