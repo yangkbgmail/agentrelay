@@ -1055,3 +1055,28 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — 대시보드 스코프/필터 UI] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-j48xs5`)
+- **배경: 열린 PR이 ~40개까지 쌓였고 상당수가 서로 중복이다**(예: `stats --by-hour` 9건[#124/#121/#119/
+  #117/#116/#115/#110/#108/#99], `export --format html` 5건[#127/#120/#103/#98/#97], `config get` 3건[#128/
+  #106/#95], `import` 2건[#111/#94], 데몬 이중실행 가드 2건[#104/#69]). main 브랜치 보호로 병합이 밀리며
+  이 저장소 고질 패턴(무기억 세션 중복 재구현)이 최악으로 재발한 상태 — **사람이 병합/정리해야 함(알림 발송)**.
+- **선택 근거: 열린 PR이 전부 CLI/core(`cli.ts`/`stats.ts`/`export.ts`)에 몰려 서로 충돌하는데, 대시보드
+  (`apps/dashboard`)는 어떤 열린 PR도 건드리지 않는 백지 영역이다.** 그래서 세션 26이 "다음 할 일 👷 후보"로
+  남긴 **대시보드 스코프/필터 UI**를 골라 구현 — 40개 PR과 파일 0 충돌 + 실제 사용자 가치.
+- **한 일:**
+  1. `apps/dashboard/lib/filter.ts` 신설(순수, `import type`만): `filterJobs`(status/tool/project + 자유
+     텍스트 검색[project/id/command 대소문자 무시], 차원 간 AND·차원 내 OR, 비변형 새 배열)·`isFilterActive`·
+     `distinctProjects`/`distinctTools`(드롭다운 옵션 파생). core `scopeJobs` 시맨틱을 미러하되 클라이언트
+     번들에 `node:fs`(core 배럴)가 안 들어오게 타입만 임포트.
+  2. `DashboardClient`에 `FilterBar`(검색 입력 + 툴/프로젝트 드롭다운 + 6개 상태 칩 토글 + Clear) 배선.
+     `useMemo`로 옵션·필터 결과 파생, "Showing X of Y jobs" 카운트, 필터가 전부 걸러내면 NO_MATCH 뷰.
+     상태 칩은 a11y로 `<fieldset>`+`aria-pressed`(Biome `useSemanticElements` 준수). `globals.css`에 `.filter-*`
+     토큰 기반 스타일(라이트/다크 자동).
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **589 통과 + 1 skip**(core 375 + cli 193[+1 skip] + dashboard 21[+14: filter.test]).
+    **실제 빌드 대시보드 e2e**(mock 아님): seed된 2-job 스토어로 `next start`+`/api/jobs`가 distinct
+    tools(codex-cli,claude-code)/projects(api,web) 반환·페이지 HTTP 200·빌드된 CSS에 `.filter-bar`/`.filter-chip`
+    등 + 클라이언트 JS 청크에 "Search project…"/"All tools"/"Showing" 문자열 포함(번들 배포 확인).
+- 다음 할 일: **누적 PR 통합/중복 정리(사람 또는 전용 컨솔리데이션 세션)** — #61/#69/#75 통합, `stats --by-hour`/
+  `export html`/`config get` 중복 클러스터 정리. README/ARCHITECTURE(🧭 코워크).

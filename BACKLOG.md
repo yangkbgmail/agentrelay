@@ -396,6 +396,16 @@
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
 
+- [x] 👷 대시보드 스코프/필터 UI — 큰 큐에서 상태·툴·프로젝트·자유 텍스트로 잡 테이블을 좁혀 보기.
+      (완료 — `apps/dashboard/lib/filter.ts` 순수 `filterJobs`/`isFilterActive`/`distinctProjects`/`distinctTools`
+      신설: core `scopeJobs`의 status/tool/project 시맨틱을 클라이언트-안전하게 미러(`import type`만 사용해
+      번들에 `node:fs` 미유입) + 자유 텍스트 검색(project/id/command 대소문자 무시 부분일치). 차원 간 AND·
+      차원 내 OR, 항상 새 배열 반환(비변형). 클라이언트 `DashboardClient`에 `FilterBar`(검색 입력 + 툴/프로젝트
+      드롭다운 + 상태 칩 토글 + Clear) 추가, `useMemo`로 옵션 목록·필터 결과 파생, "Showing X of Y jobs"
+      카운트와 필터가 전부 걸러낼 때 NO_MATCH 뷰(Clear 버튼). `globals.css`에 `.filter-*` 토큰 기반 스타일
+      (라이트/다크 자동, a11y: 상태 칩은 `<fieldset>`+`aria-pressed`). 열린 CLI/core PR들과 파일 0 충돌
+      (대시보드 전용 영역). branch `claude/wizardly-pascal-j48xs5`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -1,10 +1,14 @@
 "use client";
 
 import type { HeartbeatStatus, JobStatus, RelayJob } from "@agentrelay/core";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { type DashboardFilter, distinctProjects, distinctTools, filterJobs, isFilterActive } from "../lib/filter";
 import type { JobsSnapshot } from "../lib/jobs";
 
 const POLL_INTERVAL_MS = 3000;
+
+/** Status order shown as toggleable filter chips (queue lifecycle order). */
+const FILTER_STATUSES: JobStatus[] = ["queued", "waiting_for_reset", "resuming", "completed", "failed", "cancelled"];
 
 const STATUS_META: Record<JobStatus, { label: string; colorVar: string }> = {
   queued: { label: "Queued", colorVar: "var(--ink-muted)" },
@@ -131,10 +135,98 @@ function JobRow({ job, now }: { job: RelayJob; now: number }) {
   );
 }
 
+function FilterBar({
+  filter,
+  onChange,
+  tools,
+  projects,
+}: {
+  filter: DashboardFilter;
+  onChange: (next: DashboardFilter) => void;
+  tools: string[];
+  projects: string[];
+}) {
+  const selectedStatuses = new Set(filter.statuses ?? []);
+
+  function toggleStatus(status: JobStatus) {
+    const next = new Set(selectedStatuses);
+    if (next.has(status)) next.delete(status);
+    else next.add(status);
+    onChange({ ...filter, statuses: Array.from(next) });
+  }
+
+  const active = isFilterActive(filter);
+
+  return (
+    <section className="filter-bar" aria-label="Filter jobs">
+      <div className="filter-row">
+        <input
+          type="search"
+          className="filter-search"
+          placeholder="Search project, id, or command…"
+          value={filter.search ?? ""}
+          onChange={(e) => onChange({ ...filter, search: e.target.value })}
+          aria-label="Search jobs"
+        />
+        <select
+          className="filter-select"
+          value={(filter.tools ?? [])[0] ?? ""}
+          onChange={(e) => onChange({ ...filter, tools: e.target.value ? [e.target.value] : [] })}
+          aria-label="Filter by tool"
+        >
+          <option value="">All tools</option>
+          {tools.map((tool) => (
+            <option key={tool} value={tool}>
+              {tool}
+            </option>
+          ))}
+        </select>
+        <select
+          className="filter-select"
+          value={(filter.projects ?? [])[0] ?? ""}
+          onChange={(e) => onChange({ ...filter, projects: e.target.value ? [e.target.value] : [] })}
+          aria-label="Filter by project"
+        >
+          <option value="">All projects</option>
+          {projects.map((project) => (
+            <option key={project} value={project}>
+              {project}
+            </option>
+          ))}
+        </select>
+        {active && (
+          <button type="button" className="filter-clear" onClick={() => onChange({})}>
+            Clear
+          </button>
+        )}
+      </div>
+      <fieldset className="filter-chips" aria-label="Filter by status">
+        {FILTER_STATUSES.map((status) => {
+          const meta = STATUS_META[status];
+          const on = selectedStatuses.has(status);
+          return (
+            <button
+              key={status}
+              type="button"
+              className={`filter-chip${on ? " on" : ""}`}
+              aria-pressed={on}
+              onClick={() => toggleStatus(status)}
+            >
+              <span className="dot" style={{ background: meta.colorVar }} aria-hidden />
+              {meta.label}
+            </button>
+          );
+        })}
+      </fieldset>
+    </section>
+  );
+}
+
 export default function DashboardClient() {
   const [snapshot, setSnapshot] = useState<JobsSnapshot | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [filter, setFilter] = useState<DashboardFilter>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -165,6 +257,10 @@ export default function DashboardClient() {
 
   const jobs = snapshot?.jobs ?? [];
   const summary = snapshot?.summary;
+  const tools = useMemo(() => distinctTools(jobs), [jobs]);
+  const projects = useMemo(() => distinctProjects(jobs), [jobs]);
+  const filteredJobs = useMemo(() => filterJobs(jobs, filter), [jobs, filter]);
+  const filtering = isFilterActive(filter);
 
   return (
     <>
@@ -219,6 +315,8 @@ export default function DashboardClient() {
         </div>
       </section>
 
+      {jobs.length > 0 && <FilterBar filter={filter} onChange={setFilter} tools={tools} projects={projects} />}
+
       <section className="jobs-card" aria-label="Job list">
         {jobs.length === 0 ? (
           <div className="empty">
@@ -228,25 +326,41 @@ export default function DashboardClient() {
               limit, the job shows up here and resumes automatically.
             </p>
           </div>
+        ) : filteredJobs.length === 0 ? (
+          <div className="empty">
+            <p>No jobs match the current filter.</p>
+            <p>
+              <button type="button" className="filter-clear" onClick={() => setFilter({})}>
+                Clear filter
+              </button>
+            </p>
+          </div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Project / job</th>
-                <th>Status</th>
-                <th>Command</th>
-                <th>Resets in</th>
-                <th>Attempts</th>
-                <th>Updated</th>
-                <th>Last output</th>
-              </tr>
-            </thead>
-            <tbody>
-              {jobs.map((job) => (
-                <JobRow key={job.id} job={job} now={now} />
-              ))}
-            </tbody>
-          </table>
+          <>
+            {filtering && (
+              <div className="filter-count numeric">
+                Showing {filteredJobs.length} of {jobs.length} jobs
+              </div>
+            )}
+            <table>
+              <thead>
+                <tr>
+                  <th>Project / job</th>
+                  <th>Status</th>
+                  <th>Command</th>
+                  <th>Resets in</th>
+                  <th>Attempts</th>
+                  <th>Updated</th>
+                  <th>Last output</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredJobs.map((job) => (
+                  <JobRow key={job.id} job={job} now={now} />
+                ))}
+              </tbody>
+            </table>
+          </>
         )}
       </section>
 
