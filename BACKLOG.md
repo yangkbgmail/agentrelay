@@ -395,6 +395,16 @@
 - [x] 👷 `agentrelay stats --trend [days]` — UTC 일별 활동 히스토그램(릴레이가 언제 바빴는지 시간 축).
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
+- [x] 👷 전역 `--no-color` 플래그 + `NO_COLOR`/`FORCE_COLOR` 환경변수 지원 — CI·로그·파이프에서
+      ANSI 색상을 끄거나(파일 리다이렉트) 켤(색상 렌더 페이저) 수 있게.
+      (완료 — 지금까지 모든 사람용 렌더러가 각자 `Boolean(process.stdout.isTTY)`로 색상을 판정해,
+      비-TTY로 색상을 강제하거나 TTY에서 색상을 끌 방법이 없었다. CLI `color.ts` 신설: 순수
+      `shouldUseColor({noColorFlag,env,isTTY})` — 우선순위 (1)`--no-color` 플래그 (2)`NO_COLOR`
+      present&non-empty(no-color.org 표준) (3)`FORCE_COLOR` truthy (4)fallback isTTY. 두 "off"
+      신호(플래그·NO_COLOR)를 "on"(FORCE_COLOR)보다 먼저 검사해, 색상을 끄려는 의도가 항상
+      우선. 전역 `--no-color` 옵션 + `useColor()` 헬퍼로 흩어진 11개 색상 판정 call site를 한
+      군데로 통일, `renderWatchFrame`도 color 파라미터를 받아 `--watch`까지 존중. branch
+      `claude/wizardly-pascal-nocolor`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

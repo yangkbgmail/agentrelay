@@ -1055,3 +1055,29 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — 전역 `--no-color` + `NO_COLOR`/`FORCE_COLOR` 지원] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-nocolor`)
+- **배경: 열린 PR이 35개까지 쌓였고(stats `--by-hour` 10건·export html 4건 등 대량 중복) BACKLOG의
+  독립 👷 항목은 전부 [x]** 상태. 열린 PR 어느 것과도 겹치지 않는 신규 개선을 발굴했다 — 지금까지
+  모든 사람용 렌더러(`status`/`stats`/`doctor`/`show`/`next`/`parse`/`notify test`/`config show`)가
+  각자 `Boolean(process.stdout.isTTY)`로 색상을 판정해, CI·로그·파이프에서 색상을 강제로 끄거나
+  (파일 리다이렉트) 켤(색상 렌더 페이저) 방법이 전혀 없었다.
+- **한 일: 전역 `--no-color` 플래그 + `NO_COLOR`/`FORCE_COLOR` 환경변수 지원.**
+  1. `packages/cli/src/color.ts` 신설 — 순수 `shouldUseColor({noColorFlag,env,isTTY})`. 우선순위
+     (1)`--no-color` 플래그 (2)`NO_COLOR` present&non-empty(https://no-color.org 표준: 값 무관,
+     빈 문자열은 무시) (3)`FORCE_COLOR` truthy(`0`/`false`/`no`/`off`/빈값은 falsy로 취급) (4)fallback
+     `isTTY`. 두 "off" 신호(플래그·NO_COLOR)를 "on"(FORCE_COLOR)보다 먼저 검사 → 색상을 끄려는
+     사용자 의도가 환경에서 상속된 stray `FORCE_COLOR`보다 항상 우선.
+  2. `cli.ts` — 전역 `.option("--no-color", ...)` + `useColor()` 헬퍼(commander는 `--no-color`를
+     `opts().color === false`로 저장). 흩어진 **11개 색상 판정 call site**(`Boolean(process.stdout.isTTY)`)를
+     전부 `useColor()`로 통일. `renderWatchFrame`(status.ts)에 `color` 파라미터(기본 true, 기존 동작 보존)를
+     추가해 제목/메타의 ANSI 이스케이프까지 조건부로 하고 `runWatch`가 `useColor()`를 스레드 → `--watch`
+     라이브 TUI도 `--no-color`를 존중.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **584 통과 + 1 skip**(core 375 + cli 202[+1 skip: color 8 신규·renderWatchFrame color 1] +
+    dashboard 7). **실제 빌드된 CLI e2e**(mock 아님): waiting job 1개 스토어로 (1)`FORCE_COLOR=1 stats`→
+    ANSI 존재 (2)`--no-color stats`(FORCE_COLOR=1과 함께)→ANSI 없음 (3)`NO_COLOR=1 stats`(FORCE_COLOR=1과
+    함께)→ANSI 없음 (4)무플래그 비-TTY→ANSI 없음 (5)`--no-color show`→ANSI 없음 (6)`--no-color`에도 내용
+    (project "web") 유지 확인.
+- 다음 할 일: 열린 PR 35개 대량 통합/중복 정리(👷 — 세션 32처럼 CI 초록 PR 통합 + 중복 close),
+  README/ARCHITECTURE(🧭 코워크).
