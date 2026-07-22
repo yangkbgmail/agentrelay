@@ -25,6 +25,7 @@ import {
   scopeJobs,
   selectNextResume,
   sendTestNotification,
+  summarizeTools,
 } from "@agentrelay/core";
 import { Command } from "commander";
 import {
@@ -70,6 +71,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { renderToolsReport, renderToolsReportJson } from "./tools.js";
 
 /**
  * Split a comma-separated CLI option (e.g. `--status completed,failed`) into
@@ -896,6 +898,22 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderParseReport(report, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("tools")
+    .description(
+      "List the supported agent tool adapters (valid --tool values), their binaries, rate-limit patterns, and how many stored jobs use each"
+    )
+    .option("--json", "Print the tool list as JSON (machine-readable, for scripts/jq)")
+    .action((opts: { json?: boolean }) => {
+      const { store } = program.opts();
+      const report = summarizeTools(listStatus(store));
+      if (opts.json) {
+        console.log(renderToolsReportJson(report, store));
+        return;
+      }
+      console.log(renderToolsReport(report, { color: Boolean(process.stdout.isTTY) }));
     });
 
   const config = program.command("config").description("Manage the agentrelay.config.json defaults file");
