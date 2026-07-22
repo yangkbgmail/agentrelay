@@ -133,6 +133,38 @@ describe("exportStore", () => {
     expect(lines).toHaveLength(4); // header + separator + 2 rows
   });
 
+  it("produces a self-contained HTML report with a row per job", () => {
+    seed();
+    const result = exportStore({ storePath, format: "html" });
+    expect(result.count).toBe(2);
+    expect(result.content.startsWith("<!doctype html>")).toBe(true);
+    expect(result.content).toContain("<title>AgentRelay job export</title>");
+    expect(result.content).toContain("alpha");
+    expect(result.content).toContain("beta");
+    // Two data rows in the table body.
+    expect(result.content.match(/<tbody>[\s\S]*<\/tbody>/)?.[0].match(/<tr>/g)).toHaveLength(2);
+    // A shareable report carries no external assets or scripts.
+    expect(result.content).not.toContain("<script");
+    expect(result.content).not.toContain("http://");
+  });
+
+  it("writes an HTML report to a file with a trailing newline", () => {
+    seed();
+    const out = join(dir, "report.html");
+    const result = exportStore({ storePath, format: "html", outPath: out });
+    expect(result.writtenTo).toBe(out);
+    const onDisk = readFileSync(out, "utf8");
+    expect(onDisk.startsWith("<!doctype html>")).toBe(true);
+    expect(onDisk.endsWith("</html>\n")).toBe(true);
+  });
+
+  it("honors a --columns subset for the HTML report", () => {
+    seed();
+    const result = exportStore({ storePath, format: "html", columns: ["id", "status"] });
+    expect(result.content).toContain("<th>id</th><th>status</th>");
+    expect(result.content).not.toContain("<th>project</th>");
+  });
+
   // The `export` command applies the same scope filters as `stats`/`status`:
   // the --since/--until time window via core scopeJobs, then
   // --status/--tool/--project/--sort/--reverse via selectJobs. These tests
