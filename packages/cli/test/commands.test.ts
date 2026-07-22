@@ -9,6 +9,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  getConfigValue,
   initConfig,
   listStatus,
   listStoreBackups,
@@ -23,7 +24,12 @@ import {
   unsetConfigFile,
   validateConfigFile,
 } from "../src/commands.js";
-import { isConfigDiagnosticInvocation, renderEffectiveConfig } from "../src/config.js";
+import {
+  isConfigDiagnosticInvocation,
+  renderConfigGetJson,
+  renderConfigGetValue,
+  renderEffectiveConfig,
+} from "../src/config.js";
 
 describe("runCommand", () => {
   let dir: string;
@@ -754,12 +760,92 @@ describe("showConfig", () => {
   });
 });
 
+describe("getConfigValue", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-get-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("resolves a default when there is no config file and empty env", () => {
+    const result = getConfigValue({ key: "store", cwd: dir, env: { HOME: dir } });
+    expect(result.path).toBeNull();
+    expect(result.loadError).toBeUndefined();
+    expect(result.resolved).toMatchObject({ key: "store", value: undefined, source: "default" });
+    expect(renderConfigGetValue(result)).toBe("");
+  });
+
+  it("prints the bare value for a file-backed key (scriptable)", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ store: "/from/file.json", retry: { maxAttempts: 9 } }));
+    const result = getConfigValue({ key: "retry.maxAttempts", path, env: {} });
+    expect(result.resolved).toMatchObject({ envKey: "AGENTRELAY_MAX_ATTEMPTS", value: "9", source: "config-file" });
+    expect(renderConfigGetValue(result)).toBe("9");
+  });
+
+  it("honors env precedence over the file", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ store: "/from/file.json" }));
+    const result = getConfigValue({ key: "store", path, env: { AGENTRELAY_STORE: "/from/env.json" } });
+    expect(result.resolved).toMatchObject({ value: "/from/env.json", source: "env" });
+    expect(renderConfigGetValue(result)).toBe("/from/env.json");
+  });
+
+  it("returns resolved:null for an unknown key", () => {
+    const result = getConfigValue({ key: "bogus.key", cwd: dir, env: { HOME: dir } });
+    expect(result.resolved).toBeNull();
+  });
+
+  it("masks a secret value unless showSecrets is set", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ notify: { webhookAuth: "Bearer supersecrettoken" } }));
+    const result = getConfigValue({ key: "notify.webhookAuth", path, env: {} });
+    expect(renderConfigGetValue(result)).not.toContain("Bearer supersecrettoken");
+    expect(renderConfigGetValue(result)).toContain("oken"); // last-4 hint
+    expect(renderConfigGetValue(result, { showSecrets: true })).toBe("Bearer supersecrettoken");
+  });
+
+  it("does not throw on a broken config file — reports loadError, resolves env/default", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, "{ not json");
+    const result = getConfigValue({ key: "store", path, env: {} });
+    expect(result.loadError).toBeDefined();
+    expect(result.resolved).toMatchObject({ source: "default", value: undefined });
+  });
+
+  it("--json exposes envKey/value/source/secret for scripts", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ retry: { maxAttempts: 9 } }));
+    const result = getConfigValue({ key: "retry.maxAttempts", path, env: {} });
+    const parsed = JSON.parse(renderConfigGetJson(result, "2026-07-22T00:00:00.000Z"));
+    expect(parsed).toMatchObject({
+      key: "retry.maxAttempts",
+      found: true,
+      envKey: "AGENTRELAY_MAX_ATTEMPTS",
+      value: "9",
+      source: "config-file",
+      secret: false,
+    });
+  });
+
+  it("--json marks an unknown key as not found", () => {
+    const result = getConfigValue({ key: "bogus", cwd: dir, env: { HOME: dir } });
+    const parsed = JSON.parse(renderConfigGetJson(result, "2026-07-22T00:00:00.000Z"));
+    expect(parsed).toMatchObject({ key: "bogus", found: false, value: null, source: null });
+  });
+});
+
 describe("isConfigDiagnosticInvocation", () => {
   const argv = (...rest: string[]) => ["node", "bin.js", ...rest];
 
-  it("recognizes plain config validate/show", () => {
+  it("recognizes plain config validate/show/get", () => {
     expect(isConfigDiagnosticInvocation(argv("config", "validate"))).toBe(true);
     expect(isConfigDiagnosticInvocation(argv("config", "show"))).toBe(true);
+    expect(isConfigDiagnosticInvocation(argv("config", "get"))).toBe(true);
   });
 
   it("recognizes them past a global --config <path> (the value is not the command)", () => {

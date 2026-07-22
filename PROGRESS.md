@@ -1055,3 +1055,25 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay config get <key>` 단일 값 조회] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-kzmpij`)
+- **배경**: 세션 시작 시 열린 PR이 **20개**(`stats --by-hour` 중복 8개, `export --format html` 2개 등 상당수 중복)로
+  중복 PR 루프가 재발 중이었다. 어떤 열린 PR과도 겹치지 않는 신규 항목을 골라 진행 — `config set/unset/show`는
+  있지만, 스크립트에서 단일 값만 뽑아내는 `config get`이 빠져 있었다(`STORE=$(agentrelay config get store)`).
+- **한 일**: **`agentrelay config get <key>`** — 단일 설정 값을 env>파일>기본값으로 해소해 bare 라인으로 출력.
+  1. core `config.ts`: `ConfigField`에 `envKey`(각 dotted 키가 투영되는 유일한 `AGENTRELAY_*`, 13개 필드 명시)
+     추가 — 새 drift 테스트가 `configToEnv(setConfigValue(...))` 방출과 일치함을 검증(set이 쓰는 var와 get이 읽는
+     var가 어긋나지 않게). 순수 `getEffectiveConfigValue(key,fileConfig,env)` + `ResolvedConfigValue`(unknown 키는
+     null, precedence는 `resolveEffectiveConfig`의 단일 키 미러 — 표 전체와 드리프트 없음을 테스트로 보장).
+  2. CLI `commands.ts`: `getConfigValue`(showConfig처럼 손상 파일은 throw 대신 loadError로 보고하고 env/기본값
+     해소는 계속, 절대 throw 안 함). `config.ts`: `renderConfigGetValue`(스크립트용 bare 값 — unset은 빈 문자열,
+     secret은 마스킹+`--show-secrets`)·`renderConfigGetJson`(envKey/value/source/secret/found).
+  3. `agentrelay config get <key> [--json] [--show-secrets]` 서브커맨드 — unknown 키/손상 파일은 exit 1,
+     경고는 stderr(stdout 청정 유지). `show`처럼 startup bootstrap-skip에 `get` 추가(파일 값이 [env]로 오표기되는
+     것 방지).
+- **검증**: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **590 통과 + 1 skip**(core 382 + cli 201[+1 skip] + dashboard 7 — core config get 6 + drift 1,
+  CLI getConfigValue 8 신규). **실제 빌드된 CLI e2e**(mock 아님): 파일-backed `store`/`retry.maxAttempts` bare 값,
+  `AGENTRELAY_STORE` env가 파일을 이김, unset은 빈 라인, secret 마스킹→`--show-secrets` 노출, `--json` 구조 출력,
+  unknown 키 exit 1, `$(...)` 캡처 확인.
+- **다음 할 일**: 누적된 20개 열린 PR의 중복 정리·distinct 통합(#61/#69/#75 등), README/ARCHITECTURE(🧭 코워크).
