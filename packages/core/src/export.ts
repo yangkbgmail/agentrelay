@@ -34,6 +34,41 @@ export const JOB_CSV_COLUMNS = [
 
 export type JobCsvColumn = (typeof JOB_CSV_COLUMNS)[number];
 
+/** True when `name` is one of the recognized CSV/Markdown column names. */
+export function isJobCsvColumn(name: string): name is JobCsvColumn {
+  return (JOB_CSV_COLUMNS as readonly string[]).includes(name);
+}
+
+/**
+ * Parse a comma-separated `--columns` list into a validated, ordered column
+ * subset for the CSV/Markdown exports. Splits on commas, trims each name, and
+ * drops empty tokens (so trailing commas / stray whitespace are forgiven). Every
+ * remaining name is checked against {@link JOB_CSV_COLUMNS}: valid ones are kept
+ * in the order given (duplicates preserved, so a caller can intentionally repeat
+ * a column), and unrecognized ones are collected into `invalid` for the caller
+ * to report. Pure — the CLI decides whether an empty result or non-empty
+ * `invalid` is an error.
+ */
+export function parseCsvColumns(input: string): { columns: JobCsvColumn[]; invalid: string[] } {
+  const columns: JobCsvColumn[] = [];
+  const invalid: string[] = [];
+  for (const raw of input.split(",")) {
+    const name = raw.trim();
+    if (name === "") {
+      continue;
+    }
+    if (isJobCsvColumn(name)) {
+      columns.push(name);
+    } else {
+      invalid.push(name);
+    }
+  }
+  return { columns, invalid };
+}
+
+/** Formats that honor a `--columns` subset (the tabular ones). JSON/NDJSON are lossless full-shape and ignore it. */
+export const COLUMN_AWARE_FORMATS = ["csv", "md"] as const;
+
 /**
  * RFC 4180 field escaping: a field is wrapped in double quotes when it contains
  * a comma, a double quote, or a newline (CR or LF), and any embedded double

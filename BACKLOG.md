@@ -396,6 +396,21 @@
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
 
+- [x] 👷 `agentrelay export --columns <list>` — CSV/Markdown 내보내기 컬럼 선택·재정렬(스프레드시트/이슈에
+      필요한 열만·원하는 순서로).
+      (완료 — core `export.ts`엔 이미 `CsvOptions.columns`(순수 `jobsToCsv`/`jobsToMarkdown`가 소비)가
+      있었지만 CLI가 노출하지 않았다. core에 순수 `isJobCsvColumn`(타입가드) + `parseCsvColumns(input)`
+      (콤마 분리·trim·빈 토큰 제거·`JOB_CSV_COLUMNS` 검증 → `{columns, invalid}`, 순서·의도적 중복 보존) +
+      `COLUMN_AWARE_FORMATS`(`["csv","md"]`, json/ndjson은 무손실 full-shape라 컬럼 무시) 신설. CLI
+      `exportStore`가 `columns` 옵션을 `exportJobs`에 전달, `cli.ts` export에 `--columns <list>` 배선:
+      json/ndjson과 함께 쓰면 exit 1(무손실 포맷은 컬럼 미적용을 조용히 삼키지 않고 명시), 미지 컬럼은
+      invalid 목록과 함께 exit 1, 빈 목록도 exit 1. 기존 스코프 필터(--status/--tool/--project/--since/
+      --until/--sort/--reverse)와 조합 가능(window→select 후 컬럼 적용). 새 core 직렬화 코드 0줄 —
+      전부 기존 검증된 `jobsToCsv`/`jobsToMarkdown`의 columns 경로 재사용. core export.test에 isJobCsvColumn
+      1 + parseCsvColumns 6 + COLUMN_AWARE_FORMATS 1, cli export.test에 csv/md 컬럼 e2e 2케이스 추가,
+      실제 빌드 CLI로 subset·reorder·md·미지컬럼→exit1·json거부→exit1·빈목록→exit1·tool필터 조합 검증.
+      branch `claude/wizardly-pascal-t9765g`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

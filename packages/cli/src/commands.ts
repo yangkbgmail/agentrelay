@@ -45,6 +45,7 @@ import {
   heartbeatStaleAfterMs,
   type IneligibleJob,
   isJobScopeActive,
+  type JobCsvColumn,
   type JobScope,
   listBackups,
   loadConfigFile,
@@ -920,6 +921,8 @@ export interface ExportJobsOptions {
   jobs?: RelayJob[];
   /** When set, write the output to this file (parent dirs created) instead of returning it for stdout. */
   outPath?: string;
+  /** Column subset/order for the tabular formats (csv/md). Ignored by json/ndjson. Defaults to all columns. */
+  columns?: readonly JobCsvColumn[];
 }
 
 export interface ExportJobsResult {
@@ -940,7 +943,7 @@ export interface ExportJobsResult {
  */
 export function exportStore(options: ExportJobsOptions): ExportJobsResult {
   const jobs = options.jobs ?? listStatus(options.storePath);
-  const content = exportJobs(jobs, options.format);
+  const content = exportJobs(jobs, options.format, options.columns ? { columns: options.columns } : {});
   let writtenTo: string | null = null;
   if (options.outPath) {
     const path = resolve(process.cwd(), options.outPath);
