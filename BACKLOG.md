@@ -459,6 +459,19 @@
       실제 빌드 CLI `parse`로 `clock-time-meridiem` 매치 e2e 확인. branch
       `claude/wizardly-pascal-m46r3y`)
 
+- [x] 👷 `agentrelay wait <id>` — 특정 잡이 종료 상태에 도달할 때까지 블록 후 결과를 exit code로 반환.
+      (완료 — `@agentrelay/core/wait.ts` 신설(순수·시계/스토어 미접촉): `isTerminalStatus`(stats의
+      `TERMINAL_STATUSES` 재사용) + `WaitOutcome`(completed/failed/cancelled + 루프 종료 timeout/missing) +
+      `WAIT_EXIT_CODES`/`waitExitCode`(0/1/2/124[GNU timeout 관례]/5) + `evaluateWait(job|null)`(스냅샷
+      하나로 "대기 계속 vs 종료+outcome" 판정, null=missing). CLI `commands.ts` `waitForJob(idOrPrefix,
+      options)` — id 1회 해소 후 full id로 추적, 매 폴링마다 스토어 재오픈해 별도 daemon/tick 프로세스의
+      쓰기 관측, 첫 검사 즉시(이미 종료된 잡은 sleep 없이 반환), `--timeout`은 sleep 전 데드라인 검사로
+      1인터벌 이상 초과 안 함, now/sleep/readJob 주입 가능. CLI `wait.ts` `renderWaitJson`(next/show와
+      동일 형태). `agentrelay wait <id> [--timeout] [--interval] [--json] [-q]` 배선. 스크립트/CI가
+      릴레이 결과에 &&/||로 체인 가능. core 6 + cli 6 신규 테스트, 실제 빌드 CLI e2e로 completed→0·
+      failed→1·timeout→124·unknown→1·크로스-프로세스 관측 검증. PR #96 발원 → 세션 37에서 최신 main에
+      cherry-pick 통합(#137/#96 중복 대체). branch `claude/wizardly-pascal-4b32lg`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
