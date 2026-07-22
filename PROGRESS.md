@@ -1223,3 +1223,27 @@
   #118 stats --by-weekday·#114/#112 next·#107 errors·#105 upcoming·#104/#69 데몬 가드·#102 Gemini
   어댑터·#101 파서 요일·#100 completion fish·#75 resume latency·#61 doctor 큐 진행). #61/#69/#75는
   스키마·doctor 충돌 주의. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 38 — 파서: Claude Code 상태줄 `resets 3am`(no "at") 인식 + pre-filter 갭 수정] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-msf4dk`)
+- **한 일:** Claude Code가 실제 터미널 상태줄에 출력하는 `"5-hour limit reached ∙ resets 3am"`·
+  `"Approaching usage limit ∙ resets 3:30pm"`가 **통째로 파싱 실패**해 잡이 큐잉/자동재개되지 않던
+  실사용 버그를 고침. 근본 원인 두 가지:
+  1. `clock-time`/`clock-time-meridiem` 패턴이 `reset[s]? at` 을 필수로 요구 → "at" 없는 상태줄
+     표현("resets 3am")을 놓침. 두 패턴 모두 `(?:at\s+)?`로 "at"을 선택화(meridiem은 여전히 필수라
+     `reset at 5` 같은 모호 표현은 계속 null).
+  2. pre-filter `LOOKS_LIKE_RATE_LIMIT`가 `"5-hour limit reached"`·`"resets 3am"` 어느 토큰도 못
+     잡아 패턴 루프에 **도달조차 못 함**. `limit reached`(N-hour 접두)·`resets?\s+(?:at|in|\d)`
+     (숫자 직결)을 추가해 해당 상태줄이 패턴에 도달하도록 함. 부수 개선: `"5-hour limit reached"`
+     단독(리셋 시각 없음)도 이제 five-hour-window-fallback으로 큐잉됨(이전엔 pre-filter가 막아 null).
+  정밀 시각(clock-time-meridiem)이 5시간 fallback보다 우선(패턴 순서), `"resets 5 times per hour"`
+  같은 카운트 문구는 여전히 null로 오검출 방지.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **전체 통과**(core 448[parser 28→33] + cli 208[+1 skip] + dashboard 7). **실제 빌드된
+  CLI e2e**(mock 아님): `agentrelay parse "5-hour limit reached ∙ resets 3am"`→`clock-time-meridiem`
+  매치·리셋 3am, `parse "Approaching usage limit ∙ resets 3:30pm"`→`clock-time` 매치·리셋 15:30 확인
+  (둘 다 수정 전엔 "no match"였음).
+- **다음 할 일:** 남은 distinct PR 통합(#136 run --label·#135 stats --watch·#131 show --watch·#130
+  대시보드 스코프 UI·#128 config get·#126 tools·#125 --no-color·#124 stats --by-hour·#122 paths·
+  #118 stats --by-weekday·#114/#112 next·#107 errors·#105 upcoming·#104/#69 데몬 가드·#102 Gemini
+  어댑터·#101 파서 요일·#100 completion fish·#75 resume latency·#61 doctor 큐 진행). 실제 rate-limit
+  샘플 추가 수집→파서 보강(🧭 협업). README/ARCHITECTURE(🧭 코워크).

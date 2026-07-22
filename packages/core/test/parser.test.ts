@@ -202,6 +202,53 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
   });
 
+  // --- Claude Code terse status-line wording (no "at", possibly no explicit
+  //     rate-limit token) — real messages that previously failed to parse ---
+
+  it("parses the status-line 'resets 3am' (meridiem, no 'at')", () => {
+    // Actual Claude Code status line: "5-hour limit reached ∙ resets 3am"
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("5-hour limit reached ∙ resets 3am", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(3);
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses the status-line 'resets 3:30pm' (minutes, no 'at')", () => {
+    const now = new Date("2026-07-12T02:00:00Z");
+    const result = parseRateLimitMessage("Approaching usage limit ∙ resets 3:30pm", { now });
+    expect(result?.pattern).toBe("clock-time");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getMinutes()).toBe(30);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("prefers the precise 'resets 3am' over the 5-hour fallback when both could match", () => {
+    // The message mentions a "5-hour limit" but also gives an exact reset time;
+    // the exact time must win over the generic 5h window.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("5-hour limit reached ∙ resets 3am", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+  });
+
+  it("still queues 'N-hour limit reached' with no reset time via the 5-hour fallback", () => {
+    // Regression: "limit reached" must trip the pre-filter so the fallback fires
+    // even when neither "rate/usage limit" nor "resets at/in" is present.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("5-hour limit reached", { now });
+    expect(result?.pattern).toBe("five-hour-window-fallback");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 5 * 60 * 60_000).toISOString());
+  });
+
+  it("does not read 'resets 5 times per hour' as a clock time", () => {
+    // The without-"at" broadening must not turn a plain count into a reset time.
+    // (Trips the pre-filter via "hour", but no clock/duration pattern matches.)
+    expect(parseRateLimitMessage("the limit resets 5 times per hour")).toBeNull();
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [

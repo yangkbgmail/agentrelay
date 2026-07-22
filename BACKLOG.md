@@ -472,6 +472,19 @@
       failed→1·timeout→124·unknown→1·크로스-프로세스 관측 검증. PR #96 발원 → 세션 37에서 최신 main에
       cherry-pick 통합(#137/#96 중복 대체). branch `claude/wizardly-pascal-4b32lg`)
 
+- [x] 👷 파서: Claude Code 상태줄 문구 `5-hour limit reached ∙ resets 3am` / `resets 3:30pm` 인식
+      (분/시각에서 "at" 생략 + pre-filter 갭).
+      (완료 — Claude Code가 실제로 터미널 상태줄에 출력하는 `"5-hour limit reached ∙ resets 3am"`·
+      `"Approaching usage limit ∙ resets 3:30pm"`가 **통째로 파싱 실패**하던 실사용 자동재개 버그.
+      원인 둘: (1) `clock-time`/`clock-time-meridiem` 패턴이 `reset[s]? at` 을 필수로 요구해 "at"
+      없는 상태줄 표현을 못 잡음, (2) pre-filter `LOOKS_LIKE_RATE_LIMIT`가 `"5-hour limit reached"`·
+      `"resets 3am"` 어느 토큰도 못 잡아 패턴 시도에 **도달조차 못 함**. 수정: 두 clock 패턴에서
+      `at`을 `(?:at\s+)?`로 선택화(meridiem 필수는 유지 → `reset at 5` 모호성 방지), pre-filter에
+      `limit reached`(N-hour 접두)·`resets?\s+(?:at|in|\d)`(숫자 직결) 추가. 정밀 시각이 5시간
+      fallback보다 우선(패턴 순서), `"5-hour limit reached"` 단독도 이제 fallback으로 큐잉.
+      `"resets 5 times per hour"` 같은 카운트는 여전히 null(오검출 방지). parser.test +5 회귀,
+      실제 빌드 CLI `parse`로 두 상태줄 메시지 e2e 확인. branch `claude/wizardly-pascal-msf4dk`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
