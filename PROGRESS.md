@@ -1055,3 +1055,21 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay stats --by-hour` UTC 시간대 활동 히스토그램] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-79ay17`)
+- **배경: 👷(클로드 코드) 소유 BACKLOG 항목이 전부 `[x]` — CLAUDE.md 지침대로 새 개선 항목을 스스로 발굴.**
+  `--trend`(일별/달력축)는 있었지만 "하루 중 언제 rate-limit이 몰리는가"(시계축)를 볼 수단이 없었다.
+- **한 일: `agentrelay stats --by-hour` 추가** — core `stats.ts`에 순수 `computeHourlyActivity(jobs)`/
+  `HourlyActivity`(createdAt의 `getUTCHours()`로 24슬롯[hour 0..23] zero-fill 버킷, 오프셋 포함 타임스탬프도
+  UTC로 정규화, 파싱 불가 createdAt 스킵 — `computeDailyTrend`와 동일 규칙). CLI `stats.ts`에 `renderHourly`
+  (피크 시각 기준 스케일 ASCII 막대, 조용한 시각은 dim 베이스라인 점, `--by-hour`) + `renderStatsJson`에
+  `hourly` 필드(요청 시에만 방출, 기본 JSON 형태 불변). `cli.ts` `stats`가 `--by-hour`를 `--trend`·
+  `--group-by`와 공존(group-by 우선 반환, 그 외 stats + trend? + hourly?). 새 심볼은 core `index.ts`의
+  `export *`로 자동 노출.
+- **검증**: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **584 통과 + 1 skip**(core 379[+hourly 4] + cli 198[+hourly/json 6, 1 skip] + dashboard 7).
+  **실제 빌드된 CLI e2e**(mock 아님): 3-job 임시 스토어로 `stats --by-hour`(09h=2·21h=1 막대)·
+  `--by-hour --json`(hourly 24슬롯·hour9=2·trend 부재)·기본 `--json`(hourly 키 부재)·`--trend 3 --by-hour`
+  (두 히스토그램 공존) 확인.
+- 다음 할 일: 남은 구버전 distinct PR(#61 doctor 큐 진행·#69 데몬 이중실행 가드·#75 resume latency 스키마)
+  신중 리베이스 통합, README/ARCHITECTURE(🧭 코워크).

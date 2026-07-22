@@ -1,5 +1,5 @@
-import type { DailyActivity, RelayJob } from "@agentrelay/core";
-import { computeDailyTrend, computeStats, groupStats } from "@agentrelay/core";
+import type { DailyActivity, HourlyActivity, RelayJob } from "@agentrelay/core";
+import { computeDailyTrend, computeHourlyActivity, computeStats, groupStats } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
   formatDurationMs,
@@ -9,6 +9,7 @@ import {
   NO_STATS_MESSAGE,
   renderGroupedStats,
   renderGroupedStatsJson,
+  renderHourly,
   renderStats,
   renderStatsJson,
   renderTrend,
@@ -314,5 +315,68 @@ describe("renderStatsJson trend field", () => {
     const trend: DailyActivity[] = [{ date: "2026-07-20", count: 1 }];
     const withTrend = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", trend }));
     expect(withTrend.trend).toEqual(trend);
+  });
+});
+
+describe("renderHourly", () => {
+  function hourly(counts: Record<number, number>): HourlyActivity[] {
+    return Array.from({ length: 24 }, (_, hour) => ({ hour, count: counts[hour] ?? 0 }));
+  }
+
+  it("renders a header, a labelled row per hour, and a footer total", () => {
+    const out = renderHourly(hourly({ 1: 2, 14: 4 }));
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("by hour");
+    // 24 hour rows + header + footer.
+    expect(lines).toHaveLength(26);
+    expect(out).toContain("00h");
+    expect(out).toContain("14h");
+    expect(out).toContain("23h");
+    // Each hour's count appears at the end of its row.
+    expect(out).toMatch(/14h .* 4/);
+    expect(lines[lines.length - 1]).toContain("6 job(s) across 24 hour(s), UTC");
+  });
+
+  it("scales bars to the busiest hour and draws blocks only for non-zero hours", () => {
+    const out = renderHourly(hourly({ 1: 2, 14: 4 }));
+    const rows = out.split("\n");
+    const zeroRow = rows.find((r) => r.startsWith("  00h")) ?? "";
+    const peakRow = rows.find((r) => r.startsWith("  14h")) ?? "";
+    const midRow = rows.find((r) => r.startsWith("  01h")) ?? "";
+    expect(peakRow).toContain("█");
+    expect(zeroRow).not.toContain("█");
+    const width = (r: string) => (r.match(/█/g) ?? []).length;
+    expect(width(peakRow)).toBeGreaterThanOrEqual(width(midRow));
+    expect(width(midRow)).toBeGreaterThanOrEqual(1);
+  });
+
+  it("handles an all-zero day without any bars", () => {
+    const out = renderHourly(hourly({}));
+    expect(out).not.toContain("█");
+    expect(out).toContain("0 job(s) across 24 hour(s), UTC");
+  });
+
+  it("round-trips a store subset through computeHourlyActivity + renderHourly", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-20T09:00:00.000Z" }),
+      job({ createdAt: "2026-07-19T09:30:00.000Z" }),
+      job({ createdAt: "2026-07-18T21:00:00.000Z" }),
+    ];
+    const computed = computeHourlyActivity(jobs);
+    expect(computed[9].count).toBe(2);
+    expect(computed[21].count).toBe(1);
+    expect(renderHourly(computed)).toContain("3 job(s) across 24 hour(s), UTC");
+  });
+});
+
+describe("renderStatsJson hourly field", () => {
+  it("omits `hourly` by default but includes it when provided", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("hourly" in without).toBe(false);
+    const hourly = computeHourlyActivity([job({ createdAt: "2026-07-20T05:00:00.000Z" })]);
+    const withHourly = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", hourly }));
+    expect(withHourly.hourly).toHaveLength(24);
+    expect(withHourly.hourly[5].count).toBe(1);
   });
 });
