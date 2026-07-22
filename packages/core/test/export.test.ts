@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  COLUMN_AWARE_FORMATS,
   EXPORT_FORMATS,
   escapeCsvField,
   escapeMarkdownCell,
   exportJobs,
+  isJobCsvColumn,
   JOB_CSV_COLUMNS,
   jobCsvValue,
   jobsToCsv,
   jobsToJson,
   jobsToMarkdown,
   jobsToNdjson,
+  parseCsvColumns,
 } from "../src/export.js";
 import type { RelayJob } from "../src/types.js";
 
@@ -113,6 +116,64 @@ describe("jobsToCsv", () => {
   it("honors a custom column subset and order", () => {
     const csv = jobsToCsv([job({ id: "x", status: "queued" })], { columns: ["status", "id"] });
     expect(csv).toBe("status,id\nqueued,x");
+  });
+});
+
+describe("isJobCsvColumn", () => {
+  it("accepts every declared column and rejects unknown names", () => {
+    for (const col of JOB_CSV_COLUMNS) {
+      expect(isJobCsvColumn(col)).toBe(true);
+    }
+    expect(isJobCsvColumn("nope")).toBe(false);
+    expect(isJobCsvColumn("")).toBe(false);
+    expect(isJobCsvColumn("ID")).toBe(false); // case-sensitive
+  });
+});
+
+describe("parseCsvColumns", () => {
+  it("keeps valid columns in the order given", () => {
+    expect(parseCsvColumns("status,id,project")).toEqual({
+      columns: ["status", "id", "project"],
+      invalid: [],
+    });
+  });
+
+  it("trims whitespace and drops empty tokens (trailing/duplicate commas)", () => {
+    expect(parseCsvColumns(" status , id ,,")).toEqual({
+      columns: ["status", "id"],
+      invalid: [],
+    });
+  });
+
+  it("collects unrecognized names into invalid while keeping the valid ones", () => {
+    expect(parseCsvColumns("id,bogus,status,nope")).toEqual({
+      columns: ["id", "status"],
+      invalid: ["bogus", "nope"],
+    });
+  });
+
+  it("preserves intentional duplicates", () => {
+    expect(parseCsvColumns("id,id").columns).toEqual(["id", "id"]);
+  });
+
+  it("returns no columns for an all-empty input", () => {
+    expect(parseCsvColumns("").columns).toEqual([]);
+    expect(parseCsvColumns("  , ,").columns).toEqual([]);
+  });
+
+  it("feeds jobsToCsv/jobsToMarkdown a validated subset end to end", () => {
+    const { columns } = parseCsvColumns("status,id");
+    expect(jobsToCsv([job({ id: "x", status: "queued" })], { columns })).toBe("status,id\nqueued,x");
+    expect(jobsToMarkdown([job({ id: "x", status: "queued" })], { columns })).toContain("| status | id |");
+  });
+});
+
+describe("COLUMN_AWARE_FORMATS", () => {
+  it("lists exactly the tabular formats and is a subset of EXPORT_FORMATS", () => {
+    expect([...COLUMN_AWARE_FORMATS]).toEqual(["csv", "md"]);
+    for (const f of COLUMN_AWARE_FORMATS) {
+      expect(EXPORT_FORMATS).toContain(f);
+    }
   });
 });
 
