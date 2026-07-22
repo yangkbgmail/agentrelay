@@ -1055,3 +1055,31 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay paths` 파일 위치 진단 커맨드] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-tcasvv`)
+- **배경: 명시적 👷 BACKLOG 항목이 전부 완료 상태이고, 열린 PR이 31개까지 쌓여 상당수가 서로 중복
+  (`stats --by-hour` 8건·`export --format html` 4건·`import` 2건·`config get` 2건·daemon 가드 2건 등)**
+  이었다. 어느 열린 PR과도 겹치지 않는 **완전히 distinct·격리된 신규 개선 항목**을 CLAUDE.md 지침대로
+  발굴해 구현했다 — 크라우드된 파일(stats.ts/export.ts/adapters.ts/parser.ts)을 건드리지 않는 새 모듈.
+- **한 일: `agentrelay paths` — "AgentRelay가 디스크의 어디에 파일을 두나?" 진단 커맨드.** `config show`는
+  유효 *설정 값*(+시크릿)을, `doctor`는 *건강*(스토어 손상·재개 루프 생존)을 보여주지만, "이 도구가 실제
+  어떤 파일을 읽고 쓰며 그게 존재하나"라는 더 기본적인 질문엔 아무도 답하지 못했다. 잡이 조용히 재개
+  안 될 때 첫 확인 지점("올바른 스토어를 보고 있나?")인데, `AGENTRELAY_STORE`·프로젝트-로컬/per-user
+  설정이 서로 다른 곳을 가리킬 수 있어 특히 헷갈린다.
+  1. `@agentrelay/core/locations.ts` 신설(순수): `buildLocationReport(facts)`가 이미 수집된 팩트(해소된
+     store/config 경로 + 디스크 존재 플래그)로 위치별 `LocationEntry`(kind/label/path/exists/note)를 조립 —
+     store·store-dir·config·heartbeat·backups 5개. 스토어 디렉터리·`daemon.json`·백업-glob(`<store>.backup-*`)
+     경로는 store 경로에서 파생, 부재 위치엔 "created on first run"/"using built-in defaults"/"resolved but
+     missing" 등 안내 note. 순수 `countStoreBackups(storeFileName, dirFiles)`가 디렉터리 리스팅에서 이 스토어의
+     `.backup-*`만 카운트(`backupStamp` 재사용 → `.corrupt-`/`.tmp-`/타 스토어 정확히 제외).
+  2. CLI `commands.ts`에 `readLocationReport(storePath, {configPath})` — fs I/O 반: `readdirSync`(못 읽으면 null=
+     디렉터리 부재)·`existsSync`·`resolveConfigPath`로 팩트를 모아 core에 위임, 절대 throw 안 함. `paths.ts`에
+     순수 `renderLocations`(✓/· 존재 마커 + 18폭 정렬 라벨 + note[missing만 노랑 경고]·color 게이트)·
+     `renderLocationsJson`. `agentrelay paths [--json]` 커맨드를 `next`와 `stats` 사이에 배선.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **592 통과 + 1 skip**(core 385[+12: locations] + cli 200[+7: paths render/json][+1 skip] +
+    dashboard 7). **실제 빌드된 CLI e2e**(mock 아님): 스토어 미생성 시 전 위치 `·`+"created on first run"/
+    "using built-in defaults", 스토어+백업+하트비트 시드 후 `✓`+"1 snapshot", `--json`이 generatedAt/storePath/
+    entries[5] 정확 출력, `--config <path>` 해소 시 config 라인이 해당 경로+`✓` 확인.
+- 다음 할 일: 열린 31개 PR 중복 무리 통합·정리(전용 세션 권장), #61/#69/#75 통합, `paths`에 디스크 사용량
+  바이트 표기 확장(👷 후보), README/ARCHITECTURE(🧭 코워크).

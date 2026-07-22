@@ -30,6 +30,7 @@ import {
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
+  buildLocationReport,
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
@@ -46,6 +47,7 @@ import {
   type IneligibleJob,
   isJobScopeActive,
   type JobScope,
+  type LocationReport,
   listBackups,
   loadConfigFile,
   notifiersFromEnv,
@@ -246,6 +248,37 @@ export function readHeartbeatFacts(storePath: string, nowMs: number = Date.now()
     ageMs: Math.max(0, nowMs - lastTick),
     staleAfterMs: heartbeatStaleAfterMs(hb.mode, hb.pollIntervalMs),
   };
+}
+
+/**
+ * Gather the filesystem facts for `agentrelay paths` and build the report. This
+ * is the I/O half; the report composition (labels, notes, derived paths) lives
+ * in `@agentrelay/core`. Never throws — an unreadable store directory reads as
+ * "not there", which is exactly what the report should show.
+ */
+export function readLocationReport(
+  storePath: string,
+  options: { configPath?: string; env?: Record<string, string | undefined>; cwd?: string } = {}
+): LocationReport {
+  const env = options.env ?? process.env;
+  const cwd = options.cwd ?? process.cwd();
+  const configPath = resolveConfigPath({ path: options.configPath, env, cwd });
+
+  let storeDirFiles: string[] | null;
+  try {
+    storeDirFiles = readdirSync(dirname(storePath));
+  } catch {
+    storeDirFiles = null; // directory absent or unreadable
+  }
+
+  return buildLocationReport({
+    storePath,
+    storeExists: existsSync(storePath),
+    configPath,
+    configExists: configPath ? existsSync(configPath) : false,
+    heartbeatExists: existsSync(daemonHeartbeatPath(storePath)),
+    storeDirFiles,
+  });
 }
 
 /** Human-readable "(auto-prune on, ...)" suffix for the daemon startup banner. */

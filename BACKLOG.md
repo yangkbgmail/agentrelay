@@ -395,6 +395,21 @@
 - [x] 👷 `agentrelay stats --trend [days]` — UTC 일별 활동 히스토그램(릴레이가 언제 바빴는지 시간 축).
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
+- [x] 👷 `agentrelay paths` — AgentRelay가 디스크에 두는 파일 위치(스토어·스토어 디렉터리·설정·
+      데몬 하트비트·백업)를 존재 여부와 함께 한눈에 보고. `config show`(유효 설정)·`doctor`(건강 판정)와
+      달리 "이 도구가 실제로 어떤 파일을 읽고 쓰나, 존재는 하나"에 답함 — 잡이 조용히 재개 안 될 때
+      "지금 올바른 스토어를 보고 있나?"를 가장 먼저 확인하는 수단(`AGENTRELAY_STORE`·프로젝트-로컬/
+      per-user 설정이 서로 다른 곳을 가리킬 수 있으므로).
+      (완료 — 순수 core `@agentrelay/core/locations.ts` 신설: `buildLocationReport(facts)`가 이미 수집된
+      팩트(해소된 store/config 경로 + 디스크 존재)로 위치별 `LocationEntry`(kind/label/path/exists/note)를
+      구성, `countStoreBackups`가 디렉터리 리스팅에서 이 스토어의 `.backup-*`만 카운트(`.corrupt-`/`.tmp-`/
+      타 스토어 제외). 스토어 디렉터리·하트비트·백업-glob 경로는 store 경로에서 파생, 부재 위치엔
+      "created on first run"/"using built-in defaults" 등 안내 note. CLI `commands.ts` `readLocationReport`
+      (fs I/O 반: `readdirSync`/`existsSync` + `resolveConfigPath`, 절대 throw 안 함 — 못 읽는 디렉터리는
+      "부재"로), `packages/cli/src/paths.ts`에 순수 `renderLocations`(✓/· 존재 마커 + 정렬 라벨 + note,
+      color 게이트)·`renderLocationsJson`. `agentrelay paths [--json]` 커맨드 배선. core 12 + cli 7 신규
+      테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
+      해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

@@ -41,6 +41,7 @@ import {
   listStoreBackups,
   previewRestoreStore,
   pruneJobs,
+  readLocationReport,
   restoreStore,
   retryJob,
   runCommand,
@@ -58,6 +59,7 @@ import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
+import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson, renderTrend } from "./stats.js";
 import {
@@ -527,6 +529,20 @@ export function buildCli(): Command {
         if (next === null) process.exitCode = 4;
         else if (!next.due) process.exitCode = 3;
         // due-now → exit 0 (default).
+      }
+    });
+
+  program
+    .command("paths")
+    .description("Show where AgentRelay keeps its files on disk (store, config, heartbeat, backups)")
+    .option("--json", "Print as JSON (machine-readable, for scripts/jq)")
+    .action((opts: { json?: boolean }) => {
+      const { store, config } = program.opts();
+      const report = readLocationReport(store, { configPath: config });
+      if (opts.json) {
+        console.log(renderLocationsJson(report));
+      } else {
+        console.log(renderLocations(report, { color: Boolean(process.stdout.isTTY) }));
       }
     });
 
