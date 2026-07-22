@@ -1146,3 +1146,23 @@
   html·#126 tools·#125 --no-color·#124 stats --by-hour·#122 paths·#118 stats --by-weekday·#114/#112 next·
   #105 upcoming·#107 errors·#104/#69 데몬 가드·#102 Gemini 어댑터·#101 파서 요일·#100 completion fish·#96 wait·
   #75 resume latency·#61 doctor 큐 진행). #61/#69/#75는 스키마·doctor 충돌 주의. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 36 — `agentrelay run --label`: 잡에 사람이 읽는 라벨 부착] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-j77y8t`)
+- **배경:** 백로그의 👷 항목은 사실상 소진 상태고(남은 미완료는 대부분 🧭 문서/리서치), 열린 PR 23개는
+  심각한 중복 루프가 재발 중이었다. 첫 후보로 `config get`을 구현했으나 **이미 대표 PR #128이 열려 있어**
+  (중복 #106·#95는 세션 35에서 닫힘) 4번째 중복이 되는 걸 확인하고 **폐기** → 열린 23개 PR·백로그 어디와도
+  겹치지 않는 신규 항목으로 전환했다. (`parse` stdin은 이미 구현돼 있어 제외.)
+- **한 일:** `agentrelay run --label <label>` — 잡을 project(cwd basename)+id 너머로 식별하는 라벨을 부착.
+  core `types.ts`(`RelayJob.label?`·`CreateJobInput.label?`), `queue.ts`(enqueue 기록 + load가 legacy 잡을
+  null로 정규화), `import.ts`(nullable-string 검증·왕복 보존), `export.ts`(`JOB_CSV_COLUMNS`에 label +
+  jobCsvValue). CLI `run --label` 플래그 → `runCommand`가 trim해 빈 값 무시, `show` 상세뷰가 라벨 있을 때만
+  줄 렌더. status 테이블 레이아웃은 **미변경**(충돌 최소화), show/status/export --json·대시보드는 잡 직렬화로
+  자동 포함.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **630 통과 + 1 skip**(core 422 + cli 201[+1 skip] + dashboard 7). 신규 테스트 7(core queue 2·export 1·
+  import 2 / cli show 1·commands 1) + 기존 export 컬럼 순서 단언 갱신. 실제 빌드된 CLI e2e로
+  run→show 라벨줄·CSV/md 라벨 컬럼·라벨 없는 잡 생략을 검증(mock 아님).
+- **다음 할 일:** 이 PR 리뷰/병합(🧭 코워크). 누적된 distinct PR 통합은 여전히 병목 — #135 stats --watch·
+  #131 show --watch·#130 대시보드 스코프 UI·#128 config get·#127 export html·#126 tools·#125 --no-color·
+  #124 stats --by-hour·#122 paths·#118 stats --by-weekday·#114/#112 next·#107 errors·#105 upcoming·
+  #104/#69 데몬 가드·#102 Gemini·#101 파서 요일·#100 completion fish·#96 wait·#75 resume latency·#61 doctor 큐 진행.

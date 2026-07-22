@@ -103,6 +103,8 @@ export interface RunOptions {
   cwd?: string;
   tool?: AgentTool;
   storePath?: string;
+  /** Optional human-readable label recorded on the job if it gets queued (`run --label`). */
+  label?: string;
   /** Injected for tests; defaults to real stdout/stderr passthrough. */
   stdout?: NodeJS.WritableStream;
   stderr?: NodeJS.WritableStream;
@@ -161,7 +163,8 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
 
   const queue = openQueue(storePath);
   const project = resolveProjectName(cwd);
-  const job = queue.enqueue({ project, tool, command: options.command, cwd });
+  const label = options.label?.trim() ? options.label.trim() : undefined;
+  const job = queue.enqueue({ project, tool, command: options.command, cwd, label });
   queue.markWaitingForReset(job.id, rateLimit.resetAt);
   queue.close();
 

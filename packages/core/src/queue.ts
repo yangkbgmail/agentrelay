@@ -122,7 +122,10 @@ export class RelayQueue {
     try {
       const parsed: unknown = JSON.parse(raw);
       if (!Array.isArray(parsed)) throw new Error("store root is not a JSON array");
-      this.jobs = new Map((parsed as RelayJob[]).map((job) => [job.id, job]));
+      // Normalize the `label` field so jobs written before it existed load as
+      // `null` rather than `undefined` — keeps the in-memory shape canonical and
+      // means the next flush persists an explicit value.
+      this.jobs = new Map((parsed as RelayJob[]).map((job) => [job.id, { ...job, label: job.label ?? null }]));
     } catch (error) {
       // The file exists and has content but can't be parsed. Preserve it by
       // moving it aside to a timestamped `.corrupt-*` backup BEFORE starting
@@ -169,6 +172,7 @@ export class RelayQueue {
       tool: input.tool,
       command: input.command,
       cwd: input.cwd,
+      label: input.label ?? null,
       status: "queued",
       resetAt: null,
       createdAt: now,

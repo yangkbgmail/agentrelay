@@ -34,7 +34,7 @@ describe("exportStore", () => {
     expect(result.writtenTo).toBeNull();
     const lines = result.content.split("\n");
     expect(lines).toHaveLength(3); // header + 2 rows
-    expect(lines[0]).toContain("id,project,tool,status");
+    expect(lines[0]).toContain("id,project,label,tool,status");
   });
 
   it("serializes only the jobs it is given", () => {
@@ -106,7 +106,7 @@ describe("exportStore", () => {
     expect(result.count).toBe(2);
     const lines = result.content.split("\n");
     expect(lines).toHaveLength(4); // header + separator + 2 rows
-    expect(lines[0].startsWith("| id | project | tool | status |")).toBe(true);
+    expect(lines[0].startsWith("| id | project | label | tool | status |")).toBe(true);
     expect(lines[1]).toContain("| --- |");
     expect(lines[2].startsWith("| ")).toBe(true);
     expect(lines[2].endsWith(" |")).toBe(true);

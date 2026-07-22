@@ -335,12 +335,14 @@ export function buildCli(): Command {
       "--tool <tool>",
       "Agent tool adapter to use (claude-code | codex-cli | generic). Inferred from the command when omitted."
     )
-    .action(async (command: string[], opts: { tool?: string }) => {
+    .option("--label <label>", "Human-readable label recorded on the job if it gets queued (shown in `show`/exports)")
+    .action(async (command: string[], opts: { tool?: string; label?: string }) => {
       const { store } = program.opts();
       const result = await runCommand({
         command,
         storePath: store,
         tool: opts.tool as AgentTool | undefined,
+        label: opts.label,
       });
       process.exitCode = result.exitCode;
     });
