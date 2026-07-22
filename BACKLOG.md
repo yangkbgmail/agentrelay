@@ -395,6 +395,16 @@
 - [x] 👷 `agentrelay stats --trend [days]` — UTC 일별 활동 히스토그램(릴레이가 언제 바빴는지 시간 축).
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
+- [x] 👷 `agentrelay config get <key>` — 단일 설정 값을 출처(env>파일>기본값) 해소해 한 줄로 출력(스크립트 친화).
+      (완료 — `config show`가 표 전체를 보여주는 반면, `config get`은 단일 dotted 키의 유효 값만
+      bare 라인으로 stdout에 찍어 `STORE=$(agentrelay config get store)`가 그대로 동작하게 함.
+      core `config.ts`에 `ConfigField.envKey`(각 dotted 키↔`AGENTRELAY_*` 1:1, drift 테스트로 검증) +
+      순수 `getEffectiveConfigValue(key,fileConfig,env)`/`ResolvedConfigValue`(unknown 키는 null,
+      env>파일>기본값 precedence는 `resolveEffectiveConfig`와 동일 미러). CLI `commands.ts`
+      `getConfigValue`(손상 파일은 throw 대신 loadError, env/기본값 해소는 계속) + `config.ts`
+      `renderConfigGetValue`(secret 마스킹+`--show-secrets`, unset은 빈 문자열)·`renderConfigGetJson`.
+      `agentrelay config get <key> [--json] [--show-secrets]` 서브커맨드, unknown 키/손상 파일은 exit 1.
+      `show`처럼 bootstrap-skip(precedence 오표기 방지). branch `claude/wizardly-pascal-kzmpij`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

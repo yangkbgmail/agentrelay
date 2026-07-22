@@ -10,6 +10,7 @@ import {
   configToEnv,
   configToJson,
   findConfigField,
+  getEffectiveConfigValue,
   hasConfigErrors,
   loadConfigFile,
   parseConfig,
@@ -276,6 +277,67 @@ describe("resolveEffectiveConfig", () => {
   });
 });
 
+describe("getEffectiveConfigValue", () => {
+  it("returns null for an unknown key", () => {
+    expect(getEffectiveConfigValue("nope", null, {})).toBeNull();
+    expect(getEffectiveConfigValue("retry.nope", null, {})).toBeNull();
+  });
+
+  it("reports a default when neither env nor file set the key", () => {
+    expect(getEffectiveConfigValue("store", null, {})).toEqual({
+      key: "store",
+      envKey: "AGENTRELAY_STORE",
+      group: "store",
+      value: undefined,
+      source: "default",
+      secret: false,
+    });
+  });
+
+  it("attributes a value to the config file", () => {
+    expect(getEffectiveConfigValue("retry.maxAttempts", { retry: { maxAttempts: 9 } }, {})).toMatchObject({
+      envKey: "AGENTRELAY_MAX_ATTEMPTS",
+      value: "9",
+      source: "config-file",
+    });
+  });
+
+  it("lets an env var win over the config file (same precedence as resolveEffectiveConfig)", () => {
+    const resolved = getEffectiveConfigValue(
+      "store",
+      { store: "/from/file.json" },
+      { AGENTRELAY_STORE: "/from/env.json" }
+    );
+    expect(resolved).toMatchObject({ value: "/from/env.json", source: "env" });
+  });
+
+  it("flags secret keys (webhook auth) so the CLI can mask them", () => {
+    const resolved = getEffectiveConfigValue("notify.webhookAuth", { notify: { webhookAuth: "Bearer t0ken" } }, {});
+    expect(resolved).toMatchObject({
+      envKey: "AGENTRELAY_WEBHOOK_AUTH",
+      value: "Bearer t0ken",
+      source: "config-file",
+      secret: true,
+    });
+  });
+
+  it("agrees with resolveEffectiveConfig for every settable key", () => {
+    // No drift between the single-key path and the full table.
+    const fileConfig = sampleConfig();
+    const env = { AGENTRELAY_STORE: "/env/jobs.json" };
+    const entries = resolveEffectiveConfig(fileConfig, env);
+    for (const field of CONFIG_FIELDS) {
+      const single = getEffectiveConfigValue(field.key, fileConfig, env);
+      const fromTable = entries.find((e) => e.key === field.envKey);
+      expect(single).toMatchObject({
+        value: fromTable?.value,
+        source: fromTable?.source,
+        secret: fromTable?.secret,
+      });
+    }
+  });
+});
+
 describe("CONFIG_FIELDS / setConfigValue / unsetConfigValue", () => {
   it("has one settable field per env-backed key (no drift)", () => {
     // `config set` must reach precisely the values `config show` reports.
@@ -293,6 +355,19 @@ describe("CONFIG_FIELDS / setConfigValue / unsetConfigValue", () => {
 
   it("SETTABLE_CONFIG_KEYS matches CONFIG_FIELDS", () => {
     expect(SETTABLE_CONFIG_KEYS).toEqual(CONFIG_FIELDS.map((f) => f.key));
+  });
+
+  it("each field's envKey is the single AGENTRELAY_* var it projects onto", () => {
+    // `field.envKey` must equal what `config set` actually emits, or `config get`
+    // would read a different var than `config set` writes.
+    const sample = (f: (typeof CONFIG_FIELDS)[number]): string =>
+      f.type === "boolean" ? "true" : f.type === "number" ? "1" : f.type === "duration" ? "1h" : "x";
+    const known = new Set(CONFIG_ENV_KEYS.map((k) => k.key));
+    for (const field of CONFIG_FIELDS) {
+      const emitted = Object.keys(configToEnv(setConfigValue({}, field.key, sample(field))));
+      expect(emitted).toEqual([field.envKey]);
+      expect(known.has(field.envKey)).toBe(true);
+    }
   });
 
   it("sets a top-level string field", () => {

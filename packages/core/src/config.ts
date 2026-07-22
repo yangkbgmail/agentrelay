@@ -115,6 +115,8 @@ export type ConfigFieldType = "string" | "number" | "boolean" | "duration";
 export interface ConfigField {
   /** Dotted path used on the CLI, e.g. `retry.maxAttempts`. */
   key: string;
+  /** The single `AGENTRELAY_*` env var this field projects onto (see {@link configToEnv}). */
+  envKey: string;
   group: ConfigGroup;
   type: ConfigFieldType;
   /** Webhook URLs/auth tokens — masked when echoed back. */
@@ -128,19 +130,19 @@ export interface ConfigField {
  * `config show` reports and no more.
  */
 export const CONFIG_FIELDS: ConfigField[] = [
-  { key: "store", group: "store", type: "string" },
-  { key: "notify.slackWebhook", group: "notify", type: "string", secret: true },
-  { key: "notify.webhookUrl", group: "notify", type: "string", secret: true },
-  { key: "notify.webhookAuth", group: "notify", type: "string", secret: true },
-  { key: "retry.maxAttempts", group: "retry", type: "number" },
-  { key: "retry.baseDelayMs", group: "retry", type: "number" },
-  { key: "retry.factor", group: "retry", type: "number" },
-  { key: "retry.maxDelayMs", group: "retry", type: "number" },
-  { key: "autoPrune.enabled", group: "autoPrune", type: "boolean" },
-  { key: "autoPrune.after", group: "autoPrune", type: "duration" },
-  { key: "autoPrune.keep", group: "autoPrune", type: "number" },
-  { key: "autoPrune.every", group: "autoPrune", type: "duration" },
-  { key: "autoPrune.everyTicks", group: "autoPrune", type: "number" },
+  { key: "store", envKey: "AGENTRELAY_STORE", group: "store", type: "string" },
+  { key: "notify.slackWebhook", envKey: "AGENTRELAY_SLACK_WEBHOOK", group: "notify", type: "string", secret: true },
+  { key: "notify.webhookUrl", envKey: "AGENTRELAY_WEBHOOK_URL", group: "notify", type: "string", secret: true },
+  { key: "notify.webhookAuth", envKey: "AGENTRELAY_WEBHOOK_AUTH", group: "notify", type: "string", secret: true },
+  { key: "retry.maxAttempts", envKey: "AGENTRELAY_MAX_ATTEMPTS", group: "retry", type: "number" },
+  { key: "retry.baseDelayMs", envKey: "AGENTRELAY_RETRY_BASE_MS", group: "retry", type: "number" },
+  { key: "retry.factor", envKey: "AGENTRELAY_RETRY_FACTOR", group: "retry", type: "number" },
+  { key: "retry.maxDelayMs", envKey: "AGENTRELAY_RETRY_MAX_MS", group: "retry", type: "number" },
+  { key: "autoPrune.enabled", envKey: "AGENTRELAY_AUTOPRUNE", group: "autoPrune", type: "boolean" },
+  { key: "autoPrune.after", envKey: "AGENTRELAY_AUTOPRUNE_AFTER", group: "autoPrune", type: "duration" },
+  { key: "autoPrune.keep", envKey: "AGENTRELAY_AUTOPRUNE_KEEP", group: "autoPrune", type: "number" },
+  { key: "autoPrune.every", envKey: "AGENTRELAY_AUTOPRUNE_EVERY", group: "autoPrune", type: "duration" },
+  { key: "autoPrune.everyTicks", envKey: "AGENTRELAY_AUTOPRUNE_EVERY_TICKS", group: "autoPrune", type: "number" },
 ];
 
 /** Dotted keys of all settable config fields, in display order. */
@@ -598,6 +600,56 @@ export function resolveEffectiveConfig(
     if (fileEnv[key] !== undefined) return { key, group, value: fileEnv[key], source: "config-file", secret: flag };
     return { key, group, value: undefined, source: "default", secret: flag };
   });
+}
+
+/** One resolved setting, addressed by its dotted CLI key (what `config get` returns). */
+export interface ResolvedConfigValue {
+  /** Dotted CLI key, e.g. `retry.maxAttempts`. */
+  key: string;
+  /** The `AGENTRELAY_*` env var this key projects onto. */
+  envKey: string;
+  group: ConfigGroup;
+  /** The effective value, or `undefined` when the built-in default applies. */
+  value: string | undefined;
+  source: ConfigValueSource;
+  secret: boolean;
+}
+
+/**
+ * Resolves a *single* setting (addressed by its dotted CLI key, the same key
+ * `config set`/`unset` take) to its effective value and source, using the same
+ * env > config-file > default precedence as {@link resolveEffectiveConfig}.
+ * Returns `null` for an unknown key so the caller can report it. Pure — no
+ * filesystem — so `config get` and its tests share exactly this logic.
+ */
+export function getEffectiveConfigValue(
+  key: string,
+  fileConfig: AgentRelayConfig | null,
+  env: Record<string, string | undefined> = process.env
+): ResolvedConfigValue | null {
+  const field = findConfigField(key);
+  if (!field) return null;
+  const entry = resolveEffectiveConfig(fileConfig, env).find((e) => e.key === field.envKey);
+  // `field.envKey` always names an entry (a test asserts CONFIG_FIELDS ⊆
+  // CONFIG_ENV_KEYS), but fall back defensively rather than assert non-null.
+  if (!entry) {
+    return {
+      key,
+      envKey: field.envKey,
+      group: field.group,
+      value: undefined,
+      source: "default",
+      secret: Boolean(field.secret),
+    };
+  }
+  return {
+    key,
+    envKey: field.envKey,
+    group: entry.group,
+    value: entry.value,
+    source: entry.source,
+    secret: entry.secret,
+  };
 }
 
 /**

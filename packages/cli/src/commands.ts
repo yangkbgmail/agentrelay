@@ -41,6 +41,7 @@ import {
   type ExportFormat,
   exportJobs,
   findConfigField,
+  getEffectiveConfigValue,
   hasConfigErrors,
   heartbeatStaleAfterMs,
   type IneligibleJob,
@@ -54,6 +55,7 @@ import {
   partitionForControl,
   RelayQueue,
   RelayScheduler,
+  type ResolvedConfigValue,
   type RestorePreview,
   type RestoreResult,
   resolveAdapter,
@@ -999,6 +1001,48 @@ export function showConfig(options: ConfigShowOptions = {}): ConfigShowResult {
   }
   const entries = resolveEffectiveConfig(fileConfig, env);
   return { path, entries, loadError };
+}
+
+export interface ConfigGetOptions extends ConfigShowOptions {
+  /** Dotted config key to resolve (e.g. `store`, `retry.maxAttempts`). */
+  key: string;
+}
+
+export interface ConfigGetResult {
+  /** The requested dotted key. */
+  key: string;
+  /** The resolved value + source, or null when `key` isn't a known config key. */
+  resolved: ResolvedConfigValue | null;
+  /** The config file that fed the resolution, or null when none was found. */
+  path: string | null;
+  /** Set when a config file was found but couldn't be loaded/parsed (see {@link showConfig}). */
+  loadError?: string;
+}
+
+/**
+ * Resolves a *single* config value (addressed by its dotted CLI key) to its
+ * effective value and source. The scriptable counterpart to `config show`:
+ * `STORE=$(agentrelay config get store)`. Like `showConfig`, a malformed config
+ * file is non-fatal — env/default resolution still happens and the load error
+ * is returned alongside. Never throws. `resolved` is null for an unknown key.
+ */
+export function getConfigValue(options: ConfigGetOptions): ConfigGetResult {
+  const env = options.env ?? process.env;
+  let fileConfig: AgentRelayConfig | null = null;
+  let path: string | null = null;
+  let loadError: string | undefined;
+  try {
+    const loaded = loadConfigFile({ path: options.path, cwd: options.cwd, env });
+    if (loaded) {
+      fileConfig = loaded.config;
+      path = loaded.path;
+    }
+  } catch (error) {
+    path = resolveConfigPath({ path: options.path, cwd: options.cwd, env });
+    loadError = String(error);
+  }
+  const resolved = getEffectiveConfigValue(options.key, fileConfig, env);
+  return { key: options.key, resolved, path, loadError };
 }
 
 export interface DoctorOptions {
