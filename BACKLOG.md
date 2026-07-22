@@ -469,8 +469,8 @@
       1인터벌 이상 초과 안 함, now/sleep/readJob 주입 가능. CLI `wait.ts` `renderWaitJson`(next/show와
       동일 형태). `agentrelay wait <id> [--timeout] [--interval] [--json] [-q]` 배선. 스크립트/CI가
       릴레이 결과에 &&/||로 체인 가능. core 6 + cli 6 신규 테스트, 실제 빌드 CLI e2e로 completed→0·
-      failed→1·timeout→124·unknown→1·크로스-프로세스 관측 검증. PR #96 발원 → 세션 36에서 최신 main에
-      깨끗이 재구현·통합. branch `claude/wizardly-pascal-7ge87h`)
+      failed→1·timeout→124·unknown→1·크로스-프로세스 관측 검증. PR #96 발원 → 세션 37에서 최신 main에
+      cherry-pick 통합(#137/#96 중복 대체). branch `claude/wizardly-pascal-4b32lg`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

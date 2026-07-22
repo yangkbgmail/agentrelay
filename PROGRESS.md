@@ -1197,3 +1197,29 @@
   `pattern: clock-time-meridiem`, `matched: "reset at 5pm"`, 리셋 시각 정상 산출 확인.
 - **다음 할 일:** 파서 커버리지 계속 — `reset at midnight/noon` 자연어, 요일 지정
   (`resets Monday`) 등 추가 실 메시지 샘플 수집(🧭 코워크와 협업). 남은 distinct PR 통합.
+
+### [세션 37 — 파서 `reset at 5pm`(#139) 병합 + `agentrelay wait` 통합(#137/#96 중복 대체)] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-4b32lg`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태이고 열린 PR이 25개까지 쌓여 세션 34~36이 반복 경고한
+  중복 재발 패턴(`wait` #137/#96, 데몬 가드 #69/#104 등)이 그대로였다. 새 기능을 더하기보다 **CI 초록
+  자기완결 PR을 main에 통합하고 중복을 닫아 큐를 정리**하는 것이 압도적으로 높은 가치(COLLAB 병합
+  정책·세션 34/35/36 선례).
+- **한 일:**
+  1. **파서 `clock-time-meridiem`(#139)을 main에 병합**(de5ade4). Claude Code의 실제 출력 문구
+     `"Your limit will reset at 5pm"`(분 없는 시각)이 어느 패턴에도 안 걸려 잡이 큐잉되지 않던
+     **실사용 자동재개 버그**를 고침. `mergeable_state:clean`·최신 main 기반·CI 초록(head `327ddf4`
+     success, `actions_list` 확인) 검증 후 병합.
+  2. **`agentrelay wait <id>`(#137)를 내 브랜치에 cherry-pick 통합** — 특정 잡이 종료 상태에
+     도달할 때까지 폴링·블록하고 결과를 exit code(0 completed·1 failed·2 cancelled·124 timeout[GNU]·
+     5 missing)로 반환, 스크립트/CI가 릴레이 결과에 `&&`/`||`로 체인 가능. #137의 CI 초록 커밋
+     (`6923292`)을 최신 main(de5ade4, #139 포함) 위로 cherry-pick, PROGRESS.md 문서 충돌만 해소
+     (코드는 깨끗이 적용). #137/#96(동일 기능 중복 쌍, #137이 #96의 최신 base 재구현)은 이 통합으로
+     대체하고 닫음.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **658 통과 + 1 skip**(core 443 + cli 208[+1 skip] + dashboard 7). **실제 빌드된 CLI e2e**
+  (mock 아님): 임시 2-job 스토어로 `wait <completed>`→exit 0, `wait <failed>`→exit 1(+lastError),
+  `wait --json`(outcome/exitCode/job 청정), `wait <unknown>`→"no job matches"+exit 1 확인.
+- **다음 할 일:** 남은 distinct PR 통합(#136 run --label·#135 stats --watch·#131 show --watch·#130
+  대시보드 스코프 UI·#128 config get·#126 tools·#125 --no-color·#124 stats --by-hour·#122 paths·
+  #118 stats --by-weekday·#114/#112 next·#107 errors·#105 upcoming·#104/#69 데몬 가드·#102 Gemini
+  어댑터·#101 파서 요일·#100 completion fish·#75 resume latency·#61 doctor 큐 진행). #61/#69/#75는
+  스키마·doctor 충돌 주의. README/ARCHITECTURE(🧭 코워크).
