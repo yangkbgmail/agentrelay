@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import type { NotifyPayload } from "@agentrelay/core";
+import type { NotifyPayload, RelayJob } from "@agentrelay/core";
 import { parseConfig, RelayQueue, sampleConfigJson } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -23,6 +23,7 @@ import {
   showJob,
   unsetConfigFile,
   validateConfigFile,
+  waitForJob,
 } from "../src/commands.js";
 import { isConfigDiagnosticInvocation, renderEffectiveConfig } from "../src/config.js";
 
@@ -852,5 +853,105 @@ describe("importStore", () => {
     const included = importStore({ filePath: src, format: "json", storePath, includeActive: true });
     expect(included).toMatchObject({ added: 1, skippedActive: 0 });
     expect(listStatus(storePath)[0].id).toBe("live");
+  });
+});
+
+describe("waitForJob", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-wait-cli-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function seed(status: "queued" | "completed" | "failed" | "cancelled" = "queued"): string {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    if (status === "completed") queue.markCompleted(job.id, "done");
+    else if (status === "failed") queue.markFailed(job.id, "boom");
+    else if (status === "cancelled") queue.markCancelled(job.id);
+    queue.close();
+    return job.id;
+  }
+
+  it("returns immediately for an already-completed job (exit 0)", async () => {
+    const id = seed("completed");
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await waitForJob(id, { storePath, sleep });
+    expect(result.ok).toBe(true);
+    expect(result.outcome).toBe("completed");
+    expect(result.exitCode).toBe(0);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("maps failed and cancelled to their exit codes", async () => {
+    const failed = await waitForJob(seed("failed"), { storePath, sleep: vi.fn() });
+    expect(failed.outcome).toBe("failed");
+    expect(failed.exitCode).toBe(1);
+    expect(failed.message).toMatch(/failed: boom/);
+
+    const cancelled = await waitForJob(seed("cancelled"), { storePath, sleep: vi.fn() });
+    expect(cancelled.outcome).toBe("cancelled");
+    expect(cancelled.exitCode).toBe(2);
+  });
+
+  it("polls until the job settles, then returns the terminal outcome", async () => {
+    const id = seed("queued");
+    // Injected reader: pending twice, then completed.
+    const snapshots: RelayJob[] = [];
+    const q = new RelayQueue(storePath);
+    const pending = q.getById(id) as RelayJob;
+    q.close();
+    snapshots.push(pending, pending, { ...pending, status: "completed" });
+    let i = 0;
+    const readJob = () => snapshots[Math.min(i++, snapshots.length - 1)];
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    const result = await waitForJob(id, { storePath, readJob, sleep, now: () => 0 });
+    expect(result.outcome).toBe("completed");
+    expect(result.exitCode).toBe(0);
+    // Slept for the two pending polls before the terminal read.
+    expect(sleep).toHaveBeenCalledTimes(2);
+  });
+
+  it("times out while the job is still pending (exit 124)", async () => {
+    const id = seed("queued");
+    let clock = 0;
+    const now = () => clock;
+    const sleep = vi.fn().mockImplementation(async (ms: number) => {
+      clock += ms;
+    });
+    const result = await waitForJob(id, { storePath, intervalMs: 1000, timeoutMs: 2500, now, sleep });
+    expect(result.ok).toBe(true);
+    expect(result.outcome).toBe("timeout");
+    expect(result.exitCode).toBe(124);
+    expect(result.message).toMatch(/timed out/);
+  });
+
+  it("reports missing when the job vanishes mid-wait (exit 5)", async () => {
+    const id = seed("queued");
+    // Reader returns null (job pruned away) after the first pending read.
+    let i = 0;
+    const q = new RelayQueue(storePath);
+    const pending = q.getById(id) as RelayJob;
+    q.close();
+    const readJob = () => (i++ === 0 ? pending : null);
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await waitForJob(id, { storePath, readJob, sleep, now: () => 0 });
+    expect(result.outcome).toBe("missing");
+    expect(result.exitCode).toBe(5);
+  });
+
+  it("returns ok:false for an unknown id (exit 1)", async () => {
+    seed("queued");
+    const result = await waitForJob("deadbeef", { storePath, sleep: vi.fn() });
+    expect(result.ok).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toMatch(/no job matches/);
   });
 });
