@@ -395,6 +395,17 @@
 - [x] 👷 `agentrelay stats --trend [days]` — UTC 일별 활동 히스토그램(릴레이가 언제 바빴는지 시간 축).
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
+- [x] 👷 `agentrelay export --format html` — 브라우저에서 열거나 리포트로 첨부하는 독립형 HTML 표
+      (인라인 CSS·라이트/다크·상태별 색상). Markdown(붙여넣기용)과 달리 더블클릭해 여는 완결 문서.
+      (완료 — core `export.ts`에 순수 `escapeHtml`(5개 HTML 특수문자, `&` 먼저 → 이중 이스케이프
+      방지)·`escapeHtmlCell`(빈 값 em dash·개행 `<br>`)·`jobsToHtml`(외부 요청 0인 `<!doctype>`
+      완결 문서, `prefers-color-scheme` 라이트/다크, `status-<state>` 색상 클래스, 빈 스토어는
+      "(no jobs)" placeholder row) 추가 + `EXPORT_FORMATS`에 `html` 등록·`exportJobs` 디스패치.
+      기존 CSV/Markdown과 컬럼·셀 값 lockstep(`JOB_CSV_COLUMNS`/`jobCsvValue` 공유). CLI export는
+      `EXPORT_FORMATS.includes`로 검증하므로 `-f html`이 자동 배선(설명 문구만 갱신), `--out`으로 파일
+      저장. core export.test 13케이스 추가, 실제 빌드 CLI e2e로 문서 구조·상태 색상·주입 이스케이프
+      (`<script>`→`&lt;script&gt;`)·빈 스토어·잘못된 포맷 exit 1·파일 출력 검증. branch
+      `claude/wizardly-pascal-lwka3g`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

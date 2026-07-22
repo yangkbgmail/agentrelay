@@ -148,8 +148,117 @@ export function jobsToNdjson(jobs: RelayJob[]): string {
   return jobs.map((job) => JSON.stringify(job)).join("\n");
 }
 
+/**
+ * Escape a value for HTML text/attribute context: the five characters that are
+ * special in HTML (`&`, `<`, `>`, `"`, `'`) become their named/numeric entities.
+ * `&` is replaced first so the ampersands introduced by the later replacements
+ * aren't double-escaped. Used by {@link jobsToHtml} so command lines and error
+ * text that contain markup can never break out of a table cell.
+ */
+export function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Escape a job field for one HTML table cell: HTML-escape it, then turn newlines
+ * into `<br>` so multi-line prompts/errors stay inside their cell, and render an
+ * empty value as an em dash so a blank reads as "no value" rather than a gap
+ * (matching {@link escapeMarkdownCell}'s convention).
+ */
+export function escapeHtmlCell(value: string): string {
+  if (value === "") {
+    return "&mdash;";
+  }
+  return escapeHtml(value).replace(/\r\n|\r|\n/g, "<br>");
+}
+
+export interface HtmlOptions extends Pick<CsvOptions, "columns"> {
+  /** Document `<title>` / heading. Defaults to "AgentRelay job export". */
+  title?: string;
+}
+
+/**
+ * Render jobs as a standalone, self-contained HTML document — the counterpart to
+ * the Markdown export (which is meant for pasting into an already-rendered
+ * context). This one you double-click to open in a browser or attach to a
+ * report: a full `<!doctype html>` page with inline CSS (no external requests),
+ * a light/dark-aware theme, and status cells colour-coded by state. Columns and
+ * cell values are shared with the CSV/Markdown exports ({@link JOB_CSV_COLUMNS} /
+ * {@link jobCsvValue}) so all three stay in lockstep. An empty job list still
+ * emits the table header plus an "(no jobs)" row so the document is never blank.
+ */
+export function jobsToHtml(jobs: RelayJob[], options: HtmlOptions = {}): string {
+  const columns = options.columns ?? JOB_CSV_COLUMNS;
+  const title = escapeHtml(options.title ?? "AgentRelay job export");
+  const head = `<thead><tr>${columns.map((col) => `<th>${escapeHtml(col)}</th>`).join("")}</tr></thead>`;
+
+  let body: string;
+  if (jobs.length === 0) {
+    body = `<tbody><tr><td class="empty" colspan="${columns.length}">(no jobs)</td></tr></tbody>`;
+  } else {
+    const rows = jobs.map((job) => {
+      const cells = columns.map((col) => {
+        const cell = escapeHtmlCell(jobCsvValue(job, col));
+        // The status column carries a class so CSS can colour-code the state.
+        return col === "status"
+          ? `<td class="status status-${escapeHtml(job.status)}">${cell}</td>`
+          : `<td>${cell}</td>`;
+      });
+      return `<tr>${cells.join("")}</tr>`;
+    });
+    body = `<tbody>${rows.join("")}</tbody>`;
+  }
+
+  return [
+    "<!doctype html>",
+    '<html lang="en">',
+    "<head>",
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    `<title>${title}</title>`,
+    "<style>",
+    ":root{color-scheme:light dark}",
+    "body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:2rem;color:#1a1a1a;background:#fff}",
+    "h1{font-size:1.25rem;margin:0 0 1rem}",
+    "table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}",
+    "th,td{border:1px solid #ddd;padding:.4rem .6rem;text-align:left;vertical-align:top}",
+    "th{background:#f5f5f5;font-weight:600;white-space:nowrap}",
+    "tbody tr:nth-child(even){background:#fafafa}",
+    "td.empty{text-align:center;color:#888;font-style:italic}",
+    ".status{font-weight:600;white-space:nowrap}",
+    ".status-completed{color:#137333}",
+    ".status-failed{color:#c5221f}",
+    ".status-cancelled{color:#8a8a8a}",
+    ".status-waiting_for_reset,.status-resuming{color:#b06000}",
+    ".status-queued{color:#1a56c4}",
+    "@media(prefers-color-scheme:dark){",
+    "body{color:#e6e6e6;background:#1a1a1a}",
+    "th,td{border-color:#3a3a3a}",
+    "th{background:#262626}",
+    "tbody tr:nth-child(even){background:#222}",
+    ".status-completed{color:#5bd07f}",
+    ".status-failed{color:#ff6b64}",
+    ".status-cancelled{color:#9a9a9a}",
+    ".status-waiting_for_reset,.status-resuming{color:#e0a458}",
+    ".status-queued{color:#6ea8ff}",
+    "}",
+    "</style>",
+    "</head>",
+    "<body>",
+    `<h1>${title}</h1>`,
+    `<table>${head}${body}</table>`,
+    "</body>",
+    "</html>",
+  ].join("\n");
+}
+
 /** Supported export formats. */
-export const EXPORT_FORMATS = ["csv", "json", "md", "ndjson"] as const;
+export const EXPORT_FORMATS = ["csv", "json", "md", "ndjson", "html"] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 /** Dispatch to the right serializer for the given format. */
@@ -161,6 +270,8 @@ export function exportJobs(jobs: RelayJob[], format: ExportFormat, options: CsvO
       return jobsToMarkdown(jobs, options);
     case "ndjson":
       return jobsToNdjson(jobs);
+    case "html":
+      return jobsToHtml(jobs, options);
     default:
       return jobsToCsv(jobs, options);
   }

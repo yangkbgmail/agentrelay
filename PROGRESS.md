@@ -1055,3 +1055,23 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay export --format html` 추가] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-lwka3g`)
+- **배경:** BACKLOG의 👷 항목이 사실상 전부 완료 상태라, CLAUDE.md "작업 방식"에 따라 새 개선
+  항목을 발굴했다. export는 csv/json/md/ndjson을 지원했지만, "더블클릭해 브라우저에서 열거나
+  리포트로 첨부하는" 사람용 완결 문서 포맷이 없었다(md는 이미 렌더된 컨텍스트에 붙여넣는 용도).
+- **한 일:** `@agentrelay/core/export.ts`에 순수 `escapeHtml`(HTML 5개 특수문자, `&`를 먼저
+  치환해 이중 이스케이프 방지)·`escapeHtmlCell`(빈 값→em dash, 개행→`<br>`)·`jobsToHtml`
+  (외부 요청 0인 `<!doctype html>` 완결 문서 — 인라인 CSS, `prefers-color-scheme` 라이트/다크,
+  `status-<state>` 색상 클래스, 빈 스토어는 "(no jobs)" placeholder row) 추가. `EXPORT_FORMATS`에
+  `html` 등록 + `exportJobs` 디스패치. 컬럼·셀 값은 CSV/Markdown과 `JOB_CSV_COLUMNS`/`jobCsvValue`를
+  공유해 lockstep 유지. CLI는 `EXPORT_FORMATS.includes`로 포맷을 검증하므로 `-f html`이 새 코드 없이
+  자동 배선(export 설명 문구만 갱신), `--out`으로 파일 저장. 관련 BACKLOG 항목: "export --format html".
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **588 통과 + 1 skip**(core 388[+13 export] + cli 193[+1 skip] + dashboard 7). **실제 빌드된
+  CLI e2e**(mock 아님): 2-job 스토어로 `export -f html`(doctype·인라인 style·외부 요청 0·상태별 색상
+  클래스), 명령어 `<bug> & ship`·멀티라인 에러가 `&lt;bug&gt; &amp; ship`/`<br>`로 이스케이프(주입 방지),
+  빈 스토어 `(no jobs)` placeholder, `-f xml` 잘못된 포맷 exit 1(valid 목록에 html 포함), `-o report.html`
+  파일 저장(2090 bytes) 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합,
+  README/ARCHITECTURE(🧭 코워크). 새 개선 후보: export `--columns` 선택, `stats --trend` 시간 단위(hour).
