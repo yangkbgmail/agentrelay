@@ -112,6 +112,22 @@ describe("exportStore", () => {
     expect(lines[2].endsWith(" |")).toBe(true);
   });
 
+  it("produces a self-contained HTML report and writes it to a file", () => {
+    seed();
+    const out = join(dir, "sub", "jobs.html");
+    const result = exportStore({ storePath, format: "html", outPath: out });
+    expect(result.count).toBe(2);
+    expect(result.writtenTo).toBe(out);
+    const onDisk = readFileSync(out, "utf8");
+    expect(onDisk.startsWith("<!doctype html>")).toBe(true);
+    expect(onDisk).toContain("<style>");
+    // Both seeded jobs' projects show up in the table.
+    expect(onDisk).toContain(">alpha<");
+    expect(onDisk).toContain(">beta<");
+    // Trailing newline (POSIX text convention), matching the other formats.
+    expect(onDisk.endsWith("\n")).toBe(true);
+  });
+
   // The `export` command applies the same scope filters as `stats`/`status`:
   // the --since/--until time window via core scopeJobs, then
   // --status/--tool/--project/--sort/--reverse via selectJobs. These tests

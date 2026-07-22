@@ -396,6 +396,17 @@
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
 
+- [x] 👷 `agentrelay export --format html` — 잡 이력을 브라우저에서 바로 열어보는 자체 완결 HTML 리포트로.
+      (완료 — core `export.ts`에 순수 `jobsToHtml`/`escapeHtml`/`countByStatus` + `EXPORT_FORMATS`에 `html`
+      추가. 인라인 CSS·외부 에셋 0개(오프라인 동작)·`prefers-color-scheme` 라이트/다크, 상단에 총계 +
+      상태별 카운트 chip, 하단에 CSV/MD와 공유하는 컬럼(`JOB_CSV_COLUMNS`/`jobCsvValue`) 테이블(상태별
+      색상 클래스, null은 muted 엠대시, 빈 스토어는 colspan 빈-상태 행). 모든 셀 값을 `escapeHtml`로
+      이스케이프해 프롬프트/에러의 `<`·`&`·따옴표가 마크업을 깨지 못하게 방어. CLI export가 기존
+      `exportJobs` 디스패처만 타므로 배선 변경 없이 `--format html` 동작, 설명 문구만 갱신. 새 core 셀
+      로직은 전부 기존 검증된 함수 재사용. export.test.ts에 escapeHtml/countByStatus/jobsToHtml/dispatch
+      21케이스 + CLI export.test.ts에 파일 쓰기 e2e 1케이스, 실제 빌드 CLI로 stdout/파일/이스케이프/
+      잘못된 포맷 exit 1 검증. branch `claude/wizardly-pascal-rggq9n`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

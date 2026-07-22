@@ -724,7 +724,7 @@ export function buildCli(): Command {
   program
     .command("export")
     .description(
-      "Export the job store to CSV, JSON, Markdown, or NDJSON for spreadsheets/BI/jq/issues (stdout or a file)"
+      "Export the job store to CSV, JSON, Markdown, NDJSON, or HTML for spreadsheets/BI/jq/issues/reports (stdout or a file)"
     )
     .option("-f, --format <format>", `Output format: ${EXPORT_FORMATS.join(" | ")}`, "csv")
     .option("-o, --out <file>", "Write to this file instead of stdout")

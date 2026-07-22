@@ -1055,3 +1055,19 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay export --format html`] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-rggq9n`)
+- **배경: 백로그의 순수 👷 항목이 모두 소진돼 CLAUDE.md 지침대로 새 개선 항목을 발굴.** export 명령 계열
+  (csv/json/md/ndjson)에 자연스럽게 이어지는 브라우저용 리포트 포맷을 추가.
+- **한 일: `agentrelay export --format html`** — core `export.ts`에 순수 `jobsToHtml`/`escapeHtml`/
+  `countByStatus` + `EXPORT_FORMATS`에 `html` 추가. 자체 완결 HTML 문서(인라인 CSS·외부 에셋 0개·오프라인
+  동작·`prefers-color-scheme` 라이트/다크), 상단 총계 + 상태별 카운트 chip, 하단 CSV/MD와 공유하는 컬럼
+  테이블(상태별 색상, null은 muted 엠대시, 빈 스토어는 colspan 빈-상태 행). 모든 셀 값을 HTML 이스케이프해
+  프롬프트/에러의 `<`·`&`·따옴표가 마크업을 못 깨게 방어. CLI는 기존 `exportJobs` 디스패처만 타 배선 변경
+  없이 동작(설명 문구만 갱신).
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 에러**, `pnpm test`
+  **592 통과 + 1 skip**(core 391 + cli 194[+1 skip] + dashboard 7). **실제 빌드된 CLI e2e**(mock 아님):
+  `export --format html`(stdout HTML 문서)·`-o report.html`(파일 쓰기+트레일링 개행)·마크업 이스케이프
+  (`<auth>`→`&lt;auth&gt;`)·`--format xml`(잘못된 포맷 exit 1) 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 잔여 PR 통합,
+  README/ARCHITECTURE(🧭 코워크).

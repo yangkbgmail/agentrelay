@@ -148,8 +148,151 @@ export function jobsToNdjson(jobs: RelayJob[]): string {
   return jobs.map((job) => JSON.stringify(job)).join("\n");
 }
 
+/**
+ * Escape a value for safe interpolation into HTML text/attribute context. The
+ * five characters that can break out of an element body or a double-quoted
+ * attribute (`&`, `<`, `>`, `"`, `'`) are turned into their entities; `&` is
+ * replaced first so the ampersands introduced by the later replacements aren't
+ * double-escaped. Everything else — including newlines, which stay as-is and are
+ * rendered via `white-space: pre-wrap` in the report — passes through verbatim.
+ */
+export function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Count jobs per status, preserving first-encounter order. Feeds the summary
+ * chips at the top of the HTML report so a reader sees the queue's shape (how
+ * many completed / failed / waiting) before scanning the table. Kept tiny and
+ * local rather than pulling in {@link computeStats} — the report only needs the
+ * per-status tally, and staying dependency-free keeps this module pure string-in
+ * string-out.
+ */
+export function countByStatus(jobs: RelayJob[]): Array<{ status: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const job of jobs) {
+    counts.set(job.status, (counts.get(job.status) ?? 0) + 1);
+  }
+  return [...counts].map(([status, count]) => ({ status, count }));
+}
+
+export interface HtmlOptions extends Pick<CsvOptions, "columns"> {
+  /** Heading shown at the top of the report. Defaults to "AgentRelay — Job Export". */
+  title?: string;
+}
+
+/**
+ * Render jobs as a single self-contained HTML document — the browser-friendly
+ * counterpart to the Markdown export. Where `md` is meant for pasting into an
+ * issue and CSV/JSON for tooling, this is a report you can double-click open or
+ * hand to someone who doesn't live in a terminal: a summary header (total +
+ * per-status chips) over a styled table, with all CSS inlined so the file works
+ * offline and with no external assets. It adapts to light/dark via
+ * `prefers-color-scheme`. Columns/cell values are shared with the CSV/Markdown
+ * exports ({@link JOB_CSV_COLUMNS} / {@link jobCsvValue}) so the three stay in
+ * lockstep; every value is HTML-escaped ({@link escapeHtml}) so a `<`, `&`, or a
+ * quote in a prompt or error can't break the markup. An empty job list still
+ * renders the header and an empty-state row so the report's schema is visible.
+ */
+export function jobsToHtml(jobs: RelayJob[], options: HtmlOptions = {}): string {
+  const columns = options.columns ?? JOB_CSV_COLUMNS;
+  const title = options.title ?? "AgentRelay — Job Export";
+  const safeTitle = escapeHtml(title);
+
+  const chips = countByStatus(jobs)
+    .map(({ status, count }) => {
+      const s = escapeHtml(status);
+      return `<span class="chip chip-${s}">${s}<b>${count}</b></span>`;
+    })
+    .join("");
+
+  const headCells = columns.map((col) => `<th>${escapeHtml(col)}</th>`).join("");
+
+  const bodyRows =
+    jobs.length === 0
+      ? `<tr><td class="empty-row" colspan="${columns.length}">No jobs to display.</td></tr>`
+      : jobs
+          .map((job) => {
+            const cells = columns
+              .map((col) => {
+                const raw = jobCsvValue(job, col);
+                if (raw === "") {
+                  return '<td><span class="empty">—</span></td>';
+                }
+                const value = escapeHtml(raw);
+                if (col === "status") {
+                  return `<td><span class="status status-${value}">${value}</span></td>`;
+                }
+                return `<td>${value}</td>`;
+              })
+              .join("");
+            return `<tr>${cells}</tr>`;
+          })
+          .join("");
+
+  const jobCount = jobs.length;
+  const jobLabel = jobCount === 1 ? "job" : "jobs";
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${safeTitle}</title>
+<style>
+:root { color-scheme: light dark; --bg: #ffffff; --fg: #1a1a1a; --muted: #6b7280;
+  --border: #e5e7eb; --head: #f9fafb; --row: #ffffff; --row-alt: #f9fafb; --chip: #f3f4f6; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f1115; --fg: #e5e7eb; --muted: #9ca3af; --border: #2a2f3a;
+    --head: #161a22; --row: #0f1115; --row-alt: #141821; --chip: #1c222c; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 2rem 1.5rem; background: var(--bg); color: var(--fg);
+  font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+h1 { font-size: 1.25rem; margin: 0 0 0.5rem; }
+.meta { color: var(--muted); margin: 0 0 1rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 1.25rem; }
+.chip { background: var(--chip); border: 1px solid var(--border); border-radius: 999px;
+  padding: 0.2rem 0.7rem; font-size: 0.85rem; }
+.chip b { margin-left: 0.4rem; font-variant-numeric: tabular-nums; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border);
+  vertical-align: top; white-space: pre-wrap; word-break: break-word; }
+th { background: var(--head); position: sticky; top: 0; font-weight: 600; }
+tbody tr:nth-child(even) { background: var(--row-alt); }
+tbody tr:nth-child(odd) { background: var(--row); }
+td.empty-row { text-align: center; color: var(--muted); padding: 1.5rem; }
+.empty { color: var(--muted); }
+.status { font-weight: 600; }
+.status-completed { color: #16a34a; }
+.status-failed { color: #dc2626; }
+.status-cancelled { color: #9ca3af; }
+.status-queued, .status-resuming { color: #2563eb; }
+.status-waiting_for_reset { color: #d97706; }
+</style>
+</head>
+<body>
+<h1>${safeTitle}</h1>
+<p class="meta">${jobCount} ${jobLabel}</p>
+<div class="chips">${chips}</div>
+<div class="table-wrap">
+<table>
+<thead><tr>${headCells}</tr></thead>
+<tbody>${bodyRows}</tbody>
+</table>
+</div>
+</body>
+</html>`;
+}
+
 /** Supported export formats. */
-export const EXPORT_FORMATS = ["csv", "json", "md", "ndjson"] as const;
+export const EXPORT_FORMATS = ["csv", "json", "md", "ndjson", "html"] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 /** Dispatch to the right serializer for the given format. */
@@ -161,6 +304,8 @@ export function exportJobs(jobs: RelayJob[], format: ExportFormat, options: CsvO
       return jobsToMarkdown(jobs, options);
     case "ndjson":
       return jobsToNdjson(jobs);
+    case "html":
+      return jobsToHtml(jobs, options);
     default:
       return jobsToCsv(jobs, options);
   }
