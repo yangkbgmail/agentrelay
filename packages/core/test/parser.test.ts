@@ -42,6 +42,38 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(expected);
   });
 
+  it("parses a relative duration expressed in days (weekly/daily windows)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly usage limit reached, try again in 2 days.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 24 * 60 * 60_000).toISOString());
+  });
+
+  it("parses a combined day + hour relative duration like '1d 4h'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit — resets in 1d 4h.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    const expected = new Date(now.getTime() + (24 + 4) * 60 * 60_000).toISOString();
+    expect(result?.resetAt).toBe(expected);
+  });
+
+  it("parses the singular 'in 1 day' form", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Try again in 1 day.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 24 * 60 * 60_000).toISOString());
+  });
+
+  it("does not mistake minutes for days ('in 3 minutes')", () => {
+    // Regression: the new day group must not swallow the leading number of a
+    // minutes-only wait.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in 3 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 3 * 60_000).toISOString());
+  });
+
   it("parses a unix epoch retry_after field", () => {
     const result = parseRateLimitMessage("rate_limit_error retry_after=1752345600");
     expect(result).not.toBeNull();
