@@ -1055,3 +1055,26 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay tools` 어댑터 발견성 진단 커맨드] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-tools-cmd`)
+- 배경: 세션 시작 시 명시적 👷 백로그 항목은 전부 완료 상태, 남은 미완은 🧭(코워크) 문서 항목뿐.
+  열린 PR 30개(상당수 중복: `stats --by-hour` 다수·`export --format html` 다수)를 확인해 **어느
+  PR과도 겹치지 않는 새 개선 항목을 발굴**했다 — 사용자가 `--tool`에 무엇을 넣을 수 있는지, 어떤
+  툴이 특수 rate-limit 감지를 갖는지 알 방법이 없었다(`parse`는 개별 메시지 진단만 제공).
+- 한 일: **`agentrelay tools` — 지원 어댑터 발견성 진단.**
+  1. `@agentrelay/core/tools.ts` 신설(순수·I/O 미접촉): `describeAdapters()`(ADAPTERS 레지스트리를
+     `ALL_TOOLS` 순서로 평탄화 → `AdapterInfo`{tool,displayName,binaries,patternNames}, binaries는
+     방어적 복사로 레지스트리 오염 방지) + `countJobsByTool(jobs)`(job.tool 문자열로 집계, 미등록
+     툴도 드롭 않고 보존) + `summarizeTools(jobs)`(`ToolReport` — 등록 어댑터 전체[미사용 jobCount 0]
+     뒤에 스토어에만 있는 미등록 툴을 정렬해 append, 아무것도 숨기지 않음). index.ts export.
+  2. CLI `packages/cli/src/tools.ts` 신설(순수): `renderToolsReport`(어댑터별 바이너리·특수 패턴
+     [codex는 `codex-relative-seconds (+ generic)`, 나머지는 `generic only`]·잡 수 블록, 바이너리
+     없는 generic은 "fallback"로 라벨, color 게이트)·`renderToolsReportJson`(storePath·generatedAt
+     주입 가능). `agentrelay tools [--json]` 커맨드를 cli.ts에 배선(`parse` 커맨드 뒤).
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **590 통과 + 1 skip**(core 385[+10: describeAdapters/countJobsByTool/summarizeTools] +
+    cli 198[+5: render human/json/fallback/unregistered][+1 skip] + dashboard 7). **실제 빌드된 CLI
+    e2e**(mock 아님): 3-job(web×claude-code / api×codex-cli ×2) 스토어로 `tools`(claude 1·codex 2·
+    generic 0, codex만 특수 패턴)·`--json`(구조화 출력)·빈/미존재 스토어(전부 0)·미등록 `gemini-cli`
+    잡→"(unregistered — present in store)" 렌더 확인.
+- 다음 할 일: 대시보드가 `tools` 요약 노출(👷 후보), #61/#69/#75 통합, README/ARCHITECTURE(🧭 코워크).

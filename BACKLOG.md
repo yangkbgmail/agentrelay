@@ -396,6 +396,18 @@
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
 
+- [x] 👷 `agentrelay tools` — 지원 에이전트 어댑터(valid `--tool` 값) 발견성 진단 커맨드.
+      (완료 — `@agentrelay/core/tools.ts` 신설: 순수 `describeAdapters()`(ADAPTERS를 `ALL_TOOLS`
+      순서로 평탄화 — tool/displayName/binaries/patternNames, binaries는 방어적 복사) +
+      `countJobsByTool(jobs)`(job.tool 문자열로 집계, 미등록 툴도 보존) + `summarizeTools(jobs)`
+      (`ToolReport` — 등록 어댑터 전체[미사용은 jobCount 0] + 스토어에만 있는 미등록 툴을 정렬해
+      뒤에 추가, 아무것도 숨기지 않음). CLI `tools.ts`에 순수 `renderToolsReport`(어댑터별 바이너리·
+      특수 패턴[codex-relative-seconds]·잡 수 블록, color 게이트)·`renderToolsReportJson`.
+      `agentrelay tools [--json]` 커맨드는 `--tool` 유효값 발견·특수 감지 노출·스토어 툴 분포를
+      한눈에 보여줘 `parse` 진단을 보완. core 10 + cli 5 신규 테스트, 실제 빌드 CLI e2e로 3-job
+      스토어(claude 1·codex 2)·`--json`·빈 스토어·미등록 gemini-cli 렌더 검증. branch
+      `claude/wizardly-pascal-tools-cmd`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
