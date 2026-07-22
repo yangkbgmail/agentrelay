@@ -21,6 +21,7 @@ function job(overrides: Partial<RelayJob> = {}): RelayJob {
     tool: "claude-code",
     command: ["claude", "-p", "go"],
     cwd: "/tmp",
+    label: null,
     status: "completed",
     resetAt: null,
     createdAt: "2026-07-13T00:00:00.000Z",
@@ -99,6 +100,19 @@ describe("validateJobRecord", () => {
     expect(validateJobRecord({ ...job(), command: "claude -p go" }).ok).toBe(false);
     expect(validateJobRecord({ ...job(), command: [] }).ok).toBe(false);
     expect(validateJobRecord({ ...job(), command: ["ok", 3] }).ok).toBe(false);
+  });
+
+  it("preserves a label on round-trip and defaults a missing one to null", () => {
+    const withLabel = validateJobRecord({ ...job(), label: "nightly refactor" });
+    expect(withLabel.ok && withLabel.job.label).toBe("nightly refactor");
+    // A dump from before the field existed omits it entirely → null.
+    const { label: _omit, ...noLabel } = job();
+    const restored = validateJobRecord(noLabel);
+    expect(restored.ok && restored.job.label).toBeNull();
+  });
+
+  it("rejects a label that is neither string nor null", () => {
+    expect(validateJobRecord({ ...job(), label: 42 }).ok).toBe(false);
   });
 
   it("rejects a bad attempts value", () => {

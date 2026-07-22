@@ -140,6 +140,9 @@ export function validateJobRecord(value: unknown): { ok: true; job: RelayJob } |
   if (!lastError.ok) return { ok: false, reason: "`lastError` must be a string or null" };
   const lastOutputTail = requireNullableString("lastOutputTail");
   if (!lastOutputTail.ok) return { ok: false, reason: "`lastOutputTail` must be a string or null" };
+  // Optional: preserved on export→import round-trips; absent in older dumps → null.
+  const label = requireNullableString("label");
+  if (!label.ok) return { ok: false, reason: "`label` must be a string or null" };
 
   return {
     ok: true,
@@ -149,6 +152,7 @@ export function validateJobRecord(value: unknown): { ok: true; job: RelayJob } |
       tool: tool as AgentTool,
       command: [...value.command],
       cwd,
+      label: label.value,
       status: status as JobStatus,
       resetAt: resetAt.value,
       createdAt,

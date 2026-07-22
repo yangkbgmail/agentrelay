@@ -87,6 +87,29 @@ describe("runCommand", () => {
     expect(payload.message).toContain(result.queuedJob?.resetAt);
   });
 
+  it("records the --label on the queued job, and ignores a blank label", async () => {
+    const labeled = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      label: "  nightly refactor  ",
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    // Leading/trailing whitespace is trimmed.
+    expect(labeled.queuedJob?.label).toBe("nightly refactor");
+
+    const blank = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath: join(dir, "jobs2.json"),
+      cwd: dir,
+      label: "   ",
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    expect(blank.queuedJob?.label).toBeNull();
+  });
+
   it("infers the codex-cli tool and detects its seconds-based rate limit", async () => {
     // A bare "in 20s" wait is only recognized by the Codex adapter, which is
     // selected here by inference from a `codex`-named binary (symlinked to node

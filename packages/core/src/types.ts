@@ -19,6 +19,14 @@ export interface RelayJob {
   command: string[];
   /** Working directory the command should run in. */
   cwd: string;
+  /**
+   * Optional human-readable label attached at enqueue time (`run --label`), so a
+   * job can be recognized at a glance in `show`/exports beyond its project + id.
+   * `null` when none was given. Optional on the type so jobs written before this
+   * field (and hand-built test fixtures) stay valid; `enqueue` and the store
+   * loader always populate it (to `null` when absent) for jobs from the queue.
+   */
+  label?: string | null;
   status: JobStatus;
   resetAt: string | null;
   createdAt: string;
@@ -33,6 +41,8 @@ export interface CreateJobInput {
   tool: AgentTool;
   command: string[];
   cwd: string;
+  /** Optional human-readable label for the job (see {@link RelayJob.label}). */
+  label?: string;
 }
 
 export interface RetryPolicy {

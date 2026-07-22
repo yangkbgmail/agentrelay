@@ -21,6 +21,7 @@ import type { RelayJob } from "./types.js";
 export const JOB_CSV_COLUMNS = [
   "id",
   "project",
+  "label",
   "tool",
   "status",
   "attempts",
@@ -92,6 +93,8 @@ export function jobCsvValue(job: RelayJob, column: JobCsvColumn): string {
       return job.command.join(" ");
     case "resetAt":
       return job.resetAt ?? "";
+    case "label":
+      return job.label ?? "";
     case "lastError":
       return job.lastError ?? "";
     default:

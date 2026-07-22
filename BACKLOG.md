@@ -437,6 +437,21 @@
       (days-only/1d 4h/singular 1 day/"3 minutes"를 days로 오인 안 함). PR #123 발원 → 세션 34에서
       cherry-pick 통합. branch `claude/wizardly-pascal-ig4v29`)
 
+- [x] 👷 `agentrelay run --label <label>` — 잡에 사람이 읽는 라벨을 붙여 `show`/exports에서 프로젝트·id
+      너머로 식별(예: `--label "nightly refactor"`).
+      (완료 — 잡은 지금까지 project(cwd basename)+id로만 식별돼 여러 잡을 구분하기 어려웠다. core
+      `types.ts`의 `RelayJob`에 optional `label?: string | null`(구스토어·테스트 픽스처 호환 위해 optional,
+      `enqueue`와 스토어 로더가 항상 채움)과 `CreateJobInput.label?` 추가. `queue.ts` `enqueue`가
+      `label: input.label ?? null` 기록, `load()`가 legacy 잡(label 없음)을 `label:null`로 정규화(다음
+      flush에 명시 저장). `import.ts`가 label을 nullable-string으로 검증·왕복 보존(누락은 null, 비문자열/
+      비널은 거부). `export.ts`의 `JOB_CSV_COLUMNS`에 `label`(project 뒤) + `jobCsvValue` 케이스 추가 →
+      CSV/md 선택·표시, JSON/ndjson은 full-shape라 자동 포함. CLI `run --label` 플래그 → `commands.ts`
+      `runCommand`가 trim해 빈 라벨은 무시(null)하고 enqueue로 전달, `show.ts` 상세뷰가 라벨 있을 때만
+      `label` 줄 렌더(show --json/status --json/대시보드는 잡 직렬화로 자동 포함). status 테이블 레이아웃은
+      미변경(충돌 최소화). core queue 2 + export 1 + import 2 신규 + cli show 1 + commands 1 테스트, 기존
+      export 컬럼 순서 단언 갱신, 실제 빌드 CLI e2e로 run→show 라벨줄·CSV/md 컬럼·라벨 없는 잡 생략 검증.
+      branch `claude/wizardly-pascal-j77y8t`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

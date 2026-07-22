@@ -81,6 +81,7 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
   const lines: string[] = [];
   lines.push(b(`Job ${job.id}`));
   lines.push(`  ${label("project")} ${job.project}`);
+  if (job.label) lines.push(`  ${label("label")} ${job.label}`);
   lines.push(`  ${label("tool")} ${job.tool}`);
   lines.push(`  ${label("status")} ${statusCell}`);
   lines.push(`  ${label("command")} ${formatCommand(job.command)}`);

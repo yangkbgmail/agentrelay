@@ -72,6 +72,12 @@ describe("jobCsvValue", () => {
     expect(jobCsvValue(j, "lastError")).toBe("");
   });
 
+  it("renders the label column, empty when unset", () => {
+    expect(jobCsvValue(job({ label: "nightly refactor" }), "label")).toBe("nightly refactor");
+    expect(jobCsvValue(job({ label: null }), "label")).toBe("");
+    expect(jobCsvValue(job({}), "label")).toBe("");
+  });
+
   it("passes plain string columns through", () => {
     const j = job({ id: "abc", project: "myproj", tool: "codex-cli", status: "failed", cwd: "/work" });
     expect(jobCsvValue(j, "id")).toBe("abc");
@@ -99,8 +105,10 @@ describe("jobsToCsv", () => {
     const lines = csv.split("\n");
     expect(lines).toHaveLength(3);
     expect(lines[0]).toBe(JOB_CSV_COLUMNS.join(","));
-    expect(lines[1].startsWith("j1,p1,claude-code,completed,2,")).toBe(true);
-    expect(lines[2].startsWith("j2,p2,claude-code,failed,1,")).toBe(true);
+    // Column order is id, project, label, tool, status, attempts, ... — the
+    // label cell is empty here since these jobs carry no label.
+    expect(lines[1].startsWith("j1,p1,,claude-code,completed,2,")).toBe(true);
+    expect(lines[2].startsWith("j2,p2,,claude-code,failed,1,")).toBe(true);
   });
 
   it("escapes commas and quotes inside fields so columns stay aligned", () => {
@@ -228,7 +236,7 @@ describe("jobsToMarkdown", () => {
     const md = jobsToMarkdown([job({ id: "j1", project: "p1", attempts: 2 })]);
     const lines = md.split("\n");
     expect(lines).toHaveLength(3);
-    expect(lines[2].startsWith("| j1 | p1 | claude-code | completed | 2 |")).toBe(true);
+    expect(lines[2].startsWith("| j1 | p1 | — | claude-code | completed | 2 |")).toBe(true);
   });
 
   it("escapes pipes and newlines so a cell never breaks the table", () => {

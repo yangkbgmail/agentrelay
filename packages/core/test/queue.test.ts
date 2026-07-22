@@ -31,6 +31,45 @@ describe("RelayQueue", () => {
     expect(queue.getById(job.id)?.id).toBe(job.id);
   });
 
+  it("records an optional label on enqueue, defaulting to null", () => {
+    const labeled = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude"],
+      cwd: "/tmp/demo",
+      label: "nightly refactor",
+    });
+    const plain = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp/demo" });
+    expect(labeled.label).toBe("nightly refactor");
+    expect(plain.label).toBeNull();
+    // The label survives a reload from disk.
+    queue.refresh();
+    expect(queue.getById(labeled.id)?.label).toBe("nightly refactor");
+  });
+
+  it("normalizes a legacy job written without a `label` field to null on load", () => {
+    const storePath = join(dir, "legacy.json");
+    // A store from before `label` existed: the field is simply absent.
+    const legacy = {
+      id: "legacy-1",
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude"],
+      cwd: "/tmp/demo",
+      status: "completed",
+      resetAt: null,
+      createdAt: "2026-07-13T00:00:00.000Z",
+      updatedAt: "2026-07-13T00:00:00.000Z",
+      attempts: 0,
+      lastError: null,
+      lastOutputTail: null,
+    };
+    writeFileSync(storePath, JSON.stringify([legacy]));
+    const q = new RelayQueue(storePath);
+    expect(q.getById("legacy-1")?.label).toBeNull();
+    q.close();
+  });
+
   it("moves a job to waiting_for_reset and lists it once due", () => {
     const job = queue.enqueue({
       project: "demo",

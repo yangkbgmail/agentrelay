@@ -54,6 +54,12 @@ describe("renderJobDetail", () => {
     expect(out).toContain("attempts   2");
   });
 
+  it("shows the label line only when the job carries a label", () => {
+    expect(renderJobDetail(job(), { now: NOW })).not.toContain("label");
+    const out = renderJobDetail(job({ label: "nightly refactor" }), { now: NOW });
+    expect(out).toContain("label      nightly refactor");
+  });
+
   it("shows the reset countdown with the absolute time when resetAt is set", () => {
     const out = renderJobDetail(job(), { now: NOW });
     expect(out).toContain("resets in  1h 30m");
