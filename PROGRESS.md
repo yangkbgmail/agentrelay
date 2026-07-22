@@ -1055,3 +1055,21 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay export --columns` 컬럼 선택/재정렬] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-t9765g`)
+- **배경**: BACKLOG의 👷 항목이 사실상 모두 완료 상태 → CLAUDE.md 지침(§8 백로그가 비면 스스로 신규
+  개선 발굴)에 따라 새 항목을 발굴해 구현. core `export.ts`엔 이미 `CsvOptions.columns`(pure `jobsToCsv`/
+  `jobsToMarkdown`가 소비)가 있었지만 CLI가 노출하지 않아, 사용자가 스프레드시트/이슈에 필요한 열만·원하는
+  순서로 뽑을 방법이 없었다.
+- **한 일**: core에 순수 `isJobCsvColumn`(타입가드)·`parseCsvColumns(input)`(콤마 분리·trim·빈 토큰 제거·
+  `JOB_CSV_COLUMNS` 검증 → `{columns, invalid}`, 순서·의도적 중복 보존)·`COLUMN_AWARE_FORMATS`(`["csv","md"]`)
+  신설. CLI `exportStore`가 `columns`를 `exportJobs`에 전달, `export`에 `--columns <list>` 배선.
+  json/ndjson과 함께 쓰면 exit 1(무손실 포맷은 컬럼 미적용을 조용히 삼키지 않고 명시), 미지 컬럼·빈 목록도
+  exit 1. 기존 스코프 필터(--status/--tool/--project/--since/--until/--sort/--reverse)와 조합(window→select
+  후 컬럼 적용). 새 core 직렬화 코드 0줄 — 전부 기존 검증된 columns 경로 재사용.
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **585 통과 + 1 skip**(core 383 + cli 195[+1 skip] + dashboard 7). **실제 빌드된 CLI e2e**(mock 아님):
+  `export --columns status,project,tool`(subset·reorder)·`export -f md --columns id,status,attempts`(마크다운
+  헤더/구분자/행)·`--columns id,bogus`(미지 컬럼 exit 1)·`-f json --columns id`(무손실 포맷 거부 exit 1)·
+  `--columns " , ,"`(빈 목록 exit 1)·`--tool codex-cli --columns project,status,tool`(스코프+컬럼 조합) 확인.
+- 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).

@@ -112,6 +112,27 @@ describe("exportStore", () => {
     expect(lines[2].endsWith(" |")).toBe(true);
   });
 
+  it("honors a --columns subset/order for CSV", () => {
+    seed();
+    const result = exportStore({ storePath, format: "csv", columns: ["status", "project", "tool"] });
+    const lines = result.content.split("\n");
+    expect(lines[0]).toBe("status,project,tool");
+    expect(lines).toHaveLength(3); // header + 2 rows
+    // Each row now has exactly three columns, in the requested order.
+    for (const row of lines.slice(1)) {
+      expect(row.split(",")).toHaveLength(3);
+    }
+  });
+
+  it("honors a --columns subset for the Markdown table", () => {
+    seed();
+    const result = exportStore({ storePath, format: "md", columns: ["id", "status"] });
+    const lines = result.content.split("\n");
+    expect(lines[0]).toBe("| id | status |");
+    expect(lines[1]).toBe("| --- | --- |");
+    expect(lines).toHaveLength(4); // header + separator + 2 rows
+  });
+
   // The `export` command applies the same scope filters as `stats`/`status`:
   // the --since/--until time window via core scopeJobs, then
   // --status/--tool/--project/--sort/--reverse via selectJobs. These tests

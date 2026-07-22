@@ -5,12 +5,14 @@ import type {
   CompletionSpec,
   ExportFormat,
   GroupDimension,
+  JobCsvColumn,
   JobScope,
   JobStatus,
   RelayJob,
 } from "@agentrelay/core";
 import {
   ALL_TOOLS,
+  COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
   computeDailyTrend,
   computeStats,
@@ -20,6 +22,8 @@ import {
   groupStats,
   isCompletionShell,
   isJobScopeActive,
+  JOB_CSV_COLUMNS,
+  parseCsvColumns,
   parseDuration,
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
@@ -735,6 +739,7 @@ export function buildCli(): Command {
     .option("--until <duration>", "Only export jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
     .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
+    .option("--columns <list>", `Pick/reorder columns for csv/md (comma-separated): ${JOB_CSV_COLUMNS.join(", ")}`)
     .action(
       (opts: {
         format?: string;
@@ -746,6 +751,7 @@ export function buildCli(): Command {
         until?: string;
         sort?: string;
         reverse?: boolean;
+        columns?: string;
       }) => {
         const { store } = program.opts();
 
@@ -754,6 +760,30 @@ export function buildCli(): Command {
           console.error(`Unknown --format "${opts.format}". Valid: ${EXPORT_FORMATS.join(", ")}.`);
           process.exitCode = 1;
           return;
+        }
+
+        // --columns picks/reorders the tabular columns; only csv/md honor it.
+        // json/ndjson are lossless full-shape, so a --columns there is a mistake
+        // we surface rather than silently ignore.
+        let columns: JobCsvColumn[] | undefined;
+        if (opts.columns !== undefined) {
+          if (!COLUMN_AWARE_FORMATS.includes(format as (typeof COLUMN_AWARE_FORMATS)[number])) {
+            console.error(`--columns only applies to ${COLUMN_AWARE_FORMATS.join("/")} (json/ndjson are lossless).`);
+            process.exitCode = 1;
+            return;
+          }
+          const parsed = parseCsvColumns(opts.columns);
+          if (parsed.invalid.length > 0) {
+            console.error(`Unknown column(s): ${parsed.invalid.join(", ")}. Valid: ${JOB_CSV_COLUMNS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          if (parsed.columns.length === 0) {
+            console.error(`--columns needs at least one column. Valid: ${JOB_CSV_COLUMNS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          columns = parsed.columns;
         }
 
         // status/tool/project/sort/reverse go through selectJobs (which also sorts);
@@ -836,7 +866,13 @@ export function buildCli(): Command {
         const all = listStatus(store);
         const windowed = isJobScopeActive(window) ? scopeJobs(all, window) : all;
         const jobs = selectJobs(windowed, selection);
-        const result = exportStore({ storePath: store, format: format as ExportFormat, jobs, outPath: opts.out });
+        const result = exportStore({
+          storePath: store,
+          format: format as ExportFormat,
+          jobs,
+          outPath: opts.out,
+          columns,
+        });
         if (result.writtenTo) {
           // Keep stdout clean for redirection; status goes to stderr.
           console.error(`[agentrelay] exported ${result.count} job(s) to ${result.writtenTo}`);
