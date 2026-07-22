@@ -411,6 +411,16 @@
       실제 빌드 CLI로 subset·reorder·md·미지컬럼→exit1·json거부→exit1·빈목록→exit1·tool필터 조합 검증.
       branch `claude/wizardly-pascal-t9765g`)
 
+- [x] 👷 `agentrelay export --columns <list>` — CSV/Markdown 내보내기 시 필요한 열만 원하는 순서로 선택.
+      (완료 — core `export.ts` `isJobCsvColumn`/`parseCsvColumns`/`COLUMN_AWARE_FORMATS`(csv·md만),
+      CLI `export --columns` 배선(json/ndjson·미지 컬럼·빈 목록은 exit 1). PR #132, 세션 33에 통합·병합.)
+- [x] 👷 파서 일(day) 단위 상대 시간 인식 (`try again in 2 days` / `resets in 1d 4h`).
+      (완료 — 제네릭 `relative-duration` 정규식에 `(\d+)d` 그룹을 시(h) 앞에 추가하고 resolve를
+      days·hours·minutes로 재색인 → `((days*24+hours)*60+minutes)`분. 주간/일간 사용량 한도 문구를
+      이제 놓치지 않고 큐잉. 초(second)는 어댑터 소관이라는 기존 설계 결정 존중. parser.test +4 회귀
+      (days-only/1d 4h/singular 1 day/"3 minutes"를 days로 오인 안 함). PR #123 발원 → 세션 34에서
+      cherry-pick 통합. branch `claude/wizardly-pascal-ig4v29`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

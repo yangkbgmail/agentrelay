@@ -1073,3 +1073,28 @@
   헤더/구분자/행)·`--columns id,bogus`(미지 컬럼 exit 1)·`-f json --columns id`(무손실 포맷 거부 exit 1)·
   `--columns " , ,"`(빈 목록 exit 1)·`--tool codex-cli --columns project,status,tool`(스코프+컬럼 조합) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 34 — 누적 PR 통합(export --columns 병합) + 중복 정리 + 파서 일 단위 인식] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-ig4v29`)
+- **배경: 세션 33들이 대량으로 PR을 열어 다시 20개까지 쌓였고 심각한 중복이 재발**했다. main 브랜치 보호로
+  병합이 밀리면 매시간 무기억 세션이 같은 후보를 반복 구현하는 이 저장소의 고질 패턴(세션 3·8·10·16·22·24·
+  26~32)이 또 최악으로 재발 — `stats --by-hour` 6건(#124/#121/#119/#117/#116/#115), `export --format html`
+  2건(#127/#120), `show <id> --watch` 2건(#131/#129)이 각각 동일 기능. 새 PR을 더하기보다 **CI 초록 PR을
+  통합하고 중복을 닫아 큐를 정리**하는 것이 압도적으로 높은 가치라 판단(COLLAB 병합 정책).
+- **한 일:**
+  1. **`export --columns` — #132를 main에 병합**(3970d56). `mergeable_state:clean`·최신 main 기반·CI 초록
+     (head `dd06e3ac` success, `actions_list`로 확인) 검증 후 병합. CSV/Markdown 내보내기 시 필요한 열만
+     원하는 순서로 선택하는 기능(core `parseCsvColumns`/`COLUMN_AWARE_FORMATS` + CLI `--columns` 배선).
+  2. **중복 PR 7건을 사유 코멘트와 함께 닫음** — `stats --by-hour` 그룹 #121/#119/#117/#116/#115(대표 #124 유지),
+     `export --format html` #120(대표 #127 유지), `show --watch` #129(대표 #131 유지).
+  3. **파서 일(day) 단위 상대 시간 인식(#123)을 내 브랜치에 cherry-pick 통합** — 제네릭 `relative-duration`
+     정규식이 시/분만 잡던 것을 일 단위까지 확장(`try again in 2 days`/`resets in 1d 4h`). 주간/일간 사용량
+     한도 문구를 놓쳐 큐잉 안 되던 갭을 메움. 문서 충돌(BACKLOG/PROGRESS)은 통합 항목으로 일괄 정리, 코드
+     (parser.ts/parser.test.ts)는 깨끗이 적용. #123은 통합 후 닫음.
+  - 남은 distinct PR(다음 세션): #131 show --watch, #130 대시보드 스코프 UI, #128 config get, #127 export html,
+    #126 tools, #125 --no-color, #124 stats --by-hour, #122 paths, #118 stats --by-weekday, #114 next --tool/
+    --project, #112 next --limit, #61 doctor 큐 진행, #69 데몬 이중실행 가드, #75 resume latency(스키마).
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **589 통과 + 1 skip**(core 387[parser +4] + cli 195[+1 skip] + dashboard 7). **실제 빌드된
+    CLI e2e**(mock 아님): `parse "…try again in 2 days"` → `relative-duration`·resets `+2d`, `parse "resets in
+    1d 4h"` → `+28h`, `parse "try again in 3 minutes"` → `+3m`(days 오인 없음) 확인.
+- 다음 할 일: 위 남은 distinct PR 통합(특히 #61/#69/#75는 스키마·doctor 충돌 주의), README/ARCHITECTURE(🧭 코워크).
