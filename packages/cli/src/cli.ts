@@ -58,7 +58,7 @@ import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
-import { renderJobDetail, renderJobDetailJson } from "./show.js";
+import { renderJobDetail, renderJobDetailJson, renderJobDetailWatchFrame } from "./show.js";
 import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson, renderTrend } from "./stats.js";
 import {
   type JobSelection,
@@ -292,6 +292,26 @@ function runWatch(store: string, intervalMs: number, selection: JobSelection, wi
     const selected = selectJobs(windowed, selection);
     const frame = renderWatchFrame(selected, store, intervalMs, Date.now(), limit);
     // Clear screen + move cursor home, then paint the frame.
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  };
+  draw();
+  const timer = setInterval(draw, intervalMs);
+  const stop = () => {
+    clearInterval(timer);
+    process.stdout.write("\n");
+    process.exit(0);
+  };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+}
+
+function runShowWatch(store: string, id: string, intervalMs: number): void {
+  const draw = () => {
+    // Re-read the store each tick so status transitions (waiting → resuming →
+    // completed) and the reset countdown stay live. The job may vanish if it's
+    // pruned mid-watch; renderJobDetailWatchFrame handles the null gracefully.
+    const result = showJob(id, store);
+    const frame = renderJobDetailWatchFrame(result.job, id, store, intervalMs, Date.now());
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   };
   draw();
@@ -850,8 +870,9 @@ export function buildCli(): Command {
     .command("show")
     .description("Show full details for one job: command, cwd, timestamps, last error, and captured output")
     .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .option("-w, --watch [seconds]", "Continuously refresh this job's view with a live countdown (Ctrl-C to exit)")
     .option("--json", "Print the job as JSON (machine-readable, for scripts/jq)")
-    .action((id: string, opts: { json?: boolean }) => {
+    .action((id: string, opts: { watch?: string | boolean; json?: boolean }) => {
       const { store } = program.opts();
       const result = showJob(id, store);
       if (!result.ok || !result.job) {
@@ -862,6 +883,15 @@ export function buildCli(): Command {
       if (opts.json) {
         console.log(renderJobDetailJson(result.job, store));
         return;
+      }
+      if (opts.watch !== undefined) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        // Re-resolve to the full id up front so the watch loop follows a fixed
+        // job even if a short prefix later became ambiguous (or the job is
+        // pruned): resolveJobId is only unambiguous against the current store.
+        runShowWatch(store, result.job.id, intervalMs);
+        return; // setInterval keeps the process alive.
       }
       console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
     });

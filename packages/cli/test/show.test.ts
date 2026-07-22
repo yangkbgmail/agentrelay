@@ -1,6 +1,6 @@
 import type { RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { formatCommand, renderJobDetail, renderJobDetailJson } from "../src/show.js";
+import { formatCommand, renderJobDetail, renderJobDetailJson, renderJobDetailWatchFrame } from "../src/show.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -95,6 +95,36 @@ describe("renderJobDetail", () => {
   it("emits ANSI codes only when color is enabled", () => {
     expect(renderJobDetail(job(), { now: NOW, color: false })).not.toContain("\x1b[");
     expect(renderJobDetail(job(), { now: NOW, color: true })).toContain("\x1b[");
+  });
+});
+
+describe("renderJobDetailWatchFrame", () => {
+  it("wraps the detail block with a live header and the store path", () => {
+    const frame = renderJobDetailWatchFrame(job(), "abcdef12", "/store/jobs.json", 2000, NOW);
+    expect(frame).toContain("agentrelay show");
+    expect(frame).toContain("every 2s");
+    expect(frame).toContain("Ctrl-C to exit");
+    expect(frame).toContain("/store/jobs.json");
+    // The full detail block is embedded (full id + countdown).
+    expect(frame).toContain("Job abcdef1234567890");
+    expect(frame).toContain("resets in");
+  });
+
+  it("stamps the frame with the injected now (deterministic, no ambient clock)", () => {
+    const frame = renderJobDetailWatchFrame(job(), "abcdef12", "/store/jobs.json", 5000, NOW);
+    expect(frame).toContain("2026-07-13 00:00:00Z");
+    expect(frame).toContain("every 5s");
+  });
+
+  it("shows a 'gone' notice instead of crashing when the job is null", () => {
+    const frame = renderJobDetailWatchFrame(null, "abcdef12", "/store/jobs.json", 2000, NOW);
+    expect(frame).toContain("abcdef12");
+    expect(frame).toContain("no longer in the store");
+    expect(frame).not.toContain("Job abcdef1234567890");
+  });
+
+  it("always emits color (watch view is TTY-only)", () => {
+    expect(renderJobDetailWatchFrame(job(), "abcdef12", "/store/jobs.json", 2000, NOW)).toContain("\x1b[");
   });
 });
 

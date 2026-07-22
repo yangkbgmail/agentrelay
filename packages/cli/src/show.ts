@@ -107,6 +107,32 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
   return lines.join("\n");
 }
 
+/**
+ * Live-refresh frame for `agentrelay show <id> --watch`: the same detail block
+ * as {@link renderJobDetail} plus a header showing the refresh cadence and the
+ * moment it was drawn, so a single job's reset countdown can be babysat the way
+ * `status --watch` babysits the whole queue. Pure (no I/O); `color` is forced on
+ * because a watch view only ever runs on a TTY. When `job` is null the frame
+ * says the job is gone (e.g. pruned mid-watch) instead of crashing the loop.
+ */
+export function renderJobDetailWatchFrame(
+  job: RelayJob | null,
+  id: string,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now()
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay show${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  const body = job
+    ? renderJobDetail(job, { now, color: true })
+    : `${DIM}Job ${id} is no longer in the store (pruned or removed).${RESET}`;
+  return [title, meta, "", body].join("\n");
+}
+
 /** Machine-readable single-job snapshot for `--json` (scripts, jq, tooling). */
 export function renderJobDetailJson(
   job: RelayJob,

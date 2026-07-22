@@ -1055,3 +1055,14 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay show --watch` 단일 job 실시간 뷰] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-52eeri`)
+- **한 일:** `show <id>`에 `-w,--watch [초]`를 추가해 특정 job 하나의 리셋 카운트다운·상태 전이를
+  라이브로 지켜볼 수 있게 했다(`status --watch`의 단일-job 버전). CLI `show.ts`에 순수
+  `renderJobDetailWatchFrame`(라이브 헤더 + `renderJobDetail` 블록, job=null이면 "gone" 안내),
+  cli.ts에 `runShowWatch` 루프(전체 id 고정 후 매 tick 스토어 재조회·화면 클리어·재렌더,
+  SIGINT/SIGTERM 정리). 기본 2s, `--json` 우선. BACKLOG 무한 개선 항목으로 신규 발굴 후 완료 기록.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 에러**, `pnpm test`
+  **579 통과 + 1 skip**(core 375 + cli 197[+1 skip] + dashboard 7; show.test.ts에 watch 4케이스 추가).
+  **실제 빌드된 CLI e2e:** `show`(one-shot 상세)·`show --watch 5`(SIGINT로 첫 프레임 확인) 동작 확인.
+- **다음 할 일:** stats/export의 남은 스크립트 친화 뷰 발굴, README/ARCHITECTURE(🧭 코워크 소유).

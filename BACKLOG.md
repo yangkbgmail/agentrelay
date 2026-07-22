@@ -176,6 +176,17 @@
       tick-mode 하트비트 기록(cron 사용자도 생존 신호). `runDoctor`가 `nowMs` 주입 가능(테스트용).
       heartbeat.test.ts 13 + doctor daemon 6 + scheduler onTick 2 + CLI 7케이스, 실제 빌드 CLI로
       before/after·daemon 수명주기·stale 경고 e2e 검증. branch `claude/wizardly-pascal-hb7k2m`)
+- [x] 👷 `agentrelay show <id> --watch [초]` — 단일 job 실시간 상세 뷰(리셋 카운트다운을 라이브로).
+      (완료 — `status --watch`은 큐 전체를 라이브로 보여주지만 특정 job 하나의 리셋을 지켜보려면
+      매번 `show`를 다시 쳐야 했다. CLI `show.ts`에 순수 `renderJobDetailWatchFrame(job,id,storePath,
+      intervalMs,now)` 신설: `renderJobDetail` 블록에 라이브 헤더(갱신 주기·그린 시각·스토어 경로)를
+      씌우고, `job`이 null이면(감시 중 prune/삭제) 크래시 대신 "no longer in the store" 안내를 렌더.
+      color는 watch가 TTY 전용이라 항상 on. cli.ts `show`에 `-w,--watch [초]` 옵션 + `runShowWatch`
+      루프 추가 — resolveJobId로 짧은 prefix를 **전체 id로 먼저 고정**한 뒤(감시 중 prefix가 모호해져도
+      같은 job 추적) 매 tick 스토어를 재조회해 상태 전이·카운트다운을 갱신, `\x1b[2J\x1b[H`로 화면
+      지우고 재렌더, SIGINT/SIGTERM에 정리. 기본 2s, `--watch 5`로 조정. `--json`이 있으면 스냅샷 우선.
+      show.test.ts에 watch 프레임 4케이스(헤더/결정적 stamp/gone 안내/color) 추가, 실제 빌드 CLI로
+      show·show --watch(SIGINT) e2e 검증. branch `claude/wizardly-pascal-52eeri`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
