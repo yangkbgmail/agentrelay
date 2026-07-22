@@ -1055,3 +1055,31 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — 파서 일(day) 단위 상대 시간 인식] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-fcdxy9`)
+- **배경: 열린 PR이 30개까지 쌓였고 대부분 서로 중복이다.** `stats --by-hour`가 단독 ~9건
+  (#99·#108·#110·#115~#119·#121), `export --format html` ~4건(#97·#98·#103·#120), `import`
+  (#94·#111), `config get`(#95·#106) 등 세션 3·8·10·16·22·24·26~32의 고질 중복 루프가 최악으로
+  재발한 상태. 새 31번째 near-duplicate를 더하지 않으려, 어떤 열린 PR과도 겹치지 않는 **파서
+  제네릭 개선**을 골랐다(#101은 요일-이름 리셋 창, #102는 Gemini 어댑터로 별개 영역).
+- **한 일: 제네릭 파서가 일(day) 단위 상대 시간을 인식하게 했다.** 지금까지 `relative-duration`
+  패턴은 시/분만 잡아 "try again in 2 days"·"resets in 1d 4h" 같은 주간/일간 사용량 한도 문구를
+  조용히 놓쳤다(→ 잡이 큐잉 안 되고 일반 완료로 처리됨).
+  1. `parser.ts`의 `relative-duration` 정규식에 `(?:(\d+)\s*d(?:ays?)?)?` 그룹을 시(h) 그룹 **앞**에
+     추가, resolve를 `days`(m[1])·`hours`(m[2])·`minutes`(m[3])로 재색인해 `((days*24+hours)*60+minutes)`
+     분으로 환산. 초(second)는 **의도적으로 제외** 유지 — 초 단위 대기는 OpenAI/Codex식 문구라
+     어댑터 소관이라는 기존 설계 결정(adapters.test.ts "generic이 초를 못 잡는 대조")을 뒤집지 않음.
+  2. 후방호환: 그룹 인덱스가 밀렸지만 기존 h/m 케이스는 days 그룹이 빈 매치로 backtrack돼 결과 동일.
+     "3 minutes"의 선행 숫자를 days로 오인하지 않도록(days 그룹이 뒤 문자 'd'를 못 찾아 빈 매치) 회귀
+     테스트로 고정.
+  - 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **579 통과 + 1 skip**(core 379[+4: days-only·1d4h·singular "1 day"·minutes 오인 방지] +
+    cli 193[+1 skip] + dashboard 7). **실제 빌드된 CLI e2e**(mock 아님): `parse "…try again in 2 days"`
+    →relative-duration·resets +2d, `parse "resets in 1d 4h"`→+28h, `parse "try again in 3 minutes"`→+3m
+    (days 오인 없음) 확인.
+- **주의(다음 세션): 열린 PR 30개 대다수가 중복 무리다.** distinct 대표만 남기고 나머지를 닫는
+  통합 세션(세션 32 방식: CI 초록 대표 병합 + 중복 닫기)이 시급하다. 대표 후보 — `stats --by-hour`
+  #99, `export --format html` #97, `import` #94, `config get` #95, `next --limit` #112, `errors` #107,
+  `wait` #96, `paths` #122, `completion fish` #100, `gemini adapter` #102, `export --fields` #109,
+  `daemon 단일 인스턴스 가드` #104, `stats resume latency` #75, `parser 요일 리셋 창` #101.
+- 다음 할 일: 위 중복 PR 통합/정리(🧭+👷), README/ARCHITECTURE(🧭 코워크).

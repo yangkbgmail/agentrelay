@@ -396,6 +396,14 @@
       (완료 — core `stats.ts` `computeDailyTrend`/`DailyActivity`, CLI `stats.ts` `renderTrend` +
       `--trend`/`--group-by` 공존. branch `claude/wizardly-pascal-7u14qq`, PR #81)
 
+- [x] 👷 파서 일(day) 단위 상대 시간 인식 — 주간/일간 사용량 한도의 "try again in 2 days" /
+      "resets in 1d 4h" 포맷을 제네릭 파서가 잡음.
+      (완료 — `parser.ts`의 `relative-duration` 패턴에 `d(?:ays?)?` 그룹을 시간 그룹 앞에 추가,
+      resolve가 `days*24+hours`로 환산. 초(second)는 의도적으로 제외 유지 — 어댑터(Codex/Gemini)
+      소관이라는 기존 설계 결정(adapters.test.ts) 불변. "3 minutes"의 선행 숫자를 days로 오인하지
+      않도록 회귀 테스트 포함. parser.test.ts +4케이스(days-only/1d4h/singular "1 day"/minutes 오인
+      방지), 빌드된 CLI `parse` e2e로 2d·1d4h·3m 검증. branch `claude/wizardly-pascal-fcdxy9`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
