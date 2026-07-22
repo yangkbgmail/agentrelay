@@ -472,6 +472,15 @@
       failed→1·timeout→124·unknown→1·크로스-프로세스 관측 검증. PR #96 발원 → 세션 37에서 최신 main에
       cherry-pick 통합(#137/#96 중복 대체). branch `claude/wizardly-pascal-4b32lg`)
 
+- [x] 👷 파서: 자연어 시각 `reset at midnight` / `reset at noon` 인식 (숫자 없는 일간 창 문구).
+      (완료 — Claude Code가 일간 리셋을 `"Your limit will reset at midnight."`처럼 숫자 없이
+      표현하면 기존 `clock-time`(`:MM` 필수)·`clock-time-meridiem`(선행 숫자 필수) 둘 다 못 잡아
+      잡이 큐잉 안 되던 갭. 신규 `clock-time-word` 패턴(`reset[s]? at (midnight|noon)`) 추가 —
+      midnight→00:00·noon→12:00 로컬 해석, 이미 지난 시각이면 익일로 롤(기존 clock 규약 준수).
+      meridiem 패턴 뒤 배치라 `reset at 12am`(숫자 midnight)은 여전히 `clock-time-meridiem` 우선.
+      parser.test +4 회귀(midnight/noon/대소문자/12am 숫자 우선), 실제 빌드 CLI `parse` e2e 확인.
+      branch `claude/wizardly-pascal-vj60wa`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -1223,3 +1223,25 @@
   #118 stats --by-weekday·#114/#112 next·#107 errors·#105 upcoming·#104/#69 데몬 가드·#102 Gemini
   어댑터·#101 파서 요일·#100 completion fish·#75 resume latency·#61 doctor 큐 진행). #61/#69/#75는
   스키마·doctor 충돌 주의. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 38 — 파서 자연어 시각 `reset at midnight`/`reset at noon` 인식] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-vj60wa`)
+- **배경:** 세션 시작 시 명시 👷 백로그가 전부 완료 상태. 열린 PR 22개는 서로 다른 기능인데,
+  세션 36이 "다음 할 일"로 남긴 파서 자연어 시각 인식(`reset at midnight/noon`)이 어떤 열린 PR
+  (#101은 요일 기반)에도 없어 중복 없는 신규 항목으로 선택. 실제 Claude Code 일간 리셋 문구
+  커버리지 갭이라 SPEC 코어 가치에 직결.
+- **문제:** Claude Code가 일간 창을 `"Your limit will reset at midnight."`처럼 **숫자 없이**
+  표현하면, 기존 `clock-time`(`:MM` 필수)·`clock-time-meridiem`(선행 숫자 필수) 어느 패턴도
+  못 잡아 `No rate-limit detected`로 통과 → 잡이 큐잉되지 않아 자동 재개가 안 되던 실사용 갭.
+- **한 일:** `@agentrelay/core/parser.ts`에 신규 `clock-time-word` 패턴 추가
+  (`/reset[s]?\s+at\s+(midnight|noon)\b/i`). midnight→00:00·noon→12:00 로컬 시각으로 해석,
+  이미 지난 시각이면 익일로 롤(기존 clock-time/meridiem과 동일 규약). meridiem 패턴 **뒤**에
+  배치 → `reset at 12am`(숫자 midnight)은 여전히 `clock-time-meridiem` 우선. 명명 타임존은
+  로컬 해석(기존 한계 계승).
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **662 통과 + 1 skip**(core 447[parser 32, +4] + cli 208[+1 skip] + dashboard 7).
+  parser.test에 회귀 4케이스 추가(midnight 00:00 익일 롤·noon 12:00·대소문자 무관·`12am`은
+  meridiem 우선). **실제 빌드된 CLI e2e**(mock 아님): `parse "...reset at midnight."` →
+  `pattern: clock-time-word`·`matched: "reset at midnight"`·resetAt=익일 00:00, `Resets at noon.`
+  → 익일 12:00, `resets at 12am` → `clock-time-meridiem`(숫자 우선) 확인.
+- **다음 할 일:** 파서 커버리지 계속 — `resets Monday` 등 요일(#101과 조율), `reset at end of
+  day`·`in an hour` 등 추가 실 메시지 샘플 수집(🧭 코워크). 남은 distinct PR 통합.
