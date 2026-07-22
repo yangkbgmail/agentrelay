@@ -69,6 +69,38 @@ describe("parseRateLimitMessage", () => {
     expect(parseRateLimitMessage("Rate limit hit, reset at 5.")).toBeNull();
   });
 
+  it("parses the natural-language 'reset at midnight' (00:00 local, rolls to tomorrow if past)", () => {
+    // Real Claude Code wording for daily windows: "Your limit will reset at midnight."
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Your limit will reset at midnight.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time-word");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(0);
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'resets at noon' (12:00 local)", () => {
+    const now = new Date("2026-07-12T01:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded. Resets at noon.", { now });
+    expect(result?.pattern).toBe("clock-time-word");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(12);
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("is case-insensitive for the word times", () => {
+    expect(parseRateLimitMessage("Reset at Midnight")?.pattern).toBe("clock-time-word");
+    expect(parseRateLimitMessage("resets at NOON")?.pattern).toBe("clock-time-word");
+  });
+
+  it("still prefers the numeric meridiem path for 'reset at 12am' over the word pattern", () => {
+    // "12am" is numeric midnight — it must take clock-time-meridiem, not clock-time-word.
+    expect(parseRateLimitMessage("resets at 12am")?.pattern).toBe("clock-time-meridiem");
+  });
+
   it("parses a relative duration like '4h32m'", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Rate limit exceeded, try again in 4h32m.", { now });
