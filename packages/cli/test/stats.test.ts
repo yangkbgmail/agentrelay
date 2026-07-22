@@ -11,6 +11,7 @@ import {
   renderGroupedStatsJson,
   renderStats,
   renderStatsJson,
+  renderStatsWatchFrame,
   renderTrend,
 } from "../src/stats.js";
 
@@ -303,6 +304,28 @@ describe("renderTrend", () => {
       { date: "2026-07-20", count: 2 },
     ]);
     expect(renderTrend(computed)).toContain("3 job(s) over 2 day(s)");
+  });
+});
+
+describe("renderStatsWatchFrame", () => {
+  it("wraps a stats body with a live title, store path and timestamp header", () => {
+    const body = renderStats(computeStats([job()]), { now: NOW });
+    const frame = renderStatsWatchFrame(body, "/tmp/store.json", 2000, NOW);
+    expect(frame).toContain("agentrelay stats");
+    expect(frame).toContain("every 2s");
+    expect(frame).toContain("/tmp/store.json");
+    expect(frame).toContain("2026-07-13 00:00:00");
+    // The provided body is preserved verbatim below the header.
+    expect(frame).toContain(body);
+    expect(frame).toContain("job(s) tracked");
+  });
+
+  it("rounds the interval to whole seconds and composes any body (e.g. a grouped view)", () => {
+    const groups = groupStats([job({ tool: "claude-code" })], "tool");
+    const body = renderGroupedStats(groups, "tool");
+    const frame = renderStatsWatchFrame(body, "/tmp/s.json", 5500, NOW);
+    expect(frame).toContain("every 6s");
+    expect(frame).toContain(body);
   });
 });
 

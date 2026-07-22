@@ -1146,3 +1146,24 @@
   html·#126 tools·#125 --no-color·#124 stats --by-hour·#122 paths·#118 stats --by-weekday·#114/#112 next·
   #105 upcoming·#107 errors·#104/#69 데몬 가드·#102 Gemini 어댑터·#101 파서 요일·#100 completion fish·#96 wait·
   #75 resume latency·#61 doctor 큐 진행). #61/#69/#75는 스키마·doctor 충돌 주의. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 36 — `agentrelay stats --watch` 라이브 통계 뷰 신규 구현] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-4p2adc`)
+- **배경:** BACKLOG의 👷(클로드 코드) 명시 항목이 전부 완료 상태라, CLAUDE.md "무한 개선 백로그" 지침대로
+  열린 PR 목록과 중복되지 않는 새 개선 항목을 발굴했다. `status --watch`(라이브 카운트다운 TUI)는 오래전부터
+  있었지만 형제 명령 `stats`엔 라이브 뷰가 없어, 데몬이 도는 동안 성공률·재시도·다음 리셋을 지켜보려면 매번
+  `stats`를 재실행해야 하는 갭이 있었다.
+- **한 일:** `agentrelay stats --watch [초]` 구현. CLI `stats.ts`에 순수 `renderStatsWatchFrame`(=`status`의
+  `renderWatchFrame` 미러링, 라이브 헤더 위에 이미 렌더된 body를 얹는 제네릭 래퍼 → plain/`--group-by`/
+  `--trend` 어느 body와도 합성) 신설, `cli.ts`에 `runStatsWatch`(clear-screen+setInterval+SIGINT/SIGTERM
+  정리, `runWatch`와 동형)와 `-w/--watch [초]` 옵션 배선. 매 패스 `renderBody(now)`가 스토어 재-read·동일
+  scope/group-by/trend 재적용, 시간창 경계는 명령 시작 시 고정 절대 epoch, `now`는 카운트다운에 흘려 제자리 tick.
+  `--json`은 `--watch`와 함께 써도 항상 일회성 스냅샷. 새 core 코드 0줄(기존 검증 함수 전부 재사용).
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` 전체 통과(cli 201 통과+1 skip, stats.test +2 = 26, 전 패키지 합산 그대로 초록). **실제 빌드된
+  CLI e2e**(mock 아님): 임시 2-job 스토어로 `stats --watch 1` 라이브 프레임(타이틀/스탬프/스토어 경로+통계 body),
+  `stats --watch 1 --group-by tool` 여러 프레임 재렌더(claude-code 100% / codex-cli n/a), `stats --watch 1 --json`
+  일회성 JSON 스냅샷, one-shot `stats`(watch 없이) 출력 불변 확인.
+- **다음 할 일:** 세션 34/35가 경고한 대로 열린 PR 큐가 여전히 큼(#131 show --watch·#130 대시보드 스코프 UI·#128
+  config get·#127 export html·#126 tools·#125 --no-color·#124 stats --by-hour·#118 --by-weekday·#114/#112 next·
+  #75 resume latency·#69 데몬 가드·#61 doctor 큐 진행 등) — CI 초록 distinct PR 통합·중복 정리가 높은 가치.
+  README/ARCHITECTURE는 🧭 코워크 소유.
