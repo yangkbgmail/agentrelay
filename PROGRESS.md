@@ -1223,3 +1223,23 @@
   #118 stats --by-weekday·#114/#112 next·#107 errors·#105 upcoming·#104/#69 데몬 가드·#102 Gemini
   어댑터·#101 파서 요일·#100 completion fish·#75 resume latency·#61 doctor 큐 진행). #61/#69/#75는
   스키마·doctor 충돌 주의. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 38 — `agentrelay import` 스코프 필터(--status/--tool/--project/--since/--until)] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-dwks6y`)
+- **한 일:** BACKLOG의 모든 👷 항목이 완료 상태여서, CLAUDE.md 지침대로 새 개선 항목을 발굴해
+  구현. `agentrelay import`에 `stats`·`status`·`export`·`cancel/retry --all`이 이미 공유하는
+  형제 스코프 필터(`--status`/`--tool`/`--project`/`--since`/`--until`)를 추가 — 팀원 덤프나
+  아카이브에서 특정 툴·프로젝트·상태·기간의 잡만 골라 병합할 수 있게 됨.
+  - `commands.ts` `ImportStoreOptions`에 `scope?: JobScope` 추가, `importStore`가 파싱된 레코드를
+    **병합 전에** `scopeJobs`(활성일 때만)로 좁힘. dry-run/실제 경로 모두 좁혀진 집합 사용.
+  - `ImportStoreResult`에 `scopeFiltered`(스코프로 버려진 유효 레코드 수, 스코프 없으면 0) 추가.
+  - `cli.ts` import에 공용 `buildScope`(cancel/retry --all과 공유) 배선 — 파일을 읽기 **전에**
+    스코프를 빌드해, 잘못된 `--tool`/`--status`·파싱불가 기간·빈 범위는 파일 접근 없이 exit 1.
+    요약 줄에 "N out of scope" + "[scope: …]" 노트.
+  - 새 core 직렬화/필터 코드 0줄 — 전부 기존 검증된 `scopeJobs`(stats.ts) 재사용.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 에러**, `pnpm test`
+  **전체 통과**(cli commands.test 68 — scope subset/no-scope/dry-run 3케이스 신규). **실제 빌드된
+  CLI e2e**(mock 아님): 3-job 덤프로 `--project web` dry-run→"2 added, 1 out of scope",
+  `--tool claude-code --status failed`→1건만 병합, 스토어 검증, `--tool bogus`→exit 1 확인.
+- **다음 할 일:** 남은 distinct PR 통합(#136 run --label·#135 stats --watch·#131 show --watch·
+  #130 대시보드 스코프 UI 등)과 README/ARCHITECTURE(🧭 코워크). import에 `--overwrite`와
+  스코프 조합 시나리오 문서화 검토.

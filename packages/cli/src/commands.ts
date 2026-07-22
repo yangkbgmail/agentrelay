@@ -976,6 +976,13 @@ export interface ImportStoreOptions {
   overwrite?: boolean;
   /** Compute the plan without writing to the store. */
   dryRun?: boolean;
+  /**
+   * Optional subset filter applied to the *parsed* records before merging — the
+   * same `--status`/`--tool`/`--project`/`--since`/`--until` scope used by
+   * `stats`/`status`/`export`. Records outside the scope are dropped up front so
+   * only the wanted slice of a dump is merged. Ignored when not active.
+   */
+  scope?: JobScope;
 }
 
 export interface ImportStoreResult extends ImportResult {
@@ -983,6 +990,8 @@ export interface ImportStoreResult extends ImportResult {
   parseErrors: ImportParseError[];
   /** Whether the store was left untouched (dry run). */
   dryRun: boolean;
+  /** Valid records dropped by the scope filter before merging (0 when no scope). */
+  scopeFiltered: number;
 }
 
 /**
@@ -997,17 +1006,24 @@ export function importStore(options: ImportStoreOptions): ImportStoreResult {
   const storePath = options.storePath ?? defaultStorePath();
   const raw = readFileSync(resolve(process.cwd(), options.filePath), "utf8");
   const { jobs, errors } = parseImportJobs(raw, options.format);
+
+  // Narrow the parsed records to the requested subset (if any) before merging,
+  // so `--tool`/`--project`/`--since`/… import only the wanted slice of a dump.
+  const scopeActive = options.scope !== undefined && isJobScopeActive(options.scope);
+  const scoped = scopeActive ? scopeJobs(jobs, options.scope as JobScope) : jobs;
+  const scopeFiltered = jobs.length - scoped.length;
+
   const mergeOptions = { includeActive: options.includeActive, overwrite: options.overwrite };
 
   if (options.dryRun) {
     const queue = openQueue(storePath);
-    const plan = planImport(queue.listAll(), jobs, mergeOptions);
-    return { ...summarizeImportPlan(plan), parseErrors: errors, dryRun: true };
+    const plan = planImport(queue.listAll(), scoped, mergeOptions);
+    return { ...summarizeImportPlan(plan), parseErrors: errors, dryRun: true, scopeFiltered };
   }
 
   const queue = openQueue(storePath);
-  const result = queue.importJobs(jobs, mergeOptions);
-  return { ...result, parseErrors: errors, dryRun: false };
+  const result = queue.importJobs(scoped, mergeOptions);
+  return { ...result, parseErrors: errors, dryRun: false, scopeFiltered };
 }
 
 export interface ConfigShowOptions {
