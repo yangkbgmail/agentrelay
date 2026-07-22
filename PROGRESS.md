@@ -1125,3 +1125,24 @@
     CLI e2e**(mock 아님): `parse "…try again in 2 days"` → `relative-duration`·resets `+2d`, `parse "resets in
     1d 4h"` → `+28h`, `parse "try again in 3 minutes"` → `+3m`(days 오인 없음) 확인.
 - 다음 할 일: 위 남은 distinct PR 통합(특히 #61/#69/#75는 스키마·doctor 충돌 주의), README/ARCHITECTURE(🧭 코워크).
+
+### [세션 35 — `agentrelay import` 통합(#111 병합) + 중복 PR 10건 정리] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-nq75ob`)
+- **배경:** 세션 시작 시 열린 PR이 34개까지 쌓였고 세션 34가 경고한 중복 재발 패턴이 그대로였다
+  (`stats --by-hour` 4건·`export --format html` 4건·`config get` 3건·`import` 2건 등). 👷 명시 항목은
+  전부 완료 상태라, 새 PR을 더하기보다 **CI 초록 PR을 통합하고 중복을 닫아 큐를 정리**하는 것이 압도적으로
+  높은 가치(COLLAB 병합 정책·세션 34 선례).
+- **한 일:**
+  1. **`agentrelay import` — #111을 main에 병합**(1039a95). export(CSV/JSON/md/ndjson)의 역연산으로,
+     JSON/NDJSON 덤프에서 잡 이력을 스토어로 **선택적 병합**(id dedupe·활성 잡 기본 제외·`--overwrite`/
+     `--dry-run`)하는 커맨드. 구버전 base(7997577)라 최신 main과 충돌(cli.ts 타입 import·PROGRESS.md)했으나
+     **로컬에서 main을 머지해 충돌 해소** → 재빌드/재테스트/재푸시 후 CI 초록(8dd292a) 확인하고 병합.
+  2. **중복 PR 10건을 사유 코멘트와 함께 닫음** — `stats --by-hour` #110/#108/#99(대표 #124 유지),
+     `export --format html` #103/#98/#97(대표 #127 유지), `config get` #106/#95(대표 #128 유지),
+     `import` #94(대표 #111 병합), `export --fields` #109(이미 병합된 `export --columns` #132로 커버).
+- **검증:** 충돌 해소 후 로컬에서 `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome)
+  **0 경고/0 에러**, `pnpm test` **623 통과 + 1 skip**(core 417 + cli 199[+1 skip] + dashboard 7). PR
+  브랜치 push 후 GitHub Actions `build-and-test` **success**(head 8dd292a) 재확인하고 병합.
+- **다음 할 일:** 남은 distinct PR 통합(#131 show --watch·#130 대시보드 스코프 UI·#128 config get·#127 export
+  html·#126 tools·#125 --no-color·#124 stats --by-hour·#122 paths·#118 stats --by-weekday·#114/#112 next·
+  #105 upcoming·#107 errors·#104/#69 데몬 가드·#102 Gemini 어댑터·#101 파서 요일·#100 completion fish·#96 wait·
+  #75 resume latency·#61 doctor 큐 진행). #61/#69/#75는 스키마·doctor 충돌 주의. README/ARCHITECTURE(🧭 코워크).
