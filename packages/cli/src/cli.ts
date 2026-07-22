@@ -952,10 +952,27 @@ export function buildCli(): Command {
     )
     .option("--include-active", "Also import jobs in an active status (queued/waiting/resuming), not just history")
     .option("--overwrite", "Replace jobs whose id already exists (default: skip existing)")
+    .option("-s, --status <statuses>", "Only import jobs with these statuses (comma-separated)")
+    .option("-t, --tool <tools>", "Only import jobs run with these tools (comma-separated)")
+    .option("-p, --project <projects>", "Only import jobs in these projects (comma-separated)")
+    .option("--since <duration>", "Only import jobs created within this long ago (e.g. 24h, 7d)")
+    .option("--until <duration>", "Only import jobs created before this long ago (e.g. 1d)")
     .option("--dry-run", "Report what would be imported without writing to the store")
     .action(
-      (file: string, opts: { format?: string; includeActive?: boolean; overwrite?: boolean; dryRun?: boolean }) => {
+      (
+        file: string,
+        opts: ScopeOpts & { format?: string; includeActive?: boolean; overwrite?: boolean; dryRun?: boolean }
+      ) => {
         const { store } = program.opts();
+
+        // Build the optional subset filter first so a bad --tool/--since fails
+        // before we touch the file, matching stats/status/export semantics.
+        const built = buildScope(opts, Date.now());
+        if ("error" in built) {
+          console.error(built.error);
+          process.exitCode = 1;
+          return;
+        }
 
         // Resolve the format from --format, else infer from the file extension.
         let format: ImportFormat;
@@ -988,6 +1005,7 @@ export function buildCli(): Command {
             includeActive: opts.includeActive,
             overwrite: opts.overwrite,
             dryRun: opts.dryRun,
+            scope: built.active ? built.scope : undefined,
           });
         } catch (error) {
           console.error(`[agentrelay] could not read ${file}: ${(error as Error).message}`);
@@ -1004,8 +1022,12 @@ export function buildCli(): Command {
         const parts = [`${result.added} added`, `${result.updated} updated`];
         if (result.skippedExisting > 0) parts.push(`${result.skippedExisting} existing skipped`);
         if (result.skippedActive > 0) parts.push(`${result.skippedActive} active skipped`);
+        if (result.scopeFiltered > 0) parts.push(`${result.scopeFiltered} out of scope`);
         if (result.parseErrors.length > 0) parts.push(`${result.parseErrors.length} invalid`);
-        console.error(`[agentrelay] ${verb}: ${parts.join(", ")}${result.dryRun ? " (no changes made)" : ""}`);
+        const scopeLine = built.active ? ` [scope: ${built.note}]` : "";
+        console.error(
+          `[agentrelay] ${verb}: ${parts.join(", ")}${result.dryRun ? " (no changes made)" : ""}${scopeLine}`
+        );
 
         // Non-zero exit when nothing valid could be ingested AND the file had
         // problems, so scripts can detect a wholly-failed import.

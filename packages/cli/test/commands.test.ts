@@ -854,6 +854,51 @@ describe("importStore", () => {
     expect(included).toMatchObject({ added: 1, skippedActive: 0 });
     expect(listStatus(storePath)[0].id).toBe("live");
   });
+
+  it("imports only the scoped subset (--tool/--project) and reports the filtered count", () => {
+    const src = join(dir, "dump.json");
+    writeFileSync(
+      src,
+      JSON.stringify([
+        record("keep", { project: "web", tool: "claude-code" }),
+        record("drop-tool", { project: "web", tool: "codex-cli" }),
+        record("drop-proj", { project: "api", tool: "claude-code" }),
+      ]),
+      "utf8"
+    );
+
+    const result = importStore({
+      filePath: src,
+      format: "json",
+      storePath,
+      scope: { tools: ["claude-code"], projects: ["web"] },
+    });
+    expect(result).toMatchObject({ added: 1, scopeFiltered: 2 });
+    expect(listStatus(storePath).map((j) => j.id)).toEqual(["keep"]);
+  });
+
+  it("scopeFiltered is 0 when no scope is given", () => {
+    const src = join(dir, "dump.json");
+    writeFileSync(src, JSON.stringify([record("a"), record("b")]), "utf8");
+
+    const result = importStore({ filePath: src, format: "json", storePath });
+    expect(result.scopeFiltered).toBe(0);
+  });
+
+  it("scope applies in dry-run without writing the store", () => {
+    const src = join(dir, "dump.json");
+    writeFileSync(src, JSON.stringify([record("a", { project: "web" }), record("b", { project: "api" })]), "utf8");
+
+    const result = importStore({
+      filePath: src,
+      format: "json",
+      storePath,
+      dryRun: true,
+      scope: { projects: ["web"] },
+    });
+    expect(result).toMatchObject({ added: 1, scopeFiltered: 1, dryRun: true });
+    expect(existsSync(storePath)).toBe(false);
+  });
 });
 
 describe("waitForJob", () => {

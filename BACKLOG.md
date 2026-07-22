@@ -472,6 +472,21 @@
       failed→1·timeout→124·unknown→1·크로스-프로세스 관측 검증. PR #96 발원 → 세션 37에서 최신 main에
       cherry-pick 통합(#137/#96 중복 대체). branch `claude/wizardly-pascal-4b32lg`)
 
+- [x] 👷 `agentrelay import` 스코프 필터(`--status`/`--tool`/`--project`/`--since`/`--until`) —
+      덤프 전체가 아닌 특정 툴·프로젝트·상태·기간의 잡만 골라 병합(`stats`·`status`·`export`·
+      `cancel/retry --all`과 동일한 형제 필터 패턴).
+      (완료 — 기존 import는 `--include-active`/`--overwrite`/`--dry-run`만 지원해, 팀원 덤프에서
+      내 프로젝트 잡만·최근 N일 실패 잡만 골라 가져올 수 없었다. `commands.ts`의 `ImportStoreOptions`에
+      `scope?: JobScope` 추가 → `importStore`가 파싱된 레코드를 **병합 전에** `scopeJobs`(활성일 때만)로
+      좁힘. `planImport`/`importJobs` 모두 좁혀진 집합을 받아 dry-run/실제 동일 의미. `ImportStoreResult`에
+      `scopeFiltered`(스코프로 버려진 유효 레코드 수, 스코프 없으면 0) 추가. CLI `cli.ts` import에
+      공용 `buildScope`(cancel/retry --all과 공유) 배선 — 파일을 읽기 **전에** 스코프를 빌드해 잘못된
+      `--tool`/`--status`·파싱불가 기간·빈 범위(since<until)는 파일 접근 없이 exit 1. 요약 줄에
+      "N out of scope" + "[scope: …]" 노트. 새 core 직렬화 코드 0줄 — 전부 기존 검증된
+      `scopeJobs`(stats.ts) 재사용. commands.test.ts에 scope subset/no-scope/dry-run 3케이스 추가,
+      실제 빌드 CLI e2e로 project·tool+status AND·dry-run·out-of-scope 카운트·invalid tool exit 1 검증.
+      branch `claude/wizardly-pascal-dwks6y`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
