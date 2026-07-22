@@ -449,6 +449,15 @@
       더해 대체. core export.test 15케이스 + cli export.test 3케이스, 실제 빌드 CLI e2e로 문서 구조·
       상태 색상·주입 이스케이프(`<script>`→`&lt;script&gt;`)·개행 `<br>`·빈 스토어·컬럼 조합·잘못된
       포맷 exit 1·파일 출력 검증. branch `claude/wizardly-pascal-e06tu1`)
+- [x] 👷 파서: 분(minute) 없는 시각 표현 `reset at 5pm` / `resets at 10 AM` 인식.
+      (완료 — Claude Code가 실제로 출력하는 `"Your limit will reset at 5pm (America/New_York)."`
+      문구를 기존 `clock-time`(분 `:MM` 필수)이 놓쳐 잡이 큐잉 안 되던 실사용 갭. 신규
+      `clock-time-meridiem` 패턴(`reset[s]? at (\d{1,2}) (am|pm)`) 추가 — 분 없이 시+meridiem이면
+      minute=0으로 해석. am/pm **필수**로 `reset at 5`(모호) 오검출 방지, `hour>12`(13pm) 무효.
+      `clock-time`(분 정밀) 뒤 배치라 `5:30pm`은 그대로 우선. 12am→0/12pm→12 경계·이미 지난 시각
+      익일 롤 등 clock-time 규약 준수, 명명 타임존은 로컬 해석(기존 한계). parser.test +6 회귀,
+      실제 빌드 CLI `parse`로 `clock-time-meridiem` 매치 e2e 확인. branch
+      `claude/wizardly-pascal-m46r3y`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

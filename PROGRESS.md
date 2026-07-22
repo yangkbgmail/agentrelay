@@ -1173,3 +1173,27 @@
   #126 tools·#125 --no-color·#124 stats --by-hour·#122 paths·#118 stats --by-weekday·#114/#112 next·
   #96 wait·#75 resume latency·#61 doctor 큐 진행 등). #61/#69/#75는 스키마·doctor 충돌 주의.
   README/ARCHITECTURE(🧭 코워크).
+
+---
+
+## 세션 36 (2026-07-22) — 파서: 분(minute) 없는 시각 표현 `reset at 5pm` 인식
+
+- **시각:** 2026-07-22 (UTC)
+- **관련 BACKLOG:** 👷 파서 패턴 보강(실제 rate-limit 메시지 포맷 커버리지) — Claude Code가
+  실제로 출력하는 `"Your limit will reset at 5pm (America/New_York)."` 문구를 놓치던 갭.
+- **문제:** 기존 `clock-time` 패턴은 `(\d{1,2}):(\d{2})` 로 **분(:MM)을 필수**로 요구 →
+  Claude Code의 실제 문구인 `reset at 5pm`(시+오전/오후, 분 없음)은 어느 패턴에도 안 걸려
+  `No rate-limit detected`로 통과. 잡이 큐잉되지 않아 자동 재개가 안 되는 실사용 버그.
+- **한 일:** `parser.ts`에 신규 `clock-time-meridiem` 패턴 추가
+  (`/reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b/i`). 분이 없어도 시+meridiem이면 매치, minute=0으로
+  해석. am/pm을 **필수**로 요구해 `reset at 5`(분·meridiem 둘 다 없음)의 모호한 오검출 방지,
+  `hour>12`(예: `13pm`)는 무효 처리. 기존 `clock-time`(분 정밀) 뒤에 배치 → `5:30pm`은 여전히
+  `clock-time`이 우선. 12am→0시/12pm→12시 경계, 이미 지난 시각이면 익일로 롤 등 clock-time 규약
+  준수. 메시지의 명명 타임존은 무시(로컬 시각 해석 — clock-time과 동일한 기존 한계).
+- **검증:** `pnpm build` 클린, `pnpm lint`(Biome) 0경고/0에러, `pnpm test` **646 통과 + 1 skip**
+  (core 437[+6 parser] + cli 202/1skip + dashboard 7). parser.test에 회귀 6케이스 추가
+  (`reset at 5pm`·`resets at 10 AM`(공백+익일 롤)·12am/12pm 경계·`5:30pm`은 clock-time 우선·
+  `reset at 5`(모호) null). **실제 빌드 CLI e2e**: `agentrelay parse "...reset at 5pm..."` →
+  `pattern: clock-time-meridiem`, `matched: "reset at 5pm"`, 리셋 시각 정상 산출 확인.
+- **다음 할 일:** 파서 커버리지 계속 — `reset at midnight/noon` 자연어, 요일 지정
+  (`resets Monday`) 등 추가 실 메시지 샘플 수집(🧭 코워크와 협업). 남은 distinct PR 통합.

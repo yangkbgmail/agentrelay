@@ -61,6 +61,31 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // "resets at 5pm" / "reset at 10 AM" — hour + meridiem with NO minutes.
+    // This is the wording Claude Code actually prints ("Your limit will reset
+    // at 5pm (America/New_York)."), which the minute-requiring clock-time
+    // pattern above misses. Meridiem is required: a bare "reset at 5" (no
+    // colon, no am/pm) is too ambiguous to treat as a clock time. The named
+    // timezone in the message is ignored — the hour is interpreted in local
+    // time, same known limitation as clock-time (a real reset is a future
+    // instant, so rolling to tomorrow when already past keeps us safe).
+    name: "clock-time-meridiem",
+    regex: /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b/i,
+    resolve: (m, now) => {
+      let hour = parseInt(m[1], 10);
+      if (hour > 12) return null; // 13pm etc. is not a valid 12-hour clock time
+      const meridiem = m[2].toLowerCase();
+      if (meridiem === "pm" && hour < 12) hour += 12;
+      if (meridiem === "am" && hour === 12) hour = 0;
+      const candidate = new Date(now);
+      candidate.setHours(hour, 0, 0, 0);
+      if (candidate.getTime() <= now.getTime()) {
+        candidate.setDate(candidate.getDate() + 1);
+      }
+      return candidate;
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they

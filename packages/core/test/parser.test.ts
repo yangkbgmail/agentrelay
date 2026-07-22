@@ -25,6 +25,50 @@ describe("parseRateLimitMessage", () => {
     expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
   });
 
+  it("parses the real Claude Code wording: 'reset at 5pm' (hour + meridiem, no minutes)", () => {
+    // Actual message: "Claude usage limit reached. Your limit will reset at 5pm (America/New_York)."
+    const now = new Date("2026-07-12T08:00:00Z"); // 08:00 UTC
+    const result = parseRateLimitMessage(
+      "Claude usage limit reached. Your limit will reset at 5pm (America/New_York).",
+      { now }
+    );
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(17); // 5pm local
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'resets at 10 AM' with a space before the meridiem, rolling to tomorrow if past", () => {
+    const now = new Date("2026-07-12T20:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 10 AM.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(10);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("handles meridiem-only 12am (midnight) and 12pm (noon)", () => {
+    const midnight = new Date(parseRateLimitMessage("resets at 12am")!.resetAt);
+    expect(midnight.getHours()).toBe(0);
+    const noon = new Date(parseRateLimitMessage("resets at 12pm")!.resetAt);
+    expect(noon.getHours()).toBe(12);
+  });
+
+  it("still prefers minute-precise clock-time over the meridiem-only pattern", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Resets at 5:30pm.", { now });
+    expect(result?.pattern).toBe("clock-time");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getMinutes()).toBe(30);
+  });
+
+  it("does not treat a bare 'reset at 5' (no minutes, no meridiem) as a clock time", () => {
+    // Too ambiguous — could be "5 hours", "5th", etc. Requiring am/pm keeps us safe.
+    expect(parseRateLimitMessage("Rate limit hit, reset at 5.")).toBeNull();
+  });
+
   it("parses a relative duration like '4h32m'", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Rate limit exceeded, try again in 4h32m.", { now });
