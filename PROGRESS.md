@@ -1055,3 +1055,23 @@
   `next`(다음 재개 잡 한 줄)·`next --json`·`export --format ndjson`(줄단위 JSON)·`stats --trend 5`(UTC 일별 막대)·
   `stats --group-by tool`(공존 확인)·`stats --trend 999`(범위 밖 에러) 확인.
 - 다음 할 일: #61(doctor 큐 진행)·#69(데몬 이중실행 가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
+
+### [세션 33 — `agentrelay stats --by-hour` 시간대별 활동 히스토그램] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-mnnqpn`)
+- **배경:** `--trend`는 "어느 날 바빴나"(일별)를 보여주지만, "하루 중 어느 시간대에 rate-limit이
+  반복되나"(예: 매일 밤 배치가 상한 침범)는 볼 수 없었다. `--trend`의 자연스러운 형제를 추가.
+- **한 일:** `agentrelay stats --by-hour` 신규 — 하루 24시간대별(0–23, UTC) 활동 히스토그램.
+  - core `stats.ts`: 순수 `computeHourlyTrend(jobs)` + `HourlyActivity` 신설. 항상 24슬롯(hour 0→23)
+    zero-fill, `createdAt`의 UTC 시각으로 버킷(모든 날 합산), 파싱 불가 `createdAt`은 스킵. `--trend`와
+    동일 UTC 컨벤션이라 두 히스토그램이 같은 시계에 정렬.
+  - CLI `stats.ts`: `renderHourly`(busiest 시간에 스케일한 ASCII 막대, `HHh` 2자리 라벨, 0 시간대는
+    dim 베이스라인 점, all-zero면 `none`). `renderStatsJson`에 `hourly` 필드 추가 — 요청 시에만 방출해
+    기본 JSON 형태는 불변(`trend`와 동일 정책).
+  - cli.ts: `--by-hour` 플래그 배선. `--trend`와 공존(둘 다 지정 시 두 히스토그램 모두 출력),
+    `--group-by`가 지정되면 우선(early return)이라 hourly 미출력.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **584 통과 + 1 skip**(core 379 + cli 198[+1 skip] + dashboard 7; 신규 core 4 + cli 5).
+  **실제 빌드된 CLI e2e**(mock 아님): 3-job 임시 스토어로 `stats --by-hour`(03h에 2건[서로 다른 날 합산]·
+  14h에 1건), `--by-hour --json`(24슬롯·`{hour,count}`), 기본 `--json`(hourly 키 없음), `--trend 3 --by-hour`
+  (activity 헤더 2개=두 히스토그램 공존), `--group-by tool --by-hour`(group-by 우선, hourly 없음) 확인.
+- 다음 할 일: stats 시간대 로컬 오프셋 옵션(`--by-hour <tz>`) 검토, #61(doctor 큐 진행)·#69(데몬 이중실행
+  가드)·#75(resume latency, 스키마) 통합, README/ARCHITECTURE(🧭 코워크).
