@@ -1146,3 +1146,27 @@
   html·#126 tools·#125 --no-color·#124 stats --by-hour·#122 paths·#118 stats --by-weekday·#114/#112 next·
   #105 upcoming·#107 errors·#104/#69 데몬 가드·#102 Gemini 어댑터·#101 파서 요일·#100 completion fish·#96 wait·
   #75 resume latency·#61 doctor 큐 진행). #61/#69/#75는 스키마·doctor 충돌 주의. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 36 — `agentrelay wait <id>` 통합(#96 재구현) — 잡 종료까지 블록 후 exit code] (2026-07-22, 무인 자율 세션, branch `claude/wizardly-pascal-7ge87h`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태이고 열린 PR이 24개 쌓여 있었다. 그중 #96 `agentrelay wait`는
+  스크립트/CI가 릴레이 결과에 `&&`/`||`로 체인할 수 있게 하는 유용한 자기완결 기능이지만, base가 구버전
+  main(7997577)이라 cherry-pick 시 cli.ts/commands.ts/문서에 얽힌 충돌이 발생했다(오래된 base가 그 뒤
+  landed된 config set/unset·import 등을 이미 포함해 import 중복 충돌). 세션 34/35 선례(CI 초록 PR 통합)를
+  따르되, 얽힌 충돌을 손으로 푸는 것보다 **깨끗이 적용되는 새 파일(core/cli `wait.ts`·`wait.test.ts`)은
+  그대로 재사용하고 배선(3개 import·`waitForJob`·cli 커맨드)만 최신 main에 맞춰 재구성**하는 편이 안전·정확.
+- **한 일:** `@agentrelay/core/wait.ts`(순수: `isTerminalStatus`[stats `TERMINAL_STATUSES` 재사용]·
+  `WaitOutcome`·`WAIT_EXIT_CODES`/`waitExitCode`[0 completed·1 failed·2 cancelled·124 timeout(GNU)·5 missing]·
+  `evaluateWait`) + CLI `commands.ts` `waitForJob`(id 1회 해소→full id 추적, 매 폴링 스토어 재오픈해 별도
+  daemon/tick 프로세스 쓰기 관측, 첫 검사 즉시, `--timeout`은 sleep 전 데드라인 검사, now/sleep/readJob
+  주입 가능) + CLI `wait.ts` `renderWaitJson` + `cli.ts` `agentrelay wait <id> [--timeout] [--interval]
+  [--json] [-q]` 배선(next↔stats 사이). core index에 `export * from "./wait.js"`.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **635 통과 + 1 skip**(core 423[+6 wait.test] + cli 205[+6 waitForJob][+1 skip] + dashboard 7).
+  **실제 빌드된 CLI e2e**(mock 아님): completed→exit 0·failed→exit 1(+lastError)·`--json`(outcome/exitCode/
+  job)·waiting `--timeout 1s`→exit 124·`-q`(무출력 exit 0)·unknown id→exit 1·bad `--interval`→exit 1·
+  **백그라운드 `wait`가 별도 프로세스의 완료를 폴링으로 관측해 exit 0**(크로스-프로세스 데모).
+- **다음 할 일:** 남은 distinct PR 통합(#136 run --label·#135 stats --watch·#131 show --watch·#130 대시보드
+  스코프 UI·#128 config get·#127 export html·#126 tools·#125 --no-color·#124 stats --by-hour·#122 paths·
+  #118 stats --by-weekday·#114/#112 next·#107 errors·#105 upcoming·#104/#69 데몬 가드·#102 Gemini 어댑터·
+  #101 파서 요일·#100 completion fish·#75 resume latency·#61 doctor 큐 진행). #96은 이 PR 병합 후 닫기.
+  README/ARCHITECTURE(🧭 코워크).

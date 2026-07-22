@@ -60,6 +60,7 @@ import {
   tickOnce,
   unsetConfigFile,
   validateConfigFile,
+  waitForJob,
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
@@ -78,6 +79,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { renderWaitJson } from "./wait.js";
 
 /**
  * Split a comma-separated CLI option (e.g. `--status completed,failed`) into
@@ -536,6 +538,58 @@ export function buildCli(): Command {
         else if (!next.due) process.exitCode = 3;
         // due-now → exit 0 (default).
       }
+    });
+
+  program
+    .command("wait")
+    .description(
+      "Block until a job finishes, then exit with a code reflecting the outcome (0 completed, 1 failed, 2 cancelled, 124 timeout)"
+    )
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .option("--timeout <duration>", "Give up after this long (e.g. 30m, 6h); default: wait forever")
+    .option("--interval <duration>", "How often to poll the store (default 2s)", "2s")
+    .option("--json", "Print the final result as JSON (machine-readable, for scripts/jq)")
+    .option("-q, --quiet", "Suppress the human status line (the exit code still reflects the outcome)")
+    .action(async (id: string, opts: { timeout?: string; interval?: string; json?: boolean; quiet?: boolean }) => {
+      const { store } = program.opts();
+
+      const intervalMs = parseDuration(opts.interval ?? "2s");
+      if (intervalMs === null || intervalMs <= 0) {
+        console.error(`[agentrelay] Invalid --interval: ${opts.interval}. Use forms like 500ms, 2s, 1m.`);
+        process.exitCode = 1;
+        return;
+      }
+
+      let timeoutMs: number | null = null;
+      if (opts.timeout !== undefined) {
+        timeoutMs = parseDuration(opts.timeout);
+        if (timeoutMs === null || timeoutMs < 0) {
+          console.error(`[agentrelay] Invalid --timeout: ${opts.timeout}. Use forms like 30m, 6h, 90s.`);
+          process.exitCode = 1;
+          return;
+        }
+      }
+
+      // A blocking command with no visible progress is confusing; let the user
+      // know it's waiting (stderr, so --json stdout stays clean).
+      if (!opts.quiet && !opts.json) {
+        console.error(`[agentrelay] waiting for job ${id} to finish… (Ctrl-C to stop)`);
+      }
+
+      const result = await waitForJob(id, { storePath: store, intervalMs, timeoutMs });
+
+      if (!result.ok) {
+        console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      if (opts.json) {
+        console.log(renderWaitJson(result, store));
+      } else if (!opts.quiet) {
+        console.log(`[agentrelay] ${result.message}`);
+      }
+      process.exitCode = result.exitCode;
     });
 
   program
