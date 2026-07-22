@@ -437,6 +437,22 @@
       (days-only/1d 4h/singular 1 day/"3 minutes"를 days로 오인 안 함). PR #123 발원 → 세션 34에서
       cherry-pick 통합. branch `claude/wizardly-pascal-ig4v29`)
 
+- [x] 👷 `agentrelay stats --watch [초]` — 통계 뷰 라이브 갱신(릴레이 효과를 실시간으로 지켜보기).
+      (완료 — `status --watch`(세션 초기)에는 있던 라이브 뷰가 `stats`엔 없어, 데몬이 도는 동안
+      성공률·재시도·다음 리셋 카운트다운을 지켜보려면 매번 재실행해야 했다. CLI `stats.ts`에 순수
+      `renderStatsWatchFrame(body, storePath, intervalMs, now)` 신설: `status`의 `renderWatchFrame`을
+      미러링한 제네릭 래퍼(라이브 타이틀+스탬프+스토어 경로 헤더 위에 **이미 렌더된 body**를 그대로
+      얹음)라, plain 요약·`--group-by` 브레이크다운·`--trend` 히스토그램 어느 body와도 합성 가능하고
+      순수·테스트 가능(주입 `now`). CLI `cli.ts`에 `runStatsWatch(store, intervalMs, renderBody)`
+      (`runWatch`와 동일한 clear-screen+setInterval+SIGINT/SIGTERM 정리)와 `stats`의 `-w/--watch [초]`
+      옵션 배선. 매 패스마다 `renderBody(now)`가 스토어를 **재-read**하고 동일 scope/group-by/trend를
+      재적용 — 시간창 경계는 명령 시작 시 고정 절대 epoch(status와 동일), `now`는 "next reset in"
+      카운트다운에 흘러들어 제자리에서 tick. `--json`은 `--watch`와 함께 써도 항상 일회성 스냅샷.
+      기본 2s, `--watch 5`처럼 초 지정 가능. 새 core 코드 0줄 — 전부 기존 검증된 `computeStats`/
+      `groupStats`/`computeDailyTrend`/`renderStats`/`renderGroupedStats`/`renderTrend` 재사용.
+      stats.test.ts에 renderStatsWatchFrame 2케이스 추가, 실제 빌드 CLI e2e로 라이브 프레임·group-by
+      watch·json 스냅샷 검증. branch `claude/wizardly-pascal-4p2adc`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
