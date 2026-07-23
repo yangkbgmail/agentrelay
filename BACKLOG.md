@@ -496,6 +496,18 @@
       core queue 3 + import 2 + cli show 1 신규 테스트, 실제 빌드 CLI e2e로 run→persist·show 블록·--json
       에코 검증. branch `claude/wizardly-pascal-7o70l9`)
 
+- [x] 👷 재시도 백오프 지터(`AGENTRELAY_RETRY_JITTER`) — 전환 실패(transient failure) 재시도가 여러 잡에서
+      lockstep으로 같은 시각에 몰려 재개→재충돌하는 것을 무작위 분산으로 완화.
+      (완료 — `RetryPolicy`에 `jitter`(fraction [0,1], 기본 0=결정적) 필드 추가. `computeBackoffMs(policy,
+      attempt, rng?)`가 `jitter>0`이고 `rng` 주입 시에만 클램프된 지연을 `[delay·(1−j), delay·(1+j)]`로
+      균등 분산 후 `[0, maxDelayMs]` 재클램프 — `rng` 없거나 `jitter<=0`이면 기존과 완전 동일(하위호환).
+      `retryPolicyFromEnv`가 `AGENTRELAY_RETRY_JITTER`를 [0,1] 클램프(음수·비수치는 기본 0)로 읽음.
+      `RelayScheduler`에 주입 가능한 `rng`(기본 `Math.random`) 옵션 → 백오프 재큐 시 전달(테스트 결정성).
+      config 전 계층 배선(type·sampleConfig·CONFIG_FIELDS·parseConfig·validateConfig[<0/>1 error]·
+      configToEnv·CONFIG_ENV_KEYS — 드리프트 sync 테스트 통과). core retry +7 / config +2 / scheduler +1
+      신규 테스트, 실제 빌드 CLI로 config set/validate/show 지터 배선 e2e 검증. branch
+      `claude/wizardly-pascal-119tzo`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
