@@ -472,6 +472,20 @@
       failed→1·timeout→124·unknown→1·크로스-프로세스 관측 검증. PR #96 발원 → 세션 37에서 최신 main에
       cherry-pick 통합(#137/#96 중복 대체). branch `claude/wizardly-pascal-4b32lg`)
 
+- [x] 👷 job에 rate-limit 감지 출처(provenance) 영속 — "릴레이가 왜 리셋 시각을 X로 판단했나"를
+      `show`에서 확인. 지금까지 rate-limit이 감지되면 `resetAt`만 job에 저장되고, 어떤 파서 패턴이/
+      어떤 raw 텍스트가 그 시각을 만들었는지는 enqueue 시점 콘솔 한 줄로만 찍혀 사후 조사가 불가능했다.
+      (완료 — `@agentrelay/core/types.ts`에 순수 `RateLimitDetection`(pattern·rawMatch·resetAt·detectedAt)
+      + `RelayJob.lastRateLimit?`(optional → 구버전 스토어 무마이그레이션 로드) 추가. `RelayQueue.enqueue`가
+      `lastRateLimit: null` 초기화, `markWaitingForReset(id, resetAt, detection?)`가 detection 있을 때만
+      영속(수동 재큐/백오프 재시도는 미설정). 스케줄러(재개 시)·CLI run(최초 감지 시) 두 rate-limit 경로가
+      `{pattern, rawMatch, resetAt, detectedAt: now}`를 전달. `agentrelay show`가 detection 있을 때만 "rate
+      limit" 블록(pattern/matched/detected) 렌더, `--json`은 job 전체라 자동 노출. `import.ts`가
+      `parseRateLimitDetection`으로 well-formed provenance만 무손실 왕복 보존(malformed/부재는 레코드 거부
+      대신 생략 → null≈absent shape 안정). 새 파서 로직 0줄 — 기존 `RateLimitInfo`(pattern/rawMatch) 재사용.
+      core queue 3 + import 2 + cli show 1 신규 테스트, 실제 빌드 CLI e2e로 run→persist·show 블록·--json
+      에코 검증. branch `claude/wizardly-pascal-7o70l9`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
