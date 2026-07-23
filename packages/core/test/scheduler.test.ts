@@ -97,6 +97,53 @@ describe("RelayScheduler", () => {
     expect(results[0].resetAt).not.toBeNull();
   });
 
+  it("staggers the re-queued reset when resumeStaggerMs is set, keeping true provenance", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      // "Resets in 2h" parses to a fixed +2h reset; the stagger shifts the
+      // *scheduled* resume forward by rng*window within a 60s window.
+      spawnFn: fakeSpawnFn({ "claude -p continue": "Usage limit reached again. Resets in 2h." }),
+      resumeStaggerMs: 60_000,
+      rng: () => 0.5, // deterministic +30s
+    });
+
+    const [result] = await scheduler.tick();
+    expect(result.status).toBe("waiting_for_reset");
+    const trueReset = result.lastRateLimit?.resetAt;
+    expect(trueReset).toBeDefined();
+    // Provenance keeps the true detected reset; the scheduled resetAt is +30s.
+    expect(result.resetAt).toBe(new Date(new Date(trueReset as string).getTime() + 30_000).toISOString());
+  });
+
+  it("leaves the reset exact when resumeStaggerMs is 0 (default)", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({ "claude -p continue": "Usage limit reached again. Resets in 2h." }),
+      rng: () => 0.5,
+    });
+
+    const [result] = await scheduler.tick();
+    expect(result.status).toBe("waiting_for_reset");
+    // With stagger off, the scheduled reset equals the true detected reset.
+    expect(result.resetAt).toBe(result.lastRateLimit?.resetAt);
+  });
+
   it("does not touch jobs that are not yet due", async () => {
     const job = queue.enqueue({
       project: "demo",

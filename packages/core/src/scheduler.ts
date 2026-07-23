@@ -3,6 +3,7 @@ import { resolveAdapter } from "./adapters.js";
 import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
 import type { RelayQueue } from "./queue.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
+import { applyResumeStagger } from "./stagger.js";
 import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
 
 export type Notifier = (payload: NotifyPayload) => void | Promise<void>;
@@ -30,6 +31,15 @@ export interface SchedulerOptions {
    * while `jitter` is 0 (the default), so normal runs stay reproducible.
    */
   rng?: () => number;
+  /**
+   * Resume-stagger window (ms). When `> 0`, a job re-queued after re-hitting a
+   * rate limit on resume has its stored `resetAt` shifted forward by a random
+   * offset in `[0, resumeStaggerMs)` (using {@link rng}), so a batch of jobs
+   * sharing a reset window don't all wake up at the same instant and re-collide.
+   * The rate-limit *provenance* keeps the true detected reset; only the
+   * scheduled resume time is spread. `0` (the default) keeps resumes exact.
+   */
+  resumeStaggerMs?: number;
   /**
    * When set, finished jobs matching these options are pruned from the store
    * after every tick, keeping a long-running daemon's JSON store bounded
@@ -79,6 +89,7 @@ export class RelayScheduler {
   private outputTailLength: number;
   private retryPolicy: RetryPolicy;
   private rng: () => number;
+  private resumeStaggerMs: number;
   private autoPrune: PruneOptions | null;
   private autoPruneEveryMs: number;
   private autoPruneEveryTicks: number;
@@ -96,6 +107,7 @@ export class RelayScheduler {
     this.outputTailLength = options.outputTailLength ?? 2000;
     this.retryPolicy = options.retryPolicy ?? DEFAULT_RETRY_POLICY;
     this.rng = options.rng ?? Math.random;
+    this.resumeStaggerMs = options.resumeStaggerMs ?? 0;
     this.autoPrune = options.autoPrune ?? null;
     this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
@@ -189,7 +201,11 @@ export class RelayScheduler {
         this.queue.markFailed(job.id, msg, tail);
         await this.notify({ jobId: job.id, project: job.project, event: "failed", message: msg });
       } else {
-        this.queue.markWaitingForReset(job.id, rateLimit.resetAt, {
+        // Spread the scheduled resume across the stagger window so a batch of
+        // jobs sharing this reset don't all wake at once and re-collide. The
+        // provenance below keeps the *true* detected reset for audit.
+        const scheduledResetAt = applyResumeStagger(rateLimit.resetAt, this.resumeStaggerMs, this.rng);
+        this.queue.markWaitingForReset(job.id, scheduledResetAt, {
           pattern: rateLimit.pattern,
           rawMatch: rateLimit.rawMatch,
           resetAt: rateLimit.resetAt,
@@ -199,7 +215,7 @@ export class RelayScheduler {
           jobId: job.id,
           project: job.project,
           event: "queued",
-          message: `Hit rate limit again, re-queued until ${rateLimit.resetAt}`,
+          message: `Hit rate limit again, re-queued until ${scheduledResetAt}`,
         });
       }
       return this.reload(job.id);
