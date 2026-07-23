@@ -69,6 +69,35 @@ describe("parseRateLimitMessage", () => {
     expect(parseRateLimitMessage("Rate limit hit, reset at 5.")).toBeNull();
   });
 
+  it("parses the natural-language 'reset at midnight' (00:00 local), rolling to tomorrow if past", () => {
+    const now = new Date("2026-07-12T20:00:00Z");
+    const result = parseRateLimitMessage("Your limit will reset at midnight.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time-word");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(0);
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses the natural-language 'resets at noon' (12:00 local)", () => {
+    const now = new Date("2026-07-12T02:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Resets at noon.", { now });
+    expect(result?.pattern).toBe("clock-time-word");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(12);
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("does not misfire 'reset at midnights' style noise as a word clock time", () => {
+    // A digit-bearing time still wins; the word pattern only matches the exact
+    // words midnight/noon on a word boundary.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Resets at 5:30pm.", { now });
+    expect(result?.pattern).toBe("clock-time");
+  });
+
   it("parses a relative duration like '4h32m'", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Rate limit exceeded, try again in 4h32m.", { now });

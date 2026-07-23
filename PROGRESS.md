@@ -1223,3 +1223,22 @@
   #118 stats --by-weekday·#114/#112 next·#107 errors·#105 upcoming·#104/#69 데몬 가드·#102 Gemini
   어댑터·#101 파서 요일·#100 completion fish·#75 resume latency·#61 doctor 큐 진행). #61/#69/#75는
   스키마·doctor 충돌 주의. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 38 — 파서 자연어 시각 `reset at midnight` / `resets at noon` 인식] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-ni73lt`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 세션 36의 "다음 할 일"이 제안한 파서 커버리지 확장을
+  이어받았다. Claude Code 등이 일일 사용량 창을 `"Your limit will reset at midnight."`처럼 **숫자 없는
+  자연어**로 표현할 때가 있는데, 기존 세 시각 패턴(iso-timestamp·clock-time·clock-time-meridiem)이
+  모두 숫자를 요구해 이 문구를 놓쳐 **잡이 큐잉되지 않던 실사용 자동재개 갭**이 있었다. 열린 PR
+  목록(#101 파서 요일 등)과 겹치지 않는 자기완결 신규 항목이라 새 브랜치로 구현.
+- **한 일:** `packages/core/src/parser.ts`에 신규 `clock-time-word` 패턴 추가
+  (`reset[s]? at (midnight|noon)`) — midnight→00:00, noon→12:00으로 해석, 로컬 시간·이미 지난
+  시각은 익일 롤(기존 clock-time 규약과 동일, 리셋은 항상 미래 순간). 단어 경계(`\b`)로 정확 매칭해
+  오검출 방지, 숫자 있는 시각 문구는 앞선 세 패턴이 계속 우선(위치상 뒤에 배치). LOOKS_LIKE_RATE_LIMIT
+  프리필터의 `resets?\s+(at|in)`에 이미 걸려 별도 프리필터 수정 불필요.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **661 통과 + 1 skip**(core 446[+3] + cli 208[+1 skip] + dashboard 7). **실제 빌드된 CLI
+  e2e**(mock 아님): `agentrelay parse "Your limit will reset at midnight."` → `pattern: clock-time-word`,
+  `matched: "reset at midnight"`, 리셋 00:00 산출, `parse "... Resets at noon." --json` → noon 12:00
+  산출 확인. parser.test에 midnight 익일 롤·noon·숫자 시각 우선 유지 3케이스 회귀 추가.
+- **다음 할 일:** 파서 커버리지 계속(`resets Monday` 요일 지정[#101 중복 주의]·상대 초 단위 자연어 등
+  실 메시지 샘플 수집, 🧭 코워크 협업). 세션 37이 남긴 distinct 열린 PR 통합 큐도 그대로 유효.
