@@ -536,6 +536,20 @@
       runCommand override/blank-fallback 2케이스 추가, 실제 빌드 CLI e2e로 라벨 지정→status --project
       필터 매치·help 노출 검증. branch `claude/wizardly-pascal-881r8n`)
 
+- [x] 👷 `agentrelay errors` — 실패 잡을 에러 사유별로 묶어 빈도순으로 보여주는 진단 커맨드
+      ("왜 재개가 조용히 실패하나?"의 한눈 답).
+      (완료 — `@agentrelay/core/errors.ts` 신설(순수·파일시스템 미접촉): `errorSignature(raw)`
+      (첫 비어있지 않은 줄만 취해 CRLF/선행 공백 처리 → 내부 공백 런 단일화 → 200자 캡, null·공백뿐이면
+      null=집계 제외) + `computeErrorBreakdown(jobs)`→`ErrorBreakdown`(totalWithErrors·distinctSignatures·
+      groups). 정규화 시그니처로 버킷팅해 후행 공백·줄바꿈·스택 tail만 다른 near-identical 실패를 한 행으로
+      합침, count desc·시그니처 asc 랭킹(기존 랭킹 관례와 동일), 그룹 내 jobIds/statuses는 first-seen 순서
+      보존, sample은 첫 잡의 raw error 원문. CLI `packages/cli/src/errors.ts`에 순수 `renderErrorBreakdown`
+      (랭크 헤더+시그니처+`agentrelay show`용 짧은 id 3개+"+N more" elision, `--limit`은 상위 N그룹만+숨김
+      푸터, totals는 항상 전체)·`renderErrorBreakdownJson`. `agentrelay errors` 커맨드는 stats/status/export와
+      동일한 스코프 필터(`--status`/`--tool`/`--project`/`--since`/`--until`)를 공용 `buildScope`로 재사용,
+      `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
+      limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
