@@ -1279,3 +1279,28 @@
   접두(하이픈→`_` 정화) 출력, `--status bogus`는 exit 1 확인. 출력은 유효 Prometheus 노출 형식.
 - **다음 할 일:** 남은 distinct PR 통합(파서·stats 변형·next·데몬 가드·대시보드 UI 등 29개 큐 정리),
   metrics를 대시보드/`export --format prometheus`로도 확장 검토(👷 후보). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 39 — distinct CI-초록 PR 2건 통합(#147 provenance + #148 metrics), 큐 31→29] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-n1of76`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태이고 열린 PR이 31개까지 쌓여 있어(세션 34~38이 반복
+  경고한 큐 적체), 새 기능을 더하기보다 **CI 초록·최신 main 기반·서로 겹치지 않는 distinct PR을
+  main에 통합**하는 것이 압도적으로 높은 가치(COLLAB §41 병합 정책 — "CI 초록이면 클로드 코드 또는
+  사람이 병합", 세션 34~37 선례).
+- **한 일:**
+  1. **#147(job rate-limit provenance 영속)을 main에 병합**(f2f47cd). `mergeable_state:clean`·현
+     main HEAD(9951997) 기반·CI `conclusion:success`(run 189) 확인 후 병합. rate-limit 감지 출처
+     (pattern·rawMatch·resetAt·detectedAt)를 job에 영속해 `show`에서 "왜 이 리셋 시각인가"를 사후 확인.
+  2. **#148(`agentrelay metrics` — Prometheus 노출 형식)을 main에 병합**(d2502c7). #147 병합으로
+     BACKLOG.md/PROGRESS.md만 충돌(코드 무충돌) → 로컬에서 origin/main을 브랜치에 머지해 문서 충돌만
+     해소(두 세션-38 항목 모두 보존, 헤더는 "세션 38 (병렬 세션 b)"로 구분), `pnpm install/build/
+     ci:lint/test` 전부 재검증 후 PR 브랜치에 push. 봇 토큰 push가 `pull_request:synchronize` CI를
+     재트리거하지 않아(GitHub 재귀 가드) PR close→reopen으로 `reopened` 이벤트를 발생시켜 CI 재실행,
+     `build-and-test: success` 확인 후 병합.
+- **검증:** 통합 머지 커밋(34c0e09)에서 로컬 `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome)
+  **0 경고/0 에러**·`pnpm test` **676 통과 + 1 skip**(core 460 + cli 209/1skip + dashboard 7). 이후
+  reopen으로 재트리거된 GitHub CI도 `build-and-test success`.
+- **다음 할 일:** 남은 distinct PR 통합 계속(#136 run --label·#145/#135 stats --watch·#131 show
+  --watch·#130 대시보드 스코프 UI·#128 config get·#126 tools·#125 --no-color·#124 by-hour·#122
+  paths·#118 by-weekday·#114/#112 next·#107 errors·#105 upcoming·#104/#69 데몬 가드·#102 Gemini·
+  #101/#141/#142/#144/#146/#149 파서 계열·#100 completion fish·#75 resume latency·#61 doctor 큐 진행·
+  #143 import scope·#78 roundup). 파서 계열은 서로 중복 많아 하나로 수렴 통합 필요. README/
+  ARCHITECTURE(🧭 코워크).
