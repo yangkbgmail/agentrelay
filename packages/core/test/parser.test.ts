@@ -56,6 +56,32 @@ describe("parseRateLimitMessage", () => {
     expect(noon.getHours()).toBe(12);
   });
 
+  it("parses natural-language 'resets at midnight' (00:00 local)", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Resets at midnight.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time-word");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(0);
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses natural-language 'reset at noon' (12:00 local), rolling to tomorrow if past", () => {
+    const now = new Date("2026-07-12T20:00:00Z"); // afternoon-ish depending on tz, ensure future roll
+    const result = parseRateLimitMessage("Your limit will reset at noon.", { now });
+    expect(result?.pattern).toBe("clock-time-word");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(12);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("does not match 'noon' or 'midnight' without the 'reset at' lead-in", () => {
+    // "at noon" alone is not our shape; requiring the reset lead-in avoids
+    // false positives on unrelated prose.
+    expect(parseRateLimitMessage("The meeting is at noon.")).toBeNull();
+  });
+
   it("still prefers minute-precise clock-time over the meridiem-only pattern", () => {
     const now = new Date("2026-07-12T08:00:00Z");
     const result = parseRateLimitMessage("Resets at 5:30pm.", { now });

@@ -472,6 +472,16 @@
       failed→1·timeout→124·unknown→1·크로스-프로세스 관측 검증. PR #96 발원 → 세션 37에서 최신 main에
       cherry-pick 통합(#137/#96 중복 대체). branch `claude/wizardly-pascal-4b32lg`)
 
+- [x] 👷 파서: 숫자 없는 자연어 시각 `reset at midnight` / `reset at noon` 인식.
+      (완료 — 세션 37의 "다음 할 일"로 남겨둔 파서 커버리지 갭. `clock-time`(분 `:MM` 필수)·
+      `clock-time-meridiem`(숫자+am/pm 필수) 둘 다 숫자가 하나도 없는 `midnight`/`noon` 자연어
+      시각을 놓쳤다. 일부 에이전트가 일일 사용량 창을 이렇게 표현한다. 신규 `clock-time-word`
+      패턴(`reset[s]? at (midnight|noon)`) 추가 — midnight=00:00, noon=12:00(로컬 시간, 기존
+      clock 패턴과 동일한 타임존 한계). 리셋은 미래 순간이므로 오늘 이미 지난 시각은 익일로 롤.
+      `reset at` 리드인 필수로 무관 산문("meeting is at noon") 오검출 방지. parser.test +3 회귀
+      (midnight/noon 롤/lead-in 없으면 null), 실제 빌드 CLI `parse`로 `clock-time-word` 매치 e2e
+      확인. branch `claude/wizardly-pascal-ef5e9s`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
