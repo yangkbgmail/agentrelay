@@ -17,6 +17,12 @@
       12am·12pm/타임존 오프셋 ISO/잘못된 ISO fallthrough/시간단위만/JSON `retry_after`/멀티라인.
       파서도 `"retry_after": N` JSON 형식 인식하도록 개선. branch `claude/keen-allen-u5qt1l`)
 - [ ] 👷🧭 최종 QA + 재현 가능한 데모 스크립트.
+      (👷 부분 완료 — `scripts/demo.mjs` + `pnpm demo`: 격리 임시 스토어에 대표 잡을 시드하고
+      **실제 빌드된 CLI**를 run→status→stats→metrics→export→next→show→doctor 순으로 구동해
+      전체 흐름을 한 화면에 시연. 라이브 `run`이 감싼 커맨드의 레이트리밋을 실제로 감지→리셋 대기
+      파킹하고, `show`가 그 감지 출처를 렌더. `packages/cli/test/demo.test.ts`가 데모를 실제
+      실행하는 엔드투엔드 QA 스모크로 검증(코드 0·전 커맨드 파이프라인·Prometheus 형식).
+      branch `claude/wizardly-pascal-be1rm6`. 🧭 최종 QA 사인오프는 남김.)
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
