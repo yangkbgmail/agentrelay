@@ -472,6 +472,23 @@
       failed→1·timeout→124·unknown→1·크로스-프로세스 관측 검증. PR #96 발원 → 세션 37에서 최신 main에
       cherry-pick 통합(#137/#96 중복 대체). branch `claude/wizardly-pascal-4b32lg`)
 
+- [x] 👷 파서: Claude Code 상태줄/자연어 시각 인식 — `resets 3am`(no "at")·`resets 3:30pm`·
+      `reset at midnight`/`reset at noon`.
+      (완료 — Claude Code가 실제로 출력하는 두 부류의 리셋 문구를 파서가 통째로 놓쳐 잡이 큐잉되지
+      않던 실사용 자동재개 버그를 고침. (1) 터세 상태줄 `"5-hour limit reached ∙ resets 3am"`/
+      `"resets 3:30pm"`: `clock-time`·`clock-time-meridiem` 두 패턴에서 `at`을 `(?:at\s+)?`로
+      선택화(meridiem은 여전히 필수라 모호한 `reset at 5`는 계속 null), pre-filter
+      `LOOKS_LIKE_RATE_LIMIT`에 `limit reached`(N-hour 접두)와 `resets?\s+(?:at|in|\d)`(숫자 직결)를
+      추가해 애초에 패턴 루프에 도달하도록 함 — 부수로 `"5-hour limit reached"` 단독(시각 없음)도
+      5시간 fallback으로 큐잉. (2) 자연어 시각 `reset at midnight`/`reset at noon`: 숫자 없는
+      `clock-time-word` 패턴 신규(`midnight`=00:00·`noon`=12:00, 이미 지난 시각 익일 롤). 정밀
+      `clock-time-meridiem`이 5h fallback보다·숫자 `12am`이 word 패턴보다 우선(패턴 순서), `resets 5
+      times per hour`류 카운트 문구는 여전히 null. parser.test +9 회귀(midnight/noon/대소문자/12am
+      우선·상태줄 3am/3:30pm/fallback 우선/단독 fallback/카운트 오검출 방지), 실제 빌드 CLI `parse`로
+      네 문구 매치·카운트 문구 null e2e 확인. 세션 36/37이 이어온 파서 커버리지 테마의 연장 —
+      열린 PR #141(midnight/noon)·#142(resets 3am, no at)를 **최신 main 위 한 브랜치에서 공존 통합**해
+      대체. branch `claude/wizardly-pascal-ayj4sq`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

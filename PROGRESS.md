@@ -1223,3 +1223,40 @@
   #118 stats --by-weekday·#114/#112 next·#107 errors·#105 upcoming·#104/#69 데몬 가드·#102 Gemini
   어댑터·#101 파서 요일·#100 completion fish·#75 resume latency·#61 doctor 큐 진행). #61/#69/#75는
   스키마·doctor 충돌 주의. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 38 — 파서: 상태줄 `resets 3am`(no "at") + 자연어 `reset at midnight/noon` 인식(#141+#142 공존 통합)] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-ayj4sq`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태이고 열린 PR이 25개 쌓인 상황. 세션 36/37이 이어온
+  "실사용 파서 커버리지 갭" 테마의 연장으로, 서로 다른 실 메시지를 고치는 두 파서 PR(#141 자연어
+  midnight/noon, #142 상태줄 resets 3am/no "at")이 같은 `parser.ts`를 건드리며 각각 열려 있었다.
+  둘을 최신 main 위 한 브랜치에서 **공존시켜 결합 커버리지**를 만드는 것이 개별 병합보다 가치가 큼.
+- **문제(고친 실사용 버그 2건):**
+  1. Claude Code 터세 상태줄 `"5-hour limit reached ∙ resets 3am"`/`"resets 3:30pm"`이 통째로 파싱
+     실패했다. 근본 원인 둘 — (a) `clock-time`·`clock-time-meridiem` 패턴이 `reset[s]? at`을 필수로
+     요구하는데 상태줄은 "at"을 생략, (b) pre-filter `LOOKS_LIKE_RATE_LIMIT`가 `"5-hour limit
+     reached"`·`"resets 3am"` 어느 토큰도 못 잡아 패턴 루프에 **도달조차 못 함**.
+  2. 자연어 일간 리셋 `"Your limit will reset at midnight."`/`"Resets at noon."`은 숫자가 없어
+     선행 숫자를 요구하는 두 clock 패턴 어디에도 안 걸림.
+  둘 다 잡이 큐잉되지 않아 **자동 재개가 안 되는** 실사용 버그.
+- **한 일:**
+  1. **(#142) `at` 선택화 + pre-filter 광역화:** `clock-time`·`clock-time-meridiem` 정규식의
+     `at\s+`를 `(?:at\s+)?`로 바꿔 "at" 없는 상태줄도 매치(meridiem은 여전히 필수라 모호한
+     `reset at 5`는 계속 null). `LOOKS_LIKE_RATE_LIMIT`에 `limit reached`와 `resets?\s+(?:at|in|\d)`
+     추가 → 부수로 `"5-hour limit reached"` 단독(시각 없음)도 5시간 fallback으로 큐잉.
+  2. **(#141) `clock-time-word` 패턴 신규:** 숫자 없는 `reset[s]? at (midnight|noon)` — `midnight`
+     =00:00·`noon`=12:00, 이미 지난 시각 익일 롤. `clock-time-meridiem` **뒤**에 배치해 숫자
+     `reset at 12am`은 meridiem 경로 우선.
+  3. 정밀 `clock-time-meridiem`이 5h fallback보다 우선(패턴 순서), `"resets 5 times per hour"`류
+     카운트 문구는 여전히 null(광역화가 카운트를 시각으로 오검출하지 않음)임을 회귀로 못박음.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**
+  (multi-line 정규식 1곳 formatter가 단일 라인으로 정규화), `pnpm test` **전체 통과**(core 452[+9
+  parser] + cli 208[+1 skip] + dashboard 7). parser.test에 회귀 9케이스(midnight/noon/대소문자/
+  12am 우선 · 상태줄 3am/3:30pm/fallback 우선/단독 fallback/카운트 오검출 방지). **실제 빌드된 CLI
+  e2e**(mock 아님): `parse "5-hour limit reached ∙ resets 3am"`→`clock-time-meridiem`,
+  `"...resets 3:30pm"`→`clock-time`, `"...reset at midnight."`→`clock-time-word`, `"Resets at
+  noon."`→`clock-time-word`, `"the limit resets 5 times per hour"`→No rate-limit detected 확인.
+- **다음 할 일:** 남은 distinct PR 통합(#143 import 스코프 필터·#136 run --label·#135 stats
+  --watch·#131 show --watch·#130 대시보드 스코프 UI·#128 config get·#126 tools·#125 --no-color·
+  #124 stats --by-hour·#122 paths·#118 stats --by-weekday·#114/#112 next·#107 errors·#105 upcoming·
+  #104/#69 데몬 가드·#102 Gemini 어댑터·#101 파서 요일·#100 completion fish·#75 resume latency·#61
+  doctor 큐 진행). #61/#69/#75는 스키마·doctor 충돌 주의. #141/#142는 이 세션에 공존 통합됨.
+  README/ARCHITECTURE(🧭 코워크).
