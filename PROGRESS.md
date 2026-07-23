@@ -1304,3 +1304,25 @@
   #101/#141/#142/#144/#146/#149 파서 계열·#100 completion fish·#75 resume latency·#61 doctor 큐 진행·
   #143 import scope·#78 roundup). 파서 계열은 서로 중복 많아 하나로 수렴 통합 필요. README/
   ARCHITECTURE(🧭 코워크).
+
+### [세션 40 — 재현 가능한 E2E 데모 스크립트(`scripts/demo.mjs`) + CI 스모크 테스트] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-m4s22g`)
+- **배경:** BACKLOG의 열린 👷 항목이 사실상 "최종 QA + 재현 가능한 데모 스크립트"(👷🧭 공유) 하나뿐.
+  이 중 데모 스크립트는 명확한 👷(코드 빌더) 영역이라 선택. 그동안 유닛 테스트는 두터웠지만 CLI
+  전 과정(감지→큐잉→대기→재개→완료)을 실제 바이너리로 엮어 돌리는 검증이 없었음.
+- **한 일:**
+  1. **`scripts/demo.mjs`** 신설 — 의존성 0개의 Node ESM 단일 스크립트. OS 임시 디렉터리에 throwaway
+     스토어를 만들고, "1회차 rate-limit 실패 → 이후 성공"을 결정론적으로 재현하는 가짜 에이전트를 즉석
+     생성. 빌드된 CLI(`packages/cli/dist/bin.js`)를 spawn해 `run`(감지·큐잉)→`status`/`next`(대기 확인)
+     →`next --exit-code` 폴링으로 리셋 경과 감지→`tick`(재개·완료)→`status`/`stats --json`(최종 상태
+     검증)까지 나레이션과 함께 시연. 모든 자식 프로세스가 데모 프로세스의 env(DEMO_STATE_FILE 등)를
+     상속하므로 `run`과 `tick`이 동일한 리셋 시각·시도 카운터를 공유. 최종 상태가 "total 1 / completed 1"이
+     아니면 non-zero 종료 → 데모가 곧 스모크 테스트. `--keep`/`--quiet` 옵션, `NO_COLOR` 존중.
+  2. **`packages/cli/test/demo.test.ts`** — 위 스크립트를 `--quiet`·`DEMO_RESET_SECONDS=1`로 자식 구동해
+     exit 0 + "Demo passed" 단언. 빌드 산출물이 없으면 `it.skipIf`로 건너뛰어 순수 `vitest`는 오탐 없음
+     (CI는 build→test 순서라 항상 실행됨).
+  3. 루트 `package.json`에 `"demo": "node scripts/demo.mjs"` 스크립트 추가.
+- **검증:** `pnpm install/build` 클린, `pnpm lint`(Biome) 0 경고, `pnpm test` **677 통과 + 1 skip**
+  (core 460 + cli 210/1skip + dashboard 7). 신규 데모 스모크 테스트 통과(~1.6s). `node scripts/demo.mjs`
+  수동 실행도 초록.
+- **다음 할 일:** 남은 🧭 QA 문서/README·ARCHITECTURE는 코워크 소유. 👷 측은 세션 39가 나열한
+  distinct PR 큐 통합(파서 계열 수렴 등) 계속 또는 SPEC §8 개선 항목 발굴.

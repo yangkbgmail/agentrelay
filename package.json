@@ -10,7 +10,8 @@
     "lint:fix": "biome check --write",
     "format": "biome format --write",
     "ci:lint": "biome ci",
-    "dev:dashboard": "pnpm --filter @agentrelay/dashboard dev"
+    "dev:dashboard": "pnpm --filter @agentrelay/dashboard dev",
+    "demo": "node scripts/demo.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",
