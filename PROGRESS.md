@@ -1360,3 +1360,25 @@
 - 다음 할 일: 남은 distinct 열린 PR 통합 계속(파서 계열 수렴·stats --watch·next 필터·진단 커맨드들),
   README/ARCHITECTURE(🧭 코워크). 신규 👷 후보: rate-limit 재개 시각 자체의 stagger(동일 resetAt 다수 잡을
   분산 재개)도 별개 개선 여지.
+
+### [세션 41 — distinct CI-초록 PR 2건 통합(#153 retry jitter + #155 patterns), 큐 34→32] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-b3sdw5`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태이고 열린 PR이 34개까지 쌓여 있어(세션 34~40이 반복
+  경고한 큐 적체), 새 기능을 더하기보다 **CI 초록·최신 main 기반·서로 겹치지 않는 distinct PR을
+  main에 통합**하는 것이 압도적으로 높은 가치(COLLAB 병합 정책·세션 38~39 선례).
+- **한 일:**
+  1. **#153(재시도 백오프 지터 `AGENTRELAY_RETRY_JITTER`)을 main에 병합**(b117a0f). 현 main HEAD
+     (52341c8) 기반·`mergeable_state:clean`·CI run 200 `conclusion:success` 확인 후 병합. 전환 실패
+     재시도가 lockstep으로 몰려 재개→재충돌하는 thundering-herd를 무작위 분산으로 완화(기본 0=하위호환).
+  2. **#155(`agentrelay patterns` — rate-limit 파서 패턴 빈도표)를 main에 병합**(60aeb5f). #153 병합으로
+     BACKLOG.md/PROGRESS.md만 충돌(코드 무충돌) → 로컬에서 origin/main을 patterns 브랜치에 머지해 문서
+     충돌만 해소(두 세션-40 항목 모두 보존, patterns 헤더는 "세션 40 (병렬 세션 b)"로 구분), push 후
+     `pull_request:synchronize` CI가 재트리거되어(run 205) `build-and-test:success` 확인 후 병합.
+- **검증:** 통합 머지 커밋(a9fd2c4)에서 로컬 `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome)
+  **0 경고/0 에러**·`pnpm test` **701 통과 + 1 skip**(core 478 + cli 216/1skip + dashboard 7). 이후
+  GitHub CI run 205도 `build-and-test:success`.
+- **다음 할 일:** 남은 distinct PR 통합 계속(#152 resolution-time Prometheus 히스토그램·#154/#156 데모
+  스크립트·#136 run --label·#145 stats --watch·#131 show --watch·#130 대시보드 스코프 UI·#128 config
+  get·#126 tools·#125 --no-color·#124 by-hour·#122 paths·#118 by-weekday·#114/#112 next·#107 errors·
+  #105 upcoming·#104/#69 데몬 가드·#102 Gemini·#101/#141/#142/#144/#146/#149 파서 계열·#100 completion
+  fish·#75 resume latency·#61 doctor 큐 진행·#143 import scope·#78 roundup). 파서 계열은 서로 중복
+  많아 하나로 수렴 통합 필요. README/ARCHITECTURE(🧭 코워크).
