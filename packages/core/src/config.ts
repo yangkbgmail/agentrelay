@@ -611,6 +611,43 @@ export function resolveEffectiveConfig(
 }
 
 /**
+ * Maps a settable dotted config key (e.g. `retry.maxAttempts`) to the single
+ * `AGENTRELAY_*` env var it projects onto, or `undefined` when the key isn't a
+ * known settable field. Reuses {@link setConfigValue} + {@link configToEnv} as
+ * the single source of truth for that mapping — the same projection a test
+ * already asserts is 1:1 — so this never drifts from `config set`/`config show`.
+ * Pure.
+ */
+export function configFieldEnvKey(key: string): string | undefined {
+  const field = findConfigField(key);
+  if (!field) return undefined;
+  // A type-appropriate placeholder so coercion succeeds; the value is discarded,
+  // only the emitted env-var name matters.
+  const sample =
+    field.type === "boolean" ? "true" : field.type === "number" ? "1" : field.type === "duration" ? "1h" : "x";
+  const keys = Object.keys(configToEnv(setConfigValue({}, key, sample)));
+  return keys[0];
+}
+
+/**
+ * Resolves one settable dotted config key to its *effective* value and source,
+ * applying the same env > config file > default precedence as
+ * {@link resolveEffectiveConfig} (of which this is the single-key form). Returns
+ * `undefined` when `key` is not a known settable field, so the CLI `config get`
+ * command can distinguish an unknown key from a key that's simply on its default.
+ * Pure — no filesystem, no ambient env unless `env` is omitted.
+ */
+export function getEffectiveConfigValue(
+  key: string,
+  fileConfig: AgentRelayConfig | null,
+  env: Record<string, string | undefined> = process.env
+): EffectiveConfigEntry | undefined {
+  const envKey = configFieldEnvKey(key);
+  if (envKey === undefined) return undefined;
+  return resolveEffectiveConfig(fileConfig, env).find((e) => e.key === envKey);
+}
+
+/**
  * Fills the derived config values into `targetEnv` (defaults to `process.env`)
  * *without overwriting anything already set*, so an explicit environment
  * variable always beats the file. Mutates `targetEnv` in place and returns the

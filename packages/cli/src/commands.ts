@@ -42,6 +42,7 @@ import {
   evaluateWait,
   exportJobs,
   findConfigField,
+  getEffectiveConfigValue,
   hasConfigErrors,
   heartbeatStaleAfterMs,
   type ImportFormat,
@@ -1069,6 +1070,51 @@ export function showConfig(options: ConfigShowOptions = {}): ConfigShowResult {
   }
   const entries = resolveEffectiveConfig(fileConfig, env);
   return { path, entries, loadError };
+}
+
+export interface ConfigGetOptions extends ConfigShowOptions {
+  /** Dotted config key to read (e.g. `retry.maxAttempts`, `store`). */
+  key: string;
+}
+
+export interface ConfigGetResult {
+  /** The requested dotted key. */
+  key: string;
+  /** True when `key` is a known settable field. When false, `entry` is undefined. */
+  known: boolean;
+  /** The resolved value and source, or undefined for an unknown key. */
+  entry?: EffectiveConfigEntry;
+  /** The config file that fed the resolution, or null when none was found. */
+  path: string | null;
+  /** Set when a config file was found but couldn't be loaded/parsed (see {@link showConfig}). */
+  loadError?: string;
+}
+
+/**
+ * Resolves a *single* config key to its effective value and source — the
+ * scalar, script-friendly counterpart to {@link showConfig}. Mirrors `show`'s
+ * precedence (env > file > default) and its non-fatal handling of a malformed
+ * file: env/default resolution still succeeds and the load error is returned
+ * alongside. An unknown key is reported via `known: false` (never throws) so the
+ * CLI can exit non-zero with the valid-keys hint. Never throws.
+ */
+export function getConfigValue(options: ConfigGetOptions): ConfigGetResult {
+  const env = options.env ?? process.env;
+  let fileConfig: AgentRelayConfig | null = null;
+  let path: string | null = null;
+  let loadError: string | undefined;
+  try {
+    const loaded = loadConfigFile({ path: options.path, cwd: options.cwd, env });
+    if (loaded) {
+      fileConfig = loaded.config;
+      path = loaded.path;
+    }
+  } catch (error) {
+    path = resolveConfigPath({ path: options.path, cwd: options.cwd, env });
+    loadError = String(error);
+  }
+  const entry = getEffectiveConfigValue(options.key, fileConfig, env);
+  return { key: options.key, known: entry !== undefined, entry, path, loadError };
 }
 
 export interface DoctorOptions {

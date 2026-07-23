@@ -550,6 +550,18 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay config get <key>` — 유효 설정값 하나를 스크립트 친화적으로 조회
+      (`init`/`validate`/`show`/`set`/`unset`에 이어 `config` 하위 마지막 조각).
+      (완료 — core `config.ts`에 순수 `configFieldEnvKey`(dotted 키→env 키, 기존
+      `setConfigValue`+`configToEnv` 투영 재사용으로 드리프트 방지) + `getEffectiveConfigValue`
+      (`resolveEffectiveConfig`의 단일 키 형태, env>파일>기본값, 미지 키는 undefined). CLI
+      `commands.ts` `getConfigValue`/`ConfigGetResult`(손상 파일은 loadError로, 미지 키는
+      known:false), CLI `config.ts` `configGetValue`(bare 값·기본값은 빈 문자열·시크릿 마스킹)·
+      `renderConfigGetWithSource`(`--source`: `값\t[출처]`)·`renderConfigGetJson`(`--json`).
+      `config get <key> [--json] [--source] [--show-secrets]` 배선, `BOOTSTRAP_SKIP_SUBCOMMANDS`에
+      `get` 추가(출처 오표기 방지). core 9 + cli 10 신규 테스트, 실제 빌드 CLI e2e 검증.
+      branch `claude/wizardly-pascal-q2itg1`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
