@@ -14,6 +14,51 @@ const defaultSpawn: SpawnFn = (command, cwd) => {
   return spawn(cmd, args, { cwd });
 };
 
+/** Parses a job's `resetAt` to epoch ms, sending null/unparseable values last. */
+function resetMs(job: RelayJob): number {
+  if (!job.resetAt) return Number.POSITIVE_INFINITY;
+  const t = new Date(job.resetAt).getTime();
+  return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
+}
+
+/**
+ * Orders the due jobs for a single tick and caps how many are resumed at once.
+ *
+ * When several jobs share the same rate-limit reset time — e.g. multiple jobs on
+ * one account whose weekly-usage window resets at the same instant — they all
+ * become due on the same tick and, without a cap, are resumed back-to-back,
+ * hammering the provider at the same moment and often re-triggering the very
+ * limit they were waiting out (a thundering herd that just re-queues everyone).
+ * Capping the batch spreads those resumes across successive ticks (naturally
+ * separated by the poll interval) instead.
+ *
+ * Jobs are ordered most-overdue-first (earliest `resetAt` ascending, ties broken
+ * by `id`) so the longest-waiting jobs are never starved by the cap and the
+ * order is fully deterministic. `maxPerTick <= 0` means no cap (all due jobs
+ * run, still ordered). Pure — no clock, no store — so it's trivially testable.
+ */
+export function selectResumeBatch(due: RelayJob[], maxPerTick: number): RelayJob[] {
+  const ordered = [...due].sort((a, b) => {
+    const at = resetMs(a);
+    const bt = resetMs(b);
+    if (at !== bt) return at - bt;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+  return maxPerTick > 0 ? ordered.slice(0, maxPerTick) : ordered;
+}
+
+/**
+ * Reads the per-tick resume cap from `AGENTRELAY_MAX_RESUMES_PER_TICK` (a
+ * non-negative integer; `0` = no cap). Unset, blank, or invalid values fall back
+ * to `0` so a typo can't silently throttle relaying to a crawl. Pure.
+ */
+export function maxResumesPerTickFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.AGENTRELAY_MAX_RESUMES_PER_TICK;
+  if (raw === undefined || raw.trim() === "") return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
 export interface SchedulerOptions {
   queue: RelayQueue;
   pollIntervalMs?: number;
@@ -30,6 +75,14 @@ export interface SchedulerOptions {
    * while `jitter` is 0 (the default), so normal runs stay reproducible.
    */
   rng?: () => number;
+  /**
+   * Maximum number of due jobs to resume in a single tick. When many jobs share
+   * the same rate-limit reset time they would otherwise all resume at the same
+   * instant and re-trigger the limit; capping the batch spreads them across
+   * successive ticks (see {@link selectResumeBatch}). The most-overdue jobs are
+   * always chosen first, so nothing is starved. `0`/omitted = no cap.
+   */
+  maxResumesPerTick?: number;
   /**
    * When set, finished jobs matching these options are pruned from the store
    * after every tick, keeping a long-running daemon's JSON store bounded
@@ -79,6 +132,7 @@ export class RelayScheduler {
   private outputTailLength: number;
   private retryPolicy: RetryPolicy;
   private rng: () => number;
+  private maxResumesPerTick: number;
   private autoPrune: PruneOptions | null;
   private autoPruneEveryMs: number;
   private autoPruneEveryTicks: number;
@@ -96,6 +150,7 @@ export class RelayScheduler {
     this.outputTailLength = options.outputTailLength ?? 2000;
     this.retryPolicy = options.retryPolicy ?? DEFAULT_RETRY_POLICY;
     this.rng = options.rng ?? Math.random;
+    this.maxResumesPerTick = options.maxResumesPerTick ?? 0;
     this.autoPrune = options.autoPrune ?? null;
     this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
@@ -118,8 +173,11 @@ export class RelayScheduler {
   /** Runs one polling cycle immediately. Exposed for tests and manual `agentrelay tick`. */
   async tick(referenceTime: Date = new Date()): Promise<RelayJob[]> {
     const due = this.queue.listDue(referenceTime);
+    // Cap and order the batch so a crowd of jobs sharing one reset time doesn't
+    // resume in lockstep and re-trigger the limit; the rest wait for later ticks.
+    const batch = selectResumeBatch(due, this.maxResumesPerTick);
     const processed: RelayJob[] = [];
-    for (const job of due) {
+    for (const job of batch) {
       processed.push(await this.resume(job, referenceTime));
     }
     this.runAutoPrune(referenceTime);

@@ -94,6 +94,16 @@ describe("parseConfig", () => {
   it("rejects NaN/Infinity numbers", () => {
     expect(() => parseConfig({ retry: { factor: Number.POSITIVE_INFINITY } })).toThrow(/finite number/);
   });
+
+  it("round-trips the resume group", () => {
+    expect(parseConfig({ resume: { maxPerTick: 3 } })).toEqual({ resume: { maxPerTick: 3 } });
+  });
+
+  it("throws on a non-numeric resume.maxPerTick", () => {
+    expect(() => parseConfig({ resume: { maxPerTick: "lots" } }, "cfg")).toThrow(
+      /cfg\.resume\.maxPerTick must be a finite number/
+    );
+  });
 });
 
 describe("resolveConfigPath / loadConfigFile", () => {
@@ -199,6 +209,20 @@ describe("validateConfig", () => {
     expect(validateConfig({ retry: { jitter: 1.5 } })).toEqual([
       expect.objectContaining({ level: "error", path: "retry.jitter" }),
     ]);
+  });
+
+  it("errors on a negative or fractional resume.maxPerTick", () => {
+    expect(validateConfig({ resume: { maxPerTick: -1 } })).toEqual([
+      expect.objectContaining({ level: "error", path: "resume.maxPerTick" }),
+    ]);
+    expect(validateConfig({ resume: { maxPerTick: 2.5 } })).toEqual([
+      expect.objectContaining({ level: "error", path: "resume.maxPerTick" }),
+    ]);
+  });
+
+  it("accepts a non-negative integer resume.maxPerTick", () => {
+    expect(validateConfig({ resume: { maxPerTick: 0 } })).toEqual([]);
+    expect(validateConfig({ resume: { maxPerTick: 10 } })).toEqual([]);
   });
 
   it("accepts a jitter fraction at the [0, 1] bounds", () => {

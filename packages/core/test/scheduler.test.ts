@@ -5,8 +5,27 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RelayQueue } from "../src/queue.js";
 import type { SpawnFn } from "../src/scheduler.js";
-import { RelayScheduler } from "../src/scheduler.js";
+import { maxResumesPerTickFromEnv, RelayScheduler, selectResumeBatch } from "../src/scheduler.js";
 import type { RelayJob } from "../src/types.js";
+
+/** Minimal job factory for the pure `selectResumeBatch` tests. */
+function jobAt(id: string, resetAt: string | null): RelayJob {
+  return {
+    id,
+    project: "p",
+    tool: "claude-code",
+    command: ["cmd"],
+    cwd: "/tmp",
+    status: "waiting_for_reset",
+    resetAt,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    attempts: 0,
+    lastError: null,
+    lastOutputTail: null,
+    lastRateLimit: null,
+  };
+}
 
 // Minimal fake ChildProcess: emits given stdout data then closes.
 function fakeSpawnFn(outputs: Record<string, string>): SpawnFn {
@@ -424,5 +443,109 @@ describe("RelayScheduler", () => {
     // The due job was still resumed despite the throwing hook.
     expect(processed).toHaveLength(1);
     expect(queue.getById(job.id)?.status).toBe("completed");
+  });
+
+  it("caps resumes per tick, spreading a crowd of due jobs across ticks", async () => {
+    // Three jobs all due now but with staggered reset times (oldest first).
+    const older = queue.enqueue({ project: "a", tool: "claude-code", command: ["a"], cwd: dir });
+    const middle = queue.enqueue({ project: "b", tool: "claude-code", command: ["b"], cwd: dir });
+    const newest = queue.enqueue({ project: "c", tool: "claude-code", command: ["c"], cwd: dir });
+    queue.markWaitingForReset(older.id, new Date(1000).toISOString());
+    queue.markWaitingForReset(middle.id, new Date(2000).toISOString());
+    queue.markWaitingForReset(newest.id, new Date(3000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      maxResumesPerTick: 2,
+      spawnFn: fakeSpawnFn({ a: "done", b: "done", c: "done" }),
+    });
+
+    // Tick well past every reset time: only 2 (most-overdue) run this tick.
+    const first = await scheduler.tick(new Date(10_000));
+    expect(first.map((j) => j.project)).toEqual(["a", "b"]);
+    expect(queue.getById(older.id)?.status).toBe("completed");
+    expect(queue.getById(middle.id)?.status).toBe("completed");
+    expect(queue.getById(newest.id)?.status).toBe("waiting_for_reset");
+
+    // The remaining job is picked up on the next tick.
+    const second = await scheduler.tick(new Date(10_000));
+    expect(second.map((j) => j.project)).toEqual(["c"]);
+    expect(queue.getById(newest.id)?.status).toBe("completed");
+  });
+
+  it("resumes every due job when no per-tick cap is set (default)", async () => {
+    for (const p of ["a", "b", "c"]) {
+      const job = queue.enqueue({ project: p, tool: "claude-code", command: [p], cwd: dir });
+      queue.markWaitingForReset(job.id, new Date(1000).toISOString());
+    }
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({ a: "done", b: "done", c: "done" }),
+    });
+    const processed = await scheduler.tick(new Date(10_000));
+    expect(processed).toHaveLength(3);
+  });
+});
+
+describe("selectResumeBatch", () => {
+  it("orders due jobs most-overdue-first (earliest resetAt ascending)", () => {
+    const jobs = [
+      jobAt("c", new Date(3000).toISOString()),
+      jobAt("a", new Date(1000).toISOString()),
+      jobAt("b", new Date(2000).toISOString()),
+    ];
+    expect(selectResumeBatch(jobs, 0).map((j) => j.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("breaks reset-time ties by id for deterministic ordering", () => {
+    const same = new Date(1000).toISOString();
+    const jobs = [jobAt("z", same), jobAt("a", same), jobAt("m", same)];
+    expect(selectResumeBatch(jobs, 0).map((j) => j.id)).toEqual(["a", "m", "z"]);
+  });
+
+  it("caps the batch to maxPerTick, keeping the most-overdue jobs", () => {
+    const jobs = [
+      jobAt("c", new Date(3000).toISOString()),
+      jobAt("a", new Date(1000).toISOString()),
+      jobAt("b", new Date(2000).toISOString()),
+    ];
+    expect(selectResumeBatch(jobs, 2).map((j) => j.id)).toEqual(["a", "b"]);
+  });
+
+  it("treats maxPerTick <= 0 as no cap", () => {
+    const jobs = [jobAt("a", new Date(1000).toISOString()), jobAt("b", new Date(2000).toISOString())];
+    expect(selectResumeBatch(jobs, 0)).toHaveLength(2);
+    expect(selectResumeBatch(jobs, -5)).toHaveLength(2);
+  });
+
+  it("does not mutate the input array", () => {
+    const jobs = [jobAt("c", new Date(3000).toISOString()), jobAt("a", new Date(1000).toISOString())];
+    const snapshot = jobs.map((j) => j.id);
+    selectResumeBatch(jobs, 1);
+    expect(jobs.map((j) => j.id)).toEqual(snapshot);
+  });
+
+  it("sorts null/unparseable resetAt values last", () => {
+    const jobs = [jobAt("bad", null), jobAt("a", new Date(1000).toISOString()), jobAt("junk", "not-a-date")];
+    // The two invalid-reset jobs go last, ordered by id among themselves.
+    expect(selectResumeBatch(jobs, 0).map((j) => j.id)).toEqual(["a", "bad", "junk"]);
+  });
+});
+
+describe("maxResumesPerTickFromEnv", () => {
+  it("defaults to 0 (no cap) when unset or blank", () => {
+    expect(maxResumesPerTickFromEnv({})).toBe(0);
+    expect(maxResumesPerTickFromEnv({ AGENTRELAY_MAX_RESUMES_PER_TICK: "   " })).toBe(0);
+  });
+
+  it("reads a non-negative integer", () => {
+    expect(maxResumesPerTickFromEnv({ AGENTRELAY_MAX_RESUMES_PER_TICK: "5" })).toBe(5);
+    expect(maxResumesPerTickFromEnv({ AGENTRELAY_MAX_RESUMES_PER_TICK: "0" })).toBe(0);
+  });
+
+  it("floors fractional values and rejects negatives/garbage", () => {
+    expect(maxResumesPerTickFromEnv({ AGENTRELAY_MAX_RESUMES_PER_TICK: "2.9" })).toBe(2);
+    expect(maxResumesPerTickFromEnv({ AGENTRELAY_MAX_RESUMES_PER_TICK: "-3" })).toBe(0);
+    expect(maxResumesPerTickFromEnv({ AGENTRELAY_MAX_RESUMES_PER_TICK: "abc" })).toBe(0);
   });
 });

@@ -39,6 +39,14 @@ export interface AgentRelayConfig {
     /** Backoff jitter fraction in `[0, 1]` — maps to `AGENTRELAY_RETRY_JITTER`. */
     jitter?: number;
   };
+  /** Resume-batching (thundering-herd mitigation) settings. */
+  resume?: {
+    /**
+     * Cap on how many due jobs the scheduler resumes per tick — maps to
+     * `AGENTRELAY_MAX_RESUMES_PER_TICK`. `0` = no cap.
+     */
+    maxPerTick?: number;
+  };
   /** Daemon auto-prune settings. */
   autoPrune?: {
     /** Opt-in flag — maps to `AGENTRELAY_AUTOPRUNE`. */
@@ -80,6 +88,9 @@ export function sampleConfig(): AgentRelayConfig {
       factor: 2,
       maxDelayMs: 300000,
       jitter: 0,
+    },
+    resume: {
+      maxPerTick: 0,
     },
     autoPrune: {
       enabled: false,
@@ -140,6 +151,7 @@ export const CONFIG_FIELDS: ConfigField[] = [
   { key: "retry.factor", group: "retry", type: "number" },
   { key: "retry.maxDelayMs", group: "retry", type: "number" },
   { key: "retry.jitter", group: "retry", type: "number" },
+  { key: "resume.maxPerTick", group: "resume", type: "number" },
   { key: "autoPrune.enabled", group: "autoPrune", type: "boolean" },
   { key: "autoPrune.after", group: "autoPrune", type: "duration" },
   { key: "autoPrune.keep", group: "autoPrune", type: "number" },
@@ -193,6 +205,7 @@ function cloneConfig(config: AgentRelayConfig): AgentRelayConfig {
   if (config.store !== undefined) clone.store = config.store;
   if (config.notify) clone.notify = { ...config.notify };
   if (config.retry) clone.retry = { ...config.retry };
+  if (config.resume) clone.resume = { ...config.resume };
   if (config.autoPrune) clone.autoPrune = { ...config.autoPrune };
   return clone;
 }
@@ -378,6 +391,13 @@ export function parseConfig(value: unknown, source = "config"): AgentRelayConfig
     if (retry.jitter !== undefined) config.retry.jitter = asNumber(retry.jitter, `${source}.retry.jitter`);
   }
 
+  if (root.resume !== undefined) {
+    const resume = asObject(root.resume, `${source}.resume`);
+    config.resume = {};
+    if (resume.maxPerTick !== undefined)
+      config.resume.maxPerTick = asNumber(resume.maxPerTick, `${source}.resume.maxPerTick`);
+  }
+
   if (root.autoPrune !== undefined) {
     const autoPrune = asObject(root.autoPrune, `${source}.autoPrune`);
     config.autoPrune = {};
@@ -464,6 +484,10 @@ export function validateConfig(config: AgentRelayConfig): ConfigIssue[] {
     }
   }
 
+  if (config.resume) {
+    checkInteger(issues, "resume.maxPerTick", config.resume.maxPerTick, { min: 0 });
+  }
+
   const autoPrune = config.autoPrune;
   if (autoPrune) {
     if (autoPrune.after !== undefined && parseDuration(autoPrune.after) === null) {
@@ -529,6 +553,8 @@ export function configToEnv(config: AgentRelayConfig): Record<string, string> {
   set("AGENTRELAY_RETRY_MAX_MS", config.retry?.maxDelayMs);
   set("AGENTRELAY_RETRY_JITTER", config.retry?.jitter);
 
+  set("AGENTRELAY_MAX_RESUMES_PER_TICK", config.resume?.maxPerTick);
+
   // The opt-in flag is boolean in the file but "1"/"0" in the env layer.
   if (config.autoPrune?.enabled !== undefined) {
     env.AGENTRELAY_AUTOPRUNE = config.autoPrune.enabled ? "1" : "0";
@@ -542,7 +568,7 @@ export function configToEnv(config: AgentRelayConfig): Record<string, string> {
 }
 
 /** Logical grouping of an {@link AgentRelayConfig} env var, used for display. */
-export type ConfigGroup = "store" | "notify" | "retry" | "autoPrune";
+export type ConfigGroup = "store" | "notify" | "retry" | "resume" | "autoPrune";
 
 /**
  * Metadata for one `AGENTRELAY_*` env var that the config file can populate.
@@ -567,6 +593,7 @@ export const CONFIG_ENV_KEYS: ConfigEnvKey[] = [
   { key: "AGENTRELAY_RETRY_FACTOR", group: "retry" },
   { key: "AGENTRELAY_RETRY_MAX_MS", group: "retry" },
   { key: "AGENTRELAY_RETRY_JITTER", group: "retry" },
+  { key: "AGENTRELAY_MAX_RESUMES_PER_TICK", group: "resume" },
   { key: "AGENTRELAY_AUTOPRUNE", group: "autoPrune" },
   { key: "AGENTRELAY_AUTOPRUNE_AFTER", group: "autoPrune" },
   { key: "AGENTRELAY_AUTOPRUNE_KEEP", group: "autoPrune" },

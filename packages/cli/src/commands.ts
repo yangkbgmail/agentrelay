@@ -53,6 +53,7 @@ import {
   type JobScope,
   listBackups,
   loadConfigFile,
+  maxResumesPerTickFromEnv,
   notifiersFromEnv,
   parseConfig,
   parseDaemonHeartbeat,
@@ -301,10 +302,12 @@ export function startDaemon(options: DaemonOptions = {}) {
       lastTickAt: at.toISOString(),
       pollIntervalMs,
     });
+  const maxResumesPerTick = maxResumesPerTickFromEnv();
   const scheduler = new RelayScheduler({
     queue,
     pollIntervalMs,
     retryPolicy: retryPolicyFromEnv(),
+    maxResumesPerTick,
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
@@ -329,6 +332,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   console.log(
     `[agentrelay] daemon started, watching ${storePath} every ${pollIntervalMs / 1000}s` +
       (remoteNotify ? " (notifications on)" : "") +
+      (maxResumesPerTick > 0 ? ` (max ${maxResumesPerTick} resume(s)/tick)` : "") +
       autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks)
   );
   return scheduler;
@@ -342,6 +346,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     queue,
     notify: notify ?? undefined,
     retryPolicy: retryPolicyFromEnv(),
+    maxResumesPerTick: maxResumesPerTickFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
   });
   const processed = await scheduler.tick();
