@@ -61,6 +61,11 @@ function metricFamily(name: string, help: string, samples: string[]): string[] {
   return [`# HELP ${name} ${help}`, `# TYPE ${name} gauge`, ...samples];
 }
 
+/** Build one histogram family: HELP + TYPE header (histogram), then its samples. */
+function histogramFamily(name: string, help: string, samples: string[]): string[] {
+  return [`# HELP ${name} ${help}`, `# TYPE ${name} histogram`, ...samples];
+}
+
 /**
  * Renders relay metrics as Prometheus text exposition format. Emits one gauge
  * family per headline metric; resolution-time and success-rate samples are only
@@ -149,6 +154,29 @@ export function renderPrometheusMetrics(stats: RelayStats, options: PrometheusOp
         `${metric}{${label("stat", "p90")}} ${formatValue(t.p90ResolutionMs / 1000)}`,
         `${metric}{${label("stat", "max")}} ${formatValue(t.maxResolutionMs / 1000)}`,
       ])
+    );
+  }
+
+  // Resolution-time histogram — the aggregatable companion to the quantile
+  // gauges above. A cumulative Prometheus histogram lets a scraper compute
+  // quantiles server-side and merge relays (which the pre-aggregated p90 gauge
+  // cannot). Distinct base name (`resolution_time_seconds`) so the histogram's
+  // `# TYPE ... histogram` never collides with the gauge's `resolution_seconds`.
+  if (t.histogram !== null) {
+    const hist = name("resolution_time_seconds");
+    const samples: string[] = [];
+    for (const bucket of t.histogram.buckets) {
+      const le = bucket.leMs === null ? "+Inf" : formatValue(bucket.leMs / 1000);
+      samples.push(`${hist}_bucket{${label("le", le)}} ${formatValue(bucket.count)}`);
+    }
+    samples.push(`${hist}_sum ${formatValue(t.histogram.sumMs / 1000)}`);
+    samples.push(`${hist}_count ${formatValue(t.histogram.count)}`);
+    lines.push(
+      ...histogramFamily(
+        hist,
+        "Job resolution time (updatedAt - createdAt) over completed + failed jobs as a cumulative histogram, seconds.",
+        samples
+      )
     );
   }
 

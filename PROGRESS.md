@@ -1304,3 +1304,28 @@
   #101/#141/#142/#144/#146/#149 파서 계열·#100 completion fish·#75 resume latency·#61 doctor 큐 진행·
   #143 import scope·#78 roundup). 파서 계열은 서로 중복 많아 하나로 수렴 통합 필요. README/
   ARCHITECTURE(🧭 코워크).
+
+### [세션 40 — `agentrelay metrics`에 resolution-time Prometheus 히스토그램 추가] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-knjvx5`)
+- **배경:** 👷 명시 백로그가 모두 완료 상태라 CLAUDE.md "비면 스스로 새 개선 항목 발굴" 지침에 따라
+  신규 개선 항목을 발굴. `metrics`(세션 38b)는 해결 시간을 avg/min/median/p90/max **게이지**로만
+  노출했는데, 이는 Prometheus가 명시적으로 경고하는 안티패턴이다 — 사전 집계된 분위수는 여러 인스턴스
+  간 재집계가 불가능하다(`histogram_quantile`로 서버측 계산 불가). 열린 PR 큐(파서·stats 변형·next·
+  데몬 가드·대시보드 UI 등)와 겹치지 않는 관측성 영역.
+- **한 일:**
+  1. core `stats.ts`에 순수 `ResolutionHistogram`/`ResolutionHistogramBucket` 타입 +
+     `RESOLUTION_BUCKETS_MS`(1m/5m/15m/30m/1h/3h/6h/12h/1d 기본 버킷) + 내부 `computeHistogram`
+     (정렬된 스팬을 단일 패스로 누적 카운트, `+Inf` 버킷·`sumMs`·`count`) 추가. `TimingStats.histogram`
+     필드(미해결 시 null) 확장 — `computeStats`가 기존 정렬 배열을 재사용해 스팬 로직 단일 소스 유지.
+     `stats --json`도 자동으로 히스토그램 노출(부수 이득).
+  2. core `metrics.ts`에 `histogramFamily` 헬퍼 + `resolution_time_seconds` 히스토그램 렌더
+     (`_bucket{le=...}`·`_sum`·`_count`, `le`/`sum`은 초 단위). 게이지 패밀리(`resolution_seconds`)와
+     **base name을 분리**해 `# TYPE` 충돌 방지, 해결 잡이 있을 때만 노출. `renderPrometheusMetrics`
+     시그니처 불변(기존 `RelayStats` 하나만 소비) — CLI 배선 변경 0줄.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **681 통과 + 1 skip**(core 465[+stats 5/+metrics 2] + cli 209/1skip + dashboard 7). 실제 빌드된
+  CLI e2e(mock 아님): 4-job(30s·5m·2h 해결 + queued) 스토어 시드 → `metrics`가 누적 버킷
+  (le=60→1, le=300→2, le=3600→2, le=10800→3, +Inf→3)·sum 7530·count 3 렌더, `--status completed`
+  스코프는 부분집합(sum 7230·count 2), 빈 스토어는 히스토그램 생략, 게이지/히스토그램 두 TYPE 공존
+  (충돌 없음), `--status bogus`는 exit 1 확인.
+- **다음 할 일:** 여전히 열린 distinct PR 큐 통합(세션 39 목록 참조)이 높은 가치. metrics를 대시보드로
+  확장하거나 커스텀 버킷 옵션(`--buckets`) 추가는 👷 후보. README/ARCHITECTURE(🧭 코워크).
