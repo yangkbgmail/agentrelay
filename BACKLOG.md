@@ -525,6 +525,23 @@
       신규 테스트, 실제 빌드 CLI로 config set/validate/show 지터 배선 e2e 검증. branch
       `claude/wizardly-pascal-119tzo`)
 
+- [x] 👷 `agentrelay parse --scan` — 여러 줄 로그를 줄 단위로 스캔해 **모든** rate-limit 감지를
+      한 번에 집계(줄 번호·패턴·리셋 시각 + 패턴 빈도표). 기존 `parse`는 stdin 전체를 단일
+      블롭으로 파싱해 **첫** 매치만 반환하므로, 한 세션에 여러 rate-limit 이벤트가 담긴 실제
+      에이전트 로그(수 시간치)를 감사(audit)할 수 없었다.
+      (완료 — `@agentrelay/core/scan.ts` 신설(순수·파일시스템/시계 미접촉): `scanRateLimits(text,
+      {tool,now})`가 입력을 줄 단위(`\r?\n`, 단일 후행 개행은 미포함)로 나눠 어댑터의
+      `detectRateLimit`을 각 줄에 독립 실행 → `ScanResult`(tool·totalLines·matchedLines·
+      matches[]·patterns[]). `ScanMatch`(1-based line·text[후행 공백 trim]·pattern·rawMatch·
+      resetAt), 패턴 빈도표는 count desc·name asc(projects/patterns 랭킹 관례 일치). 빈 입력=0줄,
+      어댑터의 extraPatterns(Codex 초 단위 등)도 그대로 적용. 새 파서 로직 0줄 — 기존 검증된
+      `resolveAdapter`/`detectRateLimit` 재사용. CLI `parse.ts`에 순수 `renderScanReport`(카운트
+      헤더+패턴 표+감지별 줄번호/리셋/카운트다운, 긴 rawMatch truncate)·`renderScanReportJson`
+      (match별 `resetInMs` 부착). `agentrelay parse --scan [--tool] [--json]` 배선 — 스캔은 stdin/
+      개행 포함 인자에서만 의미(인자 조인은 개행 붕괴, 문서화). core scan 9 + cli parse +6 신규
+      테스트, 실제 빌드 CLI e2e로 다중 감지·패턴 표·no-match·codex 초 단위·JSON resetInMs 검증.
+      branch `claude/wizardly-pascal-9ngyr8`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

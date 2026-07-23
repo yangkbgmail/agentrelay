@@ -1382,3 +1382,22 @@
   #105 upcoming·#104/#69 데몬 가드·#102 Gemini·#101/#141/#142/#144/#146/#149 파서 계열·#100 completion
   fish·#75 resume latency·#61 doctor 큐 진행·#143 import scope·#78 roundup). 파서 계열은 서로 중복
   많아 하나로 수렴 통합 필요. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 42 — `agentrelay parse --scan`(여러 줄 로그 줄단위 rate-limit 스캔)] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-9ngyr8`)
+- **배경:** 직전 designated 브랜치는 PR #157로 이미 병합됨 → 지침대로 최신 main에서 브랜치 재생성.
+  👷 명시 백로그는 전부 완료 상태라 CLAUDE.md "백로그 비면 스스로 새 개선 발굴" 규칙으로 신규
+  진단 기능을 발굴. 기존 `parse`는 stdin **전체**를 단일 블롭으로 파싱해 **첫** 매치만 반환하므로,
+  한 세션에 여러 rate-limit 이벤트가 담긴 실제 에이전트 로그(수 시간치)를 감사할 수 없던 갭.
+- **한 일:** `@agentrelay/core/scan.ts` 신설(순수): `scanRateLimits(text,{tool,now})`가 입력을 줄
+  단위(`\r?\n`, 단일 후행 개행 미포함)로 나눠 어댑터 `detectRateLimit`을 각 줄에 독립 실행 →
+  `ScanResult`(tool·totalLines·matchedLines·matches[]·patterns[]). 패턴 빈도표는 count desc·name asc.
+  새 파서 로직 0줄(기존 `resolveAdapter`/`detectRateLimit` 재사용), Codex 초 단위 등 extraPatterns도
+  그대로 적용. CLI `parse.ts`에 `renderScanReport`(카운트 헤더+패턴 표+감지별 줄번호/리셋/카운트다운,
+  긴 rawMatch truncate)·`renderScanReportJson`(match별 `resetInMs`), `parse --scan [--tool] [--json]`
+  배선. index.ts export, BACKLOG에 항목 추가.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  **전 패키지 통과**(core scan 9 + cli parse 15[+6] 신규 포함, cli 221/1skip·dashboard 7). 실제 빌드
+  CLI e2e로 다중 감지·패턴 표·no-match·codex 초 단위(generic은 스킵)·JSON resetInMs·기존 `parse`
+  무회귀 확인.
+- **다음 할 일:** `patterns`/`scan` 계열 후속(대시보드에 스캔 결과 노출·`--group-by tool`), 남은
+  distinct CI-초록 PR 통합 계속(세션 41 목록), README/ARCHITECTURE(🧭 코워크).

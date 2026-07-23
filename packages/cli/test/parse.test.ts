@@ -1,5 +1,12 @@
+import { scanRateLimits } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { buildParseReport, renderParseReport, renderParseReportJson } from "../src/parse.js";
+import {
+  buildParseReport,
+  renderParseReport,
+  renderParseReportJson,
+  renderScanReport,
+  renderScanReportJson,
+} from "../src/parse.js";
 
 const NOW = new Date("2026-07-20T12:00:00.000Z");
 const NOW_MS = NOW.getTime();
@@ -90,5 +97,56 @@ describe("renderParseReportJson", () => {
     expect(parsed.matched).toBe(false);
     expect(parsed.resetAt).toBeNull();
     expect(parsed.resetInMs).toBeNull();
+  });
+});
+
+const LOG = ["starting", "usage limit — try again in 30m", "working", "usage limit — try again in 1h"].join("\n");
+
+describe("renderScanReport", () => {
+  it("renders a no-match summary that names the adapter", () => {
+    const result = scanRateLimits("build ok\ntests pass\n", { now: NOW });
+    const out = renderScanReport(result, { now: NOW_MS, color: false });
+    expect(out).toContain("No rate limits detected in 2 lines");
+    expect(out).toContain("adapter: generic");
+    expect(out).not.toContain("Detections:");
+  });
+
+  it("renders the count header, pattern table and one entry per detection", () => {
+    const result = scanRateLimits(LOG, { now: NOW });
+    const out = renderScanReport(result, { now: NOW_MS, color: false });
+    expect(out).toContain("Found 2 detections in 4 lines");
+    expect(out).toContain("relative-duration");
+    expect(out).toContain("× 2");
+    // Line numbers and countdowns for each detection.
+    expect(out).toContain("L2");
+    expect(out).toContain("L4");
+    expect(out).toContain("(in 30m)");
+    expect(out).toContain("(in 1h 0m)");
+  });
+
+  it("uses singular wording for a single detection over a single line", () => {
+    const result = scanRateLimits("try again in 5m", { now: NOW });
+    const out = renderScanReport(result, { now: NOW_MS, color: false });
+    expect(out).toContain("Found 1 detection in 1 line");
+  });
+
+  it("omits ANSI codes when color is false and includes them when true", () => {
+    const result = scanRateLimits(LOG, { now: NOW });
+    expect(renderScanReport(result, { now: NOW_MS, color: false })).not.toContain("\x1b[");
+    expect(renderScanReport(result, { now: NOW_MS, color: true })).toContain("\x1b[");
+  });
+});
+
+describe("renderScanReportJson", () => {
+  it("emits resetInMs on each match alongside the scan shape", () => {
+    const result = scanRateLimits(LOG, { now: NOW });
+    const parsed = JSON.parse(renderScanReportJson(result, { now: NOW_MS }));
+    expect(parsed.totalLines).toBe(4);
+    expect(parsed.matchedLines).toBe(2);
+    expect(parsed.matches).toHaveLength(2);
+    expect(parsed.matches[0].line).toBe(2);
+    expect(parsed.matches[0].resetInMs).toBe(30 * 60_000);
+    expect(parsed.matches[1].resetInMs).toBe(60 * 60_000);
+    expect(parsed.patterns).toEqual([{ pattern: "relative-duration", count: 2 }]);
   });
 });

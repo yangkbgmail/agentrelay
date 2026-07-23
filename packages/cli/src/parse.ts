@@ -4,7 +4,7 @@
 // would resume. Kept as pure functions here (no stdin/clock unless injected),
 // separate from the commander wiring in cli.ts, so the exact output is testable.
 
-import type { AgentTool, RateLimitInfo } from "@agentrelay/core";
+import type { AgentTool, RateLimitInfo, ScanResult } from "@agentrelay/core";
 import { resolveAdapter } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
@@ -90,4 +90,64 @@ export function renderParseReportJson(report: ParseReport, options: { now?: numb
     if (!Number.isNaN(target)) resetInMs = target - now;
   }
   return JSON.stringify({ ...report, resetInMs }, null, 2);
+}
+
+/** Cap a raw match so a single long log line doesn't dominate the scan output. */
+function truncate(text: string, max = 72): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/**
+ * Render a scan (`parse --scan`) as a human-readable block: a pattern-frequency
+ * table followed by one line per detection with its line number, reset, and
+ * countdown. Pure: no I/O, ambient clock only via `now` default (for the
+ * countdown). `color` gates ANSI codes (TTY only).
+ */
+export function renderScanReport(result: ScanResult, options: { now?: number; color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const now = options.now ?? Date.now();
+  const adapterNote = paint(DIM, `(adapter: ${result.tool})`, color);
+
+  if (result.matchedLines === 0) {
+    const lineWord = result.totalLines === 1 ? "line" : "lines";
+    return [
+      paint(YELLOW, `No rate limits detected in ${result.totalLines} ${lineWord}.`, color),
+      paint(DIM, `AgentRelay would let this output exit normally (adapter: ${result.tool}).`, color),
+    ].join("\n");
+  }
+
+  const hitWord = result.matchedLines === 1 ? "detection" : "detections";
+  const lineWord = result.totalLines === 1 ? "line" : "lines";
+  const lines: string[] = [
+    `${paint(GREEN, `Found ${result.matchedLines} ${hitWord}`, color)} in ${result.totalLines} ${lineWord} ${adapterNote}`,
+    "",
+    paint(BOLD, "Patterns:", color),
+  ];
+  for (const p of result.patterns) {
+    lines.push(`  ${p.pattern.padEnd(24)} ${paint(DIM, `× ${p.count}`, color)}`);
+  }
+  lines.push("");
+  lines.push(paint(BOLD, "Detections:", color));
+  for (const m of result.matches) {
+    const countdown = formatCountdown(m.resetAt, now);
+    const loc = paint(DIM, `L${m.line}`, color);
+    lines.push(`  ${loc} ${paint(BOLD, m.pattern, color)} → ${m.resetAt} ${paint(DIM, `(in ${countdown})`, color)}`);
+    lines.push(`     ${paint(DIM, JSON.stringify(truncate(m.rawMatch)), color)}`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Render a scan as JSON (machine-readable, for scripts/jq). Adds `resetInMs` to
+ * each match (ms until its reset, or null when unparseable). Pure aside from the
+ * `now` default.
+ */
+export function renderScanReportJson(result: ScanResult, options: { now?: number } = {}): string {
+  const now = options.now ?? Date.now();
+  const matches = result.matches.map((m) => {
+    const target = new Date(m.resetAt).getTime();
+    const resetInMs = Number.isNaN(target) ? null : target - now;
+    return { ...m, resetInMs };
+  });
+  return JSON.stringify({ ...result, matches }, null, 2);
 }
