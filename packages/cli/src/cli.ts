@@ -44,6 +44,7 @@ import {
   bulkControlJobs,
   cancelJob,
   exportStore,
+  getConfig,
   importStore,
   initConfig,
   type JobControlResult,
@@ -64,7 +65,13 @@ import {
   validateConfigFile,
   waitForJob,
 } from "./commands.js";
-import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
+import {
+  defaultStorePath,
+  renderConfigValue,
+  renderConfigValueJson,
+  renderEffectiveConfig,
+  renderEffectiveConfigJson,
+} from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
@@ -1206,6 +1213,30 @@ export function buildCli(): Command {
       }
       // A broken config file is a real problem worth a non-zero exit, but we
       // still printed the env/default resolution above to aid debugging.
+      if (result.loadError) process.exitCode = 1;
+    });
+  config
+    .command("get")
+    .description("Print one effective config value (script-friendly: env > file > default)")
+    .argument("<key>", `Dotted config key, one of: ${SETTABLE_CONFIG_KEYS.join(", ")}`)
+    .option("--json", "Print the resolved value + source as JSON (machine-readable)")
+    .option("--show-secrets", "Reveal a masked webhook URL/token instead of masking it")
+    .action((key: string, opts: { json?: boolean; showSecrets?: boolean }) => {
+      const { config: configPath } = program.opts();
+      const result = getConfig({ key, path: configPath });
+      if (result.unknownKey) {
+        console.error(`[agentrelay] Unknown config key "${key}". Valid keys: ${SETTABLE_CONFIG_KEYS.join(", ")}.`);
+        process.exitCode = 1;
+        return;
+      }
+      if (opts.json) {
+        console.log(renderConfigValueJson(result, { showSecrets: opts.showSecrets }));
+      } else {
+        // Bare value on stdout so `X=$(agentrelay config get <key>)` works.
+        console.log(renderConfigValue(result, { showSecrets: opts.showSecrets }));
+      }
+      // Mirror `config show`: a broken config file is worth a non-zero exit,
+      // but the env/default resolution was still printed.
       if (result.loadError) process.exitCode = 1;
     });
   config

@@ -7,9 +7,11 @@ import {
   applyConfigToEnv,
   CONFIG_ENV_KEYS,
   CONFIG_FIELDS,
+  configEnvKeyForField,
   configToEnv,
   configToJson,
   findConfigField,
+  getEffectiveConfigValue,
   hasConfigErrors,
   loadConfigFile,
   parseConfig,
@@ -288,6 +290,83 @@ describe("resolveEffectiveConfig", () => {
     for (const key of emitted) expect(known.has(key)).toBe(true);
     // ...and no known key is dead (each maps to something configToEnv can emit).
     for (const { key } of CONFIG_ENV_KEYS) expect(emitted).toContain(key);
+  });
+});
+
+describe("configEnvKeyForField", () => {
+  it("maps every settable field onto exactly one known AGENTRELAY_* key", () => {
+    const known = new Set(CONFIG_ENV_KEYS.map((k) => k.key));
+    for (const field of CONFIG_FIELDS) {
+      const envKey = configEnvKeyForField(field);
+      expect(known.has(envKey)).toBe(true);
+    }
+  });
+
+  it("maps known dotted keys to their env vars", () => {
+    expect(configEnvKeyForField(findConfigField("store")!)).toBe("AGENTRELAY_STORE");
+    expect(configEnvKeyForField(findConfigField("retry.maxAttempts")!)).toBe("AGENTRELAY_MAX_ATTEMPTS");
+    expect(configEnvKeyForField(findConfigField("autoPrune.everyTicks")!)).toBe("AGENTRELAY_AUTOPRUNE_EVERY_TICKS");
+  });
+
+  it("gives each field a distinct env key (no collisions)", () => {
+    const envKeys = CONFIG_FIELDS.map((f) => configEnvKeyForField(f));
+    expect(new Set(envKeys).size).toBe(CONFIG_FIELDS.length);
+  });
+});
+
+describe("getEffectiveConfigValue", () => {
+  it("returns undefined for an unknown key", () => {
+    expect(getEffectiveConfigValue("nope.nope", null, {})).toBeUndefined();
+    expect(getEffectiveConfigValue("retry", null, {})).toBeUndefined(); // group, not a leaf key
+  });
+
+  it("reports the built-in default (undefined value) when neither env nor file set it", () => {
+    const v = getEffectiveConfigValue("retry.maxAttempts", null, {});
+    expect(v).toMatchObject({
+      key: "retry.maxAttempts",
+      envKey: "AGENTRELAY_MAX_ATTEMPTS",
+      group: "retry",
+      value: undefined,
+      source: "default",
+      secret: false,
+    });
+  });
+
+  it("attributes a value to the config file when env does not set it", () => {
+    const v = getEffectiveConfigValue("store", { store: "/tmp/jobs.json" }, {});
+    expect(v).toMatchObject({ value: "/tmp/jobs.json", source: "config-file" });
+  });
+
+  it("lets an env var win over the config file (same precedence as show)", () => {
+    const v = getEffectiveConfigValue("store", { store: "/from/file.json" }, { AGENTRELAY_STORE: "/from/env.json" });
+    expect(v).toMatchObject({ value: "/from/env.json", source: "env" });
+  });
+
+  it("projects a boolean/number field through configToEnv's string form", () => {
+    expect(getEffectiveConfigValue("autoPrune.enabled", { autoPrune: { enabled: true } }, {})).toMatchObject({
+      value: "1",
+      source: "config-file",
+    });
+    expect(getEffectiveConfigValue("retry.maxAttempts", { retry: { maxAttempts: 7 } }, {})).toMatchObject({
+      value: "7",
+      source: "config-file",
+    });
+  });
+
+  it("flags secret fields so the CLI can mask them", () => {
+    expect(getEffectiveConfigValue("notify.webhookAuth", null, {})?.secret).toBe(true);
+    expect(getEffectiveConfigValue("store", null, {})?.secret).toBe(false);
+  });
+
+  it("agrees with resolveEffectiveConfig for every settable key", () => {
+    const env = { AGENTRELAY_STORE: "/x.json", AGENTRELAY_MAX_ATTEMPTS: "9" };
+    const file: AgentRelayConfig = { autoPrune: { enabled: true, keep: 5 } };
+    const entries = resolveEffectiveConfig(file, env);
+    for (const field of CONFIG_FIELDS) {
+      const single = getEffectiveConfigValue(field.key, file, env);
+      const bulk = entries.find((e) => e.key === single?.envKey);
+      expect(single).toMatchObject({ value: bulk?.value, source: bulk?.source, secret: bulk?.secret });
+    }
   });
 });
 

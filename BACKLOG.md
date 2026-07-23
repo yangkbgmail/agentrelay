@@ -525,6 +525,23 @@
       신규 테스트, 실제 빌드 CLI로 config set/validate/show 지터 배선 e2e 검증. branch
       `claude/wizardly-pascal-119tzo`)
 
+- [x] 👷 `agentrelay config get <key>` — 단일 설정 값을 env>설정파일>기본값 precedence로 해소해
+      스크립트 친화적 bare 라인으로 출력(`STORE=$(agentrelay config get store)`). `config show`의
+      단일 값 카운터파트.
+      (완료 — `config set`/`unset`/`show`는 있지만 스크립트에서 **단일 값**을 뽑는 수단이 없어
+      `config show`를 `grep`/`awk`로 파싱해야 했다. core `config.ts`에 순수 `configEnvKeyForField(field)`
+      (dotted 키→유일 `AGENTRELAY_*`를 `configToEnv(setConfigValue(...))` 단일 매핑 지점으로 파생, 드리프트
+      불가) + `getEffectiveConfigValue(key, fileConfig, env)`/`EffectiveConfigValue`(unknown 키는 undefined,
+      precedence는 `resolveEffectiveConfig`의 단일 키 미러). CLI `commands.ts` `getConfig`(손상 파일은
+      throw 대신 loadError로 보고·env/기본값 해소 계속, 절대 throw 안 함) + `config.ts` 순수
+      `renderConfigValue`(bare 값 — unset은 빈 문자열로 `$( )` 캡처가 비게, secret 마스킹 + `--show-secrets`)·
+      `renderConfigValueJson`(envKey/value/source/secret/loadError). `config get <key> [--json]
+      [--show-secrets]` 서브커맨드 — unknown 키/손상 파일은 exit 1, `show`처럼 startup bootstrap-skip에
+      `get` 추가(파일 값이 `[env]`로 오표기 방지). core config +11 / cli commands +8 신규 테스트, biome ci
+      0 경고, 실제 빌드 CLI e2e로 bare 값·env>파일 precedence·secret 마스킹/노출·--json·unknown exit 1·
+      `$( )` 캡처 검증. 최신 main 위 재구현(구버전 base·CI 미실행 stale PR #128 대체). branch
+      `claude/wizardly-pascal-a19bx8`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

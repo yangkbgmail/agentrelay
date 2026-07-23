@@ -1382,3 +1382,27 @@
   #105 upcoming·#104/#69 데몬 가드·#102 Gemini·#101/#141/#142/#144/#146/#149 파서 계열·#100 completion
   fish·#75 resume latency·#61 doctor 큐 진행·#143 import scope·#78 roundup). 파서 계열은 서로 중복
   많아 하나로 수렴 통합 필요. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 42 — `agentrelay config get <key>` 최신 main 위 재구현 (stale PR #128 대체)] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-a19bx8`)
+
+- **시각:** 2026-07-23 (UTC)
+- **관련 BACKLOG:** 👷 `agentrelay config get <key>` — 단일 설정 값 조회(스크립트 친화). 무한 개선 백로그(SPEC §8).
+- **배경:** 지정 브랜치(a19bx8)의 이전 PR이 이미 병합되어 origin에서 삭제됨 → 최신 main(e0caa77)에서 브랜치를
+  새로 파 후속 작업으로 진행. `config set`/`unset`/`show`는 있지만 스크립트에서 **단일 값**을 뽑는 수단이
+  없던 갭을 메움. 착수 중 PR #128이 동일 기능을 이미 열어둔 것을 발견 — 단 base가 구버전(7997577)이고
+  **CI가 한 번도 실행 안 됨(status total 0)**·`mergeable_state: unknown`인 stale 상태. 프로젝트가 반복 경고한
+  중복 PR 루프를 고려해 새 중복을 더하지 않고, **최신 main 위 정본**으로 재구현해 stale #128을 대체하도록 함.
+- **한 일:**
+  1. core `config.ts`: 순수 `configEnvKeyForField(field)`(dotted 키→유일 `AGENTRELAY_*`를 `configToEnv`
+     단일 매핑 지점으로 파생 — 인덱스 결합 없이 드리프트 불가) + `getEffectiveConfigValue(key, fileConfig, env)`
+     /`EffectiveConfigValue`(unknown 키는 undefined, precedence는 `resolveEffectiveConfig`의 단일 키 미러).
+  2. CLI `commands.ts` `getConfig`(손상 파일은 throw 대신 loadError 보고·env/기본값 해소 계속, never throw) +
+     `config.ts` `renderConfigValue`(bare 값 — unset은 빈 문자열, secret 마스킹 + `--show-secrets`)·
+     `renderConfigValueJson`. `agentrelay config get <key> [--json] [--show-secrets]` 서브커맨드, startup
+     bootstrap-skip 집합에 `get` 추가(파일 값이 `[env]`로 오표기 방지).
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test` **성공**
+  (core 488 + cli 216/1skip + dashboard 7). 신규: core config +11(configEnvKeyForField 3 + getEffectiveConfigValue 8)·
+  cli commands +8. 실제 빌드 CLI e2e로 bare 값·env>파일 precedence·secret 마스킹/노출·`--json`·unknown 키
+  exit 1·`$(agentrelay config get store)` 캡처 검증.
+- **다음 할 일:** 여전히 쌓인 distinct CI-초록 PR을 최신 main 위로 통합(파서 계열 #101/#141/#142/#144/#146/#149는
+  중복 많아 하나로 수렴 필요). 이번 PR 병합 시 stale #128은 close 권장(중복). README/ARCHITECTURE(🧭 코워크).

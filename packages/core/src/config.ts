@@ -574,6 +574,19 @@ export const CONFIG_ENV_KEYS: ConfigEnvKey[] = [
   { key: "AGENTRELAY_AUTOPRUNE_EVERY_TICKS", group: "autoPrune" },
 ];
 
+/**
+ * Returns the single `AGENTRELAY_*` env var a settable field projects onto.
+ * Derived through {@link configToEnv} — the one mapping point between the config
+ * schema and the environment — so it can never drift from what
+ * `config show`/{@link applyConfigToEnv} use. Pure.
+ */
+export function configEnvKeyForField(field: ConfigField): string {
+  const sample =
+    field.type === "boolean" ? "true" : field.type === "number" ? "1" : field.type === "duration" ? "1h" : "x";
+  const [envKey] = Object.keys(configToEnv(setConfigValue({}, field.key, sample)));
+  return envKey;
+}
+
 /** Where an effective config value came from, in precedence order. */
 export type ConfigValueSource = "env" | "config-file" | "default";
 
@@ -608,6 +621,46 @@ export function resolveEffectiveConfig(
     if (fileEnv[key] !== undefined) return { key, group, value: fileEnv[key], source: "config-file", secret: flag };
     return { key, group, value: undefined, source: "default", secret: flag };
   });
+}
+
+/**
+ * One resolved setting keyed by its dotted CLI path (`retry.maxAttempts`,
+ * `store`, …), paired with the `AGENTRELAY_*` env var it projects onto. The
+ * script-friendly single-value read behind `agentrelay config get`.
+ */
+export interface EffectiveConfigValue {
+  /** Dotted CLI key, e.g. `retry.maxAttempts`. */
+  key: string;
+  /** The `AGENTRELAY_*` env var this key projects onto. */
+  envKey: string;
+  group: ConfigGroup;
+  /** The effective value, or `undefined` when the built-in default applies. */
+  value: string | undefined;
+  source: ConfigValueSource;
+  secret: boolean;
+}
+
+/**
+ * Resolves ONE dotted config key to its effective value and source, applying
+ * the same env > file > default precedence as {@link resolveEffectiveConfig}.
+ * Returns `undefined` for an unknown key (so the CLI can report it and exit
+ * non-zero). Pure — no filesystem, no ambient env unless `env` is omitted — so
+ * the CLI `config get` command and tests share exactly this resolution. Made
+ * for shell scripting, e.g. `STORE=$(agentrelay config get store)`.
+ */
+export function getEffectiveConfigValue(
+  key: string,
+  fileConfig: AgentRelayConfig | null,
+  env: Record<string, string | undefined> = process.env
+): EffectiveConfigValue | undefined {
+  const field = findConfigField(key);
+  if (!field) return undefined;
+  const envKey = configEnvKeyForField(field);
+  const entry = resolveEffectiveConfig(fileConfig, env).find((e) => e.key === envKey);
+  // `entry` is always present (envKey comes from CONFIG_ENV_KEYS via
+  // configToEnv), but guard defensively so a future stray field can't throw.
+  if (!entry) return undefined;
+  return { key: field.key, envKey, group: entry.group, value: entry.value, source: entry.source, secret: entry.secret };
 }
 
 /**
