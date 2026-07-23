@@ -58,6 +58,35 @@ describe("configToEnv", () => {
     // maxAttempts 0 (unlimited) must still be emitted, not dropped as falsy.
     expect(configToEnv({ retry: { maxAttempts: 0 } })).toEqual({ AGENTRELAY_MAX_ATTEMPTS: "0" });
   });
+
+  it("maps schedule.resumeStagger onto AGENTRELAY_RESUME_STAGGER", () => {
+    expect(configToEnv({ schedule: { resumeStagger: "45s" } })).toEqual({ AGENTRELAY_RESUME_STAGGER: "45s" });
+  });
+});
+
+describe("schedule.resumeStagger config", () => {
+  it("round-trips through parseConfig", () => {
+    const config: AgentRelayConfig = { schedule: { resumeStagger: "2m" } };
+    expect(parseConfig(config)).toEqual(config);
+  });
+
+  it("rejects a non-string resumeStagger (type check)", () => {
+    expect(() => parseConfig({ schedule: { resumeStagger: 30 } })).toThrow(/must be a string/);
+  });
+
+  it("flags an unparseable duration in validateConfig", () => {
+    const issues = validateConfig({ schedule: { resumeStagger: "banana" } });
+    expect(issues).toContainEqual(expect.objectContaining({ level: "error", path: "schedule.resumeStagger" }));
+  });
+
+  it("accepts a valid duration in validateConfig", () => {
+    expect(validateConfig({ schedule: { resumeStagger: "30s" } })).toEqual([]);
+  });
+
+  it("is settable via config set and rejects a bad duration", () => {
+    expect(setConfigValue({}, "schedule.resumeStagger", "90s")).toEqual({ schedule: { resumeStagger: "90s" } });
+    expect(() => setConfigValue({}, "schedule.resumeStagger", "nope")).toThrow(/duration/);
+  });
 });
 
 describe("applyConfigToEnv", () => {

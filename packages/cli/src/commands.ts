@@ -69,12 +69,14 @@ import {
   resolveConfigWritePath,
   resolveEffectiveConfig,
   resolveJobId,
+  resumeStaggerMsFromEnv,
   retryPolicyFromEnv,
   runDiagnostics,
   sampleConfigJson,
   scopeJobs,
   serializeDaemonHeartbeat,
   setConfigValue,
+  staggerResetAt,
   summarizeImportPlan,
   unsetConfigValue,
   validateConfig,
@@ -165,7 +167,11 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   const queue = openQueue(storePath);
   const project = resolveProjectName(cwd);
   const job = queue.enqueue({ project, tool, command: options.command, cwd });
-  queue.markWaitingForReset(job.id, rateLimit.resetAt, {
+  // Stagger the effective resume time (no-op when disabled) so separate `run`
+  // invocations that all detect the same account-wide window don't queue up on
+  // the exact same instant. Provenance keeps the true parsed reset time.
+  const effectiveResetAt = staggerResetAt(rateLimit.resetAt, resumeStaggerMsFromEnv(), Math.random);
+  queue.markWaitingForReset(job.id, effectiveResetAt, {
     pattern: rateLimit.pattern,
     rawMatch: rateLimit.rawMatch,
     resetAt: rateLimit.resetAt,
@@ -174,7 +180,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   queue.close();
 
   stdout.write(
-    `\n[agentrelay] Rate limit detected for ${adapter.displayName} (pattern: ${rateLimit.pattern}). Queued job ${job.id} to resume at ${rateLimit.resetAt}.\n` +
+    `\n[agentrelay] Rate limit detected for ${adapter.displayName} (pattern: ${rateLimit.pattern}). Queued job ${job.id} to resume at ${effectiveResetAt}.\n` +
       `Run "agentrelay daemon" (or schedule "agentrelay tick" via cron) to auto-resume it.\n`
   );
 
@@ -183,7 +189,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
     jobId: job.id,
     project,
     event: "queued",
-    message: `Rate limit detected, queued to resume at ${rateLimit.resetAt}`,
+    message: `Rate limit detected, queued to resume at ${effectiveResetAt}`,
   });
 
   return { exitCode, queuedJob: queue.getById(job.id) ?? null };
@@ -283,6 +289,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   const autoPrune = autoPruneOptionsFromEnv();
   const autoPruneEveryMs = autoPruneEveryMsFromEnv() ?? undefined;
   const autoPruneEveryTicks = autoPruneEveryTicksFromEnv() ?? undefined;
+  const resumeStaggerMs = resumeStaggerMsFromEnv();
   const pollIntervalMs = options.pollIntervalMs ?? 30_000;
   const logLine = (line: string) => {
     // eslint-disable-next-line no-console
@@ -305,6 +312,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     queue,
     pollIntervalMs,
     retryPolicy: retryPolicyFromEnv(),
+    resumeStaggerMs,
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
@@ -329,6 +337,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   console.log(
     `[agentrelay] daemon started, watching ${storePath} every ${pollIntervalMs / 1000}s` +
       (remoteNotify ? " (notifications on)" : "") +
+      (resumeStaggerMs > 0 ? ` (resume stagger ${Math.round(resumeStaggerMs / 1000)}s)` : "") +
       autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks)
   );
   return scheduler;
@@ -342,6 +351,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     queue,
     notify: notify ?? undefined,
     retryPolicy: retryPolicyFromEnv(),
+    resumeStaggerMs: resumeStaggerMsFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
   });
   const processed = await scheduler.tick();
