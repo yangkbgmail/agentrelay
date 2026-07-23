@@ -12,6 +12,7 @@ export * from "./next.js";
 export * from "./notify.js";
 export * from "./parser.js";
 export * from "./paths.js";
+export * from "./patterns.js";
 export * from "./prune.js";
 export * from "./queue.js";
 export * from "./retry.js";

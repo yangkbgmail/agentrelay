@@ -33,6 +33,7 @@ import {
   scopeJobs,
   selectNextResume,
   sendTestNotification,
+  summarizeRateLimitPatterns,
 } from "@agentrelay/core";
 import { Command } from "commander";
 import {
@@ -68,6 +69,7 @@ import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
+import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson, renderTrend } from "./stats.js";
 import {
@@ -776,6 +778,53 @@ export function buildCli(): Command {
       const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
       const stats = computeStats(jobs);
       process.stdout.write(renderPrometheusMetrics(stats, { prefix: opts.prefix }));
+    });
+
+  program
+    .command("patterns")
+    .description("Show which rate-limit parser patterns actually fired across the queue (detection provenance)")
+    .option("--json", "Print the summary as JSON (machine-readable, for scripts/CI)")
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # which message formats are we catching lately?\n" +
+        "  agentrelay patterns --since 7d\n" +
+        "  # feed the frequency table to jq\n" +
+        "  agentrelay patterns --json | jq '.summary.patterns'"
+    )
+    .action((opts: ScopeOpts & { json?: boolean }) => {
+      const { store } = program.opts();
+      const built = buildScope(opts, Date.now());
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const summary = summarizeRateLimitPatterns(jobs);
+      if (opts.json) {
+        console.log(
+          renderPatternsJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            summary,
+          })
+        );
+        return;
+      }
+      console.log(
+        renderPatterns(summary, {
+          color: Boolean(process.stdout.isTTY),
+          scopeNote: built.active ? built.note : undefined,
+        })
+      );
     });
 
   program

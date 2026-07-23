@@ -496,6 +496,24 @@
       core queue 3 + import 2 + cli show 1 신규 테스트, 실제 빌드 CLI e2e로 run→persist·show 블록·--json
       에코 검증. branch `claude/wizardly-pascal-7o70l9`)
 
+- [x] 👷 `agentrelay patterns` — 큐 전체에서 실제로 발화한 rate-limit 파서 패턴 빈도표
+      (감지 출처 집계). 세션 38의 provenance(`lastRateLimit`) 영속 작업의 후속으로, `show`는
+      잡 하나의 감지 출처만 보여주는 반면 이 커맨드는 **어떤 메시지 포맷이 실제로 얼마나
+      자주 잡히는지**를 플릿 레벨로 집계해 어떤 파서 패턴이 load-bearing이고 어떤 게 실전에서
+      한 번도 안 걸리는지 드러낸다.
+      (완료 — `@agentrelay/core/patterns.ts` 신설(순수·파일시스템/시계 미접촉):
+      `summarizeRateLimitPatterns(jobs)` + `RateLimitPatternSummary`(total·withDetection·
+      withoutDetection·patterns[]) + `RateLimitPatternStat`(pattern·count·lastDetectedAt·
+      sampleRawMatch). 각 잡의 영속된 `lastRateLimit.pattern`을 버킷팅해 count desc·이름 asc로
+      랭킹(projects 랭킹 관례 일치), 패턴 내에서는 가장 최근 `detectedAt`의 raw sample을 보존.
+      비어있거나 malformed(pattern 없음)한 detection은 패턴 버킷을 만들지 않고 withoutDetection으로
+      카운트, malformed detectedAt은 throw 없이 oldest로 정렬(견고). CLI `patterns.ts`에 순수
+      `renderPatterns`(비례 막대+예시 매치)·`renderPatternsJson`(stats와 동일 envelope). `agentrelay
+      patterns [--json]` + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용.
+      새 파서 로직 0줄 — 세션 38이 영속한 provenance만 읽음. core patterns 8 + cli patterns 7 신규
+      테스트, 실제 빌드 CLI e2e로 랭킹·비례 막대·예시·스코프 부분집합·no-detection·빈 스토어·에러
+      exit 검증. branch `claude/wizardly-pascal-patterns`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -1304,3 +1304,33 @@
   #101/#141/#142/#144/#146/#149 파서 계열·#100 completion fish·#75 resume latency·#61 doctor 큐 진행·
   #143 import scope·#78 roundup). 파서 계열은 서로 중복 많아 하나로 수렴 통합 필요. README/
   ARCHITECTURE(🧭 코워크).
+
+### [세션 40 — `agentrelay patterns` (rate-limit 파서 패턴 빈도표)] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-patterns`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md의 "비면 스스로 새 개선 항목 발굴" 지침에 따라
+  신규 갭을 발굴. 세션 38이 job에 rate-limit 감지 출처(`lastRateLimit`: pattern·rawMatch·resetAt·
+  detectedAt)를 영속하기 시작하며 "다음 할 일: status/대시보드에 detection pattern 노출"을 남겼다.
+  이를 발전시켜 — `show`는 잡 **하나**의 감지 출처만 보여주지만, **어떤 파서 패턴이 큐 전체에서 실제로
+  얼마나 자주 발화하는지**를 플릿 레벨로 볼 방법이 없었다. 30개 열린 PR 어디에도 없는 항목.
+- **한 일: `agentrelay patterns` — 감지 출처 집계 빈도표.**
+  1. **core**: `patterns.ts` 신설(순수·파일시스템/시계 미접촉) — `summarizeRateLimitPatterns(jobs)` +
+     `RateLimitPatternSummary`(total·withDetection·withoutDetection·patterns[]) + `RateLimitPatternStat`
+     (pattern·count·lastDetectedAt·sampleRawMatch). 각 잡의 영속된 `lastRateLimit.pattern`을 버킷팅해
+     count desc·이름 asc로 랭킹(projects 랭킹 관례 일치), 패턴 내에서는 가장 최근 `detectedAt`의 raw
+     sample을 보존(가장 최근 매치 예시). pattern이 없거나 malformed한 detection은 버킷을 안 만들고
+     withoutDetection으로 카운트(빈-이름 버킷 발명 방지), malformed detectedAt은 throw 없이 oldest로
+     정렬. index.ts export. 새 파서 로직 0줄 — 세션 38이 영속한 provenance만 읽음.
+  2. **CLI**: `patterns.ts` 신설 — 순수 `renderPatterns`(비례 막대[█]+예시 매치, whitespace collapse,
+     no-detection/빈 스토어/스코프-무매치 구분 메시지)·`renderPatternsJson`(stats와 동일 envelope:
+     storePath·generatedAt·scope?·summary). `cli.ts`에 `agentrelay patterns [--json]` + 공용
+     `buildScope`(--status/--tool/--project/--since/--until) 재사용 배선. 잘못된 status/tool·기간·빈
+     범위는 exit 1.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **691 통과 + 1 skip**(core 468[+patterns 8] + cli 216[+patterns 7]/1skip + dashboard 7).
+  **실제 빌드된 CLI e2e**(mock 아님): 4-job 스토어(clock-time-meridiem×2·relative-duration×1·detection
+  없는 completed×1) 시드 → `patterns`가 "3 detection(s) across 2 pattern(s) (of 4 job(s); 1 without)"
+  + 랭킹·비례 막대·`e.g. "..."` 예시 렌더, `--json`은 envelope+scope 생략 확인, `--tool codex-cli`
+  스코프는 부분집합+scope note+`--json`에 scope 에코, no-detection 스토어는 전용 메시지, 빈 스토어는
+  온보딩 문구, `--status bogus`는 exit 1 확인.
+- **다음 할 일:** `status` 테이블/대시보드 잡 카드에도 detection pattern 컬럼 노출(세션 38 후속 계속),
+  `patterns`에 툴별 breakdown(`--group-by tool`) 확장(👷 후보). 남은 distinct PR 통합(세션 39 목록).
+  README/ARCHITECTURE(🧭 코워크).
