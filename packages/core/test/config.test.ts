@@ -212,6 +212,17 @@ describe("validateConfig", () => {
     expect(issues).toEqual([expect.objectContaining({ level: "warning", path: "retry.maxDelayMs" })]);
   });
 
+  it("errors on an unparseable resume-stagger duration", () => {
+    expect(validateConfig({ resume: { stagger: "soon" } })).toEqual([
+      expect.objectContaining({ level: "error", path: "resume.stagger" }),
+    ]);
+  });
+
+  it("accepts a valid resume-stagger duration and 0s (disabled)", () => {
+    expect(validateConfig({ resume: { stagger: "30s" } })).toEqual([]);
+    expect(validateConfig({ resume: { stagger: "0s" } })).toEqual([]);
+  });
+
   it("errors on unparseable auto-prune durations", () => {
     const issues = validateConfig({ autoPrune: { after: "soon", every: "1 week" } });
     const paths = issues.filter((i) => i.level === "error").map((i) => i.path);

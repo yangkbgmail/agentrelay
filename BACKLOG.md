@@ -525,6 +525,21 @@
       신규 테스트, 실제 빌드 CLI로 config set/validate/show 지터 배선 e2e 검증. branch
       `claude/wizardly-pascal-119tzo`)
 
+- [x] 👷 재개 시각 stagger(`AGENTRELAY_RESUME_STAGGER`) — 동일 rate-limit 리셋 창을 공유하는 다수 잡이
+      리셋 순간 lockstep으로 한꺼번에 재개돼 같은 한도를 즉시 재충돌하는 thundering-herd를, 재개 시각을
+      무작위 오프셋으로 분산해 완화. 세션 40의 재시도 백오프 지터(#153, 전환 실패 재시도용)의 리셋-시각 대응.
+      (완료 — `@agentrelay/core/stagger.ts` 신설(순수·시계 미접촉): `computeResumeStaggerMs(staggerMs, rng)`
+      (`[0, staggerMs)` 오프셋, `<=0`/NaN rng는 0, ≥1 rng는 상한 클램프) + `applyResumeStagger(resetAtIso,
+      staggerMs, rng)`(리셋을 오프셋만큼 **앞이 아닌 뒤로만** 이동 — 일찍 재개하면 한도 재충돌이므로
+      항상 비음수; 파싱 불가 타임스탬프는 손상 대신 원본 유지) + `resumeStaggerMsFromEnv`(`AGENTRELAY_RESUME_STAGGER`
+      duration 파싱, 미설정·`0s`·파싱불가·비양수는 0=비활성 → 오타가 조용히 끄기). 스케줄러에 `resumeStaggerMs`
+      옵션 + 기존 주입 가능 `rng` 재사용 → rate-limit 재히트 재큐 시 `job.resetAt`만 stagger, provenance
+      `lastRateLimit.resetAt`은 **참 감지 리셋** 보존(감사용 분리). CLI run 최초 감지 경로도 동일 stagger.
+      config 전 계층 배선(`resume.stagger` duration 필드·sampleConfig·CONFIG_FIELDS·parseConfig·validateConfig
+      [파싱불가=error]·configToEnv·CONFIG_ENV_KEYS·ConfigGroup — 드리프트 sync 테스트 통과). core stagger 13 +
+      scheduler 2 + config 2 신규 테스트, 실제 빌드 CLI로 `config init/set/validate/show` 지터 배선·env>파일
+      우선순위 e2e 검증. 기본 0=비활성이라 하위호환. branch `claude/wizardly-pascal-gpy7b0`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

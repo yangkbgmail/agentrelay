@@ -1382,3 +1382,22 @@
   #105 upcoming·#104/#69 데몬 가드·#102 Gemini·#101/#141/#142/#144/#146/#149 파서 계열·#100 completion
   fish·#75 resume latency·#61 doctor 큐 진행·#143 import scope·#78 roundup). 파서 계열은 서로 중복
   많아 하나로 수렴 통합 필요. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 42 — 재개 시각 stagger(`AGENTRELAY_RESUME_STAGGER`) 신규 구현] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-gpy7b0`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태. CLAUDE.md 지침대로 스스로 새 개선 항목을 발굴 —
+  세션 40이 PROGRESS에 남긴 신규 👷 후보("동일 resetAt 다수 잡을 분산 재개")를 채택. 세션 40의
+  재시도 백오프 지터(#153)는 *전환 실패 재시도*만 분산했고, *rate-limit 리셋 재개*는 여전히
+  lockstep이라 같은 창을 공유한 잡들이 리셋 순간 한꺼번에 재개→같은 한도 즉시 재충돌하는
+  thundering-herd가 남아 있었다.
+- **한 일:** `@agentrelay/core/stagger.ts` 신설(순수) — `computeResumeStaggerMs`/`applyResumeStagger`
+  (리셋을 뒤로만 이동, 비음수 오프셋; 파싱 불가 타임스탬프 원본 유지)/`resumeStaggerMsFromEnv`
+  (duration 파싱, 미설정·`0s`·오타는 0=비활성). 스케줄러 `resumeStaggerMs` 옵션 + 기존 `rng` 재사용
+  → rate-limit 재히트 재큐 시 `job.resetAt`만 stagger하고 provenance는 참 리셋 보존. CLI run 최초
+  감지도 동일. config 전 계층(`resume.stagger` duration 필드)에 배선(sync 테스트 통과). 기본 0=비활성
+  하위호환.
+- **검증:** 로컬 `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0 경고·`pnpm test`
+  **716 통과 + 1 skip**(core 493[+15] + cli 216 + dashboard 7). 실제 빌드 CLI로 `config
+  init/set/validate/show` 지터 배선·env>파일 우선순위·손상 값 validate 거부 e2e 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(파서 계열 수렴·stats --watch·데몬 가드 등).
+  README/ARCHITECTURE(🧭 코워크). 신규 👷 후보: stagger를 대시보드/`show`에 노출(참 리셋 vs 예정
+  재개 시각 구분 표시)도 별개 개선 여지.

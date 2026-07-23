@@ -27,6 +27,7 @@ import type {
   WritableFacts,
 } from "@agentrelay/core";
 import {
+  applyResumeStagger,
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
@@ -69,6 +70,7 @@ import {
   resolveConfigWritePath,
   resolveEffectiveConfig,
   resolveJobId,
+  resumeStaggerMsFromEnv,
   retryPolicyFromEnv,
   runDiagnostics,
   sampleConfigJson,
@@ -165,7 +167,12 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   const queue = openQueue(storePath);
   const project = resolveProjectName(cwd);
   const job = queue.enqueue({ project, tool, command: options.command, cwd });
-  queue.markWaitingForReset(job.id, rateLimit.resetAt, {
+  // Spread the scheduled resume across the stagger window (off unless
+  // AGENTRELAY_RESUME_STAGGER is set), so many terminals rate-limited in the
+  // same window don't all resume at the same instant. Provenance keeps the true
+  // detected reset for audit; only the scheduled resume time is shifted.
+  const scheduledResetAt = applyResumeStagger(rateLimit.resetAt, resumeStaggerMsFromEnv(), Math.random);
+  queue.markWaitingForReset(job.id, scheduledResetAt, {
     pattern: rateLimit.pattern,
     rawMatch: rateLimit.rawMatch,
     resetAt: rateLimit.resetAt,
@@ -174,7 +181,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   queue.close();
 
   stdout.write(
-    `\n[agentrelay] Rate limit detected for ${adapter.displayName} (pattern: ${rateLimit.pattern}). Queued job ${job.id} to resume at ${rateLimit.resetAt}.\n` +
+    `\n[agentrelay] Rate limit detected for ${adapter.displayName} (pattern: ${rateLimit.pattern}). Queued job ${job.id} to resume at ${scheduledResetAt}.\n` +
       `Run "agentrelay daemon" (or schedule "agentrelay tick" via cron) to auto-resume it.\n`
   );
 
@@ -183,7 +190,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
     jobId: job.id,
     project,
     event: "queued",
-    message: `Rate limit detected, queued to resume at ${rateLimit.resetAt}`,
+    message: `Rate limit detected, queued to resume at ${scheduledResetAt}`,
   });
 
   return { exitCode, queuedJob: queue.getById(job.id) ?? null };
@@ -305,6 +312,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     queue,
     pollIntervalMs,
     retryPolicy: retryPolicyFromEnv(),
+    resumeStaggerMs: resumeStaggerMsFromEnv(),
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
@@ -342,6 +350,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     queue,
     notify: notify ?? undefined,
     retryPolicy: retryPolicyFromEnv(),
+    resumeStaggerMs: resumeStaggerMsFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
   });
   const processed = await scheduler.tick();
