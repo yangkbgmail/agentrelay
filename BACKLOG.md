@@ -472,6 +472,16 @@
       failed→1·timeout→124·unknown→1·크로스-프로세스 관측 검증. PR #96 발원 → 세션 37에서 최신 main에
       cherry-pick 통합(#137/#96 중복 대체). branch `claude/wizardly-pascal-4b32lg`)
 
+- [x] 👷 `agentrelay metrics` — 큐 지표를 Prometheus 텍스트 노출 형식으로 출력(관측성/스크레이프).
+      (완료 — `@agentrelay/core/metrics.ts` 신설(순수): `renderPrometheusMetrics(stats,{prefix?})`가
+      `computeStats` 결과를 Prometheus text exposition format으로 렌더. 전부 gauge(스토어가 prune으로
+      줄어 단조 아님), export(잡당 1행)와 달리 집계 전용. 패밀리: jobs·jobs_by_status(전 상태 zero-fill)·
+      jobs_by_tool·jobs_active/terminal·attempts·retried_jobs·success_rate(미해결 시 샘플 생략)·
+      resolved_jobs·resolution_seconds(avg/min/median/p90/max, 초 단위, resolved 0건이면 생략). 순수
+      `escapePrometheusLabel`·`sanitizeMetricPrefix` export, `summary.ts`의 `ALL_STATUSES` export해 공유.
+      CLI `agentrelay metrics`가 공용 `buildScope`(--status/--tool/--project/--since/--until)+`--prefix`
+      재사용, stdout 노출 텍스트 출력, 잘못된 입력은 exit 1. core metrics 12 신규 테스트, 실제 빌드 CLI
+      e2e로 게이지 값·스코프 부분집합·prefix 정화·에러 exit 검증. branch `claude/wizardly-pascal-q77dxu`)
 - [x] 👷 job에 rate-limit 감지 출처(provenance) 영속 — "릴레이가 왜 리셋 시각을 X로 판단했나"를
       `show`에서 확인. 지금까지 rate-limit이 감지되면 `resetAt`만 job에 저장되고, 어떤 파서 패턴이/
       어떤 raw 텍스트가 그 시각을 만들었는지는 enqueue 시점 콘솔 한 줄로만 찍혀 사후 조사가 불가능했다.

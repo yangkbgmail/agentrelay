@@ -1249,3 +1249,33 @@
   `show`가 "rate limit" 블록 렌더·`show --json`이 provenance 에코 확인.
 - **다음 할 일:** 대시보드 잡 카드/`status` 테이블에도 detection pattern 노출(후속). 남은 distinct PR 통합
   (세션 37 목록 참조). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 38 (병렬 세션 b) — `agentrelay metrics` (Prometheus 노출 형식)] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-q77dxu`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태이고 열린 PR이 29개(파서·stats 변형·next·데몬 가드·
+  대시보드 UI 등 관측/진단 커맨드가 이미 대거 점유)라 중복 위험이 컸다. 29개 열린 PR 목록을
+  전부 대조해 **어느 PR과도 겹치지 않는 신규 관측성(observability) 항목**을 발굴했다 — 지금까지
+  릴레이 지표를 사람용 `stats`·기계용 `--json`으로는 볼 수 있었지만, Prometheus 같은 표준 모니터링
+  스택으로 **스크레이프**할 방법이 없었다.
+- **한 일 (branch `claude/wizardly-pascal-q77dxu`): `agentrelay metrics` — Prometheus 텍스트 노출 형식.**
+  1. `@agentrelay/core/metrics.ts` 신설(순수·파일시스템/시계 미접촉): `renderPrometheusMetrics(stats,
+     {prefix?})`가 `computeStats` 결과를 Prometheus text exposition format으로 렌더. 모든 메트릭은
+     **gauge**(스토어가 `prune`로 줄 수 있어 단조 증가 아님), `export`(잡당 1행)와 달리 **집계 전용**
+     (Prometheus는 저-카디널리티 게이지를 원함, 잡 id당 샘플 X). 패밀리: `_jobs`(총계)·`_jobs_by_status`
+     (상태 라벨, 전 상태 zero-fill)·`_jobs_by_tool`(툴 라벨)·`_jobs_active`/`_jobs_terminal`·`_attempts`·
+     `_retried_jobs`·`_success_rate`(미해결 시 오해성 0/NaN 대신 **샘플 생략**)·`_resolved_jobs`·
+     `_resolution_seconds`(avg/min/median/p90/max, **초 단위**=Prometheus 기본, resolved 0건이면 생략).
+     순수 `escapePrometheusLabel`(백슬래시·쌍따옴표·개행)·`sanitizeMetricPrefix`(유효 메트릭명으로 강제:
+     비유효 문자→`_`, 선행 숫자는 `_` 접두, 전부 무효면 기본값) export. `summary.ts`의 `ALL_STATUSES`를
+     export해 상태 zero-fill을 stats/dashboard와 공유(드리프트 방지).
+  2. CLI `cli.ts`에 `agentrelay metrics` 커맨드 배선 — 기존 공용 `buildScope`(--status/--tool/--project/
+     --since/--until 검증+스코프)·`scopeJobs`·`computeStats` 재사용, `--prefix <prefix>` 추가.
+     stdout으로 노출 텍스트(trailing newline) 출력, 잘못된 status/tool·기간·빈 범위는 exit 1.
+     `--help`에 node_exporter textfile collector 스크레이프 예시.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **670 통과 + 1 skip**(core 455[+metrics 12] + cli 208[+1 skip] + dashboard 7).
+  **실제 빌드된 CLI e2e**(mock 아님): 3-job(completed/failed/queued) 스토어 시드 → `metrics`가
+  올바른 게이지(jobs 3·by_status·by_tool 각 1·active 1·terminal 2·attempts 6·retried 2·success_rate 0.5·
+  resolution_seconds avg 120/p90 168 초) 렌더, `--status failed --prefix my-relay`가 부분집합+`my_relay_`
+  접두(하이픈→`_` 정화) 출력, `--status bogus`는 exit 1 확인. 출력은 유효 Prometheus 노출 형식.
+- **다음 할 일:** 남은 distinct PR 통합(파서·stats 변형·next·데몬 가드·대시보드 UI 등 29개 큐 정리),
+  metrics를 대시보드/`export --format prometheus`로도 확장 검토(👷 후보). README/ARCHITECTURE(🧭 코워크).
