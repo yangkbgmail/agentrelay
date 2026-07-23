@@ -7,9 +7,11 @@ import {
   applyConfigToEnv,
   CONFIG_ENV_KEYS,
   CONFIG_FIELDS,
+  configFieldEnvKey,
   configToEnv,
   configToJson,
   findConfigField,
+  getEffectiveConfigValue,
   hasConfigErrors,
   loadConfigFile,
   parseConfig,
@@ -288,6 +290,66 @@ describe("resolveEffectiveConfig", () => {
     for (const key of emitted) expect(known.has(key)).toBe(true);
     // ...and no known key is dead (each maps to something configToEnv can emit).
     for (const { key } of CONFIG_ENV_KEYS) expect(emitted).toContain(key);
+  });
+});
+
+describe("configFieldEnvKey", () => {
+  it("maps every settable dotted key to exactly one known env var", () => {
+    const known = new Set(CONFIG_ENV_KEYS.map((k) => k.key));
+    for (const key of SETTABLE_CONFIG_KEYS) {
+      const envKey = configFieldEnvKey(key);
+      expect(envKey).toBeDefined();
+      expect(known.has(envKey as string)).toBe(true);
+    }
+  });
+
+  it("maps representative keys to their expected env vars", () => {
+    expect(configFieldEnvKey("store")).toBe("AGENTRELAY_STORE");
+    expect(configFieldEnvKey("retry.maxAttempts")).toBe("AGENTRELAY_MAX_ATTEMPTS");
+    // The boolean flag projects onto the 1/0 env var, not a literal name match.
+    expect(configFieldEnvKey("autoPrune.enabled")).toBe("AGENTRELAY_AUTOPRUNE");
+    expect(configFieldEnvKey("notify.webhookAuth")).toBe("AGENTRELAY_WEBHOOK_AUTH");
+  });
+
+  it("returns undefined for an unknown key", () => {
+    expect(configFieldEnvKey("nope")).toBeUndefined();
+    expect(configFieldEnvKey("retry.nope")).toBeUndefined();
+    expect(configFieldEnvKey("")).toBeUndefined();
+  });
+});
+
+describe("getEffectiveConfigValue", () => {
+  it("returns the config-file value and source when env does not set it", () => {
+    const entry = getEffectiveConfigValue("retry.maxAttempts", { retry: { maxAttempts: 7 } }, {});
+    expect(entry).toMatchObject({ key: "AGENTRELAY_MAX_ATTEMPTS", value: "7", source: "config-file" });
+  });
+
+  it("lets an env var win over the config file (precedence)", () => {
+    const entry = getEffectiveConfigValue(
+      "store",
+      { store: "/from/file.json" },
+      { AGENTRELAY_STORE: "/from/env.json" }
+    );
+    expect(entry).toMatchObject({ value: "/from/env.json", source: "env" });
+  });
+
+  it("reports source=default and value=undefined when nothing sets the key", () => {
+    const entry = getEffectiveConfigValue("retry.factor", null, {});
+    expect(entry).toMatchObject({ source: "default", value: undefined });
+  });
+
+  it("carries the secret flag for masking", () => {
+    const entry = getEffectiveConfigValue("notify.webhookAuth", { notify: { webhookAuth: "tok" } }, {});
+    expect(entry).toMatchObject({ value: "tok", secret: true });
+  });
+
+  it("projects the boolean autoPrune flag as its 1/0 env value", () => {
+    const entry = getEffectiveConfigValue("autoPrune.enabled", { autoPrune: { enabled: true } }, {});
+    expect(entry).toMatchObject({ key: "AGENTRELAY_AUTOPRUNE", value: "1", source: "config-file" });
+  });
+
+  it("returns undefined for an unknown key so the CLI can distinguish it from a default", () => {
+    expect(getEffectiveConfigValue("bogus.key", null, {})).toBeUndefined();
   });
 });
 

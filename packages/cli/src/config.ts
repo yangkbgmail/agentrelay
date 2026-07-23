@@ -2,7 +2,7 @@
 // resolves the same store file.
 import type { ConfigGroup, EffectiveConfigEntry } from "@agentrelay/core";
 import { applyConfigToEnv, loadConfigFile } from "@agentrelay/core";
-import type { ConfigShowResult } from "./commands.js";
+import type { ConfigGetResult, ConfigShowResult } from "./commands.js";
 
 export { defaultStorePath } from "@agentrelay/core";
 
@@ -37,7 +37,7 @@ export function configPathFromArgv(argv: string[]): string | undefined {
 }
 
 /** `config` subcommands that must run without the startup {@link bootstrapConfig}. */
-const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "set", "unset"]);
+const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "get", "set", "unset"]);
 
 /**
  * True when argv invokes a `config` subcommand that must run *without* the
@@ -45,10 +45,10 @@ const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "set", "unset"])
  *
  * - `validate` diagnoses a possibly-malformed file; bootstrap throws on one,
  *   which would abort before validate can report the problem.
- * - `show` reports the env > file > default precedence; bootstrap would fold
- *   the config file's values into `process.env` first, making them all look
- *   like they came from the environment. Skipping it keeps the layers distinct
- *   (`show` loads the file itself to attribute each value).
+ * - `show`/`get` report the env > file > default precedence; bootstrap would
+ *   fold the config file's values into `process.env` first, making them all
+ *   look like they came from the environment. Skipping it keeps the layers
+ *   distinct (both load the file themselves to attribute each value).
  * - `set`/`unset` edit the file directly; bootstrap would abort on a malformed
  *   existing file before the command can report its own clear error, and its
  *   env-folding is irrelevant since these commands never read env-driven options.
@@ -178,4 +178,53 @@ export function renderEffectiveConfigJson(
   generatedAt: string = new Date().toISOString()
 ): string {
   return JSON.stringify({ generatedAt, ...result }, null, 2);
+}
+
+/**
+ * The bare effective value for `config get <key>` — the script-friendly form
+ * (`V=$(agentrelay config get retry.maxAttempts)`). A key on its default prints
+ * the empty string. Secrets are masked unless `showSecrets`, matching
+ * `config show`. Unknown keys are handled by the caller (exit 1), not here.
+ */
+export function configGetValue(result: ConfigGetResult, showSecrets = false): string {
+  const entry = result.entry;
+  if (!entry || entry.value === undefined) return "";
+  if (entry.secret && !showSecrets) return maskSecret(entry.value);
+  return entry.value;
+}
+
+/**
+ * `config get <key> --source`: the value plus where it came from, e.g.
+ * `5\t[config-file]` or `(default)\t[default]`. Tab-separated so it stays
+ * parseable while being clearly distinct from the bare-value mode.
+ */
+export function renderConfigGetWithSource(result: ConfigGetResult, showSecrets = false): string {
+  const entry = result.entry;
+  const source = entry?.source ?? "default";
+  const value =
+    entry && entry.value !== undefined
+      ? entry.secret && !showSecrets
+        ? maskSecret(entry.value)
+        : entry.value
+      : "(default)";
+  return `${value}\t[${source}]`;
+}
+
+/**
+ * Machine-readable `config get --json`: `{ key, value, source, secret }`. The
+ * value is the raw effective value (null on default) — unmasked, mirroring
+ * `config show --json`'s machine-readable escape hatch.
+ */
+export function renderConfigGetJson(result: ConfigGetResult): string {
+  const entry = result.entry;
+  return JSON.stringify(
+    {
+      key: result.key,
+      value: entry && entry.value !== undefined ? entry.value : null,
+      source: entry?.source ?? "default",
+      secret: entry?.secret ?? false,
+    },
+    null,
+    2
+  );
 }

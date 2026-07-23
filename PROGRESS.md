@@ -1438,3 +1438,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay config get <key>` (단일 설정값 스크립트 조회)] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-q2itg1`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. `config`
+  하위에 `init`/`validate`/`show`/`set`/`unset`은 있는데, 유효 설정값 **하나**를 스크립트 친화적으로
+  뽑아내는 `get`이 없었다. `config show`는 전체 표를 렌더하므로 `V=$(agentrelay config get store)`
+  같은 셸 캡처가 불가능했다.
+- **한 일:**
+  1. core `config.ts`에 순수 `configFieldEnvKey(key)`(dotted 키→`AGENTRELAY_*` env 키; 기존
+     `setConfigValue`+`configToEnv` 투영을 단일 진실 소스로 재사용해 드리프트 방지) +
+     `getEffectiveConfigValue(key, fileConfig, env)`(`resolveEffectiveConfig`의 단일 키 형태,
+     env>파일>기본값 동일 우선순위, 미지 키는 `undefined` 반환) 추가.
+  2. CLI `commands.ts`에 `getConfigValue(options)`+`ConfigGetResult`(`showConfig`와 동일하게
+     손상 파일을 throw 없이 loadError로 보고, 미지 키는 `known:false`). CLI `config.ts`에
+     순수 `configGetValue`(bare 값·기본값은 빈 문자열·시크릿 마스킹)·`renderConfigGetWithSource`
+     (`--source`: `값\t[출처]`)·`renderConfigGetJson`(`--json`: `{key,value,source,secret}`).
+  3. CLI `cli.ts`에 `config get <key> [--json] [--source] [--show-secrets]` 배선(미지 키는
+     valid-keys 힌트와 함께 exit 1). `BOOTSTRAP_SKIP_SUBCOMMANDS`에 `get` 추가 — 부트스트랩이
+     파일 값을 process.env에 접어넣어 출처를 [env]로 오표기하는 것 방지(`show`와 동일 이유).
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  전 패키지 통과(core 500[configFieldEnvKey 3 + getEffectiveConfigValue 6 신규] + cli 237/1skip
+  [getConfigValue 9 + isConfigDiagnosticInvocation get 1 신규] + dashboard 7). 실제 빌드된 CLI
+  e2e(mock 아님): 파일 값 조회·env 우선순위·`--source`·기본값→빈 줄+exit 0·`--json`·시크릿
+  마스킹/`--show-secrets` 노출·미지 키→exit 1 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합(#164 parse --scan·#122 paths·#105 upcoming·#125
+  --no-color·#152 resolution Prometheus 히스토그램 등) 또는 신규 개선 발굴 계속. README/ARCHITECTURE(🧭 코워크).
