@@ -525,6 +525,19 @@
       신규 테스트, 실제 빌드 CLI로 config set/validate/show 지터 배선 e2e 검증. branch
       `claude/wizardly-pascal-119tzo`)
 
+- [x] 👷 `agentrelay config schema` — `agentrelay.config.json`용 JSON Schema(draft-07) 생성으로
+      에디터 자동완성·인라인 문서·검증 제공. `config init`(샘플)/`config validate`(사후 검사)와 달리
+      **타이핑 중** 도움.
+      (완료 — `@agentrelay/core/schema.ts` 신설(순수): `configJsonSchema()`가 단일 소스 `CONFIG_FIELDS`
+      에서 draft-07 스키마를 파생(커버리지 테스트로 드리프트 차단), 제약은 `validateConfig`와 정확히
+      미러(정수·minimum·factor≥1·jitter[0,1]·duration 패턴·webhook uri format). `additionalProperties:true`로
+      런타임 forward-compat와 일치, 자기참조 `$schema` 키도 기술. `configJsonSchemaJson()`(pretty+trailing
+      newline)·`DURATION_SCHEMA_PATTERN`·`CONFIG_SCHEMA_ID`. CLI `writeConfigSchema`(--out 파일 쓰기[부모
+      dir 생성·비-force 덮어쓰기 거부], 없으면 stdout) + `agentrelay config schema [-o path] [-f]` 배선,
+      정적 생성이라 startup bootstrap 스킵. core 15 + cli 5 신규 테스트, 실제 빌드 CLI e2e + Python
+      jsonschema Draft7Validator로 well-formed·샘플 통과·잘못된 값 거부 검증. branch
+      `claude/wizardly-pascal-gu8usn`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -27,7 +27,7 @@ export function configPathFromArgv(argv: string[]): string | undefined {
 }
 
 /** `config` subcommands that must run without the startup {@link bootstrapConfig}. */
-const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "set", "unset"]);
+const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "set", "unset", "schema"]);
 
 /**
  * True when argv invokes a `config` subcommand that must run *without* the
@@ -42,6 +42,8 @@ const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "set", "unset"])
  * - `set`/`unset` edit the file directly; bootstrap would abort on a malformed
  *   existing file before the command can report its own clear error, and its
  *   env-folding is irrelevant since these commands never read env-driven options.
+ * - `schema` statically generates a JSON Schema from the built-in field list; it
+ *   never reads the config file, so a malformed one must not block it.
  */
 export function isConfigDiagnosticInvocation(argv: string[] = process.argv): boolean {
   const args = subcommandTokens(argv);
