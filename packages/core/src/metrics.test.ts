@@ -120,6 +120,33 @@ describe("renderPrometheusMetrics", () => {
     expect(s.get('agentrelay_resolution_seconds{stat="p90"}')).toBe(60);
   });
 
+  it("emits a resolution_time histogram (bucket/sum/count) when jobs resolved", () => {
+    // Spans of 30s, 5m, 2h. Sum = 7,530 s. Cumulative: 1 ≤ 1m, 2 ≤ 5m, 3 ≤ 3h.
+    const jobs = [
+      job({ createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:30.000Z" }),
+      job({ createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:05:00.000Z" }),
+      job({ createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T02:00:00.000Z" }),
+    ];
+    const text = renderPrometheusMetrics(computeStats(jobs));
+    expect(text).toContain("# TYPE agentrelay_resolution_time_seconds histogram");
+    const s = parseSamples(text);
+    // `le` boundaries are rendered in seconds.
+    expect(s.get('agentrelay_resolution_time_seconds_bucket{le="60"}')).toBe(1);
+    expect(s.get('agentrelay_resolution_time_seconds_bucket{le="300"}')).toBe(2);
+    expect(s.get('agentrelay_resolution_time_seconds_bucket{le="3600"}')).toBe(2);
+    expect(s.get('agentrelay_resolution_time_seconds_bucket{le="10800"}')).toBe(3);
+    expect(s.get('agentrelay_resolution_time_seconds_bucket{le="+Inf"}')).toBe(3);
+    expect(s.get("agentrelay_resolution_time_seconds_sum")).toBe(7530);
+    expect(s.get("agentrelay_resolution_time_seconds_count")).toBe(3);
+    // The histogram base name must not collide with the quantile gauge family.
+    expect(text).toContain("# TYPE agentrelay_resolution_seconds gauge");
+  });
+
+  it("omits the resolution_time histogram when nothing has resolved", () => {
+    const text = renderPrometheusMetrics(computeStats([job({ status: "queued" })]));
+    expect(text).not.toContain("agentrelay_resolution_time_seconds");
+  });
+
   it("honors a custom prefix and sanitizes it", () => {
     const text = renderPrometheusMetrics(computeStats([job()]), { prefix: "my-relay" });
     expect(text).toContain("my_relay_jobs ");

@@ -40,6 +40,68 @@ export interface TimingStats {
    * for a relay: it's the near-worst-case time a job sat before resolving.
    */
   p90ResolutionMs: number | null;
+  /**
+   * Cumulative resolution-time histogram (Prometheus-style) over the same
+   * resolved jobs, or null when none resolved. Unlike the pre-aggregated
+   * percentile fields above — which can't be re-aggregated across relays — a
+   * histogram lets a scraper compute quantiles server-side (`histogram_quantile`)
+   * and merge multiple instances. Bucket boundaries are {@link RESOLUTION_BUCKETS_MS}.
+   */
+  histogram: ResolutionHistogram | null;
+}
+
+/** One cumulative bucket of a {@link ResolutionHistogram}. */
+export interface ResolutionHistogramBucket {
+  /** Inclusive upper bound of this cumulative bucket, in ms; `null` means +Inf. */
+  leMs: number | null;
+  /** Count of resolved jobs whose span is ≤ {@link leMs} (cumulative). */
+  count: number;
+}
+
+/**
+ * A Prometheus-style cumulative histogram of resolution-time spans. `buckets`
+ * are ascending by `leMs` with a final `+Inf` bucket (`leMs: null`) whose count
+ * equals {@link count}. `sumMs` is the sum of every observed span, so a scraper
+ * can derive the mean as `sumMs / count`.
+ */
+export interface ResolutionHistogram {
+  /** Ascending cumulative buckets; the last is `+Inf` (`leMs: null`). */
+  buckets: ResolutionHistogramBucket[];
+  /** Total number of observations (equals the `+Inf` bucket count). */
+  count: number;
+  /** Sum of all observed spans, in ms. */
+  sumMs: number;
+}
+
+/**
+ * Default histogram bucket upper bounds (ms), ascending. Sized for a rate-limit
+ * relay whose resolution times span minutes to a day: 1m, 5m, 15m, 30m, 1h, 3h,
+ * 6h, 12h, 1d. A `+Inf` bucket is always appended by {@link computeHistogram}.
+ */
+export const RESOLUTION_BUCKETS_MS: number[] = [
+  60_000, 300_000, 900_000, 1_800_000, 3_600_000, 10_800_000, 21_600_000, 43_200_000, 86_400_000,
+];
+
+/**
+ * Builds a cumulative histogram from ascending-sorted span durations (ms) and
+ * ascending bucket bounds (ms). Pure: each bucket's count is the number of spans
+ * ≤ its bound, and a final `+Inf` bucket holds the total. `sumMs` sums every
+ * span. Callers pass an already-sorted array so this stays a single pass.
+ */
+function computeHistogram(sortedAscMs: number[], bucketsMs: number[]): ResolutionHistogram {
+  let sumMs = 0;
+  for (const span of sortedAscMs) sumMs += span;
+
+  const buckets: ResolutionHistogramBucket[] = [];
+  // sortedAscMs is ascending, so a single advancing index counts each cumulative
+  // bucket without rescanning: everything before `idx` is already ≤ the bound.
+  let idx = 0;
+  for (const le of bucketsMs) {
+    while (idx < sortedAscMs.length && sortedAscMs[idx] <= le) idx += 1;
+    buckets.push({ leMs: le, count: idx });
+  }
+  buckets.push({ leMs: null, count: sortedAscMs.length });
+  return { buckets, count: sortedAscMs.length, sumMs };
 }
 
 export interface RelayStats {
@@ -275,9 +337,11 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       maxResolutionMs: null,
       medianResolutionMs: null,
       p90ResolutionMs: null,
+      histogram: null,
     };
   } else {
-    // Sort once ascending; percentiles read from it, min/max are its ends.
+    // Sort once ascending; percentiles read from it, min/max are its ends, and
+    // the histogram consumes the same sorted array in a single pass.
     const sorted = [...resolutionDurations].sort((a, b) => a - b);
     timing = {
       resolvedCount,
@@ -286,6 +350,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       maxResolutionMs: sorted[resolvedCount - 1],
       medianResolutionMs: percentile(sorted, 0.5),
       p90ResolutionMs: percentile(sorted, 0.9),
+      histogram: computeHistogram(sorted, RESOLUTION_BUCKETS_MS),
     };
   }
 

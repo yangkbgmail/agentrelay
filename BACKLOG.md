@@ -496,6 +496,19 @@
       core queue 3 + import 2 + cli show 1 신규 테스트, 실제 빌드 CLI e2e로 run→persist·show 블록·--json
       에코 검증. branch `claude/wizardly-pascal-7o70l9`)
 
+- [x] 👷 `agentrelay metrics` resolution-time Prometheus 히스토그램 — 사전 집계된 분위수 게이지
+      (avg/p90 등)는 Prometheus가 경고하는 안티패턴(인스턴스 간 재집계 불가). 서버측
+      `histogram_quantile` 계산이 가능한 누적 히스토그램을 추가로 노출.
+      (완료 — core `stats.ts`에 순수 `ResolutionHistogram`/`ResolutionHistogramBucket` +
+      `RESOLUTION_BUCKETS_MS`(1m~1d 기본 버킷) + 내부 `computeHistogram`(정렬 스팬 단일 패스 누적,
+      `+Inf`·`sumMs`·`count`) 신설, `TimingStats.histogram`(미해결 시 null) 확장 — `computeStats`가
+      기존 정렬 배열 재사용해 스팬 로직 단일 소스 유지, `stats --json`도 자동 노출. core `metrics.ts`에
+      `histogramFamily` + `resolution_time_seconds` 히스토그램(`_bucket{le}`·`_sum`·`_count`, 초 단위)
+      렌더 — 게이지 `resolution_seconds`와 base name 분리로 `# TYPE` 충돌 방지, 해결 잡 있을 때만 노출.
+      `renderPrometheusMetrics` 시그니처·CLI 배선 불변. stats +5, metrics +2 신규 테스트, 빌드된 CLI
+      e2e로 누적 버킷·스코프 부분집합·빈 스토어 생략·두 TYPE 공존·에러 exit 검증. branch
+      `claude/wizardly-pascal-knjvx5`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { computeDailyTrend, computeStats, GROUP_DIMENSIONS, groupStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import {
+  computeDailyTrend,
+  computeStats,
+  GROUP_DIMENSIONS,
+  groupStats,
+  isJobScopeActive,
+  RESOLUTION_BUCKETS_MS,
+  scopeJobs,
+} from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -43,6 +51,7 @@ describe("computeStats", () => {
       maxResolutionMs: null,
       medianResolutionMs: null,
       p90ResolutionMs: null,
+      histogram: null,
     });
   });
 
@@ -238,7 +247,58 @@ describe("computeStats", () => {
       maxResolutionMs: null,
       medianResolutionMs: null,
       p90ResolutionMs: null,
+      histogram: null,
     });
+  });
+});
+
+describe("computeStats resolution histogram", () => {
+  it("is null when no jobs have resolved", () => {
+    const stats = computeStats([job({ status: "queued" })]);
+    expect(stats.timing.histogram).toBeNull();
+  });
+
+  it("builds cumulative buckets, sum, and count over resolved spans", () => {
+    // Spans: 30s (≤1m), 5m (≤5m, inclusive), 2h (≤3h). Sum = 7,530,000 ms.
+    const stats = computeStats([
+      job({ createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:30.000Z" }),
+      job({ createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:05:00.000Z" }),
+      job({ createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T02:00:00.000Z" }),
+    ]);
+    const hist = stats.timing.histogram;
+    expect(hist).not.toBeNull();
+    if (hist === null) throw new Error("unreachable");
+
+    // One bucket per default boundary, plus a final +Inf bucket.
+    expect(hist.buckets).toHaveLength(RESOLUTION_BUCKETS_MS.length + 1);
+    expect(hist.buckets.map((b) => b.leMs)).toEqual([...RESOLUTION_BUCKETS_MS, null]);
+
+    // Cumulative counts: 1 by 1m, 2 by 5m, 3 by 3h, and +Inf holds them all.
+    const byLe = new Map(hist.buckets.map((b) => [b.leMs, b.count]));
+    expect(byLe.get(60_000)).toBe(1);
+    expect(byLe.get(300_000)).toBe(2);
+    expect(byLe.get(1_800_000)).toBe(2);
+    expect(byLe.get(3_600_000)).toBe(2);
+    expect(byLe.get(10_800_000)).toBe(3);
+    expect(byLe.get(null)).toBe(3);
+
+    // Buckets are monotonically non-decreasing (a valid cumulative histogram).
+    for (let i = 1; i < hist.buckets.length; i += 1) {
+      expect(hist.buckets[i].count).toBeGreaterThanOrEqual(hist.buckets[i - 1].count);
+    }
+
+    expect(hist.count).toBe(3);
+    expect(hist.sumMs).toBe(30_000 + 300_000 + 7_200_000);
+  });
+
+  it("excludes cancelled and unresolved jobs from the histogram", () => {
+    const stats = computeStats([
+      job({ createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:30.000Z" }),
+      job({ status: "cancelled", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T05:00:00.000Z" }),
+      job({ status: "queued" }),
+    ]);
+    expect(stats.timing.histogram?.count).toBe(1);
+    expect(stats.timing.histogram?.sumMs).toBe(30_000);
   });
 });
 
