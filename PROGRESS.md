@@ -1382,3 +1382,21 @@
   #105 upcoming·#104/#69 데몬 가드·#102 Gemini·#101/#141/#142/#144/#146/#149 파서 계열·#100 completion
   fish·#75 resume latency·#61 doctor 큐 진행·#143 import scope·#78 roundup). 파서 계열은 서로 중복
   많아 하나로 수렴 통합 필요. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 42 — `agentrelay run --project <name>`(잡 프로젝트 라벨 명시 지정)] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-881r8n`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. 열린 PR 37건을
+  전수 확인해 중복 없는 clean·self-contained 항목 선정. `run`은 프로젝트 라벨을 cwd 마지막 세그먼트로만
+  유도해, 하위 디렉터리 실행 시 `src`/`packages` 같은 무의미한 이름이 붙거나 여러 관련 잡을 하나의
+  논리 프로젝트로 묶을 수 없었다. 그런데 `status`/`stats`/`export`/`cancel`/`retry`/`metrics`/`patterns`의
+  `--project` 필터가 전부 이 라벨을 키로 쓰므로, 라벨 제어 불가가 필터 생태계 전체의 효용을 떨어뜨렸다.
+- **한 일:**
+  1. `resolveProjectName(cwd, override?)` 확장 — override에 비공백 내용이 있으면 우선, 공백/빈 문자열이면
+     기존 cwd 유도로 폴백(하위호환, 순수·단위 테스트 가능). 새 core 코드 0줄(CLI 유틸만 확장).
+  2. `RunOptions.project` 추가, `runCommand`가 `resolveProjectName(cwd, options.project)`로 라벨 해소.
+     CLI `run`에 `-p, --project <name>` 옵션 배선.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **706 통과 + 1 skip**(core 478 + cli 221/1skip + dashboard 7 — resolveProjectName 3 + runCommand
+  override/blank-fallback 2 신규). 실제 빌드된 CLI e2e(mock 아님): `run --project billing-service`가
+  잡을 그 라벨로 큐잉→`status --project billing-service` 필터 매치, `run --help`에 옵션 노출 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(파서 계열 수렴·stats --watch·진단 커맨드들),
+  README/ARCHITECTURE(🧭 코워크). 신규 👷 후보: `run --cwd`(작업 디렉터리 override)·재개 시각 stagger.

@@ -340,12 +340,17 @@ export function buildCli(): Command {
       "--tool <tool>",
       "Agent tool adapter to use (claude-code | codex-cli | generic). Inferred from the command when omitted."
     )
-    .action(async (command: string[], opts: { tool?: string }) => {
+    .option(
+      "-p, --project <name>",
+      "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
+    )
+    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
       const { store } = program.opts();
       const result = await runCommand({
         command,
         storePath: store,
         tool: opts.tool as AgentTool | undefined,
+        project: opts.project,
       });
       process.exitCode = result.exitCode;
     });

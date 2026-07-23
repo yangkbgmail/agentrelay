@@ -25,7 +25,25 @@ import {
   validateConfigFile,
   waitForJob,
 } from "../src/commands.js";
-import { isConfigDiagnosticInvocation, renderEffectiveConfig } from "../src/config.js";
+import { isConfigDiagnosticInvocation, renderEffectiveConfig, resolveProjectName } from "../src/config.js";
+
+describe("resolveProjectName", () => {
+  it("derives the label from the cwd's last path segment", () => {
+    expect(resolveProjectName("/home/user/my-app")).toBe("my-app");
+    expect(resolveProjectName("/home/user/my-app/")).toBe("my-app");
+  });
+
+  it("prefers a non-blank override over the derived name", () => {
+    expect(resolveProjectName("/home/user/my-app", "billing")).toBe("billing");
+    expect(resolveProjectName("/home/user/my-app", "  billing  ")).toBe("billing");
+  });
+
+  it("ignores a blank/whitespace override and falls back to the cwd", () => {
+    expect(resolveProjectName("/home/user/my-app", "")).toBe("my-app");
+    expect(resolveProjectName("/home/user/my-app", "   ")).toBe("my-app");
+    expect(resolveProjectName("/home/user/my-app", undefined)).toBe("my-app");
+  });
+});
 
 describe("runCommand", () => {
   let dir: string;
@@ -116,6 +134,33 @@ describe("runCommand", () => {
       notify,
     });
     expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("labels the queued job with an explicit --project override", async () => {
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      project: "my-service",
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    expect(result.queuedJob?.project).toBe("my-service");
+    expect(listStatus(storePath)[0].project).toBe("my-service");
+  });
+
+  it("falls back to the cwd-derived project when --project is blank", async () => {
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      project: "   ",
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    // dir is a mkdtemp path; its last segment is the derived label, never blank.
+    expect(result.queuedJob?.project).toBe(dir.split("/").filter(Boolean).pop());
+    expect(result.queuedJob?.project?.trim()).not.toBe("");
   });
 });
 

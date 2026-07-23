@@ -6,7 +6,17 @@ import type { ConfigShowResult } from "./commands.js";
 
 export { defaultStorePath } from "@agentrelay/core";
 
-export function resolveProjectName(cwd: string): string {
+/**
+ * Resolve the project label for a job. An explicit `override` (e.g. from
+ * `agentrelay run --project`) wins when it has any non-whitespace content, so
+ * users can give jobs a meaningful, stable label instead of whatever the cwd's
+ * last path segment happens to be — which is what every `--project` filter
+ * (`status`/`stats`/`export`/`cancel`/`retry`) keys off. A blank or
+ * whitespace-only override is ignored and we fall back to the derived name.
+ */
+export function resolveProjectName(cwd: string, override?: string): string {
+  const trimmed = override?.trim();
+  if (trimmed) return trimmed;
   // Last path segment is good enough for a human-readable project label.
   const parts = cwd.split("/").filter(Boolean);
   return parts[parts.length - 1] ?? cwd;
