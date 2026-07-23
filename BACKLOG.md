@@ -17,6 +17,11 @@
       12am·12pm/타임존 오프셋 ISO/잘못된 ISO fallthrough/시간단위만/JSON `retry_after`/멀티라인.
       파서도 `"retry_after": N` JSON 형식 인식하도록 개선. branch `claude/keen-allen-u5qt1l`)
 - [ ] 👷🧭 최종 QA + 재현 가능한 데모 스크립트.
+      (👷 데모 스크립트 부분 완료 — `scripts/demo.mjs`: 임시 스토어에서 가짜 에이전트를 래핑해
+      rate-limit 감지→큐잉→reset 대기→tick 재개→completed 전 과정을 결정론적으로 시연. `pnpm demo`
+      로 실행, 최종 상태가 "completed 1건"이 아니면 non-zero 종료(스모크 테스트 겸용).
+      `packages/cli/test/demo.test.ts`가 이 스크립트를 CI에서 자동 구동. 남은 🧭 부분: 최종 QA 문서.
+      branch `claude/wizardly-pascal-m4s22g`)
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
