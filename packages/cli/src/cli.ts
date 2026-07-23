@@ -63,6 +63,7 @@ import {
   unsetConfigFile,
   validateConfigFile,
   waitForJob,
+  writeConfigSchema,
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
@@ -1235,6 +1236,26 @@ export function buildCli(): Command {
       } else {
         console.error(`[agentrelay] ${result.message}`);
         process.exitCode = 1;
+      }
+    });
+  config
+    .command("schema")
+    .description("Print (or write with --out) a JSON Schema for agentrelay.config.json for editor validation")
+    .option("-o, --out <path>", "Write the schema to a file instead of stdout (e.g. agentrelay.config.schema.json)")
+    .option("-f, --force", "Overwrite an existing file at --out")
+    .action((opts: { out?: string; force?: boolean }) => {
+      const result = writeConfigSchema({ out: opts.out, force: opts.force });
+      if (!result.ok) {
+        console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 1;
+        return;
+      }
+      // With --out the content went to a file; report the path. Without it the
+      // schema itself is the output (stdout stays clean for redirection).
+      if (result.message) {
+        console.log(`[agentrelay] ${result.message}`);
+      } else {
+        process.stdout.write(result.content);
       }
     });
 

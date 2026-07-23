@@ -24,6 +24,7 @@ import {
   unsetConfigFile,
   validateConfigFile,
   waitForJob,
+  writeConfigSchema,
 } from "../src/commands.js";
 import { isConfigDiagnosticInvocation, renderEffectiveConfig } from "../src/config.js";
 
@@ -392,6 +393,61 @@ describe("initConfig", () => {
     expect(result.ok).toBe(true);
     expect(result.message).toMatch(/Overwrote/);
     expect(readFileSync(path, "utf8")).toBe(sampleConfigJson());
+  });
+});
+
+describe("writeConfigSchema", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-schema-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("returns the schema content for stdout when no --out is given", () => {
+    const result = writeConfigSchema();
+    expect(result.ok).toBe(true);
+    expect(result.path).toBeNull();
+    expect(result.message).toBeNull();
+    const parsed = JSON.parse(result.content);
+    expect(parsed.$schema).toBe("http://json-schema.org/draft-07/schema#");
+    expect(parsed.properties.retry.properties.jitter).toMatchObject({ minimum: 0, maximum: 1 });
+  });
+
+  it("writes the schema to --out and reports the path", () => {
+    const result = writeConfigSchema({ cwd: dir, out: "agentrelay.config.schema.json" });
+    expect(result.ok).toBe(true);
+    expect(result.path).toBe(join(dir, "agentrelay.config.schema.json"));
+    expect(existsSync(result.path as string)).toBe(true);
+    expect(readFileSync(result.path as string, "utf8")).toBe(result.content);
+    expect(result.message).toMatch(/\$schema/);
+  });
+
+  it("creates parent directories for a nested --out", () => {
+    const result = writeConfigSchema({ cwd: dir, out: "nested/schema.json" });
+    expect(result.ok).toBe(true);
+    expect(existsSync(join(dir, "nested", "schema.json"))).toBe(true);
+  });
+
+  it("refuses to overwrite an existing file without --force", () => {
+    const path = join(dir, "schema.json");
+    writeFileSync(path, "{}");
+    const result = writeConfigSchema({ cwd: dir, out: "schema.json" });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/already exists/);
+    expect(readFileSync(path, "utf8")).toBe("{}"); // untouched
+  });
+
+  it("overwrites when force is set", () => {
+    const path = join(dir, "schema.json");
+    writeFileSync(path, "{}");
+    const result = writeConfigSchema({ cwd: dir, out: "schema.json", force: true });
+    expect(result.ok).toBe(true);
+    expect(result.message).toMatch(/Overwrote/);
+    expect(readFileSync(path, "utf8")).toBe(result.content);
   });
 });
 

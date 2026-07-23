@@ -1382,3 +1382,25 @@
   #105 upcoming·#104/#69 데몬 가드·#102 Gemini·#101/#141/#142/#144/#146/#149 파서 계열·#100 completion
   fish·#75 resume latency·#61 doctor 큐 진행·#143 import scope·#78 roundup). 파서 계열은 서로 중복
   많아 하나로 수렴 통합 필요. README/ARCHITECTURE(🧭 코워크).
+
+## 세션 42 (2026-07-23) — `agentrelay config schema` (JSON Schema 생성)
+
+- **배경:** 👷 명시 백로그가 전부 완료 상태이고 데모 스크립트(#154/#156)·최종 QA는 이미 다른
+  세션이 다루고 있어 중복. CLAUDE.md 지침대로 스스로 새 개선 항목을 발굴 — config 파일은
+  주석 없는 손편집 JSON이라 `config init`(샘플)·`config validate`(사후 검사)는 있어도 **에디터에서
+  타이핑하는 중** 도와줄 방법이 없었다. JSON Schema를 emit해 `"$schema"` 참조 한 줄로 자동완성·
+  인라인 문서·잘못된 값 즉시 경고를 제공한다.
+- **한 일:** `@agentrelay/core/schema.ts` 신설(순수·FS/env 미접촉): `configJsonSchema()`가
+  단일 소스 `CONFIG_FIELDS`에서 draft-07 스키마를 **파생**(드리프트 불가 — 커버리지 테스트로
+  누락/잉여 차단), 제약은 `validateConfig`와 정확히 미러(정수·minimum 0·factor≥1·jitter[0,1]·
+  duration 패턴·webhook uri format). `additionalProperties:true`로 런타임 forward-compat(미지 키
+  무시)와 일치, 자기참조 `$schema` 키도 기술. `configJsonSchemaJson()`(pretty+trailing newline).
+  CLI `writeConfigSchema`(--out 파일 쓰기[부모 dir 생성·비-force 덮어쓰기 거부], 없으면 stdout) +
+  `agentrelay config schema [-o path] [-f]` 배선. 정적 생성이라 startup `bootstrapConfig` 스킵.
+- **검증:** `pnpm build` 클린(Next 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **721 통과 + 1 skip**(core 493 + cli 221/1skip + dashboard 7, schema core 15 + cli 5 신규).
+  실제 빌드 CLI e2e: stdout·--out·덮어쓰기 거부/force. Python `jsonschema` Draft7Validator로
+  생성 스키마가 well-formed·샘플 config 통과·잘못된 값(jitter=2/maxAttempts=1.5/"5x") 정확히 거부 확인.
+- **다음 할 일:** 남은 distinct CI-초록 PR 통합 계속(#152 resolution-time 히스토그램·#158 stagger·
+  #136 run --label·#145 stats --watch 등). 파서 계열(#101/#141/#142/#144/#146/#149)은 서로 중복
+  많아 하나로 수렴 통합 필요. README/ARCHITECTURE(🧭 코워크).

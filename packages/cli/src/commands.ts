@@ -33,6 +33,7 @@ import {
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  configJsonSchemaJson,
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
@@ -589,6 +590,68 @@ export function initConfig(options: ConfigInitOptions = {}): ConfigInitResult {
 
   const verb = options.force ? "Overwrote" : "Wrote";
   return { ok: true, path, message: `${verb} sample config to ${path}. Edit it, then run any command.` };
+}
+
+export interface ConfigSchemaOptions {
+  /** File to write the schema to. When omitted, the caller prints to stdout. */
+  out?: string;
+  /** Overwrite an existing file at `out`. */
+  force?: boolean;
+  /** Directory a relative `out` resolves against. Defaults to `process.cwd()`. */
+  cwd?: string;
+}
+
+export interface ConfigSchemaResult {
+  ok: boolean;
+  /** The generated JSON Schema text (always populated, whether written or not). */
+  content: string;
+  /** Absolute path written to, or null when emitting to stdout. */
+  path: string | null;
+  /** Status line for the CLI; null when the content itself is the output. */
+  message: string | null;
+}
+
+/** Default filename for a written schema, referenced from a config's `$schema`. */
+export const CONFIG_SCHEMA_FILENAME = "agentrelay.config.schema.json";
+
+/**
+ * Produces the JSON Schema for `agentrelay.config.json`. With no `out`, returns
+ * the content for the CLI to print (message null). With `out`, writes the file
+ * (refusing to clobber an existing one unless `force`) and returns a status
+ * message. The schema is derived from `CONFIG_FIELDS`, so it never drifts from
+ * the fields the tool reads. Pure content generation; only the optional write
+ * touches the filesystem.
+ */
+export function writeConfigSchema(options: ConfigSchemaOptions = {}): ConfigSchemaResult {
+  const content = configJsonSchemaJson();
+  if (!options.out) {
+    return { ok: true, content, path: null, message: null };
+  }
+
+  const cwd = options.cwd ?? process.cwd();
+  const path = resolve(cwd, options.out.trim() || CONFIG_SCHEMA_FILENAME);
+  if (existsSync(path) && !options.force) {
+    return {
+      ok: false,
+      content,
+      path,
+      message: `Schema already exists at ${path}. Re-run with --force to overwrite.`,
+    };
+  }
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content, "utf8");
+  } catch (error) {
+    return { ok: false, content, path, message: `Could not write schema to ${path}: ${String(error)}` };
+  }
+
+  const verb = options.force ? "Overwrote" : "Wrote";
+  return {
+    ok: true,
+    content,
+    path,
+    message: `${verb} config schema to ${path}. Add "$schema": "./${basename(path)}" to your config for editor validation.`,
+  };
 }
 
 export interface ConfigValidateOptions {
