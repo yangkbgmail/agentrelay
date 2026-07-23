@@ -112,6 +112,32 @@ describe("validateJobRecord", () => {
     expect(validateJobRecord({ ...job(), resetAt: 123 }).ok).toBe(false);
     expect(validateJobRecord({ ...job(), lastError: {} }).ok).toBe(false);
   });
+
+  it("preserves well-formed lastRateLimit provenance", () => {
+    const detection = {
+      pattern: "clock-time-meridiem",
+      rawMatch: "reset at 5pm",
+      resetAt: "2026-07-13T21:00:00.000Z",
+      detectedAt: "2026-07-13T18:00:00.000Z",
+    };
+    const result = validateJobRecord({ ...job(), lastRateLimit: detection });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.job.lastRateLimit).toEqual(detection);
+  });
+
+  it("drops malformed or absent lastRateLimit instead of rejecting the record", () => {
+    for (const bad of [
+      undefined,
+      null,
+      {},
+      { pattern: "x" },
+      { pattern: 1, rawMatch: "y", resetAt: "z", detectedAt: "t" },
+    ]) {
+      const result = validateJobRecord({ ...job(), lastRateLimit: bad });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.job.lastRateLimit).toBeUndefined();
+    }
+  });
 });
 
 describe("parseImportJobs (json)", () => {

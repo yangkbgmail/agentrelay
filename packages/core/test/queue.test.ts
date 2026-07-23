@@ -45,6 +45,29 @@ describe("RelayQueue", () => {
     expect(queue.listDue(new Date(Date.now() + 2000))).toHaveLength(1);
   });
 
+  it("initializes lastRateLimit to null on enqueue", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    expect(job.lastRateLimit).toBeNull();
+  });
+
+  it("persists rate-limit detection provenance when parking a job", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    const resetAt = new Date(Date.now() + 60_000).toISOString();
+    const detection = { pattern: "clock-time-meridiem", rawMatch: "reset at 5pm", resetAt, detectedAt: resetAt };
+    queue.markWaitingForReset(job.id, resetAt, detection);
+
+    const reloaded = queue.getById(job.id);
+    expect(reloaded?.lastRateLimit).toEqual(detection);
+    expect(reloaded?.resetAt).toBe(resetAt);
+  });
+
+  it("leaves lastRateLimit untouched when parking without a detection", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    const resetAt = new Date(Date.now() + 60_000).toISOString();
+    queue.markWaitingForReset(job.id, resetAt);
+    expect(queue.getById(job.id)?.lastRateLimit).toBeNull();
+  });
+
   it("tracks attempts across resumes", () => {
     const job = queue.enqueue({
       project: "demo",

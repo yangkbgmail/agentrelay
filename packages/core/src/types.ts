@@ -11,6 +11,26 @@ export interface RateLimitInfo {
   pattern: string;
 }
 
+/**
+ * Provenance of the rate-limit that most recently parked a job in
+ * `waiting_for_reset`: which parser pattern matched, the raw text it matched,
+ * the reset it produced, and when it was recorded. Persisted on the job so
+ * `agentrelay show` (and the dashboard) can answer the #1 debugging question —
+ * *why* does the relay think the reset is at that time? Without this, the only
+ * hint that a detection happened is a one-off console line at enqueue time,
+ * long gone by the time someone inspects a queued job.
+ */
+export interface RateLimitDetection {
+  /** Name of the parser pattern that matched (see parser.ts / adapters.ts). */
+  pattern: string;
+  /** The raw substring of the agent output that matched. */
+  rawMatch: string;
+  /** ISO timestamp of the reset this detection produced. */
+  resetAt: string;
+  /** ISO timestamp when the detection was recorded. */
+  detectedAt: string;
+}
+
 export interface RelayJob {
   id: string;
   project: string;
@@ -26,6 +46,13 @@ export interface RelayJob {
   attempts: number;
   lastError: string | null;
   lastOutputTail: string | null;
+  /**
+   * Provenance of the last rate-limit detection that parked this job (see
+   * {@link RateLimitDetection}). Optional so stores written before this field
+   * existed load without migration; `null` once a job has been touched but no
+   * rate limit has been detected yet.
+   */
+  lastRateLimit?: RateLimitDetection | null;
 }
 
 export interface CreateJobInput {

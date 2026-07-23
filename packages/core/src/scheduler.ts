@@ -180,7 +180,12 @@ export class RelayScheduler {
         this.queue.markFailed(job.id, msg, tail);
         await this.notify({ jobId: job.id, project: job.project, event: "failed", message: msg });
       } else {
-        this.queue.markWaitingForReset(job.id, rateLimit.resetAt);
+        this.queue.markWaitingForReset(job.id, rateLimit.resetAt, {
+          pattern: rateLimit.pattern,
+          rawMatch: rateLimit.rawMatch,
+          resetAt: rateLimit.resetAt,
+          detectedAt: new Date().toISOString(),
+        });
         await this.notify({
           jobId: job.id,
           project: job.project,

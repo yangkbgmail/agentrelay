@@ -92,6 +92,15 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
   }
   lines.push(`  ${label("attempts")} ${job.attempts}`);
 
+  const detection = job.lastRateLimit;
+  if (detection) {
+    lines.push("");
+    lines.push(b("rate limit"));
+    lines.push(`  ${label("pattern")} ${detection.pattern}`);
+    lines.push(`  ${label("matched")} ${detection.rawMatch}`);
+    lines.push(`  ${label("detected")} ${detection.detectedAt}`);
+  }
+
   if (job.lastError) {
     lines.push("");
     lines.push(b("last error"));
