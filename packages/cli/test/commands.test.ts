@@ -9,6 +9,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  getConfig,
   importStore,
   initConfig,
   listStatus,
@@ -25,7 +26,12 @@ import {
   validateConfigFile,
   waitForJob,
 } from "../src/commands.js";
-import { isConfigDiagnosticInvocation, renderEffectiveConfig } from "../src/config.js";
+import {
+  isConfigDiagnosticInvocation,
+  renderConfigValue,
+  renderConfigValueJson,
+  renderEffectiveConfig,
+} from "../src/config.js";
 
 describe("runCommand", () => {
   let dir: string;
@@ -756,12 +762,89 @@ describe("showConfig", () => {
   });
 });
 
+describe("getConfig", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-get-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("flags an unknown key without treating it as a missing value", () => {
+    const result = getConfig({ key: "does.not.exist", cwd: dir, env: { HOME: dir } });
+    expect(result.unknownKey).toBe(true);
+    expect(result.entry).toBeUndefined();
+  });
+
+  it("returns the built-in default (undefined value) when nothing sets the key", () => {
+    const result = getConfig({ key: "retry.maxAttempts", cwd: dir, env: { HOME: dir } });
+    expect(result.unknownKey).toBe(false);
+    expect(result.entry).toMatchObject({ source: "default", value: undefined, envKey: "AGENTRELAY_MAX_ATTEMPTS" });
+    // Script-friendly render: empty string for a default so `X=$(...)` is empty.
+    expect(renderConfigValue(result)).toBe("");
+  });
+
+  it("reads a file value and renders the bare value", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ store: "/from/file.json" }));
+    const result = getConfig({ key: "store", path, env: {} });
+    expect(result.entry).toMatchObject({ source: "config-file", value: "/from/file.json" });
+    expect(renderConfigValue(result)).toBe("/from/file.json");
+  });
+
+  it("honors env precedence over the file (same rule as show)", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ store: "/from/file.json" }));
+    const result = getConfig({ key: "store", path, env: { AGENTRELAY_STORE: "/from/env.json" } });
+    expect(result.entry).toMatchObject({ source: "env", value: "/from/env.json" });
+    expect(renderConfigValue(result)).toBe("/from/env.json");
+  });
+
+  it("masks a secret value unless showSecrets is set", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ notify: { webhookAuth: "Bearer supersecrettoken" } }));
+    const result = getConfig({ key: "notify.webhookAuth", path, env: {} });
+    expect(renderConfigValue(result)).not.toContain("Bearer supersecrettoken");
+    expect(renderConfigValue(result)).toContain("oken");
+    expect(renderConfigValue(result, { showSecrets: true })).toBe("Bearer supersecrettoken");
+  });
+
+  it("does not throw on a broken config file — reports loadError, resolves env/default", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, "{ not json");
+    const result = getConfig({ key: "store", path, env: { AGENTRELAY_STORE: "/env.json" } });
+    expect(result.loadError).toBeDefined();
+    expect(result.entry).toMatchObject({ source: "env", value: "/env.json" });
+  });
+
+  it("--json render carries value, source, and masks secrets", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ notify: { webhookAuth: "Bearer supersecrettoken" } }));
+    const result = getConfig({ key: "notify.webhookAuth", path, env: {} });
+    const parsed = JSON.parse(renderConfigValueJson(result, {}, "2026-01-01T00:00:00.000Z"));
+    expect(parsed).toMatchObject({ key: "notify.webhookAuth", source: "config-file", secret: true });
+    expect(parsed.value).not.toContain("Bearer supersecrettoken");
+    const revealed = JSON.parse(renderConfigValueJson(result, { showSecrets: true }, "2026-01-01T00:00:00.000Z"));
+    expect(revealed.value).toBe("Bearer supersecrettoken");
+  });
+
+  it("--json render for an unknown key nulls the value fields", () => {
+    const result = getConfig({ key: "nope", cwd: dir, env: { HOME: dir } });
+    const parsed = JSON.parse(renderConfigValueJson(result, {}, "2026-01-01T00:00:00.000Z"));
+    expect(parsed).toMatchObject({ key: "nope", value: null, source: null, envKey: null });
+  });
+});
+
 describe("isConfigDiagnosticInvocation", () => {
   const argv = (...rest: string[]) => ["node", "bin.js", ...rest];
 
-  it("recognizes plain config validate/show", () => {
+  it("recognizes plain config validate/show/get", () => {
     expect(isConfigDiagnosticInvocation(argv("config", "validate"))).toBe(true);
     expect(isConfigDiagnosticInvocation(argv("config", "show"))).toBe(true);
+    expect(isConfigDiagnosticInvocation(argv("config", "get"))).toBe(true);
   });
 
   it("recognizes them past a global --config <path> (the value is not the command)", () => {
