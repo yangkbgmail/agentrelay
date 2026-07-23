@@ -524,6 +524,17 @@
       configToEnv·CONFIG_ENV_KEYS — 드리프트 sync 테스트 통과). core retry +7 / config +2 / scheduler +1
       신규 테스트, 실제 빌드 CLI로 config set/validate/show 지터 배선 e2e 검증. branch
       `claude/wizardly-pascal-119tzo`)
+- [x] 👷 `agentrelay run --project <name>` — 큐잉되는 잡의 프로젝트 라벨 명시 지정(자동 유도명 덮어쓰기).
+      (완료 — `run`은 지금까지 프로젝트 라벨을 cwd 마지막 경로 세그먼트로만 유도해, 하위 디렉터리에서
+      실행하면 `src`/`packages` 같은 무의미한 이름이 붙거나 여러 관련 잡을 하나의 논리적 프로젝트로
+      묶을 수 없었다. 그런데 `status`/`stats`/`export`/`cancel`/`retry`/`metrics`/`patterns`의
+      `--project` 필터가 전부 이 라벨을 키로 쓰므로, 라벨을 제어 못 하면 필터 생태계 전체의 효용이
+      떨어졌다. `resolveProjectName(cwd, override?)`를 확장 — override에 비공백 내용이 있으면 우선,
+      공백/빈 문자열이면 기존 cwd 유도로 폴백(하위호환, 순수·단위 테스트 가능). `RunOptions.project`
+      추가, `runCommand`가 `resolveProjectName(cwd, options.project)`로 라벨 해소. CLI `run`에
+      `-p, --project <name>` 옵션 배선. 새 core 코드 0줄. cli commands.test에 resolveProjectName 3 +
+      runCommand override/blank-fallback 2케이스 추가, 실제 빌드 CLI e2e로 라벨 지정→status --project
+      필터 매치·help 노출 검증. branch `claude/wizardly-pascal-881r8n`)
 
 - [x] 👷 `agentrelay errors` — 실패 잡을 에러 사유별로 묶어 빈도순으로 보여주는 진단 커맨드
       ("왜 재개가 조용히 실패하나?"의 한눈 답).

@@ -1403,3 +1403,38 @@
 - **다음 할 일:** 남은 distinct PR 통합 계속(#122 paths·#136 run --label·#105 upcoming·#125 --no-color·
   #163 run --project·#164 parse --scan·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 43 — distinct CI-초록 PR #163(`agentrelay run --project <name>`) 최신 main 통합] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-881r8n`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. 열린 PR 37건을
+  전수 확인해 중복 없는 clean·self-contained 항목 선정. `run`은 프로젝트 라벨을 cwd 마지막 세그먼트로만
+  유도해, 하위 디렉터리 실행 시 `src`/`packages` 같은 무의미한 이름이 붙거나 여러 관련 잡을 하나의
+  논리 프로젝트로 묶을 수 없었다. 그런데 `status`/`stats`/`export`/`cancel`/`retry`/`metrics`/`patterns`의
+  `--project` 필터가 전부 이 라벨을 키로 쓰므로, 라벨 제어 불가가 필터 생태계 전체의 효용을 떨어뜨렸다.
+- **한 일:**
+  1. `resolveProjectName(cwd, override?)` 확장 — override에 비공백 내용이 있으면 우선, 공백/빈 문자열이면
+     기존 cwd 유도로 폴백(하위호환, 순수·단위 테스트 가능). 새 core 코드 0줄(CLI 유틸만 확장).
+  2. `RunOptions.project` 추가, `runCommand`가 `resolveProjectName(cwd, options.project)`로 라벨 해소.
+     CLI `run`에 `-p, --project <name>` 옵션 배선.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **706 통과 + 1 skip**(core 478 + cli 221/1skip + dashboard 7 — resolveProjectName 3 + runCommand
+  override/blank-fallback 2 신규). 실제 빌드된 CLI e2e(mock 아님): `run --project billing-service`가
+  잡을 그 라벨로 큐잉→`status --project billing-service` 필터 매치, `run --help`에 옵션 노출 확인.
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. `run`은
+  프로젝트 라벨을 cwd 마지막 세그먼트로만 유도해, 하위 디렉터리 실행 시 `src`/`packages` 같은
+  무의미한 이름이 붙거나 여러 관련 잡을 하나의 논리 프로젝트로 묶을 수 없었다. 그런데
+  `status`/`stats`/`export`/`cancel`/`retry`/`metrics`/`patterns`/`errors`의 `--project` 필터가
+  전부 이 라벨을 키로 쓰므로, 라벨 제어 불가가 필터 생태계 전체의 효용을 떨어뜨렸다.
+- **한 일:** **#163(`agentrelay run --project <name>`)을 최신 main(1375f36, #107 errors 병합 이후)
+  위로 통합.** PR base가 e0caa77(한 머지 뒤처짐)이라 origin/main을 지정 브랜치에 머지 → PROGRESS.md
+  충돌만 해소(양쪽 세션 42 로그를 모두 보존, 이 항목은 세션 43으로 재기록). cli.ts(run 옵션 배선)·
+  BACKLOG.md는 무충돌 자동 병합. 구현: `resolveProjectName(cwd, override?)` 확장 — override에 비공백
+  내용이 있으면 우선, 공백/빈 문자열이면 기존 cwd 유도로 폴백(하위호환, 순수·단위 테스트 가능).
+  `RunOptions.project` 추가, `runCommand`가 `resolveProjectName(cwd, options.project)`로 라벨 해소,
+  CLI `run`에 `-p, --project <name>` 옵션 배선. 새 core 코드 0줄(CLI 유틸만 확장).
+- **검증:** 통합 후 로컬 `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·
+  `pnpm test` 전 패키지 통과(resolveProjectName 3 + runCommand override/blank-fallback 2 신규 포함).
+  실제 빌드된 CLI e2e(mock 아님): `run --project billing-service`가 잡을 그 라벨로 큐잉→
+  `status --project billing-service` 필터 매치, `run --help`에 옵션 노출 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
+  #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
+  계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).

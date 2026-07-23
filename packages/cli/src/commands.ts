@@ -105,6 +105,12 @@ export interface RunOptions {
   command: string[];
   cwd?: string;
   tool?: AgentTool;
+  /**
+   * Explicit project label for the queued job. When omitted (or blank) the
+   * project is derived from the cwd's last path segment. Lets users give jobs a
+   * meaningful, stable name that the `--project` filters key off.
+   */
+  project?: string;
   storePath?: string;
   /** Injected for tests; defaults to real stdout/stderr passthrough. */
   stdout?: NodeJS.WritableStream;
@@ -163,7 +169,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   }
 
   const queue = openQueue(storePath);
-  const project = resolveProjectName(cwd);
+  const project = resolveProjectName(cwd, options.project);
   const job = queue.enqueue({ project, tool, command: options.command, cwd });
   queue.markWaitingForReset(job.id, rateLimit.resetAt, {
     pattern: rateLimit.pattern,
