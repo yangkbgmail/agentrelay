@@ -28,6 +28,7 @@ import {
   JOB_CSV_COLUMNS,
   parseCsvColumns,
   parseDuration,
+  renderPrometheusMetrics,
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
   selectNextResume,
@@ -745,6 +746,37 @@ export function buildCli(): Command {
         }
       }
     );
+
+  program
+    .command("metrics")
+    .description("Print queue metrics in Prometheus text exposition format (for scraping/observability)")
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. completed,failed)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--prefix <prefix>", "Metric name prefix (default agentrelay); sanitized to a valid Prometheus name")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # scrape via the node_exporter textfile collector\n" +
+        "  agentrelay metrics > /var/lib/node_exporter/textfile_collector/agentrelay.prom\n" +
+        "  # only failed jobs from the last day\n" +
+        "  agentrelay metrics --status failed --since 1d"
+    )
+    .action((opts: ScopeOpts & { prefix?: string }) => {
+      const { store } = program.opts();
+      const built = buildScope(opts, Date.now());
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const stats = computeStats(jobs);
+      process.stdout.write(renderPrometheusMetrics(stats, { prefix: opts.prefix }));
+    });
 
   program
     .command("doctor")
