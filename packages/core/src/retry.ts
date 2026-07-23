@@ -18,18 +18,35 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = {
   baseDelayMs: 60_000, // 1 minute
   factor: 2,
   maxDelayMs: 60 * 60_000, // 1 hour cap
+  jitter: 0, // deterministic backoff by default
 };
 
 /**
  * Exponential backoff delay (ms) before the Nth attempt's retry, 1-indexed:
  * attempt 1 → base, attempt 2 → base·factor, attempt 3 → base·factor², …,
  * clamped to `maxDelayMs`.
+ *
+ * When `policy.jitter > 0` and a random source `rng` is supplied, the clamped
+ * delay is spread uniformly to `[delay·(1 − jitter), delay·(1 + jitter)]` and
+ * re-clamped to `[0, maxDelayMs]`, so jobs that fail in lockstep don't retry at
+ * the exact same instant. `rng` must return a value in `[0, 1)` (e.g.
+ * `Math.random`). Omitting `rng`, or `jitter <= 0`, keeps the result fully
+ * deterministic — the spread branch is never entered, so existing callers and
+ * tests are unaffected.
  */
-export function computeBackoffMs(policy: RetryPolicy, attemptNumber: number): number {
+export function computeBackoffMs(policy: RetryPolicy, attemptNumber: number, rng?: () => number): number {
   const exponent = Math.max(0, attemptNumber - 1);
   const raw = policy.baseDelayMs * policy.factor ** exponent;
-  if (!Number.isFinite(raw)) return policy.maxDelayMs;
-  return Math.min(policy.maxDelayMs, Math.round(raw));
+  const base = Number.isFinite(raw) ? Math.min(policy.maxDelayMs, Math.round(raw)) : policy.maxDelayMs;
+
+  const jitter = policy.jitter;
+  if (!rng || !(jitter > 0)) return base;
+
+  const fraction = Math.min(1, jitter);
+  const lo = base * (1 - fraction);
+  const hi = base * (1 + fraction);
+  const spread = lo + rng() * (hi - lo);
+  return Math.max(0, Math.min(policy.maxDelayMs, Math.round(spread)));
 }
 
 /**
@@ -46,6 +63,14 @@ function positiveIntOr(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
 }
 
+/** Parses a jitter fraction, clamping to `[0, 1]`; unset/invalid → fallback. */
+function jitterFractionOr(value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim() === "") return fallback;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.min(1, n);
+}
+
 /**
  * Builds a {@link RetryPolicy} from environment variables, falling back to
  * {@link DEFAULT_RETRY_POLICY} for anything unset or invalid. Lets users tune
@@ -55,6 +80,7 @@ function positiveIntOr(value: string | undefined, fallback: number): number {
  * - `AGENTRELAY_RETRY_BASE_MS`  (default 60000)
  * - `AGENTRELAY_RETRY_FACTOR`   (default 2)
  * - `AGENTRELAY_RETRY_MAX_MS`   (default 3600000)
+ * - `AGENTRELAY_RETRY_JITTER`   (default 0; fraction in [0,1], values >1 clamp to 1)
  */
 export function retryPolicyFromEnv(env: NodeJS.ProcessEnv = process.env): RetryPolicy {
   const factorRaw = Number(env.AGENTRELAY_RETRY_FACTOR);
@@ -63,5 +89,6 @@ export function retryPolicyFromEnv(env: NodeJS.ProcessEnv = process.env): RetryP
     baseDelayMs: positiveIntOr(env.AGENTRELAY_RETRY_BASE_MS, DEFAULT_RETRY_POLICY.baseDelayMs),
     factor: Number.isFinite(factorRaw) && factorRaw >= 1 ? factorRaw : DEFAULT_RETRY_POLICY.factor,
     maxDelayMs: positiveIntOr(env.AGENTRELAY_RETRY_MAX_MS, DEFAULT_RETRY_POLICY.maxDelayMs),
+    jitter: jitterFractionOr(env.AGENTRELAY_RETRY_JITTER, DEFAULT_RETRY_POLICY.jitter),
   };
 }

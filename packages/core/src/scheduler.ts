@@ -24,6 +24,13 @@ export interface SchedulerOptions {
   /** Retry/backoff/max-attempts policy. Defaults to {@link DEFAULT_RETRY_POLICY}. */
   retryPolicy?: RetryPolicy;
   /**
+   * Random source (returning `[0, 1)`) used only to spread backoff delays when
+   * `retryPolicy.jitter > 0`. Defaults to {@link Math.random}; inject a fixed
+   * function in tests to make jittered delays deterministic. Never consulted
+   * while `jitter` is 0 (the default), so normal runs stay reproducible.
+   */
+  rng?: () => number;
+  /**
    * When set, finished jobs matching these options are pruned from the store
    * after every tick, keeping a long-running daemon's JSON store bounded
    * without a separate cron. `null`/omitted disables auto-prune.
@@ -71,6 +78,7 @@ export class RelayScheduler {
   private notify: Notifier;
   private outputTailLength: number;
   private retryPolicy: RetryPolicy;
+  private rng: () => number;
   private autoPrune: PruneOptions | null;
   private autoPruneEveryMs: number;
   private autoPruneEveryTicks: number;
@@ -87,6 +95,7 @@ export class RelayScheduler {
     this.notify = options.notify ?? (() => {});
     this.outputTailLength = options.outputTailLength ?? 2000;
     this.retryPolicy = options.retryPolicy ?? DEFAULT_RETRY_POLICY;
+    this.rng = options.rng ?? Math.random;
     this.autoPrune = options.autoPrune ?? null;
     this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
@@ -216,7 +225,7 @@ export class RelayScheduler {
       this.queue.markFailed(job.id, msg, tail);
       await this.notify({ jobId: job.id, project: job.project, event: "failed", message: msg });
     } else {
-      const delayMs = computeBackoffMs(this.retryPolicy, attemptNumber);
+      const delayMs = computeBackoffMs(this.retryPolicy, attemptNumber, this.rng);
       const retryAt = new Date(referenceTime.getTime() + delayMs).toISOString();
       this.queue.markRetryScheduled(
         job.id,

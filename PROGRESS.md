@@ -1305,7 +1305,7 @@
   #143 import scope·#78 roundup). 파서 계열은 서로 중복 많아 하나로 수렴 통합 필요. README/
   ARCHITECTURE(🧭 코워크).
 
-### [세션 40 — `agentrelay patterns` (rate-limit 파서 패턴 빈도표)] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-patterns`)
+### [세션 40 (병렬 세션 b) — `agentrelay patterns` (rate-limit 파서 패턴 빈도표)] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-patterns`)
 - **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md의 "비면 스스로 새 개선 항목 발굴" 지침에 따라
   신규 갭을 발굴. 세션 38이 job에 rate-limit 감지 출처(`lastRateLimit`: pattern·rawMatch·resetAt·
   detectedAt)를 영속하기 시작하며 "다음 할 일: status/대시보드에 detection pattern 노출"을 남겼다.
@@ -1334,3 +1334,29 @@
 - **다음 할 일:** `status` 테이블/대시보드 잡 카드에도 detection pattern 컬럼 노출(세션 38 후속 계속),
   `patterns`에 툴별 breakdown(`--group-by tool`) 확장(👷 후보). 남은 distinct PR 통합(세션 39 목록).
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 40 — 재시도 백오프 지터(`AGENTRELAY_RETRY_JITTER`)] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-119tzo`)
+- 배경: 내 지정 브랜치가 origin에서 삭제(직전 PR 병합)돼 최신 main(52341c8)에서 재생성. 열린 PR 30여 개가
+  파서 계열·stats --watch/by-hour/by-weekday·next 필터·각종 진단 커맨드 등 명백한 표면을 이미 점유 →
+  중복을 피해 CLAUDE.md 지침대로 **어떤 열린 PR과도 겹치지 않는 신규 개선 항목을 발굴**했다. `retry.ts`는
+  열린 PR 중 아무도 건드리지 않는 격리 영역.
+- 한 일: **재시도 백오프 지터** — 전환 실패(spawn 에러·non-zero 종료) 재시도가 여러 잡에서 lockstep으로
+  같은 시각에 몰려 재개→재충돌하는 thundering-herd를 무작위 분산으로 완화.
+  1. `RetryPolicy`에 `jitter`(fraction [0,1], 기본 0=결정적) 추가. `computeBackoffMs(policy, attempt, rng?)`가
+     `jitter>0` **그리고** `rng` 주입 시에만 클램프된 지연을 `[delay·(1−j), delay·(1+j)]`로 균등 분산 후
+     `[0, maxDelayMs]` 재클램프 — `rng` 없거나 `jitter<=0`이면 기존과 완전 동일 경로(하위호환, 기존 테스트 불변).
+  2. `retryPolicyFromEnv`가 `AGENTRELAY_RETRY_JITTER`를 [0,1] 클램프(음수·비수치는 기본 0)로 읽음.
+  3. `RelayScheduler`에 주입 가능한 `rng`(기본 `Math.random`) 옵션 → 백오프 재큐 호출부에 전달. jitter 0
+     기본이라 rng는 소비되지 않아 기존 스케줄러 테스트 결정성 유지, 테스트는 고정 rng 주입해 검증.
+  4. config 전 계층 배선: type·sampleConfig·CONFIG_FIELDS·parseConfig·validateConfig(<0 또는 >1 error)·
+     configToEnv·CONFIG_ENV_KEYS. 4개 sync 드리프트-가드 테스트(configToEnv↔CONFIG_ENV_KEYS,
+     CONFIG_FIELDS 길이·투영, SETTABLE 일치) 자동 통과.
+- 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **686 통과 + 1 skip**(core 470 + cli 209/1skip + dashboard 7 — retry 지터 7 + config 검증 2 +
+  scheduler 지터 1 신규). 실제 빌드된 CLI e2e(mock 아님): `config init`→`config set retry.jitter 0.2`가
+  파일에 영속, `config validate` 통과, `AGENTRELAY_RETRY_JITTER=0.5`가 `config show`에서 `[env]`로 표기,
+  파일에 직접 쓴 `jitter:1.5`는 validate가 error+exit 1로 거부, `config set retry.jitter 2`는 set 시점에
+  즉시 거부(파일 미변경) 확인.
+- 다음 할 일: 남은 distinct 열린 PR 통합 계속(파서 계열 수렴·stats --watch·next 필터·진단 커맨드들),
+  README/ARCHITECTURE(🧭 코워크). 신규 👷 후보: rate-limit 재개 시각 자체의 stagger(동일 resetAt 다수 잡을
+  분산 재개)도 별개 개선 여지.
