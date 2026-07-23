@@ -1382,3 +1382,36 @@
   #105 upcoming·#104/#69 데몬 가드·#102 Gemini·#101/#141/#142/#144/#146/#149 파서 계열·#100 completion
   fish·#75 resume latency·#61 doctor 큐 진행·#143 import scope·#78 roundup). 파서 계열은 서로 중복
   많아 하나로 수렴 통합 필요. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 42 — 재개 시각 stagger(`AGENTRELAY_MAX_RESUMES_PER_TICK`), thundering-herd 완화] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-77f290`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태(열린 PR 32건은 별개 이슈)라, CLAUDE.md "비면 스스로 새 개선
+  항목을 발굴" 지침에 따라 열린 32개 PR 어디에도 없는 신규 항목을 발굴. 세션 41이 "다음 할 일"에서
+  신규 👷 후보로 지목한 **재개 시각 자체의 stagger**(동일 resetAt 다수 잡을 분산 재개)를 구현.
+- **문제:** `RelayScheduler.tick()`이 `listDue`가 반환한 due 잡을 **한 tick에 전부 순차 재개**한다.
+  같은 계정의 주간 사용량 한도가 한 시각에 리셋되는 등 여러 잡이 동일 resetAt에 몰리면, 그 순간
+  provider를 동시 타격해 방금 기다린 그 limit을 즉시 재발시키고 전부 재큐잉되는 thundering herd가
+  된다. (#153 재시도 지터는 transient-failure 백오프의 lockstep을 다루지, rate-limit 리셋 시점의
+  재개 자체는 다루지 않는다 — 별개 개선.)
+- **한 일:**
+  1. `@agentrelay/core/scheduler.ts`에 순수 `selectResumeBatch(due, maxPerTick)` — due 잡을
+     most-overdue-first(resetAt asc, id 타이브레이크)로 정렬한 뒤 `maxPerTick>0`이면 앞에서 N개만
+     반환. 가장 오래 밀린 잡을 우선 선택해 캡이 있어도 기아(starvation) 없음, `<=0`은 무제한,
+     null/파싱불가 resetAt은 뒤로, 입력 배열 불변. 순수(시계·스토어 미접촉)라 테스트 용이.
+  2. 순수 `maxResumesPerTickFromEnv` — `AGENTRELAY_MAX_RESUMES_PER_TICK`를 음수·비수치·공백은 기본
+     0(무제한)으로 읽어 오타가 릴레이를 조용히 crawl로 만들지 않게. `SchedulerOptions.maxResumesPerTick`
+     (기본 0) 추가, `tick()`이 `listDue`→`selectResumeBatch` 배치만 재개(나머지는 다음 tick으로
+     poll 간격만큼 자연 분산).
+  3. config 전 계층 배선: `resume.maxPerTick` 그룹 신설 — type·sampleConfig·CONFIG_FIELDS·cloneConfig·
+     parseConfig·validateConfig(음수·비정수 error)·configToEnv·CONFIG_ENV_KEYS·ConfigGroup. CLI
+     `config`의 GROUP_LABELS/GROUP_ORDER에 resume 추가. 드리프트 sync 가드 테스트 자동 통과.
+  4. CLI daemon/tick이 `maxResumesPerTickFromEnv()`로 배선, 데몬 시작 배너에 "(max N resume(s)/tick)".
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **716 통과 + 1 skip**(core 493 + cli 216/1skip + dashboard 7 — scheduler +9[selectResumeBatch 6·
+  env 3·cap 통합 2], config +6[parse 2·validate 2 그 외 sync]). 실제 빌드된 CLI e2e(mock 아님):
+  `config set resume.maxPerTick 2`→파일 영속·`config validate` 통과, `config show`가 env unset이면
+  `[config-file]`·`AGENTRELAY_MAX_RESUMES_PER_TICK=9`면 `[env]`(env>파일 우선), 소수 2.5는 set 시점
+  "whole number" 거부(exit 1)·파일에 직접 쓴 -4는 validate가 "0 or greater" error(exit 1), 데몬 배너가
+  cap 설정 시 "max 3 resume(s)/tick" 표시·미설정 시 미표시 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합(파서 계열 수렴·stats --watch·진단 커맨드들·데몬 가드·
+  대시보드 스코프 UI). 신규 👷 후보: 동일 resetAt 잡을 tick 캡 대신 **개별 offset 지터**로 tick 내에서도
+  분산하거나, 재개 실패 시 잡별 백오프에도 stagger 적용. README/ARCHITECTURE(🧭 코워크).

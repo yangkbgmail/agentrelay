@@ -525,6 +525,23 @@
       신규 테스트, 실제 빌드 CLI로 config set/validate/show 지터 배선 e2e 검증. branch
       `claude/wizardly-pascal-119tzo`)
 
+- [x] 👷 재개 시각 stagger(`AGENTRELAY_MAX_RESUMES_PER_TICK`) — 동일 resetAt에 몰린 다수 잡이 한 tick에
+      한꺼번에 재개돼 provider를 동시 타격→limit 즉시 재발(thundering herd)하는 것을, tick당 재개 수
+      상한으로 여러 tick에 분산. (세션 41이 "다음 할 일" 신규 👷 후보로 지목. #153 재시도 지터가
+      transient-failure 백오프를 다루는 것과 달리, 이건 rate-limit 리셋 시점의 재개 자체를 스태거.)
+      (완료 — `@agentrelay/core/scheduler.ts`에 순수 `selectResumeBatch(due, maxPerTick)`(due 잡을
+      most-overdue-first[resetAt asc, id 타이브레이크]로 정렬 후 `maxPerTick>0`이면 앞에서 N개만 —
+      가장 오래 밀린 잡을 우선 선택해 기아[starvation] 방지, `<=0`은 무제한, null/파싱불가 resetAt은
+      뒤로, 입력 불변) + `maxResumesPerTickFromEnv`(`AGENTRELAY_MAX_RESUMES_PER_TICK` 음수·비수치·공백은
+      기본 0=무제한 → 오타가 릴레이를 조용히 crawl로 만들지 않음). `SchedulerOptions.maxResumesPerTick`
+      (기본 0) 추가, `tick()`이 `listDue` 결과를 `selectResumeBatch`로 캡·정렬한 배치만 재개(나머지는
+      다음 tick으로 자연 분산). config 전 계층 배선(`resume.maxPerTick` 그룹: type·sampleConfig·
+      CONFIG_FIELDS·cloneConfig·parseConfig·validateConfig[음수·비정수 error]·configToEnv·CONFIG_ENV_KEYS·
+      ConfigGroup — 드리프트 sync 테스트 통과) + CLI `config` GROUP_LABELS/ORDER에 resume 추가. CLI
+      daemon/tick이 env로 배선, 데몬 배너에 "(max N resume(s)/tick)". core scheduler +9 / config +6 신규
+      테스트, 실제 빌드 CLI로 config set/validate/show(env>파일 우선)·set-time·파일 validate 거부·데몬
+      배너 e2e 검증. branch `claude/wizardly-pascal-77f290`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
