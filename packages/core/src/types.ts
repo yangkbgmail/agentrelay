@@ -77,6 +77,15 @@ export interface RetryPolicy {
   factor: number;
   /** Upper bound (ms) on any single backoff delay. */
   maxDelayMs: number;
+  /**
+   * Randomised spread applied to each transient-failure backoff delay, as a
+   * fraction in `[0, 1]`. `0` (the default) keeps backoff fully deterministic.
+   * With `jitter` set, the delay is drawn uniformly from
+   * `[delay·(1 − jitter), delay·(1 + jitter)]` (clamped to `[0, maxDelayMs]`),
+   * so a batch of jobs that fail in lockstep don't all retry at the exact same
+   * instant and re-collide.
+   */
+  jitter: number;
 }
 
 export interface NotifyPayload {

@@ -192,6 +192,21 @@ describe("validateConfig", () => {
     expect(validateConfig({ retry: { factor: 1 } })).toEqual([]);
   });
 
+  it("errors on a jitter fraction outside [0, 1]", () => {
+    expect(validateConfig({ retry: { jitter: -0.1 } })).toEqual([
+      expect.objectContaining({ level: "error", path: "retry.jitter" }),
+    ]);
+    expect(validateConfig({ retry: { jitter: 1.5 } })).toEqual([
+      expect.objectContaining({ level: "error", path: "retry.jitter" }),
+    ]);
+  });
+
+  it("accepts a jitter fraction at the [0, 1] bounds", () => {
+    expect(validateConfig({ retry: { jitter: 0 } })).toEqual([]);
+    expect(validateConfig({ retry: { jitter: 1 } })).toEqual([]);
+    expect(validateConfig({ retry: { jitter: 0.3 } })).toEqual([]);
+  });
+
   it("warns when the delay cap is below the base delay", () => {
     const issues = validateConfig({ retry: { baseDelayMs: 1000, maxDelayMs: 500 } });
     expect(issues).toEqual([expect.objectContaining({ level: "warning", path: "retry.maxDelayMs" })]);

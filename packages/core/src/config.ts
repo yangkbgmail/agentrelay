@@ -36,6 +36,8 @@ export interface AgentRelayConfig {
     factor?: number;
     /** `AGENTRELAY_RETRY_MAX_MS`. */
     maxDelayMs?: number;
+    /** Backoff jitter fraction in `[0, 1]` — maps to `AGENTRELAY_RETRY_JITTER`. */
+    jitter?: number;
   };
   /** Daemon auto-prune settings. */
   autoPrune?: {
@@ -77,6 +79,7 @@ export function sampleConfig(): AgentRelayConfig {
       baseDelayMs: 1000,
       factor: 2,
       maxDelayMs: 300000,
+      jitter: 0,
     },
     autoPrune: {
       enabled: false,
@@ -136,6 +139,7 @@ export const CONFIG_FIELDS: ConfigField[] = [
   { key: "retry.baseDelayMs", group: "retry", type: "number" },
   { key: "retry.factor", group: "retry", type: "number" },
   { key: "retry.maxDelayMs", group: "retry", type: "number" },
+  { key: "retry.jitter", group: "retry", type: "number" },
   { key: "autoPrune.enabled", group: "autoPrune", type: "boolean" },
   { key: "autoPrune.after", group: "autoPrune", type: "duration" },
   { key: "autoPrune.keep", group: "autoPrune", type: "number" },
@@ -371,6 +375,7 @@ export function parseConfig(value: unknown, source = "config"): AgentRelayConfig
     if (retry.factor !== undefined) config.retry.factor = asNumber(retry.factor, `${source}.retry.factor`);
     if (retry.maxDelayMs !== undefined)
       config.retry.maxDelayMs = asNumber(retry.maxDelayMs, `${source}.retry.maxDelayMs`);
+    if (retry.jitter !== undefined) config.retry.jitter = asNumber(retry.jitter, `${source}.retry.jitter`);
   }
 
   if (root.autoPrune !== undefined) {
@@ -442,6 +447,9 @@ export function validateConfig(config: AgentRelayConfig): ConfigIssue[] {
     checkInteger(issues, "retry.maxDelayMs", retry.maxDelayMs, { min: 0 });
     if (retry.factor !== undefined && retry.factor < 1) {
       error("retry.factor", "must be at least 1, otherwise the backoff delay would shrink each attempt");
+    }
+    if (retry.jitter !== undefined && (!Number.isFinite(retry.jitter) || retry.jitter < 0 || retry.jitter > 1)) {
+      error("retry.jitter", "must be a fraction between 0 and 1 (0 disables jitter, 1 = ±100% spread)");
     }
     if (
       retry.baseDelayMs !== undefined &&
@@ -519,6 +527,7 @@ export function configToEnv(config: AgentRelayConfig): Record<string, string> {
   set("AGENTRELAY_RETRY_BASE_MS", config.retry?.baseDelayMs);
   set("AGENTRELAY_RETRY_FACTOR", config.retry?.factor);
   set("AGENTRELAY_RETRY_MAX_MS", config.retry?.maxDelayMs);
+  set("AGENTRELAY_RETRY_JITTER", config.retry?.jitter);
 
   // The opt-in flag is boolean in the file but "1"/"0" in the env layer.
   if (config.autoPrune?.enabled !== undefined) {
@@ -557,6 +566,7 @@ export const CONFIG_ENV_KEYS: ConfigEnvKey[] = [
   { key: "AGENTRELAY_RETRY_BASE_MS", group: "retry" },
   { key: "AGENTRELAY_RETRY_FACTOR", group: "retry" },
   { key: "AGENTRELAY_RETRY_MAX_MS", group: "retry" },
+  { key: "AGENTRELAY_RETRY_JITTER", group: "retry" },
   { key: "AGENTRELAY_AUTOPRUNE", group: "autoPrune" },
   { key: "AGENTRELAY_AUTOPRUNE_AFTER", group: "autoPrune" },
   { key: "AGENTRELAY_AUTOPRUNE_KEEP", group: "autoPrune" },

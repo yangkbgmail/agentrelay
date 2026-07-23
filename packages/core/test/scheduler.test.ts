@@ -128,7 +128,7 @@ describe("RelayScheduler", () => {
     const scheduler = new RelayScheduler({
       queue,
       spawnFn: fakeSpawnWith({ output: "boom", exitCode: 1 }),
-      retryPolicy: { maxAttempts: 5, baseDelayMs: 60_000, factor: 2, maxDelayMs: 3_600_000 },
+      retryPolicy: { maxAttempts: 5, baseDelayMs: 60_000, factor: 2, maxDelayMs: 3_600_000, jitter: 0 },
     });
 
     const [result] = await scheduler.tick(now);
@@ -136,6 +136,22 @@ describe("RelayScheduler", () => {
     // attempt 1 -> base delay of 60s from the reference time
     expect(result.resetAt).toBe(new Date(now.getTime() + 60_000).toISOString());
     expect(result.lastError).toContain("exited with code 1");
+  });
+
+  it("spreads the backoff delay when jitter is set, using the injected rng", async () => {
+    dueJob(); // resetAt = Date.now() - 1000
+    const now = new Date(Date.now() + 1000);
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnWith({ output: "boom", exitCode: 1 }),
+      // attempt 1 base delay = 60s; ±50% jitter → window [30s, 90s].
+      retryPolicy: { maxAttempts: 5, baseDelayMs: 60_000, factor: 2, maxDelayMs: 3_600_000, jitter: 0.5 },
+      rng: () => 1, // deterministic high end of the window
+    });
+
+    const [result] = await scheduler.tick(now);
+    expect(result.status).toBe("waiting_for_reset");
+    expect(result.resetAt).toBe(new Date(now.getTime() + 90_000).toISOString());
   });
 
   it("retries a spawn/child error rather than dropping the job", async () => {
@@ -160,7 +176,7 @@ describe("RelayScheduler", () => {
     const scheduler = new RelayScheduler({
       queue,
       spawnFn: fakeSpawnWith({ output: "still broken", exitCode: 2 }),
-      retryPolicy: { maxAttempts: 3, baseDelayMs: 1000, factor: 2, maxDelayMs: 10_000 },
+      retryPolicy: { maxAttempts: 3, baseDelayMs: 1000, factor: 2, maxDelayMs: 10_000, jitter: 0 },
     });
 
     // This resume is attempt 3 (== maxAttempts) -> should fail, not retry.
@@ -178,7 +194,7 @@ describe("RelayScheduler", () => {
     const scheduler = new RelayScheduler({
       queue,
       spawnFn: fakeSpawnWith({ output: "Usage limit reached. Resets in 2h." }),
-      retryPolicy: { maxAttempts: 2, baseDelayMs: 1000, factor: 2, maxDelayMs: 10_000 },
+      retryPolicy: { maxAttempts: 2, baseDelayMs: 1000, factor: 2, maxDelayMs: 10_000, jitter: 0 },
     });
 
     // attempt 2 == maxAttempts, still rate-limited -> failed instead of looping.
@@ -197,7 +213,7 @@ describe("RelayScheduler", () => {
     const scheduler = new RelayScheduler({
       queue,
       spawnFn: fakeSpawnWith({ output: "Usage limit reached. Resets in 2h." }),
-      retryPolicy: { maxAttempts: 0, baseDelayMs: 1000, factor: 2, maxDelayMs: 10_000 },
+      retryPolicy: { maxAttempts: 0, baseDelayMs: 1000, factor: 2, maxDelayMs: 10_000, jitter: 0 },
     });
 
     const [result] = await scheduler.tick();
