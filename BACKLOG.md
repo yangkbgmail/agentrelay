@@ -525,6 +525,23 @@
       신규 테스트, 실제 빌드 CLI로 config set/validate/show 지터 배선 e2e 검증. branch
       `claude/wizardly-pascal-119tzo`)
 
+- [x] 👷 재개-시각 stagger(`AGENTRELAY_RESUME_STAGGER`) — 동일 rate-limit 리셋 창을 가진 여러 잡이
+      같은 순간 재개돼 API에 몰려 다시 rate-limit → 영원히 lockstep 재충돌하는 것을 재개 시각 자체를
+      무작위 분산해 완화. 세션 41이 신규 👷 후보로 명시(#153 retry jitter는 *전환 실패 백오프*만
+      분산하지 rate-limit 리셋은 분산 안 함 → 별개 갭).
+      (완료 — `@agentrelay/core/stagger.ts` 신설(순수·시계 미접촉): `staggerResetAt(resetAt, staggerMs, rng?)`가
+      `staggerMs>0`이고 `rng` 주입 시에만 resetAt을 `[0, staggerMs]` 무작위 오프셋만큼 **앞이 아닌 뒤로만**
+      밀어(리셋 전 재개 방지) 새 ISO 반환 — `rng` 없거나 `staggerMs<=0`이면 원본 그대로(하위호환·결정적),
+      파싱 불가 resetAt·offset 0은 원본 반환. `resumeStaggerMsFromEnv`가 `AGENTRELAY_RESUME_STAGGER`
+      duration을 ms로(미설정·비파싱·비양수는 0=off → 오타가 조용히 끄되 throw 안 함). `RelayScheduler`에
+      주입 가능한 `resumeStaggerMs` 옵션 → rate-limit 재큐 시 job.resetAt만 stagger, provenance
+      `lastRateLimit.resetAt`은 **참 파싱값 유지**(show/대시보드가 왜 감지했는지 정직하게 보고). CLI run
+      최초 감지·daemon·tick 세 경로 모두 배선(run은 `Math.random`, 데몬 배너에 "(resume stagger Ns)").
+      config 전 계층 신규 `schedule` 그룹 배선(type·sampleConfig `resumeStagger:"0s"`·CONFIG_FIELDS·
+      cloneConfig·parseConfig·validateConfig[비파싱 duration=error]·configToEnv·ConfigGroup·CONFIG_ENV_KEYS,
+      CLI GROUP_LABELS/ORDER — 드리프트 sync 테스트 통과). core stagger 12 + config 7 + scheduler 2 신규
+      테스트, 실제 빌드 CLI로 config set/validate·데몬 배너 e2e 검증. branch `claude/wizardly-pascal-8irapk`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
