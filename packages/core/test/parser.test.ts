@@ -25,19 +25,44 @@ describe("parseRateLimitMessage", () => {
     expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
   });
 
-  it("parses the real Claude Code wording: 'reset at 5pm' (hour + meridiem, no minutes)", () => {
+  it("parses the real Claude Code wording: 'reset at 5pm (America/New_York)' in that timezone", () => {
     // Actual message: "Claude usage limit reached. Your limit will reset at 5pm (America/New_York)."
-    const now = new Date("2026-07-12T08:00:00Z"); // 08:00 UTC
+    // July -> EDT (UTC-4), so 5pm New York == 21:00 UTC, regardless of the machine timezone.
+    const now = new Date("2026-07-12T08:00:00Z"); // 04:00 EDT, before the 5pm reset
     const result = parseRateLimitMessage(
       "Claude usage limit reached. Your limit will reset at 5pm (America/New_York).",
       { now }
     );
     expect(result).not.toBeNull();
     expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-07-12T21:00:00.000Z");
+    expect(new Date(result!.resetAt).getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("resolves a named timezone reset regardless of the machine's local zone", () => {
+    // Asia/Seoul is UTC+9 year-round. 3pm Seoul == 06:00 UTC.
+    const now = new Date("2026-07-12T00:00:00Z"); // 09:00 KST, before the 3pm reset
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 3:00pm (Asia/Seoul).", { now });
+    expect(result?.pattern).toBe("clock-time");
+    expect(result?.resetAt).toBe("2026-07-12T06:00:00.000Z");
+  });
+
+  it("rolls a zoned reset to the next day when the wall clock is already past in that zone", () => {
+    // 10:00 UTC == 19:00 KST, which is past 3pm Seoul, so the reset is tomorrow 3pm Seoul.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Resets at 3pm (Asia/Seoul).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-07-13T06:00:00.000Z");
+  });
+
+  it("falls back to local time when the parenthesized token is not a valid IANA zone", () => {
+    // "(PST)" is an abbreviation Intl does not accept; behavior matches the pre-zone parser.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Resets at 5pm (PST).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
     const resetDate = new Date(result!.resetAt);
-    expect(resetDate.getHours()).toBe(17); // 5pm local
+    expect(resetDate.getHours()).toBe(17); // 5pm in the machine's local zone
     expect(resetDate.getMinutes()).toBe(0);
-    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
   });
 
   it("parses 'resets at 10 AM' with a space before the meridiem, rolling to tomorrow if past", () => {
