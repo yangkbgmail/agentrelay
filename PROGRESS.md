@@ -1382,3 +1382,24 @@
   #105 upcoming·#104/#69 데몬 가드·#102 Gemini·#101/#141/#142/#144/#146/#149 파서 계열·#100 completion
   fish·#75 resume latency·#61 doctor 큐 진행·#143 import scope·#78 roundup). 파서 계열은 서로 중복
   많아 하나로 수렴 통합 필요. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 42 — distinct CI-초록 PR #107(`agentrelay errors`) 최신 main 통합, 큐 34→33] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-i9vghe`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태이고 열린 PR이 34개까지 쌓여(세션 34~41이 반복 경고한
+  큐 적체·다수 중복: 재개 stagger #158/#161/#162, config get #128/#160, 파서 계열 #101/#141/#142/
+  #144/#146/#149, stats --watch #135/#145, 데몬 가드 #69/#104, 데모 #154/#156 등) 있어, 새 기능을
+  더하기보다 **CI 초록·서로 겹치지 않는 distinct PR을 최신 main 위로 통합**하는 것이 압도적으로
+  높은 가치(COLLAB 병합 정책·세션 38~41 선례).
+- **한 일:** **#107(`agentrelay errors` — 실패/취소 잡의 `lastError`를 정규화 시그니처로 묶어
+  빈도순 랭킹하는 진단 커맨드)을 최신 main(e0caa77) 위로 통합.** PR이 오래된 base(7997577) 기반이라
+  `origin/claude/wizardly-pascal-ziyovo`를 지정 브랜치에 머지 → PROGRESS.md(HEAD 유지)·cli.ts 충돌만
+  해소(세션 38 이후 추가된 `metrics`/`patterns` 커맨드와 삽입 위치가 겹쳐 엉킨 것을, 세 커맨드를 각각
+  독립 `.command()` 블록으로 재구성). 새 모듈(core `errors.ts`·cli `errors.ts` + 테스트)·index export·
+  BACKLOG 항목은 무충돌 자동 병합. `stats`/`status`/`export`와 동일한 `buildScope`(--status/--tool/
+  --project/--since/--until) 재사용, `-n/--limit`·`--json`.
+- **검증:** 통합 후 로컬 `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·
+  `pnpm test` **721 통과 + 1 skip**(core 491 + cli 223/1skip + dashboard 7). 실제 빌드된 CLI e2e
+  (mock 아님): 공백만 다른 2건이 한 행으로 병합·빈도 랭킹, `--json` 기계 판독 출력, `--limit 1`이
+  상위 1그룹 + "1 more … not shown" 푸터(totals는 전체 반영) 확인.
+- **다음 할 일:** 남은 distinct PR 통합 계속(#122 paths·#136 run --label·#105 upcoming·#125 --no-color·
+  #163 run --project·#164 parse --scan·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
+  계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
