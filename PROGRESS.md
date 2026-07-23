@@ -1304,3 +1304,24 @@
   #101/#141/#142/#144/#146/#149 파서 계열·#100 completion fish·#75 resume latency·#61 doctor 큐 진행·
   #143 import scope·#78 roundup). 파서 계열은 서로 중복 많아 하나로 수렴 통합 필요. README/
   ARCHITECTURE(🧭 코워크).
+
+### [세션 40 — 재현 가능한 데모 스크립트 + 엔드투엔드 QA 스모크] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-be1rm6`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태. 남은 명시 항목은 🧭(README/ARCHITECTURE/리서치) 아니면
+  공유 `[ ] 👷🧭 최종 QA + 재현 가능한 데모 스크립트`(BACKLOG line 19)뿐. 이 항목의 👷 몫(데모 스크립트
+  + 실동작 QA)을 실제 코드로 구현하는 것이 새 기능을 더하는 것보다 값이 크다(전 커맨드 회귀를 함께 잡음).
+- **한 일:**
+  1. **`scripts/demo.mjs` + `pnpm demo`** — 격리 임시 스토어(JSON, CLAUDE.md "중요한 결정" 준수)에
+     대표 잡을 시드하고 **실제 빌드된 CLI**(`dist/bin.js`)를 run→status→stats→metrics→export→next→
+     show→doctor 순으로 자식 프로세스 구동해 전체 흐름을 한 화면에 시연. 목업 아님. 외부 네트워크/
+     에이전트 호출 0(라이브 `run`은 항상 있는 `node -e`를 감싸며, 그 출력이 뱉는 레이트리밋을 relay가
+     **실제로 감지→리셋 시각 파싱→리셋 대기 파킹**하고 `show`가 그 감지 출처(provenance)를 렌더).
+     시드는 `RelayQueue` 실제 API로 해 스토어 shape 드리프트 방지. 끝나면 임시 디렉터리 정리, 각
+     커맨드 비영-종료 시 즉시 실패(doctor만 진단 경고 성격이라 비영-종료 허용).
+  2. **`packages/cli/test/demo.test.ts`** — 데모를 실제 실행하는 엔드투엔드 QA 스모크(5 케이스):
+     코드 0 종료·전 커맨드 파이프라인 표제·라이브 레이트리밋 감지 후 파킹+provenance·유효 Prometheus
+     노출 형식·완료 배너. 빌드 산출물 없으면 `describe.skipIf`로 스킵(CI는 build 뒤 test라 항상 존재).
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **681 통과 + 1 skip**(core 460 + cli 214[+demo 5]/1skip + dashboard 7). `pnpm demo`
+  직접 실행도 코드 0으로 전 흐름 렌더 확인(라이브 감지 패턴 `clock-time-meridiem`, 리셋 시각 파싱 OK).
+- **다음 할 일:** 🧭 최종 QA 사인오프(코워크). 적체된 distinct CI-초록 PR 통합 지속(세션 39 목록).
+  README/ARCHITECTURE(🧭). metrics를 `export --format` 대신 대시보드 카드로 노출하는 방향 검토(👷 후보).
