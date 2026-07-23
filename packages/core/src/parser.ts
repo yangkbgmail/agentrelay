@@ -86,6 +86,26 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // "resets at midnight" / "reset at noon" — natural-language times with no
+    // digits at all, which neither clock-time (needs `:MM`) nor
+    // clock-time-meridiem (needs a digit + am/pm) can match. Some agents phrase
+    // daily windows this way. midnight = 00:00, noon = 12:00, both in local time
+    // (same timezone limitation as the other clock patterns). As with those, a
+    // reset is a future instant, so a time that has already passed today rolls
+    // to tomorrow.
+    name: "clock-time-word",
+    regex: /reset[s]?\s+at\s+(midnight|noon)\b/i,
+    resolve: (m, now) => {
+      const hour = m[1].toLowerCase() === "noon" ? 12 : 0;
+      const candidate = new Date(now);
+      candidate.setHours(hour, 0, 0, 0);
+      if (candidate.getTime() <= now.getTime()) {
+        candidate.setDate(candidate.getDate() + 1);
+      }
+      return candidate;
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they

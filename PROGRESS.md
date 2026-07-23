@@ -1223,3 +1223,21 @@
   #118 stats --by-weekday·#114/#112 next·#107 errors·#105 upcoming·#104/#69 데몬 가드·#102 Gemini
   어댑터·#101 파서 요일·#100 completion fish·#75 resume latency·#61 doctor 큐 진행). #61/#69/#75는
   스키마·doctor 충돌 주의. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 38 — 파서 자연어 시각 `reset at midnight`/`reset at noon` 인식] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-ef5e9s`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라, 세션 37이 "다음 할 일"로 남겨둔 파서 커버리지
+  갭을 자기완결 신규 항목으로 발굴해 구현. 기존 `clock-time`(분 `:MM` 필수)과
+  `clock-time-meridiem`(숫자+am/pm 필수) 둘 다 **숫자가 하나도 없는** `midnight`/`noon`
+  자연어 시각을 놓쳐, 일부 에이전트가 일일 사용량 창을 그렇게 표현하면 잡이 큐잉되지 않았다.
+- **한 일:** `packages/core/src/parser.ts`에 신규 `clock-time-word` 패턴
+  (`reset[s]? at (midnight|noon)`) 추가 — midnight=00:00, noon=12:00(로컬 시간, 기존 clock
+  패턴과 동일한 명명 타임존 한계). 리셋은 미래 순간이므로 오늘 이미 지난 시각은 익일로 롤.
+  `reset at` 리드인을 요구해 무관 산문("The meeting is at noon.") 오검출 방지. `relative-duration`
+  앞·`clock-time-meridiem` 뒤에 배치(숫자 시각이 여전히 우선). BACKLOG.md에 완료 항목 추가.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **661 통과 + 1 skip**(core 파서 31 포함, +3 신규 회귀: midnight/noon 롤/lead-in 없으면
+  null). **실제 빌드된 CLI e2e**(mock 아님): `agentrelay parse "Resets at midnight."` →
+  `pattern: clock-time-word`, `resets: …T00:00:00Z`, `"reset at noon."` → 12:00Z, "meeting is at
+  noon" → No rate-limit(오검출 없음) 확인.
+- **다음 할 일:** 파서 커버리지 계속 — 요일 지정(`resets Monday`), `reset at end of day` 등 실
+  메시지 샘플 수집(🧭 코워크 협업). 세션 37이 나열한 남은 distinct PR 통합도 여전히 유효.
