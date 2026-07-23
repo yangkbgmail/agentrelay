@@ -472,6 +472,22 @@
       failed→1·timeout→124·unknown→1·크로스-프로세스 관측 검증. PR #96 발원 → 세션 37에서 최신 main에
       cherry-pick 통합(#137/#96 중복 대체). branch `claude/wizardly-pascal-4b32lg`)
 
+- [x] 👷 파서: 명명된 IANA 타임존 인식 (`reset at 5pm (America/New_York)`) — 해당 존의 벽시계로
+      해석해 머신 로컬 타임존과 다를 때 재개 시각 오차를 제거.
+      (완료 — 기존 `clock-time`/`clock-time-meridiem` 패턴은 문구의 명명 타임존을 **무시하고
+      로컬 시간으로 해석**한다고 주석에 한계로 적혀 있었다. UTC 서버가 `(America/New_York)` 리셋을
+      파싱하면 몇 시간 일찍/늦게 재개되던 실제 정확성 버그. `@agentrelay/core/timezone.ts` 신설
+      (순수·의존성 0·Node ≥22 내장 `Intl` full ICU 사용): `timeZoneOffsetMs`(formatToParts로 존의
+      UTC 오프셋 계산)·`isValidTimeZone`·`nextWallClockInZone`(벽시계 hour:minute를 존 기준 다음
+      미래 인스턴트로 — "이미 지났으면 익일" 규칙은 로컬 경로와 동일, DST 경계는 오프셋 2회 보정으로
+      해결, day+1은 `Date.UTC` 정규화로 월/연 넘김) + `isNamedTimeZone`(신뢰 정책: 모호한
+      `PST`/`EST` 약어는 ICU가 각각 America/Los_Angeles[DST]·America/Panama[고정]로 불일치 매핑하므로
+      **거부**, IANA `Area/Location` 슬래시 형식과 UTC/GMT만 허용 → 로컬 폴백). 두 `clock-time*`
+      정규식에 선택적 `(존)` 캡처 추가, 공용 `resolveClock` 헬퍼가 신뢰 가능한 존이면 존 기준
+      해석·아니면 기존 로컬 동작 유지(무회귀). timezone.test 18 + parser.test +3(존 해석·익일 롤·
+      약어 폴백) 신규, 기존 로컬-가정 테스트 1건을 절대 인스턴트 단언으로 갱신. 실제 빌드 CLI
+      `parse`로 EDT/KST 변환·PST 로컬 폴백 e2e 검증. branch `claude/wizardly-pascal-2on37l`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

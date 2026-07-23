@@ -1223,3 +1223,24 @@
   #118 stats --by-weekday·#114/#112 next·#107 errors·#105 upcoming·#104/#69 데몬 가드·#102 Gemini
   어댑터·#101 파서 요일·#100 completion fish·#75 resume latency·#61 doctor 큐 진행). #61/#69/#75는
   스키마·doctor 충돌 주의. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 38 — 파서 명명 타임존 인식 `reset at 5pm (America/New_York)`] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-2on37l`)
+- **한 일:** 파서가 리셋 문구의 **명명된 IANA 타임존을 무시하고 로컬 시간으로 해석**하던 한계
+  (코드 주석에 문서화돼 있던 실제 정확성 버그 — UTC 서버가 `(America/New_York)` 리셋을 파싱하면
+  몇 시간 일찍/늦게 재개)를 해결. `@agentrelay/core/timezone.ts` 신설(순수·의존성 0·Node ≥22 내장
+  `Intl` full ICU): `timeZoneOffsetMs`/`isValidTimeZone`/`nextWallClockInZone`(벽시계를 존 기준
+  다음 미래 인스턴트로, "이미 지났으면 익일" 규칙은 로컬 경로와 동일, DST 경계는 오프셋 2회 보정,
+  월/연 넘김은 `Date.UTC` 정규화) + `isNamedTimeZone`(신뢰 정책: 모호한 `PST`/`EST` 약어는 ICU가
+  각각 America/Los_Angeles[DST]·America/Panama[고정 UTC-5]로 불일치 매핑하므로 **거부**, IANA
+  `Area/Location` 슬래시 형식·UTC/GMT만 허용→나머지는 로컬 폴백=무회귀). `clock-time`/
+  `clock-time-meridiem` 두 정규식에 선택적 `(존)` 캡처, 공용 `resolveClock` 헬퍼가 신뢰 가능한
+  존이면 존 해석·아니면 기존 로컬 동작.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **673 통과 + 1 skip**(core 458 + cli 208[+1 skip] + dashboard 7). timezone.test 18 + parser.test +3
+  신규. **실제 빌드 CLI e2e**: `parse "reset at 5pm (America/New_York)"`→`21:00Z`(EDT 변환),
+  `"3pm (Asia/Seoul)"`→`06:00Z`(KST), `"5pm (PST)"`→`17:00Z`(UTC 머신 로컬 폴백) 확인.
+- **다음 할 일:** 남은 distinct PR 통합(#136 run --label·#135 stats --watch·#131 show --watch·#130
+  대시보드 스코프 UI·#128 config get·#126 tools·#125 --no-color·#124 stats --by-hour·#122 paths·
+  #118 stats --by-weekday·#114/#112 next·#107 errors·#105 upcoming·#104/#69 데몬 가드·#102 Gemini
+  어댑터·#101 파서 요일·#100 completion fish·#75 resume latency·#61 doctor 큐 진행). README/
+  ARCHITECTURE(🧭 코워크).

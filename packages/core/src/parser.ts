@@ -1,3 +1,4 @@
+import { isNamedTimeZone, nextWallClockInZone } from "./timezone.js";
 import type { RateLimitInfo } from "./types.js";
 
 /**
@@ -32,6 +33,27 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/**
+ * Resolves a wall-clock `hour:minute` to a concrete future instant. When the
+ * message carries a named IANA timezone (e.g. "(America/New_York)") and the
+ * runtime recognizes it, the hour is interpreted *in that zone* so a machine in
+ * a different zone still resumes at the right moment. Otherwise (no zone, or an
+ * unrecognized token like a "PST" abbreviation) it falls back to the local
+ * machine timezone — the same behavior this parser had before zone support.
+ */
+function resolveClock(now: Date, hour: number, minute: number, zone: string | undefined): Date {
+  if (zone && isNamedTimeZone(zone)) {
+    const zoned = nextWallClockInZone(now, hour, minute, zone.trim());
+    if (zoned) return zoned;
+  }
+  const candidate = new Date(now);
+  candidate.setHours(hour, minute, 0, 0);
+  if (candidate.getTime() <= now.getTime()) {
+    candidate.setDate(candidate.getDate() + 1);
+  }
+  return candidate;
+}
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
@@ -43,21 +65,18 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
-    // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
+    // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already
+    // past). A trailing "(America/New_York)" is interpreted as an IANA timezone
+    // so the wall clock resolves in that zone, not the local machine's.
     name: "clock-time",
-    regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
+    regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?(?:\s*\(([^)]+)\))?/i,
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       const minute = parseInt(m[2], 10);
       const meridiem = m[3]?.toLowerCase();
       if (meridiem === "pm" && hour < 12) hour += 12;
       if (meridiem === "am" && hour === 12) hour = 0;
-      const candidate = new Date(now);
-      candidate.setHours(hour, minute, 0, 0);
-      if (candidate.getTime() <= now.getTime()) {
-        candidate.setDate(candidate.getDate() + 1);
-      }
-      return candidate;
+      return resolveClock(now, hour, minute, m[4]);
     },
   },
   {
@@ -65,24 +84,19 @@ const PATTERNS: RateLimitPattern[] = [
     // This is the wording Claude Code actually prints ("Your limit will reset
     // at 5pm (America/New_York)."), which the minute-requiring clock-time
     // pattern above misses. Meridiem is required: a bare "reset at 5" (no
-    // colon, no am/pm) is too ambiguous to treat as a clock time. The named
-    // timezone in the message is ignored — the hour is interpreted in local
-    // time, same known limitation as clock-time (a real reset is a future
-    // instant, so rolling to tomorrow when already past keeps us safe).
+    // colon, no am/pm) is too ambiguous to treat as a clock time. A trailing
+    // "(America/New_York)" is honored as an IANA timezone (see resolveClock);
+    // an unrecognized token falls back to local time. A real reset is a future
+    // instant, so rolling to tomorrow when already past keeps us safe.
     name: "clock-time-meridiem",
-    regex: /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b/i,
+    regex: /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b(?:\s*\(([^)]+)\))?/i,
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       if (hour > 12) return null; // 13pm etc. is not a valid 12-hour clock time
       const meridiem = m[2].toLowerCase();
       if (meridiem === "pm" && hour < 12) hour += 12;
       if (meridiem === "am" && hour === 12) hour = 0;
-      const candidate = new Date(now);
-      candidate.setHours(hour, 0, 0, 0);
-      if (candidate.getTime() <= now.getTime()) {
-        candidate.setDate(candidate.getDate() + 1);
-      }
-      return candidate;
+      return resolveClock(now, hour, 0, m[3]);
     },
   },
   {
