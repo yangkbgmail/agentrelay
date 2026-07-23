@@ -1,4 +1,4 @@
-import type { AgentTool, JobStatus, RelayJob } from "./types.js";
+import type { AgentTool, JobStatus, RateLimitDetection, RelayJob } from "./types.js";
 
 /**
  * Reading jobs *back into* the store — the inverse of the `export` family
@@ -141,6 +141,11 @@ export function validateJobRecord(value: unknown): { ok: true; job: RelayJob } |
   const lastOutputTail = requireNullableString("lastOutputTail");
   if (!lastOutputTail.ok) return { ok: false, reason: "`lastOutputTail` must be a string or null" };
 
+  // Preserve the optional rate-limit provenance across a round-trip, but only
+  // include the key when it actually carries a detection so a job without one
+  // round-trips to an identical shape (null ≈ absent).
+  const lastRateLimit = parseRateLimitDetection(value.lastRateLimit);
+
   return {
     ok: true,
     job: {
@@ -156,8 +161,28 @@ export function validateJobRecord(value: unknown): { ok: true; job: RelayJob } |
       attempts,
       lastError: lastError.value,
       lastOutputTail: lastOutputTail.value,
+      ...(lastRateLimit ? { lastRateLimit } : {}),
     },
   };
+}
+
+/**
+ * Best-effort parse of the optional `lastRateLimit` provenance so an
+ * export→import round-trip preserves it. Provenance is non-critical: a missing
+ * or malformed value yields `null` rather than rejecting the whole record.
+ */
+function parseRateLimitDetection(value: unknown): RateLimitDetection | null {
+  if (!isPlainObject(value)) return null;
+  const { pattern, rawMatch, resetAt, detectedAt } = value;
+  if (
+    typeof pattern !== "string" ||
+    typeof rawMatch !== "string" ||
+    typeof resetAt !== "string" ||
+    typeof detectedAt !== "string"
+  ) {
+    return null;
+  }
+  return { pattern, rawMatch, resetAt, detectedAt };
 }
 
 /**

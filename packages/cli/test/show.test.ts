@@ -92,6 +92,25 @@ describe("renderJobDetail", () => {
     expect(out).toContain("  line B");
   });
 
+  it("renders a rate-limit provenance block only when a detection is present", () => {
+    expect(renderJobDetail(job(), { now: NOW })).not.toContain("rate limit");
+    const out = renderJobDetail(
+      job({
+        lastRateLimit: {
+          pattern: "clock-time-meridiem",
+          rawMatch: "reset at 5pm",
+          resetAt: at(90 * 60_000),
+          detectedAt: at(-4 * 60_000),
+        },
+      }),
+      { now: NOW }
+    );
+    expect(out).toContain("rate limit");
+    expect(out).toContain("pattern    clock-time-meridiem");
+    expect(out).toContain("matched    reset at 5pm");
+    expect(out).toContain(`detected   ${at(-4 * 60_000)}`);
+  });
+
   it("emits ANSI codes only when color is enabled", () => {
     expect(renderJobDetail(job(), { now: NOW, color: false })).not.toContain("\x1b[");
     expect(renderJobDetail(job(), { now: NOW, color: true })).toContain("\x1b[");

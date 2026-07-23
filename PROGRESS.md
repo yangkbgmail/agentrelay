@@ -1224,7 +1224,33 @@
   어댑터·#101 파서 요일·#100 completion fish·#75 resume latency·#61 doctor 큐 진행). #61/#69/#75는
   스키마·doctor 충돌 주의. README/ARCHITECTURE(🧭 코워크).
 
-### [세션 38 — `agentrelay metrics` (Prometheus 노출 형식)] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-q77dxu`)
+### [세션 38 — job에 rate-limit 감지 출처(provenance) 영속 → `show`에서 "왜 이 리셋 시각인가" 확인] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-7o70l9`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md의 "비면 스스로 새 개선 항목 발굴" 지침에 따라
+  신규 갭을 코드에서 발굴. 조사 결과: rate-limit이 감지되면 `RateLimitInfo`(pattern·rawMatch·resetAt)
+  중 **`resetAt`만** job에 저장되고, 어떤 파서 패턴이/어떤 raw 텍스트가 그 시각을 만들었는지는
+  enqueue 시점 콘솔 한 줄(`commands.ts`)로만 찍혀 사라졌다. 나중에 `agentrelay show`로 `waiting_for_reset`
+  잡을 들여다봐도 "릴레이가 왜 리셋을 X로 판단했나"(#1 디버깅 질문)를 알 수 없던 추적성 갭 —
+  28개 열린 PR 어디에도 없는 항목.
+- **한 일:**
+  1. **core**: `types.ts`에 `RateLimitDetection`(pattern·rawMatch·resetAt·detectedAt) + `RelayJob.lastRateLimit?`
+     (optional → 구버전 `jobs.json` 무마이그레이션 로드) 추가. `queue.ts` `enqueue`가 `lastRateLimit: null`
+     초기화, `markWaitingForReset(id, resetAt, detection?)`가 detection 있을 때만 영속(수동 재큐 `requeueNow`·
+     백오프 재시도 `markRetryScheduled`는 미설정 — 파싱된 rate-limit이 아니므로).
+  2. **감지 경로 배선**: 스케줄러(`scheduler.ts`, 재개 시 재검출)·CLI run(`commands.ts`, 최초 감지) 두
+     rate-limit 경로가 `{pattern, rawMatch, resetAt, detectedAt: now}`를 `markWaitingForReset`에 전달.
+  3. **표면화**: `show.ts`가 `lastRateLimit` 있을 때만 "rate limit" 블록(pattern/matched/detected) 렌더,
+     `--json`은 job 전체를 감싸므로 자동 노출.
+  4. **무손실 왕복**: `import.ts` `validateJobRecord`에 `parseRateLimitDetection` 추가 — well-formed
+     provenance만 export→import로 보존, malformed/부재는 레코드 거부 대신 생략(null≈absent → shape 안정,
+     기존 `toEqual` 왕복 테스트 불변).
+- **검증:** `pnpm build` 클린(Next 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test` **664 통과
+  + 1 skip**(core 448[+5: queue 3·import 2] + cli 209[+1: show] + dashboard 7). **실제 빌드 CLI e2e**(mock 아님):
+  가짜 rate-limited 명령을 `agentrelay run`으로 릴레이 → 큐잉된 잡의 `lastRateLimit` 4필드 전부 영속 확인,
+  `show`가 "rate limit" 블록 렌더·`show --json`이 provenance 에코 확인.
+- **다음 할 일:** 대시보드 잡 카드/`status` 테이블에도 detection pattern 노출(후속). 남은 distinct PR 통합
+  (세션 37 목록 참조). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 38 (병렬 세션 b) — `agentrelay metrics` (Prometheus 노출 형식)] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-q77dxu`)
 - **배경:** 👷 명시 백로그가 전부 완료 상태이고 열린 PR이 29개(파서·stats 변형·next·데몬 가드·
   대시보드 UI 등 관측/진단 커맨드가 이미 대거 점유)라 중복 위험이 컸다. 29개 열린 PR 목록을
   전부 대조해 **어느 PR과도 겹치지 않는 신규 관측성(observability) 항목**을 발굴했다 — 지금까지

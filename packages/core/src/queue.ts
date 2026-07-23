@@ -31,7 +31,7 @@ import {
 } from "./backup.js";
 import { type ImportOptions, type ImportResult, planImport, summarizeImportPlan } from "./import.js";
 import { type PruneOptions, selectPrunableJobs } from "./prune.js";
-import type { CreateJobInput, JobStatus, RelayJob } from "./types.js";
+import type { CreateJobInput, JobStatus, RateLimitDetection, RelayJob } from "./types.js";
 
 /** Details handed to {@link RelayQueueOptions.onCorrupt} when the store file
  *  existed but couldn't be parsed. */
@@ -176,14 +176,26 @@ export class RelayQueue {
       attempts: 0,
       lastError: null,
       lastOutputTail: null,
+      lastRateLimit: null,
     };
     this.jobs.set(job.id, job);
     this.flush();
     return job;
   }
 
-  markWaitingForReset(id: string, resetAt: string) {
-    this.update(id, { status: "waiting_for_reset", resetAt });
+  /**
+   * Park a job until its rate limit resets. When the caller passes the
+   * `detection` provenance (which parser pattern matched, on what raw text),
+   * it is persisted on the job so `agentrelay show` / the dashboard can explain
+   * *why* the relay chose this reset time. Omit `detection` for reset times
+   * that aren't a parsed rate limit (e.g. manual re-queues).
+   */
+  markWaitingForReset(id: string, resetAt: string, detection?: RateLimitDetection) {
+    this.update(id, {
+      status: "waiting_for_reset",
+      resetAt,
+      ...(detection ? { lastRateLimit: detection } : {}),
+    });
   }
 
   /**
