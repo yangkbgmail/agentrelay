@@ -472,6 +472,23 @@
       failed→1·timeout→124·unknown→1·크로스-프로세스 관측 검증. PR #96 발원 → 세션 37에서 최신 main에
       cherry-pick 통합(#137/#96 중복 대체). branch `claude/wizardly-pascal-4b32lg`)
 
+- [x] 👷 `agentrelay stats --watch [초]` — 집계 지표(성공률·재개 카운트다운·상태/툴 분해)를
+      화면을 지우고 N초마다 다시 그리는 라이브 TUI. `status --watch`는 있었지만 `stats`엔 없던
+      라이브 뷰를 대칭으로 채움.
+      (완료 — CLI `stats.ts`에 순수 `renderStatsWatchFrame(body, storePath, intervalMs, now)` 신설
+      (status.ts `renderWatchFrame` 미러: 제목 라인[갱신 주기 표기]+타임스탬프/스토어 메타 라인+본문,
+      이미 렌더된 body를 감싸므로 그룹/트렌드 뷰 모두 재사용 가능). cli.ts stats 액션의 꼬리를
+      리팩터해 사람용 본문을 만드는 `buildBody(nowMs, color)` 클로저로 통합 — 매 호출마다 스토어를
+      재읽어(`listStatus`) 라이브 쓰기 반영, `nowMs`가 재개 카운트다운·트렌드 일(day) 창을 구동,
+      일회성·watch 두 경로가 동일 렌더. `runStatsWatch(store, intervalMs, buildBody)`가
+      `\x1b[2J\x1b[H`로 화면 지우고 `setInterval`로 재페인트, SIGINT/SIGTERM에 정리 후 종료
+      (`runWatch`와 동일 수명주기). `-w, --watch [초]` 플래그(기본 2s, `2.5`→3s 반올림), `--json`은
+      일회성 스냅샷이라 watch보다 우선(`status --json`과 동일). 기존 `--group-by`/`--trend`/스코프
+      필터와 조합, 잘못된 옵션은 여전히 exit 1. 새 core 코드 0줄 — 전부 기존 검증된 렌더러
+      (`renderStats`/`renderGroupedStats`/`renderTrend`) 재사용. stats.test에 renderStatsWatchFrame
+      4케이스 추가, 실제 빌드 CLI e2e로 라이브 프레임·그룹 조합·`--json` 우선·잘못된 옵션 exit 1 검증.
+      branch `claude/wizardly-pascal-buh6ik`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
