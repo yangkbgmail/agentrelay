@@ -11,6 +11,7 @@ import {
   renderGroupedStatsJson,
   renderStats,
   renderStatsJson,
+  renderStatsWatchFrame,
   renderTrend,
 } from "../src/stats.js";
 
@@ -314,5 +315,39 @@ describe("renderStatsJson trend field", () => {
     const trend: DailyActivity[] = [{ date: "2026-07-20", count: 1 }];
     const withTrend = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", trend }));
     expect(withTrend.trend).toEqual(trend);
+  });
+});
+
+describe("renderStatsWatchFrame", () => {
+  const BODY = "42 job(s) tracked";
+
+  it("wraps a body with a title, timestamp+store meta line, then the body", () => {
+    const frame = renderStatsWatchFrame(BODY, "/tmp/jobs.json", 2000, NOW);
+    const lines = frame.split("\n");
+    // Title (line 0), meta (line 1), blank (line 2), then body lines.
+    expect(lines[0]).toContain("agentrelay stats");
+    expect(lines[0]).toContain("live, every 2s");
+    expect(lines[0]).toContain("Ctrl-C to exit");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+    expect(lines[2]).toBe(""); // blank spacer between meta and body
+    expect(frame).toContain(BODY);
+    expect(frame.endsWith(BODY)).toBe(true);
+  });
+
+  it("renders the injected `now` as a UTC timestamp in the meta line", () => {
+    const frame = renderStatsWatchFrame(BODY, "/tmp/jobs.json", 5000, NOW);
+    // NOW is 2026-07-13T00:00:00Z -> "2026-07-13 00:00:00Z" in the meta line.
+    expect(frame).toContain("2026-07-13 00:00:00Z");
+  });
+
+  it("rounds the interval to whole seconds in the title", () => {
+    const frame = renderStatsWatchFrame(BODY, "/tmp/jobs.json", 2500, NOW);
+    expect(frame).toContain("live, every 3s"); // 2500ms rounds to 3s
+  });
+
+  it("preserves a multi-line body verbatim", () => {
+    const multi = "line one\nline two\nline three";
+    const frame = renderStatsWatchFrame(multi, "/tmp/jobs.json", 2000, NOW);
+    expect(frame).toContain(multi);
   });
 });

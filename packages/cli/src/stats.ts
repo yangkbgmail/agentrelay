@@ -204,6 +204,27 @@ export function renderTrend(trend: DailyActivity[], options: { color?: boolean }
   return lines.join("\n");
 }
 
+/**
+ * Wrap an already-rendered stats body (regular or grouped, with or without a
+ * trend histogram) in a live-watch frame: a title line noting the refresh
+ * interval, a timestamp + store meta line, then the body. Pure — the caller
+ * supplies `now` and the rendered body. Mirrors status.ts `renderWatchFrame`
+ * so both live views (`status --watch` / `stats --watch`) share a look.
+ */
+export function renderStatsWatchFrame(
+  body: string,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now()
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay stats${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", body].join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,

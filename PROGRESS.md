@@ -1223,3 +1223,23 @@
   #118 stats --by-weekday·#114/#112 next·#107 errors·#105 upcoming·#104/#69 데몬 가드·#102 Gemini
   어댑터·#101 파서 요일·#100 completion fish·#75 resume latency·#61 doctor 큐 진행). #61/#69/#75는
   스키마·doctor 충돌 주의. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 38 — `agentrelay stats --watch` 라이브 뷰(#135 구버전 base 최신화·대체)] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-buh6ik`)
+- **한 일:** `agentrelay stats --watch [초]` 구현 — 집계 지표(성공률·재개 카운트다운·상태/툴
+  분해·트렌드)를 화면을 지우고 N초마다 다시 그리는 라이브 TUI. `status --watch`는 있었지만 `stats`엔
+  없던 라이브 뷰를 대칭으로 채움. CLI `stats.ts`에 순수 `renderStatsWatchFrame`(status의
+  `renderWatchFrame` 미러) 신설, cli.ts stats 액션을 `buildBody(nowMs,color)` 클로저로 리팩터(매
+  호출 스토어 재읽기→라이브 반영, `nowMs`가 카운트다운·트렌드 창 구동, 일회성·watch 동일 렌더) +
+  `runStatsWatch`(clear-screen `\x1b[2J\x1b[H`+`setInterval`+SIGINT/TERM 정리, `runWatch`와 동형).
+  `-w, --watch [초]`(기본 2s), `--json`은 watch보다 우선(일회성 스냅샷), 기존 `--group-by`/`--trend`/
+  스코프 필터와 조합. 새 core 코드 0줄(기존 렌더러 재사용). **주의:** 동일 기능의 열린 PR #135가
+  이미 있으나 base가 구버전 main(f231e8f, ~11커밋 뒤처짐)이라, 최신 main 위 재구현으로 #135를 대체.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) 0 경고/0 에러,
+  `pnpm test` 통과(cli 212 + 1 skip, stats.test에 renderStatsWatchFrame 4케이스 추가). **실제 빌드
+  CLI e2e**(mock 아님): 임시 2-job 스토어로 `stats --watch 1` 라이브 프레임(타이틀+타임스탬프+스토어
+  +body), `--watch --group-by tool` 프레임, `--json --watch`→일회성 JSON(watch 무시), 잘못된
+  `--group-by`→exit 1 확인.
+- **다음 할 일:** #135 닫기(대체됨). 남은 distinct PR 통합(#136 run --label·#131 show --watch·#130
+  대시보드 스코프 UI·#128 config get·#126 tools·#125 --no-color·#124 stats --by-hour·#122 paths·
+  #118 stats --by-weekday·#114/#112 next·#107 errors·#105 upcoming·#104/#69 데몬 가드·#102 Gemini
+  어댑터·#101 파서 요일·#100 completion fish·#75 resume latency·#61 doctor 큐 진행). README/ARCHITECTURE(🧭 코워크).
