@@ -1438,3 +1438,26 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44] (2026-07-24, 자동 트리거)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴.
+  `stats --trend`(세션 27, #81)는 **일별(per-day)** UTC 활동 추세를 보여주지만, "하루 중
+  **언제**(어느 시간대) rate-limit이 몰리는가"라는 인트라데이(intraday) 축은 비어 있었다.
+  열린 PR 계열(parse --scan·paths·run --label·upcoming·--no-color·resolution 히스토그램·데모·
+  재개 stagger·파서)과도 겹치지 않는 새 항목.
+- **한 일:** `agentrelay stats --hours` — 24시간(UTC) 시간대별 활동 히스토그램 구현.
+  1. core `stats.ts`에 순수 `computeHourlyDistribution(jobs)` + `HourlyActivity`(hour 0–23·count):
+     `createdAt`의 UTC 시로 버킷팅해 모든 날을 단일 24시간 시계로 접음. 항상 24슬롯(hour 0 first·
+     zero-fill), `nowMs` 불필요(시간은 createdAt에 내재), 파싱 불가/누락 createdAt은 스킵.
+  2. CLI `stats.ts`에 순수 `renderHourly`(busiest 시간으로 막대 스케일·`←` 피크 마커·zero 시간은
+     dim 점) + `renderStatsJson`에 optional `hourly` 필드(요청 시에만 방출, 기본 JSON shape 불변).
+  3. `cli.ts` stats 액션에 `--hours` 배선 — 기존 스코프 필터(--status/--tool/--project/--since/
+     --until)·`--trend`와 조합 가능. 두 히스토그램 모두 매칭 잡이 있을 때만 append.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  전 패키지 통과(**core 495 + cli 233/1skip + dashboard 7** — computeHourlyDistribution 4 +
+  renderHourly 5 + renderStatsJson hourly 1 신규). 실제 빌드된 CLI e2e(mock 아님): 3-job 스토어로
+  시간대 버킷팅(09:00에 2건·23:00에 1건)·`←` 피크 마커·`--project` 스코프 조합·`--trend` 공존·
+  `--json`의 optional hourly 필드(요청 시에만)·default JSON shape 불변 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
+  #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
+  계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
