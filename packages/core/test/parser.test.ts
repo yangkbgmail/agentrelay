@@ -202,6 +202,57 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
   });
 
+  // --- "try again at <time>" / "available again at <time>" wording (broadened trigger) ---
+
+  it("parses 'try again at 3:30pm' (clock time introduced by 'try again at', not 'reset at')", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded. Please try again at 3:30pm.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getMinutes()).toBe(30);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'try again at 5pm' (hour + meridiem, no minutes)", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Try again at 5pm.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(17);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses an ISO timestamp introduced by 'try again at'", () => {
+    const result = parseRateLimitMessage("You are rate limited. Try again at 2026-07-13T05:00:00Z.");
+    expect(result?.pattern).toBe("iso-timestamp");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses 'available again at 9am' even without another rate-limit keyword", () => {
+    // "available again at" must trip the pre-filter on its own, or the message
+    // would be dropped before any pattern runs.
+    const now = new Date("2026-07-12T20:00:00Z");
+    const result = parseRateLimitMessage("Your access is available again at 9am.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(9);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("still routes 'try again in <duration>' to relative-duration, not the clock patterns", () => {
+    // Regression: the broadened "at" trigger must not steal the "in" wording.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in 2h.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
+  it("does not treat 'try again at' with no time as a match", () => {
+    // No digits after "at" -> no clock/ISO match -> normal completion.
+    expect(parseRateLimitMessage("Rate limit hit. Try again at your convenience.")).toBeNull();
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [

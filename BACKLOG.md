@@ -550,6 +550,21 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 파서: "try again at <시각>" / "available again at <시각>" 트리거 인식 — 지금까지 시각 패턴
+      (iso-timestamp·clock-time·clock-time-meridiem)은 트리거 문구가 오직 `reset[s]? at`으로만 한정돼,
+      에이전트가 흔히 쓰는 "Please try again at 3:30pm" / "available again at 9am" 같은 표현을 전혀 못
+      잡았다(relative-duration은 "at"이 아니라 "in"만 처리). 사용자 머신에서는 리셋 시각이 그대로 유실돼
+      잡이 큐잉되지 않던 실사용 갭.
+      (완료 — `parser.ts`에 공유 트리거 `RESUME_AT`(`(?:reset[s]?|try\s+again|available(?:\s+again)?)\s+at`,
+      전부 non-capturing이라 resolve의 capture 인덱스 불변) 도입해 세 시각 패턴을 lockstep으로 broaden.
+      기존 "reset at ..."은 상위집합이라 100% 하위호환(회귀 없음), "try again at 5pm"·"available again at
+      9am"·"try again at <ISO>"가 새로 매치. 사전필터 `LOOKS_LIKE_RATE_LIMIT`에 `available(?:\s+again)?\s+at`
+      추가해 다른 rate-limit 키워드 없는 "available again at" 문구도 안 떨어지게. 기존 규약 준수: 분 없는
+      `try again at 5`(모호)는 여전히 미검출, "try again in 2h"는 여전히 relative-duration. 새 패턴 로직 0줄
+      — 트리거 문자열만 확장. parser.test +6 회귀(try again at 시:분/meridiem/ISO·available again at·in-form
+      보존·시각 없는 "at" null), 실제 빌드 CLI `parse`로 clock-time-meridiem 매치 e2e 확인. branch
+      `claude/wizardly-pascal-msvu26`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
