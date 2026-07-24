@@ -1438,3 +1438,26 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### 세션 44 — 2026-07-24 · `agentrelay verify` 스토어 무결성 린터 (신규 발굴)
+- **시각:** 2026-07-24 (UTC)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴.
+  코드 감사 중 `queue.ts`의 `load()`가 속도를 위해 온-디스크 JSON을 `(parsed as RelayJob[])`로
+  **개별 레코드 검증 없이** 캐스팅하는 것을 확인 — 손 편집·꼬인 머지·`import`로 들어온 레코드가
+  스토어를 "구조적으론 로드되지만 의미적으론 깨진" 상태로 만들 수 있다(bogus status, 빈 command,
+  음수 attempts, 특히 **중복 id** → 큐 Map이 앞 잡을 조용히 덮어 유실). `doctor`는 전체 파일
+  파싱·활성 수만 봐서 이걸 못 잡는 진짜 관측성 갭.
+- **한 일:** `agentrelay verify` 커맨드 신설. core `verify.ts`에 순수 `verifyStore(records:
+  unknown[])` — 원시 배열(큐의 post-cast 뷰가 아님)을 받아 구조 검증(`validateJobRecord` 재사용,
+  에러)+교차·의미 검사(중복 id=에러, resetAt 없는 waiting_for_reset·파싱 불가 타임스탬프·클럭
+  스큐=경고)를 한 번에 리포트하는 `StoreVerification` 반환. CLI `commands.ts` `runVerify`가
+  파일시스템 엣지만 담당(없음=clean·비배열=corrupt·빈 파일=빈 스토어, 절대 throw 안 함),
+  `verify.ts`에 순수 `renderVerify`(에러 먼저·경고 나중)·`renderVerifyJson`. `agentrelay verify
+  [--json]`, corrupt나 error-level 이슈면 exit 1(경고만이면 0) → CI/pre-flight 게이트.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0 경고/0 에러·`pnpm test`
+  전 패키지 통과(core 505, cli 236+1skip, dashboard 7). core verify 14 + cli verify 8 신규.
+  실제 빌드 CLI e2e(mock 아님): missing→exit0·clean→exit0·중복id+빈command+waiting+클럭스큐→
+  exit1(에러 2·경고 2, 에러 먼저 렌더)·corrupt(비배열)→exit1·`--json` 기계 출력 검증.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
+  #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·데모·재개 stagger 계열).
+  README/ARCHITECTURE(🧭 코워크). verify 후속 아이디어: `--fix`로 안전한 자동 교정(중복 id 정리 등).

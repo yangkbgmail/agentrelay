@@ -550,6 +550,24 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay verify` — 잡 스토어 무결성 린터(잘못된 레코드·중복 id·재개 불가 잡 진단).
+      (완료 — `queue.load()`는 속도를 위해 온-디스크 JSON을 `(parsed as RelayJob[])`로 **개별
+      레코드 검증 없이** 캐스팅한다. 그래서 손으로 편집한 `jobs.json`·꼬인 머지·구버전 빌드가 남긴
+      레코드가 스토어를 "구조적으로는 로드되지만 의미적으로 깨진" 상태로 만들 수 있다 — bogus
+      `status`, 빈 `command`, 음수 `attempts`, 그리고 특히 **중복 `id`**(큐가 id를 Map 키로 써서
+      두 번째 레코드가 첫 잡을 조용히 덮어 유실). `doctor`는 전체 파일 파싱·활성 수만 봐서 이걸
+      못 잡는다. `@agentrelay/core/verify.ts` 신설(순수·파일시스템 미접촉): `verifyStore(records:
+      unknown[])`가 **원시** 배열(큐의 post-cast 뷰가 아니라 — 이미 중복을 붕괴시킨 뒤라서)을 받아
+      두 층으로 검사 — 구조 검증은 `import.ts`의 `validateJobRecord` 재사용(에러), 교차·의미 검사는
+      중복 id(에러)·resetAt 없는 waiting_for_reset(경고)·파싱 불가 resetAt/createdAt/updatedAt(경고)·
+      updatedAt<createdAt 클럭 스큐(경고). `StoreVerification`(total·validJobs·error/warningCount·
+      ok·issues[index·jobId·code·message]) 반환. CLI `commands.ts` `runVerify`가 파일시스템 엣지만
+      담당(없음=clean first-run·비배열=corrupt·빈 파일=빈 스토어), `verify.ts`에 순수 `renderVerify`
+      (에러 먼저·경고 나중, 색상)·`renderVerifyJson`. `agentrelay verify [--json]` 커맨드, corrupt나
+      error-level 이슈면 exit 1(경고만이면 0) → CI/pre-flight 게이트. core verify 14 + cli verify 8
+      신규 테스트, 실제 빌드 CLI e2e로 missing/clean/중복id·빈command·waiting·클럭스큐/corrupt/--json
+      검증. branch `claude/wizardly-pascal-2ngzo7`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -21,4 +21,5 @@ export * from "./scheduler.js";
 export * from "./stats.js";
 export * from "./summary.js";
 export * from "./types.js";
+export * from "./verify.js";
 export * from "./wait.js";
