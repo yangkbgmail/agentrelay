@@ -1489,3 +1489,29 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — distinct CI-초록 PR #170(`agentrelay clean`) 최신 main 통합] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-u3h7g6`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태이고 열린 PR이 141건까지 적체된 극도 포화 상황
+  (파서·stats --watch/by-hour/by-weekday·config get·tools/adapters·upcoming·reschedule·export 포맷·
+  데모 계열 등 대부분 기능이 이미 다수 중복 PR로 존재). 신규 기능을 더하면 142번째 근-중복이 될 뿐이라,
+  세션 42~45의 판단(신규보다 **CI 초록·서로 겹치지 않는 distinct PR을 최신 main 위로 통합**)을 이어
+  진행. 전체 열린 PR 목록을 2페이지 전수 확인해, 어느 다른 PR과도 겹치지 않는 유일한 하우스키핑 갭
+  **#170(`agentrelay clean`)**을 통합 대상으로 선정(base가 오래된 `f37d2f9`라 최신 main 재통합 가치 있음).
+- **한 일:** **#170(`agentrelay clean` — 스토어 디렉터리에 영구 누적되는 하우스키핑 파일[손상 복구본
+  `.corrupt-*` + 크래시 잔여 `.tmp-*`] 정리 커맨드)을 최신 main(4abefa1) 위로 통합.** 오래된 base 기반
+  head 커밋(bb5d46f)을 지정 브랜치에 cherry-pick → 코드 파일(cli.ts·commands.ts·core/index.ts·queue.ts·
+  clean.ts·clean.test.ts) 전부 무충돌 자동 병합, 문서(BACKLOG.md·PROGRESS.md)만 충돌 → HEAD 히스토리
+  (세션 44 Retry-After·45 paths)를 보존하며 clean 항목·이 세션 로그 병합.
+  - 구현 요약: 순수 `@agentrelay/core/clean.ts` — `classifyStoreFile`(store/backup/corrupt/tmp/other,
+    `.tmp-backup-*`는 write-in-flight temp로 분류)·`corruptStamp`(backupStamp 대칭)·`selectCleanableFiles`
+    (newest keepCorrupt개 복구본 보존, tmp opt-in, 라이브 스토어·`.backup-*`는 절대 미선택).
+    `RelayQueue.clean({keepCorrupt, includeTmp, dryRun})`는 디렉터리 리스팅만 읽어 안전하게 unlink,
+    삭제 실패는 삼켜 릴레이 보호. CLI `cleanStore` + `agentrelay clean [--keep-corrupt N] [--tmp]
+    [--dry-run]`(tmp는 데몬 in-flight write 충돌 방지 위해 기본 제외·opt-in).
+- **검증:** 통합 후 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0 경고/0
+  에러·`pnpm test` 전 패키지 통과(clean 순수 + queue.clean 신규 포함). 실제 빌드된 CLI e2e로
+  `clean --dry-run`·`--keep-corrupt`·store/backup 보존·`--tmp` opt-in 동작 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#168 backoff·#169 notify preview·#152 resolution
+  Prometheus 히스토그램·#215 run --max-wait·#217 resume buffer 등 고유 기능). 중복 무리(파서 reset-at·
+  config get·stats --watch/by-hour/by-weekday·tools/adapters·upcoming·reschedule·데모)는 각각 하나로
+  수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
