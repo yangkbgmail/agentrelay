@@ -1438,3 +1438,32 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — 파서 타임존-인식 시각 해석] (2026-07-24, 무인 자율 세션)
+- **배경:** 세션 시작 시 지정 브랜치=main 동일(직전 작업 병합 완료), 👷 명시 백로그가 전부
+  완료 상태라 CLAUDE.md 지침대로 **신규 개선 항목을 발굴**했다. 코드를 읽던 중 파서에 명시적
+  한계로 두 번 주석된 **실사용 정확성 버그**를 발견: `clock-time`/`clock-time-meridiem` 패턴이
+  `"Your limit will reset at 5pm (America/New_York)."` 같은 Claude Code 실제 메시지의 괄호
+  타임존을 **무시하고 로컬 시각으로 해석**했다. 데몬이 UTC 서버(흔한 배포 형태)에서 돌면
+  리셋 시각이 몇 시간씩 어긋나 — 릴레이의 존재 이유인 "정확한 리셋 시점 재개"가 깨지는 핵심 버그.
+- **한 일 (branch `claude/wizardly-pascal-tzclock`):** **파서 타임존-인식화.**
+  1. `@agentrelay/core/parser.ts`에 순수 헬퍼 3종 신설 — `zoneOffsetMs(instant, tz)`
+     (`Intl.DateTimeFormat`로 특정 instant의 IANA 존 오프셋[ms] 산출, 미지 존은 RangeError를
+     삼켜 null → DST-safe: 고정 오프셋 가정 대신 concrete instant에서 평가), `wallTimeToInstant`
+     (존 벽시계 Y/M/D h:m → UTC instant, 2-pass 오프셋 보정으로 DST 경계 대응), 그리고 export한
+     `resolveClockTimeInZone(hour, minute, now, tz)`(now 이후 다음 hour:minute instant, 존에서
+     이미 지났으면 익일 롤, 미지 존은 null 반환해 호출부가 로컬 폴백).
+  2. `clock-time`·`clock-time-meridiem` 정규식에 optional `(Zone)` 캡처 그룹
+     (`[A-Za-z]+(?:\/[A-Za-z0-9_+-]+)+`, 슬래시 필수라 `EST`/`PST` 약어는 미포획) 추가. 두 resolve를
+     공용 `resolveClockTime`로 통일 — 존이 유효하면 `resolveClockTimeInZone`, 없거나 미지 존이면
+     기존 `resolveClockTimeLocal`(historic 동작)으로 폴백 → **무회귀·하위호환**. `match[0]`에 존이
+     포함돼 rawMatch가 provenance로 존을 보존.
+  - **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **전 패키지 통과**(core 496 + cli 228/1skip + dashboard 7 — parser 신규 6케이스:
+    TZ-aware NY 5pm→21:00Z·미니트정밀 LA 3:30pm→22:30Z·존에서 지났으면 익일 롤·미지 존→로컬
+    폴백·무-존 로컬 유지·`resolveClockTimeInZone` Kolkata·미지 존 null 직접 unit). 기존 "5pm
+    (America/New_York)→로컬 17시" 단언 테스트를 정정된 UTC instant(21:00Z) 단언으로 업데이트.
+    **실제 빌드된 CLI e2e**(mock 아님): `parse --json`이 NY 5pm→`21:00:00Z`·Kolkata 5pm→`11:30:00Z`·
+    타임존 없음→로컬 `17:00Z`·미지 존→로컬 폴백 `17:00Z`, rawMatch에 존 보존 확인.
+- **다음 할 일:** 파서에 명명 타임존 오프셋 형태(`(UTC+9)`/`(GMT-5)`)·존 약어 매핑 추가 검토(👷),
+  README/ARCHITECTURE(🧭 코워크).

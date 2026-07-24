@@ -550,6 +550,20 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 파서 타임존-인식 시각 해석 — `reset at 5pm (America/New_York)`의 괄호 타임존을
+      실제로 반영해 정확한 UTC instant를 계산(지금까지 무시하고 로컬 시각으로 오해석).
+      (완료 — 데몬이 UTC 서버에서 돌면 "5pm (America/New_York)"를 로컬 5pm으로 잡아 리셋
+      시각이 몇 시간씩 어긋나던 **핵심 기능 버그**를 수정. `@agentrelay/core/parser.ts`에
+      순수 `zoneOffsetMs`(Intl.DateTimeFormat로 특정 instant의 IANA 존 오프셋 산출, 미지
+      존은 null)·`wallTimeToInstant`(존 벽시계→UTC instant, 2-pass 오프셋 보정으로 DST 경계
+      대응)·`resolveClockTimeInZone`(export, 다음 미래 hour:minute instant, 존에서 이미 지났으면
+      익일 롤, 미지 존 null) 추가. `clock-time`·`clock-time-meridiem` 정규식에 optional
+      `(Zone)` 캡처 그룹 추가 → resolve가 존 있으면 `resolveClockTimeInZone`, 없거나 미지 존이면
+      기존 로컬 해석으로 폴백(하위호환·무회귀). rawMatch에 존 보존(provenance). parser.test에
+      TZ-aware/익일 롤/미지 존 폴백/무-존/Kolkata·직접 unit 6케이스, 실제 빌드 CLI `parse --json`
+      e2e로 NY 5pm→21:00Z·Kolkata 5pm→11:30Z·미지 존→로컬 폴백 검증. branch
+      `claude/wizardly-pascal-tzclock`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
