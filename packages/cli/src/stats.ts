@@ -95,6 +95,18 @@ export function renderStats(
     );
   }
 
+  const { cooldown } = stats;
+  if (cooldown.bridgedJobs > 0) {
+    lines.push("");
+    lines.push(b("cooldown bridged") + d(" (rate-limit wait the relay absorbed for you)"));
+    lines.push(
+      `  total ${formatDurationMs(cooldown.totalBridgedMs)}` +
+        `   avg ${formatDurationMs(cooldown.avgBridgedMs ?? 0)}` +
+        `   max ${formatDurationMs(cooldown.maxBridgedMs ?? 0)} ` +
+        d(`over ${cooldown.bridgedJobs} job(s)`)
+    );
+  }
+
   const statusParts = STATUS_ORDER.filter((s) => stats.byStatus[s] > 0).map((s) => `${s}:${stats.byStatus[s]}`);
   lines.push("");
   lines.push(b("by status"));

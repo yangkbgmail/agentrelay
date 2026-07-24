@@ -72,6 +72,39 @@ describe("renderPrometheusMetrics", () => {
     // No resolution/success-rate samples when nothing has resolved.
     expect(text).not.toContain("agentrelay_success_rate");
     expect(text).not.toContain("agentrelay_resolution_seconds");
+    // Cooldown count/total are always emitted (0 is meaningful); avg/max are not.
+    expect(s.get("agentrelay_cooldown_bridged_jobs")).toBe(0);
+    expect(s.get("agentrelay_cooldown_bridged_seconds_total")).toBe(0);
+    expect(text).not.toContain("agentrelay_cooldown_bridged_seconds{");
+  });
+
+  it("emits cooldown_bridged gauges in seconds from lastRateLimit spans", () => {
+    // 120s and 240s bridged cooldowns.
+    const jobs = [
+      job({
+        status: "completed",
+        lastRateLimit: {
+          pattern: "p",
+          rawMatch: "x",
+          detectedAt: "2026-07-13T00:00:00.000Z",
+          resetAt: "2026-07-13T00:02:00.000Z",
+        },
+      }),
+      job({
+        status: "waiting_for_reset",
+        lastRateLimit: {
+          pattern: "p",
+          rawMatch: "x",
+          detectedAt: "2026-07-13T00:00:00.000Z",
+          resetAt: "2026-07-13T00:04:00.000Z",
+        },
+      }),
+    ];
+    const s = parseSamples(renderPrometheusMetrics(computeStats(jobs)));
+    expect(s.get("agentrelay_cooldown_bridged_jobs")).toBe(2);
+    expect(s.get("agentrelay_cooldown_bridged_seconds_total")).toBe(360);
+    expect(s.get('agentrelay_cooldown_bridged_seconds{stat="avg"}')).toBe(180);
+    expect(s.get('agentrelay_cooldown_bridged_seconds{stat="max"}')).toBe(240);
   });
 
   it("ends with a trailing newline and has a HELP/TYPE header per family", () => {
