@@ -1438,3 +1438,31 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay clean` (스토어 디렉터리 하우스키핑 파일 정리)] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-3srkxf`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. 열린 PR 41건을
+  전수 확인해(파서·stats·doctor·config·completion·stagger 계열은 대기 PR로 붐빔) 아무 PR도 다루지 않는
+  실질 갭 선정. 스토어 디렉터리에는 `jobs.json.corrupt-<ts>`(손상 복구본 — 큐가 파싱 불가 스토어를 만날
+  때마다 하나씩 생성, `corruptBackupPath`)와 `jobs.json.tmp-<pid>-<ms>`(원자적 write temp — 크래시 시
+  잔여)가 **영구 누적**되는데, `prune`은 잡만, `backup --keep`은 `.backup-*` 스냅샷만 관리해 이 두 파일
+  종류를 정리하는 커맨드가 전혀 없었다.
+- **한 일:**
+  1. `@agentrelay/core/clean.ts` 신설(순수·파일시스템 미접촉): `CORRUPT_INFIX`/`TMP_INFIX`,
+     `corruptStamp`(backupStamp 대칭, 정렬가능 ISO stamp 추출), `classifyStoreFile`(store/backup/corrupt/
+     tmp/other — `.tmp-backup-*`는 `.tmp-`로 시작하므로 완료 스냅샷이 아닌 write-in-flight temp로 분류),
+     `listCorruptBackups`(최신순)/`listTmpFiles`(이름순), `selectCleanableFiles(names, storeName,
+     {keepCorrupt, includeTmp})`(newest keepCorrupt개 복구본 보존, tmp opt-in, 라이브 스토어·`.backup-*`는
+     절대 미선택).
+  2. `RelayQueue.clean({keepCorrupt, includeTmp, dryRun})` — 디렉터리 리스팅만 읽어(스토어 내용 미접촉 →
+     손상 상태에서도 안전) 선택 파일 unlink, 삭제 실패는 `failed`에 기록·삼킴(backup 로테이션과 동일
+     best-effort), dryRun은 후보만 리포트. core index export.
+  3. CLI `commands.ts` `cleanStore` + `agentrelay clean [--keep-corrupt N] [--tmp] [--dry-run]`. tmp는
+     데몬 in-flight write와 충돌 가능해 기본 제외·`--tmp` opt-in(도움말에 경고). 잘못된 keep·삭제 실패는
+     exit 1.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **734 통과 + 1 skip**(core 499 + cli 228/1skip + dashboard 7 — clean 순수 5 + queue.clean 3 신규).
+  실제 빌드된 CLI e2e(mock 아님): dry-run 미변경·`--keep-corrupt 1` 복구본 보존·store/backup 절대 미삭제·
+  `--tmp` opt-in·nothing-to-clean 메시지·`--keep-corrupt -2`→exit 1 검증.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
+  #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
+  계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).

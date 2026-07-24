@@ -29,6 +29,7 @@ import {
   type RestoreResult,
   selectRotatableBackups,
 } from "./backup.js";
+import { type CleanResult, selectCleanableFiles } from "./clean.js";
 import { type ImportOptions, type ImportResult, planImport, summarizeImportPlan } from "./import.js";
 import { type PruneOptions, selectPrunableJobs } from "./prune.js";
 import type { CreateJobInput, JobStatus, RateLimitDetection, RelayJob } from "./types.js";
@@ -328,6 +329,55 @@ export class RelayQueue {
     }
 
     return { path: dest, jobCount: all.length, rotated };
+  }
+
+  /**
+   * Removes leftover housekeeping files from the store directory that no other
+   * command manages: `.corrupt-<ts>` corruption-recovery copies (retaining the
+   * newest `keepCorrupt`, default 0 = all) and, when `includeTmp` is set, orphan
+   * `.tmp-*` atomic-write temp files. Never touches the live store or its
+   * `.backup-*` snapshots (rotate those with `backup --keep`). With `dryRun` the
+   * candidates are reported but nothing is deleted. A delete that fails (e.g. a
+   * permission error) is recorded in `failed` and swallowed, so cleanup never
+   * throws — the same best-effort posture as backup rotation.
+   *
+   * Reads only the directory listing, never the store contents, so it is safe to
+   * run even when `jobs.json` itself is corrupt (indeed the likely time to run).
+   */
+  clean(options: { keepCorrupt?: number; includeTmp?: boolean; dryRun?: boolean } = {}): CleanResult {
+    const dir = dirname(this.filePath);
+    const storeName = basename(this.filePath);
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      names = [];
+    }
+    const keepCorrupt = Math.max(0, Math.floor(options.keepCorrupt ?? 0));
+    const selection = selectCleanableFiles(names, storeName, {
+      keepCorrupt,
+      includeTmp: options.includeTmp,
+    });
+    const toFull = (name: string) => join(dir, name);
+    const corrupt = selection.corrupt.map(toFull);
+    const tmp = selection.tmp.map(toFull);
+    const dryRun = options.dryRun ?? false;
+
+    const removed: string[] = [];
+    const failed: string[] = [];
+    if (!dryRun) {
+      for (const full of [...corrupt, ...tmp]) {
+        try {
+          unlinkSync(full);
+          removed.push(full);
+        } catch {
+          // Best-effort: a delete failure must not break the relay.
+          failed.push(full);
+        }
+      }
+    }
+
+    return { corrupt, tmp, removed, failed, keptCorrupt: keepCorrupt, dryRun };
   }
 
   /**
