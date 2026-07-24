@@ -15,6 +15,7 @@ import {
   ALL_TOOLS,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
+  computeBackoffSchedule,
   computeDailyTrend,
   computeErrorBreakdown,
   computeStats,
@@ -30,6 +31,7 @@ import {
   parseCsvColumns,
   parseDuration,
   renderPrometheusMetrics,
+  retryPolicyFromEnv,
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
   selectNextResume,
@@ -37,6 +39,7 @@ import {
   summarizeRateLimitPatterns,
 } from "@agentrelay/core";
 import { Command } from "commander";
+import { renderBackoff, renderBackoffJson } from "./backoff.js";
 import {
   ALL_JOB_STATUSES,
   type BulkControlAction,
@@ -1196,6 +1199,38 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderParseReport(report, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("backoff")
+    .description(
+      "Preview the retry backoff schedule the current policy produces for transient failures (env + config file)"
+    )
+    .option(
+      "-n, --attempts <n>",
+      "How many between-attempt waits to show (default: derived from max attempts; required for an unlimited policy)"
+    )
+    .option("--json", "Print the schedule as JSON (machine-readable, for scripts/jq)")
+    .action((opts: { attempts?: string; json?: boolean }) => {
+      const policy = retryPolicyFromEnv();
+
+      let steps: number | undefined;
+      if (opts.attempts !== undefined) {
+        const n = Number(opts.attempts);
+        if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+          console.error(`[agentrelay] Invalid --attempts: ${opts.attempts}. Use a non-negative integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        steps = n;
+      }
+
+      const schedule = computeBackoffSchedule(policy, { steps });
+      if (opts.json) {
+        console.log(renderBackoffJson(schedule));
+      } else {
+        console.log(renderBackoff(schedule, { color: Boolean(process.stdout.isTTY) }));
+      }
     });
 
   const config = program.command("config").description("Manage the agentrelay.config.json defaults file");

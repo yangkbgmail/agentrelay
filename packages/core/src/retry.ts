@@ -57,6 +57,90 @@ export function isRetryExhausted(policy: RetryPolicy, attemptNumber: number): bo
   return policy.maxAttempts > 0 && attemptNumber >= policy.maxAttempts;
 }
 
+/** Fallback number of waits previewed for an unlimited (`maxAttempts <= 0`) policy. */
+export const DEFAULT_BACKOFF_PREVIEW_STEPS = 5;
+
+/** One between-attempt wait in a previewed backoff schedule. */
+export interface BackoffStep {
+  /**
+   * 1-indexed number of the attempt that just failed and triggers this wait.
+   * The scheduler backs off for attempts `1 .. maxAttempts - 1` (the wait after
+   * the final attempt never happens — `isRetryExhausted` fires first), so the
+   * wait for `attempt` precedes attempt `attempt + 1`.
+   */
+  attempt: number;
+  /** Deterministic (mid-point) delay before the next attempt, in ms. */
+  delayMs: number;
+  /** Jitter lower bound in ms (equals `delayMs` when `jitter` is 0). */
+  minDelayMs: number;
+  /** Jitter upper bound in ms (equals `delayMs` when `jitter` is 0). */
+  maxDelayMs: number;
+  /** True when this wait is pinned at the policy's `maxDelayMs` cap. */
+  capped: boolean;
+}
+
+/** The concrete backoff schedule a {@link RetryPolicy} produces, ready to render. */
+export interface BackoffSchedule {
+  /** The policy the schedule was computed from. */
+  policy: RetryPolicy;
+  /** True when `maxAttempts <= 0` (no attempt cap; the preview count is bounded). */
+  unlimited: boolean;
+  /** One entry per between-attempt wait, in order. */
+  steps: BackoffStep[];
+  /** Sum of every step's `delayMs`. */
+  totalDelayMs: number;
+  /** Sum of every step's `minDelayMs`. */
+  totalMinMs: number;
+  /** Sum of every step's `maxDelayMs`. */
+  totalMaxMs: number;
+}
+
+/**
+ * Expands a {@link RetryPolicy} into the concrete sequence of between-attempt
+ * waits it produces, so `config show`'s raw knobs (base / factor / cap / jitter
+ * / maxAttempts) can be previewed as the delays a job would actually experience.
+ *
+ * Pure: no clock, no I/O, no randomness — jitter is reported as the `[min, max]`
+ * bounds `computeBackoffMs` would spread each delay across, not a sampled value.
+ *
+ * The number of waits mirrors the scheduler: a capped policy (`maxAttempts > 0`)
+ * backs off for attempts `1 .. maxAttempts - 1`; an unlimited policy has no
+ * natural end, so it previews {@link DEFAULT_BACKOFF_PREVIEW_STEPS} waits.
+ * `options.steps` overrides the count explicitly (values `<= 0` yield none),
+ * which is what lets callers preview an unlimited policy or look past the cap.
+ */
+export function computeBackoffSchedule(policy: RetryPolicy, options: { steps?: number } = {}): BackoffSchedule {
+  const unlimited = policy.maxAttempts <= 0;
+  const capWaits = unlimited ? DEFAULT_BACKOFF_PREVIEW_STEPS : Math.max(0, policy.maxAttempts - 1);
+
+  const requested = options.steps;
+  const count =
+    requested === undefined ? capWaits : Number.isFinite(requested) && requested > 0 ? Math.floor(requested) : 0;
+
+  const fraction = Math.min(1, Math.max(0, policy.jitter));
+
+  const steps: BackoffStep[] = [];
+  let totalDelayMs = 0;
+  let totalMinMs = 0;
+  let totalMaxMs = 0;
+  for (let attempt = 1; attempt <= count; attempt++) {
+    const delayMs = computeBackoffMs(policy, attempt); // deterministic clamped base
+    let minDelayMs = delayMs;
+    let maxDelayMs = delayMs;
+    if (fraction > 0) {
+      // Mirror the spread computeBackoffMs applies (base·(1±fraction), re-clamped).
+      minDelayMs = Math.max(0, Math.min(policy.maxDelayMs, Math.round(delayMs * (1 - fraction))));
+      maxDelayMs = Math.min(policy.maxDelayMs, Math.round(delayMs * (1 + fraction)));
+    }
+    steps.push({ attempt, delayMs, minDelayMs, maxDelayMs, capped: delayMs >= policy.maxDelayMs });
+    totalDelayMs += delayMs;
+    totalMinMs += minDelayMs;
+    totalMaxMs += maxDelayMs;
+  }
+
+  return { policy, unlimited, steps, totalDelayMs, totalMinMs, totalMaxMs };
+}
+
 function positiveIntOr(value: string | undefined, fallback: number): number {
   if (value === undefined || value.trim() === "") return fallback;
   const n = Number(value);

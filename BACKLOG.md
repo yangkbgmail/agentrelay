@@ -550,6 +550,19 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay backoff` — 재시도 백오프 스케줄 미리보기(정책 raw 값 → 실제 대기 시퀀스).
+      (완료 — `config show`/`validate`는 재시도 정책의 raw 값(base/factor/cap/jitter/maxAttempts)만
+      보여줄 뿐 그것이 만들어내는 구체적 대기 시퀀스를 볼 수 없었다. core `retry.ts`에 순수
+      `computeBackoffSchedule(policy,{steps?})` + `BackoffSchedule`/`BackoffStep` + `DEFAULT_BACKOFF_
+      PREVIEW_STEPS`(5): 스케줄러와 동일하게 attempt `1..maxAttempts-1`의 between-attempt 대기 산출,
+      무제한(`maxAttempts<=0`)은 기본 5개 미리보기·`steps`로 명시 오버라이드, jitter는 샘플이 아니라
+      `computeBackoffMs`가 퍼뜨릴 `[min,max]` 경계로 리포트(재클램프 동일)·각 step 캡 적중 플래그,
+      시계/난수/I/O 없음. CLI `backoff.ts`에 순수 `formatPolicyLine`·`renderBackoff`(정책 줄+step별
+      대기[지터 시 범위]+총합, `formatDurationMs` 재사용)·`renderBackoffJson`. `agentrelay backoff
+      [-n/--attempts <n>] [--json]`가 `retryPolicyFromEnv()`로 env+설정파일 정책 해소, 잘못된
+      `--attempts`는 exit 1. core retry +7 / cli backoff +10 신규 테스트, 실제 빌드 CLI e2e로 기본
+      스케줄·지터 경계·무제한·no-retry·JSON·에러 exit 검증. branch `claude/wizardly-pascal-k0hbut`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

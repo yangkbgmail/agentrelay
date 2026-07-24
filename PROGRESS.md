@@ -1438,3 +1438,26 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay backoff` (재시도 백오프 스케줄 미리보기)] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-k0hbut`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목 발굴. 열린 PR 39건을
+  확인해 겹치지 않는 항목 선정. `config show`/`validate`는 재시도 정책의 raw 값(base/factor/cap/
+  jitter/maxAttempts)만 보여줄 뿐, 그 값들이 실제로 만들어내는 **구체적 대기 시퀀스**(시도 1: 1분,
+  시도 2: 2분, … ±지터 범위, 캡 적중)를 볼 방법이 없었다 — 정책 튜닝을 실제 실패 전에 감 잡기 어려움.
+- **한 일:**
+  1. core `retry.ts`에 순수 `computeBackoffSchedule(policy, {steps?})` + `BackoffSchedule`/`BackoffStep`
+     + `DEFAULT_BACKOFF_PREVIEW_STEPS`(5) 추가. 스케줄러와 동일하게 attempt `1..maxAttempts-1`의
+     between-attempt 대기를 산출(캡 정책), 무제한(`maxAttempts<=0`)이면 기본 5개 미리보기, `steps`로
+     명시 오버라이드(무제한 미리보기·캡 초과 확인). jitter는 샘플이 아니라 `computeBackoffMs`가
+     퍼뜨릴 `[min,max]` 경계로 리포트(재클램프 동일), 각 step에 캡 적중 플래그. 시계/난수/I/O 없음.
+  2. CLI `packages/cli/src/backoff.ts` 신설: 순수 `formatPolicyLine`(정책 요약)·`renderBackoff`
+     (정책 줄+step별 대기[지터 시 범위]+총합, `formatDurationMs` 재사용, `color`로 ANSI 게이트)·
+     `renderBackoffJson`. `agentrelay backoff [-n/--attempts <n>] [--json]` 커맨드 배선 —
+     `retryPolicyFromEnv()`로 env+설정파일 반영 정책 해소, 잘못된 `--attempts`는 exit 1.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  전 패키지 통과(core retry +7, cli backoff +10 신규). 실제 빌드된 CLI e2e(mock 아님): 기본 5시도
+  스케줄·커스텀 정책+지터 경계·무제한 `--attempts N`·maxAttempts 1(재시도 없음)·`--json` 전체
+  스케줄·잘못된 `--attempts`→exit 1·`--help` 노출 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합/신규 발굴 계속(#164 parse --scan·#122 paths·#136 run
+  --label·#105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·재개 stagger 계열 수렴).
+  README/ARCHITECTURE(🧭 코워크).
