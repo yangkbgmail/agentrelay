@@ -1438,3 +1438,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay stats` "cooldown bridged" 지표(릴레이가 대신 기다린 총 대기시간)] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-qwx7v6`)
+- **한 일:** 도구의 핵심 가치 제안("당신 대신 쿨다운을 지켜봤다")을 처음으로 계량하는 지표 추가.
+  `@agentrelay/core/stats.ts`에 순수 `cooldownBridgedMs(job)`(잡의 `lastRateLimit` 프로비넌스에서
+  `resetAt - detectedAt`, 미검출/파싱불가/음수 span[클럭 스큐·이미 지난 리셋]은 클램프 없이 스킵)와
+  `CooldownStats`(bridgedJobs·totalBridgedMs·avg/maxBridgedMs)를 신설, `computeStats`가 이를 집계해
+  `RelayStats.cooldown`으로 노출. **종료 상태와 무관하게** 계산 — 아직 `waiting_for_reset`인 잡도
+  이미 대기를 흡수하는 중이므로 포함. 잡당 마지막 검출만 스토어에 남으므로 정직한 하한(3번 걸린
+  잡은 마지막 대기만 계산되어 과다집계 불가). CLI `stats.ts`는 검출 있는 잡이 존재할 때만
+  "cooldown bridged" 블록(total/avg/max + over N job(s))을 렌더, `--json`은 전체 stats를 그대로
+  전달(신규 소비자 자동 노출). `core/metrics.ts` Prometheus에 `cooldown_bridged_jobs`·
+  `cooldown_bridged_seconds_total`(0도 의미 있으므로 항상 emit) + 잡 있을 때만
+  `cooldown_bridged_seconds{stat="avg"|"max"}`(초 단위 gauge) 추가.
+- **왜:** 명시 👷 백로그가 전부 완료라 CLAUDE.md 지침대로 신규 개선 항목 발굴. 기존 stats는 성공률·
+  재시도·해결시간(resolution time)까지 보여줬지만, "릴레이가 실제로 얼마나 많은 대기 시간을
+  자동으로 처리해줬는가"라는 도구의 존재 이유 자체는 어디에도 수치로 없었다. `lastRateLimit`
+  프로비넌스(이미 `patterns`/`show`가 소비)에 그 답이 이미 들어 있어, 새 데이터 없이 집계만으로
+  계량 가능.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0 경고/0 에러·`pnpm test` 전
+  패키지 통과(core stats 2 + metrics 2, CLI stats 2 신규 포함, 총 core 494/CLI 230). 실제 빌드된
+  CLI e2e(mock 아님): 2-잡 스토어(4h 완료 + 1h 대기중)로 `stats`가 "total 5h 0m avg 2h 30m max 4h 0m
+  over 2 job(s)" 렌더, `metrics`가 `cooldown_bridged_seconds_total 18000`, `--json`이
+  `cooldown.totalBridgedMs 18000000` 출력 확인.
+- **다음 할 일:** 남은 개선 항목 발굴 계속(예: cooldown 지표를 `--group-by`/`--json` trend에 반영,
+  또는 대시보드 노출). 남은 distinct 열린 PR 통합. README/ARCHITECTURE(🧭 코워크).

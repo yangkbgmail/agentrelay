@@ -152,5 +152,29 @@ export function renderPrometheusMetrics(stats: RelayStats, options: PrometheusOp
     );
   }
 
+  // Cooldown-bridged gauges: how much rate-limit wait the relay absorbed. Always
+  // emit the count and total (0 is a meaningful "nothing bridged yet" reading);
+  // avg/max only when at least one job contributed a span.
+  const c = stats.cooldown;
+  lines.push(
+    ...metricFamily(name("cooldown_bridged_jobs"), "Jobs that contributed a valid cooldown-bridged span.", [
+      `${name("cooldown_bridged_jobs")} ${formatValue(c.bridgedJobs)}`,
+    ]),
+    ...metricFamily(
+      name("cooldown_bridged_seconds_total"),
+      "Total rate-limit wait time the relay absorbed on the user's behalf, seconds.",
+      [`${name("cooldown_bridged_seconds_total")} ${formatValue(c.totalBridgedMs / 1000)}`]
+    )
+  );
+  if (c.avgBridgedMs !== null && c.maxBridgedMs !== null) {
+    const metric = name("cooldown_bridged_seconds");
+    lines.push(
+      ...metricFamily(metric, "Rate-limit wait the relay bridged per job (resetAt - detectedAt), seconds.", [
+        `${metric}{${label("stat", "avg")}} ${formatValue(c.avgBridgedMs / 1000)}`,
+        `${metric}{${label("stat", "max")}} ${formatValue(c.maxBridgedMs / 1000)}`,
+      ])
+    );
+  }
+
   return `${lines.join("\n")}\n`;
 }

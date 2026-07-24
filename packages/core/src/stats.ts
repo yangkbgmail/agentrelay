@@ -42,6 +42,34 @@ export interface TimingStats {
   p90ResolutionMs: number | null;
 }
 
+/**
+ * "Cooldown bridged" metrics — the core value proposition of the relay made
+ * countable: how much rate-limit wait time AgentRelay sat through on the user's
+ * behalf instead of them watching a terminal. Each contributing job supplies one
+ * span from its persisted `lastRateLimit` provenance: `resetAt - detectedAt`, i.e.
+ * how long that job was parked between the moment a limit was detected and the
+ * moment it was expected to clear.
+ *
+ * Only the *last* detection per job is recorded on the store, so this is an
+ * honest lower bound (a job rate-limited three times contributes only its final
+ * wait), never an over-count. Jobs without a `lastRateLimit`, or whose span is
+ * unparseable or negative (clock skew / an already-past reset), are skipped — not
+ * clamped — so a garbage timestamp can't inflate the total.
+ */
+export interface CooldownStats {
+  /** Number of jobs that contributed a valid, non-negative cooldown span. */
+  bridgedJobs: number;
+  /**
+   * Sum of every contributed cooldown span (ms) — the headline "AgentRelay
+   * waited this long so you didn't have to". `0` when nothing contributed.
+   */
+  totalBridgedMs: number;
+  /** Mean cooldown span (ms) over {@link bridgedJobs}, or null when none. */
+  avgBridgedMs: number | null;
+  /** Longest single cooldown span (ms) the relay bridged, or null when none. */
+  maxBridgedMs: number | null;
+}
+
 export interface RelayStats {
   total: number;
   /** Count per job status (all statuses present, zero-filled). */
@@ -68,6 +96,8 @@ export interface RelayStats {
   projects: ProjectStat[];
   /** Resolution-time metrics over completed + failed jobs. */
   timing: TimingStats;
+  /** Rate-limit wait time the relay absorbed on the user's behalf. */
+  cooldown: CooldownStats;
 }
 
 /**
@@ -213,6 +243,22 @@ function resolutionMs(job: RelayJob): number | null {
 }
 
 /**
+ * Cooldown span the relay bridged for a job in ms (`resetAt - detectedAt` from
+ * its last rate-limit detection), or null when the job carries no detection, has
+ * an unparseable timestamp, or a negative span (clock skew / an already-past
+ * reset — never clamped, so garbage can't inflate the aggregate).
+ */
+function cooldownBridgedMs(job: RelayJob): number | null {
+  const detection = job.lastRateLimit;
+  if (!detection) return null;
+  const detected = Date.parse(detection.detectedAt);
+  const reset = Date.parse(detection.resetAt);
+  if (Number.isNaN(detected) || Number.isNaN(reset)) return null;
+  const span = reset - detected;
+  return span >= 0 ? span : null;
+}
+
+/**
  * Linear-interpolated percentile (0..1) over an ascending-sorted, non-empty
  * array. p=0.5 → median, p=0.9 → p90. Matches the common "type 7" / NumPy
  * default: rank = p·(n−1), interpolate between the two straddling samples.
@@ -241,6 +287,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
   let totalAttempts = 0;
   let retriedJobs = 0;
   const resolutionDurations: number[] = [];
+  const cooldownDurations: number[] = [];
 
   for (const job of jobs) {
     // A job may carry a tool we don't statically know about; only bump known
@@ -253,6 +300,10 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       const span = resolutionMs(job);
       if (span !== null) resolutionDurations.push(span);
     }
+    // Cooldown bridged is independent of terminal status: a job still
+    // waiting_for_reset has already had the relay absorb its wait, so it counts.
+    const cooldown = cooldownBridgedMs(job);
+    if (cooldown !== null) cooldownDurations.push(cooldown);
   }
 
   const active = ACTIVE_STATUSES.reduce((sum, s) => sum + byStatus[s], 0);
@@ -289,6 +340,17 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     };
   }
 
+  const bridgedJobs = cooldownDurations.length;
+  const cooldown: CooldownStats =
+    bridgedJobs === 0
+      ? { bridgedJobs: 0, totalBridgedMs: 0, avgBridgedMs: null, maxBridgedMs: null }
+      : {
+          bridgedJobs,
+          totalBridgedMs: cooldownDurations.reduce((sum, d) => sum + d, 0),
+          avgBridgedMs: Math.round(cooldownDurations.reduce((sum, d) => sum + d, 0) / bridgedJobs),
+          maxBridgedMs: Math.max(...cooldownDurations),
+        };
+
   return {
     total,
     byStatus,
@@ -301,6 +363,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     nextResetAt,
     projects,
     timing,
+    cooldown,
   };
 }
 

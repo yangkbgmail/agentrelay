@@ -44,6 +44,12 @@ describe("computeStats", () => {
       medianResolutionMs: null,
       p90ResolutionMs: null,
     });
+    expect(stats.cooldown).toEqual({
+      bridgedJobs: 0,
+      totalBridgedMs: 0,
+      avgBridgedMs: null,
+      maxBridgedMs: null,
+    });
   });
 
   it("splits active vs terminal counts", () => {
@@ -239,6 +245,74 @@ describe("computeStats", () => {
       medianResolutionMs: null,
       p90ResolutionMs: null,
     });
+  });
+
+  it("sums cooldown bridged from lastRateLimit provenance, regardless of terminal status", () => {
+    const stats = computeStats([
+      // 2h cooldown, job since completed
+      job({
+        status: "completed",
+        lastRateLimit: {
+          pattern: "claude-usage-limit",
+          rawMatch: "usage limit",
+          detectedAt: "2026-07-13T00:00:00.000Z",
+          resetAt: "2026-07-13T02:00:00.000Z",
+        },
+      }),
+      // 1h cooldown, job still parked waiting — the relay is already absorbing it
+      job({
+        status: "waiting_for_reset",
+        lastRateLimit: {
+          pattern: "claude-usage-limit",
+          rawMatch: "usage limit",
+          detectedAt: "2026-07-13T05:00:00.000Z",
+          resetAt: "2026-07-13T06:00:00.000Z",
+        },
+      }),
+      // no detection — contributes nothing
+      job({ status: "completed", lastRateLimit: null }),
+    ]);
+    expect(stats.cooldown.bridgedJobs).toBe(2);
+    expect(stats.cooldown.totalBridgedMs).toBe(10_800_000); // 2h + 1h
+    expect(stats.cooldown.avgBridgedMs).toBe(5_400_000); // 1.5h
+    expect(stats.cooldown.maxBridgedMs).toBe(7_200_000); // 2h
+  });
+
+  it("skips cooldown spans that are unparseable or negative (clock skew)", () => {
+    const stats = computeStats([
+      job({
+        status: "completed",
+        lastRateLimit: {
+          pattern: "p",
+          rawMatch: "x",
+          detectedAt: "not-a-date",
+          resetAt: "2026-07-13T01:00:00.000Z",
+        },
+      }),
+      // negative span: reset before detection
+      job({
+        status: "completed",
+        lastRateLimit: {
+          pattern: "p",
+          rawMatch: "x",
+          detectedAt: "2026-07-13T05:00:00.000Z",
+          resetAt: "2026-07-13T04:00:00.000Z",
+        },
+      }),
+      // valid 30m span
+      job({
+        status: "completed",
+        lastRateLimit: {
+          pattern: "p",
+          rawMatch: "x",
+          detectedAt: "2026-07-13T00:00:00.000Z",
+          resetAt: "2026-07-13T00:30:00.000Z",
+        },
+      }),
+    ]);
+    expect(stats.cooldown.bridgedJobs).toBe(1);
+    expect(stats.cooldown.totalBridgedMs).toBe(1_800_000);
+    expect(stats.cooldown.maxBridgedMs).toBe(1_800_000);
   });
 });
 

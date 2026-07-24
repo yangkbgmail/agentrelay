@@ -128,6 +128,41 @@ describe("renderStats", () => {
     expect(out).not.toContain("resolution time");
   });
 
+  it("renders a cooldown-bridged block when jobs carry rate-limit provenance", () => {
+    const stats = computeStats([
+      job({
+        status: "completed",
+        lastRateLimit: {
+          pattern: "p",
+          rawMatch: "x",
+          detectedAt: "2026-07-13T00:00:00.000Z",
+          resetAt: "2026-07-13T01:00:00.000Z",
+        },
+      }),
+      job({
+        status: "waiting_for_reset",
+        lastRateLimit: {
+          pattern: "p",
+          rawMatch: "x",
+          detectedAt: "2026-07-13T00:00:00.000Z",
+          resetAt: "2026-07-13T03:00:00.000Z",
+        },
+      }),
+    ]);
+    const out = renderStats(stats, { now: NOW });
+    expect(out).toContain("cooldown bridged");
+    expect(out).toContain("total 4h 0m"); // 1h + 3h
+    expect(out).toContain("avg 2h 0m");
+    expect(out).toContain("max 3h 0m");
+    expect(out).toContain("over 2 job(s)");
+  });
+
+  it("omits the cooldown-bridged block when no job carries a rate-limit detection", () => {
+    const stats = computeStats([job({ status: "completed" }), job({ status: "failed" })]);
+    const out = renderStats(stats, { now: NOW });
+    expect(out).not.toContain("cooldown bridged");
+  });
+
   it("caps the project list at five entries", () => {
     const jobs: RelayJob[] = [];
     for (const p of ["a", "b", "c", "d", "e", "f", "g"]) jobs.push(job({ project: p }));

@@ -176,6 +176,19 @@
       tick-mode 하트비트 기록(cron 사용자도 생존 신호). `runDoctor`가 `nowMs` 주입 가능(테스트용).
       heartbeat.test.ts 13 + doctor daemon 6 + scheduler onTick 2 + CLI 7케이스, 실제 빌드 CLI로
       before/after·daemon 수명주기·stale 경고 e2e 검증. branch `claude/wizardly-pascal-hb7k2m`)
+- [x] 👷 `agentrelay stats` "cooldown bridged" 지표 — 릴레이가 사용자 대신 기다려 준 총
+      rate-limit 대기 시간(핵심 가치 제안을 수치화).
+      (완료 — 도구의 존재 이유("당신 대신 쿨다운을 지켜봤다")를 처음으로 계량. `stats.ts`에
+      순수 `cooldownBridgedMs(job)`(`lastRateLimit`의 `resetAt - detectedAt`, 미검출/파싱불가/음수
+      span[클럭 스큐·이미 지난 리셋]은 클램프 없이 스킵) + `CooldownStats`(bridgedJobs·totalBridgedMs·
+      avg/maxBridgedMs) 추가. `computeStats`가 종료 상태와 무관하게 집계(아직 waiting_for_reset인
+      잡도 이미 대기를 흡수 중이므로 포함). 잡당 **마지막** 검출만 스토어에 남으므로 정직한 하한
+      (3번 걸린 잡은 마지막 대기만 계산=과다집계 불가). CLI `stats.ts`가 검출 있는 잡이 있을 때만
+      "cooldown bridged" 블록(total/avg/max) 렌더, `--json`은 전체 stats 그대로 전달. `metrics.ts`
+      Prometheus는 `cooldown_bridged_jobs`·`cooldown_bridged_seconds_total`(0도 의미 있어 항상)+
+      잡 있을 때만 `cooldown_bridged_seconds{stat=avg|max}`(초 단위) 노출. stats.test 2 + metrics.test 2
+      + CLI stats.test 2케이스, 실제 빌드 CLI로 stats/metrics/--json e2e 검증. branch
+      `claude/wizardly-pascal-qwx7v6`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
