@@ -550,6 +550,21 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay reschedule <id> <when>` — 잡의 재개 시각을 미래로 미루거나 명시 시각으로 교정
+      (파서 오검출 교정·재개 겹침 회피). `retry`(지금 재개)와 `cancel`(중단)을 보완하는 세 번째 수동 제어.
+      (완료 — `retry`(=requeueNow, 즉시 due)만으로는 재개 시각을 **뒤로 미루거나** 파서가 잘못 잡은
+      리셋 시각을 **교정**할 수 없었다. `@agentrelay/core/control.ts`에 순수 `canReschedule(job)`
+      (mid-flight `resuming`만 거부, 나머지 상태는 허용 — 대기 잡 시각 교정·종료 잡 미래 부활 모두 가능) +
+      `resolveRescheduleTarget(when, nowMs)`(순수·시계 미접촉): 기간(`2h`/`+30m`/`in 1d`, 기존
+      `parseDuration` 재사용, 선행 `+`/`in ` 스트립)→`now+기간`, 또는 절대 ISO 타임스탬프(`Date.parse`)→
+      그 시각. 기간을 **먼저** 시도해 `2h`가 `Date.parse`로 오독되지 않게. `RelayQueue.reschedule(id,
+      resetAt, {resetAttempts?})`가 status=waiting_for_reset + resetAt 설정 — 기본은 attempts 보존
+      (스케줄 변경일 뿐), `--reset-attempts`면 attempts 0 + lastError 클리어(소진 잡 부활). CLI
+      `rescheduleJob(id, when, opts, store)`(시각 파싱 실패는 스토어 **열기 전** exit 1) + `agentrelay
+      reschedule <id> <when> [--reset-attempts]` 배선. core control +8 / queue +2, cli commands +4 신규
+      테스트, 실제 빌드 CLI e2e로 +2h·절대 ISO·파싱실패 exit1·미존재 id exit1 검증.
+      branch `claude/wizardly-pascal-zlfu00`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

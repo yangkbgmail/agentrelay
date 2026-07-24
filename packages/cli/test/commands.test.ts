@@ -15,6 +15,7 @@ import {
   listStoreBackups,
   previewRestoreStore,
   pruneJobs,
+  rescheduleJob,
   restoreStore,
   retryJob,
   runCommand,
@@ -217,6 +218,41 @@ describe("cancelJob / retryJob", () => {
     expect(result.job?.status).toBe("waiting_for_reset");
     expect(result.job?.attempts).toBe(0);
     expect(result.job?.lastError).toBeNull();
+  });
+
+  it("reschedules a waiting job to a duration from now, preserving attempts", () => {
+    const id = seed("waiting_for_reset");
+    const now = Date.parse("2026-07-24T12:00:00.000Z");
+    const result = rescheduleJob(id.slice(0, 8), "2h", { now: () => now }, storePath);
+    expect(result.ok).toBe(true);
+    expect(result.job?.status).toBe("waiting_for_reset");
+    expect(result.job?.resetAt).toBe("2026-07-24T14:00:00.000Z");
+    expect(result.message).toContain("rescheduled to resume at");
+  });
+
+  it("reschedules to an absolute ISO timestamp with --reset-attempts", () => {
+    const id = seed("failed");
+    const result = rescheduleJob(id, "2026-07-25T09:00:00Z", { resetAttempts: true }, storePath);
+    expect(result.ok).toBe(true);
+    expect(result.job?.resetAt).toBe("2026-07-25T09:00:00.000Z");
+    expect(result.job?.attempts).toBe(0);
+    expect(result.job?.lastError).toBeNull();
+  });
+
+  it("refuses an unparseable time without opening the store", () => {
+    const id = seed("waiting_for_reset");
+    const result = rescheduleJob(id, "whenever", {}, storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("could not parse time");
+    // Store untouched — still waiting, not moved.
+    expect(listStatus(storePath)[0].status).toBe("waiting_for_reset");
+  });
+
+  it("reports an unknown id for reschedule", () => {
+    seed("waiting_for_reset");
+    const result = rescheduleJob("deadbeef", "1h", {}, storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("no job matches");
   });
 });
 

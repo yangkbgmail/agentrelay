@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { canCancel, canRequeue, partitionForControl, resolveJobId } from "../src/control.js";
+import {
+  canCancel,
+  canRequeue,
+  canReschedule,
+  partitionForControl,
+  resolveJobId,
+  resolveRescheduleTarget,
+} from "../src/control.js";
 import type { JobStatus, RelayJob } from "../src/types.js";
 
 function job(id: string, status: JobStatus): RelayJob {
@@ -121,5 +128,54 @@ describe("resolveJobId", () => {
     // A short id that is also a prefix of a longer one must still resolve to itself.
     const withCollision = [job("ab", "queued"), job("abc", "failed")];
     expect(resolveJobId(withCollision, "ab")).toEqual({ id: "ab" });
+  });
+});
+
+describe("canReschedule", () => {
+  it("allows waiting, queued, and terminal jobs", () => {
+    for (const status of ["queued", "waiting_for_reset", "completed", "failed", "cancelled"] as const) {
+      expect(canReschedule(job("x", status)).ok).toBe(true);
+    }
+  });
+
+  it("rejects an in-flight (resuming) job", () => {
+    const result = canReschedule(job("x", "resuming"));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("resuming");
+  });
+});
+
+describe("resolveRescheduleTarget", () => {
+  const now = Date.parse("2026-07-24T12:00:00.000Z");
+
+  it("resolves a duration relative to now", () => {
+    expect(resolveRescheduleTarget("2h", now)).toEqual({ resetAt: "2026-07-24T14:00:00.000Z" });
+    expect(resolveRescheduleTarget("30m", now)).toEqual({ resetAt: "2026-07-24T12:30:00.000Z" });
+  });
+
+  it("strips a leading + or 'in ' prefix", () => {
+    expect(resolveRescheduleTarget("+90s", now)).toEqual({ resetAt: "2026-07-24T12:01:30.000Z" });
+    expect(resolveRescheduleTarget("in 1d", now)).toEqual({ resetAt: "2026-07-25T12:00:00.000Z" });
+  });
+
+  it("resolves an absolute ISO timestamp regardless of now", () => {
+    expect(resolveRescheduleTarget("2026-07-25T09:00:00Z", now)).toEqual({
+      resetAt: "2026-07-25T09:00:00.000Z",
+    });
+  });
+
+  it("prefers the duration reading for a bare unit value", () => {
+    // "2h" must not be handed to Date.parse — it is a duration, not a timestamp.
+    expect(resolveRescheduleTarget("2h", now).resetAt).toBe("2026-07-24T14:00:00.000Z");
+  });
+
+  it("rejects empty input", () => {
+    expect(resolveRescheduleTarget("   ", now).error).toBe("no time given");
+  });
+
+  it("rejects an unparseable time", () => {
+    const result = resolveRescheduleTarget("whenever", now);
+    expect(result.resetAt).toBeUndefined();
+    expect(result.error).toContain("could not parse time");
   });
 });

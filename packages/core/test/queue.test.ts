@@ -194,6 +194,39 @@ describe("RelayQueue", () => {
     expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(1);
   });
 
+  it("reschedules a job to an explicit reset time, preserving attempts by default", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    queue.markResuming(job.id);
+    queue.markFailed(job.id, "boom");
+    expect(queue.getById(job.id)?.attempts).toBe(1);
+
+    const future = new Date(Date.now() + 3_600_000).toISOString();
+    queue.reschedule(job.id, future);
+    const moved = queue.getById(job.id);
+    expect(moved?.status).toBe("waiting_for_reset");
+    expect(moved?.resetAt).toBe(future);
+    // A plain reschedule is a scheduling change — attempts and lastError are kept.
+    expect(moved?.attempts).toBe(1);
+    expect(moved?.lastError).toBe("boom");
+    // Not yet due because the reset time is in the future.
+    expect(queue.listDue(new Date())).toHaveLength(0);
+  });
+
+  it("reschedule --reset-attempts revives an exhausted job", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    queue.markResuming(job.id);
+    queue.markFailed(job.id, "exhausted");
+
+    const at = new Date(Date.now() - 1000).toISOString();
+    queue.reschedule(job.id, at, { resetAttempts: true });
+    const revived = queue.getById(job.id);
+    expect(revived?.attempts).toBe(0);
+    expect(revived?.lastError).toBeNull();
+    expect(revived?.resetAt).toBe(at);
+    // resetAt is in the past, so it is immediately due.
+    expect(queue.listDue(new Date())).toHaveLength(1);
+  });
+
   describe("importJobs", () => {
     const historyJob = (id: string, project = "imported"): RelayJob => ({
       id,
