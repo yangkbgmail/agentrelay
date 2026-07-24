@@ -1438,3 +1438,29 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay diff [snapshot]` 신규 구현(스토어 스냅샷 델타 뷰)] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-lrvz1k`)
+
+- **배경:** 지정 브랜치의 이전 PR이 머지되어 origin에서 삭제됨 → 지침대로 최신 main에서 브랜치 재시작.
+  BACKLOG의 👷 명시 항목이 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. 열린 PR 44건을
+  전수 확인해 이미 선점된 커맨드(reschedule·verify·clean·config get·tools·paths·stats 변형 등)와
+  겹치지 않는, 명백히 새로운 기능을 선택: `diff`. `backup`/`restore`는 이미 있지만 "스냅샷 이후
+  릴레이가 무엇을 했나(집어/재개/완료/실패/정리)"를 확인할 수단이 없었다 — restore 되돌리기 전
+  안전 미리보기이자 릴레이 활동 감사 도구.
+- **한 일:**
+  1. `@agentrelay/core/diff.ts` 신설(순수·파일시스템/시계 미접촉): `diffJobs(before, after)`가 두
+     스냅샷을 id로 매칭해 `StoreDiff`(added/removed/changed/unchanged). 추적 필드 `DIFFABLE_FIELDS`
+     (status·resetAt·attempts·lastError·project·tool)만 변화로 취급, `updatedAt`(중복)·
+     `lastOutputTail`(큰 churn) 의도적 제외. newest-first 결정론 정렬(compareJobsNewestFirst 미러),
+     입력 불변, 중복 id last-wins. `isEmptyDiff` 헬퍼. index.ts export.
+  2. CLI `packages/cli/src/diff.ts`: 순수 `renderStoreDiff`(+/−/~ 색상 + 필드 전이, null→"none",
+     요약 카운트)·`renderStoreDiffJson`. `commands.ts` `diffStore`가 `restore`와 동일 선택자 해소
+     (`resolveRestoreSource`)로 스냅샷 읽기(비-JSON-배열은 명확한 에러)+현재 스토어 대조 — read-only.
+     `cli.ts`에 `agentrelay diff [snapshot] [--json]` 배선(미매칭 스냅샷 exit 1).
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 에러/0 경고**·`pnpm test`
+  전 패키지 통과(core diff 13 + cli diff 10 신규, 총 core+13 / cli+10). 실제 빌드된 CLI e2e(mock 아님):
+  스토어 백업→변경(완료 전이·1건 삭제·1건 추가)→`diff`가 `+1 added -1 removed ~1 changed`와 필드 전이
+  (status/resetAt/attempts) 정확 출력, `--json` 카운트/shape 검증, 미매칭 스냅샷 exit 1, `--help` 노출.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#172 reschedule·#171 verify·#170 clean·#169 notify
+  preview·#168 backoff·#167 export tsv·#164 parse --scan·#152 resolution 히스토그램·재개 stagger 계열
+  #158/#161/#162·파서 계열 #141~#149 중 수렴). README/ARCHITECTURE(🧭 코워크).
