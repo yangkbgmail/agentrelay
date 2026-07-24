@@ -1438,3 +1438,25 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay adapters` 커맨드(등록 어댑터 목록)] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-adapters`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태이고, 열린 PR 40여 개가 config get·stats --watch·report·
+  agenda·diff·verify·clean·backoff·parse --scan 등 대부분의 커맨드 아이디어를 이미 선점한 상태였다.
+  중복을 피해 신규 개선 항목을 발굴: `--tool`을 넘기거나 argv[0] 자동추론에 의존하는 사용자가 "어떤
+  툴이 지원되고 어떤 바이너리가 어떤 어댑터로 매핑되며 어떤 툴별 rate-limit 패턴이 있는지" 확인할
+  방법이 없었다(파서·run·parse가 모두 어댑터를 쓰는데도 어댑터 레지스트리가 불투명).
+- **한 일:**
+  1. `@agentrelay/core/adapters.ts`에 순수 `describeAdapters()`→`AdapterInfo[]`(tool·displayName·
+     binaries·extraPatterns·isDefault) 추가. `ADAPTERS` 레지스트리 순서를 그대로 따르고, binaries/
+     extraPatterns는 복사본이라 caller 변형이 라이브 어댑터를 안 건드린다. 새 파서/스토어 로직 0줄 —
+     기존 레지스트리만 읽는 read-only.
+  2. CLI `packages/cli/src/adapters.ts`에 순수 `renderAdapters`(어댑터별 스탠자: 툴 id+표시명, 추론
+     바이너리, 툴별 패턴, generic=default fallback 표기)·`renderAdaptersJson`(`{adapters}` envelope).
+     `agentrelay adapters [--json]` 커맨드 배선(parse와 동일하게 스토어 미접근).
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 에러/1 pre-existing warning**,
+  `pnpm test` 전 패키지 통과(core 495 + cli 234/1skip + dashboard 7 — core adapters +6, cli adapters +6
+  신규). 실제 빌드된 CLI e2e(mock 아님): `adapters`가 3어댑터를 렌더(codex만 codex-relative-seconds
+  패턴·generic만 default fallback), `adapters --json`이 `{adapters:[...]}` envelope 출력, `--help`에
+  커맨드 노출 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합/정리 계속(파서 계열·재개 stagger 계열·config get 중복 수렴).
+  README/ARCHITECTURE(🧭 코워크).

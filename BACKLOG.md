@@ -550,6 +550,17 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay adapters` — 등록된 에이전트 어댑터 목록(툴 id·표시명·자동추론 바이너리·툴별 파서 패턴).
+      (완료 — `--tool`을 넘기거나 argv[0] 자동추론에 의존하는 사용자가 "어떤 툴이 지원되고 어떤 바이너리가
+      어떤 어댑터로 매핑되며 어떤 툴별 rate-limit 패턴이 있는지"를 확인할 방법이 없었다. `@agentrelay/core/
+      adapters.ts`에 순수 `describeAdapters()`→`AdapterInfo[]`(tool·displayName·binaries·extraPatterns·
+      isDefault, `ADAPTERS` 레지스트리 순서, 배열은 복사본이라 caller 변형이 라이브 어댑터를 안 건드림) 추가.
+      CLI `packages/cli/src/adapters.ts`에 순수 `renderAdapters`(어댑터별 스탠자: 툴 id+표시명, 추론 바이너리,
+      툴별 패턴, generic=default fallback 표기)·`renderAdaptersJson`(`{adapters}` envelope). `agentrelay
+      adapters [--json]` 커맨드 배선. 새 파서/스토어 로직 0줄 — 기존 `ADAPTERS` 레지스트리만 읽는 read-only.
+      core adapters +6 / cli adapters +6 신규 테스트, 실제 빌드 CLI e2e로 3어댑터 렌더·JSON envelope·help
+      노출 검증. branch `claude/wizardly-pascal-adapters`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

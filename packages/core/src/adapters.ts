@@ -89,6 +89,40 @@ export const ADAPTERS: Record<AgentTool, AgentAdapter> = {
   generic: GENERIC_ADAPTER,
 };
 
+/**
+ * A flat, serializable description of one registered adapter — everything a
+ * human (or `--json` consumer) needs to answer "what does `--tool` accept, and
+ * which binary names auto-infer to which tool?" without reaching into the live
+ * `ADAPTERS` objects (which carry a non-serializable `detectRateLimit`).
+ */
+export interface AdapterInfo {
+  /** Stable tool id, as accepted by `--tool` and stored on each job. */
+  tool: AgentTool;
+  /** Human-readable label. */
+  displayName: string;
+  /** argv[0] basenames that auto-infer this adapter (empty for the generic fallback). */
+  binaries: string[];
+  /** Names of the tool-specific parser patterns this adapter injects ahead of the generic ones. */
+  extraPatterns: string[];
+  /** True for the generic adapter — the fallback used when nothing else matches. */
+  isDefault: boolean;
+}
+
+/**
+ * Describe every registered adapter as plain data, in the fixed registry order
+ * (`ADAPTERS` key order). Pure: no I/O, no clock. Powers `agentrelay adapters`
+ * and any other surface that needs to enumerate tool support.
+ */
+export function describeAdapters(): AdapterInfo[] {
+  return Object.values(ADAPTERS).map((adapter) => ({
+    tool: adapter.tool,
+    displayName: adapter.displayName,
+    binaries: [...adapter.binaries],
+    extraPatterns: adapter.patterns.map((p) => p.name),
+    isDefault: adapter.tool === GENERIC_ADAPTER.tool,
+  }));
+}
+
 /** Strip any directory / .exe suffix from an argv[0] to get the bare binary name. */
 function baseName(bin: string): string {
   const last = bin.split(/[\\/]/).pop() ?? bin;
