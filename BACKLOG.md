@@ -550,6 +550,18 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay stats --watch [seconds]` — 집계 지표(성공률·재시도·카운트다운)를 화면을 지우고
+      N초마다 재렌더하는 라이브 TUI. `status --watch`의 stats 판(자매 명령 간 UX 일관성).
+      (완료 — CLI `stats.ts`에 순수 `renderStatsWatchFrame(body, storePath, intervalMs, now)` 신설
+      (status의 `renderWatchFrame` 미러 — 제목/타임스탬프 헤더를 이미 렌더된 `body` 위에 감쌈, body를
+      인자로 받아 요약·`--group-by` 표·`--trend` 히스토그램 어느 것이든 형태 불문 재사용). cli.ts
+      `stats` 액션의 사람용 출력 조립을 `renderBody(jobs)` 헬퍼로 추출 → 일회성 경로와 라이브 루프가
+      동일 렌더, `runStatsWatch`가 매 tick 스토어 재읽어 데몬 쓰기 자동 반영. 스코프/`--group-by`/
+      `--trend` 모두 watch에서 재적용, 트렌드 창 경계는 명령 시작 시 고정. `--watch`+`--json`은
+      상호배타(exit 1). 새 core 코드 0줄 — 기존 `computeStats`/`groupStats`/`computeDailyTrend`+렌더러
+      재사용. cli stats.test에 renderStatsWatchFrame 3케이스, 실제 빌드 CLI e2e로 한 프레임·group-by
+      watch·json 충돌 exit 1 검증. branch `claude/wizardly-pascal-00od8b`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

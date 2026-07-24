@@ -73,7 +73,14 @@ import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.j
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
-import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson, renderTrend } from "./stats.js";
+import {
+  renderGroupedStats,
+  renderGroupedStatsJson,
+  renderStats,
+  renderStatsJson,
+  renderStatsWatchFrame,
+  renderTrend,
+} from "./stats.js";
 import {
   type JobSelection,
   NO_MATCH_MESSAGE,
@@ -306,6 +313,30 @@ function runWatch(store: string, intervalMs: number, selection: JobSelection, wi
     const windowed = window && isJobScopeActive(window) ? scopeJobs(all, window) : all;
     const selected = selectJobs(windowed, selection);
     const frame = renderWatchFrame(selected, store, intervalMs, Date.now(), limit);
+    // Clear screen + move cursor home, then paint the frame.
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  };
+  draw();
+  const timer = setInterval(draw, intervalMs);
+  const stop = () => {
+    clearInterval(timer);
+    process.stdout.write("\n");
+    process.exit(0);
+  };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+}
+
+/**
+ * Live `agentrelay stats --watch`: clears the screen and re-renders the stats
+ * summary on an interval so counts and countdowns update in place. `renderBody`
+ * is re-invoked with a freshly re-read store each pass (via `listStatus`), so a
+ * running daemon's writes show up automatically; the same scope/group-by/trend
+ * options are re-applied inside it. Runs until the process is interrupted (Ctrl-C).
+ */
+function runStatsWatch(store: string, intervalMs: number, renderBody: (jobs: RelayJob[]) => string): void {
+  const draw = () => {
+    const frame = renderStatsWatchFrame(renderBody(listStatus(store)), store, intervalMs, Date.now());
     // Clear screen + move cursor home, then paint the frame.
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   };
@@ -612,6 +643,7 @@ export function buildCli(): Command {
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("-g, --group-by <dimension>", `Break down metrics per group: ${GROUP_DIMENSIONS.join(", ")}`)
     .option("--trend [days]", "Also show a per-day activity histogram over the last N days, UTC (default 14, max 90)")
+    .option("-w, --watch [seconds]", "Continuously refresh the summary in place (Ctrl-C to exit; default every 2s)")
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
     .action(
       (opts: {
@@ -622,9 +654,18 @@ export function buildCli(): Command {
         until?: string;
         groupBy?: string;
         trend?: string | boolean;
+        watch?: string | boolean;
         json?: boolean;
       }) => {
         const { store } = program.opts();
+
+        // --watch is a live human TUI; --json is one-shot machine output. Watching
+        // a JSON stream makes no sense, so reject the combination up front.
+        if (opts.watch !== undefined && opts.json) {
+          console.error("--watch and --json cannot be combined (watch is a live view, json is one-shot).");
+          process.exitCode = 1;
+          return;
+        }
 
         const now = Date.now();
         const scope: JobScope = {};
@@ -722,37 +763,55 @@ export function buildCli(): Command {
           }
         }
 
-        const allJobs = listStatus(store);
         const active = isJobScopeActive(scope);
-        const jobs = active ? scopeJobs(allJobs, scope) : allJobs;
         const scopeNote = active ? noteParts.join(" ") : undefined;
 
-        if (groupBy !== undefined) {
-          const groups = groupStats(jobs, groupBy);
-          if (opts.json) {
-            console.log(renderGroupedStatsJson(groups, groupBy, store, { scope }));
+        // JSON output is one-shot only (guarded against --watch above), so keep it
+        // on its own read-once path.
+        if (opts.json) {
+          const jobs = active ? scopeJobs(listStatus(store), scope) : listStatus(store);
+          if (groupBy !== undefined) {
+            console.log(renderGroupedStatsJson(groupStats(jobs, groupBy), groupBy, store, { scope }));
             return;
           }
-          console.log(renderGroupedStats(groups, groupBy, { color: Boolean(process.stdout.isTTY), scopeNote }));
-          return;
-        }
-
-        const stats = computeStats(jobs);
-        const trend = trendDays !== null ? computeDailyTrend(jobs, { nowMs: now, days: trendDays }) : null;
-
-        if (opts.json) {
+          const stats = computeStats(jobs);
+          const trend = trendDays !== null ? computeDailyTrend(jobs, { nowMs: now, days: trendDays }) : null;
           console.log(renderStatsJson(stats, store, { scope, trend }));
           return;
         }
-        // A store with jobs but an empty scoped subset should say "no match",
-        // not the onboarding hint — renderStats keys that off scopeNote.
-        console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY), scopeNote }));
-        // Append the histogram only when the store has matching jobs (renderStats
-        // already handles the empty/no-match messaging on its own).
-        if (trend !== null && stats.total > 0) {
-          console.log("");
-          console.log(renderTrend(trend, { color: Boolean(process.stdout.isTTY) }));
+
+        // Compose the human-readable body from a fresh job list. Shared by the
+        // one-shot path and the live --watch loop (which re-reads the store each
+        // pass), so both render identically. Scope, group-by and trend are all
+        // re-applied per call; the trend window boundary (`now`) is fixed at
+        // command start so the histogram's days stay put while counts update.
+        const color = Boolean(process.stdout.isTTY);
+        const renderBody = (allJobs: RelayJob[]): string => {
+          const jobs = active ? scopeJobs(allJobs, scope) : allJobs;
+          if (groupBy !== undefined) {
+            return renderGroupedStats(groupStats(jobs, groupBy), groupBy, { color, scopeNote });
+          }
+          const stats = computeStats(jobs);
+          // A store with jobs but an empty scoped subset should say "no match",
+          // not the onboarding hint — renderStats keys that off scopeNote.
+          let out = renderStats(stats, { color, now, scopeNote });
+          // Append the histogram only when there are matching jobs (renderStats
+          // already handles the empty/no-match messaging on its own).
+          if (trendDays !== null && stats.total > 0) {
+            const trend = computeDailyTrend(jobs, { nowMs: now, days: trendDays });
+            out += `\n\n${renderTrend(trend, { color })}`;
+          }
+          return out;
+        };
+
+        if (opts.watch !== undefined) {
+          const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+          const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+          runStatsWatch(store, intervalMs, renderBody);
+          return; // setInterval keeps the process alive.
         }
+
+        console.log(renderBody(listStatus(store)));
       }
     );
 
