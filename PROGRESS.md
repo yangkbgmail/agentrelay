@@ -1438,3 +1438,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay config get <key>` (단일 설정 유효값 조회, 설정 CRUD 완성)] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-wk1aqp`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. 열린 PR 목록
+  (#164 parse --scan·#122 paths·#136 run --label·#105 upcoming·#125 --no-color·#152 히스토그램·데모·
+  stagger 계열)과 겹치지 않는 clean·self-contained 항목 선정. 설정 커맨드는 init/validate/show/set/
+  unset까지 있었지만, `show`는 전체 표를 찍을 뿐 스크립트에서 값 하나만(`$(agentrelay config get store)`)
+  뽑을 방법이 없었다 — `git config <key>`류의 단일 값 조회가 빠져 있었다.
+- **한 일:**
+  1. core `config.ts`에 순수 `getConfigValue(fileConfig, key, env)` + `ConfigValueLookup` 신설:
+     dotted key를 그 `envKey`로 라우팅해 `resolveEffectiveConfig`(config show가 쓰는 동일 해소)로
+     env>파일>기본값 단일 항목 해소, 미지 key는 `config set`과 동일 메시지로 throw. 인덱스 정렬 의존을
+     없애려 `ConfigField`에 명시 `envKey` 필드 추가(CONFIG_FIELDS.envKey ↔ CONFIG_ENV_KEYS 드리프트
+     방지 테스트).
+  2. CLI `commands.ts` `getConfig`(미지 key=error·손상 파일=loadError로 비치명적·절대 throw 안 함,
+     show와 동일 관용) + `config.ts` 순수 `renderConfigGetValue`(스크립트용 bare 값 — 기본값이면 빈
+     문자열, 시크릿 마스킹 + `--show-secrets`)·`renderConfigGetJson`(값+출처+파일).
+  3. `agentrelay config get <key> [--json] [--show-secrets]` 배선. 소스 귀속을 위해 startup bootstrap
+     skip 대상에 `get` 추가(show와 동일 — bootstrap이 파일 값을 env로 접으면 출처가 [env]로 오표기).
+     미지 key·손상 파일은 exit 1.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **741 통과 + 1 skip**(core 499 + cli 235/1skip + dashboard 7 — core getConfigValue 8 + cli getConfig 6
+  신규). 실제 빌드된 CLI e2e(mock 아님): 파일값 조회·env 우선·기본값 빈 문자열·시크릿 마스킹/`--show-secrets`
+  노출·`--json` 출처 에코·미지 key exit 1·`config --help` 노출 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·#105
+  upcoming·#125 --no-color·#152 히스토그램·데모·stagger 계열). README/ARCHITECTURE(🧭 코워크).

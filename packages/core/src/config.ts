@@ -120,6 +120,13 @@ export interface ConfigField {
   key: string;
   group: ConfigGroup;
   type: ConfigFieldType;
+  /**
+   * The `AGENTRELAY_*` env var this dotted key projects onto (see
+   * {@link configToEnv}). Lets `config get` resolve one field's effective value
+   * through {@link resolveEffectiveConfig} without relying on positional
+   * alignment with {@link CONFIG_ENV_KEYS} (a test asserts the two stay in sync).
+   */
+  envKey: string;
   /** Webhook URLs/auth tokens — masked when echoed back. */
   secret?: boolean;
 }
@@ -131,20 +138,20 @@ export interface ConfigField {
  * `config show` reports and no more.
  */
 export const CONFIG_FIELDS: ConfigField[] = [
-  { key: "store", group: "store", type: "string" },
-  { key: "notify.slackWebhook", group: "notify", type: "string", secret: true },
-  { key: "notify.webhookUrl", group: "notify", type: "string", secret: true },
-  { key: "notify.webhookAuth", group: "notify", type: "string", secret: true },
-  { key: "retry.maxAttempts", group: "retry", type: "number" },
-  { key: "retry.baseDelayMs", group: "retry", type: "number" },
-  { key: "retry.factor", group: "retry", type: "number" },
-  { key: "retry.maxDelayMs", group: "retry", type: "number" },
-  { key: "retry.jitter", group: "retry", type: "number" },
-  { key: "autoPrune.enabled", group: "autoPrune", type: "boolean" },
-  { key: "autoPrune.after", group: "autoPrune", type: "duration" },
-  { key: "autoPrune.keep", group: "autoPrune", type: "number" },
-  { key: "autoPrune.every", group: "autoPrune", type: "duration" },
-  { key: "autoPrune.everyTicks", group: "autoPrune", type: "number" },
+  { key: "store", group: "store", type: "string", envKey: "AGENTRELAY_STORE" },
+  { key: "notify.slackWebhook", group: "notify", type: "string", envKey: "AGENTRELAY_SLACK_WEBHOOK", secret: true },
+  { key: "notify.webhookUrl", group: "notify", type: "string", envKey: "AGENTRELAY_WEBHOOK_URL", secret: true },
+  { key: "notify.webhookAuth", group: "notify", type: "string", envKey: "AGENTRELAY_WEBHOOK_AUTH", secret: true },
+  { key: "retry.maxAttempts", group: "retry", type: "number", envKey: "AGENTRELAY_MAX_ATTEMPTS" },
+  { key: "retry.baseDelayMs", group: "retry", type: "number", envKey: "AGENTRELAY_RETRY_BASE_MS" },
+  { key: "retry.factor", group: "retry", type: "number", envKey: "AGENTRELAY_RETRY_FACTOR" },
+  { key: "retry.maxDelayMs", group: "retry", type: "number", envKey: "AGENTRELAY_RETRY_MAX_MS" },
+  { key: "retry.jitter", group: "retry", type: "number", envKey: "AGENTRELAY_RETRY_JITTER" },
+  { key: "autoPrune.enabled", group: "autoPrune", type: "boolean", envKey: "AGENTRELAY_AUTOPRUNE" },
+  { key: "autoPrune.after", group: "autoPrune", type: "duration", envKey: "AGENTRELAY_AUTOPRUNE_AFTER" },
+  { key: "autoPrune.keep", group: "autoPrune", type: "number", envKey: "AGENTRELAY_AUTOPRUNE_KEEP" },
+  { key: "autoPrune.every", group: "autoPrune", type: "duration", envKey: "AGENTRELAY_AUTOPRUNE_EVERY" },
+  { key: "autoPrune.everyTicks", group: "autoPrune", type: "number", envKey: "AGENTRELAY_AUTOPRUNE_EVERY_TICKS" },
 ];
 
 /** Dotted keys of all settable config fields, in display order. */
@@ -608,6 +615,50 @@ export function resolveEffectiveConfig(
     if (fileEnv[key] !== undefined) return { key, group, value: fileEnv[key], source: "config-file", secret: flag };
     return { key, group, value: undefined, source: "default", secret: flag };
   });
+}
+
+/** One dotted setting resolved to its effective value, for `config get`. */
+export interface ConfigValueLookup {
+  /** Dotted CLI key requested, e.g. `retry.maxAttempts`. */
+  key: string;
+  /** The `AGENTRELAY_*` env var it maps to. */
+  envKey: string;
+  group: ConfigGroup;
+  /** Effective value, or `undefined` when the built-in default applies. */
+  value: string | undefined;
+  source: ConfigValueSource;
+  secret: boolean;
+}
+
+/**
+ * Resolves a *single* dotted config key to its effective value and source —
+ * the read-side of `config set`/`unset` and the single-key counterpart of
+ * {@link resolveEffectiveConfig}. Applies the same env > file > default
+ * precedence. Throws on an unknown key (same message as `config set`), so a
+ * typo surfaces instead of silently reporting a default. Pure — no filesystem,
+ * no ambient env unless `env` is omitted.
+ */
+export function getConfigValue(
+  fileConfig: AgentRelayConfig | null,
+  key: string,
+  env: Record<string, string | undefined> = process.env
+): ConfigValueLookup {
+  const field = findConfigField(key);
+  if (!field) {
+    throw new Error(`Unknown config key "${key}". Valid keys: ${SETTABLE_CONFIG_KEYS.join(", ")}.`);
+  }
+  // Reuse the exact resolution `config show` uses, then pick this field's env var.
+  const entry = resolveEffectiveConfig(fileConfig, env).find((e) => e.key === field.envKey);
+  // CONFIG_FIELDS.envKey ⊆ CONFIG_ENV_KEYS.key (asserted by a sync test), so a
+  // known field always has a matching entry; fall back defensively regardless.
+  return {
+    key: field.key,
+    envKey: field.envKey,
+    group: entry?.group ?? field.group,
+    value: entry?.value,
+    source: entry?.source ?? "default",
+    secret: entry?.secret ?? Boolean(field.secret),
+  };
 }
 
 /**

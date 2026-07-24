@@ -550,6 +550,21 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay config get <key>` — 단일 설정의 유효값과 출처를 조회(설정 CRUD 완성:
+      init/validate/show/set/unset/**get**). `show`는 전체 표를 찍지만 스크립트에서 값 하나만
+      뽑을 방법이 없었다.
+      (완료 — `@agentrelay/core/config.ts`에 순수 `getConfigValue(fileConfig, key, env)` +
+      `ConfigValueLookup` 신설: dotted key를 그 `envKey`로 라우팅해 `resolveEffectiveConfig`
+      (config show가 쓰는 동일 해소)로 env>파일>기본값 단일 항목 해소, 미지 key는 `config set`과
+      동일 메시지로 throw. 인덱스 정렬에 의존하지 않도록 `ConfigField`에 명시 `envKey` 필드 추가
+      (CONFIG_FIELDS.envKey ↔ CONFIG_ENV_KEYS 드리프트 방지 테스트). CLI `commands.ts`
+      `getConfig`(미지 key=error, 손상 파일=loadError로 비치명적, 절대 throw 안 함) + `config.ts`
+      순수 `renderConfigGetValue`(스크립트용 bare 값 — 기본값이면 빈 문자열, 시크릿 마스킹 +
+      `--show-secrets`)·`renderConfigGetJson`(값+출처+파일). `agentrelay config get <key> [--json]
+      [--show-secrets]` 배선, 소스 귀속 위해 startup bootstrap skip(show와 동일), 미지 key·손상
+      파일은 exit 1. core 8 + cli 6 신규 테스트, 실제 빌드 CLI e2e로 파일값·env 우선·기본값 빈값·
+      시크릿 마스킹·JSON·미지 key exit 검증. branch `claude/wizardly-pascal-wk1aqp`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

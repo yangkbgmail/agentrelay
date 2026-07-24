@@ -45,6 +45,7 @@ import {
   bulkControlJobs,
   cancelJob,
   exportStore,
+  getConfig,
   importStore,
   initConfig,
   type JobControlResult,
@@ -65,7 +66,13 @@ import {
   validateConfigFile,
   waitForJob,
 } from "./commands.js";
-import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
+import {
+  defaultStorePath,
+  renderConfigGetJson,
+  renderConfigGetValue,
+  renderEffectiveConfig,
+  renderEffectiveConfigJson,
+} from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderNext, renderNextJson } from "./next.js";
@@ -1257,6 +1264,33 @@ export function buildCli(): Command {
       // A broken config file is a real problem worth a non-zero exit, but we
       // still printed the env/default resolution above to aid debugging.
       if (result.loadError) process.exitCode = 1;
+    });
+  config
+    .command("get")
+    .description("Print one setting's effective value (env > file > default), for scripts")
+    .argument("<key>", `Dotted config key, one of: ${SETTABLE_CONFIG_KEYS.join(", ")}`)
+    .option("--json", "Print the resolved value with its source as JSON (machine-readable)")
+    .option("--show-secrets", "Reveal a masked webhook URL/token in the plain output")
+    .action((key: string, opts: { json?: boolean; showSecrets?: boolean }) => {
+      const { config: configPath } = program.opts();
+      const result = getConfig({ key, path: configPath });
+      if (result.error) {
+        // Unknown key: report it and exit non-zero (nothing sensible to print).
+        console.error(`[agentrelay] ${result.error}`);
+        process.exitCode = 1;
+        return;
+      }
+      if (opts.json) {
+        console.log(renderConfigGetJson(result));
+      } else {
+        console.log(renderConfigGetValue(result, { showSecrets: opts.showSecrets }));
+      }
+      // A broken config file is a real problem worth a non-zero exit, but we
+      // still resolved env/default above (the file layer was simply skipped).
+      if (result.loadError) {
+        console.error(`[agentrelay] warning: config file could not be loaded — ${result.loadError}`);
+        process.exitCode = 1;
+      }
     });
   config
     .command("set")
