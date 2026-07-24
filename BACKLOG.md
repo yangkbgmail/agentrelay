@@ -550,6 +550,15 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 파서: 표준 HTTP `Retry-After` 응답 헤더 인식(RFC 9110 §10.2.3) — delay-seconds
+      (`Retry-After: 3600`)와 HTTP-date(`Retry-After: Wed, 21 Oct 2026 07:28:00 GMT`) 양쪽.
+      (완료 — 에이전트 CLI가 HTTP API를 프록시하다 429에서 `Retry-After` 헤더를 콘솔에 덤프하는
+      실사용 갭. `parser.ts`에 순수 `http-retry-after` 패턴 추가 — 숫자 그룹 `\d{1,7}`+`\b`로 epoch
+      크기 값을 초 지연으로 오독 방지, 하이픈 헤더명으로 언더스코어 `retry_after`(unix-epoch, 절대
+      epoch)와 분리. 사전필터를 `retry.?after`로 확장. parser.test +5(seconds/date/`0`즉시/비교차/
+      malformed fallthrough). 새 CLI 코드 0줄 — 기존 `parse` 커맨드가 자동 노출.
+      branch `claude/wizardly-pascal-hi5obo`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
