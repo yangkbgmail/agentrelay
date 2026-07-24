@@ -52,6 +52,7 @@ import {
   listStoreBackups,
   previewRestoreStore,
   pruneJobs,
+  rescheduleJob,
   restoreStore,
   retryJob,
   runCommand,
@@ -1303,6 +1304,23 @@ export function buildCli(): Command {
     describe: "Requeue a job to resume immediately (by id), or every matching job with --all",
     allHelp: "Requeue every matching job to resume now (narrow with the scope filters below)",
   });
+
+  program
+    .command("reschedule")
+    .description("Change when a job resumes (by id), to a duration from now or an absolute time")
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .argument("<when>", "Duration from now (2h, +30m, 90s) or an ISO timestamp (2026-07-25T09:00:00Z)")
+    .option("--reset-attempts", "Also reset the attempt count and clear the last error (revive an exhausted job)")
+    .action((id: string, when: string, opts: { resetAttempts?: boolean }) => {
+      const { store } = program.opts();
+      const result = rescheduleJob(id, when, { resetAttempts: opts.resetAttempts }, store);
+      if (result.ok) {
+        console.log(`[agentrelay] ${result.message}`);
+      } else {
+        console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 1;
+      }
+    });
 
   program
     .command("backup")

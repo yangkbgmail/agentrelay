@@ -1438,3 +1438,34 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay reschedule <id> <when>`] (2026-07-24, 무인 자율 세션)
+- **배경:** 세션 시작 시 지정 브랜치가 origin에서 삭제돼 있어 최신 main(f37d2f9, #163 병합 이후)
+  기준으로 재시작. 👷 명시 백로그는 전부 완료 상태이고 열린 PR 30여 개가 대부분의 신규 커맨드
+  후보(verify·clean·notify preview·backoff·tsv·config get/schema·parse --scan·resume stagger·
+  파서 midnight/noon/IANA·stats --watch/--by-hour·run --label·show --watch·dashboard filter·tools·
+  --no-color 등)를 이미 점유 중. 중복을 피해 CLAUDE.md 지침대로 **어떤 열린 PR과도 겹치지 않는
+  신규 개선 항목을 발굴**했다 — 수동 잡 제어에 "재스케줄" 갭이 있었다.
+- **한 일 (branch `claude/wizardly-pascal-zlfu00`):** **`agentrelay reschedule <id> <when>`**.
+  기존 `retry`(=requeueNow)는 잡을 **즉시** due로 만들 뿐, 재개 시각을 **미래로 미루거나** 파서가
+  잘못 잡은 리셋 시각을 **명시 시각으로 교정**하는 수단이 없었다. cancel(중단)·retry(지금)를 보완하는
+  세 번째 수동 제어.
+  1. `@agentrelay/core/control.ts`에 순수 `canReschedule(job)`(mid-flight `resuming`만 거부, 나머지
+     상태는 허용 — 대기 잡 시각 교정·종료 잡 미래 부활 모두 가능) + `resolveRescheduleTarget(when,
+     nowMs)`(시계 미접촉·주입식): 기간(`2h`/`+30m`/`in 1d`, 기존 `parseDuration` 재사용, 선행
+     `+`/`in ` 스트립)→`now+기간`, 또는 절대 ISO 타임스탬프(`Date.parse`)→그 시각. **기간을 먼저**
+     시도해 `2h`가 `Date.parse`로 오독되지 않게. 빈/파싱불가는 명확한 error.
+  2. `RelayQueue.reschedule(id, resetAt, {resetAttempts?})` — status=waiting_for_reset + resetAt
+     설정. 기본은 **attempts 보존**(스케줄 변경일 뿐, lastError도 유지), `resetAttempts:true`면
+     attempts 0 + lastError 클리어(재시도 예산 소진 잡을 부활시켜 즉시 재실패 안 하게).
+  3. CLI `commands.ts` `rescheduleJob(id, when, opts, store)` — 시각 파싱은 스토어 **열기 전**에
+     수행(파싱 실패면 스토어 미접촉 + exit 1), `resolveJobId`로 짧은 prefix·모호/미존재 처리(cancel/
+     retry와 동일). `cli.ts`에 `agentrelay reschedule <id> <when> [--reset-attempts]` 배선.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **740개 전부 통과**(core 501 + cli 232 + dashboard 7 — core control +8 · queue +2,
+  cli commands +4 신규). **실제 빌드된 CLI e2e**(mock 아님): rate-limit 잡 큐잉 → `reschedule 2h`가
+  resetAt을 now+2h로, `reschedule 2026-12-25T00:00:00Z`가 절대 시각으로 이동(attempts 보존) →
+  파싱 불가 `whenever`는 "could not parse time" + exit 1(스토어 미변경) → 미존재 id는 exit 1,
+  `reschedule --help`에 옵션 노출 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합(verify·clean·backoff·parse --scan·run --label·
+  resume stagger 계열은 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).

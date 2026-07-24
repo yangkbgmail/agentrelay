@@ -243,6 +243,24 @@ export class RelayQueue {
     this.update(id, { status: "waiting_for_reset", resetAt: at, attempts: 0, lastError: null });
   }
 
+  /**
+   * Move a job to `waiting_for_reset` with an explicit `resetAt` (user-initiated
+   * reschedule). Unlike {@link requeueNow}, the resume time is chosen by the
+   * caller rather than forced to "now", and the attempt count is preserved by
+   * default — a reschedule is a *scheduling change*, not a fresh run. Pass
+   * `resetAttempts: true` to also zero the attempts and clear `lastError`, which
+   * is what you want when reviving a job that already exhausted its retry budget
+   * so it doesn't instantly re-fail the attempt check on resume.
+   */
+  reschedule(id: string, resetAt: string, options: { resetAttempts?: boolean } = {}) {
+    const patch: Partial<RelayJob> & { status: JobStatus } = { status: "waiting_for_reset", resetAt };
+    if (options.resetAttempts) {
+      patch.attempts = 0;
+      patch.lastError = null;
+    }
+    this.update(id, patch);
+  }
+
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {
     this.load();
     const existing = this.jobs.get(id);

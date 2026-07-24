@@ -1,3 +1,4 @@
+import { parseDuration } from "./prune.js";
 import type { JobStatus, RelayJob } from "./types.js";
 
 /**
@@ -39,6 +40,62 @@ export function canCancel(job: RelayJob): ControlResult {
 export function canRequeue(job: RelayJob): ControlResult {
   if (job.status === "resuming") return { ok: false, reason: "job is currently resuming; wait for it to finish" };
   return { ok: true };
+}
+
+/**
+ * Whether `job` may be rescheduled to resume at a different time. Like
+ * {@link canRequeue}, only a mid-flight (`resuming`) job is rejected — moving
+ * its reset time under the scheduler would race the in-progress run. Every
+ * other state is fair game: a still-waiting job can have its (possibly
+ * mis-parsed) reset time corrected, and a terminal job can be revived to run
+ * again at a future instant.
+ */
+export function canReschedule(job: RelayJob): ControlResult {
+  if (job.status === "resuming") return { ok: false, reason: "job is currently resuming; wait for it to finish" };
+  return { ok: true };
+}
+
+export interface RescheduleTarget {
+  /** The resolved absolute resume time (ISO-8601) when parsing succeeded. */
+  resetAt?: string;
+  /** Present only when `when` could not be parsed — an explanatory message. */
+  error?: string;
+}
+
+/**
+ * Resolve the user-supplied `when` of `agentrelay reschedule <id> <when>` into
+ * an absolute ISO-8601 resume time, relative to `nowMs`. Two forms are accepted:
+ *
+ * - a **duration** from now (`2h`, `30m`, `+90s`, `in 1d`) → `nowMs + duration`,
+ *   reusing the same `parseDuration` grammar as `prune`/`--since`; the optional
+ *   leading `+` or `in ` is stripped so both `+2h` and `2h` work.
+ * - an **absolute timestamp** (`2026-07-25T09:00:00Z` or anything `Date.parse`
+ *   understands) → that exact instant.
+ *
+ * Durations are tried first so a bare `2h` is never misread by `Date.parse`.
+ * Pure: it never reads the clock itself — the caller injects `nowMs`.
+ */
+export function resolveRescheduleTarget(when: string, nowMs: number): RescheduleTarget {
+  const raw = when.trim();
+  if (!raw) return { error: "no time given" };
+
+  const relative = raw
+    .replace(/^\+/, "")
+    .replace(/^in\s+/i, "")
+    .trim();
+  const durationMs = parseDuration(relative);
+  if (durationMs !== null) {
+    return { resetAt: new Date(nowMs + durationMs).toISOString() };
+  }
+
+  const absolute = Date.parse(raw);
+  if (!Number.isNaN(absolute)) {
+    return { resetAt: new Date(absolute).toISOString() };
+  }
+
+  return {
+    error: `could not parse time "${when}" — use a duration like 2h/30m/+90s or an ISO timestamp like 2026-07-25T09:00:00Z`,
+  };
 }
 
 /** One job that a bulk-control guard rejected, paired with the reason why. */
