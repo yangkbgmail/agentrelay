@@ -550,6 +550,23 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay upcoming` — 재개 예정 잡을 리셋 시각순(soonest-first)으로 나열하는 전방 재개
+      타임라인. `next`(단일 최임박 재개)와 `status`(상태 무관 큐 전체 스냅샷) 사이의 빈 공백을 메움:
+      "앞으로 무엇이, 어떤 순서로 재개되나?"에 한 화면으로 답한다.
+      (완료 — `@agentrelay/core/upcoming.ts` 신설(순수·시계/큐/I/O 미접촉): `selectUpcoming(jobs,
+      {now,withinMs?,limit?})`→`UpcomingResume[]`(job·dueInMs·due). `waiting_for_reset`이고 파싱 가능한
+      `resetAt`을 가진 잡만 골라 리셋 시각 오름차순 정렬(타이는 createdAt→id로 `next`와 **동일** 순서라
+      타임라인 head가 곧 `next` 결과), `withinMs`는 dueInMs 상한 창(이미 지난 due 잡은 항상 포함, null/음수는
+      창 없음), `limit`은 정렬·창 적용 뒤 상위 N개. 입력 배열 불변. CLI `packages/cli/src/upcoming.ts`에
+      순수 `renderUpcoming`(잡별 짧은 id·project·카운트다운[`formatCountdown` 재사용으로 status·next와
+      "due now"/"1h 30m" lockstep]·절대 리셋 시각, `--limit`으로 숨은 잡 있으면 "N more not shown" 푸터,
+      빈 상태는 창 유무로 문구 분기)·`renderUpcomingJson`(storePath·count·timeline). `agentrelay upcoming
+      [--within <기간>] [-n/--limit N] [--json]` + stats/status/export와 동일한 공용 `buildScope`
+      스코프 필터(`--status`/`--tool`/`--project`/`--since`/`--until`) 재사용(창→스코프→limit 순 적용).
+      잘못된 --within 기간·비정수/음수 --limit·잘못된 스코프는 exit 1. core 12 + cli 10 신규 테스트,
+      실제 빌드 CLI e2e로 정렬·due now·창·limit 푸터·tool 필터·JSON·에러 exit 검증. branch
+      `claude/wizardly-pascal-upcoming`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

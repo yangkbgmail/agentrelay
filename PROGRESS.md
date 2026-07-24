@@ -1438,3 +1438,23 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay upcoming` (전방 재개 타임라인)] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-upcoming`)
+- **배경:** BACKLOG의 👷 명시 항목이 전부 `[x]` 완료라 CLAUDE.md 지침대로 신규 개선 항목을 발굴.
+  `next`는 단일 최임박 재개 한 줄만, `status`는 상태 무관 큐 전체 스냅샷만 보여줘, "앞으로 무엇이
+  어떤 순서로 재개되나?"를 재개 타임라인으로 보는 전용 뷰가 없었다(#105 계열 아이디어를 최신 main
+  위에서 self-contained하게 새로 구현).
+- **한 일:** `@agentrelay/core/upcoming.ts` 신설(순수·시계/큐/I/O 미접촉): `selectUpcoming(jobs,
+  {now,withinMs?,limit?})`→`UpcomingResume[]`(job·dueInMs·due). `waiting_for_reset`+파싱 가능 `resetAt`
+  잡만 리셋 시각 오름차순 정렬(타이 createdAt→id로 `next`와 동일 → 타임라인 head=`next`), `withinMs`는
+  dueInMs 상한 창(이미 지난 due 잡은 항상 포함), `limit`은 정렬·창 뒤 상위 N. 입력 배열 불변.
+  CLI `packages/cli/src/upcoming.ts`에 순수 `renderUpcoming`(짧은 id·project·카운트다운[`formatCountdown`
+  재사용으로 status·next와 lockstep]·절대 리셋, `--limit` 숨김 푸터, 빈 상태는 창 유무로 문구 분기)·
+  `renderUpcomingJson`. `agentrelay upcoming [--within <기간>] [-n/--limit N] [--json]` + 공용 `buildScope`
+  스코프 필터(`--status`/`--tool`/`--project`/`--since`/`--until`) 재사용(창→스코프→limit 순).
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test` 전 패키지
+  통과(core 503[+12 upcoming]·cli 238/1skip[+10 upcoming]·dashboard 7). 실제 빌드된 CLI e2e(mock 아님):
+  4-job 스토어로 정렬 soonest-first·due now·`--within 2h` 창·`--limit 1` 푸터·`--tool codex-cli` 필터·
+  `--json`·잘못된 `--within` exit 1 검증.
+- **다음 할 일:** 남은 개선 항목 계속 발굴/구현(#125 --no-color·#152 resolution Prometheus 히스토그램·
+  파서 패턴 보강 등). README/ARCHITECTURE는 🧭 코워크 소유.

@@ -33,6 +33,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
   selectNextResume,
+  selectUpcoming,
   sendTestNotification,
   summarizeRateLimitPatterns,
 } from "@agentrelay/core";
@@ -84,6 +85,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { renderUpcoming, renderUpcomingJson } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -547,6 +549,71 @@ export function buildCli(): Command {
         if (next === null) process.exitCode = 4;
         else if (!next.due) process.exitCode = 3;
         // due-now → exit 0 (default).
+      }
+    });
+
+  program
+    .command("upcoming")
+    .description("List jobs waiting to resume, soonest-first — the relay's forward resume timeline")
+    .option("--within <duration>", "Only jobs resuming within this long from now (e.g. 2h, 30m, 1d)")
+    .option("-n, --limit <n>", "Show at most N entries (with a hidden-count footer)")
+    .option("-s, --status <statuses>", "Only jobs with these statuses (comma-separated)")
+    .option("-t, --tool <tools>", "Only jobs run with these tools (comma-separated)")
+    .option("-p, --project <projects>", "Only jobs in these projects (comma-separated)")
+    .option("--since <duration>", "Only jobs created within this long ago (e.g. 24h, 7d)")
+    .option("--until <duration>", "Only jobs created before this long ago (e.g. 1d)")
+    .option("--json", "Print as JSON (machine-readable, for scripts/jq)")
+    .action((opts: ScopeOpts & { within?: string; limit?: string; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      // Reuse the shared scope filters (tool/project/status/since/until) so
+      // `upcoming` scopes exactly like `stats`/`status`/`export`.
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      let withinMs: number | null = null;
+      if (opts.within !== undefined) {
+        const ms = parseDuration(opts.within);
+        if (ms === null) {
+          console.error(`Invalid --within duration: "${opts.within}". Use e.g. 2h, 30m, 1d, 90s.`);
+          process.exitCode = 1;
+          return;
+        }
+        withinMs = ms;
+      }
+
+      let limit: number | null = null;
+      if (opts.limit !== undefined) {
+        const parsed = Number(opts.limit);
+        if (!Number.isInteger(parsed) || parsed < 0) {
+          console.error(`Invalid --limit: "${opts.limit}". Use a non-negative integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = parsed;
+      }
+
+      const scoped = scopeJobs(listStatus(store), built.scope);
+      const windowed = selectUpcoming(scoped, { now, withinMs });
+      const shown = limit !== null ? windowed.slice(0, limit) : windowed;
+      const hiddenByLimit = windowed.length - shown.length;
+
+      if (opts.json) {
+        console.log(renderUpcomingJson(shown, store));
+      } else {
+        console.log(
+          renderUpcoming(shown, {
+            now,
+            color: Boolean(process.stdout.isTTY),
+            windowed: withinMs !== null,
+            hiddenByLimit,
+          })
+        );
       }
     });
 
