@@ -6,10 +6,13 @@ import {
   formatSlackText,
   listNotifyChannels,
   notifiersFromEnv,
+  previewNotifications,
   sendTestNotification,
   slackNotifierFromEnv,
+  slackRequestBody,
   testNotifyPayload,
   webhookNotifierFromEnv,
+  webhookRequestBody,
 } from "../src/notify.js";
 import type { NotifyPayload } from "../src/types.js";
 
@@ -256,6 +259,89 @@ describe("listNotifyChannels", () => {
       { kind: "slack", label: "Slack", url: "https://hooks.slack.test/abc", envVar: "AGENTRELAY_SLACK_WEBHOOK" },
       { kind: "webhook", label: "Webhook", url: "https://hooks.example.test/relay", envVar: "AGENTRELAY_WEBHOOK_URL" },
     ]);
+  });
+});
+
+describe("slackRequestBody / webhookRequestBody", () => {
+  it("slackRequestBody wraps the formatted text", () => {
+    expect(slackRequestBody(payload)).toEqual({ text: formatSlackText(payload) });
+  });
+
+  it("webhookRequestBody sends the structured payload plus text", () => {
+    const body = webhookRequestBody(payload);
+    expect(body.jobId).toBe("job-123");
+    expect(body.event).toBe("queued");
+    expect(body.text).toBe(formatSlackText(payload));
+  });
+});
+
+describe("previewNotifications", () => {
+  it("returns an empty array when no channels are configured", () => {
+    expect(previewNotifications({})).toEqual([]);
+    expect(previewNotifications({ AGENTRELAY_SLACK_WEBHOOK: "  ", AGENTRELAY_WEBHOOK_URL: "" })).toEqual([]);
+  });
+
+  it("previews Slack first with the exact wire body a real send would use", () => {
+    const previews = previewNotifications(
+      {
+        AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+        AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/abc",
+      },
+      payload
+    );
+
+    expect(previews.map((p) => p.channel.kind)).toEqual(["slack", "webhook"]);
+
+    const slack = previews[0];
+    expect(slack.method).toBe("POST");
+    expect(slack.url).toBe("https://hooks.slack.test/abc");
+    expect(slack.headers).toEqual({ "content-type": "application/json" });
+    expect(JSON.parse(slack.body)).toEqual(slackRequestBody(payload));
+
+    const webhook = previews[1];
+    expect(webhook.url).toBe("https://hooks.example.test/relay");
+    expect(JSON.parse(webhook.body)).toEqual(webhookRequestBody(payload));
+  });
+
+  it("includes AGENTRELAY_WEBHOOK_AUTH as the Authorization header on the webhook preview", () => {
+    const previews = previewNotifications({
+      AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+      AGENTRELAY_WEBHOOK_AUTH: "Bearer t0ken",
+    });
+    expect(previews).toHaveLength(1);
+    expect(previews[0].headers.Authorization).toBe("Bearer t0ken");
+    expect(previews[0].headers["content-type"]).toBe("application/json");
+  });
+
+  it("omits the Authorization header when no auth is set", () => {
+    const previews = previewNotifications({ AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay" });
+    expect(previews[0].headers.Authorization).toBeUndefined();
+  });
+
+  it("defaults to the test payload when none is supplied", () => {
+    const previews = previewNotifications({ AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/abc" });
+    expect(JSON.parse(previews[0].body).text).toContain("agentrelay");
+  });
+
+  it("matches what sendTestNotification would actually POST (byte-for-byte body)", async () => {
+    const env = {
+      AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/abc",
+      AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+      AGENTRELAY_WEBHOOK_AUTH: "Bearer t0ken",
+    };
+    const bodies: string[] = [];
+    const headers: Array<Record<string, string>> = [];
+    const fetchFn = vi.fn(async (_url: string, init: RequestInit) => {
+      bodies.push(init.body as string);
+      headers.push(init.headers as Record<string, string>);
+      return okResponse();
+    }) as unknown as typeof fetch;
+
+    await sendTestNotification({ env, fetchFn, payload });
+    const previews = previewNotifications(env, payload);
+
+    expect(previews.map((p) => p.body)).toEqual(bodies);
+    expect(previews[1].headers.Authorization).toBe((headers[1] as Record<string, string>).Authorization);
   });
 });
 

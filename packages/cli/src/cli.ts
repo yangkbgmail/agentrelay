@@ -29,6 +29,7 @@ import {
   JOB_CSV_COLUMNS,
   parseCsvColumns,
   parseDuration,
+  previewNotifications,
   renderPrometheusMetrics,
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
@@ -69,7 +70,12 @@ import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } fr
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderNext, renderNextJson } from "./next.js";
-import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
+import {
+  renderNotifyPreview,
+  renderNotifyPreviewJson,
+  renderTestNotifyResults,
+  renderTestNotifyResultsJson,
+} from "./notify.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
@@ -912,6 +918,25 @@ export function buildCli(): Command {
       // Exit non-zero when nothing was configured (nothing to test) or any
       // channel failed, so scripts/CI can gate on working notifications.
       if (results.length === 0 || results.some((r) => !r.ok)) process.exitCode = 1;
+    });
+
+  notify
+    .command("preview")
+    .description("Show the exact HTTP request each configured channel would send for an event (no delivery)")
+    .option("--json", "Print the previews as JSON (machine-readable, for scripts/CI)")
+    .option("--show-secrets", "Reveal masked destination URLs and Authorization headers in the output")
+    .action((opts: { json?: boolean; showSecrets?: boolean }) => {
+      const previews = previewNotifications();
+      if (opts.json) {
+        console.log(renderNotifyPreviewJson(previews));
+      } else {
+        console.log(
+          renderNotifyPreview(previews, { color: Boolean(process.stdout.isTTY), showSecrets: opts.showSecrets })
+        );
+      }
+      // Exit non-zero when nothing is configured, so scripts can detect
+      // "no channels" the same way `notify test` does.
+      if (previews.length === 0) process.exitCode = 1;
     });
 
   program

@@ -12,6 +12,25 @@ export function formatSlackText(payload: NotifyPayload): string {
   return `${EVENT_EMOJI[payload.event]} *AgentRelay — ${payload.project}* (${payload.event})\n${payload.message}\n_job ${payload.jobId}_`;
 }
 
+/**
+ * The exact JSON object the Slack notifier POSTs for an event. Extracted so
+ * `agentrelay notify preview` can render the real wire body without sending,
+ * staying lock-step with {@link createSlackNotifier}.
+ */
+export function slackRequestBody(payload: NotifyPayload): { text: string } {
+  return { text: formatSlackText(payload) };
+}
+
+/**
+ * The default JSON object the generic webhook notifier POSTs for an event:
+ * the structured payload plus a human-readable `text`. Extracted so `preview`
+ * can render the real wire body without sending, lock-step with
+ * {@link createWebhookNotifier}'s default `formatBody`.
+ */
+export function webhookRequestBody(payload: NotifyPayload): NotifyPayload & { text: string } {
+  return { ...payload, text: formatSlackText(payload) };
+}
+
 export interface SlackNotifierOptions {
   webhookUrl: string;
   /** Injected for tests; defaults to global fetch (Node >= 18). */
@@ -38,7 +57,7 @@ export function createSlackNotifier(options: SlackNotifierOptions): Notifier {
       const response = await fetchFn(options.webhookUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: formatSlackText(payload) }),
+        body: JSON.stringify(slackRequestBody(payload)),
       });
       if (!response.ok) {
         onError(new Error(`Slack webhook responded with HTTP ${response.status}`));
@@ -101,8 +120,7 @@ export interface WebhookNotifierOptions {
  */
 export function createWebhookNotifier(options: WebhookNotifierOptions): Notifier {
   const fetchFn = options.fetchFn ?? fetch;
-  const formatBody =
-    options.formatBody ?? ((payload: NotifyPayload) => ({ ...payload, text: formatSlackText(payload) }));
+  const formatBody = options.formatBody ?? webhookRequestBody;
   const onError =
     options.onError ??
     ((error: unknown) => {
@@ -262,4 +280,56 @@ export async function sendTestNotification(options: SendTestNotificationOptions 
 function webhookAuthHeader(env: Record<string, string | undefined>): Record<string, string> | undefined {
   const auth = env.AGENTRELAY_WEBHOOK_AUTH?.trim();
   return auth ? { Authorization: auth } : undefined;
+}
+
+/**
+ * The exact HTTP request a configured channel would make for one event, with
+ * no network call. `body` is the literal wire string (compact JSON, exactly
+ * what {@link sendTestNotification} POSTs) so callers can pretty-print or diff
+ * it. Headers include the `Authorization` value verbatim — mask it before
+ * display.
+ */
+export interface NotifyRequestPreview {
+  channel: NotifyChannel;
+  method: "POST";
+  url: string;
+  headers: Record<string, string>;
+  /** The literal request body that would be sent (compact JSON string). */
+  body: string;
+}
+
+/**
+ * Renders the exact HTTP request each configured channel would make for a
+ * sample event, without contacting anything. This lets you inspect the JSON
+ * body shape and auth header a receiver (Slack, Discord, n8n, a custom hook)
+ * would see — the read-only, no-send companion to {@link sendTestNotification}.
+ *
+ * Pure: no I/O, no clock. Reuses {@link listNotifyChannels} and the same body
+ * builders the real notifiers use ({@link slackRequestBody} /
+ * {@link webhookRequestBody}), so a preview matches what would actually be
+ * sent byte-for-byte. Returns an empty array when no channels are configured.
+ */
+export function previewNotifications(
+  env: Record<string, string | undefined> = process.env,
+  payload: NotifyPayload = testNotifyPayload()
+): NotifyRequestPreview[] {
+  const auth = webhookAuthHeader(env);
+  return listNotifyChannels(env).map((channel): NotifyRequestPreview => {
+    if (channel.kind === "slack") {
+      return {
+        channel,
+        method: "POST",
+        url: channel.url,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(slackRequestBody(payload)),
+      };
+    }
+    return {
+      channel,
+      method: "POST",
+      url: channel.url,
+      headers: { "content-type": "application/json", ...auth },
+      body: JSON.stringify(webhookRequestBody(payload)),
+    };
+  });
 }

@@ -550,6 +550,15 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay notify preview` — 설정된 각 알림 채널이 전송할 정확한 HTTP 요청(method·URL·헤더·
+      JSON 본문)을 전송 없이 미리보기(webhook 스키마 디버깅용, `notify test`의 read-only 짝).
+      (완료 — core `notify.ts`에 순수 body 빌더 `slackRequestBody`/`webhookRequestBody` 추출(두 실전
+      notifier가 재사용해 미리보기가 실제 전송과 byte-for-byte lock-step) + `NotifyRequestPreview` 타입 +
+      순수 `previewNotifications(env, payload?)`(`listNotifyChannels` 재사용, 파일시스템/시계 미접촉).
+      CLI `notify.ts` `renderNotifyPreview`(URL·Authorization `maskSecret` 마스킹·`--show-secrets` 공개,
+      body pretty)·`renderNotifyPreviewJson`. `notify preview [--json] [--show-secrets]` 배선, 채널 0개는
+      exit 1. core 8 + cli 7 신규 테스트, 실제 빌드 CLI e2e 검증. branch `claude/wizardly-pascal-notify-preview`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
