@@ -917,7 +917,7 @@ export function buildCli(): Command {
   program
     .command("export")
     .description(
-      "Export the job store to CSV, JSON, Markdown, NDJSON, or HTML for spreadsheets/BI/jq/issues/reports (stdout or a file)"
+      "Export the job store to CSV, TSV, JSON, Markdown, NDJSON, or HTML for spreadsheets/BI/jq/issues/reports (stdout or a file)"
     )
     .option("-f, --format <format>", `Output format: ${EXPORT_FORMATS.join(" | ")}`, "csv")
     .option("-o, --out <file>", "Write to this file instead of stdout")
@@ -928,7 +928,10 @@ export function buildCli(): Command {
     .option("--until <duration>", "Only export jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
     .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
-    .option("--columns <list>", `Pick/reorder columns for csv/md (comma-separated): ${JOB_CSV_COLUMNS.join(", ")}`)
+    .option(
+      "--columns <list>",
+      `Pick/reorder columns for ${COLUMN_AWARE_FORMATS.join("/")} (comma-separated): ${JOB_CSV_COLUMNS.join(", ")}`
+    )
     .action(
       (opts: {
         format?: string;

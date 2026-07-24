@@ -550,6 +550,17 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay export --format tsv` — 탭 구분(tab-separated) 내보내기. CSV의 인용-aware 파싱
+      없이 셸에서 `cut -f2`/`awk -F'\t'`로 바로 슬라이스.
+      (완료 — core `export.ts`에 순수 `escapeTsvField`(TSV는 인용 규칙이 없어 "필드에 리터럴 탭·개행
+      없음"이 유일 계약 → `\`·tab·CR·LF 백슬래시 이스케이프, 백슬래시 먼저 처리해 가역·비손실) +
+      `jobsToTsv`(csv와 컬럼·셀 값 lockstep, header 옵션·빈 스토어 헤더 유지·no trailing newline).
+      `EXPORT_FORMATS`·`COLUMN_AWARE_FORMATS`에 `tsv` 등록(→ `--columns` 자동 지원), `exportJobs`
+      디스패치 추가. CLI는 데이터 주도라 자동 배선(설명 문구 갱신 + `--columns` 도움말을
+      `COLUMN_AWARE_FORMATS.join("/")`로 드리프트 제거). core export.test +12 / cli export.test +2,
+      실제 빌드 CLI e2e로 탭·개행 이스케이프→`cut -f2` 추출·컬럼 subset·json 거부·help 검증.
+      branch `claude/wizardly-pascal-hfw1b0`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
