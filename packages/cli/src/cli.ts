@@ -18,6 +18,7 @@ import {
   computeDailyTrend,
   computeErrorBreakdown,
   computeStats,
+  describeAdapters,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
   generateCompletion,
@@ -37,6 +38,7 @@ import {
   summarizeRateLimitPatterns,
 } from "@agentrelay/core";
 import { Command } from "commander";
+import { renderAdapters, renderAdaptersJson } from "./adapters.js";
 import {
   ALL_JOB_STATUSES,
   type BulkControlAction,
@@ -1196,6 +1198,21 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderParseReport(report, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("adapters")
+    .description(
+      "List the agent adapters AgentRelay understands: which tools `--tool` accepts, which binary names auto-infer each, and their tool-specific parser patterns"
+    )
+    .option("--json", "Print the adapter list as JSON (machine-readable, for scripts/jq)")
+    .action((opts: { json?: boolean }) => {
+      const adapters = describeAdapters();
+      if (opts.json) {
+        console.log(renderAdaptersJson(adapters));
+        return;
+      }
+      console.log(renderAdapters(adapters, { color: Boolean(process.stdout.isTTY) }));
     });
 
   const config = program.command("config").description("Manage the agentrelay.config.json defaults file");
