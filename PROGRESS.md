@@ -1438,3 +1438,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay report` 종합 스냅샷 커맨드 신규] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-t5zybz`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태(지정 브랜치는 이미 병합돼 최신 main과 동일)라, CLAUDE.md
+  지침대로 최신 main에서 새로 시작해 신규 개선 항목을 발굴. 열린 PR 51건을 전수 확인해 중복 없는
+  clean·self-contained 항목 선정. 관찰성 커맨드는 풍부하지만(`stats`/`errors`/`patterns`/`next`),
+  각각 한 질문에만 답해 "내 릴레이 지금 어때?"를 한 화면·한 문서로 답할 방법이 없었다 — 네 커맨드를
+  돌려 눈으로 합쳐야 했다. 열린 PR 중 이 조합 리포트를 만드는 항목은 없었다.
+- **한 일:** `agentrelay report` 신규 — 통계 + 상위 실패 사유 + 상위 rate-limit 패턴 + 다음 재개를
+  한 커맨드로 사람용/JSON 스냅샷 출력.
+  1. `@agentrelay/core/report.ts` 신설(순수·시계는 주입 `nowMs`만): `buildRelayReport(jobs, {nowMs,
+     topErrors?, topPatterns?})` → `RelayReport`가 이미 검증된 `computeStats`/`computeErrorBreakdown`/
+     `summarizeRateLimitPatterns`/`selectNextResume`를 조합. `errorTotals`/`patternTotals`는 항상 전체
+     잡 수 반영(작은 top-N이 실제 실패 규모 왜곡 안 함), `topErrors`/`topPatterns`만 기본 5개 절단
+     (≤0=무제한). 새 파싱/집계 로직 0줄 — 순수 조합 + top-N 절단만.
+  2. CLI `packages/cli/src/report.ts`에 순수 `renderReport`(4섹션 사람용 블록·색상 게이팅·scopeNote·
+     no-match 처리)·`renderReportJson`(리포트 verbatim). `agentrelay report` 커맨드는 stats/errors와
+     동일한 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용 + `-n/--top`·`--json`,
+     잘못된 top/status/tool·빈 범위는 exit 1.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **741 통과 + 1 skip**(core 498 + cli 236/1skip + dashboard 7 — core report 7 + cli report 8 신규).
+  실제 빌드된 CLI e2e(mock 아님): 3-job 임시 스토어로 4섹션·성공률 50%·해결시간 median/p90·다음 재개
+  카운트다운·상위 에러/패턴·`--project` 스코프 부분집합·no-match 문구·`--top 1` 절단·`--json` jq·
+  잘못된 `--top 0`/`--status bogus` exit 1·`report --help` 옵션 노출 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합/발굴 계속(#164 parse --scan·#122 paths·#136 run --label·
+  #167 export tsv·#171 verify·#173 diff 등 중복 없는 것부터). README/ARCHITECTURE(🧭 코워크).

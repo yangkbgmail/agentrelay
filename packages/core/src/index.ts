@@ -16,6 +16,7 @@ export * from "./paths.js";
 export * from "./patterns.js";
 export * from "./prune.js";
 export * from "./queue.js";
+export * from "./report.js";
 export * from "./retry.js";
 export * from "./scheduler.js";
 export * from "./stats.js";
