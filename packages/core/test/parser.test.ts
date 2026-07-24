@@ -202,6 +202,40 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
   });
 
+  it("parses the HTTP Retry-After header in delay-seconds form", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("HTTP 429 Too Many Requests\nRetry-After: 3600", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("http-retry-after");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 3600 * 1000).toISOString());
+  });
+
+  it("parses the HTTP Retry-After header in HTTP-date form", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("429: Retry-After: Wed, 21 Oct 2026 07:28:00 GMT", { now });
+    expect(result?.pattern).toBe("http-retry-after");
+    expect(result?.resetAt).toBe("2026-10-21T07:28:00.000Z");
+  });
+
+  it("treats Retry-After: 0 as an immediate resume", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Retry-After: 0", { now });
+    expect(result?.pattern).toBe("http-retry-after");
+    expect(result?.resetAt).toBe(now.toISOString());
+  });
+
+  it("does not confuse the JSON retry_after epoch field with the HTTP header", () => {
+    // Underscore form stays an absolute epoch (unix-epoch); hyphen form is a
+    // relative HTTP header — the two must not cross-match.
+    const result = parseRateLimitMessage("retry_after=1752345600");
+    expect(result?.pattern).toBe("unix-epoch");
+  });
+
+  it("falls through a malformed HTTP-date Retry-After instead of an invalid date", () => {
+    const result = parseRateLimitMessage("Retry-After: Not, 99 Xxx 0000 99:99:99 GMT");
+    expect(result).toBeNull();
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [

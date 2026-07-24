@@ -1438,3 +1438,29 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+---
+
+## 세션 44 (2026-07-24)
+
+- **배경:** BACKLOG의 👷 명시 항목이 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을
+  발굴. 이 도구의 핵심 가치(rate-limit 감지→재개)는 파서의 실사용 포맷 커버리지에 달려 있는데,
+  에이전트 CLI가 HTTP API를 프록시하다 429를 만나면 표준 **`Retry-After`** 응답 헤더(RFC 9110
+  §10.2.3)를 그대로 콘솔에 덤프하는 경우가 흔하다. 기존 파서는 JSON `retry_after`(언더스코어,
+  절대 epoch)만 알고, 하이픈 표기 HTTP 헤더는 놓쳐 잡이 큐잉되지 않는 실사용 갭이 있었다.
+- **한 일:**
+  1. `packages/core/src/parser.ts`에 순수 `http-retry-after` 패턴 추가 — 두 형식 모두 인식:
+     delay-seconds(`Retry-After: 3600` → now+N초)와 HTTP-date(`Retry-After: Wed, 21 Oct 2026
+     07:28:00 GMT` → 절대 시각). 숫자 그룹은 `\d{1,7}`+`\b`로 캡해 epoch 크기 값을 (무의미한)
+     초 지연으로 오독하지 않음(스펙상 Retry-After는 상대 지연 또는 날짜, epoch 아님). 하이픈
+     헤더명이 언더스코어 `retry_after`(unix-epoch) epoch 필드와 교차 매치되지 않도록 분리.
+  2. 사전필터 `LOOKS_LIKE_RATE_LIMIT`를 `retry_after`→`retry.?after`로 넓혀 하이픈/언더스코어
+     양쪽 트립(기존 언더스코어 매치는 그대로 유지).
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  전 패키지 통과(core 496 + cli 228/1skip + dashboard 7; parser.test.ts 33개 = +5 신규:
+  delay-seconds·HTTP-date·`Retry-After: 0`=즉시·언더스코어 epoch 비교차·malformed date fallthrough).
+  실제 빌드된 CLI e2e(mock 아님): `parse "Retry-After: 3600"`→http-retry-after/now+1h,
+  `parse "Retry-After: Wed, 21 Oct 2026 07:28:00 GMT"`→절대시각, `parse "retry_after=1752345600"`→
+  unix-epoch(비교차 확인).
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속. 파서 추가 실사용 포맷(named IANA tz 실제 변환·
+  weekday 창)은 코워크 리서치(🧭)와 조율. README/ARCHITECTURE(🧭 코워크).
