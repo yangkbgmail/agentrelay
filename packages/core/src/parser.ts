@@ -43,6 +43,37 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // "resets tomorrow at 5pm" / "resets today at 9:30am" / "reset tomorrow at 15:00".
+    // The day word (today/tomorrow) *pins* the date, so this must run before the
+    // bare clock-time patterns below — those only see "at <time>" and fall back to
+    // a roll-if-past heuristic that mis-dates an explicit "tomorrow": e.g. at 10am,
+    // "tomorrow at 5pm" would otherwise resolve to *today* 5pm (still future, so no
+    // roll) — a full day early. Weekly/daily usage windows commonly phrase resets
+    // this way, and the generic pre-filter (which keys on "resets at") never even
+    // saw them because "tomorrow" sits between "resets" and "at".
+    name: "relative-day",
+    regex: /reset[s]?\s+(today|tomorrow)\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i,
+    resolve: (m, now) => {
+      const dayWord = m[1].toLowerCase();
+      let hour = parseInt(m[2], 10);
+      const minute = m[3] ? parseInt(m[3], 10) : 0;
+      const meridiem = m[4]?.toLowerCase();
+      if (meridiem) {
+        if (hour > 12) return null; // "13pm" is not a valid 12-hour clock time
+        if (meridiem === "pm" && hour < 12) hour += 12;
+        if (meridiem === "am" && hour === 12) hour = 0;
+      }
+      if (hour > 23 || minute > 59) return null;
+      const candidate = new Date(now);
+      if (dayWord === "tomorrow") candidate.setDate(candidate.getDate() + 1);
+      candidate.setHours(hour, minute, 0, 0);
+      // The day word is authoritative: we do NOT roll forward if the resulting
+      // instant is already past (unlike clock-time). A past resetAt just makes the
+      // job immediately due, which is the safe outcome for a "today" that elapsed.
+      return candidate;
+    },
+  },
+  {
     // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
     name: "clock-time",
     regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
@@ -119,7 +150,7 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry_after)/i;
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in|today|tomorrow)|retry_after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);

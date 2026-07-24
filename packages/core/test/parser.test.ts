@@ -49,6 +49,46 @@ describe("parseRateLimitMessage", () => {
     expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
   });
 
+  it("pins 'resets tomorrow at 5pm' to tomorrow, not today (relative-day)", () => {
+    // At 10:00 local, a bare "at 5pm" would resolve to *today* 5pm (still future,
+    // so clock-time wouldn't roll it) — a full day early. The day word must win.
+    const now = new Date("2026-07-12T10:00:00"); // local time, 10am
+    const result = parseRateLimitMessage("Your limit resets tomorrow at 5pm.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("relative-day");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(17); // 5pm local
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getDate()).toBe(13); // the *next* day, not the 12th
+  });
+
+  it("parses 'resets today at 9:30am' with explicit minutes on the same day", () => {
+    const now = new Date("2026-07-12T06:00:00"); // local 06:00, before 9:30
+    const result = parseRateLimitMessage("Usage limit reached. Resets today at 9:30am.", { now });
+    expect(result?.pattern).toBe("relative-day");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getDate()).toBe(12); // same day
+    expect(resetDate.getHours()).toBe(9);
+    expect(resetDate.getMinutes()).toBe(30);
+  });
+
+  it("parses 'reset tomorrow at 15:00' (24-hour clock, no meridiem)", () => {
+    const now = new Date("2026-07-12T08:00:00");
+    const result = parseRateLimitMessage("You will be able to reset tomorrow at 15:00.", { now });
+    expect(result?.pattern).toBe("relative-day");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getDate()).toBe(13);
+    expect(resetDate.getHours()).toBe(15);
+    expect(resetDate.getMinutes()).toBe(0);
+  });
+
+  it("no longer drops 'resets tomorrow at …' in the pre-filter (was silently ignored)", () => {
+    // Regression: the generic pre-filter keyed on "resets at", but "tomorrow"
+    // sits between "resets" and "at", so these real messages never matched at all.
+    expect(parseRateLimitMessage("Your limit resets tomorrow at 5pm.")).not.toBeNull();
+    expect(parseRateLimitMessage("Usage resets today at 9am.")).not.toBeNull();
+  });
+
   it("handles meridiem-only 12am (midnight) and 12pm (noon)", () => {
     const midnight = new Date(parseRateLimitMessage("resets at 12am")!.resetAt);
     expect(midnight.getHours()).toBe(0);

@@ -1438,3 +1438,26 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — 파서: 상대적 날짜 리셋 표현 `resets tomorrow/today at <시각>` 인식] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-6e3qga`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. 열린 PR 30건이
+  이미 광범위한 커맨드/파서 갭을 커버 중이라, 그 어디에도 없으면서 **현재 파서가 실제로 오작동하는**
+  진짜 갭을 찾음: `"Your limit resets tomorrow at 5pm."` / `"Usage resets today at 9am."` 같은
+  주간/일간 사용량 창 문구. 두 가지 버그가 겹쳐 있었다 — (1) 프리필터(`resets?\s+(at|in)`)가
+  "resets"와 "at" 사이의 `tomorrow`/`today` 때문에 매치 실패 → 메시지를 **아예 큐잉조차 안 함**.
+  (2) 설령 통과해도 기존 `clock-time`의 "지났으면 내일로 롤" 휴리스틱이 명시적 "tomorrow"를
+  하루 어긋나게 계산(오전 10시에 "tomorrow at 5pm"이 오늘 17시로 해석 → 하루 이르게 재개).
+- **한 일:**
+  1. `parser.ts`에 새 패턴 `relative-day` 추가(`clock-time` 계열보다 **앞에** 배치해 우선권 확보):
+     `reset[s]? (today|tomorrow) at <hour>[:mm] [am|pm]`를 매치, 날짜를 day word로 **고정**(오늘/내일)하고
+     시각은 12h(meridiem)·24h·분 포함/생략 모두 지원. day word가 권위이므로 지난 시각이어도 롤 안 함
+     (지난 "today"는 즉시 due=안전). `13pm`·`25:00`·`:70`은 null 거부.
+  2. 프리필터 `LOOKS_LIKE_RATE_LIMIT`에 `today|tomorrow` 대안 추가 → 더는 조용히 드롭 안 됨.
+  새 커맨드/스토어 변경 0 — 순수 파서 로직만 확장(하위 패턴·어댑터 경로 불변).
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  전 패키지 통과(parser 28→32, +4 신규: tomorrow-pin/today-분포함/24h-tomorrow/프리필터-회귀).
+  실제 빌드된 CLI e2e(mock 아님): `parse "…resets tomorrow at 5pm."`→`relative-day` 매치·내일 17시,
+  `parse "…resets today at 9:30am."`→오늘 09:30, 기존 `reset at 5pm`(clock-time-meridiem)·`resets at 3:00pm`
+  (clock-time)·`try again in 2h`(relative-duration) 회귀 없음 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합(파서 계열 #177/#178/#179/#185 중 하나로 수렴·재개 stagger
+  계열 #158/#161/#162·데모 #154/#156). README/ARCHITECTURE(🧭 코워크).

@@ -550,6 +550,15 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 파서: 상대적 날짜 리셋 표현 인식(`resets tomorrow at 5pm` / `resets today at 9:30am`).
+      (완료 — 주간/일간 사용량 창 문구에서 두 버그가 겹쳐 있었다: 프리필터가 "resets"와 "at" 사이의
+      `tomorrow`/`today` 때문에 매치 실패해 **큐잉조차 안 됐고**, 통과해도 기존 `clock-time`의
+      "지났으면 내일로 롤" 휴리스틱이 명시 "tomorrow"를 하루 이르게 계산했다. `parser.ts`에 새 패턴
+      `relative-day`(clock 계열보다 앞) 추가 — day word로 날짜를 고정(오늘/내일), 12h/24h·분 포함/생략
+      지원, 지난 시각도 롤 안 함(즉시 due=안전), `13pm`·`25:00`·`:70` 거부. 프리필터에 `today|tomorrow`
+      대안 추가. 새 커맨드/스토어 변경 0. parser.test +4(tomorrow-pin/today-분/24h-tomorrow/프리필터-회귀),
+      실제 빌드 CLI `parse` e2e로 매치·기존 패턴 무회귀 검증. branch `claude/wizardly-pascal-6e3qga`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
