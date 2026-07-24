@@ -1,5 +1,6 @@
 export * from "./adapters.js";
 export * from "./backup.js";
+export * from "./clean.js";
 export * from "./completion.js";
 export * from "./config.js";
 export * from "./control.js";

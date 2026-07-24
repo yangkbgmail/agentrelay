@@ -550,6 +550,23 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay clean` — 스토어 디렉터리에 영구 누적되는 하우스키핑 파일 정리(손상 복구본
+      `.corrupt-*` + 크래시 잔여 임시 파일 `.tmp-*`). `prune`은 잡, `backup --keep`은 `.backup-*`만
+      관리해 두 파일 종류를 정리하는 커맨드가 없던 실질 갭.
+      (완료 — `@agentrelay/core/clean.ts` 신설(순수·파일시스템 미접촉): `CORRUPT_INFIX`/`TMP_INFIX` +
+      `corruptStamp`(backupStamp와 대칭, `.corrupt-<ISO stamp>`의 정렬가능 stamp 추출) +
+      `classifyStoreFile`(store/backup/corrupt/tmp/other 분류 — `.tmp-backup-*`는 `.tmp-`로 시작하므로
+      완료 스냅샷이 아닌 write-in-flight temp로 분류) + `listCorruptBackups`(최신순) + `listTmpFiles`
+      (이름순) + `selectCleanableFiles(names, storeName, {keepCorrupt, includeTmp})`(newest `keepCorrupt`개
+      복구본 보존, tmp는 opt-in, 라이브 스토어·`.backup-*`는 절대 미선택). `RelayQueue.clean({keepCorrupt,
+      includeTmp, dryRun})`가 디렉터리 리스팅만 읽어(스토어 내용 미접촉 → 손상 상태에서도 안전) 선택
+      파일을 unlink, 삭제 실패는 `failed`에 기록하고 삼켜 릴레이 보호(backup 로테이션과 동일 best-effort),
+      dryRun이면 후보만 리포트. CLI `commands.ts` `cleanStore` + `agentrelay clean [--keep-corrupt N]
+      [--tmp] [--dry-run]`(잘못된 keep은 exit 1, 삭제 실패 있으면 exit 1). tmp는 데몬 in-flight write와
+      충돌 가능해 기본 제외·`--tmp` opt-in(도움말에 경고). core clean 6(순수 5 + queue.clean 3) 신규
+      테스트, 실제 빌드 CLI e2e로 dry-run·keep-corrupt·store/backup 보존·tmp opt-in·nothing-to-clean·
+      invalid exit 검증. branch `claude/wizardly-pascal-3srkxf`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

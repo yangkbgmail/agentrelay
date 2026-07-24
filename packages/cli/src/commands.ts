@@ -16,6 +16,7 @@ import type {
   AgentRelayConfig,
   AgentTool,
   BackupResult,
+  CleanResult,
   ConfigIssue,
   DiagnosticReport,
   HeartbeatFacts,
@@ -828,6 +829,35 @@ export function backupStore(options: BackupStoreOptions = {}): BackupResult {
   const queue = openQueue(options.storePath ?? defaultStorePath());
   try {
     return queue.backup({ keepLast: options.keepLast });
+  } finally {
+    queue.close();
+  }
+}
+
+export interface CleanStoreOptions {
+  storePath?: string;
+  /** Retain the newest N corruption-recovery copies (default 0 = remove all). */
+  keepCorrupt?: number;
+  /** Also remove leftover `.tmp-*` atomic-write files (default false). */
+  includeTmp?: boolean;
+  /** Report what would be removed without deleting anything. */
+  dryRun?: boolean;
+}
+
+/**
+ * Removes leftover housekeeping files from the store directory (corruption
+ * recovery copies and, opt-in, orphan temp files) that neither `prune` nor
+ * `backup --keep` touch. Thin wrapper over {@link RelayQueue.clean} that owns
+ * opening/closing the store.
+ */
+export function cleanStore(options: CleanStoreOptions = {}): CleanResult {
+  const queue = openQueue(options.storePath ?? defaultStorePath());
+  try {
+    return queue.clean({
+      keepCorrupt: options.keepCorrupt,
+      includeTmp: options.includeTmp,
+      dryRun: options.dryRun,
+    });
   } finally {
     queue.close();
   }

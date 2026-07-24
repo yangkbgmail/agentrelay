@@ -44,6 +44,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  cleanStore,
   exportStore,
   importStore,
   initConfig,
@@ -1340,6 +1341,64 @@ export function buildCli(): Command {
       console.log(`[agentrelay] Wrote snapshot of ${result.jobCount} job(s) to ${result.path}.`);
       if (result.rotated.length > 0) {
         console.log(`[agentrelay] Rotated out ${result.rotated.length} old snapshot(s).`);
+      }
+    });
+
+  program
+    .command("clean")
+    .description("Remove leftover store-directory files (corruption-recovery copies and orphan temp files)")
+    .option("--keep-corrupt <n>", "Keep the N most recent .corrupt-* recovery copies (default: 0 = remove all)")
+    .option("--tmp", "Also remove leftover .tmp-* atomic-write files (run only when no daemon is writing)")
+    .option("--dry-run", "Show what would be removed without deleting anything")
+    .action((opts: { keepCorrupt?: string; tmp?: boolean; dryRun?: boolean }) => {
+      const { store } = program.opts();
+
+      let keepCorrupt: number | undefined;
+      if (opts.keepCorrupt !== undefined) {
+        const n = Number.parseInt(opts.keepCorrupt, 10);
+        if (!Number.isInteger(n) || n < 0) {
+          console.error(`Invalid --keep-corrupt value "${opts.keepCorrupt}". Use a non-negative integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        keepCorrupt = n;
+      }
+
+      const result = cleanStore({ storePath: store, keepCorrupt, includeTmp: opts.tmp, dryRun: opts.dryRun });
+      const candidates = [...result.corrupt, ...result.tmp];
+
+      if (candidates.length === 0) {
+        console.log(
+          `[agentrelay] Nothing to clean${result.keptCorrupt > 0 ? ` (kept ${result.keptCorrupt} recovery copy/copies)` : ""}.`
+        );
+        return;
+      }
+
+      if (result.dryRun) {
+        console.log(`[agentrelay] Dry run: would remove ${candidates.length} file(s):`);
+        for (const path of candidates) {
+          console.log(`  ${path}`);
+        }
+        if (result.keptCorrupt > 0) {
+          console.log(`[agentrelay] Keeping the ${result.keptCorrupt} most recent recovery copy/copies.`);
+        }
+        console.log("[agentrelay] No changes made (--dry-run).");
+        return;
+      }
+
+      console.log(`[agentrelay] Removed ${result.removed.length} file(s):`);
+      for (const path of result.removed) {
+        console.log(`  ${path}`);
+      }
+      if (result.keptCorrupt > 0) {
+        console.log(`[agentrelay] Kept the ${result.keptCorrupt} most recent recovery copy/copies.`);
+      }
+      if (result.failed.length > 0) {
+        console.error(`[agentrelay] Could not remove ${result.failed.length} file(s):`);
+        for (const path of result.failed) {
+          console.error(`  ${path}`);
+        }
+        process.exitCode = 1;
       }
     });
 
