@@ -1438,3 +1438,27 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay export --format tsv` 신규 (tab-separated 내보내기)] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-hfw1b0`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. export는
+  csv/json/md/ndjson/html까지 지원하지만 **TSV(tab-separated)**만 빠져 있었다. CSV는 프롬프트에
+  섞인 콤마를 살리려 인용(quote)-aware 파싱이 필요해 셸에서 다루기 번거로운데, TSV는 필드에 리터럴
+  탭·개행만 없으면 `cut -f2` / `awk -F'\t'`로 바로 슬라이스된다. 열린 PR 어디에도 없는 clean·
+  self-contained 항목.
+- **한 일:**
+  1. core `export.ts`에 순수 `escapeTsvField`(TSV는 RFC 4180식 인용 규칙이 없어, "필드에 리터럴
+     탭·개행 없음"이 유일한 안전 계약 → `\`·tab·CR·LF를 백슬래시 이스케이프. 백슬래시를 **먼저**
+     이스케이프해 escaped tab/newline 오독 방지, 공백 병합식 손실 없이 가역) + `jobsToTsv`(csv와
+     동일 컬럼·셀 값 재사용해 lockstep, header 옵션·빈 스토어도 헤더 유지·trailing newline 없음) 추가.
+  2. `EXPORT_FORMATS`에 `tsv`, `COLUMN_AWARE_FORMATS`에 `tsv` 등록(→ `--columns` 자동 지원),
+     `exportJobs` 디스패치에 `case "tsv"` 추가.
+  3. CLI는 EXPORT_FORMATS/COLUMN_AWARE_FORMATS 기반이라 자동 배선 — export 설명 문구에 TSV 추가,
+     `--columns` 도움말을 하드코딩 "csv/md"에서 `COLUMN_AWARE_FORMATS.join("/")`로 교체(드리프트 제거).
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **740 통과 + 1 skip**(core 503 + cli 230/1skip + dashboard 7 — escapeTsvField 3 + jobsToTsv 7 +
+  exportJobs tsv dispatch 2 + cli export tsv e2e 2 신규). 실제 빌드된 CLI e2e(mock 아님): 명령의
+  탭·개행이 `\t`/`\n`로 이스케이프돼 한 물리 행 유지→`cut -f2`로 project 컬럼 정확 추출,
+  `--columns status,id` subset/reorder, `-f json --columns`는 exit 1, `--help`에 TSV 노출 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
+  #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
+  계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
