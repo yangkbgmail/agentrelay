@@ -1438,3 +1438,24 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — 파서 "try again at <시각>" / "available again at <시각>" 트리거 인식] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-msvu26`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태(열린 항목은 🧭 코워크 소유의 README/ARCHITECTURE/경쟁조사
+  뿐)라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. 파서를 감사하다 실사용 갭 발견: 시각 패턴
+  (iso-timestamp·clock-time·clock-time-meridiem)의 트리거 문구가 오직 `reset[s]? at`으로만 한정돼,
+  에이전트가 흔히 출력하는 "Please try again at 3:30pm" / "available again at 9am" 같은 표현을 전혀
+  못 잡았다(`relative-duration`은 "at"이 아니라 "in"만 처리). 이런 메시지에선 리셋 시각이 그대로
+  유실돼 잡이 큐잉되지 않고 조용히 종료됐다.
+- **한 일:** `parser.ts`에 공유 트리거 상수 `RESUME_AT`(`(?:reset[s]?|try\s+again|available(?:\s+again)?)\s+at`,
+  전부 non-capturing → resolve의 capture 인덱스 불변) 도입해 세 시각 패턴을 lockstep으로 broaden.
+  기존 "reset at ..." 문구는 새 트리거의 상위집합이라 100% 하위호환. 사전필터 `LOOKS_LIKE_RATE_LIMIT`에
+  `available(?:\s+again)?\s+at`를 추가해 다른 rate-limit 키워드 없는 "available again at" 문구도 사전
+  단계에서 안 떨어지게. 규약 준수: 분·meridiem 없는 `try again at 5`(모호)는 여전히 미검출,
+  `try again in 2h`는 여전히 relative-duration으로 라우팅. 새 패턴 로직 0줄 — 트리거 문자열만 확장.
+- **검증:** 로컬 `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 에러**·`pnpm test` 전 패키지
+  통과(core 497 — parser +6 회귀 포함: try again at 시:분/meridiem/ISO·available again at·in-form 보존·
+  시각 없는 "at" null / cli 228 / dashboard 7). 실제 빌드된 CLI e2e(mock 아님): `parse "try again at 5pm"`
+  → clock-time-meridiem 매치·resetAt 산출, `parse "try again in 2h"` → relative-duration 유지 확인.
+- **다음 할 일:** 파서 실전 포맷 계속 보강(명명 타임존 존중은 기존 테스트가 로컬 시각을 고정하고 여러
+  주석이 "accepted limitation"으로 문서화 → 코워크 합의 필요, 자율로는 보류). 남은 distinct 열린 PR 통합·
+  README/ARCHITECTURE(🧭 코워크).
