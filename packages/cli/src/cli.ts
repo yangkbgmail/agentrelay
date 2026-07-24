@@ -56,6 +56,7 @@ import {
   retryJob,
   runCommand,
   runDoctor,
+  runVerify,
   setConfigFile,
   showConfig,
   showJob,
@@ -84,6 +85,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { renderVerify, renderVerifyJson } from "./verify.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -892,6 +894,25 @@ export function buildCli(): Command {
       // Exit non-zero when any check failed, so `agentrelay doctor` is usable as
       // a CI/pre-flight gate.
       if (!report.ok) process.exitCode = 1;
+    });
+
+  program
+    .command("verify")
+    .description("Lint the job store for integrity problems: invalid records, duplicate ids, unresumable jobs")
+    .option("--json", "Print the verification report as JSON (machine-readable, for scripts/CI)")
+    .action((opts: { json?: boolean }) => {
+      const { store } = program.opts();
+      const report = runVerify(store);
+      if (opts.json) {
+        console.log(renderVerifyJson(report));
+      } else {
+        console.log(renderVerify(report, { color: Boolean(process.stdout.isTTY) }));
+      }
+      // Exit non-zero on whole-file corruption or any error-level issue, so
+      // `agentrelay verify` works as a CI/pre-flight gate (warnings still exit 0).
+      if (report.kind === "corrupt" || (report.verification && !report.verification.ok)) {
+        process.exitCode = 1;
+      }
     });
 
   const notify = program.command("notify").description("Inspect and test notification channels (Slack/webhook)");

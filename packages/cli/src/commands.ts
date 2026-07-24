@@ -78,10 +78,12 @@ import {
   summarizeImportPlan,
   unsetConfigValue,
   validateConfig,
+  verifyStore,
   type WaitOutcome,
   waitExitCode,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
+import type { VerifyReport } from "./verify.js";
 
 /**
  * Constructs a {@link RelayQueue} that, if the store file turns out to be
@@ -1019,6 +1021,49 @@ export function importStore(options: ImportStoreOptions): ImportStoreResult {
   const queue = openQueue(storePath);
   const result = queue.importJobs(jobs, mergeOptions);
   return { ...result, parseErrors: errors, dryRun: false };
+}
+
+/**
+ * Lint the on-disk job store for integrity problems (see core `verifyStore`).
+ *
+ * Reads the **raw** file rather than going through the queue: the queue keys
+ * jobs by id in a Map, so it would silently collapse duplicate ids before we
+ * could report them, and it casts records without per-field validation. This
+ * function owns only the filesystem edge — a missing file is a clean first-run
+ * state, a file that isn't a JSON array is whole-file corruption reported as
+ * `corrupt`, and a valid array is handed to the pure linter. Never throws.
+ */
+export function runVerify(storePath?: string): VerifyReport {
+  const store = storePath ?? defaultStorePath();
+
+  if (!existsSync(store)) {
+    return { kind: "missing", store };
+  }
+
+  let raw: string;
+  try {
+    raw = readFileSync(store, "utf8");
+  } catch (error) {
+    return { kind: "corrupt", store, corruptReason: (error as Error).message };
+  }
+
+  // An empty/whitespace-only file is a valid "empty store" (matches how the
+  // queue treats it), not corruption.
+  if (raw.trim() === "") {
+    return { kind: "verified", store, verification: verifyStore([]) };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    return { kind: "corrupt", store, corruptReason: `invalid JSON (${(error as Error).message})` };
+  }
+  if (!Array.isArray(parsed)) {
+    return { kind: "corrupt", store, corruptReason: "root is not a JSON array of jobs" };
+  }
+
+  return { kind: "verified", store, verification: verifyStore(parsed) };
 }
 
 export interface ConfigShowOptions {
