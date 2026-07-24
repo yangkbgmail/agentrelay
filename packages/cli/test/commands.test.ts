@@ -23,6 +23,7 @@ import {
   showJob,
   unsetConfigFile,
   validateConfigFile,
+  waitForAll,
   waitForJob,
 } from "../src/commands.js";
 import { isConfigDiagnosticInvocation, renderEffectiveConfig, resolveProjectName } from "../src/config.js";
@@ -998,5 +999,149 @@ describe("waitForJob", () => {
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
     expect(result.message).toMatch(/no job matches/);
+  });
+});
+
+describe("waitForAll", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-waitall-cli-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Enqueue a job in `project`, optionally settling it to a terminal state. */
+  function seed(project: string, status: "queued" | "completed" | "failed" | "cancelled" = "queued"): string {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project, tool: "claude-code", command: ["claude"], cwd: dir });
+    if (status === "completed") queue.markCompleted(job.id, "done");
+    else if (status === "failed") queue.markFailed(job.id, "boom");
+    else if (status === "cancelled") queue.markCancelled(job.id);
+    queue.close();
+    return job.id;
+  }
+
+  it("returns completed immediately when nothing is active (exit 0)", async () => {
+    seed("demo", "completed");
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await waitForAll({ storePath, sleep });
+    expect(result.outcome).toBe("completed");
+    expect(result.exitCode).toBe(0);
+    expect(result.counts.total).toBe(0);
+    expect(result.message).toMatch(/no active jobs/);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("waits until every active job settles, then aggregates (all completed => 0)", async () => {
+    const a = seed("demo", "queued");
+    const b = seed("demo", "queued");
+    // First poll: both pending. Second poll: both completed.
+    const pending = (() => {
+      const q = new RelayQueue(storePath);
+      const jobs = q.listAll();
+      q.close();
+      return jobs;
+    })();
+    const done = pending.map((j) => ({ ...j, status: "completed" as const }));
+    let call = 0;
+    // Reads: [0]=initial watch-set snapshot, [1]=first poll (pending), [2]=settled.
+    const reads = [pending, pending, done];
+    const readJobs = () => reads[Math.min(call++, reads.length - 1)];
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    const result = await waitForAll({ storePath, readJobs, sleep, now: () => 0 });
+    expect(result.counts.total).toBe(2);
+    expect(result.outcome).toBe("completed");
+    expect(result.exitCode).toBe(0);
+    expect(result.counts.completed).toBe(2);
+    expect([a, b]).toHaveLength(2); // both ids were watched
+    expect(sleep).toHaveBeenCalledTimes(1);
+  });
+
+  it("aggregates a failure to exit 1 even when others completed", async () => {
+    seed("demo", "queued");
+    seed("demo", "queued");
+    const snapshot = (() => {
+      const q = new RelayQueue(storePath);
+      const jobs = q.listAll();
+      q.close();
+      return jobs;
+    })();
+    const settled = [
+      { ...snapshot[0], status: "completed" as const },
+      { ...snapshot[1], status: "failed" as const },
+    ];
+    let call = 0;
+    const reads = [snapshot, settled];
+    const readJobs = () => reads[Math.min(call++, reads.length - 1)];
+    const result = await waitForAll({ storePath, readJobs, sleep: vi.fn(), now: () => 0 });
+    expect(result.outcome).toBe("failed");
+    expect(result.exitCode).toBe(1);
+    expect(result.counts.failed).toBe(1);
+    expect(result.counts.completed).toBe(1);
+  });
+
+  it("honours the scope filter — only matching jobs are watched", async () => {
+    seed("billing", "queued");
+    seed("other", "queued");
+    // Scope to project=billing: only the billing job is in the watch set. The
+    // reader returns the store unchanged with billing already completed.
+    const snapshot = (() => {
+      const q = new RelayQueue(storePath);
+      const jobs = q.listAll();
+      q.close();
+      return jobs;
+    })();
+    const settled = snapshot.map((j) => (j.project === "billing" ? { ...j, status: "completed" as const } : j));
+    let call = 0;
+    const reads = [snapshot, settled];
+    const readJobs = () => reads[Math.min(call++, reads.length - 1)];
+    const result = await waitForAll({
+      storePath,
+      scope: { projects: ["billing"] },
+      readJobs,
+      sleep: vi.fn(),
+      now: () => 0,
+    });
+    expect(result.counts.total).toBe(1); // only billing watched, "other" ignored
+    expect(result.outcome).toBe("completed");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("times out with exit 124 while jobs stay pending", async () => {
+    seed("demo", "queued");
+    let clock = 0;
+    const now = () => clock;
+    const sleep = vi.fn().mockImplementation(async (ms: number) => {
+      clock += ms;
+    });
+    const result = await waitForAll({ storePath, intervalMs: 1000, timeoutMs: 2500, now, sleep });
+    expect(result.outcome).toBe("timeout");
+    expect(result.exitCode).toBe(124);
+    expect(result.counts.pending).toBe(1);
+    expect(result.message).toMatch(/timed out/);
+  });
+
+  it("counts a watched job that vanishes mid-wait as missing", async () => {
+    seed("demo", "queued");
+    const snapshot = (() => {
+      const q = new RelayQueue(storePath);
+      const jobs = q.listAll();
+      q.close();
+      return jobs;
+    })();
+    let call = 0;
+    // [0]=initial snapshot (watch set), then the store empties (job pruned).
+    const reads = [snapshot, [] as RelayJob[]];
+    const readJobs = () => reads[Math.min(call++, reads.length - 1)];
+    const result = await waitForAll({ storePath, readJobs, sleep: vi.fn(), now: () => 0 });
+    expect(result.outcome).toBe("missing");
+    expect(result.exitCode).toBe(5);
+    expect(result.counts.missing).toBe(1);
   });
 });

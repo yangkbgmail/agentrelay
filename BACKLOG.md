@@ -550,6 +550,25 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay wait --all` — 단일 잡이 아닌 스코프/전체 활성 잡이 모두 종료 상태에 도달할 때까지
+      블록 후 집계 종료 코드 반환(CI/스크립트가 "릴레이한 잡 전부 끝날 때까지 대기"에 사용).
+      (완료 — 기존 `wait <id>`는 잡 하나만 따라가서, 여러 잡을 relay로 큐잉한 뒤 "전부 끝나면 배포"
+      같은 큐 드레인 시나리오를 표현할 수 없었다. `@agentrelay/core/wait.ts`에 순수 그룹-대기 로직 추가:
+      `GroupWaitCounts`(total·pending·completed·failed·cancelled·missing) + `tallyGroupWait(watchIds,
+      jobsById)`(watch set의 각 id를 현재 스토어 스냅샷에 버킷팅 — 부재=missing·비종료=pending·종료는
+      해당 버킷) + `evaluateGroupWait`(pending 0이면 done, 빈 watch set은 즉시 done) +
+      `groupWaitOutcome(counts, timedOut)`(집계 우선순위 failed(1)>timeout(124)>cancelled(2)>missing(5)>
+      completed(0) — 확정 실패가 가장 강한 CI 신호라 timeout보다 우선). 기존 `WaitOutcome`/`waitExitCode`
+      재사용. CLI `commands.ts` `waitForAll(options)` — watch set은 **시작 시점**의 스코프 매칭 활성
+      잡 id를 1회 스냅샷(이미 종료된 잡은 대기 불필요, 중간 신규 잡은 연장 안 함, 중간에 사라진 잡은
+      missing 집계). 매 폴링마다 스토어 재오픈해 별도 daemon/tick 프로세스 쓰기 관측, now/sleep/readJobs
+      주입 가능(테스트 결정성). CLI `wait.ts` `renderGroupWaitJson`(단일 wait와 동형 + counts·scope).
+      `cli.ts` `wait` 커맨드를 확장 — id를 optional로 바꾸고 `--all` + 공용 스코프 필터(`--status`/
+      `--tool`/`--project`/`--since`/`--until`, `buildScope` 재사용) 추가, id와 `--all`은 상호 배타.
+      단일 wait 경로는 무회귀. core wait +14 / cli commands +6 신규 테스트, 실제 빌드 CLI e2e로 빈 스토어
+      →0·timeout→124·스코프 매칭·id+--all 상호배타→exit 1·bad status→exit 1·단일 wait 회귀 검증.
+      branch `claude/wizardly-pascal-jrhgsn`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

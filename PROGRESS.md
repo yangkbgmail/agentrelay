@@ -1438,3 +1438,30 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay wait --all`(스코프/전체 활성 잡 그룹 대기 + 집계 종료 코드)] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-jrhgsn`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목 발굴. 열린 PR 46건을
+  전수 확인해 중복 없는 clean·self-contained 항목 선정(wait 관련 열린 PR 없음). 기존 `wait <id>`는 잡
+  하나만 따라가서, 여러 잡을 relay로 큐잉한 뒤 "전부 끝나면 배포"(`&& deploy`) 같은 큐 드레인
+  시나리오를 표현할 수 없었다.
+- **한 일:**
+  1. `@agentrelay/core/wait.ts`에 순수 그룹-대기 로직 추가 — `GroupWaitCounts`(total·pending·completed·
+     failed·cancelled·missing) + `tallyGroupWait(watchIds, jobsById)`(watch set 각 id를 현재 스토어
+     스냅샷에 버킷팅: 부재=missing·비종료=pending·종료는 해당 버킷) + `evaluateGroupWait`(pending 0이면
+     done, 빈 watch set은 즉시 done) + `groupWaitOutcome(counts, timedOut)`(집계 우선순위
+     failed(1)>timeout(124)>cancelled(2)>missing(5)>completed(0) — 확정 실패가 가장 강한 CI 신호라
+     timeout보다 우선). 기존 `WaitOutcome`/`waitExitCode` 재사용.
+  2. CLI `commands.ts` `waitForAll(options)` — watch set은 **시작 시점**의 스코프 매칭 활성 잡 id를 1회
+     스냅샷(이미 종료된 잡은 대기 불필요, 중간 신규 잡은 연장 안 함, 중간에 사라진 잡은 missing 집계).
+     매 폴링마다 스토어 재오픈해 별도 daemon/tick 프로세스 쓰기 관측, now/sleep/readJobs 주입 가능.
+  3. CLI `wait.ts` `renderGroupWaitJson`(단일 wait와 동형 + counts·scope). `cli.ts` `wait` 커맨드 확장 —
+     id를 optional로 바꾸고 `--all` + 공용 스코프 필터(`--status`/`--tool`/`--project`/`--since`/`--until`,
+     `buildScope` 재사용) 추가, id와 `--all`은 상호 배타. 단일 wait 경로는 무회귀.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  **746 통과 + 1 skip**(core 505 + cli 234/1skip + dashboard 7 — core wait +14 / cli commands +6 신규).
+  실제 빌드된 CLI e2e(mock 아님): 빈 스토어 `wait --all`→exit 0, 활성 잡 pending 중 `--timeout 1s`→
+  exit 124, `--project web`(활성 0)→exit 0(+JSON scope 에코), id+`--all` 동시→exit 1, bad status→
+  exit 1, 단일 `wait <id>` 회귀→exit 0.
+- **다음 할 일:** 남은 distinct 열린 PR 통합/신규 항목 계속(#164 parse --scan·#122 paths·#136 run
+  --label·#105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개
+  stagger 계열 수렴). README/ARCHITECTURE(🧭 코워크). 모든 👷 완료 시 vercel 무료 배포.
