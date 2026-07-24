@@ -57,3 +57,89 @@ export function evaluateWait(job: RelayJob | null): { done: boolean; outcome?: W
   if (isTerminalStatus(job.status)) return { done: true, outcome: job.status as WaitOutcome };
   return { done: false };
 }
+
+// ---------------------------------------------------------------------------
+// Group wait — block until *every* job in a set (e.g. a `--project` scope, or
+// all currently-active jobs) reaches a terminal state, then return one
+// aggregate outcome. Where `evaluateWait` follows a single job, this lets a
+// script drain the whole relay queue and branch on whether all of it succeeded:
+//
+//   agentrelay wait --all --timeout 6h && deploy   # deploy only if nothing failed
+//
+// The watch set is the list of full job ids captured when the wait starts; each
+// poll re-tallies them against the current store. Ids that vanish mid-wait
+// (pruned) count as `missing` rather than blocking forever. Pure: the caller
+// owns the store reads and the timeout clock.
+
+/** Per-outcome tally of a group wait's watch set at one poll. */
+export interface GroupWaitCounts {
+  /** Size of the watch set (ids being followed). */
+  total: number;
+  /** Still queued/waiting/resuming (not yet terminal, still in the store). */
+  pending: number;
+  completed: number;
+  failed: number;
+  cancelled: number;
+  /** Watched ids no longer in the store (removed or pruned mid-wait). */
+  missing: number;
+}
+
+/**
+ * Tally each watched id against the current jobs-by-id snapshot. A watched id
+ * that's absent counts as `missing`; a present non-terminal job as `pending`;
+ * otherwise it lands in its terminal bucket. Pure — no store, no clock.
+ */
+export function tallyGroupWait(watchIds: string[], jobsById: Map<string, RelayJob>): GroupWaitCounts {
+  const counts: GroupWaitCounts = {
+    total: watchIds.length,
+    pending: 0,
+    completed: 0,
+    failed: 0,
+    cancelled: 0,
+    missing: 0,
+  };
+  for (const id of watchIds) {
+    const job = jobsById.get(id);
+    if (!job) {
+      counts.missing++;
+      continue;
+    }
+    if (!isTerminalStatus(job.status)) {
+      counts.pending++;
+      continue;
+    }
+    if (job.status === "completed") counts.completed++;
+    else if (job.status === "failed") counts.failed++;
+    else if (job.status === "cancelled") counts.cancelled++;
+  }
+  return counts;
+}
+
+/**
+ * A group wait is over once nothing in the watch set is still pending — every
+ * id has either settled into a terminal state or vanished from the store. An
+ * empty watch set is done immediately (nothing to wait for).
+ */
+export function evaluateGroupWait(counts: GroupWaitCounts): { done: boolean } {
+  return { done: counts.pending === 0 };
+}
+
+/**
+ * Collapse a group tally (plus whether the deadline was hit with jobs still
+ * pending) into one aggregate outcome, so the wait maps to a single exit code
+ * via {@link waitExitCode}. Precedence, strongest "something went wrong" first:
+ *
+ *   failed (1) > timeout (124) > cancelled (2) > missing (5) > completed (0)
+ *
+ * A definite failure is the most actionable CI signal, so it dominates even a
+ * timeout; if nothing failed but the deadline passed with work still pending,
+ * `timeout`; a user cancellation or a pruned-away job rank below that; only an
+ * all-`completed` set (or an empty watch set) yields `completed`.
+ */
+export function groupWaitOutcome(counts: GroupWaitCounts, timedOut: boolean): WaitOutcome {
+  if (counts.failed > 0) return "failed";
+  if (timedOut && counts.pending > 0) return "timeout";
+  if (counts.cancelled > 0) return "cancelled";
+  if (counts.missing > 0) return "missing";
+  return "completed";
+}

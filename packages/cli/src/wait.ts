@@ -3,7 +3,7 @@
 // (it already knows the job/outcome); this keeps the JSON shape consistent with
 // `next --json` / `show --json` and unit-testable without a store or a clock.
 
-import type { RelayJob, WaitOutcome } from "@agentrelay/core";
+import type { GroupWaitCounts, RelayJob, WaitOutcome } from "@agentrelay/core";
 
 /**
  * Machine-readable final result for `--json`. `outcome` is null only when the
@@ -23,6 +23,31 @@ export function renderWaitJson(
       outcome: result.outcome ?? null,
       exitCode: result.exitCode,
       job: result.job,
+    },
+    null,
+    2
+  );
+}
+
+/**
+ * Machine-readable final result for `wait --all --json`. Mirrors the single-id
+ * shape (storePath/generatedAt/outcome/exitCode) but carries the group `counts`
+ * — the per-outcome tally of the watch set — plus the active `scope`, if any.
+ */
+export function renderGroupWaitJson(
+  result: { outcome: WaitOutcome; counts: GroupWaitCounts; exitCode: number },
+  storePath: string,
+  scope: unknown = null,
+  generatedAt: string = new Date().toISOString()
+): string {
+  return JSON.stringify(
+    {
+      storePath,
+      generatedAt,
+      scope,
+      outcome: result.outcome,
+      exitCode: result.exitCode,
+      counts: result.counts,
     },
     null,
     2

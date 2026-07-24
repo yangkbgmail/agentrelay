@@ -39,9 +39,12 @@ import {
   distinctActiveBinaries,
   type EffectiveConfigEntry,
   type ExportFormat,
+  evaluateGroupWait,
   evaluateWait,
   exportJobs,
   findConfigField,
+  type GroupWaitCounts,
+  groupWaitOutcome,
   hasConfigErrors,
   heartbeatStaleAfterMs,
   type ImportFormat,
@@ -49,6 +52,7 @@ import {
   type ImportResult,
   type IneligibleJob,
   isJobScopeActive,
+  isTerminalStatus,
   type JobCsvColumn,
   type JobScope,
   listBackups,
@@ -76,6 +80,7 @@ import {
   serializeDaemonHeartbeat,
   setConfigValue,
   summarizeImportPlan,
+  tallyGroupWait,
   unsetConfigValue,
   validateConfig,
   type WaitOutcome,
@@ -1372,6 +1377,113 @@ export async function waitForJob(idOrPrefix: string, options: WaitJobOptions = {
       };
     }
     if (job) options.onPoll?.(job, elapsed);
+    await sleep(intervalMs);
+  }
+}
+
+export interface WaitAllOptions {
+  storePath?: string;
+  /** Optional filter — only jobs matching this scope are waited on. */
+  scope?: JobScope;
+  intervalMs?: number;
+  timeoutMs?: number | null;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  /**
+   * Injected store reader returning every job. Defaults to opening the store
+   * fresh on each poll so a *separate* daemon/tick process's writes are seen.
+   */
+  readJobs?: () => RelayJob[];
+  /** Called once per poll with the current tally (for progress output). */
+  onPoll?: (counts: GroupWaitCounts, elapsedMs: number) => void;
+}
+
+export interface WaitAllResult {
+  outcome: WaitOutcome;
+  counts: GroupWaitCounts;
+  message: string;
+  exitCode: number;
+}
+
+function waitAllMessage(outcome: WaitOutcome, counts: GroupWaitCounts): string {
+  if (counts.total === 0) return "no active jobs to wait for";
+  const parts: string[] = [];
+  if (counts.completed > 0) parts.push(`${counts.completed} completed`);
+  if (counts.failed > 0) parts.push(`${counts.failed} failed`);
+  if (counts.cancelled > 0) parts.push(`${counts.cancelled} cancelled`);
+  if (counts.missing > 0) parts.push(`${counts.missing} missing`);
+  if (counts.pending > 0) parts.push(`${counts.pending} still pending`);
+  const breakdown = parts.length > 0 ? ` (${parts.join(", ")})` : "";
+  switch (outcome) {
+    case "completed":
+      return `all ${counts.total} job(s) completed${breakdown}`;
+    case "failed":
+      return `${counts.failed} of ${counts.total} job(s) failed${breakdown}`;
+    case "cancelled":
+      return `${counts.total} job(s) settled${breakdown}`;
+    case "missing":
+      return `${counts.total} job(s) settled${breakdown}`;
+    case "timeout":
+      return `timed out waiting for ${counts.total} job(s)${breakdown}`;
+  }
+}
+
+/**
+ * Block until every job in the watch set reaches a terminal state, then return
+ * one aggregate outcome/exit code. The watch set is the *currently-active*
+ * (non-terminal) jobs matching `scope`, captured once at the start — so
+ * already-finished jobs need no waiting and jobs enqueued mid-wait don't extend
+ * it. Each poll re-reads the store (observing a separate daemon/tick process)
+ * and re-tallies the watched ids; pure decision logic lives in core's
+ * {@link tallyGroupWait}/{@link groupWaitOutcome}. Returns immediately with a
+ * `completed` outcome when nothing matches (nothing to wait for).
+ */
+export async function waitForAll(options: WaitAllOptions = {}): Promise<WaitAllResult> {
+  const storePath = options.storePath ?? defaultStorePath();
+  const intervalMs = options.intervalMs ?? 2000;
+  const timeoutMs = options.timeoutMs ?? null;
+  const now = options.now ?? (() => Date.now());
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  const readJobs =
+    options.readJobs ??
+    ((): RelayJob[] => {
+      const q = openQueue(storePath);
+      try {
+        return q.listAll();
+      } finally {
+        q.close();
+      }
+    });
+
+  // Capture the watch set once: the active jobs matching the scope. Snapshotting
+  // full ids means a short-lived job that vanishes later is tracked as
+  // `missing`, not silently dropped from the denominator.
+  const initial = readJobs();
+  const scoped = options.scope && isJobScopeActive(options.scope) ? scopeJobs(initial, options.scope) : initial;
+  const watchIds = scoped.filter((j) => !isTerminalStatus(j.status)).map((j) => j.id);
+
+  const finalize = (counts: GroupWaitCounts, timedOut: boolean): WaitAllResult => {
+    const outcome = groupWaitOutcome(counts, timedOut);
+    return { outcome, counts, message: waitAllMessage(outcome, counts), exitCode: waitExitCode(outcome) };
+  };
+
+  if (watchIds.length === 0) {
+    return finalize({ total: 0, pending: 0, completed: 0, failed: 0, cancelled: 0, missing: 0 }, false);
+  }
+
+  const start = now();
+  while (true) {
+    const byId = new Map(readJobs().map((j) => [j.id, j] as const));
+    const counts = tallyGroupWait(watchIds, byId);
+    if (evaluateGroupWait(counts).done) {
+      return finalize(counts, false);
+    }
+    const elapsed = now() - start;
+    if (timeoutMs !== null && elapsed >= timeoutMs) {
+      return finalize(counts, true);
+    }
+    options.onPoll?.(counts, elapsed);
     await sleep(intervalMs);
   }
 }
