@@ -268,3 +268,43 @@ details.tail pre {
   border-radius: 4px;
   padding: 1px 5px;
 }
+
+.effectiveness {
+  margin: 16px 0 0;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.effectiveness-head {
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.effectiveness-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.effectiveness-value {
+  font-size: 22px;
+  font-weight: 650;
+}
+
+.effectiveness-label {
+  color: var(--ink-secondary);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.effectiveness-sub {
+  color: var(--ink-muted);
+  font-size: 11px;
+  margin-top: 1px;
+}

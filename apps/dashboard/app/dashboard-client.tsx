@@ -1,6 +1,6 @@
 "use client";
 
-import type { HeartbeatStatus, JobStatus, RelayJob } from "@agentrelay/core";
+import type { HeartbeatStatus, JobStatus, RelayJob, RelayStats } from "@agentrelay/core";
 import { useEffect, useState } from "react";
 import type { JobsSnapshot } from "../lib/jobs";
 
@@ -48,6 +48,72 @@ function formatAge(ms: number | undefined): string {
   if (hours > 0) return `${hours}h ${minutes}m ago`;
   if (minutes > 0) return `${minutes}m ${seconds}s ago`;
   return `${seconds}s ago`;
+}
+
+/** Success rate [0,1] → "72%", or "n/a" when nothing has resolved yet. Mirrors CLI `formatSuccessRate`. */
+function formatSuccessRate(rate: number | null): string {
+  if (rate === null) return "n/a";
+  return `${Math.round(rate * 100)}%`;
+}
+
+/**
+ * Compact absolute duration (ms) → "4h 12m" / "3d 2h" / "45m 30s" / "8s".
+ * "<1s" for a sub-second span, "—" for a null/negative input. Mirrors the CLI's
+ * `formatDurationMs` so the dashboard and `agentrelay stats` read the same.
+ */
+function formatDurationMs(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return "—";
+  if (ms < 1000) return "<1s";
+  const totalSeconds = Math.round(ms / 1000);
+  const seconds = totalSeconds % 60;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const minutes = totalMinutes % 60;
+  const totalHours = Math.floor(totalMinutes / 60);
+  const hours = totalHours % 24;
+  const days = Math.floor(totalHours / 24);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (totalHours > 0) return `${totalHours}h ${minutes}m`;
+  if (totalMinutes > 0) return `${totalMinutes}m ${seconds}s`;
+  return `${totalSeconds}s`;
+}
+
+/**
+ * "Relay effectiveness" panel: how well the relay has been working over the job
+ * history — success rate, jobs it actually retried, and how long it babysat them.
+ * Complements the queue-summary tiles (current state) with historical outcome.
+ */
+function RelayEffectivenessCard({ stats }: { stats: RelayStats | undefined }) {
+  if (!stats) return null;
+  const { successRate, retriedJobs, totalAttempts, terminal, timing } = stats;
+  return (
+    <section className="effectiveness" aria-label="Relay effectiveness">
+      <div className="effectiveness-head">Relay effectiveness</div>
+      <div className="effectiveness-grid">
+        <div className="effectiveness-metric">
+          <div className="effectiveness-value numeric">{formatSuccessRate(successRate)}</div>
+          <div className="effectiveness-label">success rate</div>
+          <div className="effectiveness-sub">{terminal} resolved</div>
+        </div>
+        <div className="effectiveness-metric">
+          <div className="effectiveness-value numeric">{retriedJobs}</div>
+          <div className="effectiveness-label">retried jobs</div>
+          <div className="effectiveness-sub numeric">{totalAttempts} total attempts</div>
+        </div>
+        <div className="effectiveness-metric">
+          <div className="effectiveness-value numeric">{formatDurationMs(timing.medianResolutionMs)}</div>
+          <div className="effectiveness-label">median resolution</div>
+          <div className="effectiveness-sub">
+            {timing.resolvedCount > 0 ? `over ${timing.resolvedCount} job(s)` : "no resolved jobs yet"}
+          </div>
+        </div>
+        <div className="effectiveness-metric">
+          <div className="effectiveness-value numeric">{formatDurationMs(timing.p90ResolutionMs)}</div>
+          <div className="effectiveness-label">p90 resolution</div>
+          <div className="effectiveness-sub">near-worst-case wait</div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 const HEARTBEAT_META: Record<HeartbeatStatus["state"], { label: string; colorVar: string }> = {
@@ -180,6 +246,8 @@ export default function DashboardClient() {
       )}
 
       <ResumeLoopCard heartbeat={snapshot?.heartbeat} />
+
+      <RelayEffectivenessCard stats={snapshot?.stats} />
 
       <section className="tile-row" aria-label="Queue summary">
         <div className="tile">

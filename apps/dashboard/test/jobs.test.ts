@@ -41,6 +41,32 @@ describe("readJobsSnapshot", () => {
     expect(snapshot.summary.nextResetAt).toBe("2099-01-01T00:00:00.000Z");
   });
 
+  it("includes relay-effectiveness stats in the snapshot", () => {
+    const queue = new RelayQueue(storePath);
+    // one completed, one failed -> success rate 50%; the failed one was retried.
+    const done = queue.enqueue({ project: "p", tool: "generic", command: ["echo", "ok"], cwd: dir });
+    queue.markCompleted(done.id, "ok");
+    const bad = queue.enqueue({ project: "p", tool: "generic", command: ["echo", "boom"], cwd: dir });
+    queue.markResuming(bad.id); // attempts -> 1
+    queue.markResuming(bad.id); // attempts -> 2, so attempts > 1 counts as retried
+    queue.markFailed(bad.id, "boom");
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.stats.total).toBe(2);
+    expect(snapshot.stats.terminal).toBe(2);
+    expect(snapshot.stats.successRate).toBe(0.5);
+    expect(snapshot.stats.retriedJobs).toBe(1);
+    expect(snapshot.stats.timing.resolvedCount).toBe(2);
+  });
+
+  it("reports a null success rate when nothing has resolved yet", () => {
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.stats.total).toBe(0);
+    expect(snapshot.stats.successRate).toBeNull();
+    expect(snapshot.stats.timing.medianResolutionMs).toBeNull();
+  });
+
   it("survives a corrupt store file instead of crashing the API route", () => {
     writeFileSync(storePath, "{ not json !!", "utf8");
     const snapshot = readJobsSnapshot(storePath);

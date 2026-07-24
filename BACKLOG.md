@@ -550,6 +550,16 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 대시보드 "Relay effectiveness" 패널 — CLI `stats`가 계산하는 릴레이 성과(성공률·재시도 잡·
+      해결 시간 median/p90)를 브라우저에서 노출. 큐의 현재 상태 타일과 달리 "릴레이가 얼마나 잘
+      일하는가"를 보여줌.
+      (완료 — `apps/dashboard/lib/jobs.ts`의 `JobsSnapshot`에 `stats: RelayStats` 추가(core
+      `computeStats` 재사용, 새 집계 로직 0줄), API `/api/jobs`가 매 폴링 반환. `dashboard-client.tsx`에
+      `RelayEffectivenessCard`(성공률·재시도+총시도·median/p90 해결 시간 4-메트릭 그리드, CLI
+      `formatSuccessRate`/`formatDurationMs` 미러링). `globals.css`에 `.effectiveness*` 스타일.
+      dashboard snapshot stats 2케이스 신규, 실제 `next start`+임시 스토어 curl로 stats 노출 e2e 검증.
+      branch `claude/wizardly-pascal-bpr8vc`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
