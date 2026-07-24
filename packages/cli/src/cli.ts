@@ -13,6 +13,7 @@ import type {
 } from "@agentrelay/core";
 import {
   ALL_TOOLS,
+  buildRelayReport,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
   computeDailyTrend,
@@ -72,6 +73,7 @@ import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
+import { renderReport, renderReportJson } from "./report.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson, renderTrend } from "./stats.js";
 import {
@@ -875,6 +877,60 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderErrorBreakdown(breakdown, { color: Boolean(process.stdout.isTTY), limit, scopeNote }));
+    });
+
+  program
+    .command("report")
+    .description("One consolidated snapshot: stats, top errors, top rate-limit patterns, and the next resume")
+    .option("-s, --status <statuses>", "Only include jobs with these comma-separated statuses (e.g. completed,failed)")
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("-n, --top <n>", "Show at most N error reasons and N rate-limit patterns (default 5)")
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # paste a health snapshot into an issue or standup\n" +
+        "  agentrelay report\n" +
+        "  # just the last week, top 3 of each list\n" +
+        "  agentrelay report --since 7d --top 3\n" +
+        "  # feed the whole report to jq\n" +
+        "  agentrelay report --json | jq '.report.stats.successRate'"
+    )
+    .action((opts: ScopeOpts & { top?: string; json?: boolean }) => {
+      const { store } = program.opts();
+
+      let top: number | undefined;
+      if (opts.top !== undefined) {
+        const n = Number.parseInt(opts.top, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --top value "${opts.top}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        top = n;
+      }
+
+      const now = Date.now();
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const all = listStatus(store);
+      const jobs = built.active ? scopeJobs(all, built.scope) : all;
+      const scopeNote = built.active ? built.note : undefined;
+      const report = buildRelayReport(jobs, { nowMs: now, topErrors: top, topPatterns: top });
+
+      if (opts.json) {
+        console.log(renderReportJson(report, store ?? defaultStorePath(), { scopeNote }));
+        return;
+      }
+      console.log(renderReport(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
     });
 
   program
