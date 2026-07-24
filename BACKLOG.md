@@ -550,6 +550,24 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay diff [snapshot]` — 백업 스냅샷 대비 현재 스토어의 델타(릴레이가 그 이후 무엇을
+      집어/재개/완료/실패/정리했는지)를 한눈에. `backup`/`restore` 인프라의 자연스러운 짝(스냅샷을
+      되돌리기 전에 "무엇이 바뀌었나"를 먼저 확인).
+      (완료 — `@agentrelay/core/diff.ts` 신설(순수·파일시스템/시계 미접촉): `diffJobs(before, after)`
+      가 두 스냅샷을 id로 매칭해 `StoreDiff`(added/removed/changed/unchanged) 산출. 추적 필드
+      `DIFFABLE_FIELDS`(status·resetAt·attempts·lastError·project·tool)만 변화로 취급 —
+      `updatedAt`(무엇이든 바뀌면 따라 움직여 중복)·`lastOutputTail`(크고 매 tick churn)은 의도적
+      제외(라이프사이클 전이 중심). added/removed/changed는 newest-first(createdAt desc·id asc
+      tiebreak, `compareJobsNewestFirst` 미러) 결정론 정렬, 입력 불변, 중복 id는 last-wins(스토어
+      의미 일치). `isEmptyDiff` 헬퍼. CLI `packages/cli/src/diff.ts`에 순수 `renderStoreDiff`
+      (+added[green]/−removed[red]/~changed[yellow]+필드 전이, null→"none", 요약 카운트 라인)·
+      `renderStoreDiffJson`(counts+full shape). `commands.ts` `diffStore`가 `restore`와 동일한
+      선택자 해소(`resolveRestoreSource`: path/latest/stamp/파일명)로 스냅샷을 읽고(비-JSON-배열은
+      명확한 에러) 현재 스토어와 대조 — read-only(스토어·스냅샷 불변). `agentrelay diff [snapshot]
+      [--json]` 배선, 미매칭 스냅샷은 exit 1. 새 파서/큐 로직 0줄 — 기존 backup 인프라 재사용.
+      core diff 13 + cli diff 10 신규 테스트, 실제 빌드 CLI e2e로 add/remove/change 전이·JSON·
+      미매칭 exit 1·help 검증. branch `claude/wizardly-pascal-lrvz1k`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

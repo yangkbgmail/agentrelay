@@ -36,6 +36,7 @@ import {
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
+  diffJobs,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
   type ExportFormat,
@@ -71,6 +72,7 @@ import {
   resolveJobId,
   retryPolicyFromEnv,
   runDiagnostics,
+  type StoreDiff,
   sampleConfigJson,
   scopeJobs,
   serializeDaemonHeartbeat,
@@ -928,6 +930,58 @@ export function previewRestoreStore(options: RestoreStoreOptions = {}): RestoreP
   const queue = openQueue(storePath);
   try {
     return queue.previewRestore({ from, backupCurrent: options.backupCurrent });
+  } finally {
+    queue.close();
+  }
+}
+
+/** Reads a snapshot file into a job array, throwing a clear error if it isn't
+ * a JSON array (mirrors the store's own corruption check). No fields are
+ * revived/validated beyond the array shape — the snapshot was written by this
+ * tool, and `diff` only reads a fixed set of scalar fields. */
+function readSnapshotJobs(path: string): RelayJob[] {
+  const raw = readFileSync(path, "utf8");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`Snapshot ${path} is not valid JSON.`);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Snapshot ${path} is not a JSON array of jobs.`);
+  }
+  return parsed as RelayJob[];
+}
+
+export interface DiffStoreOptions {
+  storePath?: string;
+  /** Which snapshot to compare against — same resolution as `restore` (path,
+   * "latest", a stamp, or a snapshot filename). Defaults to "latest". */
+  selector?: string;
+}
+
+export interface DiffStoreResult {
+  /** Absolute path of the snapshot compared against. */
+  from: string;
+  /** The delta from the snapshot (before) to the current store (after). */
+  diff: StoreDiff;
+}
+
+/**
+ * Compares a backup snapshot against the current live store, read-only: what
+ * jobs the relay has added, removed, or transitioned since that snapshot.
+ * Resolves the selector exactly like `restore`/`restore --dry-run`, reads the
+ * snapshot and the current store, and delegates the actual delta to the pure
+ * core `diffJobs`. Neither the store nor the snapshot is modified.
+ */
+export function diffStore(options: DiffStoreOptions = {}): DiffStoreResult {
+  const storePath = options.storePath ?? defaultStorePath();
+  const from = resolveRestoreSource(storePath, options.selector ?? "latest");
+  const before = readSnapshotJobs(from);
+  const queue = openQueue(storePath);
+  try {
+    const after = queue.listAll();
+    return { from, diff: diffJobs(before, after) };
   } finally {
     queue.close();
   }
