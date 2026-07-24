@@ -110,6 +110,24 @@ const PATTERNS: RateLimitPattern[] = [
     resolve: (m) => new Date(parseInt(m[1], 10) * 1000),
   },
   {
+    // Absolute reset instant exposed as a Unix epoch by rate-limit *headers* and
+    // structured bodies, e.g. GitHub/Twitter's `X-RateLimit-Reset: 1752345600`,
+    // the IETF `RateLimit-Reset` draft, or JSON fields `"reset_at": 1752345600` /
+    // `"resetAt": 1752345600`. Unlike `retry_after` (a delay), these carry the
+    // wall-clock instant the window reopens, so we use the value directly.
+    // Accepts 10-digit seconds (year ~2001–2286) or 13-digit milliseconds; the
+    // digit gate keeps small delta-seconds values (e.g. `RateLimit-Reset: 60`,
+    // which is a *duration* in the draft) from being misread as an epoch.
+    name: "epoch-reset",
+    regex: /(?:(?:x-)?rate[\s_-]?limit[\s_-]?reset|resets?[\s_-]?at)"?\s*[=:]\s*(\d{13}|\d{10})\b/i,
+    resolve: (m) => {
+      const digits = m[1];
+      const ms = digits.length === 13 ? parseInt(digits, 10) : parseInt(digits, 10) * 1000;
+      const d = new Date(ms);
+      return Number.isNaN(d.getTime()) ? null : d;
+    },
+  },
+  {
     // Generic "5-hour limit" mention with no explicit time -> assume a full 5h window from now.
     // Kept last and treated as a low-confidence fallback.
     name: "five-hour-window-fallback",
@@ -119,7 +137,7 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry_after)/i;
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|resets?[_-]?at|retry_after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);

@@ -550,6 +550,19 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 파서: 절대 epoch 리셋 헤더/필드(`X-RateLimit-Reset` / `reset_at`) 인식 — GitHub·Twitter/X
+      REST API와 IETF RateLimit 헤더 초안이 리셋 창이 열리는 벽시계 시각을 Unix epoch로 노출한다.
+      (완료 — 기존 `unix-epoch` 패턴은 `retry_after`(상대 대기)만 인식하고, **절대 리셋 시각을 epoch로
+      주는** 헤더/필드는 놓쳤다. 신규 `epoch-reset` 패턴 추가: `(?:x-)?rate[-_ ]?limit[-_ ]?reset` 헤더
+      (GitHub `X-RateLimit-Reset`, Twitter/X `x-rate-limit-reset`, IETF `RateLimit-Reset`)와 JSON 필드
+      `reset_at`/`resets_at`/`resetAt`(카멜케이스)를 `[=:]` 뒤 10자리 초 또는 13자리 밀리초 epoch로 해석.
+      `retry_after`(delay)와 달리 값을 그대로 벽시계 시각으로 사용. 자릿수 게이트로 IETF 초안의 소형
+      delta-seconds(`RateLimit-Reset: 60`)를 1970년대 epoch로 오독하지 않음. pre-filter에 `resets?[_-]?at`
+      추가해 다른 rate-limit 키워드 없는 순수 `reset_at` JSON 바디도 통과. 기존 `unix-epoch`는 무변경(두
+      epoch 패턴이 서로 필드를 훔치지 않음을 회귀로 가드). parser.test +7 회귀(헤더 2변형·reset_at·resetAt·
+      13자리 ms·delta 오독 방지·retry_after 소유권), 실제 빌드 CLI `parse`로 헤더/JSON→epoch-reset·
+      delta→미감지 e2e 검증. 새 파서 로직만, 다른 모듈 무변경. branch `claude/wizardly-pascal-65p20n`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
