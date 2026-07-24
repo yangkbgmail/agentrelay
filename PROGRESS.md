@@ -1438,3 +1438,27 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay stats --watch` (라이브 지표 TUI)] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-00od8b`)
+
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. `status`에는
+  이미 화면을 지우고 N초마다 재렌더하는 라이브 `--watch` TUI가 있었지만, 집계 뷰인 `stats`에는
+  없었다. rate-limit 대기 잡의 카운트다운·성공률·재시도 지표를 한 화면에서 라이브로 지켜보려면
+  매번 `stats`를 손으로 다시 치거나 `watch agentrelay stats`로 감싸야 했다.
+- **한 일:** `agentrelay stats -w, --watch [seconds]` 추가. CLI `stats.ts`에 순수 `renderStatsWatchFrame(
+  body, storePath, intervalMs, now)` 신설(status의 `renderWatchFrame` 미러 — 제목/타임스탬프 헤더를
+  이미 렌더된 `body` 위에 감쌈, body를 인자로 받아 요약·`--group-by` 표·`--trend` 히스토그램 어느
+  것이든 형태 불문 재사용). cli.ts `stats` 액션의 사람용 출력 조립을 `renderBody(jobs)` 헬퍼로 추출해
+  일회성 경로와 라이브 루프가 동일하게 렌더, `runStatsWatch(store, intervalMs, renderBody)`가 매 tick
+  스토어를 재읽어 데몬 쓰기를 자동 반영. 스코프(`--status/--tool/--project/--since/--until`)·`--group-by`·
+  `--trend` 모두 watch에서 재적용, 트렌드 창 경계(`now`)는 명령 시작 시 고정. `--watch`+`--json`은
+  상호배타(watch=라이브 뷰, json=일회성 기계 출력)라 exit 1. 새 core 코드 0줄 — 전부 기존 검증된
+  `computeStats`/`groupStats`/`computeDailyTrend` + 렌더러 재사용.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test` 전
+  패키지 통과(CLI `renderStatsWatchFrame` 3케이스 신규 포함, cli 231 통과). 실제 빌드된 CLI e2e(mock
+  아님): 2-잡 임시 스토어로 `stats --watch 1` 한 프레임 렌더(제목·타임스탬프·요약·카운트다운 확인)·
+  `stats --group-by tool --watch 1`(그룹 표 렌더)·`stats --watch --json`→exit 1 검증. (파이프를 head로
+  일찍 닫으면 EPIPE가 나는 것은 무한 writer의 특성으로 기존 `status --watch`와 동일, 정상 TTY/Ctrl-C
+  사용에는 무영향.)
+- **다음 할 일:** 남은 개선 항목 계속 발굴(예: `stats --watch`처럼 `metrics`/`patterns`/`errors`에도
+  라이브 뷰, 파서 신규 실사용 포맷). README/ARCHITECTURE(🧭 코워크).

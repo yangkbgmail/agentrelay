@@ -11,6 +11,7 @@ import {
   renderGroupedStatsJson,
   renderStats,
   renderStatsJson,
+  renderStatsWatchFrame,
   renderTrend,
 } from "../src/stats.js";
 
@@ -66,6 +67,33 @@ describe("formatDurationMs", () => {
     expect(formatDurationMs(-1)).toBe("-");
     expect(formatDurationMs(Number.NaN)).toBe("-");
     expect(formatDurationMs(Number.POSITIVE_INFINITY)).toBe("-");
+  });
+});
+
+describe("renderStatsWatchFrame", () => {
+  it("wraps the body with a live title, store path and timestamp header", () => {
+    const body = renderStats(computeStats([job()]));
+    const frame = renderStatsWatchFrame(body, "/tmp/store.json", 2000, NOW);
+    expect(frame).toContain("agentrelay stats");
+    expect(frame).toContain("every 2s");
+    expect(frame).toContain("/tmp/store.json");
+    expect(frame).toContain("2026-07-13 00:00:00");
+    // The body is passed through verbatim below the header.
+    expect(frame).toContain(body);
+    expect(frame.endsWith(body)).toBe(true);
+  });
+
+  it("rounds the interval to whole seconds in the header", () => {
+    const frame = renderStatsWatchFrame("body", "/tmp/s.json", 5500, NOW);
+    expect(frame).toContain("every 6s");
+  });
+
+  it("works with any body (e.g. a grouped table), staying agnostic to its shape", () => {
+    const groups = groupStats([job({ project: "web" }), job({ project: "api" })], "project");
+    const body = renderGroupedStats(groups, "project");
+    const frame = renderStatsWatchFrame(body, "/tmp/s.json", 2000, NOW);
+    expect(frame).toContain("2 job(s) across 2 project(s)");
+    expect(frame.endsWith(body)).toBe(true);
   });
 });
 

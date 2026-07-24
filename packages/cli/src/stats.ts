@@ -204,6 +204,29 @@ export function renderTrend(trend: DailyActivity[], options: { color?: boolean }
   return lines.join("\n");
 }
 
+/**
+ * One frame of the live `agentrelay stats --watch` view: a title/timestamp
+ * header block above an already-rendered stats `body`. Kept generic (the body
+ * is passed in) so the same wrapper works whether the body is the plain
+ * summary, a `--group-by` table, or a summary + `--trend` histogram — the watch
+ * loop in cli.ts composes the body with the existing renderers and only has to
+ * clear the screen and print this. Pure: no I/O, no ambient clock unless `now`
+ * is omitted. Mirrors `renderWatchFrame` in status.ts.
+ */
+export function renderStatsWatchFrame(
+  body: string,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now()
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay stats${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", body].join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,
