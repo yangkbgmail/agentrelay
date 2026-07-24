@@ -31,6 +31,7 @@ import {
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
   CONFIG_FILENAME,
+  type ConfigValueLookup,
   canCancel,
   canRequeue,
   configToJson,
@@ -42,6 +43,7 @@ import {
   evaluateWait,
   exportJobs,
   findConfigField,
+  getConfigValue,
   hasConfigErrors,
   heartbeatStaleAfterMs,
   type ImportFormat,
@@ -71,6 +73,7 @@ import {
   resolveJobId,
   retryPolicyFromEnv,
   runDiagnostics,
+  SETTABLE_CONFIG_KEYS,
   sampleConfigJson,
   scopeJobs,
   serializeDaemonHeartbeat,
@@ -1069,6 +1072,68 @@ export function showConfig(options: ConfigShowOptions = {}): ConfigShowResult {
   }
   const entries = resolveEffectiveConfig(fileConfig, env);
   return { path, entries, loadError };
+}
+
+export interface ConfigGetOptions {
+  /** Dotted config key to read, e.g. `retry.maxAttempts`. */
+  key: string;
+  /** Explicit file path. When omitted, the usual discovery order is used. */
+  path?: string;
+  /** Directory searched for `agentrelay.config.json`. Defaults to `process.cwd()`. */
+  cwd?: string;
+  /** Environment consulted for precedence + `AGENTRELAY_CONFIG`. Defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
+}
+
+export interface ConfigGetResult {
+  /** The config file that fed the resolution, or null when none was found. */
+  path: string | null;
+  /** The resolved setting, or null when `key` is unknown (see `error`). */
+  lookup: ConfigValueLookup | null;
+  /** Set when `key` is not a known settable config key — the command should exit non-zero. */
+  error?: string;
+  /**
+   * Set when a config file was found but couldn't be loaded/parsed. Like
+   * `show`, a broken file is non-fatal: env/default resolution still happens
+   * (the file layer is simply skipped), but the problem is surfaced.
+   */
+  loadError?: string;
+}
+
+/**
+ * Reads a *single* config key's effective value and source — the read-side
+ * counterpart of `config set`/`unset` and the single-key sibling of
+ * {@link showConfig}. Never throws:
+ *
+ * - an unknown key returns `{ lookup: null, error }` (caller exits non-zero);
+ * - a malformed config file is non-fatal (env/default still resolve, with
+ *   `loadError` surfaced) — mirroring `config show` so a broken file doesn't
+ *   blind the very lookup that would explain it.
+ */
+export function getConfig(options: ConfigGetOptions): ConfigGetResult {
+  const env = options.env ?? process.env;
+  // Reject unknown keys up front so a typo never resolves to a plausible default.
+  if (!findConfigField(options.key)) {
+    return {
+      path: null,
+      lookup: null,
+      error: `Unknown config key "${options.key}". Valid keys: ${SETTABLE_CONFIG_KEYS.join(", ")}.`,
+    };
+  }
+  let fileConfig: AgentRelayConfig | null = null;
+  let path: string | null = null;
+  let loadError: string | undefined;
+  try {
+    const loaded = loadConfigFile({ path: options.path, cwd: options.cwd, env });
+    if (loaded) {
+      fileConfig = loaded.config;
+      path = loaded.path;
+    }
+  } catch (error) {
+    path = resolveConfigPath({ path: options.path, cwd: options.cwd, env });
+    loadError = String(error);
+  }
+  return { path, lookup: getConfigValue(fileConfig, options.key, env), loadError };
 }
 
 export interface DoctorOptions {

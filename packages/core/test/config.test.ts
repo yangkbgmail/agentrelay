@@ -10,6 +10,7 @@ import {
   configToEnv,
   configToJson,
   findConfigField,
+  getConfigValue,
   hasConfigErrors,
   loadConfigFile,
   parseConfig,
@@ -288,6 +289,57 @@ describe("resolveEffectiveConfig", () => {
     for (const key of emitted) expect(known.has(key)).toBe(true);
     // ...and no known key is dead (each maps to something configToEnv can emit).
     for (const { key } of CONFIG_ENV_KEYS) expect(emitted).toContain(key);
+  });
+});
+
+describe("getConfigValue", () => {
+  it("keeps CONFIG_FIELDS.envKey in lockstep with CONFIG_ENV_KEYS (no drift)", () => {
+    // getConfigValue routes a dotted key through its envKey, so the two lists
+    // must line up index-for-index or a field would resolve the wrong var.
+    expect(CONFIG_FIELDS.map((f) => f.envKey)).toEqual(CONFIG_ENV_KEYS.map((k) => k.key));
+  });
+
+  it("resolves a top-level field from the config file", () => {
+    const got = getConfigValue({ store: "/tmp/jobs.json" }, "store", {});
+    expect(got).toEqual({
+      key: "store",
+      envKey: "AGENTRELAY_STORE",
+      group: "store",
+      value: "/tmp/jobs.json",
+      source: "config-file",
+      secret: false,
+    });
+  });
+
+  it("resolves a nested field from the config file", () => {
+    const got = getConfigValue({ retry: { maxAttempts: 7 } }, "retry.maxAttempts", {});
+    expect(got).toMatchObject({ envKey: "AGENTRELAY_MAX_ATTEMPTS", value: "7", source: "config-file" });
+  });
+
+  it("lets an env var win over the config file (same precedence as show)", () => {
+    const got = getConfigValue({ store: "/from/file.json" }, "store", { AGENTRELAY_STORE: "/from/env.json" });
+    expect(got).toMatchObject({ value: "/from/env.json", source: "env" });
+  });
+
+  it("reports a built-in default as undefined value with source 'default'", () => {
+    const got = getConfigValue(null, "retry.factor", {});
+    expect(got).toMatchObject({ value: undefined, source: "default" });
+  });
+
+  it("projects the boolean autoPrune flag as the file's 1/0 env form", () => {
+    expect(getConfigValue({ autoPrune: { enabled: false } }, "autoPrune.enabled", {})).toMatchObject({
+      value: "0",
+      source: "config-file",
+    });
+  });
+
+  it("flags secret fields so the CLI can mask them", () => {
+    expect(getConfigValue(null, "notify.webhookAuth", {}).secret).toBe(true);
+    expect(getConfigValue(null, "store", {}).secret).toBe(false);
+  });
+
+  it("throws on an unknown key (same message shape as config set)", () => {
+    expect(() => getConfigValue(null, "retry.bogus", {})).toThrow(/Unknown config key "retry\.bogus"/);
   });
 });
 
