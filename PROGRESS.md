@@ -1438,3 +1438,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay notify preview`(전송 없이 실제 HTTP 요청 미리보기)] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-notify-preview`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. 열린 PR 30건을
+  전수 확인해 중복 없는 clean·self-contained 항목 선정. `notify test`는 실제로 채널에 전송해 동작을
+  검증하지만, webhook 수신자(Discord/n8n/커스텀 서버)의 스키마를 맞추려면 "실제로 어떤 JSON 본문·헤더가
+  나가는가"를 **전송 없이** 보고 싶은 실사용 갭이 있었다. 지금까지는 임의 webhook에 실제로 쏘아
+  스팸/노이즈를 만들지 않고는 body 모양을 확인할 방법이 없었다.
+- **한 일:** `agentrelay notify preview` 신설 — 설정된 각 채널이 한 이벤트에 대해 만들 **정확한 HTTP
+  요청**(method·URL·헤더·JSON 본문)을 네트워크 접촉 0으로 렌더.
+  1. core `notify.ts`: 순수 body 빌더 `slackRequestBody`/`webhookRequestBody`를 추출하고 두 실전
+     notifier(`createSlackNotifier`/`createWebhookNotifier`)가 이를 재사용하도록 리팩터 → 미리보기가
+     실제 전송과 **byte-for-byte lock-step** 보장. `NotifyRequestPreview` 타입 + 순수
+     `previewNotifications(env, payload?)` 추가(`listNotifyChannels` 재사용, Slack 먼저·webhook은
+     `AGENTRELAY_WEBHOOK_AUTH`를 Authorization 헤더로, 파일시스템/시계 미접촉).
+  2. CLI `notify.ts`: `renderNotifyPreview`(채널별 curl 유사 블록, URL·Authorization은 `maskSecret`로
+     기본 마스킹·`--show-secrets`로 공개, body는 2-스페이스 pretty)·`renderNotifyPreviewJson`(--json은
+     구조화된 파싱 body). `cli.ts`에 `notify preview [--json] [--show-secrets]` 배선, 채널 0개면 exit 1.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **741 통과 + 1 skip**(core 499 + cli 235/1skip + dashboard 7 — core previewNotifications/body빌더 8 +
+  cli renderNotifyPreview/Json 7 신규). 실제 빌드된 CLI e2e(mock 아님): 채널 0개→힌트+exit 1,
+  Slack+webhook 마스킹 미리보기, `--show-secrets` 전체 공개, `--json` 구조화 body 확인. 미리보기 body가
+  `sendTestNotification`이 실제 POST하는 body와 일치함을 core 테스트로 회귀 고정.
+- **다음 할 일:** 남은 distinct 열린 PR 통합/신규 항목 계속(#122 paths·#136 run --label·#105 upcoming·
+  #125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger 계열은
+  #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
