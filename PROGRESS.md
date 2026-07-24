@@ -1438,3 +1438,26 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay show <id> --watch` 라이브 단일-잡 뷰] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-tjcad4`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. `status --watch`는
+  큐 전체를 라이브로 카운트다운하지만, 특정 잡 하나의 리셋 카운트다운/상태 변화를 지켜보려면 `show`를
+  손으로 반복 실행해야 했다. 진행 중인 열린 PR(parse --scan·paths·run --label·upcoming·--no-color·
+  히스토그램·데모·resume stagger·파서 계열)과 겹치지 않는 깨끗한 관측성 갭.
+- **한 일:**
+  1. CLI `show.ts`에 순수 `renderShowWatchFrame(job|null, id, storePath, intervalMs, now)` 추가 —
+     `status`의 `renderWatchFrame`을 미러링(타이틀 "live, every Ns"·타임스탬프+스토어 메타 라인) +
+     `renderJobDetail` 임베드. 잡이 prune으로 사라지면 크래시 대신 "no longer in the store" 안내 렌더.
+  2. `cli.ts`에 `runShowWatch(id, store, intervalMs)` 루프 — `status`의 watch 루프와 동일한 화면
+     클리어(`\x1b[2J\x1b[H`)+재렌더, 매 프레임 `showJob` 재호출로 스토어를 재읽기(데몬 쓰기 반영),
+     짧은 prefix도 매 프레임 재해소. SIGINT/SIGTERM에 종료.
+  3. `show`에 `-w/--watch [초]` 배선 — `status --watch`와 동일한 초 파싱(비수치/미지정은 기본 2s),
+     미지/모호 id는 루프 진입 **전** exit 1(watch도 즉시 검증). 새 core 코드 0줄.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  전 패키지 통과(core 491 + cli 232/1skip + dashboard 7 — show.test.ts +4: 타이틀/메타/detail·초
+  반올림·not-found 안내·색상). 실제 빌드된 CLI e2e(mock 아님): 시드한 waiting_for_reset 잡을
+  `show <prefix> --watch 5`로 라이브 렌더(카운트다운 "resets in 1h 30m"·타이틀·메타 확인), 미지
+  id는 exit 1.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
+  #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
+  계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
