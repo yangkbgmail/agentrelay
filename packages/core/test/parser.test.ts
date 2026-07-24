@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseRateLimitMessage } from "../src/parser.js";
+import { parseRateLimitMessage, resolveClockTimeInZone } from "../src/parser.js";
 
 describe("parseRateLimitMessage", () => {
   it("returns null for unrelated text", () => {
@@ -25,8 +25,10 @@ describe("parseRateLimitMessage", () => {
     expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
   });
 
-  it("parses the real Claude Code wording: 'reset at 5pm' (hour + meridiem, no minutes)", () => {
+  it("parses the real Claude Code wording: 'reset at 5pm (America/New_York)' honoring the zone", () => {
     // Actual message: "Claude usage limit reached. Your limit will reset at 5pm (America/New_York)."
+    // In July New York is EDT (UTC-4), so 5pm there is 21:00 UTC — computed
+    // deterministically regardless of the machine's local time zone.
     const now = new Date("2026-07-12T08:00:00Z"); // 08:00 UTC
     const result = parseRateLimitMessage(
       "Claude usage limit reached. Your limit will reset at 5pm (America/New_York).",
@@ -34,10 +36,8 @@ describe("parseRateLimitMessage", () => {
     );
     expect(result).not.toBeNull();
     expect(result?.pattern).toBe("clock-time-meridiem");
-    const resetDate = new Date(result!.resetAt);
-    expect(resetDate.getHours()).toBe(17); // 5pm local
-    expect(resetDate.getMinutes()).toBe(0);
-    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+    expect(result?.resetAt).toBe("2026-07-12T21:00:00.000Z");
+    expect(new Date(result!.resetAt).getTime()).toBeGreaterThan(now.getTime());
   });
 
   it("parses 'resets at 10 AM' with a space before the meridiem, rolling to tomorrow if past", () => {
@@ -67,6 +67,54 @@ describe("parseRateLimitMessage", () => {
   it("does not treat a bare 'reset at 5' (no minutes, no meridiem) as a clock time", () => {
     // Too ambiguous — could be "5 hours", "5th", etc. Requiring am/pm keeps us safe.
     expect(parseRateLimitMessage("Rate limit hit, reset at 5.")).toBeNull();
+  });
+
+  it("honors a named IANA time zone on a minute-precise clock-time", () => {
+    // 3:30pm America/Los_Angeles in July is PDT (UTC-7) -> 22:30 UTC.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 3:30pm (America/Los_Angeles).", {
+      now,
+    });
+    expect(result?.pattern).toBe("clock-time");
+    expect(result?.resetAt).toBe("2026-07-12T22:30:00.000Z");
+    // rawMatch keeps the zone as provenance.
+    expect(result?.rawMatch).toContain("America/Los_Angeles");
+  });
+
+  it("rolls to the next day in the named zone when the time has already passed there", () => {
+    // 22:00 UTC on 2026-07-12 is 6pm EDT (past). Next 9am New York = 2026-07-13 13:00 UTC.
+    const now = new Date("2026-07-12T22:00:00Z");
+    const result = parseRateLimitMessage("Your limit will reset at 9am (America/New_York).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-07-13T13:00:00.000Z");
+  });
+
+  it("falls back to local time when the parenthesized zone is not a valid IANA name", () => {
+    // "(EST)" / "(PST)" abbreviations are not IANA identifiers and are not even
+    // captured (no slash); a bogus slashed zone also falls back rather than erroring.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Resets at 5pm (Not/AZone).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getHours()).toBe(17); // interpreted in local time
+    expect(reset.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("still works without any timezone (local-time behavior preserved)", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Resets at 6pm.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getHours()).toBe(18);
+  });
+
+  it("resolveClockTimeInZone computes the correct UTC instant and returns null for unknown zones", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    // 5pm Asia/Kolkata (UTC+5:30) = 11:30 UTC.
+    const kolkata = resolveClockTimeInZone(17, 0, now, "Asia/Kolkata");
+    expect(kolkata?.toISOString()).toBe("2026-07-12T11:30:00.000Z");
+    // Unknown zone -> null so the caller can fall back to local.
+    expect(resolveClockTimeInZone(17, 0, now, "Totally/Bogus")).toBeNull();
   });
 
   it("parses a relative duration like '4h32m'", () => {
