@@ -1438,3 +1438,25 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — 대시보드 "Relay effectiveness" 패널: 릴레이 성과 지표 노출] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-bpr8vc`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태고 열린 PR 60건을 전수 확인하니 파서/CLI 커맨드 아이디어는
+  대부분 이미 다뤄져 있었다. 반면 대시보드(`apps/dashboard`)는 열린 PR이 단 1건(#130 필터 UI)뿐인
+  저밀도 영역이었다. 대시보드는 큐의 **현재 상태**(대기/재개 카운트 타일 + 하트비트)는 보여주지만,
+  CLI `agentrelay stats`가 계산하는 **릴레이 성과**(성공률·재시도 잡·해결 시간)는 전혀 노출하지
+  않아 "릴레이가 얼마나 잘 일하고 있나"를 브라우저에서 볼 수 없었다.
+- **한 일:**
+  1. `apps/dashboard/lib/jobs.ts`: `JobsSnapshot`에 `stats: RelayStats` 추가, 이미 검증된 core
+     `computeStats(jobs)`로 채움(새 집계 로직 0줄 — 순수 core 재사용). API `/api/jobs`가 매 폴링 반환.
+  2. `apps/dashboard/app/dashboard-client.tsx`: `RelayEffectivenessCard` 신설 — 성공률·재시도 잡
+     (+총 시도)·median/p90 해결 시간을 4-메트릭 그리드로 렌더. CLI와 표기가 일치하도록
+     `formatSuccessRate`/`formatDurationMs`를 미러링(null→"n/a"/"—", 미해결 시 "no resolved jobs yet").
+  3. `apps/dashboard/app/globals.css`: `.effectiveness*` 스타일(기존 tile/resume-loop 관례 따름,
+     라이트/다크는 CSS 변수라 자동).
+- **검증:** `pnpm build` 클린(Next.js 정적 생성 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·
+  `pnpm test` **728 통과 + 1 skip**(core 491 + cli 228/1skip + dashboard 9 — 스냅샷 stats 채움 2케이스
+  신규). 실제 빌드 대시보드 `next start` + 임시 스토어(완료 1·실패 1, 재시도됨) `/api/jobs` curl로
+  `stats.successRate=0.5`·`retriedJobs=1`·`timing.resolvedCount=2` 노출 확인, 클라이언트 번들에
+  "Relay effectiveness" 문자열 포함 확인.
+- **다음 할 일:** 대시보드 후속(잡 상세 드릴다운·byTool 분포 시각화) 또는 남은 distinct 열린 PR 통합.
+  README/ARCHITECTURE(🧭 코워크).
