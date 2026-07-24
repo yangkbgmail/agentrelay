@@ -550,6 +550,20 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay show <id> --watch [초]` — 개별 잡 상세를 라이브로 재렌더(리셋 카운트다운이
+      제자리에서 감소, 데몬이 쓰는 status/attempts 변경 즉시 반영). `status --watch`는 큐 전체를
+      라이브로 보여주지만 특정 잡 하나의 카운트다운/상태 변화를 지켜보려면 `show`를 반복 실행해야
+      했다. `status --watch`와 동일한 화면 클리어 루프를 재사용.
+      (완료 — CLI `show.ts`에 순수 `renderShowWatchFrame(job|null, id, storePath, intervalMs, now)`
+      추가: `status`의 `renderWatchFrame`을 미러링한 타이틀/타임스탬프 메타 + `renderJobDetail`
+      임베드, 잡이 prune으로 사라지면 크래시 대신 "no longer in the store" 안내 렌더(계속 폴링).
+      `cli.ts`에 `runShowWatch(id, store, intervalMs)` 루프(화면 클리어+재렌더, 매 프레임 `showJob`
+      재호출로 스토어 재읽기→데몬 쓰기 반영, 짧은 prefix도 매 프레임 재해소), `show`에 `-w/--watch
+      [초]` 배선(미지/모호 id는 루프 진입 전 exit 1, `status --watch`와 동일한 초 파싱·기본 2s).
+      새 core 코드 0줄. show.test.ts +4(타이틀/메타/detail·초 반올림·not-found 안내·색상), 실제
+      빌드 CLI e2e로 라이브 프레임(카운트다운 "1h 30m")·미지 id exit 1 검증. branch
+      `claude/wizardly-pascal-tjcad4`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

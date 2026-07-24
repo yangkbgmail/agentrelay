@@ -1,6 +1,6 @@
 import type { RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { formatCommand, renderJobDetail, renderJobDetailJson } from "../src/show.js";
+import { formatCommand, renderJobDetail, renderJobDetailJson, renderShowWatchFrame } from "../src/show.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -114,6 +114,37 @@ describe("renderJobDetail", () => {
   it("emits ANSI codes only when color is enabled", () => {
     expect(renderJobDetail(job(), { now: NOW, color: false })).not.toContain("\x1b[");
     expect(renderJobDetail(job(), { now: NOW, color: true })).toContain("\x1b[");
+  });
+});
+
+describe("renderShowWatchFrame", () => {
+  it("prints a live title, timestamped meta line, and the job detail", () => {
+    const frame = renderShowWatchFrame(job(), "abcdef12", "/store/jobs.json", 2000, NOW);
+    expect(frame).toContain("agentrelay show");
+    expect(frame).toContain("live, every 2s");
+    expect(frame).toContain("Ctrl-C to exit");
+    // Meta line carries the wall-clock stamp and the store path.
+    expect(frame).toContain("2026-07-13 00:00:00Z");
+    expect(frame).toContain("/store/jobs.json");
+    // The job detail block is embedded (full id, countdown).
+    expect(frame).toContain("Job abcdef1234567890");
+    expect(frame).toContain("resets in");
+  });
+
+  it("rounds the interval to whole seconds in the title", () => {
+    expect(renderShowWatchFrame(job(), "abcdef12", "/store/jobs.json", 1500, NOW)).toContain("every 2s");
+    expect(renderShowWatchFrame(job(), "abcdef12", "/store/jobs.json", 5000, NOW)).toContain("every 5s");
+  });
+
+  it("shows a not-found notice (no crash) when the job vanished mid-watch", () => {
+    const frame = renderShowWatchFrame(null, "abcdef12", "/store/jobs.json", 2000, NOW);
+    expect(frame).toContain("agentrelay show");
+    expect(frame).toContain("Job abcdef12 is no longer in the store");
+    expect(frame).not.toContain("Job abcdef1234567890");
+  });
+
+  it("always emits color (it only runs on a TTY)", () => {
+    expect(renderShowWatchFrame(job(), "abcdef12", "/store/jobs.json", 2000, NOW)).toContain("\x1b[");
   });
 });
 
