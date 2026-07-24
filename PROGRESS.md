@@ -1438,3 +1438,29 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — 파서: 절대 epoch 리셋 헤더/필드(`X-RateLimit-Reset` / `reset_at`) 인식] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-65p20n`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태이고 열린 PR 56건이 광범위한 기능(뷰·config CRUD·다수 파서
+  포맷·어댑터·stagger 등)을 이미 점유해, CLAUDE.md 지침대로 **중복 없는 clean·self-contained 신규
+  항목**을 발굴. 파서(제품 핵심)를 정밀 조사하니, 기존 `unix-epoch` 패턴은 `retry_after`(상대 대기
+  delay)만 인식하고 **절대 리셋 시각을 Unix epoch로 노출하는** 표준 형식은 놓치고 있었다. GitHub REST
+  API(`X-RateLimit-Reset: <epoch>`), Twitter/X(`x-rate-limit-reset`), IETF RateLimit 헤더 초안,
+  그리고 JSON 에러 바디의 `reset_at`/`resetAt`가 실제로 쓰는 형식이다. 열린 파서 PR(#177 Retry-After
+  헤더[delay+HTTP-date]·#178/#146 타임존·#149/#144 midnight/noon·#101 요일)을 전수 확인해도 이
+  절대-epoch 리셋 형식은 어디에도 없어 중복이 아님을 확인.
+- **한 일:**
+  1. `packages/core/src/parser.ts`에 신규 `epoch-reset` 패턴 추가(`unix-epoch` 뒤·fallback 앞). 헤더
+     `(?:x-)?rate[\s_-]?limit[\s_-]?reset`와 JSON 필드 `resets?[\s_-]?at`를 `[=:]` 뒤 **10자리 초 또는
+     13자리 밀리초** epoch로 해석. `retry_after`(delay)와 달리 값을 그대로 벽시계 시각으로 사용.
+  2. **자릿수 게이트**(`\d{13}|\d{10}`)로 IETF 초안의 소형 delta-seconds(`RateLimit-Reset: 60`)를
+     1970년대 epoch로 오독하지 않게 방어. 13자리는 ms, 10자리는 초로 변환, 무효 날짜는 null.
+  3. pre-filter `LOOKS_LIKE_RATE_LIMIT`에 `resets?[_-]?at` 추가 → 다른 rate-limit 키워드 없는 순수
+     `{"reset_at": <epoch>}` JSON 바디도 패턴 실행까지 통과. 기존 `unix-epoch`(retry_after)는 무변경.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **733 통과 + 1 skip**(core 498 + cli 228/1skip + dashboard 7). parser.test에 7 회귀 추가
+  (`X-RateLimit-Reset` 헤더·소문자 `x-rate-limit-reset` 변형·`reset_at` JSON·카멜케이스 `resetAt`·
+  13자리 ms epoch·delta 오독 방지·`retry_after` 소유권 가드). 실제 빌드된 CLI e2e(mock 아님):
+  `parse 'X-RateLimit-Reset: 1752345600'`·`parse '{"reset_at": 1752345600}'` → `epoch-reset` 감지,
+  `parse 'RateLimit-Reset: 60'` → 올바르게 미감지. 새 파서 로직만, 다른 모듈 무변경.
+- **다음 할 일:** 남은 distinct 열린 PR 통합/발굴 계속(#177 Retry-After 헤더·#164 parse --scan·#122 paths·
+  #182 report·#181 stats --by-hour·재개 stagger는 #158/#161/#162 중 하나로 수렴). README/ARCHITECTURE(🧭 코워크).

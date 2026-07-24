@@ -215,4 +215,51 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("relative-duration");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
   });
+
+  // --- epoch-reset: absolute reset instant from rate-limit headers / bodies ---
+
+  it("parses an X-RateLimit-Reset header (GitHub/Twitter epoch seconds)", () => {
+    const result = parseRateLimitMessage("API Error 429\nX-RateLimit-Reset: 1752345600");
+    expect(result?.pattern).toBe("epoch-reset");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("parses a lowercase x-rate-limit-reset header variant", () => {
+    const result = parseRateLimitMessage("x-rate-limit-reset: 1752345600");
+    expect(result?.pattern).toBe("epoch-reset");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("parses a JSON reset_at epoch field with no other rate-limit wording", () => {
+    // The pre-filter must let a bare `reset_at` body through even without the
+    // literal words "rate limit" — otherwise the pattern never runs.
+    const result = parseRateLimitMessage('{"error":"too_many_requests","reset_at": 1752345600}');
+    expect(result?.pattern).toBe("epoch-reset");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("parses a camelCase resetAt epoch field", () => {
+    const result = parseRateLimitMessage('{"resetAt":1752345600}');
+    expect(result?.pattern).toBe("epoch-reset");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("parses a 13-digit millisecond epoch reset", () => {
+    const result = parseRateLimitMessage('{"reset_at": 1752345600000}');
+    expect(result?.pattern).toBe("epoch-reset");
+    expect(result?.resetAt).toBe(new Date(1752345600000).toISOString());
+  });
+
+  it("does not misread a small RateLimit-Reset delta as an epoch", () => {
+    // The IETF draft `RateLimit-Reset` is delta-seconds, not an epoch. A 2-digit
+    // value must not be treated as a 1970s epoch — the digit gate rejects it, and
+    // there's no other parseable reset time here.
+    expect(parseRateLimitMessage("RateLimit-Reset: 60")).toBeNull();
+  });
+
+  it("keeps retry_after (a delay) on the unix-epoch pattern, not epoch-reset", () => {
+    // Regression guard: the two epoch patterns must not steal each other's field.
+    const result = parseRateLimitMessage("rate_limit_error retry_after=1752345600");
+    expect(result?.pattern).toBe("unix-epoch");
+  });
 });
