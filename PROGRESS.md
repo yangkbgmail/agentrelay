@@ -1438,3 +1438,23 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay stats --by-hour`(시간대별 활동 히스토그램)] (2026-07-24, 무인 자율 세션, branch `claude/wizardly-pascal-iyvdmv`)
+- **한 일:** 지정 브랜치가 이미 main에 병합(#163)돼 있어 지침대로 최신 main에서 브랜치를 새로
+  시작(`git checkout -B ... origin/main`). 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로
+  신규 개선 항목을 발굴 — **`agentrelay stats --by-hour`**: `--trend`(일별)와 직교하게 하루를 24시간
+  UTC 시계로 접어 잡 생성 시간대별 히스토그램을 보여줘 "하루 중 언제 rate-limit에 자주 걸리는지"의
+  리듬을 노출. 구현: core `stats.ts`에 순수 `computeHourlyDistribution(jobs)`+`HourlyActivity` 신설
+  (매 잡 `createdAt`을 UTC 시 0–23으로 버킷팅, 항상 24슬롯 zero-fill, 파싱 불가 createdAt 스킵,
+  `--trend`와 달리 시계 미주입 — 시간대는 타임스탬프 내재값). CLI `stats.ts`에 순수 `renderHourly`
+  (피크 시간 `← peak` 마커+비례 막대, `renderTrend`와 동일 스타일)+`renderStatsJson`에 optional
+  `hourly` 필드. `stats --by-hour` 플래그 배선(기존 스코프 필터·`--trend`와 조합 가능, group-by 시
+  무시=trend와 동일 관례). 새 파서 로직 0줄.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0 경고/0 에러·`pnpm test` 전 패키지
+  통과(core 496 / cli 232+1skip). core 5 + cli 4 신규 테스트. 실제 빌드된 CLI e2e(mock 아님): 3-job
+  임시 스토어로 09:00에 2건 버킷팅+`← peak` 마커, `--project web` 스코프 시 subset만, `--trend`와
+  두 블록 공존, `--json`은 `hourly` 24슬롯 노출/미지정 시 완전 생략, `stats --help`에 옵션 노출 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
+  #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
+  계열 #158/#161/#162 수렴·파서 계열 수렴). README/ARCHITECTURE(🧭 코워크). 신규 아이디어: `stats
+  --by-weekday`(요일별 리듬) 등 by-hour 후속.

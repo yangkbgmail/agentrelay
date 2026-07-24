@@ -550,6 +550,16 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay stats --by-hour` — 하루를 24시간 시계로 접어(UTC 시간대별) 잡 생성 히스토그램을
+      보여줘, `--trend`(일별)와 직교하게 "하루 중 언제 rate-limit에 자주 걸리는지" 리듬을 노출.
+      (완료 — core `stats.ts`에 순수 `computeHourlyDistribution(jobs)`+`HourlyActivity` 신설: 매 잡의
+      `createdAt`을 UTC 시(0–23)로 버킷팅, 항상 24슬롯 zero-fill, 파싱 불가 createdAt은 스킵, `--trend`와
+      달리 시계 미주입(시간대는 타임스탬프 내재값). CLI `stats.ts`에 순수 `renderHourly`(피크 시간 `← peak`
+      마커+비례 막대, `renderTrend`와 동일 스타일)+`renderStatsJson`에 optional `hourly` 필드. `stats
+      --by-hour` 플래그 배선(기존 스코프 필터·`--trend`와 조합 가능, group-by 시 무시=trend와 동일 관례).
+      새 파서 로직 0줄. core 5 + cli 4 신규 테스트, 실제 빌드 CLI e2e로 시간 버킷·피크 마커·스코프 조합·
+      trend 공존·JSON hourly 노출/기본 생략 검증. branch `claude/wizardly-pascal-iyvdmv`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
