@@ -17,6 +17,7 @@ import {
   COMPLETION_SHELLS,
   computeDailyTrend,
   computeErrorBreakdown,
+  computeResumeAgenda,
   computeStats,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
@@ -37,6 +38,7 @@ import {
   summarizeRateLimitPatterns,
 } from "@agentrelay/core";
 import { Command } from "commander";
+import { renderAgenda, renderAgendaJson } from "./agenda.js";
 import {
   ALL_JOB_STATUSES,
   type BulkControlAction,
@@ -548,6 +550,75 @@ export function buildCli(): Command {
         else if (!next.due) process.exitCode = 3;
         // due-now → exit 0 (default).
       }
+    });
+
+  program
+    .command("agenda")
+    .description("Show the upcoming resume schedule, grouped into time windows (surfaces resume herds)")
+    .option("--window <duration>", "Bucket width for grouping resets (e.g. 1m, 5m, 1h); default 1m", "1m")
+    .option("-n, --limit <n>", "Show at most N windows (the earliest ones); totals still count all")
+    .option("-s, --status <statuses>", "Only jobs with these comma-separated statuses (narrows the waiting set)")
+    .option("-t, --tool <tools>", `Only jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--json", "Print the agenda as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # what's resuming, and are any windows crowded?\n" +
+        "  agentrelay agenda\n" +
+        "  # group by the hour, just the next 3 windows\n" +
+        "  agentrelay agenda --window 1h --limit 3"
+    )
+    .action((opts: ScopeOpts & { window?: string; limit?: string; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      const windowMs = parseDuration(opts.window ?? "1m");
+      if (windowMs === null || windowMs <= 0) {
+        console.error(`Invalid --window duration: "${opts.window}". Use e.g. 30s, 1m, 5m, 1h.`);
+        process.exitCode = 1;
+        return;
+      }
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const all = listStatus(store);
+      const jobs = built.active ? scopeJobs(all, built.scope) : all;
+      const agenda = computeResumeAgenda(jobs, { now, windowMs, limit });
+
+      if (opts.json) {
+        console.log(
+          renderAgendaJson(agenda, store ?? defaultStorePath(), {
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+          })
+        );
+        return;
+      }
+      console.log(
+        renderAgenda(agenda, {
+          now,
+          color: Boolean(process.stdout.isTTY),
+          scopeNote: built.active ? built.note : undefined,
+        })
+      );
     });
 
   program

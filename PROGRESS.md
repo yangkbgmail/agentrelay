@@ -1438,3 +1438,31 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay agenda` 재개 일정 뷰(resume herd 시각화)] (2026-07-24, 무인 자율 세션)
+- **배경:** 세션 시작 시 명시 👷 백로그가 전부 완료 상태이고, 열린 PR 30개가 미병합으로 쌓여
+  있었다(중복 루프 재현 위험). CLAUDE.md 지침대로 **열린 PR 어느 것과도 이름·기능이 겹치지 않는
+  신규 개선 항목을 발굴**했다 — `next`는 THE 다음 잡 하나만, `status`는 큐를 평면 테이블로 보여줄 뿐,
+  대기 잡들이 *언제* 재개되고 어느 잡들이 같은 리셋 창에 몰리는지(thundering-herd)를 보여주는 뷰가
+  없었다. 재개 stagger 계열 PR(#158/#161/#162)이 herd를 *완화*하려 하지만 아무도 *시각화*하진 않아,
+  이 커맨드가 그 결정을 돕는 상보적 도구가 된다.
+- **한 일 (branch `claude/wizardly-pascal-vk8omm`):** **`agentrelay agenda` — 시간 창별 재개 일정.**
+  1. `@agentrelay/core/agenda.ts` 신설(순수·시계/스토어 미접촉): `computeResumeAgenda(jobs,{now,
+     windowMs,limit})` + `ResumeAgenda`/`ResumeWindow`/`ResumeAgendaEntry` + `DEFAULT_AGENDA_WINDOW_MS`
+     (1m). `waiting_for_reset`+파싱가능 resetAt만 집계(스케줄러 `listDue`와 동일 대상), 이미 지난
+     잡은 하나의 `due` 버킷으로 collapse(다음 tick이 한꺼번에 픽업), 나머지는 `floor(resetMs/windowMs)`
+     버킷으로 그룹. 창 안 정렬은 `next`와 동일 tiebreak(reset→createdAt→id). windowMs≤0/비유한은 기본
+     1m 폴백, `limit`은 이른 N개 창만 유지하고 숨긴 꼬리(창 수·잡 수) 리포트(totals는 전체 유지),
+     입력 배열 불변.
+  2. CLI `packages/cli/src/agenda.ts`에 순수 `renderAgenda`(창별 헤더+잡 라인, count>1이면 `(herd)`
+     마커, scope 노트·hidden 꼬리 문구)·`renderAgendaJson`. `agentrelay agenda [--window <기간>]
+     [-n/--limit] [--json] + 공용 buildScope(--status/--tool/--project/--since/--until)` 배선.
+     잘못된 window/limit은 exit 1. 새 파서/스토어 로직 0줄 — 대기 잡 provenance만 읽음.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **core 501 + cli 238/1skip + dashboard 7 전부 통과**(agenda core 11 + cli 12 신규). **실제 빌드된
+  CLI e2e**(mock 아님): 5-job 스토어(웹/api 5m herd·docs 65m·cli 이미 due·done completed) 시드 →
+  기본 1m 창이 "due now" 버킷 1 + 5m herd 2(`(herd)` 마커) + 1h5m 1로 그룹, `--window 1h --limit 1`이
+  due 버킷만 보이고 "2 more window(s) (3 jobs) not shown", `--project web,api`가 scope 노트+herd만,
+  `--json`이 totalWaiting 4·dueNow 1·windows 3, 잘못된 `--window nope`는 exit 1 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합(중복 루프 방지) + README/ARCHITECTURE(🧭 코워크).
+  agenda에 절대 시각(로컬 HH:MM) 표기 옵션·herd 임계 하이라이트 등 확장(👷 후보).

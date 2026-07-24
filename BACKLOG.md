@@ -550,6 +550,22 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay agenda` — 앞으로의 재개 일정을 시간 창(window)별로 묶어 보여주는 뷰
+      (같은 리셋 창에 몰리는 잡=resume herd를 한눈에 노출).
+      (완료 — `next`(단일 잡 하나)·`status`(평면 테이블)와 달리, 대기 잡을 *언제* 재개되는지로
+      그룹핑해 thundering-herd를 시각화한다. `@agentrelay/core/agenda.ts` 신설(순수·시계/스토어
+      미접촉): `computeResumeAgenda(jobs, {now,windowMs,limit})` + `ResumeAgenda`/`ResumeWindow`/
+      `ResumeAgendaEntry` + `DEFAULT_AGENDA_WINDOW_MS`(1m). `waiting_for_reset`+파싱가능 resetAt만
+      집계(스케줄러 `listDue` 대상과 동일), 이미 지난 잡은 하나의 `due` 버킷으로 collapse(다음 tick이
+      한꺼번에 픽업하므로), 나머지는 `floor(resetMs/windowMs)` 버킷으로 그룹. 창 안 정렬은 `next`와
+      동일 tiebreak(reset→createdAt→id)로 두 커맨드 불일치 없음. windowMs≤0/비유한은 기본 1m로 폴백,
+      `limit`은 이른 N개 창만 유지하고 숨긴 꼬리(창 수·잡 수)를 리포트(totals는 전체 유지). CLI
+      `packages/cli/src/agenda.ts`에 순수 `renderAgenda`(창별 헤더+잡 라인, count>1이면 `(herd)`
+      마커)·`renderAgendaJson`. `agentrelay agenda [--window <기간>] [-n/--limit] [--json]` + 공용
+      `buildScope`(--status/--tool/--project/--since/--until) 재사용. core agenda 11 + cli agenda 12
+      신규 테스트, 실제 빌드 CLI e2e로 herd 그룹핑·due-now 버킷·window/limit·project 필터·JSON·잘못된
+      window→exit 1 검증. branch `claude/wizardly-pascal-vk8omm`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
