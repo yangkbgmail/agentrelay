@@ -1489,3 +1489,25 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+## 세션 로그 — 2026-07-25 (주력 빌더, `agentrelay when`)
+
+- **한 일:** `agentrelay when` 신규 커맨드 구현 — 하루 중 언제 rate-limit이 걸렸는지
+  시간대별(0–23시) 히스토그램. 각 job의 `lastRateLimit.detectedAt`(감지 provenance)을
+  집계. `patterns`(어떤 메시지 포맷)·`next`(다음 재개 1건)·`stats`(타이밍/상태)가 답하지
+  못하는 "내가 하루 중 몇 시에 주로 막히나"를 채워, 무거운 작업을 개인 피크 시간대에서
+  비껴 예약하도록 돕는다.
+  - core `packages/core/src/when.ts`: 순수 `hourlyRateLimitDistribution(jobs, {utcOffsetMinutes})`
+    + `HourlyRateLimitDistribution`. 오프셋 적용 후 UTC 시각을 읽어 로컬 프레임 wall-clock
+    hour 산출(호스트 tz 미접촉 → 어느 머신에서나 동일). peakHour=최다 버킷(동률 시 이른 시각),
+    파싱 불가/누락 detectedAt은 withoutDetection, 비유한 오프셋은 0(UTC)으로 정규화.
+  - cli `packages/cli/src/when.ts`: 순수 `renderWhen`(24행 히스토그램·peak `◄ peak` 마커·
+    빈 시간은 dim `·`)·`renderWhenJson`(--json envelope, patterns와 동일 스키마)·
+    `formatOffsetLabel`(`UTC±HH:MM`, 30분 존 포함). `agentrelay when [--utc] [--json]`
+    + 공유 scope 필터(`--status`/`--tool`/`--project`/`--since`/`--until`). 기본은 로컬
+    시각(호스트 오프셋), `--utc`는 UTC 고정.
+- **검증:** `pnpm build` 클린, `pnpm test` 전 패키지 통과(core 9 + cli 9 신규, 총 515/244).
+  `pnpm ci:lint`(Biome) 통과. 빌드된 CLI e2e로 4-job 스토어에서 `when --utc`·`--tool`
+  스코프·`--json` 버킷 출력 실제 동작 확인(peak 09:00, 스코프 필터 정확).
+- **다음 할 일:** 남은 👷 개선 항목 발굴(예: 대시보드에 시간대 히스토그램 위젯, `stats`에
+  요일별 분포). 🧭 README/ARCHITECTURE/ROADMAP은 코워크 소유.

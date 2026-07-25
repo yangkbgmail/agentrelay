@@ -22,6 +22,7 @@ import {
   GROUP_DIMENSIONS,
   generateCompletion,
   groupStats,
+  hourlyRateLimitDistribution,
   IMPORT_FORMATS,
   inferImportFormat,
   isCompletionShell,
@@ -87,6 +88,7 @@ import {
   selectJobs,
 } from "./status.js";
 import { renderWaitJson } from "./wait.js";
+import { renderWhen, renderWhenJson } from "./when.js";
 
 /**
  * Split a comma-separated CLI option (e.g. `--status completed,failed`) into
@@ -844,6 +846,58 @@ export function buildCli(): Command {
       }
       console.log(
         renderPatterns(summary, {
+          color: Boolean(process.stdout.isTTY),
+          scopeNote: built.active ? built.note : undefined,
+        })
+      );
+    });
+
+  program
+    .command("when")
+    .description("Show an hour-of-day histogram of when rate limits actually hit (detection provenance)")
+    .option("--json", "Print the distribution as JSON (machine-readable, for scripts/CI)")
+    .option("--utc", "Bucket detections by UTC hour instead of your local time")
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # what hours of day do I get rate-limited? (local time)\n" +
+        "  agentrelay when\n" +
+        "  # bucket in UTC and feed the histogram to jq\n" +
+        "  agentrelay when --utc --json | jq '.distribution.buckets'"
+    )
+    .action((opts: ScopeOpts & { json?: boolean; utc?: boolean }) => {
+      const { store } = program.opts();
+      const built = buildScope(opts, Date.now());
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+      // Local view by default so hours read in the user's own day; --utc pins to
+      // UTC. `getTimezoneOffset` is minutes *behind* UTC, so negate it to get the
+      // "minutes east of UTC" the core histogram expects.
+      const utcOffsetMinutes = opts.utc ? 0 : -new Date().getTimezoneOffset();
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const distribution = hourlyRateLimitDistribution(jobs, { utcOffsetMinutes });
+      if (opts.json) {
+        console.log(
+          renderWhenJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            distribution,
+          })
+        );
+        return;
+      }
+      console.log(
+        renderWhen(distribution, {
           color: Boolean(process.stdout.isTTY),
           scopeNote: built.active ? built.note : undefined,
         })

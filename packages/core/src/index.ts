@@ -23,3 +23,4 @@ export * from "./stats.js";
 export * from "./summary.js";
 export * from "./types.js";
 export * from "./wait.js";
+export * from "./when.js";
