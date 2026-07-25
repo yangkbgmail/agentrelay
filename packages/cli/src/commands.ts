@@ -53,6 +53,7 @@ import {
   type JobScope,
   listBackups,
   loadConfigFile,
+  maxConcurrentFromEnv,
   notifiersFromEnv,
   parseConfig,
   parseDaemonHeartbeat,
@@ -289,6 +290,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   const autoPrune = autoPruneOptionsFromEnv();
   const autoPruneEveryMs = autoPruneEveryMsFromEnv() ?? undefined;
   const autoPruneEveryTicks = autoPruneEveryTicksFromEnv() ?? undefined;
+  const maxConcurrent = maxConcurrentFromEnv();
   const pollIntervalMs = options.pollIntervalMs ?? 30_000;
   const logLine = (line: string) => {
     // eslint-disable-next-line no-console
@@ -311,6 +313,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     queue,
     pollIntervalMs,
     retryPolicy: retryPolicyFromEnv(),
+    maxConcurrent,
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
@@ -335,6 +338,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   console.log(
     `[agentrelay] daemon started, watching ${storePath} every ${pollIntervalMs / 1000}s` +
       (remoteNotify ? " (notifications on)" : "") +
+      (maxConcurrent > 1 ? ` (max ${maxConcurrent} concurrent)` : "") +
       autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks)
   );
   return scheduler;
@@ -348,6 +352,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     queue,
     notify: notify ?? undefined,
     retryPolicy: retryPolicyFromEnv(),
+    maxConcurrent: maxConcurrentFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
   });
   const processed = await scheduler.tick();
