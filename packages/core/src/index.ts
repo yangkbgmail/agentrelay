@@ -8,6 +8,7 @@ export * from "./errors.js";
 export * from "./export.js";
 export * from "./heartbeat.js";
 export * from "./import.js";
+export * from "./locations.js";
 export * from "./metrics.js";
 export * from "./next.js";
 export * from "./notify.js";

@@ -1464,3 +1464,28 @@
   unix-epoch(비교차 확인).
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속. 파서 추가 실사용 포맷(named IANA tz 실제 변환·
   weekday 창)은 코워크 리서치(🧭)와 조율. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 45 — distinct CI-초록 PR #122(`agentrelay paths`) 최신 main 통합] (2026-07-25, 무인 자율 세션, branch `claude/wizardly-pascal-5k3wpw`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태이고 열린 PR이 76개까지 적체된 상황(다수 중복:
+  `stats --by-hour`/`config get`/재개 stagger/파서 reset-at 계열 등). 세션 42~44의 판단(신규 기능을
+  더하기보다 **CI 초록·서로 겹치지 않는 distinct PR을 최신 main 위로 통합**하는 것이 압도적 고가치)을
+  이어, 어느 열린 PR과도 겹치지 않고 가장 격리도 높은 **#122(`agentrelay paths`)**를 통합 대상으로 선정.
+- **한 일:** **#122(`agentrelay paths` — AgentRelay가 디스크에 두는 파일 위치[스토어·스토어 디렉터리·
+  설정·데몬 하트비트·백업]를 존재 여부 마커와 함께 한눈에 보고하는 진단 커맨드)를 최신 main(732a810)
+  위로 통합.** PR이 오래된 base(7997577) 기반이라 head 커밋(1166791)을 지정 브랜치에 cherry-pick →
+  충돌 4개 해소: `cli.ts`(세션 이후 추가된 `wait`/`patterns` 커맨드와 삽입 위치가 겹쳐, `paths`를 독립
+  `program.command()` 블록으로 재구성 + import는 patterns/paths 양쪽 보존), `core/index.ts`(export를
+  알파벳순으로 병합: import/locations/metrics 공존), BACKLOG.md·PROGRESS.md(HEAD 히스토리 유지 + 이 항목
+  기록). 새 모듈(core `locations.ts`·`locations.test.ts`, cli `paths.ts`·`paths.test.ts`)·commands.ts의
+  `readLocationReport`는 무충돌 자동 병합.
+  - 구현 요약: 순수 core `buildLocationReport(facts)`가 해소된 store/config 경로+디스크 존재 플래그로
+    위치별 `LocationEntry`(store·store-dir·config·heartbeat·backups)를 조립, `countStoreBackups`가 이
+    스토어의 `.backup-*`만 카운트(`.corrupt-`/`.tmp-`/타 스토어 제외). CLI `readLocationReport`가 fs I/O
+    (readdirSync/existsSync/resolveConfigPath, 절대 throw 안 함), `renderLocations`(✓/· 마커·note·color
+    게이트)·`renderLocationsJson`. `agentrelay paths [--json]` 커맨드.
+- **검증:** 통합 후 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome)·
+  `pnpm test` 전 패키지 통과(locations 12 + paths 7 신규 포함). 실제 빌드된 CLI e2e로 `paths`/`--json`
+  동작 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
+  중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
+  README/ARCHITECTURE(🧭 코워크).
