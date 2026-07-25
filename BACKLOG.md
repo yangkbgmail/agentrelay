@@ -574,6 +574,17 @@
       color 게이트)·`renderLocationsJson`. `agentrelay paths [--json]` 커맨드 배선. core 12 + cli 7 신규
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
+- [x] 👷 `agentrelay run --dry-run` — 명령을 실행하거나 큐에 아무것도 넣지 않고, `run`이 실제로
+      결정할 계획(어느 툴 어댑터로 실행할지·프로젝트 라벨·작업 디렉터리·잡이 쓰일 스토어 파일)을
+      미리 보여주는 프리뷰. `--tool` 생략 시 명령 바이너리로 어댑터를 추론하는데(예: `codex`→codex-cli),
+      긴 작업을 걸기 전에 "AgentRelay가 이 명령을 무슨 툴로 볼까, 프로젝트 라벨은 뭐가 붙을까"를
+      부작용 없이 확인하는 수단.
+      (완료 — 순수 `buildRunPlan(options)`가 `runCommand`와 똑같이 어댑터·프로젝트·cwd·스토어 경로를
+      해소해 `RunPlan`을 조립(spawn·스토어 I/O 없음). `toolSource`(explicit/inferred/default)·
+      `projectSource`(explicit/derived)로 각 값이 어떻게 정해졌는지도 노출. `renderRunPlan`이 정렬된
+      사람용 프리뷰 블록을, `--json`이 기계용 JSON을 출력. CLI `run --dry-run`/`--json` 배선(dry-run 시
+      spawn·큐잉 완전 스킵). cli 13 신규 테스트, 실제 빌드 CLI e2e로 텍스트/JSON 출력·스토어 미생성 검증.
+      branch `claude/wizardly-pascal-bzqv9l`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

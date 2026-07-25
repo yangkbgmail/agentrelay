@@ -49,6 +49,7 @@ import {
   type ImportParseError,
   type ImportResult,
   type IneligibleJob,
+  inferToolFromCommand,
   isJobScopeActive,
   type JobCsvColumn,
   type JobScope,
@@ -195,6 +196,86 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   });
 
   return { exitCode, queuedJob: queue.getById(job.id) ?? null };
+}
+
+/**
+ * The resolved plan for a `run` invocation — everything AgentRelay would use
+ * to launch and (if rate-limited) queue the job, computed *without* spawning
+ * the process or touching the store. Backs `agentrelay run --dry-run`.
+ */
+export interface RunPlan {
+  /** The command that would be spawned, argv-style. */
+  command: string[];
+  /** Resolved adapter/tool id (explicit --tool → inferred → generic). */
+  tool: AgentTool;
+  /** Human-readable adapter name, e.g. "Claude Code". */
+  displayName: string;
+  /**
+   * How `tool` was decided: "explicit" (from --tool), "inferred" (from the
+   * command's binary name), or "default" (fell back to the generic adapter).
+   */
+  toolSource: "explicit" | "inferred" | "default";
+  /** Project label the queued job would carry. */
+  project: string;
+  /** How `project` was decided: "explicit" (--project) or "derived" (from cwd). */
+  projectSource: "explicit" | "derived";
+  /** Working directory the command would run in. */
+  cwd: string;
+  /** Store file a queued job would be written to. */
+  storePath: string;
+}
+
+/**
+ * Compute the {@link RunPlan} for a `run` invocation without any side effects
+ * (no spawn, no store I/O). Mirrors exactly how {@link runCommand} resolves the
+ * adapter, project label, cwd and store path, so `--dry-run` previews the real
+ * thing rather than an approximation.
+ */
+export function buildRunPlan(options: RunOptions): RunPlan {
+  const cwd = options.cwd ?? process.cwd();
+  const adapter = resolveAdapter({ tool: options.tool, command: options.command });
+  const toolSource: RunPlan["toolSource"] = options.tool
+    ? "explicit"
+    : inferToolFromCommand(options.command) !== undefined
+      ? "inferred"
+      : "default";
+  const project = resolveProjectName(cwd, options.project);
+  const projectSource: RunPlan["projectSource"] = options.project?.trim() ? "explicit" : "derived";
+  return {
+    command: options.command,
+    tool: adapter.tool,
+    displayName: adapter.displayName,
+    toolSource,
+    project,
+    projectSource,
+    cwd,
+    storePath: options.storePath ?? defaultStorePath(),
+  };
+}
+
+/** Render a {@link RunPlan} as an aligned, human-readable preview block. */
+export function renderRunPlan(plan: RunPlan): string {
+  const toolNote =
+    plan.toolSource === "explicit"
+      ? "explicit --tool"
+      : plan.toolSource === "inferred"
+        ? "inferred from command"
+        : "default (no match)";
+  const projectNote = plan.projectSource === "explicit" ? "explicit --project" : "derived from cwd";
+  const rows: [string, string][] = [
+    ["Command", plan.command.join(" ")],
+    ["Tool", `${plan.displayName} [${plan.tool}] (${toolNote})`],
+    ["Project", `${plan.project} (${projectNote})`],
+    ["Working dir", plan.cwd],
+    ["Store", plan.storePath],
+  ];
+  const width = Math.max(...rows.map(([label]) => label.length));
+  const lines = rows.map(([label, value]) => `  ${label.padEnd(width)}  ${value}`);
+  return [
+    "[agentrelay] Dry run — nothing was executed and no job was queued.",
+    ...lines,
+    "  Rate-limit output would be scanned for; a job is only queued if one is detected.",
+  ].join("\n");
 }
 
 export interface DaemonOptions {

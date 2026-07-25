@@ -42,6 +42,7 @@ import {
   type BulkControlAction,
   type BulkControlResult,
   backupStore,
+  buildRunPlan,
   bulkControlJobs,
   cancelJob,
   exportStore,
@@ -53,6 +54,7 @@ import {
   previewRestoreStore,
   pruneJobs,
   readLocationReport,
+  renderRunPlan,
   restoreStore,
   retryJob,
   runCommand,
@@ -348,8 +350,23 @@ export function buildCli(): Command {
       "-p, --project <name>",
       "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
     )
-    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
+    .option(
+      "--dry-run",
+      "Preview the resolved plan (tool, project, cwd, store) without running the command or queuing anything"
+    )
+    .option("--json", "With --dry-run, print the plan as JSON (machine-readable, for scripts/jq)")
+    .action(async (command: string[], opts: { tool?: string; project?: string; dryRun?: boolean; json?: boolean }) => {
       const { store } = program.opts();
+      if (opts.dryRun) {
+        const plan = buildRunPlan({
+          command,
+          storePath: store,
+          tool: opts.tool as AgentTool | undefined,
+          project: opts.project,
+        });
+        console.log(opts.json ? JSON.stringify(plan, null, 2) : renderRunPlan(plan));
+        return;
+      }
       const result = await runCommand({
         command,
         storePath: store,
