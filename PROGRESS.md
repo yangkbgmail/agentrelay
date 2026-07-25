@@ -1438,3 +1438,33 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — 신규 기능: 알림 이벤트 필터(`AGENTRELAY_NOTIFY_EVENTS` / `notify.events`)] (2026-07-25, 무인 자율 세션, branch `claude/wizardly-pascal-g1vtgs`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. 알림은 지금까지
+  잡 라이프사이클 4개 이벤트(`queued`/`resumed`/`completed`/`failed`) **전부**를 Slack/웹훅으로 발송해,
+  "실패만 알림받고 싶다"·"완료만"처럼 노이즈를 줄이려는 흔한 요구를 채울 방법이 없었다. 열린 PR 목록
+  (parse --scan·paths·run --label·upcoming·--no-color·resolution 히스토그램·데모·stagger·파서 계열)과도
+  겹치지 않는 clean·self-contained 항목.
+- **한 일:**
+  1. `@agentrelay/core/notify.ts`에 순수 이벤트 필터 계층 신설: `NotifyEvent` 타입 + `NOTIFY_EVENTS`
+     (라이프사이클 순서 고정 배열) + `isNotifyEvent` 타입가드 + `parseNotifyEvents(raw)`(콤마 분리·trim·
+     소문자화·중복 제거, 유효 `Set`과 미지 토큰 목록 분리) + `filterNotifierByEvent(notifier, events)`
+     (허용 이벤트만 forward, 나머지 조용히 드롭) + `notifyEventFilterFromEnv`(`AGENTRELAY_NOTIFY_EVENTS`를
+     읽되 미설정/공백/**전부-무효**면 `null`=전체 발송 → 오타가 알림을 조용히 끄지 않음, autoPrune env
+     리더와 동일 원칙) + `describeNotifyEventFilter`(배너용 사람 라벨).
+  2. `notifiersFromEnv`가 채널 결합 **위에** 필터를 한 번만 적용 → Slack·웹훅이 lockstep. run/daemon/tick은
+     이미 `notifiersFromEnv`를 쓰므로 새 배선 0줄로 자동 활성. CLI daemon 배너를 `notifyBanner`로 교체 →
+     필터 활성 시 "(notifications on: failed, completed)" 표시.
+  3. config 전 계층 배선: `notify.events?: string`(콤마 문자열이라 기존 `config set/show/validate`의 string
+     경로에 자동 편입) — 타입·sampleConfig·CONFIG_FIELDS·parseConfig·configToEnv·CONFIG_ENV_KEYS(드리프트
+     sync 테스트 통과)·validateConfig(미지 이벤트명 error, 유효 0개 warning). `config set`이 set 시점에
+     잘못된 이벤트명을 거부(exit 1, 미기록)하는 것도 확인.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  **741 통과 + 1 skip**(core 506 + cli 228/1skip + dashboard 7 — notify 12 + config 3 신규). 실제 빌드된
+  CLI e2e(mock 아님): `config set notify.events "failed,bogus"`→exit 1 거부, 손 작성 잘못된 파일→
+  `config validate` error+exit 1, `config show`가 `[config-file]` 출처 표기; 실제 웹훅 서버로 필터=failed일 때
+  `completed` 이벤트 미발송 확인. notifiersFromEnv 유닛 테스트가 실제 발송 경로(mock fetch)로 queued/resumed
+  드롭·failed/completed POST를 직접 검증.
+- **다음 할 일:** 남은 distinct 열린 PR 통합(parse --scan·paths·run --label·upcoming·--no-color·resolution
+  Prometheus 히스토그램·데모·stagger·파서 계열). README/ARCHITECTURE(🧭 코워크). 알림 필터의 대시보드
+  노출(어떤 이벤트가 활성인지 UI 표시)도 후속 후보.

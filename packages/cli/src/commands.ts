@@ -36,6 +36,7 @@ import {
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
+  describeNotifyEventFilter,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
   type ExportFormat,
@@ -282,6 +283,17 @@ function autoPruneBanner(
   return parts.length ? ` (auto-prune on, ${parts.join(" + ")})` : " (auto-prune on)";
 }
 
+/**
+ * The " (notifications on)" segment of the daemon banner, extended with the
+ * active event filter when `AGENTRELAY_NOTIFY_EVENTS` restricts which events
+ * page the user (e.g. " (notifications on: failed, completed)").
+ */
+function notifyBanner(notify: Notifier | null | undefined): string {
+  if (!notify) return "";
+  const filter = describeNotifyEventFilter();
+  return filter ? ` (notifications on: ${filter})` : " (notifications on)";
+}
+
 export function startDaemon(options: DaemonOptions = {}) {
   const storePath = options.storePath ?? defaultStorePath();
   const queue = openQueue(storePath);
@@ -334,7 +346,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   // eslint-disable-next-line no-console
   console.log(
     `[agentrelay] daemon started, watching ${storePath} every ${pollIntervalMs / 1000}s` +
-      (remoteNotify ? " (notifications on)" : "") +
+      notifyBanner(remoteNotify) +
       autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks)
   );
   return scheduler;
