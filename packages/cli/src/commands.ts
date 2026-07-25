@@ -27,6 +27,7 @@ import type {
   WritableFacts,
 } from "@agentrelay/core";
 import {
+  aggregateWaitOutcomes,
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
@@ -40,6 +41,7 @@ import {
   type EffectiveConfigEntry,
   type ExportFormat,
   evaluateWait,
+  evaluateWaitAll,
   exportJobs,
   findConfigField,
   hasConfigErrors,
@@ -48,7 +50,9 @@ import {
   type ImportParseError,
   type ImportResult,
   type IneligibleJob,
+  isActiveStatus,
   isJobScopeActive,
+  isTerminalStatus,
   type JobCsvColumn,
   type JobScope,
   listBackups,
@@ -1372,6 +1376,177 @@ export async function waitForJob(idOrPrefix: string, options: WaitJobOptions = {
       };
     }
     if (job) options.onPoll?.(job, elapsed);
+    await sleep(intervalMs);
+  }
+}
+
+export interface WaitAllJobOptions {
+  storePath?: string;
+  /** Poll interval in ms. Defaults to 2000. */
+  intervalMs?: number;
+  /** Give up after this many ms (aggregate outcome `timeout`). `null` = forever. */
+  timeoutMs?: number | null;
+  /** Narrow which *active* jobs are tracked (same filters as stats/status). */
+  scope?: JobScope;
+  /** Injected clock (ms since epoch). Defaults to `Date.now`. */
+  now?: () => number;
+  /** Injected sleeper. Defaults to a `setTimeout`-based delay. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Injected reader of the whole store — used for the initial active-set snapshot. */
+  readAll?: () => RelayJob[];
+  /** Injected reader by full id (returns `null` when the job is gone). */
+  readJob?: (id: string) => RelayJob | null;
+  /** Called once per poll with (stillPending, total, elapsedMs) for progress output. */
+  onPoll?: (pending: number, total: number, elapsedMs: number) => void;
+}
+
+export interface WaitAllJobResult {
+  /** Always `true`; a batch wait with nothing to track still succeeds. */
+  ok: boolean;
+  /** Worst outcome across the batch (`completed` when the set was empty). */
+  outcome: WaitOutcome;
+  /** How many tracked jobs reached each terminal/missing outcome. */
+  counts: Record<WaitOutcome, number>;
+  /** Jobs still non-terminal — only ever >0 on a `timeout`. */
+  pending: number;
+  /** Total number of jobs tracked (size of the initial active set). */
+  total: number;
+  message: string;
+  exitCode: number;
+}
+
+/** Zero-filled per-outcome tally, so JSON/consumers see every key. */
+function emptyOutcomeCounts(): Record<WaitOutcome, number> {
+  return { completed: 0, failed: 0, cancelled: 0, timeout: 0, missing: 0 };
+}
+
+/** Tally settled outcomes; `timeout` never appears per-job (it's a batch ending). */
+function tallyOutcomes(outcomes: WaitOutcome[]): Record<WaitOutcome, number> {
+  const counts = emptyOutcomeCounts();
+  for (const o of outcomes) counts[o] += 1;
+  return counts;
+}
+
+function waitAllMessage(
+  outcome: WaitOutcome,
+  total: number,
+  pending: number,
+  counts: Record<WaitOutcome, number>
+): string {
+  if (total === 0) return "no active jobs to wait for";
+  const parts: WaitOutcome[] = ["completed", "failed", "cancelled", "missing"];
+  const breakdown = parts
+    .filter((o) => counts[o] > 0)
+    .map((o) => `${counts[o]} ${o}`)
+    .join(", ");
+  if (outcome === "timeout") {
+    const settled = breakdown ? ` (${breakdown} so far)` : "";
+    return `timed out waiting for ${total} job(s); ${pending} still pending${settled}`;
+  }
+  const jobWord = total === 1 ? "job" : "jobs";
+  // When every job landed on the same outcome, say it plainly.
+  if (counts[outcome] === total) return `all ${total} ${jobWord} ${outcome}`;
+  return `${total} ${jobWord} finished: ${breakdown}`;
+}
+
+/**
+ * Block until *every* currently-active job (optionally narrowed by `scope`)
+ * reaches a terminal state, then exit with a code reflecting the worst outcome
+ * in the batch. Where {@link waitForJob} follows one job, this waits on the
+ * whole queue draining — the natural CI gate after launching a batch of relayed
+ * runs (`agentrelay wait --all && deploy`).
+ *
+ * The tracked id set is snapshotted once at start (jobs enqueued mid-wait are
+ * not adopted, mirroring how single-id `wait` tracks a fixed id), then each id
+ * is re-read every interval as a separate daemon/tick process advances it. Pure
+ * decision logic lives in core's {@link evaluateWaitAll}/{@link
+ * aggregateWaitOutcomes}; this owns only the I/O loop, all injectable for tests.
+ */
+export async function waitForAllJobs(options: WaitAllJobOptions = {}): Promise<WaitAllJobResult> {
+  const storePath = options.storePath ?? defaultStorePath();
+  const intervalMs = options.intervalMs ?? 2000;
+  const timeoutMs = options.timeoutMs ?? null;
+  const now = options.now ?? (() => Date.now());
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  const readAll =
+    options.readAll ??
+    (() => {
+      const q = openQueue(storePath);
+      try {
+        return q.listAll();
+      } finally {
+        q.close();
+      }
+    });
+  const readJob =
+    options.readJob ??
+    ((id: string): RelayJob | null => {
+      const q = openQueue(storePath);
+      try {
+        return q.getById(id) ?? null;
+      } finally {
+        q.close();
+      }
+    });
+
+  // Snapshot the active set once. Optionally scope it (project/tool/status/…).
+  const initial = readAll();
+  const scoped = options.scope ? scopeJobs(initial, options.scope) : initial;
+  const trackedIds = scoped.filter((j) => isActiveStatus(j.status)).map((j) => j.id);
+  const total = trackedIds.length;
+
+  if (total === 0) {
+    return {
+      ok: true,
+      outcome: "completed",
+      counts: emptyOutcomeCounts(),
+      pending: 0,
+      total: 0,
+      message: waitAllMessage("completed", 0, 0, emptyOutcomeCounts()),
+      exitCode: 0,
+    };
+  }
+
+  const start = now();
+  // First check is immediate; the deadline is checked before each sleep so
+  // `--timeout` can't be overshot by more than one interval.
+  while (true) {
+    const snapshots = trackedIds.map((id) => readJob(id));
+    const verdict = evaluateWaitAll(snapshots);
+    if (verdict.done) {
+      const outcome = aggregateWaitOutcomes(verdict.outcomes);
+      const counts = tallyOutcomes(verdict.outcomes);
+      return {
+        ok: true,
+        outcome,
+        counts,
+        pending: 0,
+        total,
+        message: waitAllMessage(outcome, total, 0, counts),
+        exitCode: waitExitCode(outcome),
+      };
+    }
+    const elapsed = now() - start;
+    if (timeoutMs !== null && elapsed >= timeoutMs) {
+      // Tally whatever has settled so far for the message/JSON.
+      const settled = snapshots
+        .map((j) =>
+          j === null ? ("missing" as WaitOutcome) : isTerminalStatus(j.status) ? (j.status as WaitOutcome) : null
+        )
+        .filter((o): o is WaitOutcome => o !== null);
+      const counts = tallyOutcomes(settled);
+      return {
+        ok: true,
+        outcome: "timeout",
+        counts,
+        pending: verdict.pending,
+        total,
+        message: waitAllMessage("timeout", total, verdict.pending, counts),
+        exitCode: waitExitCode("timeout"),
+      };
+    }
+    options.onPoll?.(verdict.pending, total, elapsed);
     await sleep(intervalMs);
   }
 }

@@ -12,12 +12,17 @@
 // job snapshot so the outcome mapping is unit-testable without a clock, a
 // store, or a spawned process.
 
-import { TERMINAL_STATUSES } from "./stats.js";
+import { ACTIVE_STATUSES, TERMINAL_STATUSES } from "./stats.js";
 import type { JobStatus, RelayJob } from "./types.js";
 
 /** Whether `status` is one a job never transitions out of. */
 export function isTerminalStatus(status: JobStatus): boolean {
   return TERMINAL_STATUSES.includes(status);
+}
+
+/** Whether `status` is one a job can still transition out of (queued/waiting/resuming). */
+export function isActiveStatus(status: JobStatus): boolean {
+  return ACTIVE_STATUSES.includes(status);
 }
 
 /**
@@ -56,4 +61,69 @@ export function evaluateWait(job: RelayJob | null): { done: boolean; outcome?: W
   if (!job) return { done: true, outcome: "missing" };
   if (isTerminalStatus(job.status)) return { done: true, outcome: job.status as WaitOutcome };
   return { done: false };
+}
+
+/**
+ * Severity ranking so `wait --all` can collapse a set of per-job outcomes into
+ * one aggregate: the batch's result is its *worst* member. Higher = worse.
+ * `timeout` tops the list because a batch that didn't finish in time is the most
+ * actionable failure; `completed` is the only "all-clear". Kept as a total order
+ * over every {@link WaitOutcome} so the aggregate is always defined.
+ */
+export const WAIT_OUTCOME_SEVERITY: Record<WaitOutcome, number> = {
+  timeout: 4,
+  failed: 3,
+  cancelled: 2,
+  missing: 1,
+  completed: 0,
+};
+
+/**
+ * Fold a set of per-job outcomes into the single worst one (see
+ * {@link WAIT_OUTCOME_SEVERITY}), so `agentrelay wait --all` exits with a code
+ * that reflects the batch as a whole. An empty set means "nothing was pending",
+ * which is a success (`completed`). Pure.
+ */
+export function aggregateWaitOutcomes(outcomes: WaitOutcome[]): WaitOutcome {
+  let worst: WaitOutcome = "completed";
+  for (const outcome of outcomes) {
+    if (WAIT_OUTCOME_SEVERITY[outcome] > WAIT_OUTCOME_SEVERITY[worst]) worst = outcome;
+  }
+  return worst;
+}
+
+/** The verdict of a `wait --all` poll: are all tracked jobs settled yet? */
+export interface WaitAllVerdict {
+  /** True once every tracked job is terminal or missing. */
+  done: boolean;
+  /** Per-tracked-job outcomes, populated only when `done` (empty while pending). */
+  outcomes: WaitOutcome[];
+  /** How many tracked jobs are still non-terminal (for progress output). */
+  pending: number;
+}
+
+/**
+ * Decide whether a *batch* wait is over from the current snapshots of the
+ * tracked jobs. `snapshots` is one entry per originally-tracked id, in the same
+ * order, where `null` marks a job that has vanished from the store (`missing`,
+ * e.g. pruned mid-wait). The wait is done only when none are still active; until
+ * then `outcomes` is empty so a caller can't act on a partial batch. Pure — the
+ * caller owns the id set, the store reads, and the timeout clock.
+ */
+export function evaluateWaitAll(snapshots: (RelayJob | null)[]): WaitAllVerdict {
+  let pending = 0;
+  const outcomes: WaitOutcome[] = [];
+  for (const job of snapshots) {
+    if (!job) {
+      outcomes.push("missing");
+      continue;
+    }
+    if (isTerminalStatus(job.status)) {
+      outcomes.push(job.status as WaitOutcome);
+      continue;
+    }
+    pending += 1;
+  }
+  if (pending > 0) return { done: false, outcomes: [], pending };
+  return { done: true, outcomes, pending: 0 };
 }
