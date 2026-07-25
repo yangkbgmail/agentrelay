@@ -459,6 +459,18 @@
       실제 빌드 CLI `parse`로 `clock-time-meridiem` 매치 e2e 확인. branch
       `claude/wizardly-pascal-m46r3y`)
 
+- [x] 👷 파서: 표준 `X-RateLimit-Reset` / `RateLimit-Reset` 응답 헤더 인식 — GitHub·Twitter/X 등 다수
+      게이트웨이가 429에서 덤프하는 사실상 표준 헤더(리셋 시각). 기존 `unix-epoch`(`retry_after`만)·
+      `http-retry-after`(`Retry-After`만)로는 안 잡히던 실사용 갭.
+      (완료 — `parser.ts`에 순수 `ratelimit-reset-header` 패턴 추가. 매그니튜드로 두 실사용 방언을 구분:
+      값 ≥ 1e9(10자리 epoch, 2001년+)는 **절대 unix epoch 초**(GitHub 관례) → `new Date(n*1000)`, 그보다
+      작으면 **잔여 delta-seconds**(IETF draft-ietf-httpapi-ratelimit-headers) → `now + n*1000`. 하이픈
+      `ratelimit-reset` 문자열로 `retry_after`(언더스코어 epoch)·`Retry-After`(delay/date 헤더)와 완전
+      disjoint, 다른 어떤 기존 패턴과도 교차 매치 안 함. `\d{1,10}\b`로 자릿수 캡. 프리필터
+      `rate.?limit`가 "RateLimit"을 이미 매치하므로 프리필터 수정 0줄. 새 CLI 코드 0줄 — 기존 `parse`
+      커맨드가 자동 노출. parser.test +4(절대 epoch/delta-seconds/`0`즉시/Retry-After 비교차). 실제 빌드
+      CLI `parse`로 절대 epoch→고정 시각·delta→now+Ns e2e 확인. branch `claude/wizardly-pascal-wt3jri`)
+
 - [x] 👷 `agentrelay wait <id>` — 특정 잡이 종료 상태에 도달할 때까지 블록 후 결과를 exit code로 반환.
       (완료 — `@agentrelay/core/wait.ts` 신설(순수·시계/스토어 미접촉): `isTerminalStatus`(stats의
       `TERMINAL_STATUSES` 재사용) + `WaitOutcome`(completed/failed/cancelled + 루프 종료 timeout/missing) +
