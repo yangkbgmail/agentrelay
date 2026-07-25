@@ -99,6 +99,17 @@
       모두 허용할 때만 정리. 시간 마커는 실제 패스 실행 때만, tick 카운터는 매 tick 전진.
       CLI daemon이 env로 배선, 배너에 "every N tick(s)"(+시간과 함께면 " + "로 결합). one-shot
       `tick`은 프로세스마다 카운터가 리셋돼 스로틀 무효(문서화). branch `claude/wizardly-pascal-adfx5s`)
+- [x] 👷 `agentrelay when` — 하루 중 언제 rate-limit이 걸렸는지 시간대별 히스토그램.
+      (완료 — `@agentrelay/core/when.ts`에 순수 `hourlyRateLimitDistribution(jobs, {utcOffsetMinutes})`
+      + `HourlyRateLimitDistribution` 신설: 각 job의 `lastRateLimit.detectedAt`(감지 provenance)을
+      24개 시간 버킷으로 집계, 오프셋 적용 후 UTC 시각을 읽어 로컬 프레임의 wall-clock hour 산출(호스트
+      tz 미접촉=어느 머신에서나 동일). peakHour는 최다 버킷(동률 시 이른 시각), 파싱 불가/누락 detectedAt은
+      withoutDetection. 비유한 오프셋은 0(UTC)으로 정규화. CLI `packages/cli/src/when.ts`에 순수
+      `renderWhen`(24행 히스토그램·peak 마커·빈 시간 dim)·`renderWhenJson`(--json)·`formatOffsetLabel`
+      (`UTC±HH:MM`, 30분 존 포함), `agentrelay when [--utc] [--json] [scope filters]` 커맨드 배선
+      (기본 로컬 시각, `--utc`는 UTC 고정). `patterns`(어떤 포맷)·`next`(다음 1건)·`stats`(타이밍)가
+      답 못하는 "하루 중 언제 막히나"를 채움. core 9 + cli 9 테스트 추가, biome ci 통과.
+      branch `claude/wizardly-pascal-ywzfrx`)
 - [x] 👷 `agentrelay stats` — 큐 통계 요약(릴레이 효과 한눈에 보기).
       (완료 — `@agentrelay/core/stats.ts`에 순수 `computeStats(jobs)` + `RelayStats` 신설:
       active(queued+waiting+resuming)/terminal(completed+failed+cancelled) 분리, successRate
