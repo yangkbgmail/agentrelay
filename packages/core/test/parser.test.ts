@@ -236,6 +236,35 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  it("parses the X-RateLimit-Reset header as an absolute unix epoch", () => {
+    // GitHub / Twitter / many gateways: value is an absolute epoch in seconds.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("HTTP 429\nX-RateLimit-Reset: 1752345600", { now });
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("parses a bare RateLimit-Reset header as remaining delta-seconds", () => {
+    // IETF draft form: a small value is seconds until reset, not an epoch.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("RateLimit-Reset: 60", { now });
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 60 * 1000).toISOString());
+  });
+
+  it("treats RateLimit-Reset: 0 as an immediate resume", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("RateLimit-Reset: 0", { now });
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe(now.toISOString());
+  });
+
+  it("does not confuse RateLimit-Reset with the Retry-After header", () => {
+    // Distinct headers: reset carries the reset instant, retry-after a delay.
+    const result = parseRateLimitMessage("X-RateLimit-Reset: 1752345600");
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [
