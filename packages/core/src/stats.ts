@@ -42,6 +42,29 @@ export interface TimingStats {
   p90ResolutionMs: number | null;
 }
 
+/**
+ * The headline "relay effect" metric: how much rate-limit wait the relay sat
+ * through on the user's behalf. For every job carrying a persisted rate-limit
+ * detection (see {@link RateLimitDetection}), the absorbed window is
+ * `resetAt - detectedAt` — the stretch the user would otherwise have had to
+ * babysit but the relay handled unattended. Because only the *last* detection is
+ * persisted per job, this counts the most recent rate-limit window per job (a
+ * job re-limited several times contributes only its latest wait). Windows with a
+ * missing/unparseable timestamp or a negative span (clock skew, or a reset
+ * already in the past when recorded) are skipped, not clamped — mirroring how
+ * {@link TimingStats} treats resolution spans.
+ */
+export interface WaitAbsorbedStats {
+  /** Jobs whose detection contributed a valid, non-negative absorbed window. */
+  jobCount: number;
+  /** Sum of every absorbed window (ms): total supervised wait the relay covered. */
+  totalMs: number;
+  /** Mean absorbed window (ms) over {@link jobCount} jobs, or null when none. */
+  avgMs: number | null;
+  /** Longest single absorbed window (ms), or null when none. */
+  maxMs: number | null;
+}
+
 export interface RelayStats {
   total: number;
   /** Count per job status (all statuses present, zero-filled). */
@@ -68,6 +91,8 @@ export interface RelayStats {
   projects: ProjectStat[];
   /** Resolution-time metrics over completed + failed jobs. */
   timing: TimingStats;
+  /** Rate-limit wait the relay absorbed on the user's behalf (headline effect). */
+  waitAbsorbed: WaitAbsorbedStats;
 }
 
 /**
@@ -213,6 +238,22 @@ function resolutionMs(job: RelayJob): number | null {
 }
 
 /**
+ * Absorbed rate-limit wait for a single job in ms (`resetAt - detectedAt` from
+ * its persisted detection), or null when the job has no detection, either
+ * timestamp is missing/unparseable, or the span is negative (clock skew / a
+ * reset already past at record time). Exported for direct testing.
+ */
+export function rateLimitWaitMs(job: RelayJob): number | null {
+  const detection = job.lastRateLimit;
+  if (!detection) return null;
+  const detected = Date.parse(detection.detectedAt);
+  const reset = Date.parse(detection.resetAt);
+  if (Number.isNaN(detected) || Number.isNaN(reset)) return null;
+  const span = reset - detected;
+  return span >= 0 ? span : null;
+}
+
+/**
  * Linear-interpolated percentile (0..1) over an ascending-sorted, non-empty
  * array. p=0.5 → median, p=0.9 → p90. Matches the common "type 7" / NumPy
  * default: rank = p·(n−1), interpolate between the two straddling samples.
@@ -241,6 +282,9 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
   let totalAttempts = 0;
   let retriedJobs = 0;
   const resolutionDurations: number[] = [];
+  let waitJobCount = 0;
+  let waitTotalMs = 0;
+  let waitMaxMs = 0;
 
   for (const job of jobs) {
     // A job may carry a tool we don't statically know about; only bump known
@@ -253,7 +297,20 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       const span = resolutionMs(job);
       if (span !== null) resolutionDurations.push(span);
     }
+    const waited = rateLimitWaitMs(job);
+    if (waited !== null) {
+      waitJobCount += 1;
+      waitTotalMs += waited;
+      if (waited > waitMaxMs) waitMaxMs = waited;
+    }
   }
+
+  const waitAbsorbed: WaitAbsorbedStats = {
+    jobCount: waitJobCount,
+    totalMs: waitTotalMs,
+    avgMs: waitJobCount === 0 ? null : Math.round(waitTotalMs / waitJobCount),
+    maxMs: waitJobCount === 0 ? null : waitMaxMs,
+  };
 
   const active = ACTIVE_STATUSES.reduce((sum, s) => sum + byStatus[s], 0);
   const terminal = TERMINAL_STATUSES.reduce((sum, s) => sum + byStatus[s], 0);
@@ -301,6 +358,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     nextResetAt,
     projects,
     timing,
+    waitAbsorbed,
   };
 }
 

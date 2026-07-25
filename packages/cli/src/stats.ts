@@ -95,6 +95,18 @@ export function renderStats(
     );
   }
 
+  const { waitAbsorbed } = stats;
+  if (waitAbsorbed.jobCount > 0) {
+    lines.push("");
+    lines.push(b("rate-limit wait absorbed") + d(" (time the relay waited so you didn't have to)"));
+    lines.push(
+      `  total ${formatDurationMs(waitAbsorbed.totalMs)}` +
+        `   avg ${formatDurationMs(waitAbsorbed.avgMs ?? 0)}` +
+        `   max ${formatDurationMs(waitAbsorbed.maxMs ?? 0)} ` +
+        d(`over ${waitAbsorbed.jobCount} job(s)`)
+    );
+  }
+
   const statusParts = STATUS_ORDER.filter((s) => stats.byStatus[s] > 0).map((s) => `${s}:${stats.byStatus[s]}`);
   lines.push("");
   lines.push(b("by status"));

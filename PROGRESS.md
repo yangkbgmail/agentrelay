@@ -1464,3 +1464,34 @@
   unix-epoch(비교차 확인).
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속. 파서 추가 실사용 포맷(named IANA tz 실제 변환·
   weekday 창)은 코워크 리서치(🧭)와 조율. README/ARCHITECTURE(🧭 코워크).
+
+---
+
+## 세션 45 (2026-07-25) — `agentrelay stats` 흡수 대기 시간(wait absorbed) 지표
+
+- **배경:** BACKLOG의 👷 명시 항목이 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴.
+  이 도구의 한 줄 가치는 "사람이 붙어 기다릴 rate-limit 시간을 릴레이가 대신 흡수"인데, `stats`는
+  성공률·해결시간·재시도·툴/프로젝트 분포까지 다 보여주면서 **정작 그 흡수량 자체**(=릴레이가
+  사용자 대신 기다려 준 총 시간)는 어디에도 노출되지 않았다. 세션 38이 job에 영속해 둔 감지
+  출처(`lastRateLimit`: detectedAt·resetAt)가 이미 있으므로 새 파서/스토어 로직 없이 순수 집계만으로
+  헤드라인 "릴레이 효과" 숫자를 만들 수 있었다.
+- **한 일:**
+  1. `packages/core/src/stats.ts`: 순수 `rateLimitWaitMs(job)` 추가 — 잡의 영속 감지에서
+     `resetAt − detectedAt`(ms). 감지 없음·타임스탬프 파싱 불가·음수 span(reset이 기록 시점에 이미
+     과거이거나 클럭 스큐)은 `null`로 집계 제외(클램프 안 함 — `TimingStats`의 resolution span 정책과
+     동일). `WaitAbsorbedStats`(jobCount·totalMs·avgMs·maxMs) + `RelayStats.waitAbsorbed` 필드 신설,
+     `computeStats`가 한 패스로 합산(감지는 잡당 **마지막 것만** 영속되므로 "잡당 최근 rate-limit
+     창"을 집계함을 주석에 명시).
+  2. CLI `packages/cli/src/stats.ts`: 흡수 잡이 있을 때만 `rate-limit wait absorbed` 블록(total/avg/
+     max + "over N job(s)") 렌더. `--json`은 stats 전체 직렬화라 `waitAbsorbed` 자동 노출.
+  3. core `metrics.ts`: `agentrelay_wait_absorbed_jobs` 게이지 + 흡수 창이 하나라도 있을 때만
+     `agentrelay_wait_absorbed_seconds{stat="total|avg|max"}`(초 단위 — `resolution_seconds` 관례
+     일치, 0-of-0 평균 노출 방지).
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  전 패키지 통과(core 504[+8: rateLimitWaitMs 5·waitAbsorbed 2·metrics 1] + cli 230/1skip[stats +2]
+  + dashboard 7). 실제 빌드된 CLI e2e(mock 아님): 2h·3h 흡수 창을 가진 임시 스토어로
+  `stats`→"total 5h 0m / avg 2h 30m / max 3h 0m over 2 job(s)", `metrics`→
+  `wait_absorbed_seconds{total}=18000·{avg}=9000·{max}=10800`, `stats --json`→
+  `waitAbsorbed={jobCount:2,totalMs:18000000,...}` 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속. 지표 계열 후속(흡수 대기의 백분위/트렌드,
+  대시보드 노출)은 여력 될 때. README/ARCHITECTURE(🧭 코워크).
