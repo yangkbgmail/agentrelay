@@ -110,6 +110,23 @@ const PATTERNS: RateLimitPattern[] = [
     resolve: (m) => new Date(parseInt(m[1], 10) * 1000),
   },
   {
+    // The standard HTTP `Retry-After` response header (RFC 9110 §10.2.3), which
+    // agent CLIs proxying an HTTP API often dump verbatim on a 429. Two forms:
+    //   - delay-seconds:  `Retry-After: 3600`   -> that many seconds from now
+    //   - HTTP-date:      `Retry-After: Wed, 21 Oct 2026 07:28:00 GMT` -> absolute
+    // The hyphenated header name keeps this disjoint from the JSON `retry_after`
+    // (underscore) epoch field above. The numeric group is capped at 7 digits so
+    // an epoch-looking value isn't misread as a (nonsensical) delay in seconds —
+    // per spec Retry-After is a relative delay or a date, never an epoch.
+    name: "http-retry-after",
+    regex: /retry-after\s*:\s*(?:(\d{1,7})\b|([A-Za-z][^\r\n]*?GMT))/i,
+    resolve: (m, now) => {
+      if (m[1] !== undefined) return new Date(now.getTime() + parseInt(m[1], 10) * 1000);
+      const d = new Date(m[2]);
+      return Number.isNaN(d.getTime()) ? null : d;
+    },
+  },
+  {
     // Generic "5-hour limit" mention with no explicit time -> assume a full 5h window from now.
     // Kept last and treated as a low-confidence fallback.
     name: "five-hour-window-fallback",
@@ -119,7 +136,7 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry_after)/i;
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);
