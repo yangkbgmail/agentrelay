@@ -550,6 +550,19 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay upcoming` — 리셋 대기 중인 잡 전체를 스케줄러가 재개할 순서대로 카운트다운과 함께
+      나열하는 재개 타임라인. `next`(단일 다음 재개)와 `status`(전체 상태 큐) 사이의 빈틈을 메움.
+      (완료 — `@agentrelay/core/upcoming.ts` 신설(순수·시계/큐/I/O 미접촉): `selectUpcomingResumes(jobs,
+      now?, {limit?})` → `UpcomingSchedule`(resumes[]·totalWaiting·dueNow·hidden). `waiting_for_reset`
+      + 파싱 가능 `resetAt` 잡만 필터해 `next`와 동일한 `compareByResume`(리셋 이른 순→createdAt→id)로
+      정렬 — 재개 순서의 단일 진실원. `next.ts`의 비교 함수를 `compareByResume`로 export해 두 커맨드가
+      공유. `limit`은 반환 행만 자름(totalWaiting/dueNow/hidden 회계는 항상 전체 → "N more not shown"
+      정직). 각 resume에 `next`와 동일 shape의 dueInMs/due. CLI `packages/cli/src/upcoming.ts`에 순수
+      `renderUpcoming`(번호 매긴 스케줄+due-now/hidden 푸터, `formatCountdown` 재사용으로 status·next와
+      카운트다운 문구 일치)·`renderUpcomingJson`(next와 동일 envelope). `agentrelay upcoming [-n/--limit]
+      [--json]` 배선, 비양수/비정수 limit은 exit 1. core 9 + cli 11 신규 테스트, 실제 빌드 CLI e2e로
+      순서·due now·limit 푸터·JSON·빈 스토어·잘못된 limit exit 1 검증. branch `claude/wizardly-pascal-cflh8s`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
