@@ -1489,3 +1489,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — `agentrelay health` 재개 루프 생존 프로브 신규 구현] (2026-07-25, 무인 자율 세션, branch `claude/wizardly-pascal-health`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료, 열린 PR 76개 적체(다수 중복). 기존 커버리지를 전수
+  확인(파서/stats 변형/config get/adapters/upcoming/wait --all/show --watch/notify preview/clean/verify/
+  reschedule/diff/report 등)한 결과, **어떤 열린 PR에도 없는 진짜 빈틈**을 발견: `health`/`ping`/`live`/
+  `heartbeat probe` 계열 커맨드가 전무. 세션 31·36이 하트비트(daemon.json)·`evaluateHeartbeat` 인프라를
+  깔아뒀으나, 그 판정을 **스크립트/모니터가 exit code 하나로 소비**할 표면이 없었다.
+- **한 일:** **`agentrelay health` — 재개 루프 생존 프로브 신규 구현.** `doctor`(전체 셋업 진단, 상호작용용)와
+  달리 "재개 루프가 필요할 때 실제로 돌고 있나?" 단일 질문을 빠르게 exit code로 답해, systemd `ExecStartPre`·
+  k8s liveness·cron·Nagios 같은 모니터가 출력 파싱 없이 분기 가능.
+  - core `health.ts`(순수·시계/fs 미접촉): `evaluateHealth(status,{strict?})`가 `evaluateHeartbeat`의
+    `HeartbeatStatus`를 verdict로 증류 — `HealthLevel`(healthy/idle/unhealthy) + `HealthReport`(level·exitCode·
+    reason·heartbeat) + `HEALTH_EXIT_OK`(0)/`HEALTH_EXIT_UNHEALTHY`(1). 판정은 `state`·`concerning`
+    (`!alive && waitingJobs>0`)만 사용 → doctor·대시보드와 불일치 불가. `--strict`는 idle(루프 비생존+대기 0)도
+    실패로 승격(항상-켜짐 데몬 감시).
+  - CLI `commands.ts` `readHealthReport`(fs+clock 반: `countActiveJobs`+`parseDaemonHeartbeat`+`evaluateHeartbeat`+
+    `evaluateHealth`, 절대 throw 안 함), `health.ts` `renderHealth`(색상 verdict+reason+mode/pid/last-tick-age,
+    `formatDurationMs` 재사용)·`renderHealthJson`, cli.ts `health [--json] [--strict]` 배선(exitCode 반영).
+  - 새 파서/스케줄러/저장소 코드 0줄 — 세션 31 하트비트 인프라 위에만 구축.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome, 0 경고)·`pnpm test`
+  전 패키지 통과(core health 10 + cli health 10 신규 포함, 총 246 cli/…). 실제 빌드 CLI e2e로
+  no-store→IDLE exit 0 / `--strict`→UNHEALTHY exit 1 / 대기 잡+무루프→UNHEALTHY exit 1 / `--json` 형태 / help
+  노출 검증.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과). 이후 남은 distinct 열린 PR 통합 계속
+  (#125/#168/#170/#171 등), 중복 무리 수렴. README/ARCHITECTURE(🧭 코워크).

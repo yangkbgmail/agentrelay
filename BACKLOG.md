@@ -575,6 +575,24 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay health` — 재개 루프 생존 프로브(모니터링/systemd/cron/k8s liveness용). `doctor`는
+      전체 셋업 진단이라 상호작용용인 반면, `health`는 "재개 루프가 필요할 때 실제로 돌고 있나?"라는
+      단 하나의 질문을 빠르게 exit code로 답해, 모니터가 출력 파싱 없이 분기할 수 있게 한다.
+      (완료 — `@agentrelay/core/health.ts` 신설(순수·시계/파일시스템 미접촉): `evaluateHealth(status,
+      {strict?})`가 세션 31·36의 `evaluateHeartbeat` 판정(`HeartbeatStatus`)을 프로브 verdict로 증류 —
+      `HealthLevel`(healthy=루프 alive / idle=루프 비생존이지만 대기 잡 0=무해 / unhealthy=대기 잡 있는데
+      루프 비생존=릴레이가 막으려는 바로 그 실패) + `HealthReport`(level·exitCode·reason·heartbeat 에코) +
+      `HEALTH_EXIT_OK`(0)/`HEALTH_EXIT_UNHEALTHY`(1). 판정은 전부 `evaluateHeartbeat`가 이미 계산한
+      `state`·`concerning`(`!alive && waitingJobs>0`)만 사용 → doctor·대시보드와 절대 불일치 안 함. `--strict`는
+      idle(루프 비생존+대기 0)도 실패로 승격(항상 켜져 있어야 하는 데몬 감시용, 예: k8s liveness). CLI
+      `commands.ts` `readHealthReport({storePath,nowMs?,strict?})`(fs+clock 반: 활성 잡 수는 `countActiveJobs`,
+      하트비트는 `parseDaemonHeartbeat`, 절대 throw 안 함 — 부재/깨짐은 absent로), `packages/cli/src/health.ts`
+      순수 `renderHealth`(색상 verdict + reason + mode/pid/last-tick-age, `formatDurationMs` 재사용)·
+      `renderHealthJson`. `agentrelay health [--json] [--strict]` 배선, exit code가 report.exitCode 반영(0
+      healthy/idle, 1 unhealthy). 새 파서/스케줄러 코드 0줄 — 세션 31 하트비트 인프라 재사용. core health 10 +
+      cli health 10 신규 테스트, 실제 빌드 CLI e2e로 idle→0/strict→1/대기 잡+무루프→unhealthy 1/JSON/help
+      검증. branch `claude/wizardly-pascal-health`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
