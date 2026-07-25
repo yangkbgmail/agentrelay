@@ -15,6 +15,47 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("iso-timestamp");
   });
 
+  it("parses a space-separated absolute datetime with a UTC zone", () => {
+    // iso-timestamp requires the literal `T`; this space-separated form (common
+    // in server logs / error dumps) is caught by iso-datetime-space instead.
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 2026-07-13 05:00:00 UTC.");
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("iso-datetime-space");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses a space-separated datetime without seconds and with a GMT zone", () => {
+    const result = parseRateLimitMessage("Reset at 2026-07-13 05:30 GMT.");
+    expect(result?.pattern).toBe("iso-datetime-space");
+    expect(result?.resetAt).toBe("2026-07-13T05:30:00.000Z");
+  });
+
+  it("parses a space-separated datetime with a trailing Z", () => {
+    const result = parseRateLimitMessage("resets at 2026-07-13 05:00:00Z");
+    expect(result?.pattern).toBe("iso-datetime-space");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("applies a numeric timezone offset to recover the UTC instant", () => {
+    // 05:00 at +09:00 is 20:00 UTC the previous day.
+    const result = parseRateLimitMessage("resets at 2026-07-13 05:00 +09:00");
+    expect(result?.pattern).toBe("iso-datetime-space");
+    expect(result?.resetAt).toBe("2026-07-12T20:00:00.000Z");
+  });
+
+  it("does not treat a zoneless space-separated datetime as high-confidence", () => {
+    // No zone -> too ambiguous for iso-datetime-space. Falls through (no other
+    // pattern matches a bare `YYYY-MM-DD HH:MM`), so nothing is queued.
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 2026-07-13 05:00.");
+    expect(result).toBeNull();
+  });
+
+  it("rejects an out-of-range field in a space-separated datetime instead of rolling over", () => {
+    // Month 13 must not silently become next January.
+    const result = parseRateLimitMessage("resets at 2026-13-01 05:00 UTC");
+    expect(result).toBeNull();
+  });
+
   it("parses a 12-hour clock time and rolls to the next day if already past", () => {
     const now = new Date("2026-07-12T20:00:00Z"); // 20:00 UTC
     const result = parseRateLimitMessage("Usage limit reached. Resets at 3:00pm.", { now });

@@ -43,6 +43,42 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Space-separated absolute datetime with an explicit zone, e.g.
+    //   "resets at 2026-07-13 05:00:00 UTC" / "reset at 2026-07-13 05:00 GMT"
+    //   "resets at 2026-07-13 05:00:00Z" / "resets at 2026-07-13 05:00 +09:00"
+    // The `iso-timestamp` pattern above hard-requires the literal `T` separator
+    // (real ISO 8601), so this human-readable space-separated form — common in
+    // server logs and error dumps — slips past it. A zone is *required* here so
+    // the instant is unambiguous: a bare "2026-07-13 05:00" with no zone is too
+    // low-confidence (could be any of 24+ offsets) to queue on. UTC/GMT/Z resolve
+    // to UTC; a ±HH:MM offset is applied to recover the UTC instant.
+    name: "iso-datetime-space",
+    regex: /reset[s]?\s+at\s+(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(Z|UTC|GMT|[+-]\d{2}:?\d{2})/i,
+    resolve: (m) => {
+      const year = parseInt(m[1], 10);
+      const month = parseInt(m[2], 10);
+      const day = parseInt(m[3], 10);
+      const hour = parseInt(m[4], 10);
+      const minute = parseInt(m[5], 10);
+      const second = m[6] ? parseInt(m[6], 10) : 0;
+      // Reject impossible field values (Date.UTC would otherwise silently roll
+      // over, e.g. month 13 -> next January).
+      if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+      if (hour > 23 || minute > 59 || second > 59) return null;
+      let ms = Date.UTC(year, month - 1, day, hour, minute, second);
+      const zone = m[7].toUpperCase();
+      if (zone !== "Z" && zone !== "UTC" && zone !== "GMT") {
+        // ±HH:MM or ±HHMM offset. local = UTC + offset  =>  UTC = local - offset.
+        const sign = zone[0] === "-" ? -1 : 1;
+        const digits = zone.slice(1).replace(":", "");
+        const offsetMinutes = sign * (parseInt(digits.slice(0, 2), 10) * 60 + parseInt(digits.slice(2), 10));
+        ms -= offsetMinutes * 60_000;
+      }
+      const date = new Date(ms);
+      return Number.isNaN(date.getTime()) ? null : date;
+    },
+  },
+  {
     // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
     name: "clock-time",
     regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,

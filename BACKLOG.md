@@ -559,6 +559,18 @@
       malformed fallthrough). 새 CLI 코드 0줄 — 기존 `parse` 커맨드가 자동 노출.
       branch `claude/wizardly-pascal-hi5obo`)
 
+- [x] 👷 파서: 공백 구분 절대 datetime + 명명 타임존 인식 (`resets at 2026-07-13 05:00:00 UTC`,
+      `reset at 2026-07-13 05:30 GMT`, `resets at 2026-07-13 05:00 +09:00`).
+      (완료 — 기존 `iso-timestamp`는 리터럴 `T` 구분자를 하드 요구해, 서버 로그/에러 덤프에서 흔한
+      사람이 읽기 좋은 공백 구분 절대 시각과 명명 타임존(UTC/GMT)을 놓쳤다. `parser.ts`에 순수
+      `iso-datetime-space` 패턴 추가(iso-timestamp 바로 뒤) — `YYYY-MM-DD` + 공백 + `HH:MM`(초
+      optional) + **필수** zone(`Z`/`UTC`/`GMT`/`±HH:MM`). UTC/GMT/Z→UTC, `±HH:MM`은 Date.UTC 후
+      오프셋 차감으로 UTC instant 복원. zone 필수(zoneless는 24+ 오프셋 모호로 의도적 미매치),
+      month>12·day>31·hour>23 등 불가능 필드는 Date.UTC 롤오버 대신 명시 null 거부. iso-timestamp가
+      `T`를 요구하므로 disjoint(기존 Z-form은 여전히 iso-timestamp로 리포트, 동작 불변). parser.test
+      +6 회귀. 새 CLI 코드 0줄 — 기존 `parse` 커맨드가 자동 노출. branch
+      `claude/wizardly-pascal-vo2o8r-parser`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
