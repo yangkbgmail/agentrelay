@@ -425,4 +425,81 @@ describe("RelayScheduler", () => {
     expect(processed).toHaveLength(1);
     expect(queue.getById(job.id)?.status).toBe("completed");
   });
+
+  // A spawn fn that reports how many child processes are alive at once, so a
+  // test can prove resumes actually overlap (or don't) under a concurrency cap.
+  function trackingSpawnFn(track: { inFlight: number; peak: number }): SpawnFn {
+    return () => {
+      const emitter = new EventEmitter() as any;
+      emitter.stdout = new EventEmitter();
+      emitter.stderr = new EventEmitter();
+      track.inFlight++;
+      track.peak = Math.max(track.peak, track.inFlight);
+      setTimeout(() => {
+        emitter.stdout.emit("data", Buffer.from("done"));
+        track.inFlight--;
+        emitter.emit("close", 0);
+      }, 5);
+      return emitter;
+    };
+  }
+
+  function seedDue(project: string): RelayJob {
+    const job = queue.enqueue({ project, tool: "claude-code", command: ["claude", "-p", project], cwd: dir });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+    return job;
+  }
+
+  it("resumes a herd of due jobs one at a time by default (maxConcurrent unset)", async () => {
+    const track = { inFlight: 0, peak: 0 };
+    for (let i = 0; i < 5; i++) seedDue(`p${i}`);
+
+    const scheduler = new RelayScheduler({ queue, spawnFn: trackingSpawnFn(track) });
+    const results = await scheduler.tick();
+
+    expect(results).toHaveLength(5);
+    expect(track.peak).toBe(1); // strictly serial
+    expect(queue.listAll().every((j) => j.status === "completed")).toBe(true);
+  });
+
+  it("resumes multiple due jobs concurrently when maxConcurrent > 1", async () => {
+    const track = { inFlight: 0, peak: 0 };
+    for (let i = 0; i < 5; i++) seedDue(`p${i}`);
+
+    const scheduler = new RelayScheduler({ queue, spawnFn: trackingSpawnFn(track), maxConcurrent: 3 });
+    const results = await scheduler.tick();
+
+    expect(results).toHaveLength(5);
+    expect(track.peak).toBe(3); // capped at the configured concurrency
+    // Every job resumed and was persisted completed — no lost store updates
+    // despite several resumes writing the JSON file in overlapping ticks.
+    expect(queue.listAll().every((j) => j.status === "completed")).toBe(true);
+  });
+
+  it("keeps concurrent-tick results in due-order regardless of finish order", async () => {
+    // Later jobs finish sooner, so an order-preserving map is required.
+    const delays: Record<string, number> = { a: 20, b: 10, c: 0 };
+    const spawnFn: SpawnFn = (command) => {
+      const project = command[2];
+      const emitter = new EventEmitter() as any;
+      emitter.stdout = new EventEmitter();
+      emitter.stderr = new EventEmitter();
+      setTimeout(() => {
+        emitter.stdout.emit("data", Buffer.from("done"));
+        emitter.emit("close", 0);
+      }, delays[project] ?? 0);
+      return emitter;
+    };
+    // listDue returns newest-first (a enqueued first → oldest → last in due list).
+    seedDue("a");
+    seedDue("b");
+    seedDue("c");
+    const dueOrder = queue.listDue().map((j) => j.project);
+
+    const scheduler = new RelayScheduler({ queue, spawnFn, maxConcurrent: 3 });
+    const results = await scheduler.tick();
+
+    expect(results.map((j) => j.project)).toEqual(dueOrder);
+    expect(results.every((j) => j.status === "completed")).toBe(true);
+  });
 });

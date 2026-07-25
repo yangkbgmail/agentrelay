@@ -1464,3 +1464,35 @@
   unix-epoch(비교차 확인).
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속. 파서 추가 실사용 포맷(named IANA tz 실제 변환·
   weekday 창)은 코워크 리서치(🧭)와 조율. README/ARCHITECTURE(🧭 코워크).
+
+---
+
+## 세션 45 (2026-07-25)
+
+- **배경:** BACKLOG의 👷 명시 항목이 전부 완료 상태이고, 열린 PR 30개가 파서 개선·리포팅
+  커맨드(errors/stats/upcoming/report/verify/diff 등)를 대거 점유 중이라 중복을 피해야 했다.
+  코드를 읽던 중, 어떤 열린 PR도 건드리지 않는 **스케줄러 동시성** 갭을 발견했다: `tick()`이
+  due 잡들을 순수 `for` 루프로 **직렬(한 번에 하나)** 재개해, 여러 잡이 같은 리셋 시각을 공유하는
+  "resume herd"(창이 열리는 순간 프로젝트의 모든 잡이 동시에 due)에서 백로그 드레인이 불필요하게
+  오래 걸렸다. 큐의 모든 뮤테이션이 완전 동기(load→수정→원자적 flush, 사이에 await 없음)라
+  동시 resume가 뮤테이션 중간에 인터리브되지 않고 각 쓰기가 최신 디스크 상태를 다시 읽어 반영 →
+  JSON 스토어에 대해 동시 재개가 안전함을 확인.
+- **한 일 (branch `claude/wizardly-pascal-concurrency`):** **바운드 동시 재개(bounded concurrency).**
+  1. `@agentrelay/core/concurrency.ts` 신설(순수): `DEFAULT_MAX_CONCURRENT`(=1, 직렬=안전 기본값) +
+     `normalizeMaxConcurrent`(양의 정수 클램프, 소수 floor, undefined/NaN/Infinity/0/음수→1) +
+     `maxConcurrentFromEnv`(`AGENTRELAY_MAX_CONCURRENT`; 미설정·공백·비수치·비양수는 직렬 폴백 →
+     오타가 릴레이를 조용히 끄지 않음) + `mapWithConcurrency(items,limit,worker)`(결과 순서 보존:
+     `results[i]`가 항상 `items[i]`에 대응, 완료 순서 무관. `limit<=1`이면 기존 for 루프와
+     byte-for-byte 동일하게 각 worker를 순차 await → 기본 경로 무변경. 상위 limit은 그만큼 러너를
+     띄워 공유 커서로 다음 인덱스를 소진).
+  2. `RelayScheduler`에 `maxConcurrent?: number` 옵션 추가(기본 1). `tick()`이 직렬 for 루프 대신
+     `mapWithConcurrency`로 due 잡을 재개 — 결과는 due 순서 유지, 동시성은 캡됨.
+  3. CLI `daemon`/`tick`이 `maxConcurrentFromEnv()`를 배선. 데몬 배너에 `>1`일 때만
+     " (max N concurrent)" 표기.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  전 패키지 통과(core 510 + cli 228/1skip + dashboard 7 — concurrency.test 12 + scheduler +3 신규:
+  기본 직렬(peak=1)·동시(peak=3)·완료 순서 보존). 실제 빌드된 CLI e2e(mock 아님): 4개 due 잡을
+  `AGENTRELAY_MAX_CONCURRENT=3 tick` → 전부 completed·스토어 유실 없음, 데몬 배너가 `=4`→
+  "(max 4 concurrent)"·미설정/오타(`=abc`)→표기 없음(직렬 폴백) 확인.
+- **다음 할 일:** 이 항목 PR 리뷰/병합, 동시성 상한을 config 파일(`agentrelay.config.json`)에도
+  노출(👷 후보, config.ts 점유 PR과 조율). README/ARCHITECTURE(🧭 코워크).

@@ -1,5 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { resolveAdapter } from "./adapters.js";
+import { mapWithConcurrency, normalizeMaxConcurrent } from "./concurrency.js";
 import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
 import type { RelayQueue } from "./queue.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
@@ -53,6 +54,15 @@ export interface SchedulerOptions {
    * time throttle, only meaningful for the long-running scheduler.
    */
   autoPruneEveryTicks?: number;
+  /**
+   * Maximum number of jobs to resume concurrently within a single {@link tick}.
+   * Defaults to `1` (serial, one agent process at a time — the historical
+   * behavior). Raise it to drain a "resume herd" (many jobs sharing one reset
+   * time) in parallel while still capping how many agent CLIs run at once.
+   * Non-positive / non-finite values fall back to `1`. Safe against the JSON
+   * store because every queue mutation is synchronous (see `concurrency.ts`).
+   */
+  maxConcurrent?: number;
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
   /**
@@ -82,6 +92,7 @@ export class RelayScheduler {
   private autoPrune: PruneOptions | null;
   private autoPruneEveryMs: number;
   private autoPruneEveryTicks: number;
+  private maxConcurrent: number;
   private lastPruneAtMs: number | null = null;
   private pruneTickCounter = 0;
   private onPrune?: (pruned: RelayJob[]) => void;
@@ -99,6 +110,7 @@ export class RelayScheduler {
     this.autoPrune = options.autoPrune ?? null;
     this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
+    this.maxConcurrent = normalizeMaxConcurrent(options.maxConcurrent);
     this.onPrune = options.onPrune;
     this.onTick = options.onTick;
   }
@@ -118,10 +130,9 @@ export class RelayScheduler {
   /** Runs one polling cycle immediately. Exposed for tests and manual `agentrelay tick`. */
   async tick(referenceTime: Date = new Date()): Promise<RelayJob[]> {
     const due = this.queue.listDue(referenceTime);
-    const processed: RelayJob[] = [];
-    for (const job of due) {
-      processed.push(await this.resume(job, referenceTime));
-    }
+    // Resume with bounded concurrency (default 1 = serial, unchanged). Results
+    // stay in due-order regardless of which resume finishes first.
+    const processed = await mapWithConcurrency(due, this.maxConcurrent, (job) => this.resume(job, referenceTime));
     this.runAutoPrune(referenceTime);
     // Refresh liveness last, so a heartbeat write reflects a fully completed
     // tick. Best-effort: a failing hook must never stop the relay loop.

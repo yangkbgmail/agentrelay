@@ -559,6 +559,21 @@
       malformed fallthrough). 새 CLI 코드 0줄 — 기존 `parse` 커맨드가 자동 노출.
       branch `claude/wizardly-pascal-hi5obo`)
 
+- [x] 👷 스케줄러 바운드 동시 재개(`AGENTRELAY_MAX_CONCURRENT`) — 여러 잡이 같은 리셋 시각을
+      공유하는 "resume herd"를 직렬 대신 제한된 동시성으로 드레인(기본 1=직렬, 완전 하위호환).
+      (완료 — `tick()`이 due 잡을 순수 for 루프로 한 번에 하나씩만 재개해, 창이 열리는 순간
+      동시에 due가 된 잡 무리를 처리하는 데 불필요하게 오래 걸렸다. 큐의 모든 뮤테이션이 완전
+      동기(load→수정→원자적 flush)라 동시 resume가 뮤테이션 중간에 인터리브되지 않아 JSON
+      스토어에 대해 안전함을 확인. `@agentrelay/core/concurrency.ts` 신설(순수):
+      `DEFAULT_MAX_CONCURRENT`(=1) + `normalizeMaxConcurrent`(양의 정수 클램프·소수 floor·
+      비정상값→1) + `maxConcurrentFromEnv`(`AGENTRELAY_MAX_CONCURRENT`; 미설정·비수치·비양수는
+      직렬 폴백 → 오타가 릴레이를 조용히 끄지 않음) + `mapWithConcurrency`(결과 순서 보존,
+      `limit<=1`은 기존 직렬 루프와 동일). `RelayScheduler`에 `maxConcurrent` 옵션 추가,
+      `tick()`이 `mapWithConcurrency`로 재개(결과 due 순서 유지). CLI daemon/tick이 env 배선,
+      데몬 배너에 `>1`일 때 "(max N concurrent)". core concurrency 12 + scheduler 3 신규 테스트,
+      실제 빌드 CLI e2e로 4-잡 동시 tick 전부 완료·스토어 유실 없음·배너 검증. branch
+      `claude/wizardly-pascal-concurrency`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
