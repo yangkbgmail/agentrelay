@@ -15,6 +15,69 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("iso-timestamp");
   });
 
+  it("parses a space-separated calendar date-time (log-style, no 'T')", () => {
+    // iso-timestamp requires a literal 'T'; log output often uses a space.
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 2026-07-13 05:00:00Z.");
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("date-time");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses a space-separated date-time without seconds", () => {
+    const result = parseRateLimitMessage("Rate limit — reset at 2026-07-13 05:00Z.");
+    expect(result?.pattern).toBe("date-time");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("honors a timezone offset on a space-separated date-time", () => {
+    const result = parseRateLimitMessage("resets at 2026-07-13 05:00:00+09:00");
+    expect(result?.pattern).toBe("date-time");
+    // 05:00 +09:00 == 20:00 UTC the previous day.
+    expect(result?.resetAt).toBe("2026-07-12T20:00:00.000Z");
+  });
+
+  it("interprets a zoneless space-separated date-time as local wall-clock time", () => {
+    const result = parseRateLimitMessage("resets at 2026-07-13 05:30");
+    expect(result?.pattern).toBe("date-time");
+    const dt = new Date(result!.resetAt);
+    expect(dt.getFullYear()).toBe(2026);
+    expect(dt.getHours()).toBe(5);
+    expect(dt.getMinutes()).toBe(30);
+  });
+
+  it("still reports the canonical 'T' ISO form as iso-timestamp, not date-time", () => {
+    const result = parseRateLimitMessage("It resets at 2026-07-13T05:00:00Z.");
+    expect(result?.pattern).toBe("iso-timestamp");
+  });
+
+  it("rejects an out-of-range space-separated date-time instead of rolling over", () => {
+    // Month 13 must not silently become next January.
+    expect(parseRateLimitMessage("resets at 2026-13-10 05:00:00Z")).toBeNull();
+    // Feb 31 must not roll into March.
+    expect(parseRateLimitMessage("resets at 2026-02-31 05:00")).toBeNull();
+  });
+
+  it("parses an approximate relative duration ('in about 2 hours')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in about 2 hours.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
+  it("parses a '~' approximate relative duration ('in ~30m')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached, resets in ~30m.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
+
+  it("parses 'in roughly 1h 30m' with a filler word", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("retry in roughly 1h 30m", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
+  });
+
   it("parses a 12-hour clock time and rolls to the next day if already past", () => {
     const now = new Date("2026-07-12T20:00:00Z"); // 20:00 UTC
     const result = parseRateLimitMessage("Usage limit reached. Resets at 3:00pm.", { now });

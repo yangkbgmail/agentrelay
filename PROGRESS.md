@@ -1438,3 +1438,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — 파서 견고화: 공백 구분 날짜시각 + 근사 표현("in about/~") 인식] (2026-07-25, 무인 자율 세션, branch `claude/wizardly-pascal-py7npt`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. 제품의 핵심
+  가치(rate-limit 감지 → 리셋 시점 재개)에 직접 기여하는 파서에서 실전에서 놓치던 두 실사용 갭을 발견:
+  (1) `iso-timestamp` 패턴이 리터럴 `T`를 요구해, 로그 형식으로 흔한 공백 구분 날짜시각
+  `reset at 2026-07-13 05:00[:00]`을 통째로 놓쳐 잡이 큐잉 안 됨. (2) `relative-duration`이 근사
+  표현("try again in about 2 hours", "resets in ~30m", "in roughly 1h")을 만나면 "in" 뒤가 숫자가
+  아니라 모든 기간 그룹이 미매치 → 리셋 시각을 못 잡음. 에이전트 CLI가 흔히 쓰는 문구.
+- **한 일:**
+  1. 신규 `date-time` 파서 패턴 — `reset[s]? at YYYY-MM-DD[ T]HH:MM[:SS][Z|±HH:MM]`. tz 있으면
+     엄격 ISO로 재구성해 존 해석, tz 없으면 clock-time 관례와 동일하게 로컬 wall-clock으로 해석.
+     `iso-timestamp` **뒤**에 배치해 canonical `T` 형식은 계속 `iso-timestamp`로 보고(기존 테스트 보존).
+     범위 밖 월/일(13월·2/31)은 Date 롤오버 대신 null 반환(잘못된 리셋 시각 방지).
+  2. `relative-duration` 정규식에 근사 필러(`about|around|approximately|roughly` + `~`) 선택 그룹
+     추가 — 기존 매치는 전부 불변(하위호환), "in about/around/~" 형식만 추가로 인식.
+  3. 사전 필터(`LOOKS_LIKE_RATE_LIMIT`)가 bare `retry in`을 안 받던 기존 불일치 수정(패턴은 `retry`를
+     받는데 필터가 막던 갭) → `retry(_after|\s+in)`.
+  - 새 CLI 배선 0줄 — `parse`/`run`/스케줄러가 전부 `parseRateLimitMessage`를 공유하므로 자동 반영.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **735 통과 + 1 skip**(core 500 + cli 228/1skip + dashboard 7 — parser.test에 date-time 6 + 근사
+  duration 3 신규, 총 37케이스). 실제 빌드된 CLI e2e(mock 아님): `agentrelay parse`로
+  `Resets at 2026-07-13 05:00:00Z`→`date-time`·`try again in about 2 hours`·`resets in ~45m`→
+  `relative-duration` 매치, 범위 밖 날짜 null 확인.
+- **다음 할 일:** 파서 추가 실사용 문구 수집(주간/월간 한도 문구, "available again at" 대체 lead-in).
+  남은 distinct 열린 PR 통합. README/ARCHITECTURE(🧭 코워크).

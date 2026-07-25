@@ -43,6 +43,40 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // "reset at 2026-07-13 05:00" / "resets at 2026-07-13 05:00:00" — a full
+    // calendar date + wall-clock time separated by a *space* (or 'T'). The
+    // iso-timestamp pattern above requires a literal 'T', so log-style output
+    // that prints "YYYY-MM-DD HH:MM[:SS]" (very common) slips past it entirely.
+    // A trailing timezone (`Z` or `±HH:MM`) is honored when present; a bare
+    // date-time with no zone is interpreted in local time, the same convention
+    // the clock-time patterns use. Placed after iso-timestamp so the canonical
+    // 'T' form keeps reporting as `iso-timestamp` (its callers/tests expect it).
+    name: "date-time",
+    regex: /reset[s]?\s+at\s+(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?\s*(Z|[+-]\d{2}:?\d{2})?/i,
+    resolve: (m) => {
+      const [, year, month, day, hour, minute, second, tz] = m;
+      const sec = second ?? "00";
+      if (tz) {
+        // Reconstruct a strict ISO string so the JS engine parses the zone.
+        const dt = new Date(`${year}-${month}-${day}T${hour}:${minute}:${sec}${tz.toUpperCase() === "Z" ? "Z" : tz}`);
+        return Number.isNaN(dt.getTime()) ? null : dt;
+      }
+      const y = parseInt(year, 10);
+      const mo = parseInt(month, 10);
+      const d = parseInt(day, 10);
+      const h = parseInt(hour, 10);
+      const mi = parseInt(minute, 10);
+      const s = parseInt(sec, 10);
+      // Reject out-of-range components rather than letting Date silently roll
+      // over (e.g. month 13 -> next January) and produce a wrong reset time.
+      if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 59) return null;
+      const dt = new Date(y, mo - 1, d, h, mi, s, 0);
+      // Guard against day-overflow (e.g. Feb 31 -> Mar) that range checks miss.
+      if (dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+      return dt;
+    },
+  },
+  {
     // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
     name: "clock-time",
     regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
@@ -88,11 +122,14 @@ const PATTERNS: RateLimitPattern[] = [
   {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
-    // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
-    // are OpenAI/Codex-style wording that the Codex adapter contributes).
+    // windows. Also tolerates approximate filler words agents commonly print
+    // ("try again in about 2 hours", "resets in ~30m", "in roughly 1h") which
+    // would otherwise leave every duration group unmatched and yield no reset.
+    // Seconds are deliberately *not* handled here (see adapters.ts: they are
+    // OpenAI/Codex-style wording that the Codex adapter contributes).
     name: "relative-duration",
     regex:
-      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
+      /(?:try again|resets?|retry)\s+in\s+(?:(?:about|around|approximately|roughly)\s+|~\s*)?(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
     resolve: (m, now) => {
       const days = m[1] ? parseInt(m[1], 10) : 0;
       const hours = m[2] ? parseInt(m[2], 10) : 0;
@@ -119,7 +156,7 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry_after)/i;
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry(_after|\s+in))/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);
