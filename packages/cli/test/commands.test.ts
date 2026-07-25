@@ -16,6 +16,7 @@ import {
   previewRestoreStore,
   pruneJobs,
   restoreStore,
+  resumeJob,
   retryJob,
   runCommand,
   setConfigFile,
@@ -220,6 +221,60 @@ describe("cancelJob / retryJob", () => {
   });
 });
 
+describe("resumeJob", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cli-resume-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** A job parked far in the future after one attempt, as a rate-limit hit leaves it. */
+  function seedParked() {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markResuming(job.id); // attempts -> 1
+    queue.markWaitingForReset(job.id, "2099-01-01T00:00:00.000Z", {
+      pattern: "reset-at",
+      rawMatch: "resets at 2099",
+      resetAt: "2099-01-01T00:00:00.000Z",
+      detectedAt: "2026-07-25T00:00:00.000Z",
+    });
+    queue.close();
+    return job.id;
+  }
+
+  it("un-parks a waiting job to run now while preserving its attempt count", () => {
+    const id = seedParked();
+    const before = Date.now();
+    const result = resumeJob(id.slice(0, 8), storePath);
+    expect(result.ok).toBe(true);
+    expect(result.job?.status).toBe("waiting_for_reset");
+    // Unlike retry, the attempt count and rate-limit provenance survive.
+    expect(result.job?.attempts).toBe(1);
+    expect(result.job?.lastRateLimit?.pattern).toBe("reset-at");
+    // resetAt was pulled back to ~now, so the job is immediately due.
+    expect(new Date(result.job?.resetAt as string).getTime()).toBeGreaterThanOrEqual(before - 1000);
+    expect(new Date(result.job?.resetAt as string).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+  });
+
+  it("refuses to resume a terminal job and points at retry", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markCompleted(job.id, "done");
+    queue.close();
+    const result = resumeJob(job.id, storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("retry");
+    expect(listStatus(storePath)[0].status).toBe("completed");
+  });
+});
+
 describe("bulkControlJobs", () => {
   let dir: string;
   let storePath: string;
@@ -289,6 +344,19 @@ describe("bulkControlJobs", () => {
     const after = listStatus(storePath);
     expect(after.every((j) => j.status === "waiting_for_reset")).toBe(true);
     expect(after.every((j) => j.attempts === 0)).toBe(true);
+  });
+
+  it("resumes only the waiting jobs, skipping terminal ones", () => {
+    const ids = seedMixed();
+    const result = bulkControlJobs("resume", { storePath });
+    // Only the 2 waiting_for_reset jobs qualify; failed + completed are skipped.
+    expect(result.matched).toBe(4);
+    expect(result.affected.map((j) => j.id).sort()).toEqual([ids.w1, ids.w2].sort());
+    expect(result.skipped).toHaveLength(2);
+    const after = listStatus(storePath);
+    // Waiting jobs stay waiting (now due); terminal jobs are untouched.
+    expect(after.find((j) => j.id === ids.f1)?.status).toBe("failed");
+    expect(after.find((j) => j.id === ids.c1)?.status).toBe("completed");
   });
 
   it("dry-run reports the effect without mutating the store", () => {

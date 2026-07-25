@@ -41,6 +41,32 @@ export function canRequeue(job: RelayJob): ControlResult {
   return { ok: true };
 }
 
+/**
+ * Statuses a job can be *resumed* from — i.e. it's parked waiting for a
+ * rate-limit reset (or a transient-failure backoff), both of which use the
+ * `waiting_for_reset` status. Resuming only un-parks such a job; it never
+ * touches a freshly-queued, in-flight, or terminal job.
+ */
+export const RESUMABLE_STATUSES: readonly JobStatus[] = ["waiting_for_reset"];
+
+/**
+ * Whether `job` may be *resumed now* — un-parked so the next scheduler tick
+ * picks it up immediately, without resetting its attempt counter (that's what
+ * {@link canRequeue}/`retry` is for). Only a job that's actually waiting for a
+ * reset qualifies: use this when a rate limit lifted earlier than the parsed
+ * reset time and you want to continue the job while keeping its attempt budget
+ * honest. Every other state is rejected with a reason that points at `retry`
+ * where that's the right tool.
+ */
+export function canResume(job: RelayJob): ControlResult {
+  if (job.status === "waiting_for_reset") return { ok: true };
+  if (job.status === "queued") {
+    return { ok: false, reason: "job is queued, not waiting for a reset; use `retry` to force it to run" };
+  }
+  if (job.status === "resuming") return { ok: false, reason: "job is currently resuming; wait for it to finish" };
+  return { ok: false, reason: `job already ${job.status}; use \`retry\` to run it again` };
+}
+
 /** One job that a bulk-control guard rejected, paired with the reason why. */
 export interface IneligibleJob {
   job: RelayJob;

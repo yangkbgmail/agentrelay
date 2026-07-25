@@ -53,6 +53,7 @@ import {
   previewRestoreStore,
   pruneJobs,
   restoreStore,
+  resumeJob,
   retryJob,
   runCommand,
   runDoctor,
@@ -1302,6 +1303,16 @@ export function buildCli(): Command {
     single: retryJob,
     describe: "Requeue a job to resume immediately (by id), or every matching job with --all",
     allHelp: "Requeue every matching job to resume now (narrow with the scope filters below)",
+  });
+
+  registerBulkControl(program, {
+    name: "resume",
+    action: "resume",
+    single: resumeJob,
+    describe:
+      "Un-park a rate-limit-waiting job so it resumes now, keeping its attempt count (by id), or every matching job with --all",
+    allHelp:
+      "Un-park every matching waiting job to resume now, keeping attempt counts (narrow with the scope filters below)",
   });
 
   program

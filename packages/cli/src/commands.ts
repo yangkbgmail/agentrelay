@@ -33,6 +33,7 @@ import {
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  canResume,
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
@@ -433,8 +434,37 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
   }
 }
 
+/**
+ * Resume a rate-limit-waiting job *now* by full id or short prefix — un-park it
+ * so the next scheduler tick picks it up, without resetting the attempt counter
+ * (unlike {@link retryJob}). Only `waiting_for_reset` jobs qualify; every other
+ * state is rejected with a reason (see {@link canResume}).
+ */
+export function resumeJob(idOrPrefix: string, storePath?: string): JobControlResult {
+  const queue = openQueue(storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { ok: false, job: null, message: resolved.error ?? "job not found" };
+
+    const job = jobs.find((j) => j.id === resolved.id) as RelayJob;
+    const guard = canResume(job);
+    if (!guard.ok) return { ok: false, job, message: `cannot resume ${shortId(job.id)}: ${guard.reason}` };
+
+    queue.resumeNow(job.id);
+    const updated = queue.getById(job.id) ?? null;
+    return {
+      ok: true,
+      job: updated,
+      message: `job ${shortId(job.id)} (${job.project}) set due now (attempt ${job.attempts + 1} next) — run "agentrelay tick" or the daemon to pick it up`,
+    };
+  } finally {
+    queue.close();
+  }
+}
+
 /** A bulk control action for {@link bulkControlJobs}. */
-export type BulkControlAction = "cancel" | "retry";
+export type BulkControlAction = "cancel" | "retry" | "resume";
 
 export interface BulkControlOptions {
   /** Which jobs to consider (status/tool/project/time). Omit to consider all. */
@@ -470,18 +500,19 @@ export function bulkControlJobs(action: BulkControlAction, options: BulkControlO
   try {
     const all = queue.listAll();
     const scoped = options.scope && isJobScopeActive(options.scope) ? scopeJobs(all, options.scope) : all;
-    const guard = action === "cancel" ? canCancel : canRequeue;
+    const guard = action === "cancel" ? canCancel : action === "resume" ? canResume : canRequeue;
     const { eligible, ineligible } = partitionForControl(scoped, guard);
 
     if (!options.dryRun) {
       for (const job of eligible) {
         if (action === "cancel") queue.markCancelled(job.id);
+        else if (action === "resume") queue.resumeNow(job.id);
         else queue.requeueNow(job.id);
       }
     }
 
-    const acted = action === "cancel" ? "cancelled" : "queued to resume";
-    const would = action === "cancel" ? "cancel" : "retry";
+    const acted = action === "cancel" ? "cancelled" : action === "resume" ? "set due now" : "queued to resume";
+    const would = action;
     const tail = `(${scoped.length} matched, ${ineligible.length} skipped)`;
     const message = options.dryRun
       ? `would ${would} ${eligible.length} job(s) ${tail}`

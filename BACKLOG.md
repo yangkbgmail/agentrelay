@@ -550,6 +550,19 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay resume <id> [--all]` — 리셋이 예상보다 일찍 풀렸을 때 대기 잡을 즉시 재개하되
+      **attempt 카운터를 보존**(`retry`는 0으로 리셋). "한도 조기 해제 → 이어서 재개" 니즈를 채움.
+      (완료 — core `control.ts`에 `canResume(job)` 가드 + `RESUMABLE_STATUSES`(=`["waiting_for_reset"]`):
+      `waiting_for_reset`만 허용, `queued`/터미널(completed·failed·cancelled)은 "use `retry`" 안내로,
+      `resuming`은 mid-flight로 거부. core `queue.ts`에 `resumeNow(id, at?)` — status를 `waiting_for_reset`
+      유지·`resetAt`만 now로 당겨 다음 tick에 due가 되게 하되, `requeueNow`와 달리 attempts·lastError·
+      lastRateLimit 프로버넌스를 그대로 보존. cli `commands.ts`에 단건 `resumeJob` + `BulkControlAction`에
+      `"resume"` 추가(guard/mutate/문구 배선), `cli.ts`는 기존 `registerBulkControl` 인프라 재사용해
+      단건/`--all`(+공용 스코프 필터·`--dry-run`) 경로 자동 공유. 새 파서 로직 0줄. core canResume 4 +
+      queue resumeNow 1 + cli resumeJob 2 + bulk resume 1 신규 테스트, 실제 빌드 CLI e2e로 미래 리셋 파킹→
+      `resume`가 "due now"·attempts 보존·`--all --dry-run` 미리보기 검증. branch
+      `claude/wizardly-pascal-resume-now`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
