@@ -1489,3 +1489,26 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 기능 `agentrelay run --dry-run` (계획 프리뷰, 부작용 0)] (2026-07-25, 무인 자율 세션, branch `claude/wizardly-pascal-bzqv9l`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태이고, 열린 PR이 81개까지 적체(다수 중복). 세션 42~45는
+  distinct CI-초록 PR을 최신 main 위로 통합해 왔으나, 남은 열린 PR들은 stale base라 cherry-pick 충돌이
+  잦다. 이번 세션은 CLAUDE.md "무한 개선 백로그 … 비면 스스로 새 개선 항목 발굴" 지침에 따라, 81개 열린
+  PR 어느 것과도 겹치지 않고(=충돌 0·CI 확실 초록) 실사용 가치가 명확한 **자체 신규 소기능**을 구현.
+- **한 일:** **`agentrelay run --dry-run` 추가** — 명령을 실행하거나 스토어에 아무것도 쓰지 않고, `run`이
+  실제로 결정할 계획을 미리 보여줌: 어느 툴 어댑터로 실행할지(+그 근거: explicit `--tool`/명령 바이너리
+  추론/generic 폴백), 프로젝트 라벨(+근거: explicit `--project`/cwd 유도), 작업 디렉터리, 잡이 쓰일 스토어
+  파일. 긴 작업을 걸기 전에 "AgentRelay가 이 명령을 무슨 툴로 볼까, 라벨은 뭐가 붙을까"를 부작용 없이 확인.
+  - 구현: 순수 `buildRunPlan(options)`가 `runCommand`와 **동일한** 해소 경로(`resolveAdapter`·
+    `resolveProjectName`·`defaultStorePath`)로 `RunPlan`을 조립 — spawn·스토어 I/O 없음. `toolSource`
+    (explicit|inferred|default)·`projectSource`(explicit|derived)로 각 값의 결정 근거도 노출. `renderRunPlan`
+    이 정렬된 사람용 프리뷰 블록, `--json`이 기계용 JSON. CLI `run`에 `--dry-run`/`--json` 배선 —
+    dry-run이면 spawn·큐잉을 완전히 건너뛰고 프리뷰만 출력 후 종료.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0 경고/0 에러·`pnpm test`
+  전 패키지 통과(core 506 + cli 244/1skip + dashboard 7; `commands.test.ts` 66→79 = +13 신규:
+  buildRunPlan 7 + renderRunPlan 2 … tool/project 근거·폴백·프리뷰 내용). 실제 빌드된 CLI e2e(mock 아님):
+  `run --dry-run -- codex …`→codex-cli 추론 프리뷰, `run --dry-run --json --tool generic --project billing …`
+  →explicit 소스 JSON, 두 경우 모두 스토어 파일 **미생성** 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
+  중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
+  README/ARCHITECTURE(🧭 코워크).

@@ -7,6 +7,7 @@ import { parseConfig, RelayQueue, sampleConfigJson } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   backupStore,
+  buildRunPlan,
   bulkControlJobs,
   cancelJob,
   importStore,
@@ -15,6 +16,7 @@ import {
   listStoreBackups,
   previewRestoreStore,
   pruneJobs,
+  renderRunPlan,
   restoreStore,
   retryJob,
   runCommand,
@@ -161,6 +163,109 @@ describe("runCommand", () => {
     // dir is a mkdtemp path; its last segment is the derived label, never blank.
     expect(result.queuedJob?.project).toBe(dir.split("/").filter(Boolean).pop());
     expect(result.queuedJob?.project?.trim()).not.toBe("");
+  });
+});
+
+describe("buildRunPlan", () => {
+  it("infers the tool from the command binary when --tool is omitted", () => {
+    const plan = buildRunPlan({
+      command: ["codex", "-p", "continue"],
+      cwd: "/home/user/my-app",
+      storePath: "/tmp/jobs.json",
+    });
+    expect(plan.tool).toBe("codex-cli");
+    expect(plan.displayName).toBe("Codex CLI");
+    expect(plan.toolSource).toBe("inferred");
+  });
+
+  it("marks the tool source explicit when --tool is given", () => {
+    const plan = buildRunPlan({
+      command: ["claude", "-p", "go"],
+      tool: "generic",
+      cwd: "/home/user/my-app",
+      storePath: "/tmp/jobs.json",
+    });
+    // Explicit --tool wins over what the command would have inferred.
+    expect(plan.tool).toBe("generic");
+    expect(plan.toolSource).toBe("explicit");
+  });
+
+  it("falls back to the generic adapter with a default source when nothing matches", () => {
+    const plan = buildRunPlan({
+      command: ["some-unknown-binary", "--go"],
+      cwd: "/home/user/my-app",
+      storePath: "/tmp/jobs.json",
+    });
+    expect(plan.tool).toBe("generic");
+    expect(plan.toolSource).toBe("default");
+  });
+
+  it("derives the project from the cwd and reports it as derived", () => {
+    const plan = buildRunPlan({
+      command: ["claude"],
+      cwd: "/home/user/billing-svc",
+      storePath: "/tmp/jobs.json",
+    });
+    expect(plan.project).toBe("billing-svc");
+    expect(plan.projectSource).toBe("derived");
+  });
+
+  it("uses an explicit --project override and reports it as explicit", () => {
+    const plan = buildRunPlan({
+      command: ["claude"],
+      project: "invoices",
+      cwd: "/home/user/billing-svc",
+      storePath: "/tmp/jobs.json",
+    });
+    expect(plan.project).toBe("invoices");
+    expect(plan.projectSource).toBe("explicit");
+  });
+
+  it("treats a blank --project override as derived (matches runCommand)", () => {
+    const plan = buildRunPlan({
+      command: ["claude"],
+      project: "   ",
+      cwd: "/home/user/billing-svc",
+      storePath: "/tmp/jobs.json",
+    });
+    expect(plan.project).toBe("billing-svc");
+    expect(plan.projectSource).toBe("derived");
+  });
+
+  it("carries the command, cwd and store path through unchanged", () => {
+    const plan = buildRunPlan({
+      command: ["claude", "-p", "continue"],
+      cwd: "/work/here",
+      storePath: "/data/jobs.json",
+    });
+    expect(plan.command).toEqual(["claude", "-p", "continue"]);
+    expect(plan.cwd).toBe("/work/here");
+    expect(plan.storePath).toBe("/data/jobs.json");
+  });
+});
+
+describe("renderRunPlan", () => {
+  const plan = () =>
+    buildRunPlan({
+      command: ["codex", "-p", "continue"],
+      cwd: "/home/user/my-app",
+      storePath: "/tmp/jobs.json",
+    });
+
+  it("labels it as a dry run that executed nothing", () => {
+    const out = renderRunPlan(plan());
+    expect(out).toContain("Dry run");
+    expect(out).toContain("no job was queued");
+  });
+
+  it("shows the resolved tool, project, cwd and store with their sources", () => {
+    const out = renderRunPlan(plan());
+    expect(out).toContain("Codex CLI [codex-cli]");
+    expect(out).toContain("inferred from command");
+    expect(out).toContain("my-app (derived from cwd)");
+    expect(out).toContain("/home/user/my-app");
+    expect(out).toContain("/tmp/jobs.json");
+    expect(out).toContain("codex -p continue");
   });
 });
 
