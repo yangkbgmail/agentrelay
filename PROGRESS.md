@@ -1464,3 +1464,28 @@
   unix-epoch(비교차 확인).
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속. 파서 추가 실사용 포맷(named IANA tz 실제 변환·
   weekday 창)은 코워크 리서치(🧭)와 조율. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — 파서: 공백 구분 절대 datetime + 명명 타임존 인식] (2026-07-25, 무인 자율 세션)
+- **배경:** 세션 시작 시 designated 브랜치를 최신 main(#177 병합 반영)으로 리셋. BACKLOG의
+  👷 항목은 사실상 모두 완료 상태라 CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다. 이 도구의
+  핵심 가치는 파서의 실사용 포맷 커버리지에 달려 있는데, 기존 `iso-timestamp` 패턴은 리터럴
+  `T` 구분자를 **강제**해(진짜 ISO 8601), 서버 로그·에러 덤프에서 흔한 사람이 읽기 좋은
+  **공백 구분** 절대 시각(`resets at 2026-07-13 05:00:00 UTC`)과 **명명 타임존**(UTC/GMT)을
+  놓쳐 잡이 큐잉되지 않는 실사용 갭이 있었다.
+- **한 일 (branch `claude/wizardly-pascal-vo2o8r-parser`):**
+  1. `packages/core/src/parser.ts`에 순수 `iso-datetime-space` 패턴 추가(iso-timestamp 바로
+     뒤 배치) — `YYYY-MM-DD` + **공백** 구분 + `HH:MM`(초 optional) + **필수 zone**(`Z`/`UTC`/
+     `GMT`/`±HH:MM`). UTC/GMT/Z는 UTC로, `±HH:MM` 오프셋은 `Date.UTC` 후 오프셋을 빼 UTC
+     instant를 복원(`05:00 +09:00`→전날 20:00 UTC). **zone 필수** — zone 없는 `2026-07-13 05:00`은
+     24+ 오프셋 중 무엇인지 모호해 low-confidence라 의도적으로 미매치(meridiem 필수 규약과 동일
+     철학). month>12·day>31·hour>23 등 불가능 필드는 `Date.UTC` 롤오버(13월→익년 1월) 대신 명시적
+     null 반환으로 거부. iso-timestamp가 `T`를 하드 요구하므로 두 패턴은 disjoint(기존 Z-form은
+     여전히 `iso-timestamp`로 리포트 — 기존 테스트/동작 불변).
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  전 패키지 통과(core 502 + cli 228/1skip + dashboard 7; parser.test.ts +6 신규: UTC 공백·초없는
+  GMT·trailing Z·`±09:00` 오프셋 UTC 복원·zoneless 미매치·out-of-range 필드 거부). 실제 빌드된
+  CLI e2e(mock 아님): `parse "…Resets at 2026-07-13 05:00:00 UTC."`→iso-datetime-space/정확한 UTC,
+  `parse "resets at 2026-07-13 05:00 +09:00" --json`→2026-07-12T20:00:00Z, `parse "Resets at
+  2026-07-13 05:00."`→미검출(exit 0, 정상 종료).
+- **다음 할 일:** 파서 추가 실사용 포맷(named IANA tz 실제 변환·weekday 창)은 코워크 리서치(🧭)와
+  조율. README/ARCHITECTURE(🧭 코워크). 남은 distinct 열린 PR 통합.
