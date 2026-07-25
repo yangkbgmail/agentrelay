@@ -1438,3 +1438,30 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay upcoming` 재개 타임라인 커맨드 신설] (2026-07-25, 무인 자율 세션, branch `claude/wizardly-pascal-cflh8s`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. 기존에
+  `next`(스케줄러가 재개할 **단일** 다음 잡)와 `status`(**모든** 상태의 전체 큐)는 있었지만, "지금
+  리셋 대기 중인 잡들이 앞으로 어떤 순서로·언제 재개되나"라는 재개 런웨이(runway)를 한눈에 보여주는
+  커맨드가 없었다. 대기 잡이 여러 개일 때 사용자가 "내 백로그가 실제로 언제 돌아오나"를 파악하려면
+  `status`의 노이즈(종료/활성 잡 포함)를 걸러야 했다.
+- **한 일:**
+  1. `@agentrelay/core/upcoming.ts` 신설(순수·시계/큐/I/O 미접촉): `selectUpcomingResumes(jobs, now?,
+     {limit?})` → `UpcomingSchedule`(resumes[]·totalWaiting·dueNow·hidden). `waiting_for_reset` +
+     파싱 가능 `resetAt` 잡만 필터해 정렬, 각 resume에 `next`와 동일 shape의 dueInMs/due.
+  2. `next.ts`의 정렬 비교 함수를 `compareByResume`로 export(이름 명확화) — `next`(단일 head 선택)와
+     `upcoming`(전체 스케줄 정렬)이 리셋 순서 규칙(리셋 이른 순→createdAt→id)의 단일 진실원을 공유.
+  3. `limit`은 반환 행만 자르되 회계(totalWaiting/dueNow/hidden)는 항상 전체를 반영 → 잘린 뷰가
+     "N more not shown"을 정직하게 말함.
+  4. CLI `packages/cli/src/upcoming.ts`에 순수 `renderUpcoming`(번호 매긴 스케줄+due-now/hidden 푸터,
+     `formatCountdown` 재사용으로 status·next와 카운트다운 문구 일치)·`renderUpcomingJson`(next와 동일
+     envelope). `agentrelay upcoming [-n/--limit] [--json]` 배선, 비양수/비정수 limit은 exit 1.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  전 패키지 통과(core upcoming 9 + cli upcoming 11 신규 = core/cli/dashboard 전부 green). 실제 빌드된
+  CLI e2e(mock 아님): 3개 대기 잡을 리셋 이른 순으로 정렬(due now 1건 포함)·`--limit 2`가 "1 more job
+  not shown" 푸터·`--json` 전체 스케줄 출력·빈 스토어 "No jobs waiting for a reset."·`--limit 0`→exit 1
+  확인. 새 core 정렬/파서 로직 최소(기존 `compareByResume` 재사용).
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
+  #105 upcoming[본 세션이 최신 main 위에 새로 구현]·#125 --no-color·#152 resolution Prometheus 히스토그램·
+  #154/#156 데모·재개 stagger 계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴).
+  README/ARCHITECTURE(🧭 코워크).

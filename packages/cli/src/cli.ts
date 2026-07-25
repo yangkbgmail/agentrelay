@@ -33,6 +33,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
   selectNextResume,
+  selectUpcomingResumes,
   sendTestNotification,
   summarizeRateLimitPatterns,
 } from "@agentrelay/core";
@@ -84,6 +85,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { renderUpcoming, renderUpcomingJson } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -547,6 +549,34 @@ export function buildCli(): Command {
         if (next === null) process.exitCode = 4;
         else if (!next.due) process.exitCode = 3;
         // due-now → exit 0 (default).
+      }
+    });
+
+  program
+    .command("upcoming")
+    .description("List every job waiting for a reset, in the order the relay will resume them, with countdowns")
+    .option("-n, --limit <n>", "Show only the first N upcoming resumes (+ a hidden-count footer)")
+    .option("--json", "Print the schedule as JSON (machine-readable, for scripts/jq)")
+    .action((opts: { limit?: string; json?: boolean }) => {
+      const { store } = program.opts();
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const parsed = Number(opts.limit);
+        if (!Number.isInteger(parsed) || parsed <= 0) {
+          console.error(`[agentrelay] Invalid --limit: ${opts.limit}. Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = parsed;
+      }
+
+      const schedule = selectUpcomingResumes(listStatus(store), Date.now(), { limit });
+
+      if (opts.json) {
+        console.log(renderUpcomingJson(schedule, store));
+      } else {
+        console.log(renderUpcoming(schedule, { color: Boolean(process.stdout.isTTY) }));
       }
     });
 

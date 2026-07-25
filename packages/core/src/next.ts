@@ -19,9 +19,11 @@ export interface NextResume {
 /**
  * Order two waiting jobs by which the scheduler will resume first: earliest
  * reset time wins, then oldest `createdAt`, then id — so the pick is fully
- * deterministic even when two jobs share a reset time.
+ * deterministic even when two jobs share a reset time. Exported so `upcoming`
+ * (which lists the whole resume schedule) sorts by the exact same rule `next`
+ * uses to pick the single head — one source of truth for resume order.
  */
-function compareNext(a: RelayJob, b: RelayJob): number {
+export function compareByResume(a: RelayJob, b: RelayJob): number {
   const ra = Date.parse(a.resetAt as string);
   const rb = Date.parse(b.resetAt as string);
   if (ra !== rb) return ra - rb;
@@ -43,7 +45,7 @@ export function selectNextResume(jobs: RelayJob[], now: number = Date.now()): Ne
   );
   if (waiting.length === 0) return null;
 
-  const job = waiting.reduce((best, candidate) => (compareNext(candidate, best) < 0 ? candidate : best));
+  const job = waiting.reduce((best, candidate) => (compareByResume(candidate, best) < 0 ? candidate : best));
   const resetMs = Date.parse(job.resetAt as string);
   return {
     job,
