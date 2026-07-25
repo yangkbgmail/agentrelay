@@ -202,6 +202,78 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
   });
 
+  it("parses a weekly limit that names a weekday with a time: 'resets on Monday at 9am'", () => {
+    // now = Sunday 2026-07-12 08:00 local; next Monday is the following day.
+    const now = new Date("2026-07-12T08:00:00");
+    const result = parseRateLimitMessage("You've hit your weekly limit. It resets on Monday at 9am.", {
+      now,
+    });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("weekday-time");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(1); // Monday
+    expect(reset.getHours()).toBe(9);
+    expect(reset.getMinutes()).toBe(0);
+    expect(reset.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses a weekday without 'on' and without a time (defaults to midnight)", () => {
+    const now = new Date("2026-07-12T08:00:00"); // Sunday
+    const result = parseRateLimitMessage("Weekly limit reached. Resets Wednesday.", { now });
+    expect(result?.pattern).toBe("weekday-time");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(3); // Wednesday
+    expect(reset.getHours()).toBe(0);
+    expect(reset.getMinutes()).toBe(0);
+  });
+
+  it("rolls to next week when the named weekday's time today has already passed", () => {
+    // now = Monday 12:00 local; "Monday at 9am" already passed today -> next Monday.
+    const now = new Date("2026-07-13T12:00:00"); // Monday
+    const result = parseRateLimitMessage("resets Monday at 9am", { now });
+    expect(result?.pattern).toBe("weekday-time");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(1); // still Monday...
+    expect(reset.getHours()).toBe(9);
+    // ...but a week out, not today.
+    expect(reset.getTime() - now.getTime()).toBeGreaterThan(6 * 24 * 60 * 60_000);
+  });
+
+  it("keeps today when the named weekday is today and its time is still ahead", () => {
+    const now = new Date("2026-07-13T07:00:00"); // Monday 07:00
+    const result = parseRateLimitMessage("Your weekly limit resets Monday at 9am.", { now });
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(1);
+    expect(reset.getHours()).toBe(9);
+    // same day (< 24h out)
+    expect(reset.getTime() - now.getTime()).toBeLessThan(24 * 60 * 60_000);
+  });
+
+  it("accepts abbreviated weekday names and 24-hour times: 'resets Fri at 15:30'", () => {
+    const now = new Date("2026-07-12T08:00:00"); // Sunday
+    const result = parseRateLimitMessage("available again on Fri at 15:30", { now });
+    expect(result?.pattern).toBe("weekday-time");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(5); // Friday
+    expect(reset.getHours()).toBe(15);
+    expect(reset.getMinutes()).toBe(30);
+  });
+
+  it("handles a weekday with a 12am/12pm meridiem edge case", () => {
+    const now = new Date("2026-07-12T08:00:00"); // Sunday
+    const midnight = new Date(parseRateLimitMessage("resets Tuesday at 12am", { now })!.resetAt);
+    expect(midnight.getDay()).toBe(2);
+    expect(midnight.getHours()).toBe(0);
+    const noon = new Date(parseRateLimitMessage("resets Tuesday at 12pm", { now })!.resetAt);
+    expect(noon.getHours()).toBe(12);
+  });
+
+  it("does not treat a bare clock time as a weekday reset", () => {
+    // "resets at 5pm" must still be clock-time-meridiem, not weekday-time.
+    const result = parseRateLimitMessage("Your limit will reset at 5pm.");
+    expect(result?.pattern).toBe("clock-time-meridiem");
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [

@@ -550,6 +550,22 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 파서 요일(day-of-week) 리셋 인식 (`resets on Monday at 9am` / `resets Wednesday`) — 주간
+      사용량 한도(weekly limit)의 실제 문구.
+      (완료 — Claude Code의 주간 한도는 같은 날 시각이 아니라 요일을 찍는데(`You've hit your weekly
+      limit. It resets on Monday at 9am.`), 기존 clock/relative 패턴이 전부 놓쳐 주간 한도 잡이 아예
+      큐잉되지 않던 실사용 갭. `parser.ts`에 순수 `weekday-time` 패턴 신설: `(?:reset[s]?|available
+      again|try again)\s+(?:on\s+)?<weekday>` + 선택적 `at <시각>`(12h meridiem 또는 24h, 분 선택,
+      기존 clock 규칙 미러). 요일은 풀네임/3글자 약어(`Mon`/`Monday`) 모두, `WEEKDAY_INDEX`로
+      `getDay()` 인덱스 매핑. 시각 없으면 그 날 00:00(local)로 해석, 명명 요일의 *다음 미래 발생*으로
+      해소(요일 또는 그날 시각이 이미 지났으면 한 주 롤 — clock 패턴과 동일 안전 스탠스). meridiem
+      12am→0/12pm→12·13pm 무효·24h 범위(hour≤23/min≤59) 검증. pre-filter(`LOOKS_LIKE_RATE_LIMIT`)에
+      `weekly limit`·`available again`·`resets on/<weekday>` 알터너티브 추가. 명명 타임존은 로컬 해석
+      (clock-time-meridiem과 동일 기존 한계). 새 커맨드 0개 — `agentrelay parse`가 자동으로 새 패턴 노출.
+      parser.test +7 회귀(요일+시각/무시각 midnight/오늘 롤/오늘 유지/약어+24h/12am·12pm/clock 우선순위
+      비회귀), 실제 빌드 CLI `parse` e2e로 weekday-time 매치·bare weekday·available again·clock 비회귀
+      검증. branch `claude/wizardly-pascal-weekday`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

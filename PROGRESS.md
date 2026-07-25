@@ -1438,3 +1438,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — 파서 요일(day-of-week) 리셋 인식 = 주간 사용량 한도 문구] (2026-07-25, 무인 자율 세션, branch `claude/wizardly-pascal-weekday`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목 발굴. 열린 PR 50건을
+  전수 확인 — config get·stats --watch·파서(상대날짜/epoch헤더/retry-after/타임존/midnight·noon/
+  resets 3am)·report·agenda·verify·clean 등 대부분 커버됨. **요일 기반 리셋**(주간 한도)만이 어느 열린
+  PR에도 없어 중복 없는 clean·self-contained 항목으로 선정. Claude Code의 **주간 사용량 한도**는 같은 날
+  시각이 아니라 요일을 찍는데(`You've hit your weekly limit. It resets on Monday at 9am.`), 기존
+  clock/relative 패턴이 전부 놓쳐 주간 한도로 막힌 잡이 아예 큐잉되지 않던 실사용 갭.
+- **한 일:**
+  1. `packages/core/src/parser.ts`에 순수 `weekday-time` 패턴 신설: `(?:reset[s]?|available again|try
+     again)\s+(?:on\s+)?<weekday>` + 선택적 `at <시각>`(12h meridiem 또는 24h, 분 선택 — 기존 clock 규칙
+     미러). 요일은 풀네임/3글자 약어(`Mon`/`Monday`) 모두 인식, `WEEKDAY_INDEX`로 `getDay()` 매핑.
+  2. 해소 규칙: 시각 없으면 그 날 00:00(local), 명명 요일의 *다음 미래 발생*으로 롤(요일 또는 그날
+     시각이 이미 지났으면 +7일 — clock 패턴과 동일 안전 스탠스). meridiem 12am→0/12pm→12·13pm 무효·
+     24h 범위(hour≤23/min≤59) 검증. 명명 타임존은 로컬 해석(기존 한계 유지).
+  3. pre-filter `LOOKS_LIKE_RATE_LIMIT`에 `weekly limit`·`available again`·`reset[s]? on/<weekday>`
+     알터너티브 추가(안 그러면 "resets Monday"가 pre-filter를 통과 못 함). 새 커맨드 0개 —
+     `agentrelay parse`가 자동으로 새 패턴 노출.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  전 패키지 통과(parser.test +7 회귀: 요일+시각/무시각 midnight/오늘 롤/오늘 유지/약어+24h/12am·12pm/
+  clock 우선순위 비회귀). 실제 빌드된 CLI e2e(mock 아님): `parse "…resets on Monday at 9am."`→
+  weekday-time 매치·다음 월요일 해소, bare `Resets Wednesday.`→수요일 00:00, `Available again on Fri
+  at 15:30`→금요일 15:30, `reset at 5pm`→여전히 clock-time-meridiem(비회귀) 확인.
+- **다음 할 일:** 남은 파서 실사용 갭(named IANA 타임존 정확 해석은 여전히 로컬 근사) 또는 남은
+  distinct 열린 PR 통합. README/ARCHITECTURE(🧭 코워크).
