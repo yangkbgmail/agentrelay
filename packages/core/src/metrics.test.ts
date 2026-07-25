@@ -120,6 +120,38 @@ describe("renderPrometheusMetrics", () => {
     expect(s.get('agentrelay_resolution_seconds{stat="p90"}')).toBe(60);
   });
 
+  it("emits wait_absorbed gauges only when a job contributed a window", () => {
+    const empty = renderPrometheusMetrics(computeStats([job({ lastRateLimit: null })]));
+    const es = parseSamples(empty);
+    expect(es.get("agentrelay_wait_absorbed_jobs")).toBe(0);
+    expect(empty).not.toContain("agentrelay_wait_absorbed_seconds");
+
+    // 1h + 3h absorbed windows → total 4h, avg 2h, max 3h (in seconds).
+    const jobs = [
+      job({
+        lastRateLimit: {
+          pattern: "clock-time",
+          rawMatch: "resets",
+          detectedAt: "2026-07-13T00:00:00.000Z",
+          resetAt: "2026-07-13T01:00:00.000Z",
+        },
+      }),
+      job({
+        lastRateLimit: {
+          pattern: "clock-time",
+          rawMatch: "resets",
+          detectedAt: "2026-07-13T00:00:00.000Z",
+          resetAt: "2026-07-13T03:00:00.000Z",
+        },
+      }),
+    ];
+    const s = parseSamples(renderPrometheusMetrics(computeStats(jobs)));
+    expect(s.get("agentrelay_wait_absorbed_jobs")).toBe(2);
+    expect(s.get('agentrelay_wait_absorbed_seconds{stat="total"}')).toBe(4 * 3600);
+    expect(s.get('agentrelay_wait_absorbed_seconds{stat="avg"}')).toBe(2 * 3600);
+    expect(s.get('agentrelay_wait_absorbed_seconds{stat="max"}')).toBe(3 * 3600);
+  });
+
   it("honors a custom prefix and sanitizes it", () => {
     const text = renderPrometheusMetrics(computeStats([job()]), { prefix: "my-relay" });
     expect(text).toContain("my_relay_jobs ");

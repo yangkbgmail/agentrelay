@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { computeDailyTrend, computeStats, GROUP_DIMENSIONS, groupStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import {
+  computeDailyTrend,
+  computeStats,
+  GROUP_DIMENSIONS,
+  groupStats,
+  isJobScopeActive,
+  rateLimitWaitMs,
+  scopeJobs,
+} from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -44,6 +52,7 @@ describe("computeStats", () => {
       medianResolutionMs: null,
       p90ResolutionMs: null,
     });
+    expect(stats.waitAbsorbed).toEqual({ jobCount: 0, totalMs: 0, avgMs: null, maxMs: null });
   });
 
   it("splits active vs terminal counts", () => {
@@ -239,6 +248,75 @@ describe("computeStats", () => {
       medianResolutionMs: null,
       p90ResolutionMs: null,
     });
+  });
+});
+
+describe("rateLimitWaitMs", () => {
+  function detection(overrides: Partial<RelayJob["lastRateLimit"]> = {}) {
+    return {
+      pattern: "clock-time",
+      rawMatch: "resets at 5pm",
+      detectedAt: "2026-07-13T00:00:00.000Z",
+      resetAt: "2026-07-13T01:00:00.000Z",
+      ...overrides,
+    };
+  }
+
+  it("returns resetAt - detectedAt for a valid detection", () => {
+    expect(rateLimitWaitMs(job({ lastRateLimit: detection() }))).toBe(3_600_000);
+  });
+
+  it("returns null when the job has no detection", () => {
+    expect(rateLimitWaitMs(job({ lastRateLimit: null }))).toBeNull();
+    expect(rateLimitWaitMs(job())).toBeNull();
+  });
+
+  it("returns null for a missing/unparseable timestamp", () => {
+    expect(rateLimitWaitMs(job({ lastRateLimit: detection({ detectedAt: "nope" }) }))).toBeNull();
+    expect(rateLimitWaitMs(job({ lastRateLimit: detection({ resetAt: "" }) }))).toBeNull();
+  });
+
+  it("returns null for a negative span (reset already past / clock skew)", () => {
+    const back = detection({ detectedAt: "2026-07-13T02:00:00.000Z", resetAt: "2026-07-13T01:00:00.000Z" });
+    expect(rateLimitWaitMs(job({ lastRateLimit: back }))).toBeNull();
+  });
+
+  it("treats a zero-length window as valid (reset == detected)", () => {
+    const now = detection({ resetAt: "2026-07-13T00:00:00.000Z" });
+    expect(rateLimitWaitMs(job({ lastRateLimit: now }))).toBe(0);
+  });
+});
+
+describe("computeStats waitAbsorbed", () => {
+  const det = (detectedAt: string, resetAt: string) => ({
+    pattern: "clock-time",
+    rawMatch: "resets",
+    detectedAt,
+    resetAt,
+  });
+
+  it("sums absorbed windows across jobs with detections", () => {
+    const stats = computeStats([
+      job({ lastRateLimit: det("2026-07-13T00:00:00.000Z", "2026-07-13T01:00:00.000Z") }), // 1h
+      job({ lastRateLimit: det("2026-07-13T00:00:00.000Z", "2026-07-13T03:00:00.000Z") }), // 3h
+      job({ lastRateLimit: null }), // no detection -> excluded
+    ]);
+    expect(stats.waitAbsorbed.jobCount).toBe(2);
+    expect(stats.waitAbsorbed.totalMs).toBe(4 * 3_600_000);
+    expect(stats.waitAbsorbed.avgMs).toBe(2 * 3_600_000);
+    expect(stats.waitAbsorbed.maxMs).toBe(3 * 3_600_000);
+  });
+
+  it("skips invalid/negative windows without clamping", () => {
+    const stats = computeStats([
+      job({ lastRateLimit: det("2026-07-13T00:00:00.000Z", "2026-07-13T02:00:00.000Z") }), // 2h valid
+      job({ lastRateLimit: det("bad", "2026-07-13T02:00:00.000Z") }), // unparseable -> skip
+      job({ lastRateLimit: det("2026-07-13T05:00:00.000Z", "2026-07-13T04:00:00.000Z") }), // negative -> skip
+    ]);
+    expect(stats.waitAbsorbed.jobCount).toBe(1);
+    expect(stats.waitAbsorbed.totalMs).toBe(2 * 3_600_000);
+    expect(stats.waitAbsorbed.avgMs).toBe(2 * 3_600_000);
+    expect(stats.waitAbsorbed.maxMs).toBe(2 * 3_600_000);
   });
 });
 

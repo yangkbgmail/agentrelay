@@ -559,6 +559,23 @@
       malformed fallthrough). 새 CLI 코드 0줄 — 기존 `parse` 커맨드가 자동 노출.
       branch `claude/wizardly-pascal-hi5obo`)
 
+- [x] 👷 `agentrelay stats` 흡수 대기 시간(wait absorbed) 지표 — 릴레이가 사용자 대신 기다려 준
+      rate-limit 시간의 헤드라인 "릴레이 효과" 숫자. (스스로 발굴 — MVP·§8 명시 항목이 전부 완료
+      상태라 CLAUDE.md 지침대로 신규 개선 항목 발굴.)
+      (완료 — 이 도구의 핵심 가치는 "사람이 붙어 기다릴 rate-limit 시간을 대신 흡수"인데, stats는
+      성공률·해결시간·재시도까지 보여주면서 정작 그 흡수량 자체는 어디에도 없었다. 세션 38이 영속한
+      provenance(`lastRateLimit`: detectedAt·resetAt)만 읽어 순수 계산 — 새 파서/스토어 로직 0줄.
+      `@agentrelay/core/stats.ts`에 순수 `rateLimitWaitMs(job)`(`resetAt−detectedAt`, 감지 없음·
+      파싱불가·음수 span[reset이 이미 과거/클럭 스큐]은 null=집계 제외, 클램프 안 함 — timing 관례
+      일치) + `WaitAbsorbedStats`(jobCount·totalMs·avgMs·maxMs) + `RelayStats.waitAbsorbed` 추가.
+      `computeStats`가 한 패스로 합산(감지가 잡당 마지막 것만 영속되므로 "잡당 최근 rate-limit 창"을
+      집계함을 문서화). CLI `stats.ts`가 흡수 잡이 있을 때만 "rate-limit wait absorbed" 블록(total/
+      avg/max) 렌더, `--json`은 job 전체라 자동 노출. core `metrics.ts`가 `agentrelay_wait_absorbed_jobs`
+      게이지 + 흡수 창이 있을 때만 `agentrelay_wait_absorbed_seconds{stat=total|avg|max}`(초 단위,
+      resolution_seconds 관례 일치). core rateLimitWaitMs 5 + waitAbsorbed 2 + metrics 1 + cli stats 2
+      신규 테스트, 실제 빌드 CLI e2e로 stats 블록(total 5h/avg 2h30m/max 3h)·Prometheus 게이지·--json
+      필드 검증. branch `claude/wizardly-pascal-plmice`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

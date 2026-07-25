@@ -128,6 +128,28 @@ describe("renderStats", () => {
     expect(out).not.toContain("resolution time");
   });
 
+  it("renders a wait-absorbed block when a job carries a rate-limit window", () => {
+    const stats = computeStats([
+      job({
+        lastRateLimit: {
+          pattern: "clock-time",
+          rawMatch: "resets at 5pm",
+          detectedAt: "2026-07-13T00:00:00.000Z",
+          resetAt: "2026-07-13T02:00:00.000Z",
+        },
+      }),
+    ]);
+    const out = renderStats(stats, { now: NOW });
+    expect(out).toContain("rate-limit wait absorbed");
+    expect(out).toContain("total 2h 0m");
+    expect(out).toContain("over 1 job(s)");
+  });
+
+  it("omits the wait-absorbed block when no job hit a rate limit", () => {
+    const out = renderStats(computeStats([job({ lastRateLimit: null })]), { now: NOW });
+    expect(out).not.toContain("wait absorbed");
+  });
+
   it("caps the project list at five entries", () => {
     const jobs: RelayJob[] = [];
     for (const p of ["a", "b", "c", "d", "e", "f", "g"]) jobs.push(job({ project: p }));

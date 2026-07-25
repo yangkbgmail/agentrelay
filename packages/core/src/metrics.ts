@@ -152,5 +152,29 @@ export function renderPrometheusMetrics(stats: RelayStats, options: PrometheusOp
     );
   }
 
+  // Rate-limit wait the relay absorbed (headline effect). Emit only when at
+  // least one job contributed a valid window, so scrapers don't record a
+  // meaningless 0-of-0 average.
+  const w = stats.waitAbsorbed;
+  lines.push(
+    ...metricFamily(name("wait_absorbed_jobs"), "Jobs that contributed a valid absorbed rate-limit wait window.", [
+      `${name("wait_absorbed_jobs")} ${formatValue(w.jobCount)}`,
+    ])
+  );
+  if (w.avgMs !== null && w.maxMs !== null) {
+    const metric = name("wait_absorbed_seconds");
+    lines.push(
+      ...metricFamily(
+        metric,
+        "Rate-limit wait the relay absorbed on the user's behalf (resetAt - detectedAt), seconds.",
+        [
+          `${metric}{${label("stat", "total")}} ${formatValue(w.totalMs / 1000)}`,
+          `${metric}{${label("stat", "avg")}} ${formatValue(w.avgMs / 1000)}`,
+          `${metric}{${label("stat", "max")}} ${formatValue(w.maxMs / 1000)}`,
+        ]
+      )
+    );
+  }
+
   return `${lines.join("\n")}\n`;
 }
