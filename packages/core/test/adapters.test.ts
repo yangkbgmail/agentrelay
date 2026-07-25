@@ -3,6 +3,7 @@ import {
   ADAPTERS,
   CLAUDE_CODE_ADAPTER,
   CODEX_CLI_ADAPTER,
+  describeAdapters,
   GENERIC_ADAPTER,
   inferToolFromCommand,
   resolveAdapter,
@@ -84,5 +85,42 @@ describe("adapter rate-limit detection", () => {
   it("the Claude Code adapter behaves like the generic parser", () => {
     const text = "usage limit reached, resets at 2026-07-13T05:00:00Z";
     expect(CLAUDE_CODE_ADAPTER.detectRateLimit(text, { now })?.pattern).toBe("iso-timestamp");
+  });
+});
+
+describe("describeAdapters", () => {
+  it("describes every registered adapter in registration order", () => {
+    const infos = describeAdapters();
+    expect(infos.map((a) => a.tool)).toEqual(["claude-code", "codex-cli", "generic"]);
+    expect(infos).toHaveLength(Object.keys(ADAPTERS).length);
+  });
+
+  it("flattens display names and inferring binaries", () => {
+    const claude = describeAdapters().find((a) => a.tool === "claude-code");
+    expect(claude?.displayName).toBe("Claude Code");
+    expect(claude?.binaries).toEqual(["claude", "claude-code"]);
+  });
+
+  it("lists tool-specific pattern names (Codex adds the seconds pattern)", () => {
+    const codex = describeAdapters().find((a) => a.tool === "codex-cli");
+    expect(codex?.patternNames).toEqual(["codex-relative-seconds"]);
+  });
+
+  it("reports no tool-specific patterns for adapters that only use the generic parser", () => {
+    const claude = describeAdapters().find((a) => a.tool === "claude-code");
+    expect(claude?.patternNames).toEqual([]);
+  });
+
+  it("marks only the generic adapter as the fallback, and it has no inferring binaries", () => {
+    const infos = describeAdapters();
+    expect(infos.filter((a) => a.isFallback).map((a) => a.tool)).toEqual(["generic"]);
+    const generic = infos.find((a) => a.tool === "generic");
+    expect(generic?.binaries).toEqual([]);
+  });
+
+  it("returns copies so callers cannot mutate the live registry", () => {
+    const info = describeAdapters().find((a) => a.tool === "claude-code");
+    info?.binaries.push("mutated");
+    expect(CLAUDE_CODE_ADAPTER.binaries).toEqual(["claude", "claude-code"]);
   });
 });

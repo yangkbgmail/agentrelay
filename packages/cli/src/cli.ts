@@ -18,6 +18,7 @@ import {
   computeDailyTrend,
   computeErrorBreakdown,
   computeStats,
+  describeAdapters,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
   generateCompletion,
@@ -86,6 +87,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { renderTools, renderToolsJson } from "./tools.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -615,6 +617,19 @@ export function buildCli(): Command {
         console.log(renderLocationsJson(report));
       } else {
         console.log(renderLocations(report, { color: Boolean(process.stdout.isTTY) }));
+      }
+    });
+
+  program
+    .command("tools")
+    .description("List the agent adapters AgentRelay knows about (valid --tool values, auto-inferred binaries)")
+    .option("--json", "Print the adapter catalog as JSON (machine-readable, for scripts/jq)")
+    .action((opts: { json?: boolean }) => {
+      const adapters = describeAdapters();
+      if (opts.json) {
+        console.log(renderToolsJson(adapters));
+      } else {
+        console.log(renderTools(adapters, { color: Boolean(process.stdout.isTTY) }));
       }
     });
 
