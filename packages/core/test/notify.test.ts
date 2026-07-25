@@ -3,9 +3,16 @@ import {
   combineNotifiers,
   createSlackNotifier,
   createWebhookNotifier,
+  describeNotifyEventFilter,
+  filterNotifierByEvent,
   formatSlackText,
+  isNotifyEvent,
   listNotifyChannels,
+  NOTIFY_EVENTS,
+  type NotifyEvent,
   notifiersFromEnv,
+  notifyEventFilterFromEnv,
+  parseNotifyEvents,
   sendTestNotification,
   slackNotifierFromEnv,
   testNotifyPayload,
@@ -238,6 +245,112 @@ describe("notifiersFromEnv", () => {
     await notify!(payload);
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(fetchFn.mock.calls[0][0]).toBe("https://hooks.example.test/relay");
+  });
+
+  it("only delivers the allowlisted events when AGENTRELAY_NOTIFY_EVENTS is set", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const notify = notifiersFromEnv(
+      {
+        AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+        AGENTRELAY_NOTIFY_EVENTS: "failed, completed",
+      },
+      { fetchFn }
+    );
+    expect(notify).not.toBeNull();
+
+    await notify!({ ...payload, event: "queued" });
+    await notify!({ ...payload, event: "resumed" });
+    expect(fetchFn).not.toHaveBeenCalled();
+
+    await notify!({ ...payload, event: "failed" });
+    await notify!({ ...payload, event: "completed" });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("notifies on every event when the filter lists only unknown tokens (no silent mute)", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const notify = notifiersFromEnv(
+      {
+        AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+        AGENTRELAY_NOTIFY_EVENTS: "bogus, nope",
+      },
+      { fetchFn }
+    );
+    await notify!({ ...payload, event: "queued" });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("parseNotifyEvents", () => {
+  it("splits, trims, lower-cases and dedupes valid events", () => {
+    const { events, invalid } = parseNotifyEvents(" Failed , completed ,failed");
+    expect([...events].sort()).toEqual(["completed", "failed"]);
+    expect(invalid).toEqual([]);
+  });
+
+  it("collects unknown tokens once each, ignoring blanks", () => {
+    const { events, invalid } = parseNotifyEvents("failed,, nope ,bogus,nope");
+    expect([...events]).toEqual(["failed"]);
+    expect(invalid).toEqual(["nope", "bogus"]);
+  });
+
+  it("returns empty structures for blank/undefined input", () => {
+    for (const raw of [undefined, "", "   ", ",, ,"]) {
+      const { events, invalid } = parseNotifyEvents(raw);
+      expect(events.size).toBe(0);
+      expect(invalid).toEqual([]);
+    }
+  });
+});
+
+describe("isNotifyEvent / NOTIFY_EVENTS", () => {
+  it("recognizes exactly the four lifecycle events", () => {
+    expect(NOTIFY_EVENTS).toEqual(["queued", "resumed", "completed", "failed"]);
+    for (const e of NOTIFY_EVENTS) expect(isNotifyEvent(e)).toBe(true);
+    expect(isNotifyEvent("cancelled")).toBe(false);
+    expect(isNotifyEvent("Failed")).toBe(false); // case-sensitive; callers lower-case first
+  });
+});
+
+describe("filterNotifierByEvent", () => {
+  it("forwards allowed events and drops the rest", async () => {
+    const seen: NotifyEvent[] = [];
+    const inner = async (p: NotifyPayload) => {
+      seen.push(p.event);
+    };
+    const filtered = filterNotifierByEvent(inner, new Set<NotifyEvent>(["failed"]));
+    await filtered({ ...payload, event: "queued" });
+    await filtered({ ...payload, event: "failed" });
+    expect(seen).toEqual(["failed"]);
+  });
+});
+
+describe("notifyEventFilterFromEnv", () => {
+  it("returns null (notify on everything) when unset or blank", () => {
+    expect(notifyEventFilterFromEnv({})).toBeNull();
+    expect(notifyEventFilterFromEnv({ AGENTRELAY_NOTIFY_EVENTS: "  " })).toBeNull();
+  });
+
+  it("returns the parsed set for a valid allowlist", () => {
+    const set = notifyEventFilterFromEnv({ AGENTRELAY_NOTIFY_EVENTS: "failed,completed" });
+    expect(set && [...set].sort()).toEqual(["completed", "failed"]);
+  });
+
+  it("returns null when every token is unknown (never silently mutes)", () => {
+    expect(notifyEventFilterFromEnv({ AGENTRELAY_NOTIFY_EVENTS: "typo,oops" })).toBeNull();
+  });
+});
+
+describe("describeNotifyEventFilter", () => {
+  it("labels the active filter in lifecycle order", () => {
+    expect(describeNotifyEventFilter({ AGENTRELAY_NOTIFY_EVENTS: "completed,failed,resumed" })).toBe(
+      "resumed, completed, failed"
+    );
+  });
+
+  it("returns null when no filter is active", () => {
+    expect(describeNotifyEventFilter({})).toBeNull();
+    expect(describeNotifyEventFilter({ AGENTRELAY_NOTIFY_EVENTS: "typo" })).toBeNull();
   });
 });
 

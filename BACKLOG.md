@@ -550,6 +550,19 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 알림 이벤트 필터(`AGENTRELAY_NOTIFY_EVENTS` / `notify.events`) — Slack/웹훅 알림을 잡
+      라이프사이클 이벤트(`queued`/`resumed`/`completed`/`failed`)의 부분집합으로 좁혀 노이즈 감소
+      ("실패만"·"완료만" 등).
+      (완료 — `@agentrelay/core/notify.ts`에 순수 필터 계층 신설: `NotifyEvent`/`NOTIFY_EVENTS`/
+      `isNotifyEvent`/`parseNotifyEvents`(콤마 분리·trim·소문자·중복 제거→유효 Set+미지 토큰 분리)/
+      `filterNotifierByEvent`(허용 이벤트만 forward)/`notifyEventFilterFromEnv`(미설정·공백·전부-무효는
+      null=전체 발송 → 오타가 알림을 조용히 안 끔)/`describeNotifyEventFilter`(배너 라벨). `notifiersFromEnv`가
+      채널 결합 위에 필터를 한 번 적용해 Slack·웹훅 lockstep, run/daemon/tick은 이미 이걸 쓰므로 새 배선
+      0줄로 자동 활성. CLI daemon 배너에 활성 필터 표시. config 전 계층 배선(`notify.events` 콤마 문자열,
+      config set/show/validate 자동 편입, validateConfig가 미지 이벤트명 error·유효 0개 warning, CONFIG_ENV_KEYS
+      드리프트 sync 테스트 통과). core notify 12 + config 3 신규 테스트, 실제 빌드 CLI e2e로 set 거부·validate
+      error·config show 출처·실제 웹훅 필터 검증. branch `claude/wizardly-pascal-g1vtgs`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

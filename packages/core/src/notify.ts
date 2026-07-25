@@ -70,6 +70,83 @@ export function combineNotifiers(...notifiers: Array<Notifier | null | undefined
   };
 }
 
+/** A queue event that can trigger a notification. */
+export type NotifyEvent = NotifyPayload["event"];
+
+/** Every notifiable event, in the order they occur over a job's lifecycle. */
+export const NOTIFY_EVENTS: NotifyEvent[] = ["queued", "resumed", "completed", "failed"];
+
+/** Type guard: is `value` one of the known {@link NotifyEvent}s? */
+export function isNotifyEvent(value: string): value is NotifyEvent {
+  return (NOTIFY_EVENTS as string[]).includes(value);
+}
+
+/** The parsed result of a comma-separated event allowlist. */
+export interface ParsedNotifyEvents {
+  /** The recognized events, deduped (order-insensitive). */
+  events: Set<NotifyEvent>;
+  /** Tokens that weren't valid event names, deduped in first-seen order. */
+  invalid: string[];
+}
+
+/**
+ * Parses a comma-separated list of event names (e.g. `"failed,completed"`) into
+ * a set of valid {@link NotifyEvent}s plus any unrecognized tokens. Tokens are
+ * trimmed and lower-cased; blank tokens are ignored. Pure — no env, no defaults
+ * — so both the env reader and `config validate` share exactly these rules.
+ */
+export function parseNotifyEvents(raw: string | undefined): ParsedNotifyEvents {
+  const events = new Set<NotifyEvent>();
+  const invalid: string[] = [];
+  for (const token of raw?.split(",") ?? []) {
+    const t = token.trim().toLowerCase();
+    if (t === "") continue;
+    if (isNotifyEvent(t)) events.add(t);
+    else if (!invalid.includes(t)) invalid.push(t);
+  }
+  return { events, invalid };
+}
+
+/**
+ * Wraps a notifier so only payloads whose `event` is in `events` are forwarded;
+ * everything else is silently dropped. Lets users cut notification noise down to
+ * the events they care about (e.g. only `failed`).
+ */
+export function filterNotifierByEvent(notifier: Notifier, events: Set<NotifyEvent>): Notifier {
+  return async (payload: NotifyPayload) => {
+    if (!events.has(payload.event)) return;
+    await notifier(payload);
+  };
+}
+
+/**
+ * Reads the `AGENTRELAY_NOTIFY_EVENTS` allowlist into a set of events to notify
+ * on, or `null` to mean "notify on every event" (the backward-compatible
+ * default). `null` is returned when the var is unset/blank *or* contains only
+ * unrecognized tokens — a typo must never silently mute all notifications, the
+ * same principle the auto-prune env readers follow.
+ */
+export function notifyEventFilterFromEnv(
+  env: Record<string, string | undefined> = process.env
+): Set<NotifyEvent> | null {
+  const raw = env.AGENTRELAY_NOTIFY_EVENTS?.trim();
+  if (!raw) return null;
+  const { events } = parseNotifyEvents(raw);
+  return events.size === 0 ? null : events;
+}
+
+/**
+ * A short human label for the active event filter (e.g. `"failed, completed"`)
+ * in canonical lifecycle order, or `null` when no filter is active (all events
+ * notify). Used by the daemon banner so users can see at a glance which events
+ * will page them.
+ */
+export function describeNotifyEventFilter(env: Record<string, string | undefined> = process.env): string | null {
+  const filter = notifyEventFilterFromEnv(env);
+  if (!filter) return null;
+  return NOTIFY_EVENTS.filter((event) => filter.has(event)).join(", ");
+}
+
 export interface WebhookNotifierOptions {
   /** Endpoint that receives a POST for every queue event. */
   url: string;
@@ -156,7 +233,12 @@ export function notifiersFromEnv(
     (n): n is Notifier => typeof n === "function"
   );
   if (configured.length === 0) return null;
-  return combineNotifiers(...configured);
+  const combined = combineNotifiers(...configured);
+  // Optionally restrict which lifecycle events actually page the user
+  // (`AGENTRELAY_NOTIFY_EVENTS=failed,completed`). Applied once, above every
+  // channel, so Slack and the generic webhook stay in lockstep.
+  const filter = notifyEventFilterFromEnv(env);
+  return filter ? filterNotifierByEvent(combined, filter) : combined;
 }
 
 export type NotifyChannelKind = "slack" | "webhook";
