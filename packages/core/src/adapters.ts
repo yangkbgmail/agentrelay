@@ -45,6 +45,17 @@ function makeAdapter(spec: Omit<AgentAdapter, "detectRateLimit">): AgentAdapter 
 }
 
 /**
+ * Convert a (possibly fractional) seconds string into an absolute reset instant
+ * `now + seconds`, rounding *up* to whole milliseconds so we never resume before
+ * the wait actually elapses. Returns null for non-positive / unparseable values.
+ */
+function secondsFromNow(secondsText: string, now: Date): Date | null {
+  const seconds = parseFloat(secondsText);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return new Date(now.getTime() + Math.ceil(seconds * 1000));
+}
+
+/**
  * OpenAI-style APIs (which Codex CLI talks to) frequently return sub-minute
  * waits phrased in *seconds*, e.g. "Rate limit reached ... Please try again in
  * 20s" or "try again in 1.5s". The generic `relative-duration` pattern only
@@ -54,11 +65,33 @@ function makeAdapter(spec: Omit<AgentAdapter, "detectRateLimit">): AgentAdapter 
 const CODEX_SECONDS_PATTERN: RateLimitPattern = {
   name: "codex-relative-seconds",
   regex: /(?:try again|retry|resets?)(?:\s+again)?\s+(?:in|after)\s+(\d+(?:\.\d+)?)\s*s(?:ec(?:onds?)?)?\b/i,
-  resolve: (m, now) => {
-    const seconds = parseFloat(m[1]);
-    if (!Number.isFinite(seconds) || seconds <= 0) return null;
-    return new Date(now.getTime() + Math.ceil(seconds * 1000));
-  },
+  resolve: (m, now) => secondsFromNow(m[1], now),
+};
+
+/**
+ * Google's Gemini API returns 429s carrying a `google.rpc.RetryInfo` detail
+ * whose `retryDelay` is a protobuf Duration string, e.g.
+ *   "details": [{ "@type": ".../google.rpc.RetryInfo", "retryDelay": "56s" }]
+ * The Gemini CLI dumps this JSON verbatim on a quota error. Neither the generic
+ * parser (no seconds) nor the Codex "try again in Ns" wording matches the bare
+ * `retryDelay` field, so recognize it here. Accepts JSON (`"retryDelay": "56s"`)
+ * and unquoted (`retryDelay=56s`) forms and fractional Durations (`"1.5s"`).
+ */
+const GEMINI_RETRY_DELAY_PATTERN: RateLimitPattern = {
+  name: "gemini-retry-delay",
+  regex: /retrydelay"?\s*[:=]\s*"?(\d+(?:\.\d+)?)s"?/i,
+  resolve: (m, now) => secondsFromNow(m[1], now),
+};
+
+/**
+ * The Gemini CLI also phrases sub-minute retries in plain seconds
+ * ("please try again in 30s"), same shape as the Codex wording — reuse it under
+ * a Gemini-specific name so a job's stored provenance stays tool-accurate.
+ */
+const GEMINI_SECONDS_PATTERN: RateLimitPattern = {
+  name: "gemini-relative-seconds",
+  regex: CODEX_SECONDS_PATTERN.regex,
+  resolve: (m, now) => secondsFromNow(m[1], now),
 };
 
 export const CLAUDE_CODE_ADAPTER: AgentAdapter = makeAdapter({
@@ -75,6 +108,13 @@ export const CODEX_CLI_ADAPTER: AgentAdapter = makeAdapter({
   patterns: [CODEX_SECONDS_PATTERN],
 });
 
+export const GEMINI_CLI_ADAPTER: AgentAdapter = makeAdapter({
+  tool: "gemini-cli",
+  displayName: "Gemini CLI",
+  binaries: ["gemini", "gemini-cli"],
+  patterns: [GEMINI_RETRY_DELAY_PATTERN, GEMINI_SECONDS_PATTERN],
+});
+
 export const GENERIC_ADAPTER: AgentAdapter = makeAdapter({
   tool: "generic",
   displayName: "Generic agent",
@@ -86,6 +126,7 @@ export const GENERIC_ADAPTER: AgentAdapter = makeAdapter({
 export const ADAPTERS: Record<AgentTool, AgentAdapter> = {
   "claude-code": CLAUDE_CODE_ADAPTER,
   "codex-cli": CODEX_CLI_ADAPTER,
+  "gemini-cli": GEMINI_CLI_ADAPTER,
   generic: GENERIC_ADAPTER,
 };
 
