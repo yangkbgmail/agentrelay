@@ -1464,3 +1464,28 @@
   unix-epoch(비교차 확인).
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속. 파서 추가 실사용 포맷(named IANA tz 실제 변환·
   weekday 창)은 코워크 리서치(🧭)와 조율. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — distinct CI-초록 PR #177(파서 HTTP Retry-After 헤더) main 통합, 큐 70→69] (2026-07-25, 무인 자율 세션, branch `claude/wizardly-pascal-wvkiqv`)
+- **배경:** 세션 시작 시 👷 명시 백로그가 전부 완료 상태이고, 열린 PR이 **70개**까지 적체(세션 34~43이
+  반복 경고한 큐 적체·중복 루프: config get #128/#160/#166/#183, 파서 계열 #101/#141/#142/#144/#146/
+  #149/#177/#178/#185/#188/#190/#193, stats --watch #135/#145/#184, upcoming #105/#194/#197, wait --all
+  #175/#192, 데몬 가드 #69/#104, 데모 #154/#156 등 다수 중복). 새 71번째 PR을 더하는 것보다 **CI 초록·
+  최신 main 기반·서로 겹치지 않는 distinct PR을 main에 통합**하는 것이 압도적으로 높은 가치(COLLAB
+  병합 정책·세션 38~43 선례). 열린 PR을 전수 조사해 현재 main HEAD(`f37d2f9`) 기반 + CI 초록 +
+  핵심 미션(rate-limit 감지) 직결 항목으로 #177 선정.
+- **한 일:** **#177(파서가 표준 HTTP Retry-After 응답 헤더를 인식)을 main에 통합**(머지 커밋 `732a810`).
+  에이전트 CLI가 HTTP API를 프록시하다 429를 만나면 표준 `Retry-After` 헤더(RFC 9110 §10.2.3)를
+  콘솔에 그대로 덤프하는 경우가 흔한데, 기존 파서는 JSON `retry_after`(언더스코어·절대 epoch)만 알고
+  하이픈 표기 HTTP 헤더는 놓쳐 잡이 큐잉되지 않던 실사용 갭을 메움. `parser.ts`에 순수
+  `http-retry-after` 패턴 추가 — delay-seconds(`Retry-After: 3600`→now+N초)와 HTTP-date
+  (`Retry-After: Wed, 21 Oct 2026 07:28:00 GMT`→절대 시각) 두 형식 인식, 숫자 그룹은 `\d{1,7}`+`\b`로
+  캡해 epoch 크기 값 오독 방지, 하이픈 헤더명이 언더스코어 `retry_after`(unix-epoch)와 교차 매치 안 됨.
+- **검증:** PR base가 현재 main HEAD(`f37d2f9`)라 무충돌 통합. 로컬에서 head를 체크아웃해
+  `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test` **731 통과 +
+  1 skip**(core 496 + cli 228/1skip + dashboard 7) 재확인. 실제 빌드된 CLI e2e(mock 아님):
+  `parse "Retry-After: 3600"`→`http-retry-after`/now+1h, `parse "Retry-After: Wed, 21 Oct 2026
+  07:28:00 GMT"`→절대시각(2026-10-21T07:28:00Z). GitHub CI run 231도 `conclusion:success`. 병합 후
+  main HEAD=`732a810`.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(파서 계열은 #178/#185/#188/#190/#193 중 하나로
+  수렴 통합, config get 중복 수렴, stats --watch·upcoming·wait --all 각 하나로 수렴, #167 export tsv·
+  #171 verify·#182 report 등 자립 진단 커맨드). README/ARCHITECTURE(🧭 코워크).
