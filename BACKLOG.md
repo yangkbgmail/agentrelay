@@ -559,6 +559,20 @@
       malformed fallthrough). 새 CLI 코드 0줄 — 기존 `parse` 커맨드가 자동 노출.
       branch `claude/wizardly-pascal-hi5obo`)
 
+- [x] 👷 `agentrelay reschedule <id> <when>` — 대기 중인 잡의 재개 시각을 정밀 조정(파서가 리셋
+      시각을 잘못 추정했거나, 동시에 몰릴 resume herd를 분산하고 싶을 때). `retry`(attempts 0 리셋 +
+      즉시 due)와 달리 **attempts를 보존**하고 임의의 미래 시각으로만 옮긴다.
+      (완료 — `@agentrelay/core/control.ts`에 순수 `canReschedule(job)`(대기 중인 queued/
+      waiting_for_reset만 허용, 종료·resuming 잡은 거부 — 종료 잡 부활은 retry 소관) +
+      `RESCHEDULABLE_STATUSES` + `resolveRescheduleTime(when, now)`(`now`/빈 문자열→즉시,
+      duration `30m`/`2h`/`90s`/`7d`→now+오프셋, 절대 ISO→그 시각; duration을 먼저 시도해 `2h`가
+      날짜로 오독되지 않게, 인식 불가는 error). 기존 `parseDuration` 재사용. `RelayQueue.reschedule
+      (id, resetAt)`는 status=waiting_for_reset + resetAt만 갱신하고 **attempts·lastError 보존**
+      (requeueNow는 attempts=0·lastError=null로 리셋 → 명확히 구분). CLI `rescheduleJob`(id 해소·
+      가드·시각 파싱 통합, 과거 시각이면 "resume now"로 리포트) + `agentrelay reschedule <id> <when>`
+      배선(실패 시 exit 1). core control 12 + queue 1 + cli commands 5 신규 테스트, 실제 빌드 CLI
+      e2e로 +2h/절대시각/now/파싱실패 exit1/미존재 id exit1 검증. branch `claude/wizardly-pascal-mlqq9g`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

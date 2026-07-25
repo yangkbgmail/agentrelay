@@ -243,6 +243,18 @@ export class RelayQueue {
     this.update(id, { status: "waiting_for_reset", resetAt: at, attempts: 0, lastError: null });
   }
 
+  /**
+   * Move a still-pending job's resume time to `resetAt` (user-initiated).
+   * Unlike {@link requeueNow}, the attempt counter is preserved — this only
+   * adjusts *when* the scheduler will pick the job up (e.g. correcting a
+   * mis-parsed reset time or spreading out a herd of jobs due at once), not
+   * how many tries it has left. The job stays in `waiting_for_reset` so
+   * `listDue` resumes it when `resetAt` arrives.
+   */
+  reschedule(id: string, resetAt: string) {
+    this.update(id, { status: "waiting_for_reset", resetAt });
+  }
+
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {
     this.load();
     const existing = this.jobs.get(id);

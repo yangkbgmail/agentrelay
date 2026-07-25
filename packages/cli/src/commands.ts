@@ -33,6 +33,7 @@ import {
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  canReschedule,
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
@@ -69,6 +70,7 @@ import {
   resolveConfigWritePath,
   resolveEffectiveConfig,
   resolveJobId,
+  resolveRescheduleTime,
   retryPolicyFromEnv,
   runDiagnostics,
   sampleConfigJson,
@@ -427,6 +429,48 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
       ok: true,
       job: updated,
       message: `job ${shortId(job.id)} (${job.project}) queued to resume now — run "agentrelay tick" or the daemon to pick it up`,
+    };
+  } finally {
+    queue.close();
+  }
+}
+
+/**
+ * Move a pending job's resume time by full id or short prefix. `when` may be
+ * `now`, a duration (`30m`, `2h`), or an absolute ISO timestamp. Unlike
+ * {@link retryJob}, the attempt counter is preserved — this only adjusts *when*
+ * the job resumes, e.g. to correct a mis-parsed reset time or spread out a herd
+ * of jobs that would otherwise all resume at once. Terminal/mid-flight jobs and
+ * unparseable times are rejected with an explanatory message.
+ */
+export function rescheduleJob(
+  idOrPrefix: string,
+  when: string,
+  storePath?: string,
+  now: number = Date.now()
+): JobControlResult {
+  const queue = openQueue(storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { ok: false, job: null, message: resolved.error ?? "job not found" };
+
+    const job = jobs.find((j) => j.id === resolved.id) as RelayJob;
+    const guard = canReschedule(job);
+    if (!guard.ok) return { ok: false, job, message: `cannot reschedule ${shortId(job.id)}: ${guard.reason}` };
+
+    const time = resolveRescheduleTime(when, now);
+    if (time.error || !time.at)
+      return { ok: false, job, message: `cannot reschedule ${shortId(job.id)}: ${time.error}` };
+
+    queue.reschedule(job.id, time.at);
+    const updated = queue.getById(job.id) ?? null;
+    const target = Date.parse(time.at);
+    const when_ = !Number.isNaN(target) && target <= now ? "now" : `at ${time.at}`;
+    return {
+      ok: true,
+      job: updated,
+      message: `job ${shortId(job.id)} (${job.project}) rescheduled to resume ${when_}`,
     };
   } finally {
     queue.close();
