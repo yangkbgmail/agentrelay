@@ -1438,3 +1438,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay overdue` 연체 재개 진단 커맨드] (2026-07-25, 무인 자율 세션, branch `claude/wizardly-pascal-overdue`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태, 열린 PR 30건을 전수 확인해 겹치지 않는 clean·self-contained
+  항목을 신규 발굴(CLAUDE.md 지침). 지금까지 `next`는 **다음에** 재개될 잡을 앞으로 보여주지만, 그 역인
+  "리셋 시각이 이미 지났는데 아직 재개 안 된 잡"을 한눈에 보는 수단이 없었다. 이건 릴레이가 제 일을
+  못 하고 있다는 **가장 명확한 신호**(데몬 미실행·멈춤·재개 루프 죽음)인데, `doctor`의 하트비트 검사는
+  루프 생존만 보고 개별 연체 잡을 나열하지 않는다.
+- **한 일:**
+  1. `@agentrelay/core/overdue.ts` 신설(순수·시계/스토어 미접촉): `computeOverdue(jobs, {now, graceMs})` +
+     `OverdueReport`(totalWaiting·overdueCount·graceMs·jobs[])·`OverdueJob`(job·overdueMs). `waiting_for_reset`
+     이고 `resetAt` 파싱 가능한 잡만 후보(스케줄러 due 집합과 동일 — `resuming`은 in-flight, `queued`는
+     리셋 없음, 종료 잡은 done 제외), `now − resetMs > graceMs`인 잡만 연체로 판정. grace는 due→resume
+     사이의 정상 지연을 무시하는 창(기본 0, 비양수는 0 취급, 경계는 strict `>`). 연체 오래된 순 정렬
+     (createdAt·id tiebreak — `next`/`stats` 관례 일치), 입력 불변.
+  2. CLI `packages/cli/src/overdue.ts`에 순수 `renderOverdue`(랭크 헤더+"Is the daemon running?" 경고+
+     grace 주석+`--limit` 상위 N+숨김 푸터, 대기 없음/전부 정상/연체 세 상태 구분)·`renderOverdueJson`.
+     `agentrelay overdue` 커맨드는 공용 `buildScope`(--status/--tool/--project/--since/--until)+`--grace`+
+     `-n/--limit`+`--json` 배선, **연체가 하나라도 있으면 exit 1**(모니터링 게이트로 `|| notify` 체인 가능).
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **747 통과 + 1 skip**(core 502 + cli 238/1skip + dashboard 7 — core overdue 11 + cli overdue 10 신규).
+  실제 빌드된 CLI e2e(mock 아님): 과거/미래/최근 리셋 + 완료 잡 4개 시드 → grace 없음=2연체(exit 1),
+  `--grace 5m`=1연체, `--tool claude-code` 스코프=scope note+1연체, `--grace 1h`=전부 정상(exit 0),
+  `--json`=overdueCount/ids 정확, `--grace bogus`=exit 1, 빈 스토어="No jobs waiting"(exit 0) 검증.
+- **다음 할 일:** 남은 distinct 열린 PR 통합/발굴 계속. README/ARCHITECTURE(🧭 코워크). 후보: 대시보드에
+  overdue 배지 노출, `doctor` 연체 잡 수 교차 판정 강화.

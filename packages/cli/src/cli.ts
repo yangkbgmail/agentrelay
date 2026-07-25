@@ -17,6 +17,7 @@ import {
   COMPLETION_SHELLS,
   computeDailyTrend,
   computeErrorBreakdown,
+  computeOverdue,
   computeStats,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
@@ -70,6 +71,7 @@ import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
+import { renderOverdue, renderOverdueJson } from "./overdue.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
@@ -875,6 +877,71 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderErrorBreakdown(breakdown, { color: Boolean(process.stdout.isTTY), limit, scopeNote }));
+    });
+
+  program
+    .command("overdue")
+    .description("List jobs whose reset time has passed but that haven't been resumed (relay stuck/daemon down?)")
+    .option("--grace <duration>", "Ignore jobs only briefly past-due (e.g. 30s, 5m) — filters expected due→resume lag")
+    .option("-n, --limit <n>", "Show at most N overdue jobs (the totals still count all)")
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/monitoring)")
+    .option("-s, --status <statuses>", "Only consider jobs with these comma-separated statuses")
+    .option("-t, --tool <tools>", `Only consider jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only consider jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only consider jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only consider jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExit code is 1 when any job is overdue, so `overdue` doubles as a monitoring gate:\n" +
+        "  agentrelay overdue --grace 2m || notify-send 'AgentRelay stuck'\n" +
+        "  agentrelay overdue --json | jq '.jobs[].job.id'"
+    )
+    .action((opts: ScopeOpts & { grace?: string; limit?: string; json?: boolean }) => {
+      const { store } = program.opts();
+
+      let graceMs: number | undefined;
+      if (opts.grace !== undefined) {
+        const ms = parseDuration(opts.grace);
+        if (ms === null) {
+          console.error(`Invalid --grace duration: "${opts.grace}". Use e.g. 30s, 5m, 1h.`);
+          process.exitCode = 1;
+          return;
+        }
+        graceMs = ms;
+      }
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      const now = Date.now();
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const all = listStatus(store);
+      const jobs = built.active ? scopeJobs(all, built.scope) : all;
+      const scopeNote = built.active ? built.note : undefined;
+      const report = computeOverdue(jobs, { now, graceMs });
+
+      if (opts.json) {
+        console.log(renderOverdueJson(report, store ?? defaultStorePath(), { scopeNote }));
+      } else {
+        console.log(renderOverdue(report, { color: Boolean(process.stdout.isTTY), limit, scopeNote }));
+      }
+
+      // Non-zero exit when anything is overdue, so scripts/CI can gate on it.
+      if (report.overdueCount > 0) process.exitCode = 1;
     });
 
   program

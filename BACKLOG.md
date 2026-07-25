@@ -550,6 +550,18 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay overdue` — 리셋 시각이 지났는데 아직 재개 안 된 "연체" 잡 진단(릴레이 미작동의
+      가장 명확한 신호). `next`(다음 재개, 앞)의 역방향(이미 늦은 재개, 뒤).
+      (완료 — `@agentrelay/core/overdue.ts` 신설(순수·시계/스토어 미접촉): `computeOverdue(jobs,
+      {now,graceMs})` + `OverdueReport`/`OverdueJob`. `waiting_for_reset`이고 `resetAt` 파싱 가능한
+      잡만 후보(스케줄러 due 집합과 동일), `now−resetMs>graceMs`인 잡만 연체(grace=due→resume 정상
+      지연 무시 창, 기본 0·비양수 0·경계 strict `>`), 연체 오래된 순 정렬(createdAt·id tiebreak),
+      입력 불변. CLI `overdue.ts` 순수 `renderOverdue`(대기없음/전부정상/연체 3상태·"Is the daemon
+      running?" 경고·grace 주석·`--limit`+숨김 푸터)·`renderOverdueJson`. `agentrelay overdue`가 공용
+      `buildScope`(--status/--tool/--project/--since/--until)+`--grace`+`-n/--limit`+`--json`, **연체
+      있으면 exit 1**(모니터링 게이트). core 11 + cli 10 신규 테스트, 실제 빌드 CLI e2e로 연체 랭킹·
+      grace·스코프·on-schedule(exit 0)·JSON·에러 exit·빈 스토어 검증. branch `claude/wizardly-pascal-overdue`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
