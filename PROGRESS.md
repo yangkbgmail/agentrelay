@@ -1438,3 +1438,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay upcoming` (재개 타임라인: 대기 잡 전체를 재개 순서로 카운트다운과 함께)] (2026-07-25, 무인 자율 세션, branch `claude/wizardly-pascal-jb13yg`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. 지정 브랜치의
+  이전 PR은 병합 완료라 최신 main에서 새로 시작. `next`는 "다음에 재개될 잡 **하나**"만 한 줄로 보여주고,
+  `status`는 전 상태(queued/completed/failed 등)를 한 테이블에 섞어 보여줘, **재개 대기 중인 잡들만
+  재개 순서대로 카운트다운과 함께** 보는 뷰가 빠져 있었다. 여러 잡이 서로 다른 리셋 시각에 걸린 큐에서
+  "언제 무엇이 순서대로 깨어나는가"를 한눈에 볼 수단이 없었다.
+- **한 일:**
+  1. core `packages/core/src/upcoming.ts` 신설(순수·시계/스토어/I/O 미접촉): `selectUpcomingResumes(jobs,
+     {now?,limit?})` → `UpcomingResumes`(entries·totalWaiting·hidden). `waiting_for_reset` + 파싱 가능
+     `resetAt` 잡만 필터해 스케줄러와 **동일한 결정론적 정렬**(reset 시각 → createdAt → id)로 소트 —
+     이를 위해 `next.ts`의 비교자를 `compareNextResume`로 export해 재사용(정렬 로직 단일 소스). 각 엔트리에
+     `dueInMs`/`due` 파생, 양의 정수 `limit`만 상위 N개로 캡(그 외는 무시=캡 없음), `hidden`=총−표시.
+     입력 배열 불변(filter가 새 배열 생성).
+  2. CLI `packages/cli/src/upcoming.ts` 신설: 순수 `renderUpcoming`(잡당 한 줄 id·project·카운트다운·절대
+     리셋 시각, `formatCountdown` 재사용해 `next`/status와 문구 일치, `--limit`이 가린 나머지는 "… and N
+     more" 푸터, 스코프 노트 헤더)·`renderUpcomingJson`(totalWaiting/hidden/scope 포함 봉투).
+  3. CLI `cli.ts` `agentrelay upcoming` 배선: 공용 `buildScope`(`--status`/`--tool`/`--project`/`--since`/
+     `--until`) + `-n/--limit` + `--json` 재사용. 잘못된 limit/status/tool·빈 기간 범위는 exit 1.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  **745 통과 + 1 skip**(core 499 + cli 239/1skip + dashboard 7 — core upcoming 8 + cli upcoming 11 신규).
+  실제 빌드된 CLI e2e(mock 아님): 4-잡 임시 스토어로 due-now→30m→3h 정렬·`--limit 2` 푸터·`--project api`
+  스코프 필터·`--json` 순서/카운트, 잘못된 `--limit 0`/`--status bogus`→exit 1·미매치 스코프 검증.
+- **다음 할 일:** 형제 명령 일관성 후속(`upcoming --watch` 라이브 카운트다운 TUI, 또는 대시보드에 재개
+  타임라인 카드). 남은 🧭 코워크 항목(README/ARCHITECTURE)은 소유 영역이라 미착수.

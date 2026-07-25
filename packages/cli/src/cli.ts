@@ -33,6 +33,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
   selectNextResume,
+  selectUpcomingResumes,
   sendTestNotification,
   summarizeRateLimitPatterns,
 } from "@agentrelay/core";
@@ -84,6 +85,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { renderUpcoming, renderUpcomingJson } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -547,6 +549,49 @@ export function buildCli(): Command {
         if (next === null) process.exitCode = 4;
         else if (!next.due) process.exitCode = 3;
         // due-now → exit 0 (default).
+      }
+    });
+
+  program
+    .command("upcoming")
+    .description("List every job waiting for a reset, in the order the relay will resume them, with countdowns")
+    .option("-n, --limit <n>", "Show at most the N soonest resumes (a footer counts the rest)")
+    .option("-s, --status <statuses>", "Only jobs with these statuses (comma-separated)")
+    .option("-t, --tool <tools>", "Only jobs run with these tools (comma-separated)")
+    .option("-p, --project <projects>", "Only jobs in these projects (comma-separated)")
+    .option("--since <duration>", "Only jobs created within this long ago (e.g. 24h, 7d)")
+    .option("--until <duration>", "Only jobs created before this long ago (e.g. 1d)")
+    .option("--json", "Print the timeline as JSON (machine-readable, for scripts/jq)")
+    .action((opts: ScopeOpts & { limit?: string; json?: boolean }) => {
+      const { store } = program.opts();
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      const built = buildScope(opts, Date.now());
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const all = listStatus(store);
+      const jobs = built.active ? scopeJobs(all, built.scope) : all;
+      const scopeNote = built.active ? built.note : undefined;
+      const result = selectUpcomingResumes(jobs, { limit });
+
+      if (opts.json) {
+        console.log(renderUpcomingJson(result, store, { scopeNote }));
+      } else {
+        console.log(renderUpcoming(result, { color: Boolean(process.stdout.isTTY), scopeNote }));
       }
     });
 
