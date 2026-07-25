@@ -21,6 +21,7 @@ import {
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
   generateCompletion,
+  groupErrorBreakdown,
   groupStats,
   IMPORT_FORMATS,
   inferImportFormat,
@@ -67,7 +68,12 @@ import {
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
-import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
+import {
+  renderErrorBreakdown,
+  renderErrorBreakdownJson,
+  renderGroupedErrorBreakdown,
+  renderGroupedErrorBreakdownJson,
+} from "./errors.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
@@ -842,9 +848,10 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("-g, --group-by <dimension>", `Break down errors per group: ${GROUP_DIMENSIONS.join(", ")}`)
     .option("-n, --limit <n>", "Show at most N error reasons (the totals still count all)")
     .option("--json", "Print the breakdown as JSON (machine-readable, for scripts/jq)")
-    .action((opts: ScopeOpts & { limit?: string; json?: boolean }) => {
+    .action((opts: ScopeOpts & { groupBy?: string; limit?: string; json?: boolean }) => {
       const { store } = program.opts();
 
       let limit: number | undefined;
@@ -858,6 +865,16 @@ export function buildCli(): Command {
         limit = n;
       }
 
+      let groupBy: GroupDimension | undefined;
+      if (opts.groupBy !== undefined) {
+        if (!GROUP_DIMENSIONS.includes(opts.groupBy as GroupDimension)) {
+          console.error(`Unknown --group-by: "${opts.groupBy}". Valid: ${GROUP_DIMENSIONS.join(", ")}.`);
+          process.exitCode = 1;
+          return;
+        }
+        groupBy = opts.groupBy as GroupDimension;
+      }
+
       const built = buildScope(opts, Date.now());
       if ("error" in built) {
         console.error(built.error);
@@ -868,8 +885,20 @@ export function buildCli(): Command {
       const all = listStatus(store);
       const jobs = built.active ? scopeJobs(all, built.scope) : all;
       const scopeNote = built.active ? built.note : undefined;
-      const breakdown = computeErrorBreakdown(jobs);
 
+      if (groupBy !== undefined) {
+        const groups = groupErrorBreakdown(jobs, groupBy);
+        if (opts.json) {
+          console.log(renderGroupedErrorBreakdownJson(groups, groupBy, store, { scopeNote }));
+          return;
+        }
+        console.log(
+          renderGroupedErrorBreakdown(groups, groupBy, { color: Boolean(process.stdout.isTTY), limit, scopeNote })
+        );
+        return;
+      }
+
+      const breakdown = computeErrorBreakdown(jobs);
       if (opts.json) {
         console.log(renderErrorBreakdownJson(breakdown, store, { scopeNote }));
         return;

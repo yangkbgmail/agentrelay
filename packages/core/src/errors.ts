@@ -1,3 +1,4 @@
+import type { GroupDimension } from "./stats.js";
 import type { JobStatus, RelayJob } from "./types.js";
 
 /**
@@ -101,4 +102,58 @@ export function computeErrorBreakdown(jobs: RelayJob[]): ErrorBreakdown {
   );
 
   return { totalWithErrors, distinctSignatures: groups.length, groups };
+}
+
+/**
+ * One dimension value (a tool, project, or status) and the {@link ErrorBreakdown}
+ * computed over just the jobs carrying that value. Powers
+ * `agentrelay errors --group-by`, so you can answer "which project's resumes fail,
+ * and why?" without running the command once per project.
+ */
+export interface GroupedErrorBreakdown {
+  /** The shared dimension value for every job counted in this group. */
+  key: string;
+  /** Jobs with an actionable error in this group (mirrors `breakdown.totalWithErrors`, kept for sort/UX). */
+  count: number;
+  /** The full ranked error breakdown over just this group's jobs. */
+  breakdown: ErrorBreakdown;
+}
+
+/** The raw job value used to bucket a job under a given dimension. Mirrors stats' `groupKeyOf`. */
+function errorGroupKeyOf(job: RelayJob, dimension: GroupDimension): string {
+  switch (dimension) {
+    case "tool":
+      return job.tool;
+    case "project":
+      return job.project;
+    case "status":
+      return job.status;
+  }
+}
+
+/**
+ * Partitions a job list by `dimension`, then computes a full
+ * {@link computeErrorBreakdown} over each partition. Groups whose jobs carry no
+ * actionable error are dropped entirely (they'd render as empty blocks), so the
+ * result only contains dimension values that actually produced failures. Pure
+ * and non-mutating. Groups are ranked by error count (desc), ties broken by key
+ * (asc) — same convention as `groupStats`/`ErrorBreakdown.groups`. Bucketing
+ * preserves each job's original order so every nested breakdown is deterministic.
+ */
+export function groupErrorBreakdown(jobs: RelayJob[], dimension: GroupDimension): GroupedErrorBreakdown[] {
+  const buckets = new Map<string, RelayJob[]>();
+  for (const job of jobs) {
+    const key = errorGroupKeyOf(job, dimension);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(job);
+    else buckets.set(key, [job]);
+  }
+
+  return [...buckets.entries()]
+    .map(([key, groupJobs]) => {
+      const breakdown = computeErrorBreakdown(groupJobs);
+      return { key, count: breakdown.totalWithErrors, breakdown };
+    })
+    .filter((group) => group.count > 0)
+    .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.key.localeCompare(b.key)));
 }

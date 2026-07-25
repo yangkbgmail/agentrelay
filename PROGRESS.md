@@ -1438,3 +1438,27 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay errors --group-by <tool|project|status>`] (2026-07-25, 무인 자율 세션, branch `claude/wizardly-pascal-ppipoi`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. 열린 PR 60+건을
+  전수 스캔해 중복 없는 clean·self-contained 항목 선정. `stats`에는 `--group-by`가 있어 툴/프로젝트/상태
+  부분집합별 지표를 한 화면에서 비교할 수 있지만, `errors`(세션 42에 통합된 실패-사유 진단 커맨드)는
+  스코프 필터(`--tool`/`--project`)만 있어 "웹 프로젝트는 어떤 이유로 실패하고 API는 어떤 이유로
+  실패하나?"를 보려면 프로젝트마다 명령을 따로 돌려야 했다.
+- **한 일:**
+  1. core `errors.ts`에 순수 `groupErrorBreakdown(jobs, dimension)` + `GroupedErrorBreakdown` 신설 —
+     `stats.ts`의 `GroupDimension`(tool/project/status)을 재사용해 잡을 차원별로 버킷팅한 뒤 각 버킷에
+     기존 `computeErrorBreakdown`을 중첩 적용. 에러 없는 그룹은 통째로 드롭(빈 블록 방지), count desc·
+     key asc 랭킹(`groupStats`/`ErrorBreakdown.groups`와 동일 관례), 버킷팅은 원본 순서 보존.
+  2. CLI `errors.ts`에 순수 `renderGroupedErrorBreakdown`(그룹별 헤더+중첩 사유 블록, `--limit`은
+     그룹 내 사유에 적용)·`renderGroupedErrorBreakdownJson` 추가. `cli.ts` errors 커맨드에
+     `-g, --group-by <dimension>` 배선(잘못된 dimension은 exit 1), 기존 스코프 필터/`--limit`/`--json`과
+     조합. 새 core 파서/집계 로직은 `computeErrorBreakdown` 재사용이라 중복 0.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **738 통과 + 1 skip**(core 497[groupErrorBreakdown 6 신규] + cli 234/1skip[grouped render 6 신규] +
+  dashboard 7). 실제 빌드된 CLI e2e(mock 아님): 4-job 임시 스토어로 `errors --group-by project`
+  랭킹·중첩 사유, `--group-by tool --json` 키/카운트, `--group-by bogus` exit 1, `--group-by project
+  --tool codex-cli` 스코프 결합 검증.
+- **다음 할 일:** 남은 distinct 열린 PR 통합(#164 parse --scan·#122 paths·#136 run --label·#105 upcoming·
+  #125 --no-color·#152 resolution 히스토그램·#154/#156 데모). `patterns --group-by`도 동형 후보.
+  README/ARCHITECTURE(🧭 코워크).

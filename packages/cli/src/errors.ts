@@ -3,7 +3,7 @@
 // pure functions here, separate from the commander wiring in cli.ts, so the
 // exact output is unit-testable without a store.
 
-import type { ErrorBreakdown, ErrorGroup } from "@agentrelay/core";
+import type { ErrorBreakdown, ErrorGroup, GroupDimension, GroupedErrorBreakdown } from "@agentrelay/core";
 
 const BOLD = "\x1b[1m";
 const DIM = "\x1b[2m";
@@ -84,6 +84,84 @@ export function renderErrorBreakdown(
   }
 
   return lines.join("\n");
+}
+
+/** Shown when `--group-by` is used but no group produced any error. */
+export const NO_GROUPED_ERRORS_MESSAGE = "No jobs have recorded an error. Nothing to break down.";
+
+/** Same, but for a scope that matched jobs yet none carried an error. */
+export const NO_GROUPED_ERROR_MATCH_MESSAGE = "No matching jobs have recorded an error.";
+
+/**
+ * Renders a per-dimension error breakdown (`agentrelay errors --group-by`). Each
+ * group prints a header with its key and error count, then the same ranked
+ * reason blocks as the ungrouped view, indented under it. Pure: no I/O. `limit`
+ * caps the reasons shown *within each group*; the group's count always reflects
+ * all of its errors. `scopeNote`, when set, prints a "scope: …" line and switches
+ * the empty message to the "no matching jobs" variant.
+ */
+export function renderGroupedErrorBreakdown(
+  groups: GroupedErrorBreakdown[],
+  dimension: GroupDimension,
+  options: { color?: boolean; limit?: number; scopeNote?: string } = {}
+): string {
+  const color = options.color ?? false;
+  const bold = color ? BOLD : "";
+  const dim = color ? DIM : "";
+  const red = color ? RED : "";
+  const reset = color ? RESET : "";
+
+  const lines: string[] = [];
+  lines.push(`${bold}Error breakdown by ${dimension}${reset}`);
+  if (options.scopeNote) lines.push(`${dim}scope: ${options.scopeNote}${reset}`);
+
+  if (groups.length === 0) {
+    lines.push("");
+    lines.push(options.scopeNote ? NO_GROUPED_ERROR_MATCH_MESSAGE : NO_GROUPED_ERRORS_MESSAGE);
+    return lines.join("\n");
+  }
+
+  const totalErrors = groups.reduce((sum, g) => sum + g.count, 0);
+  lines.push(`${dim}${totalErrors} job(s) with errors across ${groups.length} ${dimension}(s)${reset}`);
+
+  for (const group of groups) {
+    lines.push("");
+    const times = group.count === 1 ? "1 error" : `${group.count} errors`;
+    lines.push(
+      `${bold}${red}${group.key}${reset}${dim} — ${times}, ${group.breakdown.distinctSignatures} reason(s)${reset}`
+    );
+
+    const limit = options.limit;
+    const shown = limit !== undefined ? group.breakdown.groups.slice(0, limit) : group.breakdown.groups;
+    for (const [i, reason] of shown.entries()) {
+      const label = reason.count === 1 ? "1 job" : `${reason.count} jobs`;
+      lines.push(`  ${bold}${i + 1}. ${red}${label}${reset}${dim} (${reason.statuses.join(", ")})${reset}`);
+      lines.push(`     ${reason.signature}`);
+    }
+    const hidden = group.breakdown.groups.length - shown.length;
+    if (hidden > 0) lines.push(`  ${dim}… ${hidden} more reason(s) not shown (raise --limit)${reset}`);
+  }
+
+  return lines.join("\n");
+}
+
+/** Machine-readable form of the grouped error breakdown for scripts/jq. */
+export function renderGroupedErrorBreakdownJson(
+  groups: GroupedErrorBreakdown[],
+  dimension: GroupDimension,
+  store: string,
+  options: { scopeNote?: string } = {}
+): string {
+  return JSON.stringify(
+    {
+      store,
+      scope: options.scopeNote ?? null,
+      groupBy: dimension,
+      groups,
+    },
+    null,
+    2
+  );
 }
 
 /**
