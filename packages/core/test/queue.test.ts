@@ -194,6 +194,26 @@ describe("RelayQueue", () => {
     expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(1);
   });
 
+  it("reschedules a job's resume time while preserving its attempt count", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    // Simulate a job that has already been attempted and is now waiting.
+    queue.markResuming(job.id);
+    queue.markWaitingForReset(job.id, new Date(Date.now() + 60_000).toISOString());
+    expect(queue.getById(job.id)?.attempts).toBe(1);
+
+    // Push the resume time out an hour.
+    const later = new Date(Date.now() + 3_600_000).toISOString();
+    queue.reschedule(job.id, later);
+    const moved = queue.getById(job.id);
+    expect(moved?.status).toBe("waiting_for_reset");
+    expect(moved?.resetAt).toBe(later);
+    // Attempts are preserved (unlike requeueNow, which resets to 0).
+    expect(moved?.attempts).toBe(1);
+    // Not due until the new reset time.
+    expect(queue.listDue(new Date(Date.now() + 120_000))).toHaveLength(0);
+    expect(queue.listDue(new Date(Date.now() + 3_700_000))).toHaveLength(1);
+  });
+
   describe("importJobs", () => {
     const historyJob = (id: string, project = "imported"): RelayJob => ({
       id,

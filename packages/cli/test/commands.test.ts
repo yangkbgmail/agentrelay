@@ -15,6 +15,7 @@ import {
   listStoreBackups,
   previewRestoreStore,
   pruneJobs,
+  rescheduleJob,
   restoreStore,
   retryJob,
   runCommand,
@@ -217,6 +218,50 @@ describe("cancelJob / retryJob", () => {
     expect(result.job?.status).toBe("waiting_for_reset");
     expect(result.job?.attempts).toBe(0);
     expect(result.job?.lastError).toBeNull();
+  });
+
+  it("reschedules a pending job to an absolute time, preserving attempts", () => {
+    const id = seed("waiting_for_reset");
+    const now = Date.parse("2026-07-25T12:00:00.000Z");
+    const result = rescheduleJob(id, "2026-07-25T18:00:00Z", storePath, now);
+    expect(result.ok).toBe(true);
+    expect(result.job?.status).toBe("waiting_for_reset");
+    expect(result.job?.resetAt).toBe("2026-07-25T18:00:00.000Z");
+    expect(result.message).toContain("2026-07-25T18:00:00.000Z");
+    expect(listStatus(storePath)[0].resetAt).toBe("2026-07-25T18:00:00.000Z");
+  });
+
+  it("reschedules by a duration relative to now", () => {
+    const id = seed("waiting_for_reset");
+    const now = Date.parse("2026-07-25T12:00:00.000Z");
+    const result = rescheduleJob(id, "30m", storePath, now);
+    expect(result.ok).toBe(true);
+    expect(result.job?.resetAt).toBe("2026-07-25T12:30:00.000Z");
+  });
+
+  it('reports "now" when rescheduled to the present', () => {
+    const id = seed("waiting_for_reset");
+    const now = Date.parse("2026-07-25T12:00:00.000Z");
+    const result = rescheduleJob(id, "now", storePath, now);
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain("resume now");
+  });
+
+  it("refuses to reschedule a terminal job", () => {
+    const id = seed("completed");
+    const result = rescheduleJob(id, "1h", storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("cannot reschedule");
+    expect(listStatus(storePath)[0].status).toBe("completed");
+  });
+
+  it("rejects an unparseable time without mutating the store", () => {
+    const id = seed("waiting_for_reset");
+    const before = listStatus(storePath)[0].resetAt;
+    const result = rescheduleJob(id, "whenever", storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("whenever");
+    expect(listStatus(storePath)[0].resetAt).toBe(before);
   });
 });
 

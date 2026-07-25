@@ -1464,3 +1464,33 @@
   unix-epoch(비교차 확인).
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속. 파서 추가 실사용 포맷(named IANA tz 실제 변환·
   weekday 창)은 코워크 리서치(🧭)와 조율. README/ARCHITECTURE(🧭 코워크).
+
+---
+
+## 세션 45 (2026-07-25)
+
+- **배경:** BACKLOG의 👷 명시 항목이 전부 완료 상태(남은 미완료는 🧭 코워크 소유 문서/리서치뿐)라
+  CLAUDE.md 지침대로 신규 개선 항목을 발굴. 열린 PR 30개를 훑어 이미 점유된 아이디어(파서 패턴 변형·
+  stats 변형·notify·upcoming/resume/overdue/report 등)를 피하고, 어떤 열린 PR과도 겹치지 않는
+  **잡 제어(control) 갭**을 골랐다: 지금까지 `retry`는 잡을 attempts=0으로 리셋해 즉시 재개시키고
+  `cancel`은 취소만 할 뿐, "이 잡의 재개 시각만 다른 미래로 옮기고 싶다"(파서가 리셋 시각을 잘못
+  추정했거나, 동시에 몰릴 resume herd를 분산하고 싶을 때)를 표현할 방법이 없었다.
+- **한 일 (branch `claude/wizardly-pascal-mlqq9g`):** `agentrelay reschedule <id> <when>` 신규 커맨드.
+  1. `@agentrelay/core/control.ts`에 순수 `canReschedule(job)`(대기 중 queued/waiting_for_reset만
+     허용 — 종료·resuming 잡 거부, 종료 잡 부활은 retry 소관) + `RESCHEDULABLE_STATUSES` +
+     `resolveRescheduleTime(when, now)`(`now`/빈 문자열→즉시, duration `30m`/`2h`/`90s`/`7d`→now+오프셋,
+     절대 ISO→그 시각). duration을 절대 파싱보다 **먼저** 시도해 `2h`가 날짜로 오독되지 않게 하고,
+     인식 불가는 error 반환. 기존 `parseDuration`(prune.ts) 재사용, 새 시간 파싱 로직 최소화.
+  2. `RelayQueue.reschedule(id, resetAt)` — status=waiting_for_reset + resetAt만 갱신하고 **attempts·
+     lastError는 보존**(requeueNow는 attempts=0·lastError=null로 리셋하므로 두 연산이 명확히 구분됨).
+     listDue가 새 resetAt에 맞춰 재개.
+  3. CLI `rescheduleJob`(id 해소·canReschedule 가드·시각 파싱을 한 곳에서 통합, 과거 시각이면
+     "resume now"로 리포트) + `agentrelay reschedule <id> <when>` 배선(실패 시 exit 1).
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  전 패키지 통과(core 506 + cli 233/1skip + dashboard 7). 신규: core control 12(canReschedule 3 +
+  resolveRescheduleTime 6 + 기존 통합) + queue reschedule 1(attempts 보존·새 resetAt까지 미due 검증) +
+  cli commands 5(절대시각·duration·now 문구·종료 잡 거부·파싱 실패 시 스토어 불변). 실제 빌드된 CLI
+  e2e(mock 아님): rate-limit 잡 시드 → `reschedule <id> 2h`/절대시각(2026-12-31)/`now` 전환 확인,
+  `whenever`→exit 1, 미존재 id→exit 1, help 노출 검증.
+- **다음 할 일:** 남은 distinct 열린 PR 통합(30개 대기 중). control 갭 후속으로 `reschedule --all`
+  (스코프 필터로 herd 일괄 분산) 후보. README/ARCHITECTURE(🧭 코워크).

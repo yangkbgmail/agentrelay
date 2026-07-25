@@ -1,3 +1,4 @@
+import { parseDuration } from "./prune.js";
 import type { JobStatus, RelayJob } from "./types.js";
 
 /**
@@ -39,6 +40,70 @@ export function canCancel(job: RelayJob): ControlResult {
 export function canRequeue(job: RelayJob): ControlResult {
   if (job.status === "resuming") return { ok: false, reason: "job is currently resuming; wait for it to finish" };
   return { ok: true };
+}
+
+/** Statuses a job may be rescheduled from — pending ones that haven't run yet. */
+export const RESCHEDULABLE_STATUSES: readonly JobStatus[] = ["queued", "waiting_for_reset"];
+
+/**
+ * Whether `job`'s resume time may be adjusted with `agentrelay reschedule`.
+ *
+ * Unlike {@link canRequeue} (which forces an *immediate* rerun and resets the
+ * attempt counter), rescheduling only moves *when* a still-pending job will
+ * resume. So it accepts only jobs that are actually waiting to run
+ * (`queued`/`waiting_for_reset`): a mid-flight `resuming` job would race the
+ * scheduler, and terminal jobs (`completed`/`failed`/`cancelled`) have no
+ * future resume to move — reviving those is what `retry` is for.
+ */
+export function canReschedule(job: RelayJob): ControlResult {
+  if (job.status === "resuming") return { ok: false, reason: "job is currently resuming; wait for it to finish" };
+  if (!RESCHEDULABLE_STATUSES.includes(job.status)) {
+    return {
+      ok: false,
+      reason: `job is ${job.status}; reschedule only applies to pending jobs (use retry to revive it)`,
+    };
+  }
+  return { ok: true };
+}
+
+export interface ResolveTimeResult {
+  /** The resolved absolute ISO timestamp when parsing succeeded. */
+  at?: string;
+  /** Present only when parsing failed — an explanatory message. */
+  error?: string;
+}
+
+/**
+ * Resolve a user-supplied `when` for `agentrelay reschedule` to an absolute ISO
+ * timestamp. Pure: `now` (epoch ms) is the only ambient input, injected for
+ * deterministic tests. Accepted forms:
+ *
+ *   - `now` (or empty) → resume immediately (`now`).
+ *   - a duration like `30m`, `2h`, `90s`, `7d` → `now` + that offset (future).
+ *   - an absolute datetime like `2026-07-25T18:00:00Z` → that exact instant.
+ *
+ * Durations are tried before absolute parsing so that `30m` is never
+ * misread as a date. An unrecognisable input returns an `error`.
+ */
+export function resolveRescheduleTime(when: string, now: number): ResolveTimeResult {
+  const trimmed = when.trim();
+  if (trimmed === "" || trimmed.toLowerCase() === "now") {
+    return { at: new Date(now).toISOString() };
+  }
+
+  const durationMs = parseDuration(trimmed);
+  if (durationMs !== null) {
+    return { at: new Date(now + durationMs).toISOString() };
+  }
+
+  const absolute = Date.parse(trimmed);
+  if (!Number.isNaN(absolute)) {
+    return { at: new Date(absolute).toISOString() };
+  }
+
+  return {
+    error: `could not understand "${when}". Use "now", a duration (e.g. 30m, 2h, 90s), or an absolute time (e.g. 2026-07-25T18:00:00Z).`,
+  };
 }
 
 /** One job that a bulk-control guard rejected, paired with the reason why. */
