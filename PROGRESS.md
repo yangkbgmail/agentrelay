@@ -1438,3 +1438,27 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay wait --all`(큐 드레인 게이트) 신규 구현] (2026-07-25, 무인 자율 세션, branch `claude/wizardly-pascal-s9flra`)
+- **배경:** 지정 브랜치의 이전 PR이 머지되어 origin에서 삭제된 상태 → 지침대로 최신 main에서 브랜치를
+  새로 파 후속 작업을 시작. BACKLOG의 👷 명시 항목이 전부 완료라 CLAUDE.md 지침대로 신규 개선 항목을
+  발굴. 기존 `wait <id>`는 잡 하나만 종료까지 따라가, `run`으로 여러 잡을 병렬로 던진 뒤 "전부 끝나면
+  배포" 같은 배치 게이트를 표현할 수 없었다(형제 명령 `cancel/retry`엔 이미 `--all` 대량 패턴이 있음).
+- **한 일:** **`agentrelay wait --all` — 현재 활성 잡 전체가 종료될 때까지 블록 후 배치 최악 결과를
+  exit code로 반환**하는 CI 체이닝 게이트를 신규 구현. `@agentrelay/core/wait.ts`에 순수 로직:
+  `isActiveStatus`(stats `ACTIVE_STATUSES` 재사용) + `WAIT_OUTCOME_SEVERITY`(worst-wins 전순서
+  timeout>failed>cancelled>missing>completed) + `aggregateWaitOutcomes`(빈 집합=completed) +
+  `evaluateWaitAll(snapshots)`→`WaitAllVerdict`(전부 terminal/missing일 때만 done, 그 전엔 outcomes
+  비움). CLI `commands.ts` `waitForAllJobs` — 시작 시 활성 id 집합 1회 스냅샷(대기 중 신규 잡 미채택,
+  single-id `wait` 관례 일치) 후 매 인터벌 각 id 재-read로 별도 daemon/tick 진행 관측, `--timeout` 시
+  pending 리포트, `scope`로 좁힘. `cli.ts` `wait`의 `<id>`를 optional로 바꾸고 `--all`+공용 스코프
+  필터(`--status`/`--tool`/`--project`/`--since`/`--until`)를 `buildScope`로 배선(cancel/retry --all과
+  일관), id+--all 동시 지정은 exit 1. `wait.ts` `renderWaitAllJson`(single-id와 동일 envelope).
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 에러**·`pnpm test` 전 패키지 통과
+  (core 499·cli 233·dashboard 7). 신규 테스트 core wait +5(isActiveStatus·aggregate worst-wins·
+  evaluateWaitAll pending/done/empty) + cli commands +5(빈 큐 exit0·worst-wins failed·all completed·
+  timeout pending·project 스코프). 실제 빌드된 CLI e2e(mock 아님): 빈 큐→exit0·all terminal→"no active
+  jobs"·1 활성+`--timeout 1s`→124+"1 still pending"·`--project` 스코프·백그라운드 markCompleted 크로스-
+  프로세스 settle→"all 1 job completed" exit0·id+--all 배타→exit1·잘못된 status→exit1 검증.
+- **다음 할 일:** README/ARCHITECTURE(🧭 코워크). 후속 👷 개선 후보: `wait --all`에 진행률 출력(onPoll
+  배선), 대시보드에 "배치 드레인" 뷰, 또는 코워크가 발굴한 신규 항목 소진. 남은 distinct 열린 PR 통합도 계속.

@@ -550,6 +550,24 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay wait --all` — 특정 잡 하나가 아니라 현재 활성 잡 **전체**가 종료될 때까지 블록
+      (큐 드레인 게이트). `run`으로 배치를 던진 뒤 `agentrelay wait --all && deploy`처럼 CI에서 체이닝.
+      (완료 — 기존 `wait <id>`는 잡 하나만 따라가, 여러 잡을 병렬로 던진 뒤 "전부 끝나면 배포"를 표현할
+      수 없었다. `@agentrelay/core/wait.ts`에 순수 로직 추가: `isActiveStatus`(stats의 `ACTIVE_STATUSES`
+      재사용) + `WAIT_OUTCOME_SEVERITY`(worst-wins 전순서: timeout>failed>cancelled>missing>completed) +
+      `aggregateWaitOutcomes`(배치의 최악 결과 하나로 폴드, 빈 집합=completed) + `evaluateWaitAll(snapshots)`→
+      `WaitAllVerdict`(추적 잡 전부 terminal/missing일 때만 done, 그 전엔 outcomes 비움 → 부분 배치에
+      섣불리 반응 못 함). CLI `commands.ts` `waitForAllJobs(options)` — 시작 시 활성 잡 id 집합을 1회
+      스냅샷(대기 중 새로 큐잉된 잡은 미채택, single-id `wait`와 동일 관례)한 뒤 매 인터벌 각 id 재-read,
+      별도 daemon/tick 프로세스의 진행을 관측. 집계 exit code(0/1/2/124), `--timeout` 시 pending 카운트
+      리포트, `scope`로 활성 집합 좁힘. `cli.ts` `wait`의 `<id>`를 optional로 바꾸고 `--all` + 공용
+      스코프 필터(`--status`/`--tool`/`--project`/`--since`/`--until`)를 `buildScope`로 배선(cancel/retry
+      --all과 일관), id+--all 동시 지정은 exit 1. `wait.ts` `renderWaitAllJson`(single-id와 동일 envelope,
+      counts·total·pending 노출). 새 core 직렬화 코드 최소 — 순수 판정은 전부 테스트 가능. core wait +5 /
+      cli commands +5 신규 테스트, 실제 빌드 CLI e2e로 빈 큐→exit0·all completed·timeout→124+pending·
+      project 스코프·크로스-프로세스 settle·id+--all 배타·잘못된 status→exit1 검증. branch
+      `claude/wizardly-pascal-s9flra`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

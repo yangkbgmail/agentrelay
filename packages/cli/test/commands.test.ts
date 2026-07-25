@@ -23,6 +23,7 @@ import {
   showJob,
   unsetConfigFile,
   validateConfigFile,
+  waitForAllJobs,
   waitForJob,
 } from "../src/commands.js";
 import { isConfigDiagnosticInvocation, renderEffectiveConfig, resolveProjectName } from "../src/config.js";
@@ -998,5 +999,134 @@ describe("waitForJob", () => {
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
     expect(result.message).toMatch(/no job matches/);
+  });
+});
+
+describe("waitForAllJobs", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-waitall-cli-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Enqueue one job with the given project/tool, optionally driving it terminal. */
+  function seed(
+    opts: {
+      project?: string;
+      tool?: "claude-code" | "codex-cli" | "generic";
+      status?: "queued" | "completed" | "failed" | "cancelled";
+    } = {}
+  ): string {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({
+      project: opts.project ?? "demo",
+      tool: opts.tool ?? "claude-code",
+      command: ["claude"],
+      cwd: dir,
+    });
+    if (opts.status === "completed") queue.markCompleted(job.id, "done");
+    else if (opts.status === "failed") queue.markFailed(job.id, "boom");
+    else if (opts.status === "cancelled") queue.markCancelled(job.id);
+    queue.close();
+    return job.id;
+  }
+
+  it("succeeds immediately when there are no active jobs (exit 0)", async () => {
+    seed({ status: "completed" });
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await waitForAllJobs({ storePath, sleep });
+    expect(result.ok).toBe(true);
+    expect(result.outcome).toBe("completed");
+    expect(result.total).toBe(0);
+    expect(result.exitCode).toBe(0);
+    expect(result.message).toMatch(/no active jobs/);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("waits until the whole active set settles, then aggregates worst-wins (failed → exit 1)", async () => {
+    const a = seed(); // queued
+    const b = seed(); // queued
+    // Round 1: both pending. Round 2: a completed, b still pending. Round 3: both terminal (b failed).
+    const q = new RelayQueue(storePath);
+    const jobA = q.getById(a) as RelayJob;
+    const jobB = q.getById(b) as RelayJob;
+    q.close();
+    const perId: Record<string, RelayJob[]> = {
+      [a]: [jobA, { ...jobA, status: "completed" }, { ...jobA, status: "completed" }],
+      [b]: [jobB, jobB, { ...jobB, status: "failed", lastError: "boom" }],
+    };
+    let round = 0;
+    const readJob = (id: string) => {
+      const seq = perId[id];
+      return seq[Math.min(round, seq.length - 1)];
+    };
+    const sleep = vi.fn().mockImplementation(async () => {
+      round += 1;
+    });
+    const result = await waitForAllJobs({ storePath, readJob, sleep, now: () => 0 });
+    expect(result.total).toBe(2);
+    expect(result.outcome).toBe("failed");
+    expect(result.exitCode).toBe(1);
+    expect(result.counts.completed).toBe(1);
+    expect(result.counts.failed).toBe(1);
+    expect(result.pending).toBe(0);
+    expect(sleep).toHaveBeenCalledTimes(2);
+  });
+
+  it("all completed → exit 0 with a plain 'all N jobs completed' message", async () => {
+    const a = seed();
+    const b = seed();
+    const q = new RelayQueue(storePath);
+    const jobs: Record<string, RelayJob> = {
+      [a]: { ...(q.getById(a) as RelayJob), status: "completed" },
+      [b]: { ...(q.getById(b) as RelayJob), status: "completed" },
+    };
+    q.close();
+    const result = await waitForAllJobs({ storePath, readJob: (id) => jobs[id], sleep: vi.fn(), now: () => 0 });
+    expect(result.outcome).toBe("completed");
+    expect(result.exitCode).toBe(0);
+    expect(result.message).toMatch(/all 2 jobs completed/);
+  });
+
+  it("times out while jobs remain pending (exit 124) and reports the pending count", async () => {
+    seed();
+    seed();
+    let clock = 0;
+    const now = () => clock;
+    const sleep = vi.fn().mockImplementation(async (ms: number) => {
+      clock += ms;
+    });
+    const result = await waitForAllJobs({ storePath, intervalMs: 1000, timeoutMs: 2500, now, sleep });
+    expect(result.outcome).toBe("timeout");
+    expect(result.exitCode).toBe(124);
+    expect(result.pending).toBe(2);
+    expect(result.message).toMatch(/timed out/);
+  });
+
+  it("scopes the tracked set by project", async () => {
+    seed({ project: "keep" });
+    seed({ project: "skip" });
+    // Only the 'keep' job should be tracked; make its reader return completed.
+    const q = new RelayQueue(storePath);
+    const all = q.listAll();
+    q.close();
+    const keepId = all.find((j) => j.project === "keep")?.id as string;
+    const readJob = (id: string) => ({ ...(all.find((j) => j.id === id) as RelayJob), status: "completed" as const });
+    const result = await waitForAllJobs({
+      storePath,
+      scope: { projects: ["keep"] },
+      readJob,
+      sleep: vi.fn(),
+      now: () => 0,
+    });
+    expect(result.total).toBe(1);
+    expect(result.outcome).toBe("completed");
+    expect(readJob(keepId).project).toBe("keep");
   });
 });
