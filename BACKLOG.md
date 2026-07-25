@@ -550,6 +550,18 @@
       `-n/--limit`·`--json`. core 13 + cli 7 신규 테스트, 실제 빌드 CLI e2e로 공백 정규화 병합·랭킹·스코프·
       limit 푸터·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ziyovo`)
 
+- [x] 👷 `agentrelay errors --group-by <tool|project|status>` — 실패 사유 진단을 툴/프로젝트/상태
+      부분집합별로 나눠 비교(`stats --group-by`의 errors판). 스코프 필터로는 한 번에 한 프로젝트만
+      볼 수 있던 것을 한 화면에서 나란히.
+      (완료 — core `errors.ts`에 순수 `groupErrorBreakdown(jobs, dimension)` + `GroupedErrorBreakdown`
+      신설: `stats.ts`의 `GroupDimension` 재사용, 차원별 버킷팅 후 각 버킷에 기존 `computeErrorBreakdown`
+      중첩, 에러 없는 그룹 드롭, count desc·key asc 랭킹(기존 관례 일치), 원본 순서 보존. CLI
+      `errors.ts`에 `renderGroupedErrorBreakdown`(그룹 헤더+중첩 사유, `--limit`은 그룹 내 사유에 적용)·
+      `renderGroupedErrorBreakdownJson`. `cli.ts` errors에 `-g, --group-by` 배선(잘못된 dimension exit 1),
+      기존 스코프/`--limit`/`--json`과 조합. 새 core 집계 로직 0줄(computeErrorBreakdown 재사용). core
+      groupErrorBreakdown 6 + cli grouped render 6 신규 테스트, 실제 빌드 CLI e2e로 랭킹·중첩·JSON·스코프
+      결합·에러 exit 검증. branch `claude/wizardly-pascal-ppipoi`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeErrorBreakdown, errorSignature } from "../src/errors.js";
+import { computeErrorBreakdown, errorSignature, groupErrorBreakdown } from "../src/errors.js";
 import type { RelayJob } from "../src/types.js";
 
 function job(overrides: Partial<RelayJob>): RelayJob {
@@ -114,5 +114,82 @@ describe("computeErrorBreakdown", () => {
       job({ id: "c", status: "failed", lastError: "boom" }),
     ]);
     expect(result.groups[0].statuses).toEqual(["failed", "cancelled"]);
+  });
+});
+
+describe("groupErrorBreakdown", () => {
+  it("returns an empty array for no jobs", () => {
+    expect(groupErrorBreakdown([], "project")).toEqual([]);
+  });
+
+  it("partitions errors by project and nests a full breakdown per group", () => {
+    const groups = groupErrorBreakdown(
+      [
+        job({ id: "a", project: "web", lastError: "spawn ENOENT" }),
+        job({ id: "b", project: "web", lastError: "spawn ENOENT" }),
+        job({ id: "c", project: "api", lastError: "exit code 1" }),
+      ],
+      "project"
+    );
+    expect(groups.map((g) => [g.key, g.count])).toEqual([
+      ["web", 2],
+      ["api", 1],
+    ]);
+    expect(groups[0].breakdown.distinctSignatures).toBe(1);
+    expect(groups[0].breakdown.groups[0].jobIds).toEqual(["a", "b"]);
+  });
+
+  it("groups by tool and by status too", () => {
+    const byTool = groupErrorBreakdown(
+      [
+        job({ id: "a", tool: "codex-cli", lastError: "boom" }),
+        job({ id: "b", tool: "claude-code", lastError: "boom" }),
+      ],
+      "tool"
+    );
+    expect(byTool.map((g) => g.key).sort()).toEqual(["claude-code", "codex-cli"]);
+
+    const byStatus = groupErrorBreakdown(
+      [job({ id: "a", status: "failed", lastError: "boom" }), job({ id: "b", status: "cancelled", lastError: "boom" })],
+      "status"
+    );
+    expect(byStatus.map((g) => g.key).sort()).toEqual(["cancelled", "failed"]);
+  });
+
+  it("drops groups whose jobs carry no actionable error", () => {
+    const groups = groupErrorBreakdown(
+      [
+        job({ id: "a", project: "web", lastError: null }),
+        job({ id: "b", project: "web", lastError: "   " }),
+        job({ id: "c", project: "api", lastError: "real failure" }),
+      ],
+      "project"
+    );
+    expect(groups.map((g) => g.key)).toEqual(["api"]);
+    expect(groups[0].count).toBe(1);
+  });
+
+  it("ranks groups by error count desc, then key asc", () => {
+    const groups = groupErrorBreakdown(
+      [
+        job({ id: "a", project: "zeta", lastError: "boom" }),
+        job({ id: "b", project: "alpha", lastError: "boom" }),
+        job({ id: "c", project: "alpha", lastError: "boom" }),
+        job({ id: "d", project: "beta", lastError: "boom" }),
+      ],
+      "project"
+    );
+    expect(groups.map((g) => [g.key, g.count])).toEqual([
+      ["alpha", 2],
+      ["beta", 1],
+      ["zeta", 1],
+    ]);
+  });
+
+  it("does not mutate the input job list", () => {
+    const jobs = [job({ id: "a", project: "web", lastError: "boom" })];
+    const snapshot = JSON.stringify(jobs);
+    groupErrorBreakdown(jobs, "project");
+    expect(JSON.stringify(jobs)).toBe(snapshot);
   });
 });
