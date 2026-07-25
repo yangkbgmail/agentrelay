@@ -377,6 +377,20 @@
 - [x] 👷 `agentrelay completion <bash|zsh>` — 쉘 탭 완성 스크립트 생성(실제 커맨더 프로그램에서 파생).
       (완료 — core `completion.ts` `generateCompletion`/`COMPLETION_SHELLS`/`isCompletionShell` +
       `CompletionSpec` 타입. branch `claude/wizardly-pascal-y7t7r0`, PR #83)
+- [x] 👷 `agentrelay completion fish` — fish 셸 탭 완성 지원 추가(bash/zsh에 이어 세 번째 셸).
+      (완료 — `completion`이 bash/zsh만 지원해 fish 사용자는 탭 완성을 못 받았다. `CompletionShell`에
+      `"fish"` 추가·`COMPLETION_SHELLS`에 등록(이미 `isCompletionShell`/CLI 인자 검증·에러 문구·
+      `buildCompletionSpec`가 이 목록에서 파생되므로 배선 자동 확장). 순수 `generateFish(spec)` 신설:
+      fish의 선언적 모델(완성 함수가 아니라 컨텍스트별 `complete -c <prog>` 규칙 1줄)에 맞춰
+      `__fish_use_subcommand`(서브커맨드 미선택 시 커맨드명+글로벌 옵션 제공)·`__fish_seen_subcommand_from`
+      (리프 커맨드 플래그 제공, 부모 커맨드는 서브커맨드명→선택 후 그 서브커맨드 플래그) 빌트인으로
+      게이팅. bash/zsh와 동일한 `wordList`(dedupe·first-seen 순서·`assertSafeToken` 셸 메타문자 거부)
+      재사용해 주입 안전. 설치는 `~/.config/fish/completions/agentrelay.fish` 드롭인 한 파일(bash
+      `source`·zsh `$fpath`보다 간편). CLI `completion` description·help 예시에 fish 추가(신규 CLI 로직
+      0줄 — 셸 목록에서 자동 파생). completion.test.ts에 fish 7케이스(헤더·top-level 게이팅·글로벌 옵션·
+      리프 플래그·부모 서브커맨드 게이팅·dedupe·unsafe 토큰 throw) + 기존 shell-list/isCompletionShell
+      단언 갱신, 실제 빌드 CLI e2e로 `completion fish`(config 부모 블록 포함)·잘못된 셸 exit 1 검증.
+      branch `claude/wizardly-pascal-j43vdh`)
 - [x] 👷 `agentrelay config set/unset <key> [value]` — 설정 파일을 손 편집 없이 CLI로 갱신.
       (완료 — core `config.ts` `SETTABLE_CONFIG_KEYS`, CLI `setConfigFile`/`unsetConfigFile`.
       branch `claude/wizardly-pascal-35ao82`, PR #84)

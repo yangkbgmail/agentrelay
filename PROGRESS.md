@@ -1489,3 +1489,25 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — `agentrelay completion fish` 신규 구현] (2026-07-25, 무인 자율 세션, branch `claude/wizardly-pascal-j43vdh`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태이고 열린 PR이 다수(중복 다발) 적체된 상황.
+  기존 열린 60개 PR 제목을 스캔해 어느 것과도 겹치지 않는 distinct 개선점을 발굴 —
+  `completion` 커맨드가 bash/zsh만 지원해 fish 사용자가 탭 완성을 못 받는 실제 갭을 선정.
+- **한 일:** **fish 셸 completion 지원 추가.** core `completion.ts`의 `CompletionShell`에 `"fish"`
+  추가, `COMPLETION_SHELLS`에 등록(=`isCompletionShell`·CLI 인자 검증·에러 문구·`buildCompletionSpec`가
+  전부 이 목록에서 파생되므로 배선이 자동 확장). 순수 `generateFish(spec)` 신설: fish의 선언적 모델
+  (완성 *함수*가 아니라 컨텍스트별 `complete -c <prog>` 규칙 1줄)에 맞춰 `__fish_use_subcommand`
+  (서브커맨드 미선택 시 커맨드명+글로벌 옵션)·`__fish_seen_subcommand_from`(리프 커맨드 플래그, 부모
+  커맨드는 서브커맨드명→선택 후 그 서브커맨드 플래그) 빌트인으로 게이팅. bash/zsh와 동일한 `wordList`
+  (dedupe·first-seen 순서·`assertSafeToken` 셸 메타문자 거부)를 재사용해 주입 안전. 설치는
+  `~/.config/fish/completions/agentrelay.fish` 드롭인 한 파일. CLI `completion` description·help 예시에
+  fish 추가(신규 CLI 로직 0줄 — 셸 목록에서 자동 파생).
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0 경고/0 에러·`pnpm test` 전 패키지
+  통과(core completion.test.ts 20케이스 = fish 7 신규[헤더·top-level 게이팅·글로벌 옵션·리프 플래그·
+  부모 서브커맨드 게이팅·dedupe·unsafe 토큰 throw] + 기존 shell-list/isCompletionShell 단언 갱신).
+  실제 빌드된 CLI e2e(mock 아님): `completion fish`가 라이브 커맨더에서 파생된 전체 커맨드(run/daemon/
+  status/config…)·`config` 부모 서브커맨드 블록·글로벌 옵션을 올바른 fish 문법으로 출력, 잘못된 셸
+  (`tcsh`)은 exit 1. (fish 바이너리 미설치라 런타임 `source` 검증은 스킵 — 출력은 표준 fish 빌트인 문법.)
+- **다음 할 일:** README에 fish 설치법 한 줄 추가 제안(🧭 코워크). 남은 distinct 열린 PR 통합 계속.
+  README/ARCHITECTURE(🧭 코워크).
