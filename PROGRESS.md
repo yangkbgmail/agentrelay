@@ -1438,3 +1438,26 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
   #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모·재개 stagger
   계열은 #158/#161/#162 중 하나로 수렴·파서 계열도 하나로 수렴). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 44 — `agentrelay resume <id> [--all]` 신규 커맨드(리셋 조기 해제 시 attempt 보존 재개)] (2026-07-25, 무인 자율 세션, branch `claude/wizardly-pascal-resume-now`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목 발굴. 열린 PR 60여 건을
+  전수 확인해 중복 없는 clean·self-contained 항목을 선정. 지금까지 rate-limit으로 `waiting_for_reset`에
+  파킹된 잡을 리셋 시각 전에 손으로 재개할 유일한 방법은 `retry`뿐이었는데, `retry`(=`requeueNow`)는
+  attempts를 0으로 리셋하고 `lastError`를 지운다. 그래서 이미 3/5회 재시도한 잡을 손으로 되살리면 attempt
+  예산이 초기화되어, 계속 한도를 재히트하는 잡이 "새 잡"처럼 보이는 문제가 있었다. "한도가 예상보다 일찍
+  풀렸으니 지금 이어서 재개하되 시도 이력은 유지"라는 실제 니즈를 채우는 커맨드가 없었다.
+- **한 일:** `agentrelay resume <id>` (+`--all`·공용 스코프 필터·`--dry-run`) 신규 커맨드 추가.
+  1. core `control.ts`: `canResume(job)` 가드 + `RESUMABLE_STATUSES`(=`["waiting_for_reset"]`). `waiting_for_reset`만
+     허용, `queued`/터미널(completed·failed·cancelled)은 "use `retry`" 안내로, `resuming`은 mid-flight로 거부.
+  2. core `queue.ts`: `resumeNow(id, at?)` — status를 `waiting_for_reset` 유지·`resetAt`만 now로 당김.
+     `requeueNow`와 달리 **attempts·lastError·lastRateLimit 프로버넌스를 그대로 보존**.
+  3. cli `commands.ts`: 단건 `resumeJob` + `BulkControlAction`에 `"resume"` 추가(guard/mutate/문구 배선).
+  4. cli `cli.ts`: 기존 `registerBulkControl` 인프라 재사용해 `resume` 등록(단건/`--all` 경로 자동 공유).
+  새 파서 로직 0줄.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  **734 통과 + 1 skip**(core 496 + cli 231/1skip + dashboard 7 — canResume 4 + queue resumeNow 1 +
+  cli resumeJob 2 + bulk resume 1 신규). 실제 빌드된 CLI e2e(mock 아님): 미래 리셋 메시지로 잡 파킹→
+  `resume <shortid>`가 "set due now (attempt 1 next)"·`status`에서 "due now"·attempts 보존 확인,
+  `resume --all --dry-run`이 대기 잡만 미리보기(무변경), `resume --help` 노출 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#164 parse --scan·#122 paths·#136 run --label·
+  #105 upcoming·#125 --no-color·#152 resolution Prometheus 히스토그램·#154/#156 데모). README/ARCHITECTURE(🧭 코워크).

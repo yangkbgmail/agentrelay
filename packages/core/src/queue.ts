@@ -243,6 +243,19 @@ export class RelayQueue {
     this.update(id, { status: "waiting_for_reset", resetAt: at, attempts: 0, lastError: null });
   }
 
+  /**
+   * Un-park a job that's waiting for a rate-limit reset (or backoff) so it's due
+   * immediately and the next scheduler tick resumes it — WITHOUT resetting the
+   * attempt counter or clearing the last error / rate-limit provenance (that's
+   * what {@link requeueNow}/`retry` does). Use when a limit lifted earlier than
+   * the parsed reset time and you want to pick the job up now while keeping its
+   * attempt budget honest. Only meaningful for a `waiting_for_reset` job; callers
+   * guard eligibility via `canResume`.
+   */
+  resumeNow(id: string, at: string = new Date().toISOString()) {
+    this.update(id, { status: "waiting_for_reset", resetAt: at });
+  }
+
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {
     this.load();
     const existing = this.jobs.get(id);
