@@ -1,6 +1,6 @@
 import type { RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { formatCommand, renderJobDetail, renderJobDetailJson } from "../src/show.js";
+import { formatCommand, renderJobDetail, renderJobDetailJson, renderJobDetailWatchFrame } from "../src/show.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -114,6 +114,38 @@ describe("renderJobDetail", () => {
   it("emits ANSI codes only when color is enabled", () => {
     expect(renderJobDetail(job(), { now: NOW, color: false })).not.toContain("\x1b[");
     expect(renderJobDetail(job(), { now: NOW, color: true })).toContain("\x1b[");
+  });
+});
+
+describe("renderJobDetailWatchFrame", () => {
+  it("wraps the detail block with a live header, timestamp, and store path", () => {
+    const out = renderJobDetailWatchFrame(job(), "/store/jobs.json", 2000, NOW);
+    expect(out).toContain("agentrelay show");
+    expect(out).toContain("live, every 2s — Ctrl-C to exit");
+    expect(out).toContain("2026-07-13 00:00:00Z");
+    expect(out).toContain("/store/jobs.json");
+    // The full detail block is embedded (in color, so labels are ANSI-wrapped).
+    expect(out).toContain("Job abcdef1234567890");
+    expect(out).toContain("resets in");
+    expect(out).toContain("1h 30m");
+  });
+
+  it("rounds the interval to whole seconds in the header", () => {
+    expect(renderJobDetailWatchFrame(job(), "/s.json", 5000, NOW)).toContain("every 5s");
+    expect(renderJobDetailWatchFrame(job(), "/s.json", 500, NOW)).toContain("every 1s");
+  });
+
+  it("switches to a settled header when the job has reached a terminal state", () => {
+    const out = renderJobDetailWatchFrame(job({ status: "completed" }), "/s.json", 2000, NOW, true);
+    expect(out).toContain("settled — no longer refreshing");
+    expect(out).not.toContain("Ctrl-C to exit");
+    // The embedded detail block renders in color, so the status cell is
+    // ANSI-wrapped (green for completed) rather than a plain substring.
+    expect(out).toContain("\x1b[32mcompleted");
+  });
+
+  it("always emits color (the live view is only used on a TTY)", () => {
+    expect(renderJobDetailWatchFrame(job(), "/s.json", 2000, NOW)).toContain("\x1b[");
   });
 });
 

@@ -19,6 +19,7 @@ import {
   computeErrorBreakdown,
   computeStats,
   EXPORT_FORMATS,
+  evaluateWait,
   GROUP_DIMENSIONS,
   generateCompletion,
   groupStats,
@@ -74,7 +75,7 @@ import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.j
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
-import { renderJobDetail, renderJobDetailJson } from "./show.js";
+import { renderJobDetail, renderJobDetailJson, renderJobDetailWatchFrame } from "./show.js";
 import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson, renderTrend } from "./stats.js";
 import {
   type JobSelection,
@@ -313,6 +314,47 @@ function runWatch(store: string, intervalMs: number, selection: JobSelection, wi
   };
   draw();
   const timer = setInterval(draw, intervalMs);
+  const stop = () => {
+    clearInterval(timer);
+    process.stdout.write("\n");
+    process.exit(0);
+  };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+}
+
+/**
+ * Live single-job view for `agentrelay show <id> --watch`: re-reads the store
+ * every `intervalMs` (re-resolving by the already-resolved full id, so a
+ * separate daemon/tick process's writes are observed) and repaints the full
+ * detail block, counting the reset down. Auto-exits once the job reaches a
+ * terminal state (completed/failed/cancelled) or disappears from the store —
+ * the terminal decision reuses core's `evaluateWait`, the same logic behind
+ * `agentrelay wait`. Runs until settled or interrupted (Ctrl-C).
+ */
+function runShowWatch(store: string, fullId: string, intervalMs: number): void {
+  const draw = (): boolean => {
+    const job = showJob(fullId, store).job;
+    const verdict = evaluateWait(job);
+    if (!job) {
+      // The job vanished mid-watch (pruned or removed) — clear, note it, stop.
+      process.stdout.write("\x1b[2J\x1b[H");
+      console.log(`[agentrelay] job ${fullId.slice(0, 8)} is no longer in the store (removed or pruned).`);
+      return true;
+    }
+    const frame = renderJobDetailWatchFrame(job, store, intervalMs, Date.now(), verdict.done);
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+    return verdict.done;
+  };
+  if (draw()) {
+    process.exit(0);
+  }
+  const timer = setInterval(() => {
+    if (draw()) {
+      clearInterval(timer);
+      process.exit(0);
+    }
+  }, intervalMs);
   const stop = () => {
     clearInterval(timer);
     process.stdout.write("\n");
@@ -1167,13 +1209,30 @@ export function buildCli(): Command {
     .description("Show full details for one job: command, cwd, timestamps, last error, and captured output")
     .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
     .option("--json", "Print the job as JSON (machine-readable, for scripts/jq)")
-    .action((id: string, opts: { json?: boolean }) => {
+    .option(
+      "-w, --watch [seconds]",
+      "Live-refresh the detail view (default every 2s), auto-exiting when the job settles (Ctrl-C to exit)"
+    )
+    .action((id: string, opts: { json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const result = showJob(id, store);
       if (!result.ok || !result.job) {
         console.error(`[agentrelay] ${result.error ?? "job not found"}`);
         process.exitCode = 1;
         return;
+      }
+      if (opts.watch !== undefined) {
+        if (opts.json) {
+          console.error("[agentrelay] --watch and --json cannot be combined.");
+          process.exitCode = 1;
+          return;
+        }
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        // Track by the resolved full id so a short prefix keeps following the
+        // same job even as others come and go while watching.
+        runShowWatch(store, result.job.id, intervalMs);
+        return; // setInterval keeps the process alive.
       }
       if (opts.json) {
         console.log(renderJobDetailJson(result.job, store));

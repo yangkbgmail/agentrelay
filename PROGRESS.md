@@ -1489,3 +1489,32 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — `agentrelay show <id> --watch`] (2026-07-25, 무인 자율 세션)
+- **배경:** 세션 시작 시 main=지정 브랜치 동일(누적/중복 없음), 열린 PR 30개가 파서(8)·stats(5)·
+  각종 신규 커맨드(upcoming/agenda/overdue/report/reschedule/resume/adapters/wait --all 등)를 이미 점유.
+  BACKLOG의 명시적 👷 항목은 전부 `[x]`. 중복을 피해 CLAUDE.md 지침대로 **어느 열린 PR과도 겹치지 않는
+  새 개선 항목을 발굴**했다 — watch 패밀리 완성: `status --watch`는 있고 `stats --watch`는 제안(#184)돼
+  있지만, 단일 잡을 리셋 카운트다운과 함께 라이브로 지켜보다 종료 시 자동 빠져나오는 뷰가 없었다.
+- **한 일 (branch `claude/wizardly-pascal-8dviyw`): `agentrelay show <id> --watch [seconds]`** —
+  단일 잡의 전체 상세 블록을 N초(기본 2s)마다 화면 지우고 재렌더하는 라이브 뷰. 잡이 종료 상태
+  (completed/failed/cancelled)에 도달하거나 스토어에서 사라지면 **자동 종료** — 종료 판정은 core의
+  `evaluateWait`(=`agentrelay wait`가 쓰는 동일 로직)를 재사용해 두 표면이 일치. 대기 잡이 데몬/tick에
+  의해 재개→종료되는 것을 지켜보기 좋다.
+  1. `packages/cli/src/show.ts`에 순수 `renderJobDetailWatchFrame(job, storePath, intervalMs, now, settled)`
+     신설 — `status`의 `renderWatchFrame`을 미러(타이틀/타임스탬프/스토어경로 헤더 + `renderJobDetail`
+     상세 블록, 항상 color). `settled`면 "(settled — no longer refreshing)"로, 아니면 "(live, every Ns
+     — Ctrl-C to exit)"로 헤더 전환. I/O·화면제어 없음(테스트 가능).
+  2. CLI `cli.ts`에 `runShowWatch(store, fullId, intervalMs)` 루프(`runWatch` 미러) — 매 인터벌마다
+     스토어 재오픈(`showJob(fullId)`로 별도 데몬/tick 쓰기 관측), 화면 지우고 프레임 그림, `evaluateWait`가
+     done이면 마지막 settled 프레임 후 exit 0. 잡이 사라지면 안내 후 종료. SIGINT/SIGTERM에 정리.
+  3. `show` 커맨드에 `-w, --watch [seconds]` 배선 — 짧은 prefix는 한 번만 해소해 full id로 추적(대기 중
+     다른 잡이 생겨도 같은 잡 추적), 잘못된/비양수 seconds는 기본 2s, `--watch --json` 조합은 exit 1.
+  - 새 core 코드 0줄 — 종료 판정은 세션 37의 `evaluateWait`, 상세 렌더는 기존 `renderJobDetail` 재사용.
+  - **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **전 패키지 통과**(core 506 + cli 239 + dashboard 7 — show.test에 renderJobDetailWatchFrame
+    4케이스 신규). **실제 빌드된 CLI e2e**(mock 아님): completed 잡→settled 헤더 1회 렌더 후 exit 0,
+    waiting 잡 watch 중 백그라운드에서 스토어를 completed로 flip→settled 프레임 그리고 자동 종료 관측,
+    `--watch --json`→exit 1, 미존재 id→exit 1, help에 `-w, --watch` 노출 확인.
+- **다음 할 일:** README/ARCHITECTURE(🧭 코워크), 누적 열린 PR 30개 중 distinct·CI 초록인 것 통합(중복
+  무리는 하나로 수렴 후 닫기 권장), `show --watch`에 timeout/exit-code 옵션 추가 검토(👷 후보).
