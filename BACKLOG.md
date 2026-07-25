@@ -559,6 +559,24 @@
       malformed fallthrough). 새 CLI 코드 0줄 — 기존 `parse` 커맨드가 자동 노출.
       branch `claude/wizardly-pascal-hi5obo`)
 
+- [x] 👷 알림 스로틀(`AGENTRELAY_NOTIFY_MIN_INTERVAL`) — 리셋 창이 열려 여러 잡이 같은 tick에
+      한꺼번에 재개될 때 동일 이벤트 알림이 채널로 폭주하는 것을 최소 간격 창으로 억제.
+      (완료 — 리셋-창이 열리면 20개 잡이 같은 tick에 `resumed`를 쏘아 Slack/웹훅이 20통 도배되는
+      실사용 스팸 문제. `@agentrelay/core/notify.ts`에 순수 `createThrottledNotifier(inner, opts)`
+      신설 — 버킷 키(기본=이벤트 타입)별로 `minIntervalMs` 창 안의 두 번째 이후 알림을 드롭하고
+      `onSuppress`로 보고, 창 경과 후 다시 통과. `minIntervalMs<=0`이면 inner를 **래핑 없이 그대로
+      반환**(오버헤드 0). 인메모리 창이라 **데몬**(notifier를 1회 만들고 매 tick 재사용)에서만
+      herd를 가로지르고, one-shot `tick`은 프로세스마다 창이 비어 무효(문서화 — auto-prune 스로틀과
+      동일 한계). `notifyMinIntervalMsFromEnv(env)`가 `AGENTRELAY_NOTIFY_MIN_INTERVAL` duration을
+      ms로 파싱, 미설정·공백·파싱불가·비양수는 0=off → 오타가 알림을 조용히 삼키지 않음.
+      `notifiersFromEnv`가 Slack+웹훅 fan-out을 스로틀로 감싸고, 데몬은 `onSuppress`로 억제를
+      로컬 로그에 남기며(원격만 스로틀, 로컬 로그는 전건 보존) 배너에 "(notifications on, throttled
+      ≥Ns)" 표기. config 전 계층 배선(`notify.minInterval` duration 필드 — type·sampleConfig·
+      CONFIG_FIELDS·parseConfig·validateConfig[비-duration error]·configToEnv·CONFIG_ENV_KEYS —
+      드리프트 sync 테스트 통과). core notify +9 / config +1 신규 테스트, 실제 빌드 CLI e2e로
+      config set/show/validate/init 배선·데몬 배너 스로틀 표기 검증. branch
+      `claude/wizardly-pascal-ef64ay`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

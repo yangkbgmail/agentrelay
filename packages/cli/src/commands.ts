@@ -54,6 +54,7 @@ import {
   listBackups,
   loadConfigFile,
   notifiersFromEnv,
+  notifyMinIntervalMsFromEnv,
   parseConfig,
   parseDaemonHeartbeat,
   parseImportJobs,
@@ -285,7 +286,6 @@ function autoPruneBanner(
 export function startDaemon(options: DaemonOptions = {}) {
   const storePath = options.storePath ?? defaultStorePath();
   const queue = openQueue(storePath);
-  const remoteNotify = options.remoteNotify === undefined ? notifiersFromEnv() : options.remoteNotify;
   const autoPrune = autoPruneOptionsFromEnv();
   const autoPruneEveryMs = autoPruneEveryMsFromEnv() ?? undefined;
   const autoPruneEveryTicks = autoPruneEveryTicksFromEnv() ?? undefined;
@@ -295,6 +295,16 @@ export function startDaemon(options: DaemonOptions = {}) {
     console.log(line);
     options.onNotify?.(line);
   };
+  // Built once and reused every tick, so the notification throttle's in-memory
+  // window (AGENTRELAY_NOTIFY_MIN_INTERVAL) actually spans a herd of resumes.
+  const notifyThrottleMs = notifyMinIntervalMsFromEnv();
+  const remoteNotify =
+    options.remoteNotify === undefined
+      ? notifiersFromEnv(process.env, {
+          onSuppress: (payload) =>
+            logLine(`[agentrelay] notification throttled (${payload.event}) — ${payload.project}`),
+        })
+      : options.remoteNotify;
   // Liveness heartbeat: written once at startup and refreshed every tick so
   // `agentrelay doctor` can tell the resume loop is alive. startedAt is fixed
   // for this process; each tick only advances lastTickAt.
@@ -334,7 +344,11 @@ export function startDaemon(options: DaemonOptions = {}) {
   // eslint-disable-next-line no-console
   console.log(
     `[agentrelay] daemon started, watching ${storePath} every ${pollIntervalMs / 1000}s` +
-      (remoteNotify ? " (notifications on)" : "") +
+      (remoteNotify
+        ? notifyThrottleMs > 0
+          ? ` (notifications on, throttled ≥${notifyThrottleMs / 1000}s)`
+          : " (notifications on)"
+        : "") +
       autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks)
   );
   return scheduler;

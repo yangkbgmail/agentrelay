@@ -25,6 +25,12 @@ export interface AgentRelayConfig {
     webhookUrl?: string;
     /** Value sent as the webhook `Authorization` header — maps to `AGENTRELAY_WEBHOOK_AUTH`. */
     webhookAuth?: string;
+    /**
+     * Minimum interval between delivered notifications sharing an event type,
+     * as a duration like `30s`/`5m` — maps to `AGENTRELAY_NOTIFY_MIN_INTERVAL`.
+     * `0s` (the default) disables throttling.
+     */
+    minInterval?: string;
   };
   /** Retry / exponential-backoff policy. */
   retry?: {
@@ -73,6 +79,7 @@ export function sampleConfig(): AgentRelayConfig {
       slackWebhook: "",
       webhookUrl: "",
       webhookAuth: "",
+      minInterval: "0s",
     },
     retry: {
       maxAttempts: 5,
@@ -135,6 +142,7 @@ export const CONFIG_FIELDS: ConfigField[] = [
   { key: "notify.slackWebhook", group: "notify", type: "string", secret: true },
   { key: "notify.webhookUrl", group: "notify", type: "string", secret: true },
   { key: "notify.webhookAuth", group: "notify", type: "string", secret: true },
+  { key: "notify.minInterval", group: "notify", type: "duration" },
   { key: "retry.maxAttempts", group: "retry", type: "number" },
   { key: "retry.baseDelayMs", group: "retry", type: "number" },
   { key: "retry.factor", group: "retry", type: "number" },
@@ -363,6 +371,8 @@ export function parseConfig(value: unknown, source = "config"): AgentRelayConfig
       config.notify.webhookUrl = asString(notify.webhookUrl, `${source}.notify.webhookUrl`);
     if (notify.webhookAuth !== undefined)
       config.notify.webhookAuth = asString(notify.webhookAuth, `${source}.notify.webhookAuth`);
+    if (notify.minInterval !== undefined)
+      config.notify.minInterval = asString(notify.minInterval, `${source}.notify.minInterval`);
   }
 
   if (root.retry !== undefined) {
@@ -438,6 +448,10 @@ export function validateConfig(config: AgentRelayConfig): ConfigIssue[] {
   const webhook = config.notify?.webhookUrl;
   if (webhook && !isHttpUrl(webhook)) {
     error("notify.webhookUrl", "is not a valid http(s) URL");
+  }
+  const minInterval = config.notify?.minInterval;
+  if (minInterval !== undefined && parseDuration(minInterval) === null) {
+    error("notify.minInterval", `is not a valid duration like "30s", "5m" or "1h" ("0s" disables throttling)`);
   }
 
   const retry = config.retry;
@@ -522,6 +536,7 @@ export function configToEnv(config: AgentRelayConfig): Record<string, string> {
   set("AGENTRELAY_SLACK_WEBHOOK", config.notify?.slackWebhook);
   set("AGENTRELAY_WEBHOOK_URL", config.notify?.webhookUrl);
   set("AGENTRELAY_WEBHOOK_AUTH", config.notify?.webhookAuth);
+  set("AGENTRELAY_NOTIFY_MIN_INTERVAL", config.notify?.minInterval);
 
   set("AGENTRELAY_MAX_ATTEMPTS", config.retry?.maxAttempts);
   set("AGENTRELAY_RETRY_BASE_MS", config.retry?.baseDelayMs);
@@ -562,6 +577,7 @@ export const CONFIG_ENV_KEYS: ConfigEnvKey[] = [
   { key: "AGENTRELAY_SLACK_WEBHOOK", group: "notify", secret: true },
   { key: "AGENTRELAY_WEBHOOK_URL", group: "notify", secret: true },
   { key: "AGENTRELAY_WEBHOOK_AUTH", group: "notify", secret: true },
+  { key: "AGENTRELAY_NOTIFY_MIN_INTERVAL", group: "notify" },
   { key: "AGENTRELAY_MAX_ATTEMPTS", group: "retry" },
   { key: "AGENTRELAY_RETRY_BASE_MS", group: "retry" },
   { key: "AGENTRELAY_RETRY_FACTOR", group: "retry" },
