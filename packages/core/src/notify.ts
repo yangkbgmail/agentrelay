@@ -1,3 +1,4 @@
+import { parseDuration } from "./prune.js";
 import type { Notifier } from "./scheduler.js";
 import type { NotifyPayload } from "./types.js";
 
@@ -68,6 +69,77 @@ export function combineNotifiers(...notifiers: Array<Notifier | null | undefined
   return async (payload: NotifyPayload) => {
     await Promise.all(active.map((notify) => notify(payload)));
   };
+}
+
+export interface ThrottleNotifierOptions {
+  /**
+   * Minimum milliseconds that must elapse between two notifications that share a
+   * key before the second is delivered. `<= 0` disables throttling entirely
+   * (the inner notifier is returned unwrapped, so there is zero overhead).
+   */
+  minIntervalMs: number;
+  /**
+   * Derives the throttle bucket key for a payload. Defaults to the event type,
+   * so a herd of identical events — e.g. twenty jobs all resuming the instant a
+   * shared reset window opens — collapses to a single delivered notification.
+   * Override it (e.g. `` (p) => `${p.project}:${p.event}` ``) to throttle per
+   * project instead.
+   */
+  keyOf?: (payload: NotifyPayload) => string;
+  /** Injected clock returning epoch ms, so tests can advance time deterministically. Defaults to `Date.now`. */
+  now?: () => number;
+  /** Invoked with each payload that is suppressed, for local logging/metrics. */
+  onSuppress?: (payload: NotifyPayload) => void;
+}
+
+/**
+ * Wraps a notifier so that, for each bucket key, at most one notification is
+ * delivered per `minIntervalMs` window. Notifications arriving too soon after
+ * the last delivered one for their key are dropped (and reported through
+ * `onSuppress`). This tames notification spam when many jobs transition at once
+ * — the classic case being a reset window opening and a whole herd of jobs
+ * resuming in the same tick.
+ *
+ * The window state is kept in memory, so it only throttles across events seen
+ * by the *same* long-lived process (i.e. a running `daemon`, where the notifier
+ * is built once and reused every tick). A per-invocation `tick` starts with an
+ * empty window, so throttling has no effect across separate one-shot ticks.
+ *
+ * Pure aside from the injected clock; never throws (a delivery failure is the
+ * inner notifier's responsibility, and those swallow their own errors).
+ */
+export function createThrottledNotifier(inner: Notifier, options: ThrottleNotifierOptions): Notifier {
+  if (!(options.minIntervalMs > 0)) return inner;
+  const minIntervalMs = options.minIntervalMs;
+  const keyOf = options.keyOf ?? ((payload: NotifyPayload) => payload.event);
+  const clock = options.now ?? (() => Date.now());
+  const lastSentAt = new Map<string, number>();
+
+  return async (payload: NotifyPayload) => {
+    const key = keyOf(payload);
+    const now = clock();
+    const previous = lastSentAt.get(key);
+    if (previous !== undefined && now - previous < minIntervalMs) {
+      options.onSuppress?.(payload);
+      return;
+    }
+    lastSentAt.set(key, now);
+    await inner(payload);
+  };
+}
+
+/**
+ * Reads the notification throttle window from `AGENTRELAY_NOTIFY_MIN_INTERVAL`
+ * (a duration string like `30s`, `5m`, `1h`) and returns it in milliseconds.
+ * Returns `0` — meaning throttling is *off* — when the variable is unset,
+ * blank, unparseable, or non-positive, so a typo can never silently swallow
+ * notifications (it just disables the throttle instead).
+ */
+export function notifyMinIntervalMsFromEnv(env: Record<string, string | undefined> = process.env): number {
+  const raw = env.AGENTRELAY_NOTIFY_MIN_INTERVAL?.trim();
+  if (!raw) return 0;
+  const ms = parseDuration(raw);
+  return ms !== null && ms > 0 ? ms : 0;
 }
 
 export interface WebhookNotifierOptions {
@@ -145,18 +217,34 @@ export function webhookNotifierFromEnv(
 /**
  * Assembles the notifier configured through the environment: Slack
  * (`AGENTRELAY_SLACK_WEBHOOK`) and/or a generic webhook
- * (`AGENTRELAY_WEBHOOK_URL`), fanned out together. Returns null when neither
- * is configured, so callers can report "notifications off" and skip work.
+ * (`AGENTRELAY_WEBHOOK_URL`), fanned out together and — when
+ * `AGENTRELAY_NOTIFY_MIN_INTERVAL` is a positive duration — wrapped in a
+ * throttle so a herd of simultaneous events doesn't flood the channel. Returns
+ * null when neither channel is configured, so callers can report
+ * "notifications off" and skip work.
  */
 export function notifiersFromEnv(
   env: Record<string, string | undefined> = process.env,
-  options: { fetchFn?: typeof fetch; onError?: (error: unknown) => void } = {}
+  options: {
+    fetchFn?: typeof fetch;
+    onError?: (error: unknown) => void;
+    /** Injected clock (epoch ms) forwarded to the throttle, for deterministic tests. */
+    now?: () => number;
+    /** Forwarded to the throttle: invoked for each notification suppressed by the min-interval window. */
+    onSuppress?: (payload: NotifyPayload) => void;
+  } = {}
 ): Notifier | null {
-  const configured = [slackNotifierFromEnv(env, options), webhookNotifierFromEnv(env, options)].filter(
+  const channelOptions = { fetchFn: options.fetchFn, onError: options.onError };
+  const configured = [slackNotifierFromEnv(env, channelOptions), webhookNotifierFromEnv(env, channelOptions)].filter(
     (n): n is Notifier => typeof n === "function"
   );
   if (configured.length === 0) return null;
-  return combineNotifiers(...configured);
+  const combined = combineNotifiers(...configured);
+  return createThrottledNotifier(combined, {
+    minIntervalMs: notifyMinIntervalMsFromEnv(env),
+    now: options.now,
+    onSuppress: options.onSuppress,
+  });
 }
 
 export type NotifyChannelKind = "slack" | "webhook";

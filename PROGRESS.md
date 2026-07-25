@@ -1464,3 +1464,33 @@
   unix-epoch(비교차 확인).
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속. 파서 추가 실사용 포맷(named IANA tz 실제 변환·
   weekday 창)은 코워크 리서치(🧭)와 조율. README/ARCHITECTURE(🧭 코워크).
+
+---
+
+## 세션 45 (2026-07-25) — 알림 스로틀(AGENTRELAY_NOTIFY_MIN_INTERVAL)
+
+- **배경:** BACKLOG의 👷 명시 항목이 전부 완료라 CLAUDE.md 지침대로 신규 개선 항목을 발굴.
+  이 도구의 핵심 루프는 "리셋 창이 열리면 대기 잡을 한꺼번에 재개"인데, 그 결과 같은 tick에
+  수십 개 잡이 `resumed` 이벤트를 쏘면 Slack/웹훅으로 동일 알림이 도배된다(실사용 스팸).
+  기존 알림 계층엔 이걸 눌러줄 스로틀이 없었다(열린 PR #195의 이벤트-타입 필터와는 별개 축).
+- **한 일:**
+  1. `packages/core/src/notify.ts`에 순수 `createThrottledNotifier(inner, {minIntervalMs, keyOf?,
+     now?, onSuppress?})` 신설 — 버킷 키(기본=이벤트 타입)별로 `minIntervalMs` 창 안의 두 번째
+     이후 알림을 드롭+`onSuppress` 보고, 창 경과 후 재통과. `minIntervalMs<=0`이면 inner를 래핑
+     없이 그대로 반환(오버헤드 0). 인메모리 창이라 **데몬**(notifier 1회 생성·매 tick 재사용)에서만
+     herd를 가로지르고 one-shot `tick`은 무효(문서화, auto-prune 스로틀과 동일 한계).
+  2. `notifyMinIntervalMsFromEnv(env)` — `AGENTRELAY_NOTIFY_MIN_INTERVAL` duration을 ms로 파싱,
+     미설정·공백·파싱불가·비양수는 0=off(오타가 알림을 조용히 삼키지 않게).
+  3. `notifiersFromEnv`가 Slack+웹훅 fan-out을 스로틀로 감싸도록 배선. 데몬(`startDaemon`)은
+     `onSuppress`로 억제를 로컬 로그에 남기고(원격만 스로틀, 로컬 로그는 전건 보존), 배너에
+     "(notifications on, throttled ≥Ns)" 표기. notifier를 logLine 정의 뒤로 옮겨 배선.
+  4. config 전 계층 배선 — `notify.minInterval`(duration): 타입·sampleConfig("0s")·CONFIG_FIELDS·
+     parseConfig·validateConfig(비-duration은 error)·configToEnv·CONFIG_ENV_KEYS. 드리프트 sync
+     테스트(CONFIG_FIELDS↔CONFIG_ENV_KEYS 길이/매핑) 통과.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  전 패키지 통과(core 506[+10: notify 스로틀 5·env 3, config validate 1, +기존] + cli 228/1skip +
+  dashboard 7). 실제 빌드된 CLI e2e(mock 아님): `config set notify.minInterval 45s`→show가
+  `AGENTRELAY_NOTIFY_MIN_INTERVAL 45s [config-file]`, `config validate` valid, 잘못된 duration은
+  set 거부, `config init` 샘플에 `"minInterval": "0s"`, 데몬 배너 "throttled ≥30s" 표기 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속. 알림 계층 추가 개선(이벤트-타입 필터 #195와
+  스로틀 조합, 채널별 스로틀)은 필요 시. README/ARCHITECTURE(🧭 코워크).

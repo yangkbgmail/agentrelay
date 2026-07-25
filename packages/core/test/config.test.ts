@@ -239,6 +239,14 @@ describe("validateConfig", () => {
     expect(issues).toEqual([expect.objectContaining({ level: "warning", path: "store" })]);
   });
 
+  it("errors on a notify.minInterval that is not a valid duration, but accepts real ones", () => {
+    expect(validateConfig({ notify: { minInterval: "soon" } })).toEqual([
+      expect.objectContaining({ level: "error", path: "notify.minInterval" }),
+    ]);
+    expect(validateConfig({ notify: { minInterval: "0s" } })).toEqual([]);
+    expect(validateConfig({ notify: { minInterval: "5m" } })).toEqual([]);
+  });
+
   it("hasConfigErrors is true only when an error-level issue exists", () => {
     expect(hasConfigErrors([{ level: "warning", path: "x", message: "y" }])).toBe(false);
     expect(hasConfigErrors([{ level: "error", path: "x", message: "y" }])).toBe(true);

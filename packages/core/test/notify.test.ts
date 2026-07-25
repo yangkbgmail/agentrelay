@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import {
   combineNotifiers,
   createSlackNotifier,
+  createThrottledNotifier,
   createWebhookNotifier,
   formatSlackText,
   listNotifyChannels,
   notifiersFromEnv,
+  notifyMinIntervalMsFromEnv,
   sendTestNotification,
   slackNotifierFromEnv,
   testNotifyPayload,
@@ -95,6 +97,102 @@ describe("combineNotifiers", () => {
 
     expect(a).toHaveBeenCalledWith(payload);
     expect(b).toHaveBeenCalledWith(payload);
+  });
+});
+
+describe("createThrottledNotifier", () => {
+  const resumed = (project: string): NotifyPayload => ({
+    jobId: `job-${project}`,
+    project,
+    event: "resumed",
+    message: `resuming ${project}`,
+  });
+
+  it("returns the inner notifier unchanged when the window is <= 0 (no overhead)", () => {
+    const inner = vi.fn();
+    expect(createThrottledNotifier(inner, { minIntervalMs: 0 })).toBe(inner);
+    expect(createThrottledNotifier(inner, { minIntervalMs: -5 })).toBe(inner);
+  });
+
+  it("delivers the first event for a key and suppresses later ones inside the window", async () => {
+    const inner = vi.fn();
+    const suppressed: NotifyPayload[] = [];
+    const now = 1_000;
+    const notify = createThrottledNotifier(inner, {
+      minIntervalMs: 60_000,
+      now: () => now,
+      onSuppress: (p) => suppressed.push(p),
+    });
+
+    // A herd of resumes in the same tick: first passes, the rest are dropped.
+    await notify(resumed("a"));
+    await notify(resumed("b"));
+    await notify(resumed("c"));
+
+    expect(inner).toHaveBeenCalledTimes(1);
+    expect(inner).toHaveBeenCalledWith(resumed("a"));
+    expect(suppressed.map((p) => p.project)).toEqual(["b", "c"]);
+  });
+
+  it("delivers again once the window has elapsed", async () => {
+    const inner = vi.fn();
+    let now = 0;
+    const notify = createThrottledNotifier(inner, { minIntervalMs: 60_000, now: () => now });
+
+    await notify(resumed("a")); // t=0 -> delivered
+    now = 59_999;
+    await notify(resumed("b")); // still inside window -> suppressed
+    now = 60_000;
+    await notify(resumed("c")); // window elapsed -> delivered
+
+    expect(inner).toHaveBeenCalledTimes(2);
+  });
+
+  it("throttles each key independently (default key is the event type)", async () => {
+    const inner = vi.fn();
+    const now = 0;
+    const notify = createThrottledNotifier(inner, { minIntervalMs: 60_000, now: () => now });
+
+    await notify({ ...resumed("a"), event: "resumed" });
+    await notify({ ...resumed("a"), event: "completed" });
+    await notify({ ...resumed("a"), event: "failed" });
+    await notify({ ...resumed("b"), event: "resumed" }); // same event key as the first -> suppressed
+
+    expect(inner).toHaveBeenCalledTimes(3);
+    expect(inner.mock.calls.map((c) => (c[0] as NotifyPayload).event)).toEqual(["resumed", "completed", "failed"]);
+  });
+
+  it("honours a custom key function (throttle per project+event)", async () => {
+    const inner = vi.fn();
+    const now = 0;
+    const notify = createThrottledNotifier(inner, {
+      minIntervalMs: 60_000,
+      now: () => now,
+      keyOf: (p) => `${p.project}:${p.event}`,
+    });
+
+    await notify(resumed("a"));
+    await notify(resumed("b")); // different project -> different key -> delivered
+    await notify(resumed("a")); // repeat -> suppressed
+
+    expect(inner).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("notifyMinIntervalMsFromEnv", () => {
+  it("returns 0 (off) when unset or blank", () => {
+    expect(notifyMinIntervalMsFromEnv({})).toBe(0);
+    expect(notifyMinIntervalMsFromEnv({ AGENTRELAY_NOTIFY_MIN_INTERVAL: "   " })).toBe(0);
+  });
+
+  it("parses a duration string into milliseconds", () => {
+    expect(notifyMinIntervalMsFromEnv({ AGENTRELAY_NOTIFY_MIN_INTERVAL: "30s" })).toBe(30_000);
+    expect(notifyMinIntervalMsFromEnv({ AGENTRELAY_NOTIFY_MIN_INTERVAL: "5m" })).toBe(300_000);
+  });
+
+  it("returns 0 for an unparseable or non-positive value (a typo must not swallow notifications)", () => {
+    expect(notifyMinIntervalMsFromEnv({ AGENTRELAY_NOTIFY_MIN_INTERVAL: "banana" })).toBe(0);
+    expect(notifyMinIntervalMsFromEnv({ AGENTRELAY_NOTIFY_MIN_INTERVAL: "0s" })).toBe(0);
   });
 });
 
@@ -238,6 +336,29 @@ describe("notifiersFromEnv", () => {
     await notify!(payload);
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(fetchFn.mock.calls[0][0]).toBe("https://hooks.example.test/relay");
+  });
+
+  it("throttles delivery when AGENTRELAY_NOTIFY_MIN_INTERVAL is a positive duration", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const suppressed: NotifyPayload[] = [];
+    let now = 0;
+    const notify = notifiersFromEnv(
+      {
+        AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+        AGENTRELAY_NOTIFY_MIN_INTERVAL: "1m",
+      },
+      { fetchFn, now: () => now, onSuppress: (p) => suppressed.push(p) }
+    );
+    expect(notify).not.toBeNull();
+
+    const resumed: NotifyPayload = { jobId: "j1", project: "p", event: "resumed", message: "go" };
+    await notify!(resumed); // delivered
+    await notify!({ ...resumed, jobId: "j2" }); // within window -> suppressed
+    now = 60_000;
+    await notify!({ ...resumed, jobId: "j3" }); // window elapsed -> delivered
+
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(suppressed.map((p) => p.jobId)).toEqual(["j2"]);
   });
 });
 
