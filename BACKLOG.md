@@ -559,6 +559,22 @@
       malformed fallthrough). 새 CLI 코드 0줄 — 기존 `parse` 커맨드가 자동 노출.
       branch `claude/wizardly-pascal-hi5obo`)
 
+- [x] 👷 Gemini CLI 에이전트 어댑터 — Google Gemini CLI(`gemini`) 지원 추가. 지금까지 어댑터는
+      claude-code·codex-cli·generic 셋뿐이라, Google `google.rpc.RetryInfo`가 429에 싣는
+      `retryDelay: "56s"` 필드를 제네릭 파서(초 미지원)도 Codex 어댑터("try again in Ns" 문구)도
+      놓쳐 Gemini 잡의 리셋 시각을 못 잡았다.
+      (완료 — `AgentTool`에 `gemini-cli` 추가(types.ts). `adapters.ts`에 `GEMINI_CLI_ADAPTER`
+      (binaries `["gemini","gemini-cli"]`) + 두 패턴: `gemini-retry-delay`(protobuf Duration
+      `retryDelay:"56s"`·비인용 `retryDelay=56s`·소수 `1.5s`, 초→now+ceil(ms)로 올림해 조기 재개
+      방지)·`gemini-relative-seconds`(Codex와 같은 "try again in Ns" 문구를 툴-정확한 이름으로 재사용).
+      공유 `secondsFromNow` 헬퍼로 Codex 초 로직과 통일(중복 제거, 기존 Codex 동작 불변). ADAPTERS
+      레지스트리·`ALL_TOOLS`(stats zero-fill)·`VALID_TOOLS`(import 검증)에 등록, 제네릭보다 우선하는
+      어댑터 패턴이라 fallthrough도 유지. 새 파서 로직은 어댑터 국소, 제네릭 파서 0줄 변경.
+      core adapters +7(gemini 이진 추론·resolveAdapter·registry·retryDelay·소수 올림·plain seconds·
+      fallthrough·generic 미검출) + stats byTool zero-fill 3케이스 갱신, 실제 빌드 CLI `parse
+      --tool gemini-cli` e2e로 retryDelay/plain-seconds/generic 미검출/소수 올림(1201ms) 검증.
+      branch `claude/wizardly-pascal-xznu9y`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

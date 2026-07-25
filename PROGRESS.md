@@ -1464,3 +1464,31 @@
   unix-epoch(비교차 확인).
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속. 파서 추가 실사용 포맷(named IANA tz 실제 변환·
   weekday 창)은 코워크 리서치(🧭)와 조율. README/ARCHITECTURE(🧭 코워크).
+
+## 세션 45 (2026-07-25)
+
+- **배경:** 저장소 최신화 후 BACKLOG의 👷 명시 항목이 전부 완료 상태(남은 미완은 🧭 코워크
+  소유 문서/리서치뿐)임을 확인. 열린 PR 30건은 서로 distinct한 신규 기능(파서 변형·stats 변형·
+  wait/upcoming/agenda·notify·config get·adapters list 등)을 이미 점유 중. 겹치지 않는 새 개선
+  항목을 CLAUDE.md 지침대로 발굴 — 이 도구의 핵심 가치는 "여러 에이전트 CLI를 릴레이"하는 것인데
+  어댑터가 claude-code·codex-cli·generic 셋뿐이었다(어댑터 *목록* 커맨드 PR #186과는 별개 항목).
+- **한 일 (branch `claude/wizardly-pascal-xznu9y`): Gemini CLI 에이전트 어댑터 추가.**
+  1. `AgentTool`에 `gemini-cli` 추가(types.ts). `ALL_TOOLS`(stats zero-fill)·`VALID_TOOLS`
+     (import 검증) 두 권위 목록에 등록 — metrics `jobs_by_tool`는 `ALL_TOOLS.map`이라 자동 반영.
+  2. `adapters.ts`에 `GEMINI_CLI_ADAPTER`(binaries `["gemini","gemini-cli"]`) + 두 패턴:
+     - `gemini-retry-delay` — Google `google.rpc.RetryInfo`가 429에 싣는 protobuf Duration
+       필드 `retryDelay: "56s"`(JSON 인용/비인용 `retryDelay=56s`/소수 `1.5s`) 인식. 제네릭 파서는
+       초 미지원, Codex 어댑터는 "try again in Ns" 문구만 알아 이 필드를 둘 다 놓치던 실사용 갭.
+     - `gemini-relative-seconds` — Codex와 같은 "try again in Ns" 초 문구를 툴-정확한 이름으로 재사용.
+     공유 `secondsFromNow`(초→now+ceil(ms), 조기 재개 방지) 헬퍼로 Codex 초 로직과 통일(중복 제거,
+     기존 Codex 동작·provenance 이름 불변). 어댑터 패턴은 제네릭보다 우선하되 fallthrough 유지.
+     새 제네릭 파서 로직 0줄 — 변경은 어댑터에 국소.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  전 패키지 통과(core 502 + cli 228/1skip + dashboard 7; adapters.test.ts 19개 = +7 신규: gemini
+  이진 추론·resolveAdapter·registry keys·retryDelay 필드·소수 올림 1201ms·plain seconds·fallthrough·
+  generic 미검출, stats byTool zero-fill 3케이스 갱신). 실제 빌드된 CLI e2e(mock 아님): `parse
+  --tool gemini-cli`가 `retryDelay:"56s"`→gemini-retry-delay/+56s, "try again in 30s"→
+  gemini-relative-seconds, generic은 `{"retryDelay":"56s"}` 미검출(어댑터 가치 확인), `retryDelay=
+  1.2005s`→1201ms 올림(--json) 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합/추가 어댑터(Aider·Cursor 등, 👷 후보). 파서 실사용
+  포맷 보강은 코워크 리서치(🧭)와 조율. README/ARCHITECTURE(🧭 코워크).
