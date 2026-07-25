@@ -575,6 +575,15 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay show <id> --watch [seconds]` — 단일 잡의 전체 상세를 리셋 카운트다운과 함께
+      라이브로 지켜보다 종료 상태 도달 시 자동 종료(watch 패밀리 완성: status --watch은 큐 전체, 이건 한 잡).
+      (완료 — CLI `show.ts`에 순수 `renderJobDetailWatchFrame`(status의 `renderWatchFrame` 미러, 헤더 +
+      `renderJobDetail` 블록, settled/live 헤더 전환) 신설, `cli.ts`에 `runShowWatch` 루프(매 인터벌 스토어
+      재오픈으로 데몬/tick 쓰기 관측, core `evaluateWait`로 종료 판정 후 자동 exit). `show`에 `-w, --watch
+      [seconds]` 배선(짧은 prefix 1회 해소 후 full id 추적, 비양수는 기본 2s, `--watch --json`은 exit 1).
+      새 core 코드 0줄 — `evaluateWait`(세션 37)·`renderJobDetail` 재사용. show.test +4, 실제 빌드 CLI e2e로
+      settled 즉시 종료·waiting→completed flip 자동 종료·에러 exit 검증. branch `claude/wizardly-pascal-8dviyw`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -116,6 +116,32 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
   return lines.join("\n");
 }
 
+/**
+ * One frame of the live `show --watch` view: a title/header line plus the full
+ * detail block for a single job. Mirrors `status`'s `renderWatchFrame` so the
+ * two live views feel the same. Pure (no I/O, no screen control): the watch
+ * loop in cli.ts only clears the screen and prints this.
+ *
+ * When `settled` is true (the job reached a terminal state, per core's
+ * `evaluateWait`) the header says the view stopped refreshing, so the final
+ * frame reads as a conclusion rather than a still-live snapshot.
+ */
+export function renderJobDetailWatchFrame(
+  job: RelayJob,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now(),
+  settled = false
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const suffix = settled
+    ? `${DIM}(settled — no longer refreshing)${RESET}`
+    : `${DIM}(live, every ${Math.round(intervalMs / 1000)}s — Ctrl-C to exit)${RESET}`;
+  const title = `${BOLD}agentrelay show${RESET} ${suffix}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderJobDetail(job, { now, color: true })].join("\n");
+}
+
 /** Machine-readable single-job snapshot for `--json` (scripts, jq, tooling). */
 export function renderJobDetailJson(
   job: RelayJob,
