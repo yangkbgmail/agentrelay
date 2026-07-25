@@ -553,3 +553,16 @@
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
+
+## 빌더가 발굴한 신규 항목
+
+- [x] 👷 파서 견고화: 공백 구분 날짜시각 + 근사 표현("in about/~") 인식.
+      (완료 — `iso-timestamp`가 리터럴 `T`를 요구해 로그 형식으로 흔한 공백 구분 날짜시각
+      `reset at 2026-07-13 05:00[:00]`을 통째로 놓치던 갭과, `relative-duration`이 근사 표현
+      "try again in about 2 hours"/"resets in ~30m"/"in roughly 1h"에서 리셋 시각을 못 잡던
+      갭을 해소. 신규 `date-time` 패턴(tz 있으면 엄격 ISO 재구성·없으면 로컬 wall-clock, 범위
+      밖 날짜는 null 반환, `iso-timestamp` 뒤 배치로 canonical `T` 형식 보존) + `relative-duration`
+      정규식에 근사 필러(`about|around|approximately|roughly|~`) 선택 그룹(기존 매치 불변) +
+      사전 필터가 bare `retry in`을 받도록 수정. 새 CLI 배선 0줄(parse/run/스케줄러가
+      `parseRateLimitMessage` 공유). parser.test +9 회귀(총 37). branch
+      `claude/wizardly-pascal-py7npt`)
