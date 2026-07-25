@@ -11,10 +11,10 @@
 // and deterministic.
 
 /** Shells we can emit a completion script for. */
-export type CompletionShell = "bash" | "zsh";
+export type CompletionShell = "bash" | "zsh" | "fish";
 
 /** Every shell `agentrelay completion` accepts, in a stable order. */
-export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh"] as const;
+export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh", "fish"] as const;
 
 /** Type guard: is `value` one of the shells we support? */
 export function isCompletionShell(value: string): value is CompletionShell {
@@ -86,6 +86,7 @@ export function generateCompletion(shell: CompletionShell, spec: CompletionSpec)
     for (const sub of cmd.subcommands ?? []) assertSafeToken(sub.name, "subcommand name");
   }
   if (shell === "bash") return generateBash(spec);
+  if (shell === "fish") return generateFish(spec);
   return generateZsh(spec);
 }
 
@@ -192,6 +193,68 @@ ${caseArms.join("\n")}
 }
 complete -F ${fn} ${spec.program}
 `;
+}
+
+/**
+ * Fish: a flat list of `complete -c <prog>` rules using fish's built-in
+ * `__fish_use_subcommand` / `__fish_seen_subcommand_from` helpers to decide what
+ * to offer. Fish's model is declarative (one rule per candidate context) rather
+ * than a completion *function*, so unlike bash/zsh there's no state machine to
+ * write — each rule is gated by a `-n <condition>` that fish evaluates.
+ *
+ *  - At the start of the line (no subcommand yet) offer the command names and
+ *    the global options.
+ *  - Once a leaf command is on the line, offer that command's flags.
+ *  - For a parent command (e.g. `config`) offer its subcommand names until one
+ *    is present, then that subcommand's flags.
+ *
+ * The install path is a single drop-in file, which is nicer than bash's
+ * `source` or zsh's `$fpath` dance.
+ */
+function generateFish(spec: CompletionSpec): string {
+  const prog = spec.program;
+  // Fish `complete -a` offers each space-separated token as a candidate; both
+  // long (`--json`) and short (`-r`) flag forms work verbatim, same as the
+  // simple bash/zsh word lists.
+  const commandNames = wordList(
+    spec.commands.map((c) => c.name),
+    "command name"
+  );
+  const globalOpts = wordList([...spec.options, "--help", "--version"], "global option");
+
+  const lines: string[] = [
+    `# fish completion for ${prog}`,
+    `# Install: save this as ~/.config/fish/completions/${prog}.fish`,
+    "",
+    "# Top-level: subcommand names (no file completion), then global options.",
+    // `-f` disables file completion while a subcommand is being chosen.
+    `complete -c ${prog} -f -n '__fish_use_subcommand' -a '${commandNames}'`,
+    `complete -c ${prog} -n '__fish_use_subcommand' -a '${globalOpts}'`,
+  ];
+
+  for (const cmd of spec.commands) {
+    const hasSubs = (cmd.subcommands?.length ?? 0) > 0;
+    lines.push("", `# ${cmd.name}`);
+    if (hasSubs) {
+      const subNames = wordList(
+        (cmd.subcommands ?? []).map((s) => s.name),
+        "subcommand name"
+      );
+      // Offer subcommand names only until one of them is on the line.
+      lines.push(
+        `complete -c ${prog} -f -n '__fish_seen_subcommand_from ${cmd.name}; and not __fish_seen_subcommand_from ${subNames}' -a '${subNames}'`
+      );
+      for (const sub of cmd.subcommands ?? []) {
+        const subOpts = wordList([...sub.options, "--help"], "subcommand option");
+        lines.push(`complete -c ${prog} -n '__fish_seen_subcommand_from ${sub.name}' -a '${subOpts}'`);
+      }
+    } else {
+      const opts = wordList([...cmd.options, "--help"], "command option");
+      lines.push(`complete -c ${prog} -n '__fish_seen_subcommand_from ${cmd.name}' -a '${opts}'`);
+    }
+  }
+
+  return `${lines.join("\n")}\n`;
 }
 
 /**
