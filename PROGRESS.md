@@ -1489,3 +1489,27 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 기능 `agentrelay tools`(어댑터 카탈로그 발견성 커맨드)] (2026-07-25, 무인 자율 세션, branch `claude/wizardly-pascal-ux1cth`)
+- **배경:** 명시 👷 BACKLOG 항목이 전부 완료 상태이고 열린 PR 76+개(다수 중복)가 적체된 상황.
+  세션 42~45는 distinct CI-초록 PR을 main에 통합했으나 병합은 리뷰 소관이라 pile이 줄지 않음. 이번엔
+  기존 열린 PR·기존 커맨드와 **겹치지 않는** 진짜 빈틈을 발굴: `--tool`(run/parse/stats/status/export/
+  cancel/retry/metrics/patterns가 전부 소비)에 어떤 값을 넣을 수 있는지, `run`이 어떤 argv[0] 바이너리로
+  툴을 자동 추론하는지, 어떤 툴이 제네릭 파서 너머 문구를 인식하는지 열거할 방법이 전무했다. `parse`는
+  메시지 하나를 검증할 뿐 어댑터 카탈로그를 노출하지 않음. (열린 PR 전수 제목 확인: #205가 Gemini
+  어댑터를 *추가*하나 카탈로그 *조회* 커맨드는 없음 → 중복 아님.)
+- **한 일:** `agentrelay tools [--json]` 신규 커맨드 구현.
+  1. core `adapters.ts`에 순수 `describeAdapters()` + `AdapterInfo`(tool·displayName·binaries·
+     patternNames·isFallback) 추가 — `ADAPTERS`를 등록 순서로 평탄화, binaries/patternNames는 복사본
+     반환(호출자가 라이브 레지스트리 변형 불가), generic 어댑터만 `isFallback:true`. 새 파서/어댑터
+     로직 0줄(레지스트리 읽기 전용).
+  2. CLI `packages/cli/src/tools.ts`에 순수 `renderTools`(툴별 스탠자: 색상 id + 바이너리 + 패턴,
+     패턴 없으면 "generic parser only" note, color 게이트)·`renderToolsJson`(--json envelope). cli.ts에
+     스토어 불필요 커맨드로 배선(`paths` 다음).
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 에러**·`pnpm test` 전 패키지 통과
+  (core adapters +6[describeAdapters 등록순서·binaries/patternNames 평탄화·복사본 불변·generic fallback]
+  + cli tools +7[카탈로그·바이너리·패턴 note·fallback 마커·color on/off·JSON]). 실제 빌드된 CLI e2e(mock
+  아님): `tools`→3어댑터 카탈로그, `tools --json`→codex binaries/`codex-relative-seconds` 패턴/fallback
+  플래그, `--help`에 커맨드 노출 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 또는 추가 발견성/진단 커맨드 발굴. 중복 무리(파서 reset-at·
+  config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).

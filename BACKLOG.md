@@ -575,6 +575,19 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay tools` — 등록된 에이전트 어댑터 카탈로그(유효 `--tool` 값·자동 추론 바이너리·
+      툴별 rate-limit 패턴)를 한눈에. `parse`가 메시지 하나를 파서에 검증한다면, 이 커맨드는 "이 도구가
+      어떤 에이전트를 알고 있나 = `--tool`에 무엇을 넣을 수 있고, `run`이 어떤 argv[0] 바이너리로 툴을
+      자동 추론하며, 어떤 툴이 제네릭 패턴 너머의 문구를 추가로 인식하나"에 답함(어댑터 발견성 갭).
+      (완료 — core `adapters.ts`에 순수 `describeAdapters()` + `AdapterInfo`(tool·displayName·binaries·
+      patternNames·isFallback) 추가: `ADAPTERS`를 등록 순서로 평탄화, binaries/patternNames는 복사본
+      반환(호출자가 라이브 레지스트리 변형 불가), generic만 `isFallback:true`. 새 파서/어댑터 로직 0줄 —
+      기존 레지스트리 읽기만. CLI `packages/cli/src/tools.ts`에 순수 `renderTools`(툴별 스탠자: id·바이너리·
+      패턴, 패턴 없으면 "generic parser only" note, color 게이트)·`renderToolsJson`(--json). `agentrelay
+      tools [--json]` 커맨드(스토어 불필요). core adapters +6 / cli tools +7 신규 테스트, 실제 빌드 CLI
+      e2e로 카탈로그·바이너리·codex-relative-seconds 패턴·generic fallback·--json 검증. branch
+      `claude/wizardly-pascal-ux1cth`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

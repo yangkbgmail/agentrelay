@@ -89,6 +89,40 @@ export const ADAPTERS: Record<AgentTool, AgentAdapter> = {
   generic: GENERIC_ADAPTER,
 };
 
+/**
+ * A flattened, serialisable description of one registered adapter — what the
+ * `agentrelay tools` command renders so users can discover which `--tool` values
+ * are valid, which argv[0] binaries auto-infer a tool, and which tools teach the
+ * parser extra rate-limit wording. Derived purely from `ADAPTERS`; no I/O.
+ */
+export interface AdapterInfo {
+  /** Stable `--tool` id. */
+  tool: AgentTool;
+  /** Human-readable label. */
+  displayName: string;
+  /** argv[0] basenames that auto-infer this tool (empty for the generic fallback). */
+  binaries: string[];
+  /** Names of the tool-specific rate-limit patterns this adapter injects (empty = generic parser only). */
+  patternNames: string[];
+  /** True for the adapter used when no tool is given and none can be inferred. */
+  isFallback: boolean;
+}
+
+/**
+ * Describe every registered adapter in registration order. Pure — the catalog
+ * behind `agentrelay tools`. `isFallback` marks the generic adapter, which
+ * `resolveAdapter` returns when the caller gives no tool and none infers.
+ */
+export function describeAdapters(): AdapterInfo[] {
+  return Object.values(ADAPTERS).map((adapter) => ({
+    tool: adapter.tool,
+    displayName: adapter.displayName,
+    binaries: [...adapter.binaries],
+    patternNames: adapter.patterns.map((p) => p.name),
+    isFallback: adapter === GENERIC_ADAPTER,
+  }));
+}
+
 /** Strip any directory / .exe suffix from an argv[0] to get the bare binary name. */
 function baseName(bin: string): string {
   const last = bin.split(/[\\/]/).pop() ?? bin;
