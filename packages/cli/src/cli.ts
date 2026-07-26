@@ -75,7 +75,15 @@ import { buildParseReport, renderParseReport, renderParseReportJson } from "./pa
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
-import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson, renderTrend } from "./stats.js";
+import {
+  renderGroupedStats,
+  renderGroupedStatsJson,
+  renderGroupedStatsWatchFrame,
+  renderStats,
+  renderStatsJson,
+  renderStatsWatchFrame,
+  renderTrend,
+} from "./stats.js";
 import {
   type JobSelection,
   NO_MATCH_MESSAGE,
@@ -309,6 +317,49 @@ function runWatch(store: string, intervalMs: number, selection: JobSelection, wi
     const selected = selectJobs(windowed, selection);
     const frame = renderWatchFrame(selected, store, intervalMs, Date.now(), limit);
     // Clear screen + move cursor home, then paint the frame.
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  };
+  draw();
+  const timer = setInterval(draw, intervalMs);
+  const stop = () => {
+    clearInterval(timer);
+    process.stdout.write("\n");
+    process.exit(0);
+  };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+}
+
+/**
+ * Live `agentrelay stats --watch`: clears the screen and re-renders the stats
+ * summary on an interval so success rate, counts, and the next-reset countdown
+ * update in place. Mirrors `runWatch` for status. `listStatus` re-reads the JSON
+ * store each pass, so a running daemon's writes show up automatically. The same
+ * scope filter (fixed absolute boundaries when the command started) is
+ * re-applied every pass. When `--group-by` is set the grouped breakdown is shown
+ * instead; `--trend` appends the daily histogram. Runs until interrupted (Ctrl-C).
+ */
+function runStatsWatch(
+  store: string,
+  intervalMs: number,
+  scope: JobScope,
+  scopeNote: string | undefined,
+  groupBy: GroupDimension | undefined,
+  trendDays: number | null
+): void {
+  const active = isJobScopeActive(scope);
+  const draw = () => {
+    const now = Date.now();
+    const allJobs = listStatus(store);
+    const jobs = active ? scopeJobs(allJobs, scope) : allJobs;
+    let frame: string;
+    if (groupBy !== undefined) {
+      frame = renderGroupedStatsWatchFrame(groupStats(jobs, groupBy), groupBy, store, intervalMs, now, { scopeNote });
+    } else {
+      const stats = computeStats(jobs);
+      const trend = trendDays !== null ? computeDailyTrend(jobs, { nowMs: now, days: trendDays }) : null;
+      frame = renderStatsWatchFrame(stats, store, intervalMs, now, { scopeNote, trend });
+    }
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   };
   draw();
@@ -628,6 +679,7 @@ export function buildCli(): Command {
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("-g, --group-by <dimension>", `Break down metrics per group: ${GROUP_DIMENSIONS.join(", ")}`)
     .option("--trend [days]", "Also show a per-day activity histogram over the last N days, UTC (default 14, max 90)")
+    .option("-w, --watch [seconds]", "Continuously refresh the stats view with a live countdown (Ctrl-C to exit)")
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
     .action(
       (opts: {
@@ -638,6 +690,7 @@ export function buildCli(): Command {
         until?: string;
         groupBy?: string;
         trend?: string | boolean;
+        watch?: string | boolean;
         json?: boolean;
       }) => {
         const { store } = program.opts();
@@ -736,6 +789,19 @@ export function buildCli(): Command {
             }
             trendDays = parsed;
           }
+        }
+
+        // Live mode takes precedence over the one-shot renders (and over --json,
+        // which is a machine-readable snapshot, not a TTY view). All scope/
+        // group-by/trend parsing above has already run and validated, so the
+        // watch loop just re-reads + re-renders each pass. Bare `--watch` uses a
+        // 2s interval; `--watch 5` overrides it. setInterval keeps us alive.
+        if (opts.watch !== undefined && !opts.json) {
+          const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+          const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+          const scopeNote = isJobScopeActive(scope) ? noteParts.join(" ") : undefined;
+          runStatsWatch(store, intervalMs, scope, scopeNote, groupBy, trendDays);
+          return;
         }
 
         const allJobs = listStatus(store);

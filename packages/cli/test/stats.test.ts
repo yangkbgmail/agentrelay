@@ -9,8 +9,10 @@ import {
   NO_STATS_MESSAGE,
   renderGroupedStats,
   renderGroupedStatsJson,
+  renderGroupedStatsWatchFrame,
   renderStats,
   renderStatsJson,
+  renderStatsWatchFrame,
   renderTrend,
 } from "../src/stats.js";
 
@@ -314,5 +316,57 @@ describe("renderStatsJson trend field", () => {
     const trend: DailyActivity[] = [{ date: "2026-07-20", count: 1 }];
     const withTrend = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", trend }));
     expect(withTrend.trend).toEqual(trend);
+  });
+});
+
+describe("renderStatsWatchFrame", () => {
+  it("wraps the stats block in a live title/timestamp header", () => {
+    const stats = computeStats([job({ status: "waiting_for_reset", resetAt: "2026-07-13T02:00:00.000Z" })]);
+    const frame = renderStatsWatchFrame(stats, "/tmp/store.json", 2000, NOW);
+    expect(frame).toContain("agentrelay stats");
+    expect(frame).toContain("every 2s");
+    expect(frame).toContain("Ctrl-C to exit");
+    expect(frame).toContain("/tmp/store.json");
+    expect(frame).toContain("2026-07-13 00:00:00");
+    // The body is the ordinary stats block.
+    expect(frame).toContain("job(s) tracked");
+    expect(frame).toContain("next reset in");
+  });
+
+  it("appends the trend histogram only when jobs are present", () => {
+    const stats = computeStats([job(), job()]);
+    const trend: DailyActivity[] = [{ date: "2026-07-12", count: 2 }];
+    const frame = renderStatsWatchFrame(stats, "/tmp/s.json", 5000, NOW, { trend });
+    expect(frame).toContain("every 5s");
+    expect(frame).toContain("jobs created per day");
+    expect(frame).toContain("2026-07-12");
+  });
+
+  it("shows the empty-store hint (no trend) when there are no jobs", () => {
+    const stats = computeStats([]);
+    const trend: DailyActivity[] = [{ date: "2026-07-12", count: 0 }];
+    const frame = renderStatsWatchFrame(stats, "/tmp/s.json", 2000, NOW, { trend });
+    expect(frame).toContain(NO_STATS_MESSAGE);
+    // Trend is suppressed for an empty store so the frame stays a clean hint.
+    expect(frame).not.toContain("jobs created per day");
+  });
+
+  it("echoes the scope note into the frame body", () => {
+    const stats = computeStats([job()]);
+    const frame = renderStatsWatchFrame(stats, "/tmp/s.json", 2000, NOW, { scopeNote: "tool=claude-code" });
+    expect(frame).toContain("scope: tool=claude-code");
+  });
+});
+
+describe("renderGroupedStatsWatchFrame", () => {
+  it("renders the grouped breakdown under the live header", () => {
+    const jobs = [job({ tool: "claude-code" }), job({ tool: "codex-cli" })];
+    const groups = groupStats(jobs, "tool");
+    const frame = renderGroupedStatsWatchFrame(groups, "tool", "/tmp/s.json", 3000, NOW);
+    expect(frame).toContain("agentrelay stats");
+    expect(frame).toContain("every 3s");
+    expect(frame).toContain("across 2 tool(s)");
+    expect(frame).toContain("claude-code");
+    expect(frame).toContain("codex-cli");
   });
 });
