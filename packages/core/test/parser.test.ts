@@ -236,6 +236,48 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  // --- "at <time>" with non-"reset" verbs (try again at / available again at) ---
+
+  it("parses 'try again at 5pm' (meridiem clock introduced by 'try again', not 'reset')", () => {
+    // Before: only "reset(s) at" hit the clock patterns, and "try again" only
+    // matched "try again *in*", so this common phrasing was dropped entirely.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Try again at 5pm.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(new Date(result!.resetAt).getHours()).toBe(17);
+  });
+
+  it("parses 'try again at 15:30' (minute-precise clock introduced by 'try again')", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Rate limited. Please try again at 15:30.", { now });
+    expect(result?.pattern).toBe("clock-time");
+    expect(new Date(result!.resetAt).getMinutes()).toBe(30);
+    expect(new Date(result!.resetAt).getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'try again at <ISO timestamp>'", () => {
+    const result = parseRateLimitMessage("Usage limit reached. Try again at 2026-07-13T05:00:00Z.");
+    expect(result?.pattern).toBe("iso-timestamp");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses 'available again at 9am' (trips the pre-filter on its own)", () => {
+    const now = new Date("2026-07-12T20:00:00Z");
+    const result = parseRateLimitMessage("Your account will be available again at 9am.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(new Date(result!.resetAt).getHours()).toBe(9);
+    expect(new Date(result!.resetAt).getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("still routes 'try again in <duration>' to the relative pattern, not the clock ones", () => {
+    // The new "at" verbs must not steal the existing "in" relative-duration path.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limited, try again in 2h.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [

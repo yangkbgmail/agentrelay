@@ -575,6 +575,13 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: `at <시각>`을 `reset` 외 verb로도 인식 (`try again at 5pm` / `available again at 15:00`).
+      (완료 — 세 절대시각 패턴(`iso-timestamp`·`clock-time`·`clock-time-meridiem`)이 `reset(s) at`만
+      인식하던 것을, 공유 `RESET_AT_VERB`(`reset[s]?`|`try again`|`available( again)?` + `at`) 상수로
+      일반화. relative-duration의 `try again **in**` 경로는 그대로 우선(회귀 없음), pre-filter에
+      `available( again)? at` 추가로 단독 트립. bare "at" 미허용으로 오검출 방지. parser.test +5 회귀,
+      실제 빌드 CLI `parse` e2e 검증. branch `claude/wizardly-pascal-asr19f`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

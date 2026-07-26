@@ -1489,3 +1489,24 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+---
+
+### 2026-07-26 — 파서: "at <시각>"을 `reset` 외 verb(`try again at` / `available again at`)로도 인식
+- **한 일:** rate-limit 파서의 세 절대시각 패턴(`iso-timestamp`·`clock-time`·`clock-time-meridiem`)이
+  지금까지 오직 `reset(s) at …`만 인식했다. 그런데 에이전트 CLI와 그들이 프록시하는 API는 같은 뜻을
+  `Try again at 5pm.` / `available again at 15:00`처럼 다른 verb로도 표현한다. relative-duration은
+  `try again **in** …`만 처리하고, clock/ISO는 `reset at …`만 봐서, "at"을 다른 verb와 쓴 메시지는
+  파서를 통째로 빠져나가 잡이 큐잉되지 않던 실사용 갭이었다.
+  - 구현 요약: 세 "at <시각>" 패턴이 공유하는 verb 접두사를 `RESET_AT_VERB`
+    (`(?:reset[s]?|try\s+again|available(?:\s+again)?)\s+at`) 상수로 추출해 lockstep 유지. bare "at"이
+    아니라 명시 verb만 받도록 좁게 유지(노이즈 오검출 방지). pre-filter `LOOKS_LIKE_RATE_LIMIT`에
+    `available(?:\s+again)?\s+at`를 추가해 "available again at 9am"이 다른 키워드 없이도 단독 트립.
+    "try again **in**"의 relative-duration 경로는 그대로 우선(회귀 없음). 새 상태/스토어 로직 0줄 —
+    순수 파서 변경.
+- **검증:** `pnpm build`·`pnpm ci:lint`(Biome)·`pnpm test` 전 패키지 통과(core 파서 38케이스: try again
+  at meridiem/clock/ISO + available again at + relative "in" 미회귀 5 신규). 실제 빌드된 CLI `parse`로
+  `Try again at 5pm`→clock-time-meridiem, `try again at 15:30`→clock-time, `available again at 9am`→
+  clock-time-meridiem, `try again in 2h`→relative-duration 확인. branch `claude/wizardly-pascal-asr19f`.
+- **다음 할 일:** 남은 🧭 문서 항목(README/ARCHITECTURE)은 코워크 소유. 👷 개선 여지: 파서가 "reset"
+  없는 compact 상태줄(`resets 3am`)·"until <time>" 표현 인식, 또는 스토어 동시쓰기 안전(파일 락) 검토.
