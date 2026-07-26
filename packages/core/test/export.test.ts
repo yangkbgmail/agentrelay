@@ -15,7 +15,11 @@ import {
   jobsToJson,
   jobsToMarkdown,
   jobsToNdjson,
+  jobsToYaml,
   parseCsvColumns,
+  yamlDoubleQuote,
+  yamlNeedsQuoting,
+  yamlScalar,
 } from "../src/export.js";
 import type { RelayJob } from "../src/types.js";
 
@@ -320,8 +324,169 @@ describe("exportJobs", () => {
     expect(exportJobs(jobs, "html", { columns: [...columns] })).toBe(jobsToHtml(jobs, { columns: [...columns] }));
   });
 
+  it("dispatches to YAML", () => {
+    const jobs = [job({ id: "d" })];
+    expect(exportJobs(jobs, "yaml")).toBe(jobsToYaml(jobs));
+  });
+
   it("exposes the supported formats", () => {
-    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md", "ndjson", "html"]);
+    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md", "ndjson", "html", "yaml"]);
+  });
+});
+
+describe("yamlNeedsQuoting", () => {
+  it("leaves plain identifier-ish tokens unquoted", () => {
+    expect(yamlNeedsQuoting("completed")).toBe(false);
+    expect(yamlNeedsQuoting("claude-code")).toBe(false);
+    expect(yamlNeedsQuoting("my_project")).toBe(false);
+    expect(yamlNeedsQuoting("waiting_for_reset")).toBe(false);
+  });
+
+  it("quotes the empty string", () => {
+    expect(yamlNeedsQuoting("")).toBe(true);
+  });
+
+  it("quotes YAML reserved words (case-insensitively) so they stay strings", () => {
+    for (const word of ["true", "False", "NULL", "yes", "No", "on", "OFF", "~", "y", "n"]) {
+      expect(yamlNeedsQuoting(word)).toBe(true);
+    }
+  });
+
+  it("quotes number-looking strings so they don't coerce to numbers", () => {
+    for (const n of ["0", "42", "-7", "3.14", "1e10", "-0.5", "1_000", "0x1f", ".inf", ".nan"]) {
+      expect(yamlNeedsQuoting(n)).toBe(true);
+    }
+  });
+
+  it("quotes ISO timestamps (leading digit → YAML timestamp type otherwise)", () => {
+    expect(yamlNeedsQuoting("2026-07-13T05:00:00.000Z")).toBe(true);
+  });
+
+  it("quotes strings with YAML indicators or a leading dash", () => {
+    for (const s of ["-p", "a: b", "a#b", "[x]", "{y}", "a,b", "*anchor", "&ref"]) {
+      expect(yamlNeedsQuoting(s)).toBe(true);
+    }
+  });
+
+  it("quotes a value with trailing whitespace (lost as a plain scalar)", () => {
+    expect(yamlNeedsQuoting("trailing ")).toBe(true);
+  });
+});
+
+describe("yamlDoubleQuote", () => {
+  it("wraps and escapes special characters", () => {
+    expect(yamlDoubleQuote("hi")).toBe('"hi"');
+    expect(yamlDoubleQuote('a "b" c')).toBe('"a \\"b\\" c"');
+    expect(yamlDoubleQuote("a\\b")).toBe('"a\\\\b"');
+    expect(yamlDoubleQuote("line1\nline2")).toBe('"line1\\nline2"');
+    expect(yamlDoubleQuote("a\tb")).toBe('"a\\tb"');
+    expect(yamlDoubleQuote("a\r\nb")).toBe('"a\\r\\nb"');
+  });
+
+  it("escapes other control characters as \\xNN", () => {
+    expect(yamlDoubleQuote("a\x07b")).toBe('"a\\x07b"');
+    expect(yamlDoubleQuote("\x00")).toBe('"\\x00"');
+  });
+
+  it("passes multibyte characters through verbatim", () => {
+    expect(yamlDoubleQuote("café 日本 🚀")).toBe('"café 日本 🚀"');
+  });
+});
+
+describe("yamlScalar", () => {
+  it("renders null / booleans / numbers as bare tokens", () => {
+    expect(yamlScalar(null)).toBe("null");
+    expect(yamlScalar(true)).toBe("true");
+    expect(yamlScalar(false)).toBe("false");
+    expect(yamlScalar(0)).toBe("0");
+    expect(yamlScalar(42)).toBe("42");
+    expect(yamlScalar(-3)).toBe("-3");
+  });
+
+  it("quotes non-finite numbers defensively", () => {
+    expect(yamlScalar(Number.POSITIVE_INFINITY)).toBe('"Infinity"');
+    expect(yamlScalar(Number.NaN)).toBe('"NaN"');
+  });
+
+  it("emits safe strings plain and unsafe strings quoted", () => {
+    expect(yamlScalar("queued")).toBe("queued");
+    expect(yamlScalar("2026-07-13T00:00:00.000Z")).toBe('"2026-07-13T00:00:00.000Z"');
+    expect(yamlScalar("")).toBe('""');
+  });
+});
+
+describe("jobsToYaml", () => {
+  it("renders an empty store as an empty sequence document", () => {
+    expect(jobsToYaml([])).toBe("[]");
+  });
+
+  it("emits one block-sequence entry per job with a dash-folded first key", () => {
+    const yaml = jobsToYaml([job({ id: "abc", status: "queued" })]);
+    const lines = yaml.split("\n");
+    expect(lines[0]).toBe("- id: abc");
+    // Subsequent keys are indented two spaces under the dash.
+    expect(lines).toContain("  project: proj");
+    expect(lines).toContain("  status: queued");
+    expect(lines).toContain("  attempts: 1");
+  });
+
+  it("renders the command array as a nested block sequence", () => {
+    const yaml = jobsToYaml([job({ id: "abc", command: ["claude", "-p", "hello world"] })]);
+    const lines = yaml.split("\n");
+    expect(lines).toContain("  command:");
+    expect(lines).toContain("  - claude");
+    // A leading dash forces quoting; interior spaces are fine in a plain scalar.
+    expect(lines).toContain('  - "-p"');
+    expect(lines).toContain("  - hello world");
+  });
+
+  it("renders an empty command array inline as []", () => {
+    const yaml = jobsToYaml([job({ id: "abc", command: [] })]);
+    expect(yaml.split("\n")).toContain("  command: []");
+  });
+
+  it("emits null for null fields and quotes timestamps", () => {
+    const yaml = jobsToYaml([
+      job({ id: "abc", resetAt: null, lastError: null, createdAt: "2026-07-13T00:00:00.000Z" }),
+    ]);
+    const lines = yaml.split("\n");
+    expect(lines).toContain("  resetAt: null");
+    expect(lines).toContain("  lastError: null");
+    expect(lines).toContain('  createdAt: "2026-07-13T00:00:00.000Z"');
+  });
+
+  it("renders the nested lastRateLimit object as an indented block mapping", () => {
+    const yaml = jobsToYaml([
+      job({
+        id: "abc",
+        lastRateLimit: {
+          pattern: "clock-time",
+          rawMatch: "resets at 5pm",
+          resetAt: "2026-07-13T17:00:00.000Z",
+          detectedAt: "2026-07-13T12:00:00.000Z",
+        },
+      }),
+    ]);
+    const lines = yaml.split("\n");
+    expect(lines).toContain("  lastRateLimit:");
+    expect(lines).toContain("    pattern: clock-time");
+    // Interior spaces are fine plain; the timestamp's leading digit forces quoting.
+    expect(lines).toContain("    rawMatch: resets at 5pm");
+    expect(lines).toContain('    resetAt: "2026-07-13T17:00:00.000Z"');
+  });
+
+  it("keeps injection-y / control content inside a quoted scalar", () => {
+    const yaml = jobsToYaml([job({ id: "abc", lastError: "boom: bad\nsecond line" })]);
+    const lines = yaml.split("\n");
+    expect(lines).toContain('  lastError: "boom: bad\\nsecond line"');
+    // The newline is escaped, so the value never spills onto its own line.
+    expect(yaml.split("\n").length).toBeLessThan(20);
+  });
+
+  it("separates multiple jobs into distinct sequence entries", () => {
+    const yaml = jobsToYaml([job({ id: "one" }), job({ id: "two" })]);
+    const dashLines = yaml.split("\n").filter((l) => l.startsWith("- "));
+    expect(dashLines).toEqual(["- id: one", "- id: two"]);
   });
 });
 

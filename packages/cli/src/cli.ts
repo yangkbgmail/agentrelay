@@ -933,7 +933,7 @@ export function buildCli(): Command {
   program
     .command("export")
     .description(
-      "Export the job store to CSV, JSON, Markdown, NDJSON, or HTML for spreadsheets/BI/jq/issues/reports (stdout or a file)"
+      "Export the job store to CSV, JSON, Markdown, NDJSON, HTML, or YAML for spreadsheets/BI/jq/issues/reports (stdout or a file)"
     )
     .option("-f, --format <format>", `Output format: ${EXPORT_FORMATS.join(" | ")}`, "csv")
     .option("-o, --out <file>", "Write to this file instead of stdout")
@@ -973,7 +973,9 @@ export function buildCli(): Command {
         let columns: JobCsvColumn[] | undefined;
         if (opts.columns !== undefined) {
           if (!COLUMN_AWARE_FORMATS.includes(format as (typeof COLUMN_AWARE_FORMATS)[number])) {
-            console.error(`--columns only applies to ${COLUMN_AWARE_FORMATS.join("/")} (json/ndjson are lossless).`);
+            console.error(
+              `--columns only applies to ${COLUMN_AWARE_FORMATS.join("/")} (json/ndjson/yaml are lossless).`
+            );
             process.exitCode = 1;
             return;
           }
