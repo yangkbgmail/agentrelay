@@ -56,6 +56,30 @@ export interface RelayQueueOptions {
 }
 
 /**
+ * Default cap (in characters) for the captured-output tail persisted on a job.
+ * Enough context to see the rate-limit message and what led to it, without
+ * bloating the JSON store with megabytes of agent output. Both the scheduler
+ * (on resume/complete/fail) and `agentrelay run` (at enqueue) use this so the
+ * bound is a single source of truth rather than a scattered magic number.
+ */
+export const DEFAULT_OUTPUT_TAIL_LENGTH = 2000;
+
+/**
+ * Take the last `maxChars` characters of captured agent output for persistence
+ * as a job's `lastOutputTail`. Pure and defensive: a nullish/empty input yields
+ * `null` (so callers store "no tail" uniformly), and a non-positive bound is
+ * treated as the default rather than silently discarding all output.
+ */
+export function boundOutputTail(
+  output: string | null | undefined,
+  maxChars: number = DEFAULT_OUTPUT_TAIL_LENGTH
+): string | null {
+  if (!output) return null;
+  const limit = maxChars > 0 ? maxChars : DEFAULT_OUTPUT_TAIL_LENGTH;
+  return output.length > limit ? output.slice(-limit) : output;
+}
+
+/**
  * Where a corrupt store file is moved aside before the queue starts fresh, so
  * the unreadable data is preserved for inspection/recovery instead of being
  * silently clobbered by the next write. The suffix is filesystem-safe (the
@@ -189,12 +213,19 @@ export class RelayQueue {
    * it is persisted on the job so `agentrelay show` / the dashboard can explain
    * *why* the relay chose this reset time. Omit `detection` for reset times
    * that aren't a parsed rate limit (e.g. manual re-queues).
+   *
+   * An optional `outputTail` persists the agent output that *triggered* this
+   * park, so `agentrelay show` / `agentrelay tail` have context on a freshly
+   * queued job (before any resume has run). Pass the already-bounded tail
+   * (see {@link boundOutputTail}); a nullish value leaves the existing tail
+   * untouched so a manual re-queue doesn't wipe a prior capture.
    */
-  markWaitingForReset(id: string, resetAt: string, detection?: RateLimitDetection) {
+  markWaitingForReset(id: string, resetAt: string, detection?: RateLimitDetection, outputTail?: string | null) {
     this.update(id, {
       status: "waiting_for_reset",
       resetAt,
       ...(detection ? { lastRateLimit: detection } : {}),
+      ...(outputTail != null ? { lastOutputTail: outputTail } : {}),
     });
   }
 

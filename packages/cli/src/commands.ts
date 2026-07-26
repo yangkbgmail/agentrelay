@@ -30,6 +30,7 @@ import {
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
+  boundOutputTail,
   buildLocationReport,
   CONFIG_FILENAME,
   canCancel,
@@ -173,12 +174,19 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   const queue = openQueue(storePath);
   const project = resolveProjectName(cwd, options.project);
   const job = queue.enqueue({ project, tool, command: options.command, cwd });
-  queue.markWaitingForReset(job.id, rateLimit.resetAt, {
-    pattern: rateLimit.pattern,
-    rawMatch: rateLimit.rawMatch,
-    resetAt: rateLimit.resetAt,
-    detectedAt: new Date().toISOString(),
-  });
+  queue.markWaitingForReset(
+    job.id,
+    rateLimit.resetAt,
+    {
+      pattern: rateLimit.pattern,
+      rawMatch: rateLimit.rawMatch,
+      resetAt: rateLimit.resetAt,
+      detectedAt: new Date().toISOString(),
+    },
+    // Persist the output that triggered the limit so `agentrelay show`/`tail`
+    // have context on this job *before* any resume has run and captured its own.
+    boundOutputTail(output)
+  );
   queue.close();
 
   stdout.write(

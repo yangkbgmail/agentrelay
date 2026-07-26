@@ -88,6 +88,19 @@ describe("runCommand", () => {
     expect(jobs[0].command).toEqual(["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"]);
   });
 
+  it("persists the triggering output tail on the queued job", async () => {
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    // The output that tripped the limit is captured so `show`/`tail` have
+    // context on the job before any resume has run.
+    expect(result.queuedJob?.lastOutputTail).toContain("Usage limit reached. Resets in 10m.");
+  });
+
   it("sends a 'queued' notification when a rate-limited command is enqueued", async () => {
     const notify = vi.fn(async (_payload: NotifyPayload) => {});
     const result = await runCommand({

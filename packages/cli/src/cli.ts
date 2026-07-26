@@ -86,6 +86,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { renderTail, renderTailJson } from "./tail.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -1180,6 +1181,45 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("tail")
+    .description(
+      "Print a job's raw captured output tail (verbatim, for piping/grep). See `agentrelay show` for the full detail block"
+    )
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .option("-n, --lines <count>", "Print only the last N lines of the tail")
+    .option("--json", "Print the tail as JSON (machine-readable, for scripts/jq)")
+    .action((id: string, opts: { lines?: string; json?: boolean }) => {
+      const { store } = program.opts();
+      const result = showJob(id, store);
+      if (!result.ok || !result.job) {
+        console.error(`[agentrelay] ${result.error ?? "job not found"}`);
+        process.exitCode = 1;
+        return;
+      }
+      let lines: number | undefined;
+      if (opts.lines !== undefined) {
+        lines = Number.parseInt(opts.lines, 10);
+        if (!Number.isFinite(lines) || lines <= 0) {
+          console.error(`[agentrelay] --lines must be a positive integer (got "${opts.lines}")`);
+          process.exitCode = 1;
+          return;
+        }
+      }
+      if (opts.json) {
+        console.log(renderTailJson(result.job, { lines }));
+        return;
+      }
+      if (result.job.lastOutputTail == null || result.job.lastOutputTail.length === 0) {
+        // Keep stdout empty so piping stays clean; note the absence on stderr.
+        console.error(`[agentrelay] no output captured for job ${result.job.id} yet`);
+        return;
+      }
+      // process.stdout.write (not console.log) so we don't append an extra
+      // newline to output that already ends in one — the tail is verbatim.
+      process.stdout.write(renderTail(result.job, { lines }));
     });
 
   program
