@@ -575,6 +575,21 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay upcoming` — 앞으로 재개될 잡들을 재개 시각순(soonest first) 타임라인으로 보기.
+      `next`는 다음 1개만, `status`는 활성·종료 잡까지 섞어 전부 나열하는 반면, 이 커맨드는 스케줄러가
+      실제로 재개할 `waiting_for_reset` 잡만 데몬이 집어들 순서 그대로 각 카운트다운과 함께 아젠다로 보여줌.
+      (완료 — core `next.ts`에 순수 `selectUpcomingResumes(jobs,{now,limit})` + `UpcomingResume`/
+      `UpcomingResumes` 신설: `selectNextResume`와 **동일한 `compareNext` 정렬**(reset asc→createdAt asc→
+      id) 공유라 `upcoming` 첫 행과 `next`가 절대 어긋나지 않음. parseable `resetAt` 있는 waiting 잡만
+      포함, 행별 `dueInMs`/`due` 계산, `dueNow`/`totalWaiting`은 limit 적용 **전** 전체 집계(잘린 뷰도
+      숨긴 개수·due 개수를 정직하게 표기), 비양수 limit은 0행+전체 카운트. CLI `packages/cli/src/upcoming.ts`
+      순수 `renderUpcoming`(헤더 waiting/due 카운트 + 행별 `●`due/`○`pending 마커·짧은 id·프로젝트·
+      카운트다운·절대 시각, 트렁케이트 시 "… N more not shown", `formatCountdown` 재사용으로 status와
+      일치)·`renderUpcomingJson`. `agentrelay upcoming [--json] [-n/--limit] [-t/--tool] [-p/--project]
+      [--since] [--until]` — 공용 `buildScope`(status는 항상 waiting이라 미노출)·limit 검증 재사용,
+      잘못된 값 exit 1. core next.test +6 / cli upcoming.test 9 신규, 실제 빌드 CLI e2e로 due 마커·시간순·
+      limit 푸터·프로젝트 필터·JSON 검증. branch `claude/wizardly-pascal-ccjld4`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

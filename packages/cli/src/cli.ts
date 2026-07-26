@@ -33,6 +33,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
   selectNextResume,
+  selectUpcomingResumes,
   sendTestNotification,
   summarizeRateLimitPatterns,
 } from "@agentrelay/core";
@@ -86,6 +87,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { renderUpcoming, renderUpcomingJson } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -550,6 +552,57 @@ export function buildCli(): Command {
         else if (!next.due) process.exitCode = 3;
         // due-now → exit 0 (default).
       }
+    });
+
+  program
+    .command("upcoming")
+    .description("Show the timeline of jobs waiting to resume, soonest first, each with its countdown")
+    .option("--json", "Print the timeline as JSON (machine-readable, for scripts/jq)")
+    .option("-n, --limit <n>", "Show at most N upcoming resumes (the counts still reflect all waiting jobs)")
+    .option("-t, --tool <tools>", `Only jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # the next three resumes coming up\n" +
+        "  agentrelay upcoming --limit 3\n" +
+        "  # just this project's resume schedule, as JSON\n" +
+        "  agentrelay upcoming --project my-app --json"
+    )
+    .action((opts: ScopeOpts & { json?: boolean; limit?: string }) => {
+      const { store } = program.opts();
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      // Reuse the shared scope filters, but --status is meaningless here (the
+      // timeline is inherently waiting_for_reset), so it isn't exposed.
+      const built = buildScope(opts, Date.now());
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const all = listStatus(store);
+      const jobs = built.active ? scopeJobs(all, built.scope) : all;
+      const result = selectUpcomingResumes(jobs, { limit });
+
+      if (opts.json) {
+        console.log(renderUpcomingJson(result, store));
+        return;
+      }
+      console.log(renderUpcoming(result, { color: Boolean(process.stdout.isTTY) }));
     });
 
   program
