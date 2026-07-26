@@ -1489,3 +1489,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — distinct CI-초록 PR #171(`agentrelay verify` 스토어 무결성 린터) 최신 main 재구성 통합] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-wo59qz`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태이고 열린 PR이 92개까지 적체(기능 영역이 사실상 포화 —
+  파서 변종·stats 계열·config get·resume stagger·신규 커맨드 다수가 중복). 세션 42~45의 판단(신규 기능을
+  더 쌓기보다 **CI 초록·서로 겹치지 않는 distinct PR을 최신 main 위로 통합**)을 이어, 직전 세션들이 "다음"으로
+  지목한 후보(#125·#168·#170·#171) 중 자체 모듈로 완전히 격리되어 최신 main 표면과 겹침이 없는 **#171
+  (`agentrelay verify`)**을 통합 대상으로 선정.
+- **한 일:** **#171(`agentrelay verify` — 잡 스토어 무결성 린터)를 최신 main(4abefa1) 위에 재구성 통합.**
+  PR head가 오래된 base라 CI가 미실행(pending·checks 0)이고 stale conflict 위험이 있어, 체리픽 대신 diff를
+  최신 main 위에 그대로 재구성. 전제조건 확인: `import.ts`의 `validateJobRecord`가 현재 main에 `{ok,job}`/
+  `{ok,reason}` 형태로 export되어 있고, `commands.ts`가 이미 `existsSync`/`readFileSync`를 import함.
+  - 구현 요약: 순수 core `verify.ts`의 `verifyStore(records: unknown[])`가 **원시** 배열(큐의 post-cast 뷰가
+    아니라 — 큐 Map이 이미 중복 id를 붕괴시킨 뒤라서)을 받아 두 층 검사 — 구조 검증(`validateJobRecord` 재사용,
+    에러)+교차·의미 검사(중복 id=에러, resetAt 없는 waiting_for_reset·파싱 불가 타임스탬프·클럭 스큐=경고).
+    `StoreVerification`(total·validJobs·error/warningCount·ok·issues[index·jobId·code·message]) 반환. CLI
+    `commands.ts` `runVerify`가 파일시스템 엣지만 담당(없음=missing·비배열/깨진 JSON=corrupt·빈 파일=빈 스토어,
+    절대 throw 안 함), `verify.ts`에 순수 `renderVerify`(에러 먼저·경고 나중, 색상)·`renderVerifyJson`.
+    `agentrelay verify [--json]` 커맨드, corrupt나 error-level 이슈면 exit 1(경고만이면 0) → CI/pre-flight 게이트.
+- **검증:** 통합 후 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0 경고/0 에러·
+  `pnpm test` 전 패키지 통과(core 520[+14 verify]·cli 243+1skip[+8 verify]·dashboard 7). 실제 빌드된 CLI
+  e2e(mock 아님): `verify`→missing=exit0·clean(`[]`)=exit0·corrupt(비배열)=exit1·중복id+waiting-no-reset=
+  exit1(에러 1·경고 1, 에러 먼저 렌더)·`--json` 기계 출력 검증.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean 등). 중복 무리
+  (파서 reset-at 계열·config get·stats --by-hour/--by-weekday·resume stagger)는 각각 하나로 수렴 후 나머지
+  닫기 권장. verify 후속 아이디어: `--fix`로 안전한 자동 교정(중복 id 정리 등). README/ARCHITECTURE(🧭 코워크).
