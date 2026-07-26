@@ -236,6 +236,71 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  // --- explicit "tomorrow" clock qualifiers (daily/weekly windows) ---
+
+  it("parses 'reset at 9am tomorrow' as tomorrow, not today, even when 9am hasn't passed", () => {
+    // Regression: without the tomorrow patterns, clock-time-meridiem would
+    // schedule 9am *today* (a full day too early) when it hasn't passed yet.
+    const now = new Date("2026-07-12T04:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Your limit will reset at 9am tomorrow.", { now });
+    expect(result?.pattern).toBe("clock-time-tomorrow");
+    const expected = new Date(now);
+    expected.setDate(expected.getDate() + 1);
+    expected.setHours(9, 0, 0, 0);
+    expect(result?.resetAt).toBe(expected.toISOString());
+  });
+
+  it("parses 'resets tomorrow at 9am' (tomorrow before the time)", () => {
+    const now = new Date("2026-07-12T04:00:00Z");
+    const result = parseRateLimitMessage("You've hit your usage limit. It resets tomorrow at 9am.", { now });
+    expect(result?.pattern).toBe("tomorrow-clock-time");
+    const expected = new Date(now);
+    expected.setDate(expected.getDate() + 1);
+    expected.setHours(9, 0, 0, 0);
+    expect(result?.resetAt).toBe(expected.toISOString());
+  });
+
+  it("parses a 24-hour 'reset at 15:00 tomorrow'", () => {
+    const now = new Date("2026-07-12T04:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit. Reset at 15:00 tomorrow.", { now });
+    expect(result?.pattern).toBe("clock-time-tomorrow");
+    const expected = new Date(now);
+    expected.setDate(expected.getDate() + 1);
+    expected.setHours(15, 0, 0, 0);
+    expect(result?.resetAt).toBe(expected.toISOString());
+  });
+
+  it("allows a few words between 'tomorrow' and the time ('tomorrow morning at 6:30am')", () => {
+    const now = new Date("2026-07-12T04:00:00Z");
+    const result = parseRateLimitMessage("Weekly usage limit reached. Resets tomorrow morning at 6:30am.", { now });
+    expect(result?.pattern).toBe("tomorrow-clock-time");
+    const expected = new Date(now);
+    expected.setDate(expected.getDate() + 1);
+    expected.setHours(6, 30, 0, 0);
+    expect(result?.resetAt).toBe(expected.toISOString());
+  });
+
+  it("keeps the meridiem form working with 'tomorrow' ('reset at 5pm tomorrow')", () => {
+    const now = new Date("2026-07-12T04:00:00Z");
+    const result = parseRateLimitMessage("Your limit will reset at 5pm tomorrow.", { now });
+    expect(result?.pattern).toBe("clock-time-tomorrow");
+    const expected = new Date(now);
+    expected.setDate(expected.getDate() + 1);
+    expected.setHours(17, 0, 0, 0);
+    expect(result?.resetAt).toBe(expected.toISOString());
+  });
+
+  it("does not treat a bare 'tomorrow at 5' (no minutes, no meridiem) as a clock time", () => {
+    // Too ambiguous, same guard as the plain clock patterns.
+    expect(parseRateLimitMessage("Usage limit reached. Resets tomorrow at 5.")).toBeNull();
+  });
+
+  it("still prefers the plain clock-time patterns when 'tomorrow' is absent", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Your limit will reset at 5pm (America/New_York).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [
