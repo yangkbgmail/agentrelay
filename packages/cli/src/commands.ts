@@ -41,6 +41,7 @@ import {
   type EffectiveConfigEntry,
   type ExportFormat,
   evaluateWait,
+  exceedsMaxWait,
   exportJobs,
   findConfigField,
   hasConfigErrors,
@@ -55,6 +56,7 @@ import {
   type LocationReport,
   listBackups,
   loadConfigFile,
+  maxWaitMsFromEnv,
   notifiersFromEnv,
   parseConfig,
   parseDaemonHeartbeat,
@@ -114,6 +116,16 @@ export interface RunOptions {
    */
   project?: string;
   storePath?: string;
+  /**
+   * Cap (in ms) on how far out a detected rate-limit reset may be before the
+   * command is queued for auto-resume. When the reset is further out than this,
+   * the job is *not* queued and the command's own exit code stands. `undefined`
+   * falls back to `AGENTRELAY_MAX_WAIT`; `null` forces "no cap" (wait forever)
+   * regardless of the env var.
+   */
+  maxWaitMs?: number | null;
+  /** Injected "now" (epoch ms) for the max-wait comparison. Defaults to `Date.now()`. */
+  now?: () => number;
   /** Injected for tests; defaults to real stdout/stderr passthrough. */
   stdout?: NodeJS.WritableStream;
   stderr?: NodeJS.WritableStream;
@@ -127,6 +139,12 @@ export interface RunOptions {
 export interface RunResult {
   exitCode: number;
   queuedJob: RelayJob | null;
+  /**
+   * True when a rate limit *was* detected but the job was skipped because the
+   * reset was further out than the configured max wait (so `queuedJob` is null
+   * by choice, not because no limit was seen).
+   */
+  skippedForMaxWait?: boolean;
 }
 
 /**
@@ -168,6 +186,21 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   const rateLimit = adapter.detectRateLimit(output);
   if (!rateLimit) {
     return { exitCode, queuedJob: null };
+  }
+
+  // Optional guard: if the reset is further out than the caller's max wait,
+  // don't queue for auto-resume — let the command's (non-zero) exit code stand
+  // so CI/automation isn't silently pinned waiting out a multi-hour/weekly
+  // limit. Opt-in via --max-wait / AGENTRELAY_MAX_WAIT; default is wait forever.
+  const now = options.now ?? (() => Date.now());
+  const maxWaitMs = options.maxWaitMs === undefined ? maxWaitMsFromEnv() : options.maxWaitMs;
+  if (exceedsMaxWait(rateLimit.resetAt, now(), maxWaitMs)) {
+    stdout.write(
+      `\n[agentrelay] Rate limit detected for ${adapter.displayName} (pattern: ${rateLimit.pattern}), ` +
+        `resets at ${rateLimit.resetAt} — beyond the configured max wait. Not queuing for auto-resume; ` +
+        `the command's exit code stands.\n`
+    );
+    return { exitCode, queuedJob: null, skippedForMaxWait: true };
   }
 
   const queue = openQueue(storePath);

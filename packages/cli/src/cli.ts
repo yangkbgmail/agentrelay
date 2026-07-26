@@ -348,13 +348,35 @@ export function buildCli(): Command {
       "-p, --project <name>",
       "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
     )
-    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
+    .option(
+      "--max-wait <duration>",
+      "If the rate-limit reset is further out than this (e.g. 6h, 2d, 30m), don't queue for auto-resume; the command's exit code stands. Falls back to AGENTRELAY_MAX_WAIT."
+    )
+    .action(async (command: string[], opts: { tool?: string; project?: string; maxWait?: string }) => {
       const { store } = program.opts();
+
+      // The explicit flag is validated strictly (the AGENTRELAY_MAX_WAIT env var
+      // stays lenient inside runCommand). Omitting the flag leaves maxWaitMs
+      // undefined so runCommand falls back to the env var.
+      let maxWaitMs: number | undefined;
+      if (opts.maxWait !== undefined) {
+        const parsed = parseDuration(opts.maxWait);
+        if (parsed === null || parsed <= 0) {
+          console.error(
+            `[agentrelay] invalid --max-wait "${opts.maxWait}" (expected a positive duration like 6h, 2d, 30m)`
+          );
+          process.exitCode = 1;
+          return;
+        }
+        maxWaitMs = parsed;
+      }
+
       const result = await runCommand({
         command,
         storePath: store,
         tool: opts.tool as AgentTool | undefined,
         project: opts.project,
+        maxWaitMs,
       });
       process.exitCode = result.exitCode;
     });

@@ -575,6 +575,25 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay run --max-wait <duration>` — rate-limit 리셋이 지정 한도보다 멀면 자동 재개
+      큐잉을 건너뛰고 커맨드의 (실패) 종료 코드를 그대로 통과시킴. 기본 릴레이 동작은 "리셋까지
+      얼마든지 기다림"이라 노트북엔 좋지만 CI/자동화에선 주간 사용량 한도(18시간+)를 조용히
+      대기하며 러너를 묶는 footgun이 될 수 있다. opt-in 안전장치.
+      (완료 — `@agentrelay/core/maxwait.ts` 신설(순수·시계/스토어 미접촉): `maxWaitMsFromEnv(env)`가
+      `AGENTRELAY_MAX_WAIT`(`6h`/`2d`/`30m` 등)을 `parseDuration` 재사용으로 ms 파싱 — 미설정/공백/
+      파싱불가/비양수는 null(=무제한, 기존 동작). env는 lenient(오타가 모든 run을 하드페일시키지
+      않음), 명시 `--max-wait` 플래그는 CLI에서 strict 검증(잘못된 값 exit 1)으로 역할 분리.
+      `exceedsMaxWait(resetAtIso, nowMs, maxWaitMs)`: cap null/undefined=무제한(false), reset이
+      cap보다 **엄격히** 멀면 true(정확히 cap이면 false), 파싱불가 resetAt은 방어적으로 true(스케줄
+      불가한 잡을 조용히 대기시키지 않음). CLI `runCommand`가 rate-limit 감지 후 큐잉 **전**에
+      `exceedsMaxWait` 검사 → 초과 시 stdout에 명확한 안내 출력하고 `skippedForMaxWait:true`로
+      큐잉 없이 조기 반환(자식 종료 코드 그대로), `RunOptions.maxWaitMs`(undefined=env 폴백,
+      null=강제 무제한)+`now` 주입, `RunResult.skippedForMaxWait` 추가. `cli.ts` run에
+      `--max-wait <duration>` 배선(플래그 strict 파싱, 잘못된 값 exit 1). 새 파서/스케줄러 로직
+      0줄 — 기존 검증된 `parseDuration` 재사용. core maxwait 13 + cli commands 4 신규 테스트, 실제
+      빌드 CLI e2e로 far-out→미큐잉/within→큐잉/invalid→exit1/env 폴백 검증. branch
+      `claude/wizardly-pascal-xpkqt9`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
