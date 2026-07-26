@@ -43,6 +43,7 @@ import {
   type BulkControlResult,
   backupStore,
   bulkControlJobs,
+  calendarStore,
   cancelJob,
   exportStore,
   importStore,
@@ -801,6 +802,52 @@ export function buildCli(): Command {
       const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
       const stats = computeStats(jobs);
       process.stdout.write(renderPrometheusMetrics(stats, { prefix: opts.prefix }));
+    });
+
+  program
+    .command("calendar")
+    .description(
+      "Export upcoming job resume times as an iCalendar (.ics) feed you can import/subscribe to (stdout or a file)"
+    )
+    .option("-o, --out <file>", "Write the .ics to this file instead of stdout")
+    .option("--include-past", "Also emit events for resets already in the past (default: future only)")
+    .option("--name <name>", "Calendar display name shown in the calendar app (X-WR-CALNAME)")
+    .option("-s, --status <statuses>", "Only include jobs with these comma-separated statuses (e.g. waiting_for_reset)")
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # write a subscribable calendar of when your jobs come back\n" +
+        "  agentrelay calendar --out ~/relay.ics\n" +
+        "  # only Claude Code jobs, named for your calendar app\n" +
+        "  agentrelay calendar --tool claude-code --name 'Relay resumes'"
+    )
+    .action((opts: ScopeOpts & { out?: string; includePast?: boolean; name?: string }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const result = calendarStore({
+        storePath: store,
+        jobs,
+        outPath: opts.out,
+        calendar: { now, includePast: opts.includePast, calendarName: opts.name },
+      });
+      if (result.writtenTo) {
+        // Keep stdout clean for redirection; status goes to stderr.
+        console.error(`[agentrelay] wrote ${result.count} event(s) to ${result.writtenTo}`);
+      } else {
+        process.stdout.write(result.content);
+      }
     });
 
   program

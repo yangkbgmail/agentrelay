@@ -45,6 +45,7 @@ import {
   findConfigField,
   hasConfigErrors,
   heartbeatStaleAfterMs,
+  type ICalendarOptions,
   type ImportFormat,
   type ImportParseError,
   type ImportResult,
@@ -52,6 +53,7 @@ import {
   isJobScopeActive,
   type JobCsvColumn,
   type JobScope,
+  jobsToICalendar,
   type LocationReport,
   listBackups,
   loadConfigFile,
@@ -75,6 +77,7 @@ import {
   runDiagnostics,
   sampleConfigJson,
   scopeJobs,
+  selectCalendarJobs,
   serializeDaemonHeartbeat,
   setConfigValue,
   summarizeImportPlan,
@@ -1005,6 +1008,46 @@ export function exportStore(options: ExportJobsOptions): ExportJobsResult {
     writtenTo = path;
   }
   return { content, count: jobs.length, writtenTo };
+}
+
+export interface CalendarStoreOptions {
+  storePath?: string;
+  /** Already-selected jobs (scoped/filtered by the caller). If omitted, the whole store is read. */
+  jobs?: RelayJob[];
+  /** When set, write the .ics to this file (parent dirs created) instead of returning it for stdout. */
+  outPath?: string;
+  /** Passed through to {@link jobsToICalendar} (now/includePast/calendarName/...). */
+  calendar?: ICalendarOptions;
+}
+
+export interface CalendarStoreResult {
+  /** The serialized iCalendar document. Always populated, even when also written to a file. */
+  content: string;
+  /** Number of VEVENTs emitted (jobs with a parseable, in-scope reset). */
+  count: number;
+  /** Absolute path written to, or null when the caller should print to stdout. */
+  writtenTo: string | null;
+}
+
+/**
+ * Serialize the relay's upcoming resume times to an iCalendar (.ics) document.
+ * The pure `@agentrelay/core` `jobsToICalendar` does the RFC 5545 work; this
+ * wrapper only handles the store read and optional file write so the CLI stays
+ * thin — the same shape as {@link exportStore}.
+ */
+export function calendarStore(options: CalendarStoreOptions): CalendarStoreResult {
+  const jobs = options.jobs ?? listStatus(options.storePath);
+  const calOpts = options.calendar ?? {};
+  const content = jobsToICalendar(jobs, calOpts);
+  const count = selectCalendarJobs(jobs, { now: calOpts.now, includePast: calOpts.includePast }).length;
+  let writtenTo: string | null = null;
+  if (options.outPath) {
+    const path = resolve(process.cwd(), options.outPath);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content, "utf8");
+    writtenTo = path;
+  }
+  return { content, count, writtenTo };
 }
 
 export interface ImportStoreOptions {
