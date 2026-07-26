@@ -1489,3 +1489,27 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 👷 기능 `agentrelay tools`(에이전트 어댑터 introspection)] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-a5anvn`)
+- **배경:** BACKLOG의 👷(클로드 코드) 항목이 전부 [완료] 상태라, CLAUDE.md "무한 개선 백로그" 지침에 따라
+  겹치지 않는 새 개선 항목을 스스로 발굴. 열린 PR 중복 클러스터(파서 reset-at·config get·stats --by-hour·
+  재개 stagger·--no-color·backoff·clean·verify)와 충돌하지 않고, 진단 커맨드 계열(parse/patterns)에
+  존재하던 실질적 갭 — "어떤 툴 어댑터가 존재하고 어떻게 인식되며 각자 무슨 rate-limit 포맷을 추가로
+  매치하나"를 답하는 커맨드가 없던 점 — 을 선정.
+- **한 일:** **`agentrelay tools` 신규 구현.** `parse`는 단일 메시지 테스트, `patterns`는 실제 발화한 패턴
+  집계인데, 어느 것도 "어댑터 카탈로그"를 보여주지 못했다. 이 커맨드는 등록된 어댑터를 나열: 각 어댑터의
+  표시명·인식 바이너리(명령어에서 툴 추론에 쓰임)·제네릭 파서 위에 얹는 툴별 패턴·스토어에서 그 툴을 쓰는
+  잡 수(활성 수 포함).
+  - core `tools.ts`(순수·fs/시계 미접촉): `describeTools(jobs)`→`ToolsReport`(genericPatterns·adapters·
+    totalJobs) + `ToolAdapterInfo`(tool·displayName·binaries·extraPatterns·jobCount·activeCount). 정적
+    `ADAPTERS`에서 어댑터/패턴을 읽고 잡에서 툴별 count·active(`ACTIVE_STATUSES`)만 파생, `ALL_TOOLS`
+    순서로 안정 출력, 미지 tool 문자열은 totalJobs엔 세되 버킷 귀속 안 함.
+  - `parser.ts`에 `GENERIC_PATTERN_NAMES` export 추가(내부 `PATTERNS`에 손대지 않고 제네릭 포맷 목록 노출).
+  - CLI `packages/cli/src/tools.ts`: 순수 `renderTools`(제네릭 패턴 헤더 + 어댑터별 스탠자, color 게이트·
+    scopeNote)·`renderToolsJson`(patterns와 동일 envelope). `cli.ts`에 `agentrelay tools [--json]` 배선,
+    공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린, `pnpm ci:lint`(Biome) 통과, `pnpm test` 전
+  패키지 통과(core 512 / cli 241+1skip / dashboard 7; tools core 6 + cli 6 신규). 실제 빌드된 CLI e2e로
+  어댑터 나열·제네릭/코덱 패턴 표기·툴별 잡·활성 수·`--status` 스코프·`--json` envelope·잘못된 status
+  exit 1 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속 또는 새 👷 개선 항목 발굴. README/ARCHITECTURE(🧭 코워크).
