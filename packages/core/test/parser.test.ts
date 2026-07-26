@@ -236,6 +236,31 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  it("parses the GitHub-style x-ratelimit-reset header as an absolute epoch", () => {
+    const result = parseRateLimitMessage("HTTP 429\nx-ratelimit-reset: 1752345600");
+    expect(result?.pattern).toBe("x-ratelimit-reset");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("parses the Twitter-style hyphenated x-rate-limit-reset header", () => {
+    const result = parseRateLimitMessage("x-rate-limit-reset: 1752345600");
+    expect(result?.pattern).toBe("x-ratelimit-reset");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("parses x-ratelimit-reset with an equals separator", () => {
+    const result = parseRateLimitMessage("x-ratelimit-reset=1752345600");
+    expect(result?.pattern).toBe("x-ratelimit-reset");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("does not misread a millisecond x-ratelimit-reset value as a 10-digit epoch", () => {
+    // 13-digit ms epoch must not match the seconds pattern (which would resolve to
+    // a wildly-off time); the whole message simply yields no rate-limit hit.
+    const result = parseRateLimitMessage("x-ratelimit-reset: 1752345600000");
+    expect(result).toBeNull();
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [

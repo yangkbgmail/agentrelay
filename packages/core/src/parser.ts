@@ -127,6 +127,20 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // The de-facto standard `X-RateLimit-Reset` response header, which many HTTP
+    // APIs (GitHub `x-ratelimit-reset`, Twitter/X `x-rate-limit-reset`, and others)
+    // return on a 429, and which agent CLIs proxying those APIs dump verbatim. The
+    // value is an absolute unix epoch in **seconds** (unlike `Retry-After`, which is
+    // a relative delay). The header name — optionally hyphenated between "rate" and
+    // "limit" — keeps this disjoint from the JSON `retry_after` (underscore) epoch
+    // field and the `Retry-After` (relative) header above. The digit group is pinned
+    // to exactly 10 and forbidden from being followed by another digit, so a
+    // millisecond-epoch value (13 digits) isn't misread as a 10-digit seconds epoch.
+    name: "x-ratelimit-reset",
+    regex: /x-rate-?limit-reset\s*[:=]\s*(\d{10})(?!\d)/i,
+    resolve: (m) => new Date(parseInt(m[1], 10) * 1000),
+  },
+  {
     // Generic "5-hour limit" mention with no explicit time -> assume a full 5h window from now.
     // Kept last and treated as a low-confidence fallback.
     name: "five-hour-window-fallback",

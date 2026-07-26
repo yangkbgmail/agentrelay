@@ -1489,3 +1489,25 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서 `X-RateLimit-Reset` 헤더 인식] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-ql6vzq`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목 발굴. 이 도구의
+  핵심 가치(rate-limit 감지→재개)는 파서의 실사용 포맷 커버리지에 달려 있다. 세션 44가 RFC 9110
+  `Retry-After`(상대 지연) 헤더를 커버했지만, HTTP rate-limit 헤더 계열의 또 다른 표준 멤버인
+  **`X-RateLimit-Reset`**(GitHub `x-ratelimit-reset`, Twitter/X `x-rate-limit-reset` — 절대 unix
+  epoch 초)는 놓치고 있었다. 에이전트 CLI가 이런 API를 프록시하다 429에서 이 헤더를 콘솔에 덤프하면
+  잡이 큐잉되지 않던 실사용 갭.
+- **한 일:** `packages/core/src/parser.ts`에 순수 `x-ratelimit-reset` 패턴 추가. 헤더명
+  `x-rate-?limit-reset`(rate·limit 사이 하이픈 optional → GitHub의 붙임 표기와 Twitter의 하이픈
+  표기 모두), 구분자 `[:=]`, epoch 그룹 `(\d{10})(?!\d)`. 값은 `Retry-After`(상대)와 달리 **절대**
+  epoch초라 `resetAt=값×1000`. 하이픈 헤더명으로 JSON `retry_after`(언더스코어 절대 epoch)·
+  `Retry-After`(상대 지연) 패턴과 교차 매치 안 됨. 10자리+뒤 숫자 금지로 13자리 밀리초 epoch를
+  10자리 초 epoch로 오독하지 않음. pre-filter `rate.?limit`가 `ratelimit`/`rate-limit` 양쪽을 이미
+  트립해 필터 변경 0줄, 새 CLI 코드 0줄(기존 `parse` 커맨드가 자동 노출).
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 84파일 0경고/0에러·`pnpm test`
+  전 패키지 통과(core 510 + cli 235/1skip + dashboard 7; parser.test.ts 37개 = +4 신규: GitHub
+  붙임 표기·Twitter 하이픈 표기·`=` 구분자·13자리 밀리초 no-match). 실제 빌드된 CLI e2e(mock 아님):
+  `parse "x-ratelimit-reset: 1752345600"`→x-ratelimit-reset/절대시각, `parse "x-rate-limit-reset:
+  1752345600"`→동일, `parse "x-ratelimit-reset: 1752345600000"`(밀리초)→no rate-limit(오독 방지 확인).
+- **다음 할 일:** 파서 추가 실사용 포맷(named IANA tz 실제 변환·weekday 창)은 코워크 리서치(🧭)와
+  조율. 남은 distinct 열린 PR 통합 계속. README/ARCHITECTURE(🧭 코워크).
