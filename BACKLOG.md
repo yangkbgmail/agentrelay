@@ -575,6 +575,20 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 대시보드 "릴레이 효과(effectiveness)" 패널 — 원시 카운트 타일 옆에 성공률·재시도된 잡 수·
+      해결 시간(median/p90)을 표시해, CLI `agentrelay stats` 없이도 브라우저에서 "릴레이가 얼마나 잘
+      작동하나"를 한눈에 확인. 세션 12/15의 `computeStats` 인프라를 대시보드로 노출.
+      (완료 — 대시보드 스냅샷은 지금까지 `summarizeJobs`(단순 카운트)만 노출하고 더 풍부한
+      `computeStats`(성공률·`retriedJobs`·`totalAttempts`·해결 시간 timing)는 CLI 전용이었다.
+      `apps/dashboard/lib/jobs.ts`의 `JobsSnapshot`에 `stats: RelayStats` 추가(core `computeStats(jobs)`
+      재사용, API가 매 폴링 반환). 클라이언트에 순수 `formatSuccessRate`(`80% (4/5)`, 미해결 시 —)·
+      `formatDurationMs`(`4h 12m`/`3d 2h`/`45s`)와 `EffectivenessCard`(성공률·재시도 잡·재개 시도·
+      median 해결시간+p90, terminal 잡 0이면 숨김·resolved 0이면 시간 블록 숨김) + `.effectiveness*`
+      CSS(기존 토큰 재사용, 라이트/다크). 새 core 코드 0줄 — 전부 검증된 `computeStats` 재사용.
+      dashboard jobs.test에 stats 회귀 2케이스(성공률 0.5+retriedJobs 1 / 미해결 null) 추가,
+      실제 빌드 대시보드 `next start`+임시 스토어 `/api/jobs` curl로 stats 필드 서빙 e2e 검증.
+      branch `claude/wizardly-pascal-h22usi`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

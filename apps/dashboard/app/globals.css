@@ -268,3 +268,41 @@ details.tail pre {
   border-radius: 4px;
   padding: 1px 5px;
 }
+
+.effectiveness {
+  margin: 16px 0 0;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.effectiveness-head {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink-secondary);
+}
+
+.effectiveness-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+}
+
+.metric-label {
+  color: var(--ink-secondary);
+  font-size: 12px;
+}
+
+.metric-value {
+  font-size: 20px;
+  font-weight: 650;
+  margin-top: 2px;
+}
+
+.metric-sub {
+  color: var(--ink-muted);
+  font-size: 12px;
+  margin-top: 2px;
+}

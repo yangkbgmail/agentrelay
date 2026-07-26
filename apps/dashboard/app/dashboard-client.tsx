@@ -1,6 +1,6 @@
 "use client";
 
-import type { HeartbeatStatus, JobStatus, RelayJob } from "@agentrelay/core";
+import type { HeartbeatStatus, JobStatus, RelayJob, RelayStats } from "@agentrelay/core";
 import { useEffect, useState } from "react";
 import type { JobsSnapshot } from "../lib/jobs";
 
@@ -48,6 +48,68 @@ function formatAge(ms: number | undefined): string {
   if (hours > 0) return `${hours}h ${minutes}m ago`;
   if (minutes > 0) return `${minutes}m ${seconds}s ago`;
   return `${seconds}s ago`;
+}
+
+/** Human-readable success rate, e.g. `80% (4/5)`, or an em dash when unresolved. */
+function formatSuccessRate(stats: RelayStats): string {
+  if (stats.successRate === null) return "—";
+  const completed = stats.byStatus.completed;
+  const resolved = completed + stats.byStatus.failed;
+  return `${Math.round(stats.successRate * 100)}% (${completed}/${resolved})`;
+}
+
+/** Compact duration like `4h 12m`, `3d 2h`, `45s`, from a millisecond span. */
+function formatDurationMs(ms: number | null): string {
+  if (ms === null || Number.isNaN(ms)) return "—";
+  if (ms < 1000) return "<1s";
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+/**
+ * "Relay effectiveness" panel: success rate + how many jobs were actually
+ * retried + how long the relay babysat resolved jobs. Distinct from the raw
+ * count tiles — this answers "is the relay working well", the same numbers the
+ * `agentrelay stats` CLI shows. Hidden until at least one job has resolved.
+ */
+function EffectivenessCard({ stats }: { stats: RelayStats | undefined }) {
+  if (!stats || stats.terminal === 0) return null;
+  const timing = stats.timing;
+  return (
+    <section className="effectiveness" aria-label="Relay effectiveness">
+      <div className="effectiveness-head">Relay effectiveness</div>
+      <div className="effectiveness-grid">
+        <div className="metric">
+          <div className="metric-label">Success rate</div>
+          <div className="metric-value numeric">{formatSuccessRate(stats)}</div>
+        </div>
+        <div className="metric">
+          <div className="metric-label">Retried jobs</div>
+          <div className="metric-value numeric">{stats.retriedJobs}</div>
+        </div>
+        <div className="metric">
+          <div className="metric-label">Resume attempts</div>
+          <div className="metric-value numeric">{stats.totalAttempts}</div>
+        </div>
+        {timing.resolvedCount > 0 && (
+          <div className="metric">
+            <div className="metric-label">Median resolution</div>
+            <div className="metric-value numeric">{formatDurationMs(timing.medianResolutionMs)}</div>
+            <div className="metric-sub">
+              p90 <span className="numeric">{formatDurationMs(timing.p90ResolutionMs)}</span>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
 }
 
 const HEARTBEAT_META: Record<HeartbeatStatus["state"], { label: string; colorVar: string }> = {
@@ -218,6 +280,8 @@ export default function DashboardClient() {
           <div className="value numeric">{summary?.total ?? "–"}</div>
         </div>
       </section>
+
+      <EffectivenessCard stats={snapshot?.stats} />
 
       <section className="jobs-card" aria-label="Job list">
         {jobs.length === 0 ? (
