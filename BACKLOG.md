@@ -575,6 +575,20 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 시각 표현에 붙은 **명시적 고정-오프셋 타임존**(`reset at 10am (UTC)` / `resets at 15:30 GMT` /
+      `5pm (UTC+9)` / `9:00am GMT-05:30` / `11:00 Z`) 인식 — 지금까지 시각 패턴(`clock-time`·
+      `clock-time-meridiem`)은 메시지에 적힌 존을 **무시하고 호스트 로컬 시간으로 해석**해, 존이 다르면 재개
+      시각이 몇 시간씩 어긋나 조기/지각 재개를 유발할 수 있었음(코드 주석에도 "known limitation"으로 명시).
+      (완료 — `parser.ts`에 순수 헬퍼 3개: `parseFixedOffset(zone, offset?)`(UTC/GMT/Z→0, `+9`·`-5`·`+05:30`·
+      `+0930` 오프셋 파싱, ±18h 초과·명명 IANA 존[`America/*`]·미지 존은 null 반환), `resolveZonedClock`
+      (존의 캘린더 날짜 기준 벽시계 HH:MM→절대 UTC 인스턴트, 지났으면 다음날), `to24Hour`(12h+meridiem→24h).
+      새 패턴 `clock-time-tz`·`clock-time-meridiem-tz`를 로컬 시각 패턴보다 **앞에** 배치(first-hit-wins)해
+      존이 있으면 정확한 절대 시각을, 없거나 명명 존이면 `parseFixedOffset`→null로 기존 로컬 패턴에 폴백 —
+      `(America/New_York)` 등 문서화된 로컬 해석 동작은 그대로 보존. 새 CLI 코드 0줄(기존 `parse` 커맨드가
+      자동 노출). parser.test +11(존 인식·다음날 롤·양/음/반시간 오프셋·Z·명명존 폴백·`parseFixedOffset` 엣지).
+      실제 빌드 CLI e2e로 `(UTC)`→10:00 UTC, `(America/New_York)`→로컬 폴백 확인. branch
+      `claude/wizardly-pascal-9k9qfq`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
