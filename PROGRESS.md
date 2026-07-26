@@ -1489,3 +1489,17 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서 명시적 타임존(UTC/GMT/Z±offset) 인식] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-9k9qfq`)
+- **한 일:** rate-limit 시각 표현에 붙은 **명시적 고정-오프셋 타임존**을 인식하도록 파서 보강. 기존
+  `clock-time`·`clock-time-meridiem` 패턴은 `reset at 10am (UTC)`에서 존을 무시하고 호스트 로컬 시간으로
+  해석 → 존이 다르면 재개 시각이 몇 시간씩 어긋나 조기/지각 재개 위험(코드 주석에도 "known limitation").
+  순수 헬퍼 `parseFixedOffset`(UTC/GMT/Z→0, `+9`/`-5`/`+05:30`/`+0930` 파싱, ±18h 초과·명명 IANA 존·미지
+  존은 null)·`resolveZonedClock`(존 캘린더 날짜 기준 벽시계→절대 UTC, 지났으면 다음날)·`to24Hour` 신설,
+  새 패턴 `clock-time-tz`·`clock-time-meridiem-tz`를 로컬 패턴보다 앞에 배치(first-hit-wins). 명명 존
+  `(America/New_York)`은 null 폴백으로 기존 로컬 동작 그대로 보존. 새 CLI 코드 0줄(`parse` 커맨드 자동 노출).
+- **검증:** `pnpm build` 클린 + `pnpm test` 전 패키지 통과(core 517, cli 236, dashboard 7) + `pnpm lint`
+  (Biome) 통과. parser.test 33→44(+11). 실제 빌드 CLI e2e로 `(UTC)`→10:00 UTC, `(America/New_York)`→
+  로컬 폴백 확인.
+- **다음 할 일:** 남은 🧭 문서 항목(README/ARCHITECTURE)은 코워크 몫. 👷 신규 개선 발굴 계속 —
+  존을 IANA까지 확장하려면 tz 데이터베이스 도입 트레이드오프 검토 필요(현재는 고정 오프셋만 무의존성 처리).

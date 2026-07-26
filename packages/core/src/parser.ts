@@ -32,6 +32,66 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/**
+ * Parses a fixed-offset timezone token (as printed after a clock time, e.g.
+ * `UTC`, `GMT`, `Z`, `UTC+9`, `GMT-5`, `UTC+05:30`, `GMT+0930`) into minutes
+ * east of UTC. Returns null for anything else — a bare zone name, a named IANA
+ * zone (`America/New_York`), or garbage — so the caller falls back to
+ * local-time interpretation (a fixed offset can't be derived without a tz
+ * database, so guessing would be worse than the documented local-time default).
+ */
+export function parseFixedOffset(zone: string, offset?: string): number | null {
+  const z = zone.toLowerCase();
+  if (z !== "utc" && z !== "gmt" && z !== "z") return null;
+  // "Z" is UTC by definition and never carries a numeric offset.
+  if (z === "z" || offset === undefined || offset === "") return 0;
+  const sign = offset[0] === "-" ? -1 : 1;
+  const digits = offset.slice(1).replace(":", "");
+  let hours: number;
+  let minutes: number;
+  if (digits.length <= 2) {
+    hours = parseInt(digits, 10);
+    minutes = 0;
+  } else {
+    hours = parseInt(digits.slice(0, digits.length - 2), 10);
+    minutes = parseInt(digits.slice(-2), 10);
+  }
+  if (Number.isNaN(hours) || Number.isNaN(minutes) || hours > 18 || minutes > 59) return null;
+  return sign * (hours * 60 + minutes);
+}
+
+/**
+ * Resolves a wall-clock `HH:MM` in an explicit fixed-offset zone to the next
+ * future instant. Unlike the local-time clock patterns, this yields the correct
+ * absolute UTC moment when the message states its zone (e.g. "reset at 10am
+ * (UTC)"). Rolls to the next day-in-zone when the time has already passed today.
+ */
+function resolveZonedClock(hour: number, minute: number, offsetMin: number, now: Date): Date {
+  // Calendar date of "now" *as seen in the target zone*.
+  const zoneNow = new Date(now.getTime() + offsetMin * 60_000);
+  const y = zoneNow.getUTCFullYear();
+  const mo = zoneNow.getUTCMonth();
+  const d = zoneNow.getUTCDate();
+  // Wall-clock HH:MM on that zone date, expressed as the real UTC instant.
+  let instant = Date.UTC(y, mo, d, hour, minute, 0, 0) - offsetMin * 60_000;
+  if (instant <= now.getTime()) {
+    instant = Date.UTC(y, mo, d + 1, hour, minute, 0, 0) - offsetMin * 60_000;
+  }
+  return new Date(instant);
+}
+
+/** Normalizes a 12-hour clock hour + optional meridiem to a 24-hour hour, or null if invalid. */
+function to24Hour(hour: number, meridiem?: string): number | null {
+  const mer = meridiem?.toLowerCase();
+  if (mer === "am" || mer === "pm") {
+    if (hour < 1 || hour > 12) return null; // 0/13+ are not valid 12-hour readings
+    if (mer === "pm" && hour < 12) return hour + 12;
+    if (mer === "am" && hour === 12) return 0;
+    return hour;
+  }
+  return hour <= 23 ? hour : null; // bare 24-hour reading
+}
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
@@ -40,6 +100,39 @@ const PATTERNS: RateLimitPattern[] = [
     resolve: (m) => {
       const d = new Date(m[1]);
       return Number.isNaN(d.getTime()) ? null : d;
+    },
+  },
+  {
+    // "resets at 3:00pm (UTC)" / "reset at 15:00 GMT+9" — same wall-clock forms
+    // as `clock-time` below but with an *explicit* fixed-offset zone, so we can
+    // compute the true absolute instant instead of assuming local time. Tried
+    // before `clock-time` (first hit wins) so the zone is honored when present.
+    // A named IANA zone (e.g. "(America/New_York)") makes `parseFixedOffset`
+    // return null → resolve returns null → we fall through to the local pattern,
+    // preserving the documented local-time behavior for zones we can't resolve.
+    name: "clock-time-tz",
+    regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?\s*\(?\s*(utc|gmt|z)\s*([+-]\d{1,2}(?::?\d{2})?)?\s*\)?/i,
+    resolve: (m, now) => {
+      const offsetMin = parseFixedOffset(m[4], m[5]);
+      if (offsetMin === null) return null;
+      const hour = to24Hour(parseInt(m[1], 10), m[3]);
+      if (hour === null) return null;
+      return resolveZonedClock(hour, parseInt(m[2], 10), offsetMin, now);
+    },
+  },
+  {
+    // "resets at 5pm (UTC)" / "reset at 10 AM GMT-5" — hour + meridiem with NO
+    // minutes, plus an explicit fixed-offset zone. Tried before
+    // `clock-time-meridiem` so the zone wins when present (same fall-through to
+    // local time for unresolvable named zones).
+    name: "clock-time-meridiem-tz",
+    regex: /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\s*\(?\s*(utc|gmt|z)\s*([+-]\d{1,2}(?::?\d{2})?)?\s*\)?/i,
+    resolve: (m, now) => {
+      const offsetMin = parseFixedOffset(m[3], m[4]);
+      if (offsetMin === null) return null;
+      const hour = to24Hour(parseInt(m[1], 10), m[2]);
+      if (hour === null) return null;
+      return resolveZonedClock(hour, 0, offsetMin, now);
     },
   },
   {

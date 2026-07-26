@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseRateLimitMessage } from "../src/parser.js";
+import { parseFixedOffset, parseRateLimitMessage } from "../src/parser.js";
 
 describe("parseRateLimitMessage", () => {
   it("returns null for unrelated text", () => {
@@ -67,6 +67,63 @@ describe("parseRateLimitMessage", () => {
   it("does not treat a bare 'reset at 5' (no minutes, no meridiem) as a clock time", () => {
     // Too ambiguous — could be "5 hours", "5th", etc. Requiring am/pm keeps us safe.
     expect(parseRateLimitMessage("Rate limit hit, reset at 5.")).toBeNull();
+  });
+
+  it("honors an explicit (UTC) zone on a meridiem clock time instead of assuming local", () => {
+    // "reset at 10am (UTC)" must resolve to 10:00 UTC, NOT 10:00 in the host's
+    // local zone. now = 08:00 UTC, so today's 10:00 UTC is still ahead.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Your limit will reset at 10am (UTC).", {
+      now,
+    });
+    expect(result?.pattern).toBe("clock-time-meridiem-tz");
+    expect(result?.resetAt).toBe("2026-07-12T10:00:00.000Z");
+  });
+
+  it("rolls a zoned meridiem time to the next day when today's has passed (UTC)", () => {
+    const now = new Date("2026-07-12T14:00:00Z"); // past 10:00 UTC already
+    const result = parseRateLimitMessage("reset at 10 AM UTC", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem-tz");
+    expect(result?.resetAt).toBe("2026-07-13T10:00:00.000Z");
+  });
+
+  it("honors an explicit GMT zone on a minute-precise clock time", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Resets at 15:30 GMT.", { now });
+    expect(result?.pattern).toBe("clock-time-tz");
+    expect(result?.resetAt).toBe("2026-07-12T15:30:00.000Z");
+  });
+
+  it("applies a positive numeric offset, e.g. (UTC+9)", () => {
+    // 17:00 in UTC+9 == 08:00 UTC. now = 06:00 UTC, so still ahead today.
+    const now = new Date("2026-07-12T06:00:00Z");
+    const result = parseRateLimitMessage("Your limit will reset at 5pm (UTC+9).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem-tz");
+    expect(result?.resetAt).toBe("2026-07-12T08:00:00.000Z");
+  });
+
+  it("applies a negative half-hour offset, e.g. GMT-05:30 on a minute clock time", () => {
+    // 09:00 at GMT-05:30 == 14:30 UTC.
+    const now = new Date("2026-07-12T02:00:00Z");
+    const result = parseRateLimitMessage("resets at 9:00am GMT-05:30", { now });
+    expect(result?.pattern).toBe("clock-time-tz");
+    expect(result?.resetAt).toBe("2026-07-12T14:30:00.000Z");
+  });
+
+  it("treats a trailing 'Z' as UTC", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("resets at 11:00 Z", { now });
+    expect(result?.pattern).toBe("clock-time-tz");
+    expect(result?.resetAt).toBe("2026-07-12T11:00:00.000Z");
+  });
+
+  it("falls through to local-time interpretation for a named IANA zone it can't resolve", () => {
+    // "(America/New_York)" isn't a fixed offset without a tz database, so the
+    // zoned patterns decline and the local-time meridiem pattern handles it —
+    // exactly the pre-existing documented behavior.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Your limit will reset at 5pm (America/New_York).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
   });
 
   it("parses a relative duration like '4h32m'", () => {
@@ -248,5 +305,32 @@ describe("parseRateLimitMessage", () => {
     const result = parseRateLimitMessage(noisy, { now });
     expect(result?.pattern).toBe("relative-duration");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
+  });
+});
+
+describe("parseFixedOffset", () => {
+  it("maps UTC / GMT / Z (no offset) to 0", () => {
+    expect(parseFixedOffset("UTC")).toBe(0);
+    expect(parseFixedOffset("gmt")).toBe(0);
+    expect(parseFixedOffset("Z")).toBe(0);
+    expect(parseFixedOffset("UTC", "")).toBe(0);
+  });
+
+  it("parses hour-only and hour:minute offsets, positive and negative", () => {
+    expect(parseFixedOffset("UTC", "+9")).toBe(540);
+    expect(parseFixedOffset("GMT", "-5")).toBe(-300);
+    expect(parseFixedOffset("UTC", "+05:30")).toBe(330);
+    expect(parseFixedOffset("GMT", "+0930")).toBe(570);
+    expect(parseFixedOffset("UTC", "-05:30")).toBe(-330);
+  });
+
+  it("ignores a numeric offset attached to Z (Z is always +0)", () => {
+    expect(parseFixedOffset("Z", "+9")).toBe(0);
+  });
+
+  it("returns null for named/unknown zones and out-of-range offsets", () => {
+    expect(parseFixedOffset("PST")).toBeNull();
+    expect(parseFixedOffset("America/New_York")).toBeNull();
+    expect(parseFixedOffset("UTC", "+25")).toBeNull(); // > 18h is not a real zone offset
   });
 });
