@@ -1489,3 +1489,32 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 기능: `agentrelay config schema` (설정 파일용 JSON Schema 방출)] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-f7dk0a`)
+- **배경:** BACKLOG의 순수 👷 항목이 전부 완료 상태(남은 것은 🧭 코워크 소유 또는 공동 QA). CLAUDE.md의
+  "백로그가 비면 스스로 새 개선 항목 발굴" 지침에 따라, 열린 PR 중복 무리(`config get`·`stats --by-hour`·
+  재개 stagger·파서 reset-at·`--no-color` 등)와 겹치지 않는 distinct·격리도 높은 신규 기능을 선정.
+  `config init`(샘플 생성)·`config validate`(검증)·`config show`(유효값)는 있었지만, 사용자가
+  `agentrelay.config.json`을 손 편집할 때 에디터(VS Code 등)가 자동완성·인라인 검증을 제공하도록 하는
+  표준 수단(JSON Schema)이 없었다.
+- **한 일:** **`agentrelay config schema` 커맨드 신설** — `agentrelay.config.json`용 JSON Schema
+  (draft-07)를 stdout으로 출력하거나(`-o <path>`) 파일로 저장. 설정에 `"$schema"` 참조를 넣으면
+  에디터가 `retry.maxAttempt` 같은 오타나 `retry.factor < 1` 같은 무의미값을 실행 전에 잡아줌.
+  - core `config.ts`에 순수 `configJsonSchema()`(draft-07 오브젝트 스키마, `$id`·그룹별 설명·숫자
+    바운드가 `validateConfig`와 일치[factor≥1, jitter 0..1, 정수 min 0], duration 필드는 `prune.ts`의
+    `DURATION_RE`를 미러한 pattern, `additionalProperties:false`로 오타 감지하되 top-level `$schema`는
+    화이트리스트) + `configJsonSchemaJson()`(2-스페이스 pretty + trailing newline) 추가. 스키마 shape는
+    `CONFIG_FIELDS`와 드리프트 테스트로 lockstep(모든 dotted key가 스키마 property로 해소, 역방향으로도
+    `$schema` 외 잉여 property 없음 검증).
+  - CLI `commands.ts`에 `writeConfigSchema({out,cwd})`(out 없으면 stdout용 텍스트 반환, 있으면 부모
+    디렉터리 생성 후 파일 쓰기, 실패는 throw 없이 `ok:false`) + `cli.ts`에 `config schema [-o <path>]`
+    배선. stdout 출력은 파이프/리다이렉트용으로 순정 JSON만(상태 메시지는 stderr). `config schema`는
+    설정 파일을 전혀 안 읽으므로 startup `bootstrapConfig`를 건너뛰게 함(깨진 설정 파일이 있어도 스키마를
+    방출해 사용자가 고칠 수 있도록).
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린, `pnpm ci:lint`(Biome) 0경고, `pnpm test`
+  전 패키지 통과(core config +7 / cli commands +4 신규 테스트 포함, 총 core 512·cli 240 통과). 실제 빌드된
+  CLI e2e: `config schema`가 순정 JSON을 stdout으로(파싱 검증)·`-o`가 파일 쓰기+상태 stderr·`$schema`
+  참조를 넣은 설정이 `config validate`를 여전히 통과(전방호환 무시).
+- **다음 할 일:** 다른 형제 진단 커맨드처럼 `config init`이 생성하는 샘플에 `"$schema"` 참조 옵션을 넣을지
+  검토(현재는 sampleConfig round-trip 테스트와 충돌하므로 별도 작업 필요). 남은 distinct 열린 PR 통합 계속.
+  README/ARCHITECTURE(🧭 코워크).

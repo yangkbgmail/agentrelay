@@ -34,6 +34,7 @@ import {
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  configJsonSchemaJson,
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
@@ -628,6 +629,45 @@ export function initConfig(options: ConfigInitOptions = {}): ConfigInitResult {
 
   const verb = options.force ? "Overwrote" : "Wrote";
   return { ok: true, path, message: `${verb} sample config to ${path}. Edit it, then run any command.` };
+}
+
+export interface ConfigSchemaOptions {
+  /** When set, write the schema to this file instead of returning it for stdout. */
+  out?: string;
+  /** Directory a relative `out` path resolves against. Defaults to `process.cwd()`. */
+  cwd?: string;
+}
+
+export interface ConfigSchemaResult {
+  ok: boolean;
+  /** The schema JSON text (always populated, even when also written to a file). */
+  schema: string;
+  /** Absolute path written to, when `out` was given. */
+  path?: string;
+  /** Status line for a file write (undefined when printing to stdout). */
+  message?: string;
+}
+
+/**
+ * Produces the JSON Schema for `agentrelay.config.json`. With no `out`, it just
+ * returns the schema text for the caller to print; with `out`, it writes the
+ * schema to that file (creating parent dirs) so a config's `"$schema"` can point
+ * at a local copy. Never throws — a write failure comes back as `ok:false`.
+ */
+export function writeConfigSchema(options: ConfigSchemaOptions = {}): ConfigSchemaResult {
+  const schema = configJsonSchemaJson();
+  const out = options.out?.trim();
+  if (!out) return { ok: true, schema };
+
+  const cwd = options.cwd ?? process.cwd();
+  const path = resolve(cwd, out);
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, schema, "utf8");
+  } catch (error) {
+    return { ok: false, schema, path, message: `Could not write schema to ${path}: ${String(error)}` };
+  }
+  return { ok: true, schema, path, message: `Wrote config schema to ${path}.` };
 }
 
 export interface ConfigValidateOptions {

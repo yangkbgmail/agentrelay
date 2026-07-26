@@ -575,6 +575,18 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay config schema` — `agentrelay.config.json`용 JSON Schema(draft-07)를 방출해
+      에디터 자동완성·인라인 검증을 가능하게. `config init`(샘플)·`validate`(검증)·`show`(유효값)에
+      더해, 사용자가 설정을 손 편집할 때 `"$schema"` 참조로 오타/무의미값을 실행 전에 잡음.
+      (완료 — core `config.ts` 순수 `configJsonSchema()`(draft-07·`$id`·그룹별 설명·숫자 바운드가
+      `validateConfig`와 일치[factor≥1·jitter 0..1·정수 min 0]·duration pattern은 `prune.ts` `DURATION_RE`
+      미러·`additionalProperties:false`로 오타 감지, top-level `$schema`만 화이트리스트) +
+      `configJsonSchemaJson()`. 스키마 shape는 `CONFIG_FIELDS`와 드리프트 테스트로 lockstep. CLI
+      `commands.ts` `writeConfigSchema({out,cwd})`(stdout 반환 or 파일 쓰기, throw 없음) + `cli.ts`
+      `config schema [-o <path>]`(stdout은 순정 JSON, 상태는 stderr, 설정 미독해라 startup bootstrap
+      skip). core config +7 / cli commands +4 테스트, 실제 빌드 CLI e2e 검증. branch
+      `claude/wizardly-pascal-f7dk0a`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

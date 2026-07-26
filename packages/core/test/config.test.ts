@@ -7,6 +7,8 @@ import {
   applyConfigToEnv,
   CONFIG_ENV_KEYS,
   CONFIG_FIELDS,
+  configJsonSchema,
+  configJsonSchemaJson,
   configToEnv,
   configToJson,
   findConfigField,
@@ -163,6 +165,91 @@ describe("sampleConfig", () => {
     expect(json.endsWith("\n")).toBe(true);
     expect(json).toContain("\n  "); // 2-space indented
     expect(JSON.parse(json)).toEqual(sampleConfig());
+  });
+});
+
+describe("configJsonSchema", () => {
+  // Small resolver mirroring the dotted-key layout: top-level fields are
+  // `properties[key]`, nested ones are `properties[group].properties[leaf]`.
+  const resolveSchemaProp = (
+    schema: Record<string, unknown>,
+    dottedKey: string
+  ): Record<string, unknown> | undefined => {
+    const props = schema.properties as Record<string, Record<string, unknown>>;
+    const parts = dottedKey.split(".");
+    if (parts.length === 1) return props[parts[0]];
+    const group = props[parts[0]];
+    const groupProps = group?.properties as Record<string, Record<string, unknown>> | undefined;
+    return groupProps?.[parts[1]];
+  };
+
+  it("is a draft-07 object schema with a stable $id", () => {
+    const schema = configJsonSchema();
+    expect(schema.$schema).toBe("http://json-schema.org/draft-07/schema#");
+    expect(schema.type).toBe("object");
+    expect(typeof schema.$id).toBe("string");
+    // $schema self-reference must be allowed even though the root is strict.
+    expect(schema.additionalProperties).toBe(false);
+    const props = schema.properties as Record<string, unknown>;
+    expect(props.$schema).toBeDefined();
+  });
+
+  it("has a property for every settable CONFIG_FIELDS key (no drift)", () => {
+    const schema = configJsonSchema();
+    for (const field of CONFIG_FIELDS) {
+      const prop = resolveSchemaProp(schema, field.key);
+      expect(prop, `missing schema property for ${field.key}`).toBeDefined();
+    }
+  });
+
+  it("exposes no schema properties beyond CONFIG_FIELDS (plus $schema)", () => {
+    const schema = configJsonSchema();
+    const props = schema.properties as Record<string, Record<string, unknown>>;
+    const known = new Set<string>(["$schema"]);
+    for (const field of CONFIG_FIELDS) known.add(field.key);
+    for (const [group, node] of Object.entries(props)) {
+      if (group === "$schema") continue;
+      const nested = node.properties as Record<string, unknown> | undefined;
+      if (nested) {
+        for (const leaf of Object.keys(nested)) {
+          expect(known.has(`${group}.${leaf}`), `unexpected schema property ${group}.${leaf}`).toBe(true);
+        }
+      } else {
+        expect(known.has(group), `unexpected schema property ${group}`).toBe(true);
+      }
+    }
+  });
+
+  it("mirrors validateConfig numeric bounds (factor >= 1, jitter 0..1)", () => {
+    const schema = configJsonSchema();
+    const factor = resolveSchemaProp(schema, "retry.factor");
+    expect(factor?.minimum).toBe(1);
+    const jitter = resolveSchemaProp(schema, "retry.jitter");
+    expect(jitter?.minimum).toBe(0);
+    expect(jitter?.maximum).toBe(1);
+    const maxAttempts = resolveSchemaProp(schema, "retry.maxAttempts");
+    expect(maxAttempts?.type).toBe("integer");
+    expect(maxAttempts?.minimum).toBe(0);
+  });
+
+  it("gives duration fields a pattern that accepts real durations and rejects junk", () => {
+    const schema = configJsonSchema();
+    const after = resolveSchemaProp(schema, "autoPrune.after");
+    expect(typeof after?.pattern).toBe("string");
+    const re = new RegExp(after?.pattern as string);
+    for (const good of ["7d", "24h", "30m", "90s", "500ms", "1.5s", "2 d"]) {
+      expect(re.test(good), `${good} should match`).toBe(true);
+    }
+    for (const bad of ["7", "abc", "10x", ""]) {
+      expect(re.test(bad), `${bad} should not match`).toBe(false);
+    }
+  });
+
+  it("renders pretty JSON with a trailing newline that parses back", () => {
+    const json = configJsonSchemaJson();
+    expect(json.endsWith("\n")).toBe(true);
+    expect(json).toContain("\n  ");
+    expect(JSON.parse(json)).toEqual(configJsonSchema());
   });
 });
 
