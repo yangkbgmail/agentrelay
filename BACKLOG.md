@@ -575,6 +575,18 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 표준 `X-RateLimit-Reset` 응답 헤더 인식 — GitHub(`x-ratelimit-reset`)·Twitter/X
+      (`x-rate-limit-reset`) 등이 429에서 반환하는 절대 unix epoch(초) 리셋 시각. 에이전트 CLI가
+      이런 HTTP API를 프록시하다 헤더를 콘솔에 덤프하면 잡이 큐잉되던 실사용 갭.
+      (완료 — `parser.ts`에 순수 `x-ratelimit-reset` 패턴 추가: `x-rate-?limit-reset` 헤더명(rate·limit
+      사이 하이픈 optional로 GitHub/Twitter 두 표기 모두)+`[:=]` 구분자+`(\d{10})(?!\d)` epoch(초).
+      값은 `Retry-After`(상대 지연)와 달리 **절대** epoch초라 `resetAt=값×1000`. 하이픈 헤더명으로
+      JSON `retry_after`(언더스코어 epoch)·`Retry-After`(상대) 패턴과 disjoint, 10자리+뒤에 숫자
+      금지로 13자리 밀리초 epoch 오독 방지. pre-filter `rate.?limit`가 `ratelimit`/`rate-limit` 양쪽을
+      이미 잡아 필터 변경 0줄. 새 CLI 코드 0줄 — 기존 `parse` 커맨드가 자동 노출. parser.test +4
+      (GitHub·Twitter 하이픈·`=` 구분자·밀리초 미스매치), 실제 빌드 CLI `parse` e2e로 두 표기 매치·
+      절대시각·밀리초 no-match 검증. branch `claude/wizardly-pascal-ql6vzq`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
