@@ -575,6 +575,19 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay tail <id>` + 감지 유발 출력 tail 영속 — `run`이 rate-limit을 감지할 때
+      캡처한 출력을 버리지 않고 잡에 영속해, 갓 큐잉된 잡도 `show`/`tail`로 "무슨 출력 때문에
+      큐잉됐나"를 볼 수 있게. (👷 개선 항목 소진 후 직접 발굴한 신규 항목.)
+      (완료 — core `queue.ts`에 순수 `boundOutputTail(output, maxChars?)`+`DEFAULT_OUTPUT_TAIL_LENGTH`
+      (2000, 스케줄러의 매직 `slice(-2000)` 대체 → 단일 출처화) 신설, `markWaitingForReset`에 optional
+      `outputTail` 인자(nullish면 기존 tail 미변경 → 수동 재큐가 이전 캡처 안 지움). CLI `run`이 enqueue
+      시 유발 출력을 영속. 새 CLI `tail.ts`에 순수 `lastLines(tail, n?)`(마지막 N줄, `\r\n`·후행 개행
+      보존)·`renderTail`·`renderTailJson`, `agentrelay tail <id> [-n <lines>] [--json]` 커맨드(read-only
+      `showJob` 재사용). `show`의 라벨 블록과 달리 verbatim 출력(파이핑/grep), 출력 없는 잡은 stdout
+      청정+stderr 안내, 미존재 id·잘못된 `-n`은 exit 1. core queue +7 / cli tail 11 + commands +1 신규
+      테스트, 실제 빌드 CLI e2e로 run→tail·`-n`·`--json`·no-output·에러 exit 검증. branch
+      `claude/wizardly-pascal-ypz728`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

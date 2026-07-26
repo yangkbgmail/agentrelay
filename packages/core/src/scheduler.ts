@@ -1,7 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { resolveAdapter } from "./adapters.js";
 import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
-import type { RelayQueue } from "./queue.js";
+import { boundOutputTail, DEFAULT_OUTPUT_TAIL_LENGTH, type RelayQueue } from "./queue.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
 import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
 
@@ -93,7 +93,7 @@ export class RelayScheduler {
     this.pollIntervalMs = options.pollIntervalMs ?? 30_000;
     this.spawnFn = options.spawnFn ?? defaultSpawn;
     this.notify = options.notify ?? (() => {});
-    this.outputTailLength = options.outputTailLength ?? 2000;
+    this.outputTailLength = options.outputTailLength ?? DEFAULT_OUTPUT_TAIL_LENGTH;
     this.retryPolicy = options.retryPolicy ?? DEFAULT_RETRY_POLICY;
     this.rng = options.rng ?? Math.random;
     this.autoPrune = options.autoPrune ?? null;
@@ -176,7 +176,7 @@ export class RelayScheduler {
     });
 
     const { output, exitCode, error } = await this.runCommand(job);
-    const tail = output.slice(-this.outputTailLength);
+    const tail = boundOutputTail(output, this.outputTailLength) ?? "";
     // Use the tool's adapter so tool-specific rate-limit wording (e.g. Codex's
     // seconds-based waits) is recognized on resume, not just at enqueue time.
     const rateLimit = resolveAdapter({ tool: job.tool, command: job.command }).detectRateLimit(output);

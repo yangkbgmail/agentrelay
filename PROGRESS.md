@@ -1489,3 +1489,24 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### 2026-07-26 — `agentrelay tail` + 감지 유발 출력 tail 영속 (신규 발굴 항목)
+- **맥락:** BACKLOG의 👷 개선 항목이 거의 모두 완료되어(남은 `[ ]`는 대부분 🧭 코워크 소유),
+  CLAUDE.md 지침대로 새 개선 항목을 직접 발굴. `run`이 rate-limit을 감지하면 캡처한 출력을 **버리고**
+  job의 `lastOutputTail`을 null로 남겨, 갓 큐잉된 잡을 `show`로 열어도 "무슨 출력 때문에 큐잉됐나"를
+  볼 수 없던 갭을 발견.
+- **한 일:** (1) **감지 유발 출력 tail 영속** — core `queue.ts`에 순수 `boundOutputTail(output, maxChars?)`
+  + `DEFAULT_OUTPUT_TAIL_LENGTH`(2000) 신설(스케줄러의 매직 넘버 `slice(-2000)`을 이 헬퍼로 대체 →
+  단일 출처화). `markWaitingForReset`에 optional `outputTail` 인자 추가(nullish면 기존 tail 미변경 →
+  수동 재큐가 이전 캡처를 지우지 않음). CLI `run`이 enqueue 시 `boundOutputTail(output)`을 전달해
+  유발 출력을 영속. (2) **`agentrelay tail <id>`** — 잡의 raw `lastOutputTail`을 verbatim 출력(파이핑/grep용,
+  `show`의 라벨 블록과 달리 장식 없음). 새 CLI `tail.ts`에 순수 `lastLines(tail, n?)`(마지막 N줄,
+  `\r\n`·후행 개행 보존)·`renderTail`·`renderTailJson`. `-n/--lines`(양의 정수)·`--json` 플래그.
+  read-only `showJob` 재사용(짧은 prefix·모호/미존재 처리 공유). 출력 없는 잡은 stdout 청정 유지 +
+  stderr 안내(exit 0), 미존재 id·잘못된 `-n`은 exit 1.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린, `pnpm ci:lint`(Biome) 0에러,
+  `pnpm test` 전 패키지 통과(core queue: boundOutputTail 5 + tail 영속 2 신규 / cli tail.test 11 +
+  commands run-tail 1 신규 = 총 core 513·cli 247+skip). 실제 빌드된 CLI로 run→tail·`-n 1`·`--json`·
+  no-output→stderr·unknown id→exit1·bad `-n`→exit1 e2e 확인. branch `claude/wizardly-pascal-ypz728`.
+- **다음 할 일:** `show`가 이제 감지 유발 tail을 표시하므로 대시보드 상세 뷰에도 노출 검토. 남은
+  🧭 항목(README/ARCHITECTURE·경쟁 조사)은 코워크 소유.

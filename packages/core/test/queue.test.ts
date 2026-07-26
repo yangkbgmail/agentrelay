@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { corruptBackupPath, RelayQueue } from "../src/queue.js";
+import { boundOutputTail, corruptBackupPath, DEFAULT_OUTPUT_TAIL_LENGTH, RelayQueue } from "../src/queue.js";
 import type { RelayJob } from "../src/types.js";
 
 describe("RelayQueue", () => {
@@ -66,6 +66,22 @@ describe("RelayQueue", () => {
     const resetAt = new Date(Date.now() + 60_000).toISOString();
     queue.markWaitingForReset(job.id, resetAt);
     expect(queue.getById(job.id)?.lastRateLimit).toBeNull();
+  });
+
+  it("persists the triggering output tail when parking a job", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    const resetAt = new Date(Date.now() + 60_000).toISOString();
+    queue.markWaitingForReset(job.id, resetAt, undefined, "You have hit your usage limit.\nresets at 5pm");
+    expect(queue.getById(job.id)?.lastOutputTail).toBe("You have hit your usage limit.\nresets at 5pm");
+  });
+
+  it("leaves lastOutputTail untouched when parking without a tail", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    const resetAt = new Date(Date.now() + 60_000).toISOString();
+    queue.markWaitingForReset(job.id, resetAt, undefined, "first capture");
+    // A manual re-queue (no fresh tail) must not wipe the earlier capture.
+    queue.markWaitingForReset(job.id, resetAt, undefined, null);
+    expect(queue.getById(job.id)?.lastOutputTail).toBe("first capture");
   });
 
   it("tracks attempts across resumes", () => {
@@ -253,5 +269,34 @@ describe("RelayQueue", () => {
       expect(result).toMatchObject({ added: 0, updated: 0, skippedExisting: 1 });
       expect(readFileSync(join(dir, "test.db"), "utf8")).toBe(before);
     });
+  });
+});
+
+describe("boundOutputTail", () => {
+  it("returns null for nullish or empty output", () => {
+    expect(boundOutputTail(null)).toBeNull();
+    expect(boundOutputTail(undefined)).toBeNull();
+    expect(boundOutputTail("")).toBeNull();
+  });
+
+  it("returns the whole string when within the bound", () => {
+    expect(boundOutputTail("short output")).toBe("short output");
+  });
+
+  it("keeps only the last maxChars characters when longer than the bound", () => {
+    const long = "a".repeat(50) + "TAIL";
+    expect(boundOutputTail(long, 4)).toBe("TAIL");
+    expect(boundOutputTail(long, 4)?.length).toBe(4);
+  });
+
+  it("defaults to DEFAULT_OUTPUT_TAIL_LENGTH", () => {
+    const long = "x".repeat(DEFAULT_OUTPUT_TAIL_LENGTH + 500);
+    expect(boundOutputTail(long)?.length).toBe(DEFAULT_OUTPUT_TAIL_LENGTH);
+  });
+
+  it("treats a non-positive bound as the default rather than discarding everything", () => {
+    const long = "y".repeat(DEFAULT_OUTPUT_TAIL_LENGTH + 10);
+    expect(boundOutputTail(long, 0)?.length).toBe(DEFAULT_OUTPUT_TAIL_LENGTH);
+    expect(boundOutputTail(long, -5)?.length).toBe(DEFAULT_OUTPUT_TAIL_LENGTH);
   });
 });
