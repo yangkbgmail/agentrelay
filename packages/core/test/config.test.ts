@@ -7,9 +7,11 @@ import {
   applyConfigToEnv,
   CONFIG_ENV_KEYS,
   CONFIG_FIELDS,
+  configKeyToEnvKey,
   configToEnv,
   configToJson,
   findConfigField,
+  getEffectiveConfigValue,
   hasConfigErrors,
   loadConfigFile,
   parseConfig,
@@ -308,6 +310,72 @@ describe("CONFIG_FIELDS / setConfigValue / unsetConfigValue", () => {
 
   it("SETTABLE_CONFIG_KEYS matches CONFIG_FIELDS", () => {
     expect(SETTABLE_CONFIG_KEYS).toEqual(CONFIG_FIELDS.map((f) => f.key));
+  });
+
+  describe("configKeyToEnvKey", () => {
+    it("maps every settable dotted key onto a known AGENTRELAY_* env var", () => {
+      const known = new Set(CONFIG_ENV_KEYS.map((k) => k.key));
+      for (const key of SETTABLE_CONFIG_KEYS) {
+        const envKey = configKeyToEnvKey(key);
+        expect(envKey, key).toBeDefined();
+        expect(known.has(envKey as string), `${key} -> ${envKey}`).toBe(true);
+      }
+    });
+
+    it("maps representative keys to their exact env var", () => {
+      expect(configKeyToEnvKey("store")).toBe("AGENTRELAY_STORE");
+      expect(configKeyToEnvKey("retry.maxAttempts")).toBe("AGENTRELAY_MAX_ATTEMPTS");
+      expect(configKeyToEnvKey("autoPrune.everyTicks")).toBe("AGENTRELAY_AUTOPRUNE_EVERY_TICKS");
+      expect(configKeyToEnvKey("notify.webhookUrl")).toBe("AGENTRELAY_WEBHOOK_URL");
+    });
+
+    it("returns undefined for an unknown key", () => {
+      expect(configKeyToEnvKey("nope")).toBeUndefined();
+      expect(configKeyToEnvKey("retry.nope")).toBeUndefined();
+      expect(configKeyToEnvKey("")).toBeUndefined();
+    });
+
+    it("stays a bijection with CONFIG_ENV_KEYS (each env var reachable exactly once)", () => {
+      const mapped = SETTABLE_CONFIG_KEYS.map((k) => configKeyToEnvKey(k));
+      expect(new Set(mapped).size).toBe(SETTABLE_CONFIG_KEYS.length);
+      expect(new Set(mapped)).toEqual(new Set(CONFIG_ENV_KEYS.map((k) => k.key)));
+    });
+  });
+
+  describe("getEffectiveConfigValue", () => {
+    it("reports the env value with source 'env' (env wins over file)", () => {
+      const value = getEffectiveConfigValue(
+        "store",
+        { store: "/from/file.json" },
+        { AGENTRELAY_STORE: "/from/env.json" }
+      );
+      expect(value).toMatchObject({
+        dottedKey: "store",
+        key: "AGENTRELAY_STORE",
+        group: "store",
+        value: "/from/env.json",
+        source: "env",
+      });
+    });
+
+    it("falls back to the file value with source 'config-file'", () => {
+      const value = getEffectiveConfigValue("retry.maxAttempts", { retry: { maxAttempts: 9 } }, {});
+      expect(value).toMatchObject({ value: "9", source: "config-file", key: "AGENTRELAY_MAX_ATTEMPTS" });
+    });
+
+    it("reports the built-in default as undefined value with source 'default'", () => {
+      const value = getEffectiveConfigValue("autoPrune.keep", null, {});
+      expect(value).toMatchObject({ value: undefined, source: "default", dottedKey: "autoPrune.keep" });
+    });
+
+    it("carries the secret flag for webhook fields", () => {
+      const value = getEffectiveConfigValue("notify.webhookUrl", null, { AGENTRELAY_WEBHOOK_URL: "https://x" });
+      expect(value).toMatchObject({ secret: true, value: "https://x", source: "env" });
+    });
+
+    it("returns undefined for an unknown key", () => {
+      expect(getEffectiveConfigValue("bogus", null, {})).toBeUndefined();
+    });
   });
 
   it("sets a top-level string field", () => {

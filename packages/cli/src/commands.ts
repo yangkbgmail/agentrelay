@@ -34,6 +34,7 @@ import {
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  configKeyToEnvKey,
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
@@ -73,6 +74,7 @@ import {
   resolveJobId,
   retryPolicyFromEnv,
   runDiagnostics,
+  SETTABLE_CONFIG_KEYS,
   sampleConfigJson,
   scopeJobs,
   serializeDaemonHeartbeat,
@@ -1102,6 +1104,49 @@ export function showConfig(options: ConfigShowOptions = {}): ConfigShowResult {
   }
   const entries = resolveEffectiveConfig(fileConfig, env);
   return { path, entries, loadError };
+}
+
+export interface ConfigGetOptions extends ConfigShowOptions {
+  /** Dotted config key to read (same keys `config set` accepts). */
+  key: string;
+}
+
+export interface ConfigGetResult {
+  /** The dotted key requested. */
+  key: string;
+  /** False when `key` isn't a known config field (see `error`). */
+  known: boolean;
+  /** The resolved setting (effective value + source), when the key is known. */
+  entry?: EffectiveConfigEntry;
+  /** The config file that fed the resolution, or null when none was found. */
+  path: string | null;
+  /** Set when a config file was found but couldn't be loaded/parsed. */
+  loadError?: string;
+  /** Set when `known` is false: an "unknown key" message listing valid keys. */
+  error?: string;
+}
+
+/**
+ * Resolves a *single* effective config setting addressed by its dotted key — the
+ * scriptable, one-value companion to `config show` (`$(agentrelay config get
+ * store)`). Reuses {@link showConfig} so it honors the same env > file > default
+ * precedence and stays non-fatal on a malformed file. Never throws: an unknown
+ * key comes back as `known: false` with a message rather than an exception.
+ */
+export function getConfigValue(options: ConfigGetOptions): ConfigGetResult {
+  const { key, ...showOptions } = options;
+  const envKey = configKeyToEnvKey(key);
+  if (!envKey) {
+    return {
+      key,
+      known: false,
+      path: null,
+      error: `Unknown config key "${key}". Valid keys: ${SETTABLE_CONFIG_KEYS.join(", ")}.`,
+    };
+  }
+  const show = showConfig(showOptions);
+  const entry = show.entries.find((e) => e.key === envKey);
+  return { key, known: true, entry, path: show.path, loadError: show.loadError };
 }
 
 export interface DoctorOptions {

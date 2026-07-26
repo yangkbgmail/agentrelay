@@ -611,6 +611,47 @@ export function resolveEffectiveConfig(
 }
 
 /**
+ * The single `AGENTRELAY_*` env var a dotted config key (`retry.maxAttempts`)
+ * projects onto, or `undefined` for an unknown key. Derived the same way the app
+ * applies config — set the key on an empty config, project to env, read the one
+ * resulting var — so it can never drift from {@link CONFIG_ENV_KEYS} regardless
+ * of ordering. Pure. Lets `config get` resolve the same dotted keys `config set`
+ * accepts back to the effective value {@link resolveEffectiveConfig} reports.
+ */
+export function configKeyToEnvKey(dottedKey: string): string | undefined {
+  const field = findConfigField(dottedKey);
+  if (!field) return undefined;
+  const sample =
+    field.type === "boolean" ? "true" : field.type === "number" ? "1" : field.type === "duration" ? "1h" : "x";
+  const keys = Object.keys(configToEnv(setConfigValue({}, dottedKey, sample)));
+  return keys[0];
+}
+
+/** One resolved setting keyed by its dotted CLI path (what `config get` returns). */
+export interface EffectiveConfigValue extends EffectiveConfigEntry {
+  /** The dotted CLI key requested, e.g. `"retry.maxAttempts"`. */
+  dottedKey: string;
+}
+
+/**
+ * Resolves a *single* config setting (addressed by its dotted CLI key) to its
+ * effective value and source, applying the same env > file > default precedence
+ * as {@link resolveEffectiveConfig}. Returns `undefined` for an unknown key so
+ * the caller can report it. Pure — the read-only, single-key companion to
+ * `config get`.
+ */
+export function getEffectiveConfigValue(
+  dottedKey: string,
+  fileConfig: AgentRelayConfig | null,
+  env: Record<string, string | undefined> = process.env
+): EffectiveConfigValue | undefined {
+  const envKey = configKeyToEnvKey(dottedKey);
+  if (!envKey) return undefined;
+  const entry = resolveEffectiveConfig(fileConfig, env).find((e) => e.key === envKey);
+  return entry ? { ...entry, dottedKey } : undefined;
+}
+
+/**
  * Fills the derived config values into `targetEnv` (defaults to `process.env`)
  * *without overwriting anything already set*, so an explicit environment
  * variable always beats the file. Mutates `targetEnv` in place and returns the

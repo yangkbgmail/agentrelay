@@ -575,6 +575,22 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay config get <key>` — 유효 설정값 하나만 원시 출력(스크립트 친화). `config show`는
+      전체를 정렬된 표로 덤프하지만, `$(agentrelay config get store)`처럼 셸에서 값 하나를 캡처할 수단이
+      없었다. `set`/`unset`/`show`는 있는데 대칭인 단일 `get`만 빠져 있던 갭.
+      (완료 — core `config.ts`에 순수 `configKeyToEnvKey(dottedKey)`(점 표기 키→`AGENTRELAY_*` env var,
+      set→configToEnv 왕복으로 유도해 `CONFIG_ENV_KEYS`와 절대 드리프트 없음, 미지 키는 undefined) +
+      `getEffectiveConfigValue(dottedKey, fileConfig, env)`/`EffectiveConfigValue`(dottedKey 부착, env>파일>
+      기본값 해소, 미지 키는 undefined) 추가. CLI `commands.ts` `getConfigValue`(공용 `showConfig` 재사용 →
+      깨진 파일에도 non-fatal `loadError`, 미지 키는 throw 없이 `known:false`+메시지). `config.ts`
+      `renderConfigGetJson`(key/envKey/group/value/source/secret/path, 기본값이면 value=null) +
+      `BOOTSTRAP_SKIP_SUBCOMMANDS`에 `get` 추가(bootstrap이 파일 값을 env로 접어 출처를 [env]로 오표기하는
+      것 방지 — show와 동일 이유). CLI `config get <key> [--json] [--source]`: 기본은 원시 값을 stdout에
+      (기본값 적용 시 빈 줄), `--source`는 출처를 stderr에, 시크릿은 명시적 단일 조회라 마스킹 없이 노출.
+      미지 키·깨진 파일은 exit 1. core 9 + cli 6 신규 테스트, 실제 빌드 CLI e2e로 파일값 캡처·env 우선·
+      --source·기본값 빈 출력·시크릿·--json·미지 키 exit 1·깨진 --config 검증. branch
+      `claude/wizardly-pascal-3306at`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
