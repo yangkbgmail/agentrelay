@@ -135,6 +135,13 @@ const PATTERNS: RateLimitPattern[] = [
   },
 ];
 
+/**
+ * Names of the built-in generic patterns, in match order. Exposed so tooling
+ * (e.g. `agentrelay tools`) can report which rate-limit formats every adapter
+ * understands out of the box, without reaching into the `PATTERNS` internals.
+ */
+export const GENERIC_PATTERN_NAMES: string[] = PATTERNS.map((p) => p.name);
+
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
 const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
 

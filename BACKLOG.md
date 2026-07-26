@@ -575,6 +575,22 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay tools` — AgentRelay가 아는 에이전트 어댑터를 한눈에 보고: 각 어댑터를 명령어에서
+      추론하는 바이너리명·제네릭 파서 위에 얹는 툴별 rate-limit 패턴·스토어에서 그 툴을 쓰는 잡 수(활성 수
+      포함). `parse`(단일 메시지 테스트)·`patterns`(실제로 발화한 패턴 집계)와 달리 "어떤 툴 어댑터가
+      존재하고, 어떻게 인식되며, 각자 무슨 포맷을 추가로 매치할 수 있나"에 답한다.
+      (완료 — `@agentrelay/core/tools.ts` 신설(순수·파일시스템/시계 미접촉): `describeTools(jobs)` +
+      `ToolsReport`(genericPatterns·adapters·totalJobs) + `ToolAdapterInfo`(tool·displayName·binaries·
+      extraPatterns·jobCount·activeCount). 정적 `ADAPTERS` 레지스트리에서 어댑터/패턴을 읽고, 잡 리스트에서
+      툴별 count·active(`ACTIVE_STATUSES`) 집계만 파생 — 어댑터는 `ALL_TOOLS` 순서로 안정 출력, 미지 tool
+      문자열(손상/외부 레코드)은 totalJobs엔 세되 어떤 버킷에도 귀속 안 함. `parser.ts`에 순수
+      `GENERIC_PATTERN_NAMES`(`PATTERNS.map(p=>p.name)`) export 추가 → 내부 `PATTERNS`에 손대지 않고
+      제네릭 포맷 목록 노출. CLI `packages/cli/src/tools.ts`에 순수 `renderTools`(제네릭 패턴 헤더 + 어댑터별
+      바이너리/패턴/잡 수 스탠자, color 게이트·scopeNote)·`renderToolsJson`(patterns와 동일 envelope).
+      `agentrelay tools [--json]` + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용해
+      잡 수 교차 참조를 좁힘. core tools 6 + cli tools 6 신규 테스트, 실제 빌드 CLI e2e로 어댑터 나열·
+      제네릭/코덱 패턴·툴별 잡·활성 수·스코프·JSON·에러 exit 검증. branch `claude/wizardly-pascal-a5anvn`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
