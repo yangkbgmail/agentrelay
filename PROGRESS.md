@@ -1489,3 +1489,19 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서 주(week) 단위 상대 시간 인식] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-m7mkoy`)
+- **맥락:** 지정 브랜치를 최신 main(4abefa1) 위로 리셋. BACKLOG의 열린 👷 순수 항목이 사실상 소진되어
+  CLAUDE.md 지침대로 신규 개선 항목을 자가 발굴. 파서의 `relative-duration` 패턴이 일/시/분만 커버하고
+  주(week) 단위를 놓치는 실제 갭을 선정 — Claude의 주간 사용량 한도는 최대 한 주 뒤로 리셋되며, 실제
+  메시지에서 "7 days"가 아니라 "1 week"로 표기되기도 함.
+- **한 일:** `packages/core/src/parser.ts`의 `relative-duration` 정규식 앞단에 선택적 week 그룹
+  `(\d+)\s*w(?:eeks?)?`을 추가하고 resolve를 weeks/days/hours/minutes 4그룹으로 재인덱싱,
+  `(((weeks*7+days)*24+hours)*60+minutes)*60_000`으로 리셋 시각 계산. week 그룹이 정규식 맨 앞이지만
+  뒤따르는 문자가 'w'가 아니면 매칭되지 않으므로 "3 minutes" 같은 분 전용 표현의 앞 숫자를 삼키지 않음.
+  parser.test에 회귀 4건 추가(`1 week`→7d / `2 weeks`→14d / `2w 3d` 조합 / `3 minutes` 비오독). 새 CLI
+  코드는 0줄 — 기존 `agentrelay parse` 커맨드가 자동으로 새 표현을 노출.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린, `pnpm test` 전 패키지 통과(core 506→510).
+  실제 빌드된 CLI e2e로 `parse "Try again in 1 week."`→7d 0h, `parse "resets in 2w 3d"`→17d 0h 확인.
+- **다음 할 일:** 파서 커버리지 계속 보강(분 없는 상대시간 spelled-out "an hour"·"a few minutes" 등은
+  모호성 있어 보류 검토). 남은 🧭 문서 항목(README/ARCHITECTURE)은 코워크 소유.

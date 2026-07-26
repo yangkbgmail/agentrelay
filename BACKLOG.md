@@ -575,6 +575,16 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 주(week) 단위 상대 시간 인식(`try again in 1 week` / `resets in 2 weeks` / `2w 3d`).
+      (완료 — Claude의 주간 사용량 한도는 최대 한 주 뒤로 리셋되며 실제 메시지에서 "7 days"가 아니라
+      "1 week"로 표기되기도 함. 기존 `relative-duration` 패턴은 일/시/분만 커버해 이 표현을 놓쳤음.
+      `parser.ts`에서 정규식 앞단에 선택적 week 그룹 `(\d+)\s*w(?:eeks?)?`을 추가하고 resolve를
+      weeks/days/hours/minutes 4그룹으로 재인덱싱, `(((weeks*7+days)*24+hours)*60+minutes)*60_000`으로
+      계산. week 그룹이 맨 앞이지만 뒤따르는 문자가 'w'가 아니면 매칭 안 되므로 "3 minutes"의 앞 숫자를
+      삼키지 않음(회귀 테스트로 고정). parser.test +4(`1 week`/`2 weeks`/`2w 3d` 조합/`3 minutes` 비오독).
+      새 CLI 코드 0줄 — 기존 `parse` 커맨드가 자동 노출, 실제 빌드 CLI e2e로 1 week→7d, 2w 3d→17d 검증.
+      branch `claude/wizardly-pascal-m7mkoy`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
