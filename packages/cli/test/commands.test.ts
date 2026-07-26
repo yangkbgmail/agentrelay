@@ -24,6 +24,7 @@ import {
   unsetConfigFile,
   validateConfigFile,
   waitForJob,
+  writeConfigSchema,
 } from "../src/commands.js";
 import { isConfigDiagnosticInvocation, renderEffectiveConfig, resolveProjectName } from "../src/config.js";
 
@@ -437,6 +438,61 @@ describe("initConfig", () => {
     expect(result.ok).toBe(true);
     expect(result.message).toMatch(/Overwrote/);
     expect(readFileSync(path, "utf8")).toBe(sampleConfigJson());
+  });
+});
+
+describe("writeConfigSchema", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-schema-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("returns the schema JSON for stdout when no out path is given", () => {
+    const result = writeConfigSchema();
+    expect(result.ok).toBe(true);
+    expect(result.path).toBeUndefined();
+    const parsed = JSON.parse(result.schema);
+    expect(parsed.$schema).toBe("http://json-schema.org/draft-07/schema#");
+    expect(parsed.type).toBe("object");
+    // The sample config validates against the shape it describes: every sample
+    // group is a known schema property.
+    expect(Object.keys(parsed.properties)).toEqual(
+      expect.arrayContaining(["$schema", "store", "notify", "retry", "autoPrune"])
+    );
+  });
+
+  it("writes the schema to a file (creating parent dirs) when out is given", () => {
+    const out = join(dir, "nested", "schema.json");
+    const result = writeConfigSchema({ out, cwd: dir });
+    expect(result.ok).toBe(true);
+    expect(result.path).toBe(out);
+    expect(existsSync(out)).toBe(true);
+    const written = readFileSync(out, "utf8");
+    expect(written.endsWith("\n")).toBe(true);
+    expect(JSON.parse(written)).toEqual(JSON.parse(result.schema));
+  });
+
+  it("resolves a relative out path against cwd", () => {
+    const result = writeConfigSchema({ out: "schema.json", cwd: dir });
+    expect(result.ok).toBe(true);
+    expect(result.path).toBe(join(dir, "schema.json"));
+    expect(existsSync(join(dir, "schema.json"))).toBe(true);
+  });
+
+  it("reports ok:false without throwing when the out path can't be written", () => {
+    // A file where a directory is expected makes mkdir/write fail.
+    const filePath = join(dir, "afile");
+    writeFileSync(filePath, "x");
+    const result = writeConfigSchema({ out: join(filePath, "schema.json"), cwd: dir });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/Could not write schema/);
+    // The schema text is still populated so callers can fall back to printing it.
+    expect(result.schema.length).toBeGreaterThan(0);
   });
 });
 

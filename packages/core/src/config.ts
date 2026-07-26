@@ -101,6 +101,137 @@ export function sampleConfigJson(): string {
 }
 
 /**
+ * Pattern (draft-07 `pattern`) matching the human durations {@link parseDuration}
+ * accepts — `7d`, `24h`, `30m`, `90s`, `500ms`, with an optional space and either
+ * case. Mirrors `DURATION_RE` in `prune.ts`; kept as a string because JSON Schema
+ * patterns carry no flags, so the unit alternation spells out both cases instead
+ * of relying on the `i` flag.
+ */
+const DURATION_SCHEMA_PATTERN = "^\\d+(\\.\\d+)?\\s*(?:ms|s|m|h|d|MS|S|M|H|D)$";
+
+/**
+ * A JSON Schema (draft-07) describing the {@link AgentRelayConfig} file. Emitting
+ * this lets editors that honor a `"$schema"` reference offer autocompletion and
+ * inline validation while a user hand-edits `agentrelay.config.json` — catching
+ * typos like `retry.maxAttempt` or a `retry.factor` below 1 before a run ever
+ * reads them.
+ *
+ * The shape is kept in lockstep with {@link CONFIG_FIELDS} by a drift test that
+ * asserts every settable dotted key resolves to a property here, and the numeric
+ * bounds mirror {@link validateConfig} (e.g. `factor >= 1`, `jitter` in [0,1]).
+ * `additionalProperties: false` is intentionally *stricter* than
+ * {@link parseConfig} (which ignores unknown keys for forward compatibility) so
+ * the editor flags misspelled keys; the whitelisted top-level `$schema` keeps the
+ * self-reference itself valid. Pure — no filesystem, no env.
+ */
+export function configJsonSchema(): Record<string, unknown> {
+  const integer = (description: string, extra: Record<string, unknown> = {}) => ({
+    type: "integer",
+    minimum: 0,
+    description,
+    ...extra,
+  });
+  const duration = (description: string) => ({
+    type: "string",
+    pattern: DURATION_SCHEMA_PATTERN,
+    description,
+  });
+
+  return {
+    $schema: "http://json-schema.org/draft-07/schema#",
+    $id: "https://agentrelay.dev/schemas/agentrelay.config.json",
+    title: "AgentRelay configuration",
+    description:
+      "Persistent defaults for AgentRelay. Every field is optional and maps 1:1 onto an AGENTRELAY_* environment variable; an explicit env var always wins over this file, which wins over the built-in default.",
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      $schema: {
+        type: "string",
+        description: "Optional reference to this JSON Schema so editors can validate and autocomplete the file.",
+      },
+      store: {
+        type: "string",
+        description: "Job store path (AGENTRELAY_STORE). A leading ~ is expanded to your home directory.",
+        examples: ["~/.agentrelay/jobs.json"],
+      },
+      notify: {
+        type: "object",
+        additionalProperties: false,
+        description: "Notification channels fired when a job hits a rate limit or resumes.",
+        properties: {
+          slackWebhook: {
+            type: "string",
+            format: "uri",
+            description: "Slack incoming-webhook URL (AGENTRELAY_SLACK_WEBHOOK).",
+          },
+          webhookUrl: {
+            type: "string",
+            format: "uri",
+            description: "Generic webhook endpoint that receives a JSON payload (AGENTRELAY_WEBHOOK_URL).",
+          },
+          webhookAuth: {
+            type: "string",
+            description: "Value sent as the webhook Authorization header (AGENTRELAY_WEBHOOK_AUTH).",
+          },
+        },
+      },
+      retry: {
+        type: "object",
+        additionalProperties: false,
+        description: "Retry / exponential-backoff policy for transient (non rate-limit) failures.",
+        properties: {
+          maxAttempts: integer(
+            "Maximum resume attempts before a job is marked failed; 0 = unlimited (AGENTRELAY_MAX_ATTEMPTS)."
+          ),
+          baseDelayMs: integer("Base backoff delay in milliseconds (AGENTRELAY_RETRY_BASE_MS)."),
+          factor: {
+            type: "number",
+            minimum: 1,
+            description:
+              "Exponential growth factor; must be >= 1 so the delay grows each attempt (AGENTRELAY_RETRY_FACTOR).",
+          },
+          maxDelayMs: integer("Upper bound on the backoff delay in milliseconds (AGENTRELAY_RETRY_MAX_MS)."),
+          jitter: {
+            type: "number",
+            minimum: 0,
+            maximum: 1,
+            description:
+              "Backoff jitter fraction in [0, 1]; 0 disables jitter, 1 = +/-100% spread (AGENTRELAY_RETRY_JITTER).",
+          },
+        },
+      },
+      autoPrune: {
+        type: "object",
+        additionalProperties: false,
+        description: "Daemon auto-prune settings — periodically clear finished jobs from the store.",
+        properties: {
+          enabled: {
+            type: "boolean",
+            description: "Opt-in flag for daemon auto-prune (AGENTRELAY_AUTOPRUNE).",
+          },
+          after: duration(
+            "Age threshold like 7d/24h/30m; finished jobs older than this are pruned (AGENTRELAY_AUTOPRUNE_AFTER)."
+          ),
+          keep: integer("Always keep the N most-recent finished jobs (AGENTRELAY_AUTOPRUNE_KEEP)."),
+          every: duration("Minimum wall-clock interval between prune passes like 1h/30m (AGENTRELAY_AUTOPRUNE_EVERY)."),
+          everyTicks: integer("Minimum daemon ticks between prune passes (AGENTRELAY_AUTOPRUNE_EVERY_TICKS)."),
+        },
+      },
+    },
+  };
+}
+
+/**
+ * The {@link configJsonSchema} rendered as a pretty-printed JSON string with a
+ * trailing newline — ready to print or write to a file that a config's
+ * `"$schema"` can point at. Round-trips through `JSON.parse`.
+ */
+export function configJsonSchemaJson(): string {
+  return `${JSON.stringify(configJsonSchema(), null, 2)}\n`;
+}
+
+/**
  * The value type of a settable config field, used to coerce the raw string a
  * user types on the command line (`agentrelay config set <key> <value>`) into
  * the JSON type the config schema expects.
