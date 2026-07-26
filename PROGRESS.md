@@ -1489,3 +1489,30 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 커맨드 `agentrelay projects`(프로젝트 라벨 인덱스)] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-ijrptu`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태이고, 열린 PR이 90개까지 적체(다수 중복: 파서 reset-at
+  계열·config get·stats --by-hour/--watch·재개 stagger·upcoming/agenda 등). 어느 열린 PR과도 겹치지 않는
+  **진짜 갭**을 발굴: `--project` 필터를 status/stats/export/cancel/retry/metrics/patterns/errors가 전부
+  키로 쓰지만, 정작 **어떤 프로젝트 라벨이 존재하고 어디에 대기 작업이 몰려 있는지 발견하는 커맨드가
+  없었다**(90개 PR 어디에도 `projects` 없음). CLAUDE.md의 "백로그 비면 스스로 개선 항목 발굴" 지침을 따름.
+- **한 일:** 신규 커맨드 `agentrelay projects` 구현.
+  1. `@agentrelay/core/projects.ts` 신설(순수·파일시스템/시계 미접촉): `summarizeProjects(jobs)` +
+     `ProjectsSummary`(total·projectCount·projects[]) + `ProjectBreakdown`(project·total·active·terminal·
+     waiting·nextResetAt·lastActivityAt). `job.project`로 버킷팅, active(queued+waiting_for_reset+resuming)/
+     terminal 분리, `waiting_for_reset` 잡의 가장 이른 resetAt=nextResetAt(summarizeJobs와 동일한 ISO
+     사전식 min 관례 — 새 파서/시계 로직 0줄), 가장 최근 updatedAt=lastActivityAt. 랭킹 active desc→
+     total desc→이름 asc(대기 작업 몰린 프로젝트가 위로).
+  2. CLI `packages/cli/src/projects.ts`에 순수 `renderProjects`(프로젝트별 총/활성/종료 표 + 대기 시
+     다음 리셋 카운트다운[기존 `formatCountdown` 재사용], active 있으나 미대기는 "—"·전부 종료는
+     "(idle)")·`renderProjectsJson`(stats/patterns와 동일 envelope). `cli.ts`에 `agentrelay projects
+     [--json]` 배선, 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용, 잘못된 status/
+     tool은 exit 1.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 에러**·`pnpm test`
+  전 패키지 통과(core 513 = +7 신규 projects, cli 243/1skip = +8 신규 projects, dashboard 7). 실제
+  빌드된 CLI e2e(mock 아님): 3-잡 임시 스토어로 `projects`(web=2잡[활성1·종료1]·다음리셋 카운트다운,
+  api=1잡·idle)·`projects --json`(전체 envelope)·`projects --tool codex-cli`(스코프 부분집합)·
+  `projects --status bogus`(exit 1) 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
+  중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger·upcoming/agenda)는 각각 하나로 수렴 후
+  나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).

@@ -575,6 +575,22 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay projects` — 큐에 존재하는 프로젝트 라벨을 프로젝트별 잡 집계(총/활성/종료)·
+      다음 리셋 시각과 함께 조회. `--project` 필터 생태계(status/stats/export/cancel/retry/metrics/
+      patterns/errors)가 전부 이 라벨을 키로 쓰지만, 정작 **어떤 라벨이 존재하고 어디에 대기 작업이
+      몰려 있는지 발견하는 수단**이 없던 갭을 메움.
+      (완료 — `@agentrelay/core/projects.ts` 신설(순수·파일시스템/시계 미접촉): `summarizeProjects(jobs)`
+      + `ProjectsSummary`(total·projectCount·projects[]) + `ProjectBreakdown`(project·total·active·terminal·
+      waiting·nextResetAt·lastActivityAt). `job.project`로 버킷팅해 각 프로젝트의 active(queued+waiting+
+      resuming)/terminal 분리, `waiting_for_reset` 잡 중 가장 이른 resetAt을 nextResetAt으로(summarizeJobs와
+      동일한 ISO 사전식 min 관례), 가장 최근 updatedAt을 lastActivityAt으로 집계. 랭킹은 active desc→
+      total desc→이름 asc(대기 작업이 몰린 프로젝트가 위로). CLI `packages/cli/src/projects.ts`에 순수
+      `renderProjects`(프로젝트별 총/활성/종료 표 + 대기 시 다음 리셋 카운트다운, active 있으나 미대기는
+      "—"·전부 종료는 "(idle)")·`renderProjectsJson`(stats/patterns와 동일 envelope). `agentrelay projects
+      [--json]` + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용, 잘못된 status/tool은
+      exit 1. core projects 7 + cli projects 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·카운트다운·스코프
+      부분집합·JSON·에러 exit 검증. branch `claude/wizardly-pascal-ijrptu`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
