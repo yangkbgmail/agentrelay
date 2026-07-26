@@ -575,6 +575,20 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay export --format yaml` — 잡 이력을 YAML 블록 시퀀스로 내보내기(사람이 읽기 좋고
+      diff 친화적이며 `yq`/CI 설정 등 YAML 툴링에 바로 투입). json/ndjson과 같은 무손실 full-shape.
+      (완료 — core `export.ts`에 의존성 0의 손수 만든 YAML 직렬화기 추가: 순수 `jobsToYaml`(전체
+      `RelayJob` shape를 재귀 순회 — 중첩 `command` 배열·`lastRateLimit` 객체까지 보존, 빈 스토어는
+      `[]`) + 스칼라 인용 로직 `yamlNeedsQuoting`(파서가 문자열을 숫자/불리언/타임존/타임스탬프로
+      재해석하지 못하도록 안전 plain 스칼라만 무인용, 그 외 이중인용 — 라운드트립 losslessness 보장)·
+      `yamlDoubleQuote`(C-스타일 이스케이프 + C0 컨트롤 문자 `\xNN`)·`yamlScalar`. `EXPORT_FORMATS`에
+      `yaml` 등록·`exportJobs` 디스패치. YAML은 무손실이라 `COLUMN_AWARE_FORMATS` 밖 → `--columns yaml`은
+      json/ndjson과 동일하게 exit 1. CLI export는 `EXPORT_FORMATS.includes`로 검증하므로 `-f yaml` 자동
+      배선(설명 문구만 갱신). core export.test 25케이스(needsQuoting·doubleQuote·scalar·jobsToYaml·
+      injection/컨트롤 문자·중첩 객체/배열·멀티잡) + cli export.test 4케이스(블록 시퀀스·빈 스토어·파일
+      출력) 신규. 실제 빌드 CLI e2e로 출력 구조 확인 + **PyYAML로 파싱해 무손실 라운드트립 검증**(숫자/
+      불리언 문자열 인자·콜론·탭·개행·빈 문자열·빈 배열 포함). branch `claude/wizardly-pascal-2cputm`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

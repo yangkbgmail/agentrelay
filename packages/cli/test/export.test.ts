@@ -165,6 +165,36 @@ describe("exportStore", () => {
     expect(result.content).not.toContain("<th>project</th>");
   });
 
+  it("produces a YAML block sequence with one dash-led entry per job", () => {
+    seed();
+    const result = exportStore({ storePath, format: "yaml" });
+    expect(result.count).toBe(2);
+    const dashLines = result.content.split("\n").filter((l) => l.startsWith("- "));
+    expect(dashLines).toHaveLength(2);
+    // Full lossless shape: the command array survives as a nested block sequence.
+    expect(result.content).toContain("  command:");
+    expect(result.content).toContain("  - claude");
+    expect(result.content).toContain("  - codex");
+    expect(result.content).toContain("project: alpha");
+    expect(result.content).toContain("project: beta");
+  });
+
+  it("exports YAML for an empty store as an empty sequence document", () => {
+    const result = exportStore({ storePath, format: "yaml" });
+    expect(result.count).toBe(0);
+    expect(result.content).toBe("[]");
+  });
+
+  it("writes a YAML export to a file with a trailing newline", () => {
+    seed();
+    const out = join(dir, "jobs.yaml");
+    const result = exportStore({ storePath, format: "yaml", outPath: out });
+    expect(result.writtenTo).toBe(out);
+    const onDisk = readFileSync(out, "utf8");
+    expect(onDisk.endsWith("\n")).toBe(true);
+    expect(onDisk.trimEnd()).toBe(result.content);
+  });
+
   // The `export` command applies the same scope filters as `stats`/`status`:
   // the --since/--until time window via core scopeJobs, then
   // --status/--tool/--project/--sort/--reverse via selectJobs. These tests

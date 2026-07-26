@@ -1489,3 +1489,25 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 기능: `agentrelay export --format yaml`] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-2cputm`)
+- **배경:** 명시 👷 BACKLOG 항목이 전부 완료 상태. 열린 PR 100개+가 심하게 중복(config get·stats
+  --watch·wait --all·reschedule·verify·파서 reset-at 계열 등)이라, 어느 열린 PR과도 겹치지 않는
+  distinct·격리도 높은 신규 항목을 발굴하기로 판단. 열린 PR 제목을 키워드 스캔한 결과 `yaml`은
+  0건이었고(tsv PR #167과도 다른 포맷), 기존 `EXPORT_FORMATS` 레지스트리 패턴에 완벽히 맞아 선정.
+- **한 일:** `agentrelay export --format yaml` 추가 — 잡 이력을 사람이 읽기 좋고 diff 친화적인 YAML
+  블록 시퀀스로 내보내기(`yq`/CI 설정 등 YAML 툴링에 바로 투입). json/ndjson처럼 무손실 full-shape.
+  - core `export.ts`: 의존성 0의 손수 만든 YAML 직렬화기. 순수 `jobsToYaml`(전체 `RelayJob` shape
+    재귀 순회 — 중첩 `command` 배열·`lastRateLimit` 객체까지 보존, 빈 스토어는 `[]`) + 스칼라 인용
+    로직 `yamlNeedsQuoting`(파서가 문자열을 숫자/불리언/타임스탬프로 재해석 못 하도록 안전 plain
+    스칼라만 무인용, 그 외 이중인용 → 라운드트립 losslessness 보장)·`yamlDoubleQuote`(C-스타일
+    이스케이프 + C0 컨트롤 문자 `\xNN`)·`yamlScalar`. `EXPORT_FORMATS`에 `yaml` 등록·`exportJobs`
+    디스패치. 무손실이라 `COLUMN_AWARE_FORMATS` 밖 → `--columns yaml`은 exit 1.
+  - CLI: `EXPORT_FORMATS.includes` 검증이라 `-f yaml` 자동 배선(설명·`--columns` 에러 문구만 갱신).
+    새 CLI 로직 0줄.
+- **검증:** `pnpm build`(Next.js 포함)·`pnpm test`(core 528 + dashboard 7 + cli 238, 신규 core 25 +
+  cli 4 포함) 전부 통과, `pnpm ci:lint`(Biome) 0 경고. 실제 빌드된 CLI로 `export -f yaml` 출력 구조·
+  `--columns yaml`→exit 1·빈 스토어→`[]` 확인. **PyYAML로 실제 파싱해 무손실 라운드트립 검증**
+  (숫자/불리언 문자열 인자·콜론·탭·개행·빈 문자열·빈 command 배열 포함 — `parsed == orig`).
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속 또는 추가 신규 항목 발굴(export `--format toml`,
+  파서 실사용 포맷 등). README/ARCHITECTURE(🧭 코워크).

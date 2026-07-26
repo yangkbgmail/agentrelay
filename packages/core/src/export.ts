@@ -293,8 +293,171 @@ export function jobsToHtml(jobs: RelayJob[], options: HtmlOptions = {}): string 
   ].join("\n");
 }
 
+// --- YAML ------------------------------------------------------------------
+//
+// A hand-rolled YAML serializer (no dependency — the project is deliberately
+// zero-dep, see queue.ts). Like the JSON/NDJSON exports it is *lossless*: it
+// walks the full RelayJob shape (nested `command` array and `lastRateLimit`
+// object included) so nothing is flattened or dropped. Unlike JSON, the block
+// layout is skimmable by eye and diffs cleanly line-by-line, and it drops
+// straight into YAML-consuming tooling (CI configs, Ansible, `yq`).
+//
+// The tricky part is scalar quoting. To keep the output *round-trippable* — a
+// YAML parser must read every string back as the same string, never coerced to
+// a number/boolean/timestamp — strings are emitted as plain scalars only when
+// they're unambiguously safe (see `yamlNeedsQuoting`); everything else is
+// double-quoted with C-style escapes. Numbers (only `attempts`) stay unquoted so
+// they parse back as numbers; `null` is emitted bare.
+
+/** JSON-compatible value — the closed set the RelayJob shape is built from. */
+type YamlValue = string | number | boolean | null | YamlValue[] | { [key: string]: YamlValue };
+
+/**
+ * YAML tokens that a bare (plain) scalar would be parsed as something other than
+ * a string. If a string equals one of these we must quote it to keep it a string.
+ */
+const YAML_RESERVED = new Set(["true", "false", "null", "yes", "no", "on", "off", "y", "n", "~"]);
+
+function isPlainObject(value: YamlValue): value is { [key: string]: YamlValue } {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * True when `s` cannot be safely emitted as a YAML plain (unquoted) scalar and
+ * must be double-quoted instead. Conservative on purpose: we only leave a string
+ * unquoted when it's obviously a plain identifier-ish token, so nothing a parser
+ * might reinterpret (numbers, booleans, nulls, timestamps, anything with YAML
+ * indicator characters) ever slips through unquoted. Over-quoting is harmless;
+ * under-quoting would silently change a value's type on round-trip.
+ */
+export function yamlNeedsQuoting(s: string): boolean {
+  if (s === "") return true;
+  if (YAML_RESERVED.has(s.toLowerCase())) return true;
+  // Number-looking (int / float / scientific) — quote so it stays a string.
+  if (/^[+-]?(\d[\d_]*\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(s)) return true;
+  // Hex / octal / special floats YAML recognizes.
+  if (/^[+-]?0x[0-9a-fA-F]+$/.test(s)) return true;
+  if (/^[+-]?\.(inf|Inf|INF)$/.test(s) || /^\.(nan|NaN|NAN)$/.test(s)) return true;
+  // Only a strict identifier-ish charset (must start with a letter or `_`) stays
+  // plain. This deliberately quotes ISO timestamps (start with a digit → YAML
+  // would parse them as its timestamp type) and command args like `-p` (a
+  // leading `-` is the sequence indicator).
+  if (!/^[A-Za-z_][A-Za-z0-9_ .@/+-]*$/.test(s)) return true;
+  // A trailing space would be lost when read back as a plain scalar.
+  if (/\s$/.test(s)) return true;
+  return false;
+}
+
+/** Double-quote a string with YAML/C-style escapes (always valid double-quoted YAML). */
+export function yamlDoubleQuote(s: string): string {
+  let out = '"';
+  for (const ch of s) {
+    switch (ch) {
+      case '"':
+        out += '\\"';
+        break;
+      case "\\":
+        out += "\\\\";
+        break;
+      case "\n":
+        out += "\\n";
+        break;
+      case "\t":
+        out += "\\t";
+        break;
+      case "\r":
+        out += "\\r";
+        break;
+      default: {
+        const code = ch.codePointAt(0) ?? 0;
+        // Other C0 control characters have no short escape → \xNN.
+        out += code < 0x20 ? `\\x${code.toString(16).padStart(2, "0")}` : ch;
+      }
+    }
+  }
+  return `${out}"`;
+}
+
+/** Render a scalar (string / number / boolean / null) as its inline YAML token. */
+export function yamlScalar(value: string | number | boolean | null): string {
+  if (value === null) return "null";
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number") {
+    // JSON has no NaN/Infinity, so the store never holds one; quote defensively
+    // if it somehow does rather than emit an invalid bare token.
+    return Number.isFinite(value) ? String(value) : yamlDoubleQuote(String(value));
+  }
+  return yamlNeedsQuoting(value) ? yamlDoubleQuote(value) : value;
+}
+
+/** Emit an object's entries as block-mapping lines at `indent`. */
+function emitMapping(obj: { [key: string]: YamlValue }, indent: string, lines: string[]): void {
+  for (const [key, value] of Object.entries(obj)) {
+    const keyStr = yamlNeedsQuoting(key) ? yamlDoubleQuote(key) : key;
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        lines.push(`${indent}${keyStr}: []`);
+      } else {
+        lines.push(`${indent}${keyStr}:`);
+        for (const item of value) emitSeqItem(item, indent, lines);
+      }
+    } else if (isPlainObject(value)) {
+      if (Object.keys(value).length === 0) {
+        lines.push(`${indent}${keyStr}: {}`);
+      } else {
+        lines.push(`${indent}${keyStr}:`);
+        emitMapping(value, `${indent}  `, lines);
+      }
+    } else {
+      lines.push(`${indent}${keyStr}: ${yamlScalar(value)}`);
+    }
+  }
+}
+
+/** Emit one sequence item (scalar, nested object, or nested sequence) at `indent`. */
+function emitSeqItem(item: YamlValue, indent: string, lines: string[]): void {
+  if (Array.isArray(item)) {
+    if (item.length === 0) {
+      lines.push(`${indent}- []`);
+    } else {
+      lines.push(`${indent}-`);
+      for (const sub of item) emitSeqItem(sub, `${indent}  `, lines);
+    }
+  } else if (isPlainObject(item)) {
+    if (Object.keys(item).length === 0) {
+      lines.push(`${indent}- {}`);
+    } else {
+      // Emit the mapping, then fold the dash onto its first line so the object's
+      // first key sits inline with the `- ` (standard block-sequence-of-maps layout).
+      const childIndent = `${indent}  `;
+      const nested: string[] = [];
+      emitMapping(item, childIndent, nested);
+      nested[0] = `${indent}- ${nested[0].slice(childIndent.length)}`;
+      lines.push(...nested);
+    }
+  } else {
+    lines.push(`${indent}- ${yamlScalar(item)}`);
+  }
+}
+
+/**
+ * Serialize jobs to a YAML block sequence (no trailing newline; the CLI file
+ * writer adds the final LF). Lossless — the full {@link RelayJob} shape, nested
+ * `command` array and `lastRateLimit` object included, is preserved and reads
+ * back as the same values. An empty job list yields `[]` (a valid empty
+ * sequence document) rather than a blank file.
+ */
+export function jobsToYaml(jobs: RelayJob[]): string {
+  if (jobs.length === 0) return "[]";
+  const lines: string[] = [];
+  for (const job of jobs) {
+    emitSeqItem(job as unknown as YamlValue, "", lines);
+  }
+  return lines.join("\n");
+}
+
 /** Supported export formats. */
-export const EXPORT_FORMATS = ["csv", "json", "md", "ndjson", "html"] as const;
+export const EXPORT_FORMATS = ["csv", "json", "md", "ndjson", "html", "yaml"] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 /** Dispatch to the right serializer for the given format. */
@@ -308,6 +471,8 @@ export function exportJobs(jobs: RelayJob[], format: ExportFormat, options: CsvO
       return jobsToNdjson(jobs);
     case "html":
       return jobsToHtml(jobs, options);
+    case "yaml":
+      return jobsToYaml(jobs);
     default:
       return jobsToCsv(jobs, options);
   }
