@@ -1489,3 +1489,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 기능 발굴·구현: `agentrelay run --max-wait`] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-xpkqt9`)
+- **배경:** BACKLOG의 👷 명시 항목이 전부 완료 상태이고, 열린 PR 60개가 이미 파서 헤더/타임라인
+  (upcoming·agenda)/히스토그램/notify/config get/어댑터 카탈로그 등 광범위한 lane을 점유. CLAUDE.md
+  지침("백로그 비면 스스로 새 개선 항목 발굴")에 따라, **열린 어느 PR과도 겹치지 않는** 새 기능을
+  발굴. `run` 동작 lane은 #213(`run --dry-run`)만 건드려 격리도가 높다고 판단.
+- **한 일:** **`agentrelay run --max-wait <duration>` 신규 기능 구현.** 기본 릴레이는 rate-limit
+  리셋까지 얼마든지 대기하는데, 이는 CI/자동화에서 주간 사용량 한도(18시간+)를 조용히 대기하며
+  러너/터미널을 묶는 footgun이 될 수 있다. `--max-wait 6h`(또는 `AGENTRELAY_MAX_WAIT=6h`)를 주면
+  리셋이 한도보다 멀 때 잡을 큐잉하지 않고 커맨드의 (실패) 종료 코드를 그대로 통과 → 사람/CI가
+  판단하게 함. opt-in이라 기존 무제한 대기 동작은 불변.
+  - 구현: 순수 core `@agentrelay/core/maxwait.ts` 신설 — `maxWaitMsFromEnv(env)`(`parseDuration`
+    재사용, 미설정/파싱불가/비양수는 null=무제한; env는 lenient, 플래그는 CLI strict 검증으로 역할
+    분리), `exceedsMaxWait(resetAtIso, nowMs, maxWaitMs)`(cap null=무제한, 엄격 초과만 true, 정확히
+    cap이면 false, 파싱불가 resetAt은 방어적 true). CLI `runCommand`가 감지 후 큐잉 전 검사해
+    초과 시 안내 출력+`skippedForMaxWait:true`로 조기 반환(`RunOptions.maxWaitMs`/`now` 주입,
+    `RunResult.skippedForMaxWait` 추가), `cli.ts` run에 `--max-wait <duration>` 배선(strict 파싱,
+    잘못된 값 exit 1). 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린·`pnpm ci:lint`(Biome 86파일 0경고)·
+  `pnpm test` 전 패키지 통과(core maxwait 13 + cli commands 4 신규 포함, 총 core 519 / cli 238).
+  실제 빌드된 CLI e2e로 far-out(2h)+`--max-wait 1h`→미큐잉·within(10m)→큐잉·`--max-wait bogus`→exit1·
+  `AGENTRELAY_MAX_WAIT=30m` env 폴백→미큐잉 검증.
+- **다음 할 일:** 스케줄러 resume-시점 재감지에도 max-wait 존중(선택) 또는 config-file 영속 계층
+  배선(type/sampleConfig/parseConfig/validateConfig/configToEnv/CONFIG_ENV_KEYS) 후속 검토. 남은
+  distinct 열린 PR 통합 계속(#211 health·#209 tools·#168 backoff 등). README/ARCHITECTURE(🧭 코워크).

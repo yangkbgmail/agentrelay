@@ -162,6 +162,56 @@ describe("runCommand", () => {
     expect(result.queuedJob?.project).toBe(dir.split("/").filter(Boolean).pop());
     expect(result.queuedJob?.project?.trim()).not.toBe("");
   });
+
+  it("skips queuing when the reset is beyond --max-wait", async () => {
+    const stdout = new PassThrough();
+    let printed = "";
+    stdout.on("data", (c) => (printed += c.toString()));
+    // Message resolves to now + 2h; a 1h cap means the reset is beyond it.
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 2h.')"],
+      storePath,
+      cwd: dir,
+      maxWaitMs: 60 * 60 * 1000,
+      now: () => Date.now(),
+      stdout,
+      stderr: new PassThrough(),
+    });
+    expect(result.skippedForMaxWait).toBe(true);
+    expect(result.queuedJob).toBeNull();
+    expect(listStatus(storePath)).toHaveLength(0);
+    expect(printed).toContain("beyond the configured max wait");
+  });
+
+  it("still queues when the reset is within --max-wait", async () => {
+    // Message resolves to now + 10m; a 1h cap comfortably covers it.
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      maxWaitMs: 60 * 60 * 1000,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    expect(result.skippedForMaxWait).toBeUndefined();
+    expect(result.queuedJob).not.toBeNull();
+    expect(result.queuedJob?.status).toBe("waiting_for_reset");
+    expect(listStatus(storePath)).toHaveLength(1);
+  });
+
+  it("does not skip when max-wait is null (no cap) even for a far-out reset", async () => {
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 2d.')"],
+      storePath,
+      cwd: dir,
+      maxWaitMs: null,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    expect(result.skippedForMaxWait).toBeUndefined();
+    expect(result.queuedJob).not.toBeNull();
+    expect(listStatus(storePath)).toHaveLength(1);
+  });
 });
 
 describe("cancelJob / retryJob", () => {
