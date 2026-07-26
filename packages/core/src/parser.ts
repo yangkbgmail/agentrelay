@@ -43,6 +43,26 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Rate-limit reset headers/fields where an ISO timestamp follows a *colon*
+    // rather than the word "at", e.g. the Anthropic API's response headers that
+    // agent CLIs proxying the API dump verbatim on a 429:
+    //   `anthropic-ratelimit-requests-reset: 2026-07-13T05:00:00Z`
+    //   `anthropic-ratelimit-tokens-reset: 2026-07-13T05:00:00Z`
+    // as well as the JSON field form `"reset": "2026-07-13T05:00:00Z"`. The
+    // `iso-timestamp` pattern above requires the literal "reset at", so these
+    // colon-separated forms slipped through and left the limit un-queued. The
+    // optional `["\s]*` before the colon absorbs a closing JSON quote (`reset":`)
+    // and the optional `"?` after it absorbs a JSON opening quote around the
+    // value. Kept before `clock-time`, which needs "reset at" and can't match a
+    // colon-separated header anyway, so the two stay disjoint.
+    name: "ratelimit-reset-header",
+    regex: /reset[s]?["\s]*:\s*"?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/i,
+    resolve: (m) => {
+      const d = new Date(m[1]);
+      return Number.isNaN(d.getTime()) ? null : d;
+    },
+  },
+  {
     // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
     name: "clock-time",
     regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
@@ -136,7 +156,8 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|try again|resets?\s+(at|in)|resets?["\s]*:\s*"?\d{4}-\d{2}|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);

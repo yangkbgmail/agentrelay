@@ -1489,3 +1489,19 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+## 세션 45 (2026-07-26) — 파서: rate-limit 리셋 헤더/필드(`...-reset: <ISO>`) 인식
+- **상황:** BACKLOG의 열린 👷 항목이 사실상 소진(남은 것은 공유 QA/데모와 🧭 코워크 소유 문서·리서치뿐).
+  CLAUDE.md 지침대로 격리도 높은 새 개선 항목을 발굴 — 핵심 가치인 파서에서 실사용 갭 하나를 메움.
+- **한 일:** **파서에 `ratelimit-reset-header` 패턴 추가.** Anthropic API의 rate-limit 리셋은
+  `anthropic-ratelimit-requests-reset: 2026-07-13T05:00:00Z`처럼 `reset` 뒤에 `at`이 아니라 **콜론**이
+  오는데, 기존 `iso-timestamp`(리터럴 `reset at` 요구)가 이를 놓쳐 에이전트 CLI가 429에서 응답 헤더를
+  콘솔에 덤프해도 잡이 큐잉되지 않았다. 새 순수 패턴 `reset[s]?["\s]*:\s*"?(<ISO>)`가 헤더 형식과 JSON
+  필드(`"reset":"<ISO>"`) 양쪽을 커버(닫는/여는 따옴표 흡수). `iso-timestamp` 뒤·`clock-time` 앞에 배치해
+  세 패턴 disjoint 유지, 사전필터에 `resets?["\s]*:\s*"?\d{4}-\d{2}` 추가해 "ratelimit" 문맥 없는 순수
+  JSON도 통과. 새 CLI 코드 0줄 — 기존 `parse` 커맨드가 자동 노출.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린·`pnpm ci:lint`(Biome) 0경고·`pnpm test` 전
+  패키지 통과(parser 회귀 7케이스 신규 → parser 39테스트). 실제 빌드된 CLI `parse "anthropic-ratelimit-
+  requests-reset: 2026-07-13T05:00:00Z"`로 `ratelimit-reset-header` 매치 e2e 확인.
+- **다음 할 일:** 남은 열린 PR 통합(#125 --no-color·#168 backoff 등) 또는 파서 추가 실사용 포맷 발굴.
+  README/ARCHITECTURE(🧭 코워크).

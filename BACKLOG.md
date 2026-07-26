@@ -575,6 +575,18 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: rate-limit 리셋 **헤더/필드** 형식(`anthropic-ratelimit-*-reset: <ISO>`) 인식 —
+      에이전트 CLI가 Anthropic API를 프록시하다 429에서 응답 헤더를 콘솔에 덤프하는 실사용 갭.
+      (완료 — Anthropic API의 rate-limit 리셋은 `anthropic-ratelimit-requests-reset: 2026-07-13T05:00:00Z`
+      처럼 `reset` 뒤에 `at`이 아니라 **콜론**이 오는데, 기존 `iso-timestamp` 패턴은 리터럴 `reset at`을
+      요구해 이 콜론 구분 형식을 전부 놓쳐 잡이 큐잉되지 않았다. `parser.ts`에 순수 `ratelimit-reset-header`
+      패턴 추가 — `reset[s]?["\s]*:\s*"?(<ISO>)`로 헤더(`...-reset: <ISO>`)와 JSON 필드(`"reset":"<ISO>"`)
+      양쪽을 커버(닫는/여는 따옴표 흡수). `iso-timestamp`(reset at) 뒤·`clock-time`(reset at :MM) 앞에
+      배치해 세 패턴이 서로 disjoint. 사전필터(`LOOKS_LIKE_RATE_LIMIT`)에 `resets?["\s]*:\s*"?\d{4}-\d{2}`를
+      더해 "ratelimit" 문맥 없는 순수 JSON `"reset":"<ISO>"`도 통과. 타임존 오프셋·malformed ISO
+      fallthrough·`reset at <ISO>`는 iso-timestamp 우선 유지도 검증. 새 CLI 코드 0줄 — 기존 `parse` 커맨드가
+      자동 노출. parser.test +7 회귀. branch `claude/wizardly-pascal-q311f8`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

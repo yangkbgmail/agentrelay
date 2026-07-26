@@ -249,4 +249,52 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("relative-duration");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
   });
+
+  it("parses the Anthropic rate-limit reset header (colon-separated ISO, no 'at')", () => {
+    // Agent CLIs proxying the Anthropic API often dump the response headers on a
+    // 429. The reset header uses a colon, not "reset at", so the iso-timestamp
+    // pattern misses it.
+    const result = parseRateLimitMessage("anthropic-ratelimit-requests-reset: 2026-07-13T05:00:00Z");
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses the tokens-reset header inside a noisy dumped header block", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const noisy = [
+      "API Error 429: rate_limit_error",
+      "anthropic-ratelimit-tokens-limit: 40000",
+      "anthropic-ratelimit-tokens-reset: 2026-07-13T06:30:00Z",
+      "retry-after: 5000",
+    ].join("\n");
+    const result = parseRateLimitMessage(noisy, { now });
+    // The reset header appears before retry-after and both are valid; the
+    // reset-header pattern is ordered ahead of http-retry-after.
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe("2026-07-13T06:30:00.000Z");
+  });
+
+  it("parses a JSON reset field with quotes around the value", () => {
+    const result = parseRateLimitMessage('{"error":"rate_limit","reset":"2026-07-13T05:00:00Z"}');
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses a reset header with a timezone offset", () => {
+    const result = parseRateLimitMessage("x-ratelimit-reset: 2026-07-13T05:00:00+09:00");
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe("2026-07-12T20:00:00.000Z");
+  });
+
+  it("does not treat 'reset at <ISO>' as the header form (iso-timestamp wins)", () => {
+    // "reset at" (word, not colon) must stay on the iso-timestamp pattern.
+    const result = parseRateLimitMessage("Usage limit; resets at 2026-07-13T05:00:00Z.");
+    expect(result?.pattern).toBe("iso-timestamp");
+  });
+
+  it("falls through a reset header whose ISO value is malformed", () => {
+    const result = parseRateLimitMessage("anthropic-ratelimit-requests-reset: 2026-99-99T99:99:99Z");
+    expect(result).toBeNull();
+  });
 });
