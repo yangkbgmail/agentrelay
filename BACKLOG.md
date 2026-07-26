@@ -575,6 +575,15 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 명시적 "tomorrow" 시각 인식 (`reset at 9am tomorrow` / `resets tomorrow at 9am`) —
+      일간/주간 창에서 그 시각이 아직 안 지났을 때 잡을 하루 일찍 재개시키던 버그 수정.
+      (완료 — `parser.ts`에 "tomorrow" 전용 패턴 2개를 clock 패턴보다 먼저 배치: `clock-time-tomorrow`
+      (시각→tomorrow)·`tomorrow-clock-time`(tomorrow→시각, lazy 갭은 한 절 내로 한정). 공용
+      `resolveTomorrowClock`(now+1일 벽시계 고정)·`normalizeClockHour`(12/24h 검증) 헬퍼 공유, 분·
+      meridiem 둘 다 없는 bare-hour는 null 거부(기존 clock 가드 일치). pre-filter에 `\btomorrow\b`
+      추가. "tomorrow" 없으면 기존 clock 패턴 그대로 우선(회귀 0). parser.test +7 회귀, 빌드 CLI
+      `parse` e2e 확인. branch `claude/wizardly-pascal-taxkev`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

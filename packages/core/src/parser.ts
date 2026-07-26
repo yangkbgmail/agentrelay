@@ -32,6 +32,45 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/**
+ * Turns a captured 12-/24-hour clock into a local hour, or null if the parts
+ * don't form a valid wall-clock time. When a meridiem (am/pm) is present the
+ * hour must be 1–12; without one it's a 24-hour value (0–23).
+ */
+function normalizeClockHour(hourStr: string, meridiem: string | undefined): number | null {
+  let hour = parseInt(hourStr, 10);
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return null; // "13pm" etc. is not a 12-hour clock
+    const mer = meridiem.toLowerCase();
+    if (mer === "pm" && hour < 12) hour += 12;
+    if (mer === "am" && hour === 12) hour = 0;
+  } else if (hour > 23) {
+    return null;
+  }
+  return hour;
+}
+
+/**
+ * Shared resolver for the two "tomorrow" clock patterns. Both capture the same
+ * groups (hour, optional minute, optional meridiem); the only difference is the
+ * word order in the source text. A bare hour with neither minutes nor meridiem
+ * (e.g. "tomorrow at 5") is too ambiguous, so we bail. The reset is pinned to
+ * *tomorrow's* wall clock relative to `now` — that's the whole point: the
+ * plain clock-time patterns would (wrongly) schedule the same time today when
+ * the stated hour hasn't passed yet.
+ */
+function resolveTomorrowClock(m: RegExpMatchArray, now: Date): Date | null {
+  if (m[2] === undefined && m[3] === undefined) return null;
+  const minute = m[2] !== undefined ? parseInt(m[2], 10) : 0;
+  if (minute > 59) return null;
+  const hour = normalizeClockHour(m[1], m[3]);
+  if (hour === null) return null;
+  const candidate = new Date(now);
+  candidate.setDate(candidate.getDate() + 1);
+  candidate.setHours(hour, minute, 0, 0);
+  return candidate;
+}
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
@@ -41,6 +80,26 @@ const PATTERNS: RateLimitPattern[] = [
       const d = new Date(m[1]);
       return Number.isNaN(d.getTime()) ? null : d;
     },
+  },
+  {
+    // "resets at 9am tomorrow" / "reset at 15:00 tomorrow" — an explicit clock
+    // time qualified by "tomorrow" *after* it. Daily/weekly usage windows print
+    // this, and the plain clock-time patterns below would schedule it *today*
+    // when the hour hasn't passed yet (a full day too early). Placed before the
+    // clock-time patterns so the "tomorrow" qualifier wins. A bare hour with no
+    // minutes and no meridiem is rejected (see resolveTomorrowClock).
+    name: "clock-time-tomorrow",
+    regex: /reset[s]?\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+tomorrow\b/i,
+    resolve: resolveTomorrowClock,
+  },
+  {
+    // "resets tomorrow at 9am" / "resets tomorrow morning at 6:30am" — the same
+    // idea with "tomorrow" *before* the clock time. The lazy gap allows a few
+    // words ("tomorrow morning at …") but is bounded to a single clause (stops
+    // at a period or newline) so it can't reach across unrelated sentences.
+    name: "tomorrow-clock-time",
+    regex: /tomorrow\b[^.\r\n]*?\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i,
+    resolve: resolveTomorrowClock,
   },
   {
     // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
@@ -136,7 +195,7 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after|\btomorrow\b)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);

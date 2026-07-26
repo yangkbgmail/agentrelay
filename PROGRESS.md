@@ -1489,3 +1489,24 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서: 명시적 "tomorrow" 시각 인식(일간/주간 창 하루-일찍 버그 수정)] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-taxkev`)
+- **배경:** 순수 👷 BACKLOG 항목이 소진되어 CLAUDE.md 지침대로 새 개선 항목을 스스로 발굴.
+  파서를 점검하다 실사용 정확성 갭 발견 — Claude Code가 일간/주간 한도에서 출력하는
+  `"...reset at 9am tomorrow."` / `"resets tomorrow at 9am"` 같은 명시적 "tomorrow" 문구를
+  기존 `clock-time`/`clock-time-meridiem` 패턴이 **오늘**로 해석해(그 시각이 아직 안 지났으면)
+  잡을 하루 일찍 재개시키는 버그가 있었다.
+- **한 일:** `@agentrelay/core/parser.ts`에 "tomorrow" 전용 패턴 2개를 clock 패턴들보다 **먼저**
+  배치. `clock-time-tomorrow`(시각→"tomorrow": `reset at 9am tomorrow`/`reset at 15:00 tomorrow`),
+  `tomorrow-clock-time`(tomorrow→시각: `resets tomorrow at 9am`/`resets tomorrow morning at 6:30am`,
+  lazy 갭은 마침표·개행에서 멈춰 한 절 내로 한정). 공용 `resolveTomorrowClock`(now+1일의 벽시계로
+  고정)·`normalizeClockHour`(12/24h 검증, meridiem이면 1–12·아니면 0–23) 헬퍼로 두 패턴 공유,
+  분·meridiem 둘 다 없는 모호한 bare-hour(`tomorrow at 5`)는 null로 거부(기존 clock 가드와 일치).
+  pre-filter(`LOOKS_LIKE_RATE_LIMIT`)에 `\btomorrow\b` 추가해 "usage limit" 등 문맥 없이도 트립.
+  기존 clock 패턴은 "tomorrow" 없으면 그대로 우선(회귀 없음).
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린·`pnpm ci:lint`(Biome) 0경고·`pnpm test`
+  전 패키지 통과(parser 회귀 7케이스 신규: 시각→tomorrow/tomorrow→시각/24h/갭 단어/meridiem+tomorrow/
+  bare-hour 거부/tomorrow 없을 때 기존 패턴 우선). 실제 빌드 CLI `parse "…reset at 9am tomorrow."`로
+  `clock-time-tomorrow` 매치·다음날 해석 e2e 확인. 관련 BACKLOG: 무한 개선 백로그(SPEC §8) 신규 발굴 항목.
+- **다음 할 일:** 남은 열린 PR 통합/중복 수렴 계속. 파서 실사용 문구 추가 발굴(예: 명시적 요일
+  `resets Monday at 9am`, `in about an hour` 등). README/ARCHITECTURE(🧭 코워크).
