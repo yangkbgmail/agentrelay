@@ -9,6 +9,8 @@ import type {
   JobCsvColumn,
   JobScope,
   JobStatus,
+  ManCommand,
+  ManPageSpec,
   RelayJob,
 } from "@agentrelay/core";
 import {
@@ -21,6 +23,7 @@ import {
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
   generateCompletion,
+  generateManPage,
   groupStats,
   IMPORT_FORMATS,
   inferImportFormat,
@@ -290,6 +293,75 @@ export function buildCompletionSpec(program: Command): CompletionSpec {
     return entry;
   });
   return { program: program.name(), options: collectFlags(program), commands };
+}
+
+/**
+ * Format a commander command's positional arguments into a usage tail, e.g.
+ * `<command...>` or `[path]`, mirroring commander's own help rendering so the
+ * man page synopsis matches `--help`.
+ */
+function commandArgs(cmd: Command): string {
+  // `registeredArguments` is the public field in commander v12; each Argument
+  // knows its name, whether it's required, and whether it's variadic.
+  const args = (cmd as unknown as { registeredArguments?: { name(): string; required: boolean; variadic: boolean }[] })
+    .registeredArguments;
+  if (!args || args.length === 0) return "";
+  return args
+    .map((a) => {
+      const inner = a.name() + (a.variadic ? "..." : "");
+      return a.required ? `<${inner}>` : `[${inner}]`;
+    })
+    .join(" ");
+}
+
+/** Collect a command's non-hidden options as {flags, description} pairs for the man page. */
+function collectManOptions(cmd: Command): { flags: string; description: string }[] {
+  return cmd.options
+    .filter((opt) => !opt.hidden)
+    .map((opt) => ({ flags: opt.flags, description: opt.description ?? "" }));
+}
+
+/** Turn a live commander command into a {@link ManCommand} node (one level of nesting). */
+function toManCommand(cmd: Command): ManCommand {
+  return {
+    name: cmd.name(),
+    args: commandArgs(cmd),
+    description: cmd.description() ?? "",
+    options: collectManOptions(cmd),
+    subcommands: cmd.commands.map((sub) => ({
+      name: sub.name(),
+      args: commandArgs(sub),
+      description: sub.description() ?? "",
+      options: collectManOptions(sub),
+      subcommands: [],
+    })),
+  };
+}
+
+/**
+ * Derive a man-page spec from the live commander program, so the generated
+ * `man agentrelay` page always matches the real command surface (descriptions,
+ * flags, arguments) with no hand-kept troff to rot. The `.TH` date is passed in
+ * by the caller so the spec-building itself stays clock-free where possible.
+ */
+export function buildManPageSpec(program: Command, date: string): ManPageSpec {
+  return {
+    program: program.name(),
+    section: 1,
+    version: program.version() ?? "0.0.0",
+    description: program.description() ?? "",
+    date,
+    manual: "User Commands",
+    options: collectManOptions(program),
+    commands: program.commands.map(toManCommand),
+    files: [
+      { path: defaultStorePath(), description: "The job store (queue state, created on first run)." },
+      {
+        path: "./agentrelay.config.json or ~/.agentrelay/config.json",
+        description: "Optional config file providing defaults (env/CLI values win).",
+      },
+    ],
+  };
 }
 
 /**
@@ -1467,6 +1539,24 @@ export function buildCli(): Command {
         );
       }
       console.log(`${verb} ${pruned.length} job(s). ${remaining} remain.`);
+    });
+
+  program
+    .command("man")
+    .description("Print a man page (section 1, troff) for agentrelay, derived from the live command surface")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # view it now\n" +
+        "  agentrelay man | man -l -\n" +
+        "  # install it for `man agentrelay` (path varies by OS)\n" +
+        "  agentrelay man > /usr/local/share/man/man1/agentrelay.1"
+    )
+    .action(() => {
+      // Date is the only clock read; the pure generator takes it as input.
+      const date = new Date().toISOString().slice(0, 10);
+      const spec = buildManPageSpec(program, date);
+      process.stdout.write(generateManPage(spec));
     });
 
   program

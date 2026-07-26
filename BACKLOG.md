@@ -575,6 +575,22 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay man` — 실제 커맨더 프로그램에서 파생하는 man 페이지(section 1, troff) 생성.
+      `completion`이 셸 탭 완성을 주듯, 배포/패키징(Homebrew·Debian·Arch)이 기대하는 `man agentrelay`
+      페이지를 손으로 troff를 쓰지 않고 얻는 수단. 커맨드/플래그가 바뀌면 손 유지 troff가 즉시 썩는 문제를
+      라이브 파생으로 해결.
+      (완료 — `@agentrelay/core/manpage.ts` 신설(순수·파일시스템/커맨더/시계 미접촉, `completion.ts`와 동일
+      아키텍처): `generateManPage(spec)`가 `ManPageSpec`(program·section·version·description·date·
+      manual·global options·commands·files)로 완결형 groff/troff man 페이지를 렌더. `escapeTroff`
+      (백슬래시 `\e` 이중화 + 하이픈 `\-` man 관례) + 줄 선두 제어문자(`.`/`'`) `\&` 가드. 섹션 구성:
+      NAME·SYNOPSIS·DESCRIPTION·GLOBAL OPTIONS(`.TP` 볼드 플래그)·COMMANDS(명령별 `.SS` 서브섹션 +
+      볼드 synopsis + 옵션, 서브커맨드는 `.RS`/`.RE` 들여쓰기 블록)·FILES(스토어·설정 경로). `.TH`
+      날짜는 순수성 위해 인자로 주입(시계 미접촉). CLI `cli.ts`에 `buildManPageSpec(program, date)`
+      (라이브 커맨더에서 description·flags·arguments 파생 — `registeredArguments`로 `<arg...>`/`[arg]`
+      usage 조립, `defaultStorePath()`로 FILES) + `agentrelay man` 커맨드(유일 시계 읽기=오늘 날짜를
+      순수 생성기에 전달). core manpage 16 + cli buildManPageSpec 6 신규 테스트, 실제 빌드 CLI e2e로
+      `man` 출력의 `.TH`/25개 `.SS`/`.RS`↔`.RE` 균형/FILES 검증. branch `claude/wizardly-pascal-9jrlav`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
