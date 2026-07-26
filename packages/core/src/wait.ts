@@ -57,3 +57,52 @@ export function evaluateWait(job: RelayJob | null): { done: boolean; outcome?: W
   if (isTerminalStatus(job.status)) return { done: true, outcome: job.status as WaitOutcome };
   return { done: false };
 }
+
+/**
+ * The settled make-up of a batch of jobs being waited on together (for
+ * `agentrelay wait --all`). `pending` counts jobs not yet terminal; the wait is
+ * over when it reaches 0. The three terminal tallies feed {@link waitBatchOutcome}.
+ * `total` is however many jobs are present in the snapshot (target jobs that
+ * vanished from the store — pruned mid-wait — simply drop out of the array and
+ * so are not counted anywhere, which lets `pending` still reach 0).
+ */
+export interface WaitBatchState {
+  total: number;
+  pending: number;
+  completed: number;
+  failed: number;
+  cancelled: number;
+}
+
+/**
+ * Decide, from a snapshot of the jobs in the wait set, whether they have all
+ * settled. `done` is true once none are still pending (which includes the empty
+ * set — nothing to wait for is trivially done). Pure: the caller re-reads the
+ * store and supplies the current snapshot; this only tallies it.
+ */
+export function evaluateWaitBatch(jobs: RelayJob[]): { done: boolean; state: WaitBatchState } {
+  const state: WaitBatchState = { total: jobs.length, pending: 0, completed: 0, failed: 0, cancelled: 0 };
+  for (const job of jobs) {
+    if (!isTerminalStatus(job.status)) {
+      state.pending++;
+      continue;
+    }
+    if (job.status === "completed") state.completed++;
+    else if (job.status === "failed") state.failed++;
+    else if (job.status === "cancelled") state.cancelled++;
+  }
+  return { done: state.pending === 0, state };
+}
+
+/**
+ * Aggregate outcome for a settled batch, so `wait --all` yields one exit code
+ * over many jobs. Failure dominates (any failed → `failed`), then cancellation
+ * (any cancelled → `cancelled`), otherwise `completed` — which also covers the
+ * empty set (nothing to wait for is a success). Never `missing`: a job leaving
+ * the store just shrinks the set. Map with {@link waitExitCode} as usual.
+ */
+export function waitBatchOutcome(state: WaitBatchState): Exclude<WaitOutcome, "missing"> {
+  if (state.failed > 0) return "failed";
+  if (state.cancelled > 0) return "cancelled";
+  return "completed";
+}

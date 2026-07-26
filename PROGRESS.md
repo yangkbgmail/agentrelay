@@ -1489,3 +1489,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 기능 `agentrelay wait --all`(배치 대기)] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-wxjdn8`)
+- **배경:** 명시된 👷 BACKLOG 항목이 전부 완료 상태이고 열린 PR 30개가 이미 광범위한 기능을
+  커버(tail·색상·man·타임존 파서·X-RateLimit-Reset·resume buffer·upcoming·health·tools·when·
+  reschedule·notify throttle·max concurrent 등). CLAUDE.md "무한 개선 백로그를 계속 소진, 비면
+  스스로 발굴" 지침에 따라 어느 열린 PR과도 겹치지 않는 distinct 신규 항목을 발굴 — 세션 40의
+  단일 `wait <id>`를 여러 잡에 확장한 **`wait --all`**(CI에서 "릴레이 큐가 다 빠질 때까지 기다렸다
+  배포"). bulk cancel/retry(세션 31)와 대칭이 되는 자연스러운 배치 대기 원시함수.
+- **한 일:** `agentrelay wait --all [스코프]` 구현.
+  - core `wait.ts`: 순수 `evaluateWaitBatch(jobs)`→`{done, state}`(state=total·pending·completed·
+    failed·cancelled) + `waitBatchOutcome(state)`(실패>취소>완료 우선순위, 빈 집합=완료). 단일 wait와
+    exit code(0/1/2/124) 공유.
+  - cli `commands.ts` `waitForJobs(options)`: 대상 id 집합을 시작 시 1회 해소(대기 중 신규 enqueue는
+    대기 미연장), 매 폴링 스토어 재읽기로 현존 대상만 재집계(pruned은 집합에서 제외→종료 가능),
+    scope 필터는 core `scopeJobs` 재사용, now/sleep/readAll 주입 가능.
+  - cli `wait.ts` `renderWaitBatchJson`(배치 state + 활성 scope 에코). `wait` 커맨드 `<id>` optional화 +
+    `--all` + 공용 스코프 플래그(`--status`/`--tool`/`--project`/`--since`/`--until`), id와 --all은
+    정확히 하나만(둘 다/둘 다 아님은 exit 1), scope 검증은 기존 buildScope 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린, `pnpm ci:lint`(Biome) 0경고, `pnpm test`
+  전 패키지 통과(core wait +8[batch], cli commands +8[waitForJobs] 신규 포함 — core 514·cli 243·
+  dashboard 7). 실제 빌드 CLI e2e: `wait --all`(mixed→failed·exit 1)·`--all --project web`(→completed·
+  exit 0·--json)·`--all -s completed`·`id + --all` 에러·인자 없음 에러·bad status 에러·단일 `wait <id>`
+  회귀 모두 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합/수렴 계속(#229 색상·#224 verify·#217 resume buffer 등).
+  README/ARCHITECTURE(🧭 코워크). `wait --all`의 진행률 라이브 출력(--watch류)은 후속 개선 후보.

@@ -24,6 +24,7 @@ import {
   unsetConfigFile,
   validateConfigFile,
   waitForJob,
+  waitForJobs,
 } from "../src/commands.js";
 import { isConfigDiagnosticInvocation, renderEffectiveConfig, resolveProjectName } from "../src/config.js";
 
@@ -998,5 +999,149 @@ describe("waitForJob", () => {
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
     expect(result.message).toMatch(/no job matches/);
+  });
+});
+
+describe("waitForJobs", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-waitall-cli-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function seed(
+    project: string,
+    status: "queued" | "completed" | "failed" | "cancelled" = "queued",
+    tool: "claude-code" | "codex" = "claude-code"
+  ): string {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project, tool, command: ["claude"], cwd: dir });
+    if (status === "completed") queue.markCompleted(job.id, "done");
+    else if (status === "failed") queue.markFailed(job.id, "boom");
+    else if (status === "cancelled") queue.markCancelled(job.id);
+    queue.close();
+    return job.id;
+  }
+
+  it("returns immediately when every job is already terminal (exit 0)", async () => {
+    seed("a", "completed");
+    seed("b", "completed");
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await waitForJobs({ storePath, sleep });
+    expect(result.outcome).toBe("completed");
+    expect(result.exitCode).toBe(0);
+    expect(result.state).toMatchObject({ total: 2, pending: 0, completed: 2 });
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("an empty store is a trivial success", async () => {
+    const result = await waitForJobs({ storePath, sleep: vi.fn() });
+    expect(result.outcome).toBe("completed");
+    expect(result.exitCode).toBe(0);
+    expect(result.state.total).toBe(0);
+    expect(result.message).toMatch(/nothing to wait for/);
+  });
+
+  it("aggregates to the worst outcome (a failure yields exit 1)", async () => {
+    seed("a", "completed");
+    seed("b", "failed");
+    seed("c", "cancelled");
+    const result = await waitForJobs({ storePath, sleep: vi.fn() });
+    expect(result.outcome).toBe("failed");
+    expect(result.exitCode).toBe(1);
+    expect(result.state).toMatchObject({ completed: 1, failed: 1, cancelled: 1 });
+  });
+
+  it("only waits on the scoped subset", async () => {
+    seed("keep", "queued", "claude-code");
+    seed("other", "failed", "codex");
+    // Scope to project "other" only: the queued "keep" job is ignored, so the
+    // wait settles immediately on the already-failed codex job.
+    const result = await waitForJobs({
+      storePath,
+      sleep: vi.fn(),
+      scope: { projects: ["other"] },
+    });
+    expect(result.outcome).toBe("failed");
+    expect(result.state.total).toBe(1);
+  });
+
+  it("polls until the last pending job settles", async () => {
+    const doneId = seed("a", "completed");
+    const pendingId = seed("b", "queued");
+    // Injected store reader: pending twice, then both terminal.
+    const q = new RelayQueue(storePath);
+    const done = q.getById(doneId) as RelayJob;
+    const pending = q.getById(pendingId) as RelayJob;
+    q.close();
+    const frames: RelayJob[][] = [
+      [done, pending], // consumed resolving the target id set
+      [done, pending], // poll 1 → pending, sleep
+      [done, pending], // poll 2 → pending, sleep
+      [done, { ...pending, status: "completed" }], // poll 3 → done
+    ];
+    let i = 0;
+    const readAll = () => frames[Math.min(i++, frames.length - 1)];
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await waitForJobs({ storePath, readAll, sleep, now: () => 0 });
+    expect(result.outcome).toBe("completed");
+    expect(result.state).toMatchObject({ total: 2, completed: 2, pending: 0 });
+    // First readAll resolves the target set, then two pending polls sleep before
+    // the terminal read.
+    expect(sleep).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not extend the wait for jobs enqueued after it starts", async () => {
+    const first = seed("a", "queued");
+    const q = new RelayQueue(storePath);
+    const pending = q.getById(first) as RelayJob;
+    q.close();
+    // Target set is resolved from the first read (only `first`). A newcomer that
+    // shows up later is not in the set, so `first` completing ends the wait.
+    const newcomer: RelayJob = { ...pending, id: "newcomer", status: "queued" };
+    const frames: RelayJob[][] = [[pending], [{ ...pending, status: "completed" }, newcomer]];
+    let i = 0;
+    const readAll = () => frames[Math.min(i++, frames.length - 1)];
+    const result = await waitForJobs({ storePath, readAll, sleep: vi.fn(), now: () => 0 });
+    expect(result.outcome).toBe("completed");
+    expect(result.state.total).toBe(1);
+  });
+
+  it("times out while a job is still pending (exit 124)", async () => {
+    seed("a", "completed");
+    seed("b", "queued");
+    let clock = 0;
+    const now = () => clock;
+    const sleep = vi.fn().mockImplementation(async (ms: number) => {
+      clock += ms;
+    });
+    const result = await waitForJobs({ storePath, intervalMs: 1000, timeoutMs: 2500, now, sleep });
+    expect(result.outcome).toBe("timeout");
+    expect(result.exitCode).toBe(124);
+    expect(result.state.pending).toBe(1);
+    expect(result.message).toMatch(/timed out/);
+  });
+
+  it("treats a target job vanishing mid-wait as resolved (still drains)", async () => {
+    const doneId = seed("a", "completed");
+    const goneId = seed("b", "queued");
+    const q = new RelayQueue(storePath);
+    const done = q.getById(doneId) as RelayJob;
+    const gone = q.getById(goneId) as RelayJob;
+    q.close();
+    // Second poll: the pending target is gone (pruned) → not present → not
+    // pending → the batch is done.
+    const frames: RelayJob[][] = [[done, gone], [done]];
+    let i = 0;
+    const readAll = () => frames[Math.min(i++, frames.length - 1)];
+    const result = await waitForJobs({ storePath, readAll, sleep: vi.fn(), now: () => 0 });
+    expect(result.outcome).toBe("completed");
+    expect(result.state.total).toBe(1);
   });
 });

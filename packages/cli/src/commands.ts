@@ -41,6 +41,7 @@ import {
   type EffectiveConfigEntry,
   type ExportFormat,
   evaluateWait,
+  evaluateWaitBatch,
   exportJobs,
   findConfigField,
   hasConfigErrors,
@@ -80,7 +81,9 @@ import {
   summarizeImportPlan,
   unsetConfigValue,
   validateConfig,
+  type WaitBatchState,
   type WaitOutcome,
+  waitBatchOutcome,
   waitExitCode,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
@@ -1405,6 +1408,118 @@ export async function waitForJob(idOrPrefix: string, options: WaitJobOptions = {
       };
     }
     if (job) options.onPoll?.(job, elapsed);
+    await sleep(intervalMs);
+  }
+}
+
+export interface WaitJobsOptions {
+  storePath?: string;
+  /** How often to re-read the store while polling, in ms. Default 2000. */
+  intervalMs?: number;
+  /** Give up after this many ms of waiting. `null`/omitted = wait forever. */
+  timeoutMs?: number | null;
+  /**
+   * Scope filter (status/tool/project/time window) selecting which jobs to wait
+   * on. Applied via core `scopeJobs`; `null`/inactive means every job.
+   */
+  scope?: JobScope | null;
+  /** Injected clock (ms since epoch). Defaults to `Date.now`. */
+  now?: () => number;
+  /** Injected sleeper. Defaults to a `setTimeout`-based delay. */
+  sleep?: (ms: number) => Promise<void>;
+  /**
+   * Injected reader of the full store. Defaults to opening the store fresh on
+   * each poll so a *separate* daemon/tick process's writes are observed.
+   */
+  readAll?: () => RelayJob[];
+  /** Called once per poll with the current batch state (for progress output). */
+  onPoll?: (state: WaitBatchState, elapsedMs: number) => void;
+}
+
+export interface WaitJobsResult {
+  /** Always `true`; batch wait has no "id not found" failure mode. */
+  ok: boolean;
+  /** `completed`/`failed`/`cancelled` once settled, or `timeout`. */
+  outcome: WaitOutcome;
+  /** The last batch snapshot seen. */
+  state: WaitBatchState;
+  /** Human-readable line for the CLI to print. */
+  message: string;
+  exitCode: number;
+}
+
+function waitBatchMessage(outcome: WaitOutcome, state: WaitBatchState): string {
+  const tally = `${state.completed} completed, ${state.failed} failed, ${state.cancelled} cancelled`;
+  switch (outcome) {
+    case "timeout":
+      return `timed out with ${state.pending} job(s) still pending (${tally})`;
+    case "completed":
+      if (state.total === 0) return "no jobs matched — nothing to wait for";
+      return `all ${state.total} job(s) finished: ${tally}`;
+    default:
+      // failed / cancelled: the aggregate outcome, with the full breakdown.
+      return `all ${state.total} job(s) finished with ${outcome} present: ${tally}`;
+  }
+}
+
+/**
+ * Block until every job in the (optionally scoped) wait set reaches a terminal
+ * state, then return one aggregate outcome + exit code — the batch analogue of
+ * {@link waitForJob}, for "wait until my whole relay queue drains" in CI. The
+ * target job ids are resolved once at the start (so jobs enqueued mid-wait don't
+ * extend it, matching single `wait`'s resolve-once behavior); each poll re-reads
+ * the store and re-tallies only those ids that are still present. Pure decision
+ * logic lives in core's {@link evaluateWaitBatch}/{@link waitBatchOutcome}; this
+ * owns only the I/O loop, with the clock/sleeper/reader injectable for tests.
+ */
+export async function waitForJobs(options: WaitJobsOptions = {}): Promise<WaitJobsResult> {
+  const storePath = options.storePath ?? defaultStorePath();
+  const intervalMs = options.intervalMs ?? 2000;
+  const timeoutMs = options.timeoutMs ?? null;
+  const scope = options.scope ?? null;
+  const now = options.now ?? (() => Date.now());
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  const readAll =
+    options.readAll ??
+    ((): RelayJob[] => {
+      const q = openQueue(storePath);
+      try {
+        return q.listAll();
+      } finally {
+        q.close();
+      }
+    });
+
+  const applyScope = (jobs: RelayJob[]): RelayJob[] =>
+    scope && isJobScopeActive(scope) ? scopeJobs(jobs, scope) : jobs;
+
+  // Resolve the target id set once, so jobs enqueued after the wait starts don't
+  // keep extending it. An empty set is a trivial success (nothing to wait for).
+  const targetIds = new Set(applyScope(readAll()).map((job) => job.id));
+
+  const start = now();
+  // First check is immediate so an already-settled set returns without a sleep.
+  // The deadline is checked before each sleep so `--timeout` isn't overshot by
+  // more than one interval.
+  while (true) {
+    const present = readAll().filter((job) => targetIds.has(job.id));
+    const { done, state } = evaluateWaitBatch(present);
+    if (done) {
+      const outcome = waitBatchOutcome(state);
+      return { ok: true, outcome, state, message: waitBatchMessage(outcome, state), exitCode: waitExitCode(outcome) };
+    }
+    const elapsed = now() - start;
+    if (timeoutMs !== null && elapsed >= timeoutMs) {
+      return {
+        ok: true,
+        outcome: "timeout",
+        state,
+        message: waitBatchMessage("timeout", state),
+        exitCode: waitExitCode("timeout"),
+      };
+    }
+    options.onPoll?.(state, elapsed);
     await sleep(intervalMs);
   }
 }

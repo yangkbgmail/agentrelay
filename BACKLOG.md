@@ -575,6 +575,23 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay wait --all` — 여러 잡(스코프 필터 가능)이 모두 종료 상태에 도달할 때까지
+      블록 후 집계 exit code 반환("릴레이 큐가 다 빠질 때까지 기다렸다 배포"). 세션 40의
+      단일 `wait <id>`의 배치 버전.
+      (완료 — `@agentrelay/core/wait.ts`에 순수 `evaluateWaitBatch(jobs)`→`{done, state}` +
+      `WaitBatchState`(total·pending·completed·failed·cancelled) + `waitBatchOutcome(state)`
+      (실패 우선 → 취소 → 완료, 빈 집합은 완료=성공) 추가. 단일 wait와 exit code 공유(0/1/2/124).
+      CLI `commands.ts` `waitForJobs(options)` — 대상 잡 id 집합을 **시작 시 1회 해소**(대기 중
+      enqueue된 신규 잡이 대기를 연장하지 않게, 단일 wait의 resolve-once 관례 일치), 매 폴링마다
+      스토어 재읽기로 현존 대상만 재집계(사라진 잡=pruned은 집합에서 빠져 대기 종료 가능), scope
+      필터는 core `scopeJobs` 재사용, now/sleep/readAll 주입 가능. CLI `wait.ts` `renderWaitBatchJson`
+      (배치 state + 활성 scope 에코). `wait` 커맨드의 `<id>`를 optional로 바꾸고 `--all` +
+      공용 스코프 플래그(`--status`/`--tool`/`--project`/`--since`/`--until`) 배선 — id와 --all은
+      정확히 하나만(둘 다/둘 다 아님은 exit 1). 새 core 직렬화 0줄, scope 검증은 기존 buildScope
+      재사용. core wait +8 / cli commands +8 신규 테스트, 실제 빌드 CLI e2e로 mixed→failed(exit 1)·
+      project 스코프→completed(exit 0)·id+--all 에러·bad status 에러·단일 wait 회귀 검증.
+      branch `claude/wizardly-pascal-wxjdn8`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
