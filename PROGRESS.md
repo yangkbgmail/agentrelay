@@ -1489,3 +1489,26 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — `agentrelay man`: 라이브 파생 man 페이지(troff) 생성] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-9jrlav`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태이고 열린 PR이 96개까지 적체(다수 중복: 파서 reset-at
+  계열·config get·stats --by-hour·재개 stagger·verify·upcoming/agenda 등)된 상황. 신규 기능을 더하되
+  **어느 열린 PR과도 겹치지 않는 distinct 항목**을 골라 중복 더미를 키우지 않기로 판단. 96개 PR 제목을
+  전수 확인해 man 페이지 생성은 아무도 제안하지 않은 진짜 갭임을 확인. `completion`(셸 탭 완성)과 동일한
+  가치·아키텍처(라이브 커맨더 파생 순수 렌더러)라 자연스러운 짝이고, Homebrew/Debian/Arch 패키징이
+  기대하는 `man agentrelay` 산출물을 손 troff 없이 얻게 함.
+- **한 일:** `agentrelay man` — section 1 troff man 페이지를 실제 커맨더 프로그램에서 파생해 출력.
+  - core `@agentrelay/core/manpage.ts` 신설(순수·파일시스템/커맨더/시계 미접촉): `generateManPage(spec)`가
+    `ManPageSpec`으로 완결형 groff man 페이지 렌더. `escapeTroff`(백슬래시 `\e` 이중화 + 하이픈 `\-` 관례)·
+    줄 선두 제어문자(`.`/`'`) `\&` 가드. NAME·SYNOPSIS·DESCRIPTION·GLOBAL OPTIONS(`.TP`)·COMMANDS
+    (명령별 `.SS` + 볼드 synopsis + 옵션, 서브커맨드는 `.RS`/`.RE` 들여쓰기)·FILES(스토어·설정 경로).
+    `.TH` 날짜는 순수성 위해 인자 주입.
+  - CLI `cli.ts`에 `buildManPageSpec(program, date)`(description·flags·`registeredArguments` 파생으로
+    usage 조립 + `defaultStorePath()` FILES) + `man` 커맨드(유일 시계 읽기=오늘 날짜를 순수 생성기에 전달).
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome, import 정렬 포함 87파일
+  0에러)·`pnpm test` 전 패키지 통과(core manpage 16 + cli buildManPageSpec 6 신규 = 총 core 522 / cli 242).
+  실제 빌드된 CLI(`node packages/cli/dist/bin.js man`) e2e로 `.TH AGENTRELAY 1`·25개 `.SS` 서브섹션·
+  `.RS`↔`.RE` 6:6 균형·FILES 섹션 출력 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
+  중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
+  README/ARCHITECTURE(🧭 코워크).
