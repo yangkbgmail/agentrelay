@@ -236,6 +236,67 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  it("parses a weekday reset with a time: 'resets Monday at 9am'", () => {
+    const now = new Date("2026-07-15T12:00:00Z"); // a Wednesday
+    const result = parseRateLimitMessage("Your weekly limit resets Monday at 9am.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("weekday-reset");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(1); // Monday, local
+    expect(reset.getHours()).toBe(9);
+    expect(reset.getMinutes()).toBe(0);
+    expect(reset.getTime()).toBeGreaterThan(now.getTime());
+    // Always the *next* occurrence -> within a week.
+    expect(reset.getTime() - now.getTime()).toBeLessThanOrEqual(7 * 24 * 60 * 60_000);
+  });
+
+  it("parses a weekday reset with no time as midnight of that day", () => {
+    const now = new Date("2026-07-15T12:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Try again Tuesday.", { now });
+    expect(result?.pattern).toBe("weekday-reset");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(2); // Tuesday
+    expect(reset.getHours()).toBe(0);
+    expect(reset.getMinutes()).toBe(0);
+    expect(reset.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("accepts weekday abbreviations and 'on'/'next' fillers", () => {
+    const now = new Date("2026-07-15T12:00:00Z");
+    const fri = parseRateLimitMessage("rate limit; available again on Fri at 14:30", { now });
+    expect(fri?.pattern).toBe("weekday-reset");
+    const friDate = new Date(fri!.resetAt);
+    expect(friDate.getDay()).toBe(5);
+    expect(friDate.getHours()).toBe(14);
+    expect(friDate.getMinutes()).toBe(30);
+
+    const thurs = parseRateLimitMessage("usage limit — resets next thurs", { now });
+    expect(thurs?.pattern).toBe("weekday-reset");
+    expect(new Date(thurs!.resetAt).getDay()).toBe(4);
+  });
+
+  it("rolls a weekday reset to next week when the target weekday+time is already past", () => {
+    const now = new Date("2026-07-15T12:00:00Z"); // Wednesday
+    // Wednesday is *today*; a Wednesday midnight is already behind us -> +7 days.
+    const result = parseRateLimitMessage("usage limit resets Wednesday", { now });
+    expect(result?.pattern).toBe("weekday-reset");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(3);
+    expect(reset.getTime()).toBeGreaterThan(now.getTime());
+    expect(reset.getTime() - now.getTime()).toBeGreaterThan(6 * 24 * 60 * 60_000);
+  });
+
+  it("does not treat a bare weekday without a reset verb as a rate limit", () => {
+    expect(parseRateLimitMessage("The meeting is on Monday.")).toBeNull();
+    expect(parseRateLimitMessage("See you Tuesday!")).toBeNull();
+  });
+
+  it("still prefers an explicit clock time over the weekday pattern for 'resets at ...'", () => {
+    const now = new Date("2026-07-15T12:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 5pm.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [

@@ -1489,3 +1489,23 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서: 요일(weekday) 기반 리셋 인식] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-gv2yum`)
+- **맥락:** 지정 브랜치의 이전 PR(#206, `agentrelay paths`)이 main(4abefa1)에 병합 완료됨을 확인 →
+  지침대로 브랜치를 최신 origin/main에서 새로 시작. BACKLOG의 👷 항목이 사실상 전부 [x]라 CLAUDE.md
+  "비면 스스로 새 개선 항목 발굴" 지침에 따라 신규 항목 발굴.
+- **한 일:** 파서에 **요일 기반 리셋 인식**(`weekday-reset` 패턴) 추가. 주간 사용량 창은 시각이
+  아니라 요일로 리셋을 알리는데(예: "resets Monday at 9am", "try again Tuesday",
+  "available again on Fri at 14:30"), 기존 iso/clock-time/relative/HTTP 패턴이 이를 못 잡던 실사용 갭.
+  - 구현: `parser.ts`에 순수 `weekday-reset` 패턴 — 리셋 동사(`reset(s)`/`try again`/`available again`)
+    + 선택적 `on`/`next` + 요일(풀네임·`mon`~`sun`·`tues`/`thurs` 약어) + 선택적 시각(12/24시간,
+    분·meridiem 선택). 그 요일의 *다음* 발생으로 해소(시각 없으면 00:00, 오늘이 그 요일이나 시각 지났으면
+    +7일). 시각은 로컬로 읽고 메시지의 명시 타임존은 무시(clock-time과 동일 한계). bare 요일은 리셋 동사가
+    없으면 무매칭. 사전필터(`LOOKS_LIKE_RATE_LIMIT`)를 요일 리셋·`available again`까지 확장.
+  - 새 CLI 코드 0줄 — 기존 `agentrelay parse`가 자동 노출. 패턴명은 provenance에서 동적 파생이라
+    `patterns` 커맨드도 자동 반영.
+- **검증:** `pnpm build` 클린, `pnpm test` 전 패키지 통과(core parser.test 33→39, 총 512 통과 / cli 235 /
+  dashboard 7). 실제 빌드된 CLI e2e: `parse "…resets Monday at 9am"` → 2026-07-27(월) 09:00,
+  `parse "…Try again Tuesday"` → 2026-07-28(화) 00:00로 정확히 해소 확인.
+- **다음 할 일:** 요일+명시 타임존 처리(현재 로컬 해석 한계) 개선 여지 / 실사용 rate-limit 메시지 샘플
+  추가 수집(🧭). README/ARCHITECTURE(🧭 코워크).

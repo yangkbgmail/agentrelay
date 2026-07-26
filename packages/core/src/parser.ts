@@ -86,6 +86,54 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Weekday reset, the wording weekly usage windows use, e.g.
+    //   "Your weekly limit resets Monday at 9am."
+    //   "try again Tuesday"  /  "available again on Fri at 14:30"
+    // Resolves to the *next* occurrence of that weekday. An optional time-of-day
+    // (12- or 24-hour, minutes/meridiem optional) sets the clock; with no time we
+    // assume midnight (00:00) at the start of that day. Full names and the common
+    // abbreviations (incl. "tues"/"thurs") are accepted; a required reset verb in
+    // front keeps a bare weekday elsewhere in the output from matching. Like the
+    // clock-time patterns, the hour is read in local time — a named timezone in the
+    // message is ignored (rolling forward when already past keeps the instant
+    // future, the same known limitation).
+    name: "weekday-reset",
+    regex:
+      /(?:reset[s]?|try again|available again)\s+(?:on\s+|next\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tues|tue|wed|thurs|thur|thu|fri|sat)\b(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/i,
+    resolve: (m, now) => {
+      const WEEKDAY_INDEX: Record<string, number> = {
+        sun: 0,
+        mon: 1,
+        tue: 2,
+        wed: 3,
+        thu: 4,
+        fri: 5,
+        sat: 6,
+      };
+      const targetDow = WEEKDAY_INDEX[m[1].toLowerCase().slice(0, 3)];
+      if (targetDow === undefined) return null;
+
+      let hour = m[2] ? parseInt(m[2], 10) : 0;
+      const minute = m[3] ? parseInt(m[3], 10) : 0;
+      const meridiem = m[4]?.toLowerCase();
+      if (meridiem) {
+        if (hour > 12) return null; // "13pm" is not a valid 12-hour clock time
+        if (meridiem === "pm" && hour < 12) hour += 12;
+        if (meridiem === "am" && hour === 12) hour = 0;
+      } else if (hour > 23 || minute > 59) {
+        return null;
+      }
+
+      const candidate = new Date(now);
+      candidate.setHours(hour, minute, 0, 0);
+      const dayDiff = (targetDow - candidate.getDay() + 7) % 7;
+      candidate.setDate(candidate.getDate() + dayDiff);
+      // Same weekday but the time already passed today -> next week's occurrence.
+      if (candidate.getTime() <= now.getTime()) candidate.setDate(candidate.getDate() + 7);
+      return candidate;
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
@@ -136,7 +184,8 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|try again|available again|resets?\s+(at|in|(?:on\s+|next\s+)?(?:sun|mon|tue|wed|thu|fri|sat))|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);

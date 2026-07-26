@@ -575,6 +575,20 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 요일(weekday) 기반 리셋 인식 — "resets Monday at 9am" / "try again Tuesday" /
+      "available again on Fri at 14:30". 주간(weekly) 사용량 창은 시각이 아니라 요일로 리셋 시점을
+      알리는데(예: Claude 주간 한도), 기존 시각/상대시간/HTTP 헤더 패턴은 이를 못 잡던 실사용 갭.
+      (완료 — `parser.ts`에 순수 `weekday-reset` 패턴 추가: 리셋 동사(`reset(s)`/`try again`/
+      `available again`) + 선택적 `on`/`next` + 요일(풀네임 및 `mon`~`sun`, `tues`/`thurs` 약어) +
+      선택적 시각(12/24시간, 분·meridiem 선택). 해당 요일의 *다음* 발생 시각으로 해소 —
+      시각 없으면 그 날 00:00, 오늘이 그 요일이지만 시각이 이미 지났으면 +7일. 시각은 로컬로 읽고
+      메시지의 명시 타임존은 무시(clock-time 패턴과 동일한 알려진 한계, 미래 인스턴트 보장은 롤포워드로).
+      리셋 동사가 앞에 없는 bare 요일("meeting on Monday")은 매칭 안 함. 사전필터를
+      요일 리셋·`available again`까지 확장. parser.test +6(시각 있음/없음=자정/약어+필러/롤포워드/
+      bare 요일 무매칭/`resets at`은 여전히 clock-time 우선). 새 CLI 코드 0줄 — 기존 `parse` 커맨드가
+      자동 노출, 실제 빌드 CLI e2e로 `parse`가 월/화 요일을 정확히 해소함을 확인.
+      branch `claude/wizardly-pascal-gv2yum`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
