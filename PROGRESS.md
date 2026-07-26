@@ -1489,3 +1489,37 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 기능: 재개 안전 버퍼(resume safety buffer)] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-fv8745`)
+- **배경:** 지정 브랜치의 직전 PR이 머지되어 origin에서 삭제된 상태 → 최신 main(4abefa1)에서 브랜치를
+  새로 시작. 👷 명시 BACKLOG 항목은 모두 완료, 열린 PR 80여 개는 대부분 이미 제안된 기능(파서 reset-at
+  계열·config get·stats 히스토그램·stagger·upcoming/report/verify 등)이라 중복 회피. CLAUDE.md 지침
+  ("백로그 비면 스스로 새 개선 항목 발굴")에 따라, 열린 PR 어디에도 없는 **재개 안전 버퍼**를 발굴·구현.
+- **문제:** 스케줄러는 파싱한 rate-limit `resetAt`이 지나는 즉시 잡을 재개하는데(`listDue`가
+  `resetAt <= now`), provider가 리셋 시각을 낙관적으로 반올림하거나 로컬 시계가 앞서 있으면 리셋
+  '직후' 재개가 곧바로 한도에 다시 걸린다. 그러면 attempt 하나가 통째로 낭비되고, `maxAttempts`가
+  유한하면 몇 초만 더 기다렸으면 될 잡이 `failed`로 떨어질 수 있다.
+- **한 일:** 리셋 시각에 더하는 **고정 안전 마진**을 추가. stagger(동일 리셋창 허드 분산)·
+  `run --max-wait`(대기 상한)과 축이 다른 별개 개념(리셋 뒤에 더하는 하한 지연).
+  1. 순수 core `packages/core/src/resume.ts` 신설: `DEFAULT_RESUME_BUFFER_MS`(0=하위호환 완전 동일) +
+     `resumeBufferMsFromEnv`(`AGENTRELAY_RESUME_BUFFER`를 기존 `parseDuration`으로 파싱, 미설정·빈값·
+     파싱불가·음수는 0으로 폴백 → 오타가 대기를 절대 *줄이지* 못함, 최악의 경우 버퍼만 꺼짐).
+  2. `RelayQueue.listDue(referenceTime, bufferMs=0)`: `resetAt + buffer <= now`일 때만 due. 저장된
+     `resetAt`은 절대 변경 안 함(show/next/대시보드는 계속 provider가 보고한 진짜 리셋 시각 표시) —
+     버퍼는 순수 비교에만 존재. 비양수 buffer는 기존 "리셋 지나면 즉시 due"와 완전 동일.
+  3. `RelayScheduler`에 `resumeBufferMs` 옵션 추가 → `tick`이 `listDue(referenceTime, resumeBufferMs)`로
+     전달. 기본 0이라 미설정 시 동작 불변.
+  4. config 전 계층 배선: 새 `resume` 그룹(`resume.buffer` duration) — `AgentRelayConfig.resume`·
+     `sampleConfig`(`0s` 안전 기본)·`CONFIG_FIELDS`·`parseConfig`·`validateConfig`(파싱불가 duration은
+     error)·`configToEnv`(→`AGENTRELAY_RESUME_BUFFER`)·`CONFIG_ENV_KEYS`(드리프트 sync 테스트 통과)·
+     `ConfigGroup` 타입 + CLI `renderEffectiveConfig`의 `GROUP_LABELS`/`GROUP_ORDER`.
+  5. CLI `commands.ts` daemon/tick이 `resumeBufferMsFromEnv()`로 스케줄러 배선, 데몬 배너에
+     "(resume buffer Ns)" 표기(버퍼>0일 때만).
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0 경고·`pnpm test`
+  전 패키지 통과(core 517[+21]·cli 235/1skip·dashboard 7). 신규 테스트: core resume 7 + queue
+  listDue-buffer 1(경계 포함·비양수 무버퍼) + scheduler buffer 1(버퍼 안에선 미재개→경과 후 완료) +
+  config 3(configToEnv 매핑·validate bad/good duration). 실제 빌드된 CLI e2e(mock 아님):
+  `config set resume.buffer 30s`→파일 기록, `config show`→[config-file] 출처, `config validate`
+  bad duration→exit 1, `AGENTRELAY_RESUME_BUFFER=45s daemon`→배너 "(resume buffer 45s)".
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속. 파서 실사용 포맷(named IANA tz 실제 변환·weekday
+  창)은 코워크 리서치(🧭)와 조율. README/ARCHITECTURE(🧭 코워크).

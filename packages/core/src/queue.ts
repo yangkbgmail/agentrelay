@@ -410,12 +410,25 @@ export class RelayQueue {
     return summarizeImportPlan(plan);
   }
 
-  /** Jobs whose reset time has already passed and are ready to be resumed now. */
-  listDue(referenceTime: Date = new Date()): RelayJob[] {
+  /**
+   * Jobs whose reset time has already passed and are ready to be resumed now.
+   *
+   * `bufferMs` (default 0) is a safety margin added *after* each job's stored
+   * `resetAt`: a job counts as due only once `resetAt + bufferMs <= now`. This
+   * lets the scheduler wait a little past an optimistic/clock-skewed reset so it
+   * doesn't resume a hair too early and instantly re-hit the limit. The stored
+   * `resetAt` is never modified — the buffer lives entirely in this comparison —
+   * so displays keep showing the truthful provider-reported reset. A
+   * non-positive `bufferMs` reproduces the original "due the instant reset
+   * passes" behavior exactly.
+   */
+  listDue(referenceTime: Date = new Date(), bufferMs = 0): RelayJob[] {
     this.load();
     const ref = referenceTime.getTime();
+    const buffer = bufferMs > 0 ? bufferMs : 0;
     return Array.from(this.jobs.values()).filter(
-      (job) => job.status === "waiting_for_reset" && job.resetAt !== null && new Date(job.resetAt).getTime() <= ref
+      (job) =>
+        job.status === "waiting_for_reset" && job.resetAt !== null && new Date(job.resetAt).getTime() + buffer <= ref
     );
   }
 }

@@ -111,6 +111,34 @@ describe("RelayScheduler", () => {
     expect(results).toHaveLength(0);
   });
 
+  it("holds a due job back until reset + resumeBufferMs, then resumes it", async () => {
+    const base = new Date("2026-07-13T00:00:00Z");
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    // Reset time is exactly `base`; the scheduler carries a 10s safety buffer.
+    queue.markWaitingForReset(job.id, base.toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({ "claude -p continue": "All done." }),
+      resumeBufferMs: 10_000,
+    });
+
+    // 5s past the reset: still inside the buffer → nothing resumed.
+    const early = await scheduler.tick(new Date(base.getTime() + 5_000));
+    expect(early).toHaveLength(0);
+    expect(queue.getById(job.id)?.status).toBe("waiting_for_reset");
+
+    // 10s past the reset: buffer elapsed → the job resumes and completes.
+    const late = await scheduler.tick(new Date(base.getTime() + 10_000));
+    expect(late).toHaveLength(1);
+    expect(late[0].status).toBe("completed");
+  });
+
   function dueJob() {
     const job = queue.enqueue({
       project: "demo",

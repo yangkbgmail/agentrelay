@@ -575,6 +575,24 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 재개 안전 버퍼(`AGENTRELAY_RESUME_BUFFER` / `resume.buffer`) — 파싱한 rate-limit 리셋
+      시각에 고정 안전 마진을 더해, 낙관적 리셋 시각·로컬 시계 스큐 때문에 리셋 직후 재개했다가
+      곧바로 한도에 다시 걸려 시도(attempt)를 낭비하는 실사용 footgun 완화. stagger(허드 분산)·
+      run --max-wait(상한)과 구별되는 별개 축(리셋 뒤에 더하는 하한 지연).
+      (완료 — 순수 core `@agentrelay/core/resume.ts` 신설: `DEFAULT_RESUME_BUFFER_MS`(0=하위호환) +
+      `resumeBufferMsFromEnv`(기존 `parseDuration` 재사용, 미설정·빈값·파싱불가·음수는 0으로 폴백 →
+      오타가 대기를 절대 *줄이지* 못함, 최악의 경우 버퍼만 꺼짐). `RelayQueue.listDue(referenceTime,
+      bufferMs=0)`가 `resetAt + buffer <= now`일 때만 due 판정 — 저장된 `resetAt`은 불변(show/next/
+      대시보드는 계속 provider가 보고한 진짜 리셋 시각 표시), 버퍼는 순수 비교에만 존재, 비양수는
+      기존 "리셋 지나면 즉시 due"와 완전 동일. `RelayScheduler`에 `resumeBufferMs` 옵션 → tick이
+      `listDue`에 전달. config 전 계층 배선: 새 `resume` 그룹(`resume.buffer` duration) — type·
+      sampleConfig(`0s` 안전 기본)·CONFIG_FIELDS·parseConfig·validateConfig(파싱불가 duration은 error)·
+      configToEnv·CONFIG_ENV_KEYS(드리프트 sync 테스트 통과) + CLI `renderEffectiveConfig` GROUP_LABELS/
+      ORDER. CLI daemon/tick이 `resumeBufferMsFromEnv`로 스케줄러 배선, 데몬 배너에 "(resume buffer Ns)".
+      core resume 7 + queue listDue-buffer 1 + scheduler buffer 1 + config 3 신규 테스트, 실제 빌드 CLI
+      e2e로 config show/set/validate 라운드트립·bad duration exit 1·데몬 배너 검증. branch
+      `claude/wizardly-pascal-fv8745`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

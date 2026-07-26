@@ -34,6 +34,7 @@ describe("configToEnv", () => {
       store: "/tmp/jobs.json",
       notify: { slackWebhook: "https://slack", webhookUrl: "https://hook", webhookAuth: "Bearer x" },
       retry: { maxAttempts: 3, baseDelayMs: 1000, factor: 3, maxDelayMs: 9000 },
+      resume: { buffer: "30s" },
       autoPrune: { enabled: true, after: "3d", keep: 20, every: "1h", everyTicks: 50 },
     };
     expect(configToEnv(config)).toEqual({
@@ -45,6 +46,7 @@ describe("configToEnv", () => {
       AGENTRELAY_RETRY_BASE_MS: "1000",
       AGENTRELAY_RETRY_FACTOR: "3",
       AGENTRELAY_RETRY_MAX_MS: "9000",
+      AGENTRELAY_RESUME_BUFFER: "30s",
       AGENTRELAY_AUTOPRUNE: "1",
       AGENTRELAY_AUTOPRUNE_AFTER: "3d",
       AGENTRELAY_AUTOPRUNE_KEEP: "20",
@@ -153,6 +155,7 @@ describe("sampleConfig", () => {
     expect(sample.store).toBeDefined();
     expect(sample.notify).toBeDefined();
     expect(sample.retry).toBeDefined();
+    expect(sample.resume).toBeDefined();
     expect(sample.autoPrune).toBeDefined();
     // A brand-new user should not accidentally enable destructive auto-prune.
     expect(sample.autoPrune?.enabled).toBe(false);
@@ -210,6 +213,16 @@ describe("validateConfig", () => {
   it("warns when the delay cap is below the base delay", () => {
     const issues = validateConfig({ retry: { baseDelayMs: 1000, maxDelayMs: 500 } });
     expect(issues).toEqual([expect.objectContaining({ level: "warning", path: "retry.maxDelayMs" })]);
+  });
+
+  it("errors on an unparseable resume buffer duration", () => {
+    const issues = validateConfig({ resume: { buffer: "soon" } });
+    expect(issues).toEqual([expect.objectContaining({ level: "error", path: "resume.buffer" })]);
+  });
+
+  it("accepts a valid resume buffer duration (including 0s)", () => {
+    expect(validateConfig({ resume: { buffer: "30s" } })).toEqual([]);
+    expect(validateConfig({ resume: { buffer: "0s" } })).toEqual([]);
   });
 
   it("errors on unparseable auto-prune durations", () => {

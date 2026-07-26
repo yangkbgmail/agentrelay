@@ -24,6 +24,15 @@ export interface SchedulerOptions {
   /** Retry/backoff/max-attempts policy. Defaults to {@link DEFAULT_RETRY_POLICY}. */
   retryPolicy?: RetryPolicy;
   /**
+   * Safety margin (ms) added after a job's parsed reset time before it is
+   * considered due to resume. Guards against optimistic/clock-skewed reset
+   * times that would otherwise make the relay resume a hair too early and
+   * re-hit the limit. Defaults to 0 (resume the instant the reset passes, the
+   * original behavior); the stored `resetAt` is never changed — see
+   * {@link RelayQueue.listDue}.
+   */
+  resumeBufferMs?: number;
+  /**
    * Random source (returning `[0, 1)`) used only to spread backoff delays when
    * `retryPolicy.jitter > 0`. Defaults to {@link Math.random}; inject a fixed
    * function in tests to make jittered delays deterministic. Never consulted
@@ -78,6 +87,7 @@ export class RelayScheduler {
   private notify: Notifier;
   private outputTailLength: number;
   private retryPolicy: RetryPolicy;
+  private resumeBufferMs: number;
   private rng: () => number;
   private autoPrune: PruneOptions | null;
   private autoPruneEveryMs: number;
@@ -95,6 +105,7 @@ export class RelayScheduler {
     this.notify = options.notify ?? (() => {});
     this.outputTailLength = options.outputTailLength ?? 2000;
     this.retryPolicy = options.retryPolicy ?? DEFAULT_RETRY_POLICY;
+    this.resumeBufferMs = options.resumeBufferMs ?? 0;
     this.rng = options.rng ?? Math.random;
     this.autoPrune = options.autoPrune ?? null;
     this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
@@ -117,7 +128,7 @@ export class RelayScheduler {
 
   /** Runs one polling cycle immediately. Exposed for tests and manual `agentrelay tick`. */
   async tick(referenceTime: Date = new Date()): Promise<RelayJob[]> {
-    const due = this.queue.listDue(referenceTime);
+    const due = this.queue.listDue(referenceTime, this.resumeBufferMs);
     const processed: RelayJob[] = [];
     for (const job of due) {
       processed.push(await this.resume(job, referenceTime));

@@ -45,6 +45,26 @@ describe("RelayQueue", () => {
     expect(queue.listDue(new Date(Date.now() + 2000))).toHaveLength(1);
   });
 
+  it("holds a job back until reset + buffer has passed", () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: "/tmp/demo",
+    });
+    const base = Date.now();
+    const resetAt = new Date(base).toISOString();
+    queue.markWaitingForReset(job.id, resetAt);
+
+    // With a 10s buffer, a job whose reset just passed is NOT yet due.
+    expect(queue.listDue(new Date(base + 5_000), 10_000)).toHaveLength(0);
+    // Once now >= reset + buffer, it becomes due (boundary is inclusive).
+    expect(queue.listDue(new Date(base + 10_000), 10_000)).toHaveLength(1);
+    // A non-positive buffer reproduces the original "due the instant reset passes".
+    expect(queue.listDue(new Date(base), 0)).toHaveLength(1);
+    expect(queue.listDue(new Date(base), -5_000)).toHaveLength(1);
+  });
+
   it("initializes lastRateLimit to null on enqueue", () => {
     const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
     expect(job.lastRateLimit).toBeNull();
