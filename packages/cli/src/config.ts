@@ -2,7 +2,7 @@
 // resolves the same store file.
 import type { ConfigGroup, EffectiveConfigEntry } from "@agentrelay/core";
 import { applyConfigToEnv, loadConfigFile } from "@agentrelay/core";
-import type { ConfigShowResult } from "./commands.js";
+import type { ConfigGetResult, ConfigShowResult } from "./commands.js";
 
 export { defaultStorePath } from "@agentrelay/core";
 
@@ -37,7 +37,7 @@ export function configPathFromArgv(argv: string[]): string | undefined {
 }
 
 /** `config` subcommands that must run without the startup {@link bootstrapConfig}. */
-const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "set", "unset"]);
+const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "get", "set", "unset"]);
 
 /**
  * True when argv invokes a `config` subcommand that must run *without* the
@@ -45,10 +45,10 @@ const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "set", "unset"])
  *
  * - `validate` diagnoses a possibly-malformed file; bootstrap throws on one,
  *   which would abort before validate can report the problem.
- * - `show` reports the env > file > default precedence; bootstrap would fold
- *   the config file's values into `process.env` first, making them all look
+ * - `show`/`get` report the env > file > default precedence; bootstrap would
+ *   fold the config file's values into `process.env` first, making them all look
  *   like they came from the environment. Skipping it keeps the layers distinct
- *   (`show` loads the file itself to attribute each value).
+ *   (both load the file themselves to attribute each value).
  * - `set`/`unset` edit the file directly; bootstrap would abort on a malformed
  *   existing file before the command can report its own clear error, and its
  *   env-folding is irrelevant since these commands never read env-driven options.
@@ -178,4 +178,28 @@ export function renderEffectiveConfigJson(
   generatedAt: string = new Date().toISOString()
 ): string {
   return JSON.stringify({ generatedAt, ...result }, null, 2);
+}
+
+/**
+ * Machine-readable snapshot for `config get --json`: the single resolved setting
+ * with its source and originating env var. `value` is null when the built-in
+ * default applies (nothing set in env or file). Unlike the human output, secrets
+ * are echoed in full — the caller asked for exactly this one key by name.
+ */
+export function renderConfigGetJson(result: ConfigGetResult, generatedAt: string = new Date().toISOString()): string {
+  const entry = result.entry;
+  return JSON.stringify(
+    {
+      generatedAt,
+      key: result.key,
+      envKey: entry?.key ?? null,
+      group: entry?.group ?? null,
+      value: entry?.value ?? null,
+      source: entry?.source ?? null,
+      secret: entry?.secret ?? false,
+      path: result.path,
+    },
+    null,
+    2
+  );
 }

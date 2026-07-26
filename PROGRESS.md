@@ -1489,3 +1489,30 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — `agentrelay config get <key>` (스크립트용 단일 설정값 조회)] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-3306at`)
+- **배경:** 세션 시작 시 지정 브랜치를 최신 main(4abefa1)으로 재설정. 열린 PR 30개(#203~#233)를
+  훑어 이미 점유된 항목(tools 인트로스펙션·wait --all·tail·color 제어·man·verify·stats --watch·
+  projects·다수 파서 헤더/타임존·resume buffer·upcoming·run --dry-run·health·completion fish·when·
+  show --watch·Gemini 어댑터·reschedule 등)을 모두 피하고, **어느 열린 PR에도 main에도 없는** 신규
+  개선 항목을 CLAUDE.md 지침대로 발굴했다 — 설정에 `set`/`unset`/`show`는 있는데 대칭인 단일 값 조회
+  `get`만 빠져 있어, `$(agentrelay config get store)`처럼 셸에서 값 하나를 캡처할 수단이 없었다.
+- **한 일:** **`agentrelay config get <key>` — 유효 설정값 하나만 원시 출력.**
+  1. core `config.ts`에 순수 `configKeyToEnvKey(dottedKey)` — 점 표기 키(`retry.maxAttempts`)를
+     `AGENTRELAY_*` env var로 매핑하되, **인덱스 정렬 가정 없이** set→configToEnv 왕복으로 유도해
+     `CONFIG_ENV_KEYS`와 절대 드리프트하지 않음(미지 키는 undefined). `getEffectiveConfigValue(dottedKey,
+     fileConfig, env)`/`EffectiveConfigValue`(dottedKey 부착) — env>파일>기본값 해소, 미지 키 undefined.
+  2. CLI `commands.ts` `getConfigValue`(공용 `showConfig` 재사용 → 깨진 파일에도 non-fatal `loadError`,
+     미지 키는 throw 없이 `known:false`+메시지). `config.ts` `renderConfigGetJson`(key/envKey/group/value/
+     source/secret/path; 기본값이면 value=null) + `BOOTSTRAP_SKIP_SUBCOMMANDS`에 `get` 추가 — bootstrap이
+     파일 값을 process.env로 접어 출처를 [env]로 오표기하는 것 방지(show와 동일 이유).
+  3. CLI `config get <key> [--json] [--source]`: 기본은 원시 값을 stdout에(기본값 적용 시 빈 줄 → 셸 캡처
+     친화), `--source`는 출처를 stderr에, `--json`은 구조화 출력. 시크릿(webhook)은 명시적 단일 조회라
+     마스킹 없이 노출(문서화). 미지 키·깨진 설정 파일은 exit 1.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+  **765개 전부 통과**(core 515 + cli 243 + dashboard 7 — core config get 9 + cli getConfigValue/render 6 +
+  isConfigDiagnosticInvocation get 1 신규). **실제 빌드된 CLI e2e**(mock 아님): 파일값 raw 캡처 →
+  `AGENTRELAY_STORE` env가 파일 이김 → `--source`가 stderr에 "config-file" → 기본값은 빈 stdout →
+  시크릿 webhookUrl raw 노출 → `--json` 구조 → 미지 키 exit 1 → 깨진 `--config`는 env 값 출력+경고+exit 1.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(중복 무리는 하나로 수렴 후 나머지 닫기).
+  README/ARCHITECTURE(🧭 코워크).
