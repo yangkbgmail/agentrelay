@@ -575,6 +575,16 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay calendar` — 대기 잡의 재개 시각(resetAt)을 iCalendar(RFC 5545) `.ics`로
+      내보내 캘린더 앱에 임포트/구독. `next`/`upcoming`의 캘린더 포맷 대응물.
+      (완료 — 순수 core `calendar.ts`: `jobsToICalendar`/`selectCalendarJobs`/`formatICalTimestamp`/
+      `escapeICalText`(§3.3.11)/`foldICalLine`(§3.1 75옥텟, Buffer 없이 UTF-8 옥텟·코드포인트 경계
+      분할). 미래 `resetAt` 잡마다 VEVENT 1개(재개 순서), `--include-past`로 과거 포함, 빈 일정도
+      유효 VCALENDAR 헤더. CLI `calendarStore`(스토어 읽기+선택적 파일 쓰기, exportStore 동형) +
+      `agentrelay calendar [-o/--out] [--include-past] [--name] [스코프필터]`, 공용 `buildScope` 재사용.
+      core 17 신규 테스트, 실제 빌드 CLI e2e로 미래필터·includePast·툴필터·파일출력·CRLF·이스케이프·
+      폴딩·에러 exit 검증. branch `claude/wizardly-pascal-2ii7xt`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
