@@ -41,6 +41,39 @@ describe("readJobsSnapshot", () => {
     expect(snapshot.summary.nextResetAt).toBe("2099-01-01T00:00:00.000Z");
   });
 
+  it("includes relay-effectiveness stats (success rate + retried jobs)", () => {
+    const queue = new RelayQueue(storePath);
+    // One clean success, one job that took two attempts then failed.
+    const ok = queue.enqueue({ project: "p", tool: "generic", command: ["echo", "ok"], cwd: dir });
+    queue.markCompleted(ok.id, "done");
+    const bad = queue.enqueue({ project: "p", tool: "generic", command: ["echo", "bad"], cwd: dir });
+    queue.markResuming(bad.id); // attempt 1
+    queue.markRetryScheduled(bad.id, "2099-01-01T00:00:00.000Z", "transient"); // preserves attempts
+    queue.markResuming(bad.id); // attempt 2
+    queue.markFailed(bad.id, "boom");
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.stats.terminal).toBe(2);
+    // 1 completed / (1 completed + 1 failed) = 0.5
+    expect(snapshot.stats.successRate).toBe(0.5);
+    // The failed job was resumed more than once.
+    expect(snapshot.stats.retriedJobs).toBe(1);
+    expect(snapshot.stats.byStatus.completed).toBe(1);
+    expect(snapshot.stats.byStatus.failed).toBe(1);
+  });
+
+  it("reports an unresolved success rate (null) when nothing has finished", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "p", tool: "generic", command: ["echo"], cwd: dir });
+    queue.markWaitingForReset(job.id, "2099-01-01T00:00:00.000Z");
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.stats.terminal).toBe(0);
+    expect(snapshot.stats.successRate).toBeNull();
+  });
+
   it("survives a corrupt store file instead of crashing the API route", () => {
     writeFileSync(storePath, "{ not json !!", "utf8");
     const snapshot = readJobsSnapshot(storePath);

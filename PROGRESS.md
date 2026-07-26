@@ -1489,3 +1489,26 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 45 — 대시보드 릴레이 효과 패널] (2026-07-26, 무인 자율 세션)
+- **배경:** 명시적 👷 BACKLOG 항목이 전부 완료 상태고, 열린 PR 30여 개가 core/cli 표면(파서·config
+  get 4중복·stats --watch·verify·tools·upcoming·resume 등)을 광범위하게 점유 중이었다. CLAUDE.md
+  지침대로 **어느 열린 PR과도 겹치지 않는** 신규 항목을 찾다가, **열린 PR 중 `apps/dashboard`를
+  건드리는 것이 하나도 없다**는 점에 착안 — 대시보드 개선을 골랐다. (원래 `config get`을 구현했으나
+  검색 결과 #166/#160/#128/#183 4개 중복 PR이 이미 있어 5번째 중복을 피해 폐기하고 방향 전환.)
+- **한 일 (branch `claude/wizardly-pascal-h22usi`):** **대시보드 "릴레이 효과(Relay effectiveness)" 패널.**
+  1. `apps/dashboard/lib/jobs.ts`의 `JobsSnapshot`에 `stats: RelayStats` 추가 — core `computeStats(jobs)`
+     재사용(세션 12/15 인프라). API route가 매 폴링마다 반환하므로 별도 배선 불필요.
+  2. `dashboard-client.tsx`에 순수 `formatSuccessRate`(`80% (4/5)`, 미해결이면 —)·`formatDurationMs`
+     (`4h 12m`/`3d 2h`/`45s`/`<1s`)와 `EffectivenessCard`(성공률·재시도 잡·재개 시도 총합·median 해결
+     시간+p90 부제). terminal 잡 0이면 카드 자체를 숨기고, resolved 0이면 해결시간 블록만 숨김.
+  3. `globals.css`에 `.effectiveness*` 스타일(기존 `--surface`/`--border`/`--ink-*` 토큰 재사용,
+     라이트/다크 자동). 원시 카운트 타일 행 바로 아래 배치.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` 전 패키지 통과(**core 515 + cli 242/1skip + dashboard 9** — dashboard jobs.test에 stats
+  성공률 0.5+retriedJobs 1 / 미해결 null 2케이스 신규). **실제 빌드 대시보드 e2e**(mock 아님):
+  완료 1 + 재시도-실패 1 잡을 임시 스토어에 시드 → `next start` 후 `/api/jobs` curl이 `stats`
+  (total 2·terminal 2·successRate 0.5·retriedJobs 1·totalAttempts 2) 정확히 서빙 확인.
+- **다음 할 일:** config get 중복 클러스터(#166/#160/#128/#183) 등 CI-초록 PR 하나로 수렴 후 나머지
+  닫기 권장. 대시보드에 rate-limit 패턴 분포(`summarizeRateLimitPatterns`) 패널도 후속 후보(👷).
+  README/ARCHITECTURE(🧭 코워크).
