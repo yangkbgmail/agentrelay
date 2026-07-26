@@ -204,6 +204,62 @@ export function renderTrend(trend: DailyActivity[], options: { color?: boolean }
   return lines.join("\n");
 }
 
+/**
+ * Two header lines shared by every live `stats --watch` frame: a bold title
+ * with the refresh interval and a dim timestamp + store path. Pure (the clock
+ * is passed in). Always color=true since watch only runs on a TTY. The trailing
+ * "" element gives a blank line between the header and the body when joined.
+ */
+function statsWatchHeader(storePath: string, intervalMs: number, now: number): string[] {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay stats${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, ""];
+}
+
+/**
+ * One live frame of `stats --watch`: the standard stats block (optionally with
+ * a trend histogram) under a title/timestamp header. Mirrors status.ts's
+ * `renderWatchFrame`. Pure: the caller injects `now`, re-reading the store and
+ * recomputing `stats` each pass so a running daemon's writes show up. The trend
+ * is only appended when the (scoped) store has matching jobs — `renderStats`
+ * already handles the empty/no-match messaging on its own.
+ */
+export function renderStatsWatchFrame(
+  stats: RelayStats,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now(),
+  options: { scopeNote?: string; trend?: DailyActivity[] | null } = {}
+): string {
+  const body = [renderStats(stats, { now, color: true, scopeNote: options.scopeNote })];
+  if (options.trend && stats.total > 0) {
+    body.push("");
+    body.push(renderTrend(options.trend, { color: true }));
+  }
+  return [...statsWatchHeader(storePath, intervalMs, now), body.join("\n")].join("\n");
+}
+
+/**
+ * One live frame of `stats --group-by <dimension> --watch`: the per-group
+ * breakdown under the same title/timestamp header. Pure (clock injected).
+ */
+export function renderGroupedStatsWatchFrame(
+  groups: GroupedStat[],
+  dimension: GroupDimension,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now(),
+  options: { scopeNote?: string } = {}
+): string {
+  return [
+    ...statsWatchHeader(storePath, intervalMs, now),
+    renderGroupedStats(groups, dimension, { color: true, scopeNote: options.scopeNote }),
+  ].join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,

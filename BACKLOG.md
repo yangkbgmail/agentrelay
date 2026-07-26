@@ -575,6 +575,19 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay stats --watch [seconds]` — 통계 요약(성공률·활성/종료 카운트·다음 리셋 카운트다운·
+      해결시간)을 화면 갱신으로 지켜보는 라이브 TUI. `status --watch`와 대칭이며 릴레이가 실제로 대기
+      잡을 재개시키는지 실시간 확인에 유용.
+      (완료 — CLI `stats.ts`에 순수 `renderStatsWatchFrame`(라이브 제목/타임스탬프 헤더 + 표준 stats
+      블록 + 선택적 trend)·`renderGroupedStatsWatchFrame`(`--group-by`용) 신설, status.ts의
+      `renderWatchFrame` 패턴 미러(clock 주입, color=true). `cli.ts`에 `runStatsWatch`(매 tick 스토어
+      재읽기→스코프 재적용→computeStats/groupStats/computeDailyTrend 재계산→화면 clear+재그리기,
+      SIGINT/SIGTERM 정리) + `-w, --watch [seconds]` 배선. 기존 스코프(--status/--tool/--project/--since/
+      --until, 고정 절대 경계)·--group-by·--trend와 조합 가능, 바 --watch=2s·--watch 5=5s, --json은 기계
+      스냅샷이라 watch보다 우선. 새 core 코드 0줄 — 기존 검증된 renderStats/renderGroupedStats/renderTrend
+      재사용. stats.test에 watch 프레임 5케이스 추가, 실제 빌드 CLI e2e로 플레인/group-by/trend 라이브
+      프레임·--json 우선·잘못된 스코프 exit 1 검증. branch `claude/wizardly-pascal-vkcw1e`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

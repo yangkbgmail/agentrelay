@@ -1489,3 +1489,25 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — `agentrelay stats --watch` 라이브 통계 TUI] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-vkcw1e`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). CLAUDE.md
+  "비면 스스로 새 개선 항목을 발굴" 지침대로, `status`에는 있지만 `stats`에는 없던 라이브 갱신 뷰를 발굴해
+  구현. `status --watch`(세션 초기)와 대칭 — 성공률·활성/종료 카운트·다음 리셋 카운트다운·해결시간을
+  화면 갱신으로 지켜보는 것은 릴레이가 실제로 대기 중인 잡을 재개시키는지 실시간 확인에 유용.
+- **한 일:** **`agentrelay stats --watch [seconds]`** 추가. `packages/cli/src/stats.ts`에 순수
+  `renderStatsWatchFrame`(라이브 제목/타임스탬프 헤더 + 표준 stats 블록 + 선택적 trend 히스토그램)·
+  `renderGroupedStatsWatchFrame`(`--group-by`용)를 신설 — status.ts의 `renderWatchFrame` 패턴을 그대로
+  미러(clock 주입, color=true). `cli.ts`에 `runStatsWatch`(매 tick 스토어 재읽기→스코프 재적용→
+  computeStats/groupStats/computeDailyTrend 재계산→화면 clear+재그리기, SIGINT/SIGTERM에 정리) 헬퍼와
+  `-w, --watch [seconds]` 옵션 배선. 기존 `--status`/`--tool`/`--project`/`--since`/`--until`(고정 절대
+  경계)·`--group-by`·`--trend`와 모두 조합 가능. 바 `--watch`=2s, `--watch 5`=5s. `--json`은 기계 판독
+  스냅샷이라 watch보다 우선(라이브 진입 안 함). 새 core 코드 0줄 — 전부 기존 검증된 `renderStats`/
+  `renderGroupedStats`/`renderTrend` 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린·`pnpm ci:lint`(Biome 84파일 0경고)·
+  `pnpm test` 전 패키지 통과(cli 240 passed, stats.test에 watch 프레임 5케이스 신규). 실제 빌드된 CLI로
+  e2e: 플레인/`--group-by tool`/`--trend 3` 라이브 프레임 렌더·`--json` 우선(즉시 valid JSON 반환)·
+  잘못된 `--tool` 스코프→exit 1 확인.
+- **다음 할 일:** 남은 🧭 코워크 문서(README/ARCHITECTURE/ROADMAP)·리서치는 코워크 소관. 👷 신규
+  개선 후보: `show --watch`(단일 잡 라이브 카운트다운)·`metrics --watch`·`errors --watch` 등 라이브 뷰
+  확장, 또는 적체된 distinct 열린 PR 통합 지속.
