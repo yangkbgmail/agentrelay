@@ -575,6 +575,25 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay tools`(별칭 `adapters`) — 이 빌드가 지원하는 에이전트 어댑터(인식 바이너리 +
+      툴별 rate-limit 패턴)를 큐 사용량과 교차 조회하는 인트로스펙션 커맨드. `patterns`가 "어떤
+      rate-limit 메시지 포맷이 실전에서 발화하나"(파서 패턴 빈도)에 답하는 반면, 이 커맨드는 그 어댑터
+      판(版)으로 "AgentRelay가 애초에 어떤 에이전트 툴을 지원하나, 각 툴이 어떤 바이너리/패턴을
+      인식하나, 나는 각 툴을 얼마나 쓰고 있나"에 답한다.
+      (완료 — 순수 core `@agentrelay/core/tools.ts` 신설: `summarizeAdapters(jobs)`가 어댑터 레지스트리
+      `ADAPTERS`와 잡 리스트를 교차 조회해 `AdapterSummary`(total·adapters[]·unknownTools[]) 생성.
+      `AdapterToolStat`은 각 등록 어댑터의 tool·displayName·binaries·patternCount·patternNames를 레지스트리
+      에서 그대로 노출(어댑터 소스를 안 읽어도 능력 파악) + jobs·activeJobs(큐 사용량, ACTIVE_STATUSES
+      재사용). 등록 어댑터는 잡이 0개여도 항상 레지스트리 순서로 나열(지원 툴 표면 상시 노출), 잡이
+      미등록 tool id를 달고 있으면(구버전/신버전 스토어·수기 편집 방어) 드롭 대신 `unknownTools`(count
+      desc·이름 asc)로 집계. binaries/patternNames는 방어적 복사라 반환값이 레지스트리를 앨리어싱하지
+      않음. CLI `packages/cli/src/tools.ts`에 순수 `renderTools`(어댑터별 사용량·바이너리·패턴명 블록 +
+      미등록 tool 블록, color 게이트·scopeNote)·`renderToolsJson`(patterns와 동일 envelope). `agentrelay
+      tools`(별칭 `adapters`) + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용, --json.
+      새 파서/어댑터 로직 0줄 — 기존 레지스트리만 읽음. core 6 + cli 5 신규 테스트, 실제 빌드 CLI e2e로
+      사용량 카운트·active 부분집합·codex 툴별 패턴·스코프 필터·--json·별칭 검증. branch
+      `claude/wizardly-pascal-tools`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

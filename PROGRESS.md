@@ -1489,3 +1489,22 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — `agentrelay tools`(별칭 `adapters`) 신규 어댑터 인트로스펙션 커맨드] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-tools`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태. 최근 세션들은 신규 기능보다 열린 PR 통합에 집중했으나,
+  이번엔 어느 열린 PR과도 겹치지 않는 격리도 높은 **신규 진단 기능**을 발굴해 구현. 기존에 `patterns`
+  (rate-limit 파서 패턴 빈도)·`doctor`(바이너리 PATH 검사)는 있었지만, "이 빌드가 애초에 어떤 에이전트
+  어댑터를 지원하고, 각 어댑터가 어떤 바이너리·툴별 패턴을 인식하며, 내 큐가 각 툴을 얼마나 쓰나"를
+  한눈에 보는 인트로스펙션 표면이 없었다.
+- **한 일:** **`agentrelay tools`(별칭 `adapters`) 신규 커맨드 구현.** 순수 core `tools.ts`의
+  `summarizeAdapters(jobs)`가 어댑터 레지스트리(`ADAPTERS`)와 잡 리스트를 교차 조회 → `AdapterSummary`
+  (등록 어댑터별 tool·displayName·binaries·patternCount·patternNames + jobs·activeJobs 사용량, 미등록
+  tool id는 `unknownTools`로 방어 집계). 등록 어댑터는 잡 0개여도 항상 레지스트리 순서로 나열(지원 툴
+  표면 상시 노출), binaries/patternNames는 방어적 복사. CLI `tools.ts`의 `renderTools`/`renderToolsJson`
+  + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용. 새 파서/어댑터 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린, `pnpm ci:lint`(Biome) 통과, `pnpm test`
+  전 패키지 통과(core `summarizeAdapters` 6 + cli `renderTools`/`renderToolsJson` 5 신규 포함, 총 core
+  512 / cli 240). 실제 빌드된 CLI e2e로 `tools`(사용량 카운트·active 부분집합·codex 툴별 패턴 노출)·
+  `adapters --json`(별칭·envelope)·`--tool` 스코프 필터 검증.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속. 추가 인트로스펙션 후보(예: `agentrelay tools --json`을
+  대시보드에 노출, 어댑터별 성공률 교차) 발굴. README/ARCHITECTURE(🧭 코워크).
