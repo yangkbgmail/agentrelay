@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectNextResume } from "../src/next.js";
+import { selectNextResume, selectUpcomingResumes } from "../src/next.js";
 import type { RelayJob } from "../src/types.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
@@ -100,5 +100,81 @@ describe("selectNextResume", () => {
       NOW
     );
     expect(byId?.job.id).toBe("alpha");
+  });
+});
+
+describe("selectUpcomingResumes", () => {
+  it("returns an empty timeline with zero counts for an empty queue", () => {
+    const result = selectUpcomingResumes([], { now: NOW });
+    expect(result.entries).toEqual([]);
+    expect(result.totalWaiting).toBe(0);
+    expect(result.dueNow).toBe(0);
+  });
+
+  it("includes only waiting jobs with a parseable resetAt, in resume order", () => {
+    const result = selectUpcomingResumes(
+      [
+        job({ id: "c", resetAt: at(3 * 3600_000) }),
+        job({ id: "a", resetAt: at(1 * 3600_000) }),
+        job({ id: "b", resetAt: at(2 * 3600_000) }),
+        job({ id: "done", status: "completed", resetAt: at(30 * 60_000) }),
+        job({ id: "active", status: "resuming", resetAt: at(30 * 60_000) }),
+        job({ id: "null", resetAt: null }),
+        job({ id: "bad", resetAt: "not-a-date" }),
+      ],
+      { now: NOW }
+    );
+    expect(result.entries.map((e) => e.job.id)).toEqual(["a", "b", "c"]);
+    expect(result.totalWaiting).toBe(3);
+    expect(result.dueNow).toBe(0);
+  });
+
+  it("shares the tie-break ordering with selectNextResume (first entry === next)", () => {
+    const jobs = [
+      job({ id: "younger", resetAt: at(60 * 60_000), createdAt: at(-100) }),
+      job({ id: "older", resetAt: at(60 * 60_000), createdAt: at(-9999) }),
+      job({ id: "later", resetAt: at(90 * 60_000) }),
+    ];
+    const upcoming = selectUpcomingResumes(jobs, { now: NOW });
+    expect(upcoming.entries[0].job.id).toBe(selectNextResume(jobs, NOW)?.job.id);
+    expect(upcoming.entries.map((e) => e.job.id)).toEqual(["older", "younger", "later"]);
+  });
+
+  it("computes per-row dueInMs/due and counts jobs already due", () => {
+    const result = selectUpcomingResumes(
+      [
+        job({ id: "overdue", resetAt: at(-5 * 60_000) }),
+        job({ id: "exactly-now", resetAt: at(0) }),
+        job({ id: "soon", resetAt: at(30 * 60_000) }),
+      ],
+      { now: NOW }
+    );
+    expect(result.dueNow).toBe(2);
+    // Ordered by reset time: overdue (-5m) then exactly-now (0) then soon (+30m).
+    expect(result.entries.map((e) => e.due)).toEqual([true, true, false]);
+    expect(result.entries[0].dueInMs).toBe(-5 * 60_000);
+    expect(result.entries[2].dueInMs).toBe(30 * 60_000);
+  });
+
+  it("truncates entries to limit while counts still reflect the full waiting set", () => {
+    const jobs = [
+      job({ id: "a", resetAt: at(1 * 3600_000) }),
+      job({ id: "b", resetAt: at(-60_000) }),
+      job({ id: "c", resetAt: at(2 * 3600_000) }),
+      job({ id: "d", resetAt: at(3 * 3600_000) }),
+    ];
+    const result = selectUpcomingResumes(jobs, { now: NOW, limit: 2 });
+    // b is due (-1m) so it sorts first, then a, c, d — limited to the first 2.
+    expect(result.entries.map((e) => e.job.id)).toEqual(["b", "a"]);
+    expect(result.totalWaiting).toBe(4);
+    expect(result.dueNow).toBe(1);
+  });
+
+  it("treats a non-positive limit as show-nothing without losing the counts", () => {
+    const jobs = [job({ id: "a", resetAt: at(-60_000) }), job({ id: "b", resetAt: at(60 * 60_000) })];
+    const result = selectUpcomingResumes(jobs, { now: NOW, limit: 0 });
+    expect(result.entries).toEqual([]);
+    expect(result.totalWaiting).toBe(2);
+    expect(result.dueNow).toBe(1);
   });
 });

@@ -1489,3 +1489,24 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 커맨드 `agentrelay upcoming`(재개 타임라인) 발굴·구현] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-ccjld4`)
+- **상황:** 지정 브랜치의 이전 PR이 병합돼 origin 브랜치가 삭제됨 → 지침대로 최신 main(4abefa1)에서
+  브랜치 재시작. BACKLOG의 👷 항목이 전부 `[x]` 완료 상태(남은 미완은 전부 🧭 코워크 소유)라, CLAUDE.md
+  "비면 스스로 새 개선 항목 발굴" 지침에 따라 신규 항목을 발굴해 구현.
+- **한 일:** `agentrelay upcoming` — 앞으로 재개될 잡들을 재개 시각순 타임라인(아젠다)으로 보여주는
+  신규 커맨드. 기존 `next`(다음 1개만)·`status`(활성/종료 잡까지 전부 나열)의 갭을 메움 —
+  스케줄러가 실제 재개할 `waiting_for_reset` 잡만, 데몬이 집어들 순서 그대로, 행별 카운트다운과 함께.
+  - core `next.ts`: 순수 `selectUpcomingResumes(jobs,{now,limit})` + `UpcomingResume`/`UpcomingResumes`.
+    `selectNextResume`와 **동일한 `compareNext` 정렬** 공유(첫 행 === next, 절대 어긋나지 않음).
+    `dueNow`/`totalWaiting`은 limit 적용 전 전체 집계라 잘린 뷰도 숨긴/due 개수를 정직히 표기.
+  - CLI `upcoming.ts`: `renderUpcoming`(헤더 카운트 + `●`due/`○`pending 마커·짧은 id·프로젝트·
+    카운트다운·절대 시각, 트렁케이트 시 "… N more not shown", `formatCountdown` 재사용)·
+    `renderUpcomingJson`. `upcoming [--json] [-n/--limit] [-t/--tool] [-p/--project] [--since] [--until]`
+    — 공용 `buildScope`·limit 검증 재사용(status는 항상 waiting이라 미노출).
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린, `pnpm test` 전 패키지 통과
+  (core 512 = next.test +6, cli 244 = upcoming.test 9 신규), `pnpm ci:lint`(Biome) 0 경고.
+  실제 빌드된 CLI e2e로 due 마커·시간순 정렬·`--limit` 푸터·`--project` 필터·`--json`·잘못된 입력 exit 1 검증.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
+  BACKLOG의 남은 🧭 항목(README/ARCHITECTURE/ROADMAP·경쟁조사)은 코워크 소유라 손대지 않음.
+  다음 👷 발굴 후보: `upcoming --watch` 라이브 카운트다운, 재개 stagger(동시 만료 분산).
