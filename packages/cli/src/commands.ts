@@ -71,6 +71,7 @@ import {
   resolveConfigWritePath,
   resolveEffectiveConfig,
   resolveJobId,
+  resumeBufferMsFromEnv,
   retryPolicyFromEnv,
   runDiagnostics,
   sampleConfigJson,
@@ -322,6 +323,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   const autoPrune = autoPruneOptionsFromEnv();
   const autoPruneEveryMs = autoPruneEveryMsFromEnv() ?? undefined;
   const autoPruneEveryTicks = autoPruneEveryTicksFromEnv() ?? undefined;
+  const resumeBufferMs = resumeBufferMsFromEnv();
   const pollIntervalMs = options.pollIntervalMs ?? 30_000;
   const logLine = (line: string) => {
     // eslint-disable-next-line no-console
@@ -344,6 +346,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     queue,
     pollIntervalMs,
     retryPolicy: retryPolicyFromEnv(),
+    resumeBufferMs,
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
@@ -368,6 +371,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   console.log(
     `[agentrelay] daemon started, watching ${storePath} every ${pollIntervalMs / 1000}s` +
       (remoteNotify ? " (notifications on)" : "") +
+      (resumeBufferMs > 0 ? ` (resume buffer ${Math.round(resumeBufferMs / 1000)}s)` : "") +
       autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks)
   );
   return scheduler;
@@ -381,6 +385,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     queue,
     notify: notify ?? undefined,
     retryPolicy: retryPolicyFromEnv(),
+    resumeBufferMs: resumeBufferMsFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
   });
   const processed = await scheduler.tick();
