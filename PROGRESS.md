@@ -1489,3 +1489,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 자기발굴: 색상 출력 제어(`--color`/`--no-color` + `NO_COLOR`/`FORCE_COLOR` 표준)] (2026-07-26, 무인 자율 세션, branch `claude/wizardly-pascal-coezzn`)
+- **배경:** 명시 👷 BACKLOG 항목이 전부 완료 상태라 CLAUDE.md 지침("백로그 비면 스스로 개선 항목
+  발굴")대로 코드베이스에서 실질적 갭을 탐색. `grep`으로 CLI 색상 처리가 15군데 전부
+  `Boolean(process.stdout.isTTY)` **하나로만** 게이팅됨을 확인 — 널리 채택된 no-color.org(`NO_COLOR`
+  존재 시 색 끔)·chalk/supports-color(`FORCE_COLOR`)·명시 `--color`/`--no-color` 플래그를 전부 무시.
+  결과적으로 `NO_COLOR`를 세팅한 CI/파일 리다이렉트로 raw ANSI 이스케이프가 새고, 파이프로 넘길 때
+  색을 강제할 방법이 없었다.
+- **한 일:**
+  1. 순수 `packages/cli/src/color.ts` 신설 — `resolveColor({flag,isTTY,env})`가 우선순위
+     **명시 플래그 > `NO_COLOR`(존재+비어있지않음=값 무관 비활성, 빈 문자열=unset) > `FORCE_COLOR`
+     (`0`/`false`=비활성, 그 외 존재=강제 활성) > `isTTY`** 로 색상 여부를 한 곳에서 결정
+     (TTY·시계 불요, 완전 단위 테스트 가능). `colorFlagFromProgram(program)`은 commander가 파싱한
+     옵션 **소스**(`cli`면 명시)로 auto/always/never를 구분 — `--color`/`--no-color`를 둘 다 정의하면
+     기본값이 없어(값 undefined) 세 상태가 깔끔히 분리됨을 실증 확인 후 채택.
+  2. CLI `cli.ts`에 프로그램 레벨 `--color`(비-TTY에서도 강제)·`--no-color`(NO_COLOR로도 존중) 옵션 +
+     `programColor()` 헬퍼 추가 → 기존 15개 `color: Boolean(process.stdout.isTTY)`를 전부 헬퍼로 교체.
+  3. `--watch` 프레임(`renderWatchFrame`)에도 color 인자 배선 — 비활성 시 BOLD/DIM/RESET 미방출.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0 경고·`pnpm test` 전 패키지 통과
+  (color.test 14 + status.test watch-color 1 신규). 실제 빌드된 CLI e2e(mock 아님): `--color`(파이프
+  강제 → ANSI 있음)·`--no-color`(없음)·`NO_COLOR=1`(없음)·`FORCE_COLOR=1`(있음)·기본 파이프(없음)·
+  `--color`가 `NO_COLOR` 이김(있음) 6케이스 모두 기대대로, `--help`에 두 플래그 노출 확인.
+- **다음 할 일:** 남은 색상 표면 후속 여지 없음(전 렌더 경로 커버). 추가 자기발굴 후보: `run`이 감지한
+  rate-limit을 spawn 없이 미리보는 dry-run, 파서의 "resets tomorrow at 9am"류 상대+시각 복합 표현.
+  README/ARCHITECTURE(🧭 코워크).

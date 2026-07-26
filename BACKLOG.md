@@ -575,6 +575,22 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 색상 출력 제어(`--color`/`--no-color` + `NO_COLOR`/`FORCE_COLOR` 표준 존중) — 지금까지 모든
+      렌더가 `Boolean(process.stdout.isTTY)` 하나로만 색상을 게이팅해, 널리 채택된 no-color.org(`NO_COLOR`)·
+      chalk/supports-color(`FORCE_COLOR`) 관례와 명시 플래그를 전부 무시했다. 그 결과 `NO_COLOR`를 세팅한
+      CI 로그·파일로 raw ANSI 이스케이프가 새고, 파이프로 넘길 때 색을 강제할 방법도 없었다(자기발굴).
+      (완료 — 순수 `packages/cli/src/color.ts` 신설: `resolveColor({flag,isTTY,env})`가 명시 플래그 >
+      `NO_COLOR`(존재+비어있지않으면 값 무관 비활성, 빈 문자열=unset) > `FORCE_COLOR`(`0`/`false`=비활성,
+      그 외 존재=강제 활성) > `isTTY` 순의 우선순위로 색상 여부를 한 곳에서 결정 — 테스트 가능·TTY 불요.
+      `colorFlagFromProgram(program)`은 commander가 `--color`/`--no-color`를 파싱한 **소스**(`cli`면 명시)로
+      auto/always/never를 구분(값만으론 auto와 --color 구별 불가). CLI `cli.ts`에 프로그램 레벨
+      `--color`(비-TTY에서도 강제)·`--no-color`(NO_COLOR로도 존중) 옵션 + `programColor()` 헬퍼 추가 →
+      기존 15개 `color: Boolean(process.stdout.isTTY)` 게이팅을 전부 이 헬퍼로 교체, `--watch`
+      프레임(`renderWatchFrame`)에도 color 인자 배선(비활성 시 BOLD/DIM/RESET 미방출). 새 core 로직 0줄 —
+      전부 CLI 표면. color.test 14 + status.test watch-color 1 신규, 실제 빌드 CLI e2e로 `--color`(파이프
+      강제)·`--no-color`·`NO_COLOR=1`·`FORCE_COLOR=1`·기본 파이프(무색)·`--color`가 `NO_COLOR` 이김 6케이스
+      검증. branch `claude/wizardly-pascal-coezzn`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

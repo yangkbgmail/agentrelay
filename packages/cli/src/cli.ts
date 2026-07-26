@@ -37,6 +37,7 @@ import {
   summarizeRateLimitPatterns,
 } from "@agentrelay/core";
 import { Command } from "commander";
+import { colorFlagFromProgram, resolveColor } from "./color.js";
 import {
   ALL_JOB_STATUSES,
   type BulkControlAction,
@@ -302,12 +303,19 @@ export function buildCompletionSpec(program: Command): CompletionSpec {
  * writes still show up while the window edges stay put.
  * Runs until the process is interrupted (Ctrl-C).
  */
-function runWatch(store: string, intervalMs: number, selection: JobSelection, window?: JobScope, limit?: number): void {
+function runWatch(
+  store: string,
+  intervalMs: number,
+  selection: JobSelection,
+  window?: JobScope,
+  limit?: number,
+  color = true
+): void {
   const draw = () => {
     const all = listStatus(store);
     const windowed = window && isJobScopeActive(window) ? scopeJobs(all, window) : all;
     const selected = selectJobs(windowed, selection);
-    const frame = renderWatchFrame(selected, store, intervalMs, Date.now(), limit);
+    const frame = renderWatchFrame(selected, store, intervalMs, Date.now(), limit, color);
     // Clear screen + move cursor home, then paint the frame.
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   };
@@ -334,7 +342,21 @@ export function buildCli(): Command {
     .option(
       "--config <path>",
       "Path to an agentrelay.config.json (else ./agentrelay.config.json or ~/.agentrelay/config.json). Config values are defaults; explicit env/CLI values win."
-    );
+    )
+    .option("--color", "Force colored output even when stdout is not a TTY")
+    .option("--no-color", "Disable colored output (also honored via the NO_COLOR env var)");
+
+  /**
+   * Whether human-facing output should include ANSI color, resolved once from
+   * the `--color` / `--no-color` flag, the `NO_COLOR` / `FORCE_COLOR` env vars,
+   * and whether stdout is a TTY (in that precedence). JSON renderers ignore this.
+   */
+  const programColor = (): boolean =>
+    resolveColor({
+      flag: colorFlagFromProgram(program),
+      isTTY: Boolean(process.stdout.isTTY),
+      env: process.env,
+    });
 
   program
     .command("run")
@@ -508,7 +530,7 @@ export function buildCli(): Command {
         if (opts.watch !== undefined) {
           const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
           const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
-          runWatch(store, intervalMs, selection, window, limit);
+          runWatch(store, intervalMs, selection, window, limit, programColor());
           return; // setInterval keeps the process alive.
         }
 
@@ -520,7 +542,7 @@ export function buildCli(): Command {
           console.log(NO_MATCH_MESSAGE);
           return;
         }
-        console.log(renderStatusTable(selected, { color: Boolean(process.stdout.isTTY), limit }));
+        console.log(renderStatusTable(selected, { color: programColor(), limit }));
       }
     );
 
@@ -539,7 +561,7 @@ export function buildCli(): Command {
       if (opts.json) {
         console.log(renderNextJson(next, store));
       } else {
-        console.log(renderNext(next, { color: Boolean(process.stdout.isTTY) }));
+        console.log(renderNext(next, { color: programColor() }));
       }
 
       // Opt-in exit codes let scripts branch without jq: e.g. a cron that only
@@ -614,7 +636,7 @@ export function buildCli(): Command {
       if (opts.json) {
         console.log(renderLocationsJson(report));
       } else {
-        console.log(renderLocations(report, { color: Boolean(process.stdout.isTTY) }));
+        console.log(renderLocations(report, { color: programColor() }));
       }
     });
 
@@ -749,7 +771,7 @@ export function buildCli(): Command {
             console.log(renderGroupedStatsJson(groups, groupBy, store, { scope }));
             return;
           }
-          console.log(renderGroupedStats(groups, groupBy, { color: Boolean(process.stdout.isTTY), scopeNote }));
+          console.log(renderGroupedStats(groups, groupBy, { color: programColor(), scopeNote }));
           return;
         }
 
@@ -762,12 +784,12 @@ export function buildCli(): Command {
         }
         // A store with jobs but an empty scoped subset should say "no match",
         // not the onboarding hint — renderStats keys that off scopeNote.
-        console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY), scopeNote }));
+        console.log(renderStats(stats, { color: programColor(), scopeNote }));
         // Append the histogram only when the store has matching jobs (renderStats
         // already handles the empty/no-match messaging on its own).
         if (trend !== null && stats.total > 0) {
           console.log("");
-          console.log(renderTrend(trend, { color: Boolean(process.stdout.isTTY) }));
+          console.log(renderTrend(trend, { color: programColor() }));
         }
       }
     );
@@ -844,7 +866,7 @@ export function buildCli(): Command {
       }
       console.log(
         renderPatterns(summary, {
-          color: Boolean(process.stdout.isTTY),
+          color: programColor(),
           scopeNote: built.active ? built.note : undefined,
         })
       );
@@ -890,7 +912,7 @@ export function buildCli(): Command {
         console.log(renderErrorBreakdownJson(breakdown, store, { scopeNote }));
         return;
       }
-      console.log(renderErrorBreakdown(breakdown, { color: Boolean(process.stdout.isTTY), limit, scopeNote }));
+      console.log(renderErrorBreakdown(breakdown, { color: programColor(), limit, scopeNote }));
     });
 
   program
@@ -903,7 +925,7 @@ export function buildCli(): Command {
       if (opts.json) {
         console.log(renderDoctorJson(report));
       } else {
-        console.log(renderDoctor(report, { color: Boolean(process.stdout.isTTY) }));
+        console.log(renderDoctor(report, { color: programColor() }));
       }
       // Exit non-zero when any check failed, so `agentrelay doctor` is usable as
       // a CI/pre-flight gate.
@@ -921,9 +943,7 @@ export function buildCli(): Command {
       if (opts.json) {
         console.log(renderTestNotifyResultsJson(results));
       } else {
-        console.log(
-          renderTestNotifyResults(results, { color: Boolean(process.stdout.isTTY), showSecrets: opts.showSecrets })
-        );
+        console.log(renderTestNotifyResults(results, { color: programColor(), showSecrets: opts.showSecrets }));
       }
       // Exit non-zero when nothing was configured (nothing to test) or any
       // channel failed, so scripts/CI can gate on working notifications.
@@ -1179,7 +1199,7 @@ export function buildCli(): Command {
         console.log(renderJobDetailJson(result.job, store));
         return;
       }
-      console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
+      console.log(renderJobDetail(result.job, { color: programColor() }));
     });
 
   program
@@ -1211,7 +1231,7 @@ export function buildCli(): Command {
         console.log(renderParseReportJson(report));
         return;
       }
-      console.log(renderParseReport(report, { color: Boolean(process.stdout.isTTY) }));
+      console.log(renderParseReport(report, { color: programColor() }));
     });
 
   const config = program.command("config").description("Manage the agentrelay.config.json defaults file");
@@ -1266,9 +1286,7 @@ export function buildCli(): Command {
       if (opts.json) {
         console.log(renderEffectiveConfigJson(result));
       } else {
-        console.log(
-          renderEffectiveConfig(result, { color: Boolean(process.stdout.isTTY), showSecrets: opts.showSecrets })
-        );
+        console.log(renderEffectiveConfig(result, { color: programColor(), showSecrets: opts.showSecrets }));
       }
       // A broken config file is a real problem worth a non-zero exit, but we
       // still printed the env/default resolution above to aid debugging.

@@ -174,6 +174,17 @@ describe("renderWatchFrame", () => {
     expect(frame).not.toContain("bbbb2222");
     expect(frame).toContain("2 more not shown");
   });
+
+  it("colorizes by default but emits no ANSI escapes when color is disabled", () => {
+    const colored = renderWatchFrame([job()], "/tmp/store.json", 2000, NOW, undefined, true);
+    expect(colored).toContain("\x1b[");
+    const plain = renderWatchFrame([job()], "/tmp/store.json", 2000, NOW, undefined, false);
+    expect(plain).not.toContain("\x1b[");
+    // The content is still all there, just without the escape codes.
+    expect(plain).toContain("agentrelay status");
+    expect(plain).toContain("/tmp/store.json");
+    expect(plain).toContain("waiting_for_reset");
+  });
 });
 
 describe("renderStatusTable --limit", () => {
