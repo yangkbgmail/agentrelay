@@ -109,6 +109,38 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 24 * 60 * 60_000).toISOString());
   });
 
+  it("parses a relative duration expressed in weeks (Claude weekly window)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly usage limit reached. Try again in 1 week.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 7 * 24 * 60 * 60_000).toISOString());
+  });
+
+  it("parses the plural 'in 2 weeks' form", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, resets in 2 weeks.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 14 * 24 * 60 * 60_000).toISOString());
+  });
+
+  it("parses a combined week + day relative duration like '2w 3d'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit hit — resets in 2w 3d.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    const expected = new Date(now.getTime() + (2 * 7 + 3) * 24 * 60 * 60_000).toISOString();
+    expect(result?.resetAt).toBe(expected);
+  });
+
+  it("does not mistake minutes for weeks ('in 3 minutes')", () => {
+    // Regression: the new week group (matched first) must not swallow the
+    // leading number of a minutes-only wait.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in 3 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 3 * 60_000).toISOString());
+  });
+
   it("does not mistake minutes for days ('in 3 minutes')", () => {
     // Regression: the new day group must not swallow the leading number of a
     // minutes-only wait.
