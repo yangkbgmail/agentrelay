@@ -73,7 +73,7 @@ export function selectPrunableJobs(jobs: RelayJob[], options: PruneOptions = {})
   return { prune, keep };
 }
 
-const DURATION_RE = /^(\d+(?:\.\d+)?)\s*(ms|s|m|h|d)$/i;
+const DURATION_RE = /^(\d+(?:\.\d+)?)\s*(ms|s|m|h|d|w)$/i;
 
 const UNIT_MS: Record<string, number> = {
   ms: 1,
@@ -81,13 +81,16 @@ const UNIT_MS: Record<string, number> = {
   m: 60_000,
   h: 3_600_000,
   d: 86_400_000,
+  w: 604_800_000,
 };
 
 /**
- * Parses a human duration like `7d`, `24h`, `30m`, `90s`, `500ms` into
- * milliseconds. Returns `null` for anything it doesn't understand (empty
- * string, missing/unknown unit, negative) so callers can report a clear error
- * instead of silently pruning with a garbage threshold.
+ * Parses a human duration like `2w`, `7d`, `24h`, `30m`, `90s`, `500ms` into
+ * milliseconds. Weeks (`w`) map to 7 days — AgentRelay's whole domain is
+ * weekly/daily usage windows, so `2w` beats writing `14d`. Returns `null` for
+ * anything it doesn't understand (empty string, missing/unknown unit, negative)
+ * so callers can report a clear error instead of silently pruning with a
+ * garbage threshold.
  */
 export function parseDuration(input: string): number | null {
   const match = DURATION_RE.exec(input.trim());
