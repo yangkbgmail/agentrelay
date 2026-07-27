@@ -32,6 +32,131 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/**
+ * Weekday name (full or common abbreviation) -> day-of-week index (0=Sunday).
+ * Used by the weekday reset pattern. Kept ordered longest-first inside the
+ * regex alternation so "thursday" wins over "thu".
+ */
+const WEEKDAYS: Record<string, number> = {
+  sunday: 0,
+  sun: 0,
+  monday: 1,
+  mon: 1,
+  tuesday: 2,
+  tues: 2,
+  tue: 2,
+  wednesday: 3,
+  wed: 3,
+  thursday: 4,
+  thurs: 4,
+  thur: 4,
+  thu: 4,
+  friday: 5,
+  fri: 5,
+  saturday: 6,
+  sat: 6,
+};
+
+/** Month name (full or 3-letter abbreviation) -> month index (0=January). */
+const MONTHS: Record<string, number> = {
+  january: 0,
+  jan: 0,
+  february: 1,
+  feb: 1,
+  march: 2,
+  mar: 2,
+  april: 3,
+  apr: 3,
+  may: 4,
+  june: 5,
+  jun: 5,
+  july: 6,
+  jul: 6,
+  august: 7,
+  aug: 7,
+  september: 8,
+  sept: 8,
+  sep: 8,
+  october: 9,
+  oct: 9,
+  november: 10,
+  nov: 10,
+  december: 11,
+  dec: 11,
+};
+
+/**
+ * Parses the "time of day" tail that can follow a weekday/date reset, e.g.
+ * the "9am" in "resets on Monday at 9am" or the "14:30" in "reset on Nov 4 at
+ * 14:30". Accepts `hh:mm[am|pm]`, `hh am|pm`, and the words `noon`/`midnight`.
+ * Returns `{ hour, minute }` in 24-hour form, or `null` when the tail carries
+ * no recognizable time — callers then fall back to midnight (start of day).
+ */
+function parseTimeOfDay(text: string | undefined): { hour: number; minute: number } | null {
+  if (!text) return null;
+  const trimmed = text.trim();
+  if (/^noon\b/i.test(trimmed)) return { hour: 12, minute: 0 };
+  if (/^midnight\b/i.test(trimmed)) return { hour: 0, minute: 0 };
+
+  const withMinutes = trimmed.match(/^(\d{1,2}):(\d{2})\s*(am|pm)?/i);
+  if (withMinutes) {
+    let hour = parseInt(withMinutes[1], 10);
+    const minute = parseInt(withMinutes[2], 10);
+    if (hour > 23 || minute > 59) return null;
+    const meridiem = withMinutes[3]?.toLowerCase();
+    if (meridiem === "pm" && hour < 12) hour += 12;
+    if (meridiem === "am" && hour === 12) hour = 0;
+    return { hour, minute };
+  }
+
+  const meridiemOnly = trimmed.match(/^(\d{1,2})\s*(am|pm)\b/i);
+  if (meridiemOnly) {
+    let hour = parseInt(meridiemOnly[1], 10);
+    if (hour > 12) return null; // 13pm etc. is not a valid 12-hour clock time
+    const meridiem = meridiemOnly[2].toLowerCase();
+    if (meridiem === "pm" && hour < 12) hour += 12;
+    if (meridiem === "am" && hour === 12) hour = 0;
+    return { hour, minute: 0 };
+  }
+
+  return null;
+}
+
+/**
+ * The next future instant that falls on `targetDow` (0=Sunday) at `hour:minute`
+ * local time, relative to `now`. If today already matches the weekday but the
+ * time has passed (or is exactly now), it rolls forward a full week — a real
+ * reset is always in the future, and for weekly limits "resets on Monday" seen
+ * on a Monday afternoon means *next* Monday.
+ */
+function nextWeekday(now: Date, targetDow: number, hour: number, minute: number): Date {
+  const candidate = new Date(now);
+  candidate.setHours(hour, minute, 0, 0);
+  const delta = (targetDow - candidate.getDay() + 7) % 7;
+  candidate.setDate(candidate.getDate() + delta);
+  if (candidate.getTime() <= now.getTime()) {
+    candidate.setDate(candidate.getDate() + 7);
+  }
+  return candidate;
+}
+
+/**
+ * The next future instant on `month` (0=January) `day` at `hour:minute` local
+ * time, relative to `now`. Rolls to next year if the date has already passed
+ * this year. Returns `null` for calendar-invalid dates (e.g. Feb 30, or Feb 29
+ * when neither this year nor next is a leap year) — detected by checking that
+ * the constructed Date didn't overflow into the following month.
+ */
+function nextMonthDay(now: Date, month: number, day: number, hour: number, minute: number): Date | null {
+  if (day < 1 || day > 31) return null;
+  for (const year of [now.getFullYear(), now.getFullYear() + 1]) {
+    const candidate = new Date(year, month, day, hour, minute, 0, 0);
+    if (candidate.getMonth() !== month || candidate.getDate() !== day) continue; // overflowed => invalid date
+    if (candidate.getTime() > now.getTime()) return candidate;
+  }
+  return null;
+}
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
@@ -40,6 +165,43 @@ const PATTERNS: RateLimitPattern[] = [
     resolve: (m) => {
       const d = new Date(m[1]);
       return Number.isNaN(d.getTime()) ? null : d;
+    },
+  },
+  {
+    // "resets on Monday at 9am" / "reset Monday" / "your weekly limit will reset
+    // on Wed at 14:30" — the weekday wording Claude Code uses for weekly usage
+    // limits. Resolves to the next occurrence of that weekday; an optional
+    // "at <time>" tail sets the hour, otherwise midnight (start of day) is
+    // assumed (if that lands early, the relay just re-detects on the next run).
+    // Placed before the clock-time patterns so "reset on Monday at 9am" is not
+    // mis-parsed as "9am today/tomorrow" (which would ignore the weekday).
+    // The named timezone in the message is interpreted as local time, the same
+    // known limitation as the clock-time patterns.
+    name: "weekday-date",
+    regex:
+      /reset[s]?\s+(?:on\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tues|tue|wed|thurs|thur|thu|fri|sat)\b(?:\s+at\s+([^\r\n.,;]+))?/i,
+    resolve: (m, now) => {
+      const dow = WEEKDAYS[m[1].toLowerCase()];
+      if (dow === undefined) return null;
+      const time = parseTimeOfDay(m[2]) ?? { hour: 0, minute: 0 };
+      return nextWeekday(now, dow, time.hour, time.minute);
+    },
+  },
+  {
+    // "resets on Nov 4 at 9am" / "reset on January 15" — a calendar date, used
+    // by some agents for weekly/monthly windows. Resolves to the next future
+    // occurrence of that month/day (this year, else next). An optional
+    // "at <time>" tail sets the hour, otherwise midnight. Placed before the
+    // clock-time patterns for the same reason as weekday-date.
+    name: "month-day-date",
+    regex:
+      /reset[s]?\s+(?:on\s+)?(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec)\s+(\d{1,2})(?:\s+at\s+([^\r\n.,;]+))?/i,
+    resolve: (m, now) => {
+      const month = MONTHS[m[1].toLowerCase()];
+      if (month === undefined) return null;
+      const day = parseInt(m[2], 10);
+      const time = parseTimeOfDay(m[3]) ?? { hour: 0, minute: 0 };
+      return nextMonthDay(now, month, day, time.hour, time.minute);
     },
   },
   {
@@ -136,7 +298,8 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|try again|resets?\s+(at|in|on|sun|mon|tue|wed|thu|fri|sat|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);

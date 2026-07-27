@@ -575,6 +575,22 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 요일·달력 날짜 기반 리셋 시각 인식(`reset on Monday at 9am` / `resets on Nov 4`) —
+      Claude Code의 **주간(weekly) 사용량 한도**는 리셋 시각을 ISO 타임스탬프가 아니라 요일/날짜
+      자연어로 출력하는데, 기존 파서는 `iso-timestamp`(완전 ISO)·`clock-time`(오늘/내일 시각)만
+      알아 이런 문구를 놓쳐 긴 주간 한도 잡이 큐잉 안 되던 실사용 갭.
+      (완료 — `parser.ts`에 순수 헬퍼 `parseTimeOfDay`(`hh:mm[am|pm]`·`hh am|pm`·`noon`/`midnight`
+      공유 파싱, 없으면 midnight 폴백)·`nextWeekday`(다음 해당 요일, 오늘이 요일이지만 시각이 지났으면
+      +7일 → 주간 한도는 *다음* 주로)·`nextMonthDay`(올해 지났으면 내년, 달력 무효 날짜[Feb 30/윤년
+      아닌 Feb 29]는 월 오버플로 검사로 null) 추가. 두 신규 패턴 `weekday-date`(요일±`at <시각>`)·
+      `month-day-date`(월명+일±`at <시각>`)를 **clock-time 계열보다 먼저** 배치 → `reset on Monday at
+      9am`이 "9am 오늘/내일"로 오파싱돼 요일을 버리지 않게 함. 명명 타임존은 로컬 해석(clock-time과
+      동일 기존 한계), 요일/날짜만 있고 시각 없으면 그날 자정(early면 릴레이가 재감지). 사전필터
+      `LOOKS_LIKE_RATE_LIMIT`에 `reset ... on/요일약어/월약어` 추가. 새 CLI 코드 0줄 — 기존 `parse`
+      커맨드가 자동 노출. parser.test +11 회귀(요일 롤·자정 폴백·약어·달력 날짜 내년 롤·Feb 30 null·
+      weekday>clock 우선·무관 "Monday" 무시), 실제 빌드 CLI `parse` e2e로 weekday/month/무효/음성 검증.
+      branch `claude/wizardly-pascal-wrh8tu`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
