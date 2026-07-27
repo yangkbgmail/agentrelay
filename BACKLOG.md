@@ -16,7 +16,19 @@
       (완료 — `parser.test.ts`에 12케이스 회귀 추가: 빈 문자열/시간없는 rate-limit/24h 시계/
       12am·12pm/타임존 오프셋 ISO/잘못된 ISO fallthrough/시간단위만/JSON `retry_after`/멀티라인.
       파서도 `"retry_after": N` JSON 형식 인식하도록 개선. branch `claude/keen-allen-u5qt1l`)
-- [ ] 👷🧭 최종 QA + 재현 가능한 데모 스크립트.
+- [x] 👷🧭 최종 QA + 재현 가능한 데모 스크립트.
+      (완료 [👷 데모 스크립트 부분] — `scripts/demo.sh` 신설: AgentRelay 핵심 가치(사용량 제한
+      감지 → 리셋 시점 자동 재개)를 처음부터 끝까지 **재현 가능하게** 시연하는 엔드투엔드 데모.
+      전용 임시 디렉터리를 `AGENTRELAY_STORE`로 격리(사용자 실제 큐 불변, 종료 시 정리)하고,
+      "가짜 에이전트"(첫 호출은 `try again in Ns` rate-limit 메시지+exit1, 재개 호출은 성공)로
+      실제 에이전트/네트워크 없이 상황을 시뮬레이션. 흐름: `run --tool codex-cli`(감지→큐잉,
+      waiting_for_reset) → `status`/`next`(대기 관찰) → 리셋 경과 대기 → `tick`(자동 재개→completed)
+      → `status`/`stats`(최종 검증). 잡 최종 상태가 정확히 `completed`일 때만 `DEMO_RESULT=ok`를
+      출력해 자기 검증. `NO_COLOR` 존중, `AGENTRELAY_DEMO_RESET_SECONDS`로 리셋 시간 조절.
+      루트 `pnpm demo` 스크립트 추가. 회귀 테스트 `packages/cli/test/demo.test.ts`가 빌드된 CLI로
+      데모를 실제 실행(reset 1s)해 run→queued→tick→completed 전이와 `DEMO_RESULT=ok`를 단언 —
+      릴레이 루프(파서·스케줄러 재개·스토어·CLI 배선) 회귀가 곧 테스트 실패가 되게 함(dist 미빌드
+      시엔 skip). branch `claude/wizardly-pascal-owtv2k`. 🧭 코워크의 종합 QA 문서화는 별도.)
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
