@@ -575,6 +575,21 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay completion fish` — fish 셸 탭 완성 스크립트 생성(기존 bash/zsh에 세 번째 셸 추가).
+      (완료 — 기존 `completion` 커맨드는 bash/zsh만 지원해 fish 사용자는 탭 완성을 못 썼다. core
+      `completion.ts`의 `CompletionShell`에 `"fish"` 추가 + `COMPLETION_SHELLS`에 등록(자동으로
+      `isCompletionShell`·CLI 검증·인자 설명이 fish를 수용). 순수 `generateFish(spec)` 신설 —
+      fish 관용 헬퍼로 게이트한 `complete` 라인 방출: 최상위 커맨드/전역 옵션은 `__fish_use_subcommand`
+      (서브커맨드 미선택 시), 커맨드별 옵션은 `__fish_seen_subcommand_from <cmd>`, 부모 커맨드는
+      서브커맨드 이름을 인자로+각 서브의 옵션을 서브 게이트로 제공. `fishOptionFlag`가 옵션 토큰을
+      fish 표기로 변환(`--json`→`-l json`, `-r`→`-s r`, 스트립한 이름은 기존 `assertSafeToken`으로
+      검증해 스크립트 인젝션 차단). 커맨드/옵션 완성엔 `-f`만 붙여 위치 인자(import <file> 등)의 기본
+      파일 완성은 보존. 새 `CompletionSpec` 스키마·커맨더 파생 로직 재사용이라 CLI 배선은 설명/예시
+      문구만 갱신(fish 예시 추가). core completion.test에 fish 7케이스(헤더·`__fish_use_subcommand`
+      게이트·전역옵션·-l/-s 매핑·부모 서브커맨드·중복 dedupe·unsafe throw) 추가 + 기존 헬퍼 테스트
+      2개 갱신. 실제 빌드 CLI로 fish 스크립트 생성 → `fish -n` 문법 검증 통과 + 실제 fish 세션에
+      `source`해 193개 완성 등록 e2e 확인. branch `claude/wizardly-pascal-9xd01q`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
