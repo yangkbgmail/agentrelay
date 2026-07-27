@@ -13,7 +13,8 @@
 - [x] 5. 테스트 커버리지 점검 (core/cli 엣지 케이스 보강) — 파서 회귀 12케이스 + 스케줄러
       재시도/백오프/최대시도 5케이스 + retry 유닛 9케이스 추가 (core 51 테스트 통과)
 - [ ] 6. 문서: README / ARCHITECTURE.md / ROADMAP.md
-- [ ] 7. 최종 QA + 데모 시나리오 스크립트
+- [~] 7. 최종 QA + 데모 시나리오 스크립트 — 재현 가능한 데모 `scripts/demo.sh` + e2e 회귀
+      테스트 완료(세션 46). 🧭 종합 QA 문서화는 코워크 몫으로 잔여.
 
 ## 중요한 설계 결정 로그 (반드시 읽을 것)
 
@@ -1489,3 +1490,33 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 재현 가능한 엔드투엔드 데모 스크립트 + e2e 회귀 (MVP §3 QA 항목)] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-owtv2k`)
+- **배경:** 명시적 👷 BACKLOG 항목은 전부 완료 상태이고, 열린 PR이 100개 이상 적체(대량 중복:
+  파서 reset-at 계열·config get·stats --watch/--by-hour·reschedule·tools/adapters·wait --all 등).
+  기존 100개 PR 어느 것과도 겹치지 않고 실질 가치가 있는 유일한 빌더 항목은 MVP(SPEC §3)의 마지막
+  미완 항목 **"최종 QA + 재현 가능한 데모 스크립트"**(BACKLOG 👷🧭 공유). 신규 기능을 더해 PR 더미를
+  키우기보다, MVP 완성 기준을 채우는 이 격리도 높은 항목을 깨끗이 구현.
+- **한 일:** **`scripts/demo.sh` 신설 — AgentRelay 핵심 가치(사용량 제한 감지 → 리셋 시점 자동 재개)를
+  처음부터 끝까지 재현 가능하게 시연하는 엔드투엔드 데모.**
+  - 격리: 전용 `mktemp -d`를 `AGENTRELAY_STORE`로 써서 사용자 실제 큐 불변(종료 시 `trap`으로 정리),
+    알림 env(`AGENTRELAY_SLACK_WEBHOOK`/`_WEBHOOK_URL`)를 언셋해 외부 실제 발송 0.
+  - "가짜 에이전트": 첫 호출은 `Rate limit reached ... try again in Ns` + exit1(마커 생성), 재개
+    호출은 성공 — 실제 에이전트/네트워크 없이 rate-limit 상황을 결정적으로 시뮬레이션(마커는 절대
+    경로라 cwd 무관).
+  - 흐름: `run --tool codex-cli`(codex 어댑터의 초 단위 `codex-relative-seconds` 패턴으로 감지→큐잉,
+    waiting_for_reset) → `status`/`next`(대기·카운트다운 관찰) → 리셋 경과 대기 → `tick`(스케줄러
+    1회분: 재개→가짜 에이전트 성공→completed) → `status`/`stats`(최종 검증).
+  - 자기 검증: `status --json`에서 잡 최종 상태를 읽어 정확히 `completed`일 때만 `DEMO_RESULT=ok`를
+    출력하고 exit 0, 아니면 exit 1. `NO_COLOR` 표준 존중, `AGENTRELAY_DEMO_RESET_SECONDS`로 리셋
+    시간 조절(테스트는 1s).
+  - 루트 `package.json`에 `"demo": "bash scripts/demo.sh"` 스크립트 추가(발견성).
+  - **e2e 회귀** `packages/cli/test/demo.test.ts`: 빌드된 CLI로 데모를 실제 실행(reset 1s,
+    `describe.runIf`로 dist 미빌드 시 skip)해 "Rate limit detected for Codex CLI" → `waiting_for_reset`
+    → `-> completed` → `DEMO_RESULT=ok` 순서를 단언. 릴레이 루프(파서·스케줄러 재개·JSON 스토어·CLI
+    배선) 어느 하나라도 깨지면 손 데모가 아니라 테스트가 실패하게 만듦.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 에러**·`pnpm test`
+  전 패키지 통과(core + cli 236/1skip + dashboard 7; 신규 demo e2e 1케이스 3.2s 포함). 데모 스크립트
+  수동 실행도 `DEMO_RESULT=ok`/exit 0 확인(잡이 큐잉→리셋 후 tick으로 자동 재개→completed 관측).
+- **다음 할 일:** README/ARCHITECTURE(🧭 코워크). 남은 distinct CI-초록 PR 통합 계속(중복 무리는 각각
+  하나로 수렴 후 나머지 닫기 권장). 🧭 종합 QA 문서화(수동 체크리스트)는 코워크 몫.
