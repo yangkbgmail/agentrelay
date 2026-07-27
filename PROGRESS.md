@@ -1489,3 +1489,24 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — `agentrelay config get <key>` 스크립터블 단일값 조회] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-i7sk54`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태이고, PROGRESS의 중복 PR 무리 중 하나로 `config get`이
+  거론됨(커뮤니티가 원했으나 병합 안 됨). CLAUDE.md의 "백로그 비면 스스로 개선 항목 발굴" 지침에 따라
+  최신 main 위에 깨끗한 새 구현으로 진행(적체된 오래된 PR 재활용 대신 신규 브랜치).
+- **한 일:** **`agentrelay config get <key>` 신설** — 설정 키 하나의 유효값만 stdout에 출력해
+  `STORE=$(agentrelay config get store)`처럼 셸/CI에서 바로 캡처. `config show`(전체 표·마스킹)와 상보적.
+  1. 순수 core `getEffectiveConfigValue(dottedKey, fileConfig, env)`(`packages/core/src/config.ts`) — 점 키를
+     `CONFIG_FIELDS`↔`CONFIG_ENV_KEYS` 인덱스 대응으로 `AGENTRELAY_*`에 매핑 후 `resolveEffectiveConfig`로
+     값·출처 해소. 미지의 키엔 null(→ "알 수 없는 키" vs "기본값" 구분). `ResolvedConfigValue` 타입 export.
+  2. CLI `getConfigValue`(`commands.ts`, never-throw, `showConfig`와 동일 로드 규약)·`config.ts`에
+     `configGetDisplayValue`(비밀값 기본 마스킹, `--show-secrets` 노출)·`renderConfigGetJson`.
+  3. `config get` 커맨드 배선: 값 있으면 그 값만 출력(exit 0), 기본값(미설정) 키는 무출력+exit 3,
+     미지 키는 유효 키 목록과 함께 stderr+exit 2, 깨진 설정 파일은 exit 1. `--json`/`--show-secrets` 지원.
+  4. `config get`을 부트스트랩 스킵 목록(`BOOTSTRAP_SKIP_SUBCOMMANDS`)에 추가 — 안 그러면 시작 시
+     파일값이 `process.env`로 접혀 출처가 전부 `env`로 왜곡됨(`config show`와 동일한 이유로 스킵).
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0 경고/0 에러·`pnpm test` 전 패키지 통과
+  (core 513 = +7, cli 242/1skip = +7). 실제 빌드 CLI e2e(mock 아님): 파일값→`config-file`, env 우선순위→`env`,
+  미설정 키→무출력·exit 3, 미지 키→exit 2, 비밀 마스킹/`--show-secrets` 노출, `--json` 구조, `$(...)` 캡처 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 또는 신규 개선(예: `config get --source`로 출처 한 줄 병기,
+  `config get`의 다중 키 지원). README/ARCHITECTURE는 🧭 코워크.

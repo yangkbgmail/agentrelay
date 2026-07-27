@@ -10,6 +10,7 @@ import {
   configToEnv,
   configToJson,
   findConfigField,
+  getEffectiveConfigValue,
   hasConfigErrors,
   loadConfigFile,
   parseConfig,
@@ -288,6 +289,60 @@ describe("resolveEffectiveConfig", () => {
     for (const key of emitted) expect(known.has(key)).toBe(true);
     // ...and no known key is dead (each maps to something configToEnv can emit).
     for (const { key } of CONFIG_ENV_KEYS) expect(emitted).toContain(key);
+  });
+});
+
+describe("getEffectiveConfigValue", () => {
+  it("returns null for an unknown key", () => {
+    expect(getEffectiveConfigValue("nope.not.a.key", null, {})).toBeNull();
+  });
+
+  it("resolves a known key to its built-in default (value undefined)", () => {
+    const r = getEffectiveConfigValue("store", null, {});
+    expect(r).toMatchObject({ key: "store", envKey: "AGENTRELAY_STORE", source: "default", value: undefined });
+  });
+
+  it("reads a value from the config file when env does not set it", () => {
+    const r = getEffectiveConfigValue("store", { store: "/tmp/jobs.json" }, {});
+    expect(r).toMatchObject({ source: "config-file", value: "/tmp/jobs.json" });
+  });
+
+  it("lets an env var win over the config file (same precedence as resolveEffectiveConfig)", () => {
+    const r = getEffectiveConfigValue("store", { store: "/file.json" }, { AGENTRELAY_STORE: "/env.json" });
+    expect(r).toMatchObject({ source: "env", value: "/env.json" });
+  });
+
+  it("maps a nested dotted key to its env var and flags secrets", () => {
+    const r = getEffectiveConfigValue("notify.webhookAuth", { notify: { webhookAuth: "tok" } }, {});
+    expect(r).toMatchObject({
+      key: "notify.webhookAuth",
+      envKey: "AGENTRELAY_WEBHOOK_AUTH",
+      secret: true,
+      value: "tok",
+    });
+  });
+
+  it("projects the boolean autoPrune flag as its 1/0 env form", () => {
+    const r = getEffectiveConfigValue("autoPrune.enabled", { autoPrune: { enabled: true } }, {});
+    expect(r).toMatchObject({ envKey: "AGENTRELAY_AUTOPRUNE", value: "1" });
+  });
+
+  it("agrees with resolveEffectiveConfig for every settable key", () => {
+    // Same file + env → the single-key resolver must match the bulk resolver
+    // entry for the mapped env var, proving the index mapping never drifts.
+    const file = sampleConfig();
+    const env = { AGENTRELAY_STORE: "/win.json" };
+    const bulk = resolveEffectiveConfig(file, env);
+    for (const field of CONFIG_FIELDS) {
+      const one = getEffectiveConfigValue(field.key, file, env);
+      const many = bulk.find((e) => e.key === one?.envKey);
+      expect(one).not.toBeNull();
+      expect({ value: one?.value, source: one?.source, secret: one?.secret }).toEqual({
+        value: many?.value,
+        source: many?.source,
+        secret: many?.secret,
+      });
+    }
   });
 });
 

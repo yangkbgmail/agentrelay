@@ -10,6 +10,7 @@ import type {
   JobScope,
   JobStatus,
   RelayJob,
+  ResolvedConfigValue,
 } from "@agentrelay/core";
 import {
   ALL_TOOLS,
@@ -45,6 +46,7 @@ import {
   bulkControlJobs,
   cancelJob,
   exportStore,
+  getConfigValue,
   importStore,
   initConfig,
   type JobControlResult,
@@ -66,7 +68,13 @@ import {
   validateConfigFile,
   waitForJob,
 } from "./commands.js";
-import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
+import {
+  configGetDisplayValue,
+  defaultStorePath,
+  renderConfigGetJson,
+  renderEffectiveConfig,
+  renderEffectiveConfigJson,
+} from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderNext, renderNextJson } from "./next.js";
@@ -1273,6 +1281,54 @@ export function buildCli(): Command {
       // A broken config file is a real problem worth a non-zero exit, but we
       // still printed the env/default resolution above to aid debugging.
       if (result.loadError) process.exitCode = 1;
+    });
+  config
+    .command("get")
+    .description("Print the effective value of a single config key (scriptable: env > file > default)")
+    .argument("<key>", `Dotted config key, one of: ${SETTABLE_CONFIG_KEYS.join(", ")}`)
+    .option("--json", "Print { key, value, source, … } as JSON (machine-readable, for scripts/jq)")
+    .option("--show-secrets", "Reveal a masked webhook URL/token instead of the •••• form")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Prints just the value on stdout so scripts can capture it:",
+        "  STORE=$(agentrelay config get store)",
+        "",
+        "Exit codes: 0 = value found (or default), 2 = unknown key, 3 = key uses its",
+        "built-in default (nothing printed). A broken config file exits 1.",
+      ].join("\n")
+    )
+    .action((key: string, opts: { json?: boolean; showSecrets?: boolean }) => {
+      const { config: configPath } = program.opts();
+      const result = getConfigValue(key, { path: configPath });
+
+      if (opts.json) {
+        console.log(renderConfigGetJson(result, Boolean(opts.showSecrets)));
+      }
+
+      if (!result.found) {
+        if (!opts.json) {
+          console.error(`[agentrelay] unknown config key: ${key}. Valid keys: ${SETTABLE_CONFIG_KEYS.join(", ")}.`);
+        }
+        process.exitCode = 2;
+        return;
+      }
+
+      // A resolved key with a value prints just the value (stdout stays clean
+      // for `$(…)` capture). A key on its built-in default prints nothing and
+      // exits 3, so scripts can tell "unset" from an empty configured value.
+      const resolved = result.resolved as ResolvedConfigValue;
+      const value = configGetDisplayValue(resolved, Boolean(opts.showSecrets));
+      if (!opts.json) {
+        if (value !== undefined) console.log(value);
+      }
+      if (result.loadError) {
+        if (!opts.json) console.error(`[agentrelay] warning: config file could not be loaded — ${result.loadError}`);
+        process.exitCode = 1;
+        return;
+      }
+      if (value === undefined) process.exitCode = 3;
     });
   config
     .command("set")

@@ -611,6 +611,49 @@ export function resolveEffectiveConfig(
 }
 
 /**
+ * One setting resolved by its *dotted* CLI key (`store`, `retry.maxAttempts`,
+ * …) — the same namespace `config set`/`unset` use — enriched with the
+ * `AGENTRELAY_*` env var it maps through. Returned by
+ * {@link getEffectiveConfigValue} so a script can fetch exactly one value and
+ * still know where it came from.
+ */
+export interface ResolvedConfigValue {
+  /** The dotted config key the caller asked for, e.g. `retry.maxAttempts`. */
+  key: string;
+  /** The `AGENTRELAY_*` env var this setting resolves through. */
+  envKey: string;
+  group: ConfigGroup;
+  /** The effective value, or `undefined` when the built-in default applies. */
+  value: string | undefined;
+  source: ConfigValueSource;
+  secret: boolean;
+}
+
+/**
+ * Resolves a *single* setting by its dotted key to its effective value and
+ * source, applying the same env > file > default precedence as
+ * {@link resolveEffectiveConfig}. Returns `null` when the key is not a known
+ * settable field, so callers can distinguish "unknown key" from "known key,
+ * default value". Pure — no filesystem, no ambient env unless `env` is omitted
+ * — so `config get` and its tests share exactly this resolution.
+ */
+export function getEffectiveConfigValue(
+  dottedKey: string,
+  fileConfig: AgentRelayConfig | null,
+  env: Record<string, string | undefined> = process.env
+): ResolvedConfigValue | null {
+  // CONFIG_FIELDS (dotted keys) and CONFIG_ENV_KEYS (env vars) are kept in the
+  // same order and length — a test asserts it — so a field's env var is the
+  // entry at the same index.
+  const index = CONFIG_FIELDS.findIndex((f) => f.key === dottedKey);
+  if (index === -1) return null;
+  const envKey = CONFIG_ENV_KEYS[index].key;
+  const entry = resolveEffectiveConfig(fileConfig, env).find((e) => e.key === envKey);
+  if (!entry) return null;
+  return { key: dottedKey, envKey, group: entry.group, value: entry.value, source: entry.source, secret: entry.secret };
+}
+
+/**
  * Fills the derived config values into `targetEnv` (defaults to `process.env`)
  * *without overwriting anything already set*, so an explicit environment
  * variable always beats the file. Mutates `targetEnv` in place and returns the
