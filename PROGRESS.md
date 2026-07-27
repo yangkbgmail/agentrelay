@@ -1489,3 +1489,31 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — `agentrelay parse --all` 파서 진단 뷰 신규 구현] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-tr0u2q`)
+- **배경:** 명시된 👷 BACKLOG 항목이 전부 `[x]` 상태라, CLAUDE.md의 "백로그가 비면 스스로 새 개선
+  항목을 발굴" 지침에 따라 net-new distinct 기능을 하나 발굴·구현. 알려진 중복 PR 무리(파서 reset-at
+  신규 포맷·config get·stats --by-hour·재개 stagger·--no-color)와 겹치지 않고, 파서 중심 도구의 성격에
+  가장 잘 맞으며 자기완결적인 **파서 진단 뷰**를 선택.
+- **한 일:** **`agentrelay parse --all`(별칭 `-a`) — 한 메시지에 대해 승자 하나만이 아니라 *모든*
+  파서 패턴의 매치 시도를 우선순위 순으로 보여주는 진단 뷰를 신규 구현.**
+  - core `parser.ts`: 순수 `explainRateLimitMessage(text, options)` + `RateLimitExplanation`
+    (detected[승자, `parseRateLimitMessage`와 바이트 동일]·patterns[전 패턴 프로브 배열]·prefilterPassed)
+    + `PatternProbe`(name·source[adapter/generic]·matched·rawMatch·resetAt·blockedByPrefilter). generic
+    pre-filter가 실패해도 모든 generic 패턴을 계속 프로브해, 격리 상태에선 매치되지만 pre-filter 키워드가
+    없어 실전에선 절대 발화 못 하는 패턴을 `blockedByPrefilter`로 노출(예: `"5-hour limit"`이 five-hour
+    fallback 정규식엔 매치되나 pre-filter 미통과 — 실제 잠복 불일치를 진단으로 드러냄). adapter 패턴은
+    최우선·pre-filter 우회로 승자 판정이 `parseRateLimitMessage`와 정확히 일치.
+  - CLI `parse.ts`: `buildParseExplanation`/`renderParseExplanation`(★ 승자·✓ 우선순위 밀림·⚠ pre-filter
+    차단·· 미스 마커 표 + 결과 요약, blocked 시 안내문)·`renderParseExplanationJson`(`patterns` 배열 +
+    `resetInMs`). `cli.ts` parse 커맨드에 `--all`/`-a` 플래그 배선(`--tool`·`--json`과 조합, 기존 승자-only
+    경로는 그대로 유지).
+  - 새 파서 정규식 0줄 — 기존 `PATTERNS`·`tryPattern`·`LOOKS_LIKE_RATE_LIMIT` 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린, `pnpm ci:lint`(Biome) 0 경고,
+  `pnpm test` 전 패키지 통과(core parser +5 / cli parse +7 신규, 총 cli parse 17 테스트). 실제 빌드된
+  CLI e2e(mock 아님): `parse --all "…try again in 1h"`→relative-duration ★ 승자, `parse --all "5-hour
+  limit …"`→five-hour ⚠ 차단·"no rate-limit detected", `parse --all --tool codex-cli "…20s"`→adapter
+  패턴 최우선, `parse --all --json`→patterns 배열+resetInMs 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(중복 무리는 각각 하나로 수렴 후 나머지 닫기 권장).
+  파서 진단 후속으로 `parse --all`이 드러낸 pre-filter 차단 케이스(five-hour fallback)를 pre-filter에
+  키워드 추가로 실제로 잡을지 코워크(🧭 rate-limit 샘플 리서치)와 조율. README/ARCHITECTURE(🧭 코워크).

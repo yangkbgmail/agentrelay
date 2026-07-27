@@ -575,6 +575,23 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay parse --all` — 한 메시지에 대해 *모든* 파서 패턴의 매치 시도를 우선순위 순으로
+      보여주는 진단 뷰(승자만 보이던 기존 `parse`의 확장). 어떤 패턴이 실제로 발화하고, 어떤 게
+      매치는 됐지만 우선순위에서 밀렸으며, 어떤 게 매치는 됐지만 pre-filter에 막혀 실전에선 절대
+      안 잡히는지를 드러낸다.
+      (완료 — core `parser.ts`에 순수 `explainRateLimitMessage(text, options)` + `RateLimitExplanation`
+      (detected[승자, `parseRateLimitMessage`와 동일]·patterns[전 패턴 프로브]·prefilterPassed) +
+      `PatternProbe`(name·source[adapter/generic]·matched·rawMatch·resetAt·blockedByPrefilter) 추가.
+      generic pre-filter가 실패해도 모든 generic 패턴을 계속 프로브해, 격리 상태에선 매치되지만
+      pre-filter 키워드가 없어 절대 발화 못 하는 패턴(`"5-hour limit"`이 five-hour fallback 정규식엔
+      매치되나 pre-filter를 못 통과하는 실제 잠복 불일치)을 `blockedByPrefilter`로 노출. adapter
+      패턴은 최우선·pre-filter 우회로 `parseRateLimitMessage`와 승자 판정 동일. CLI `parse.ts`에
+      `buildParseExplanation`/`renderParseExplanation`(★ 승자·✓ 우선순위 밀림·⚠ pre-filter 차단·· 미스
+      마커 표+요약)·`renderParseExplanationJson`(`patterns` 배열+`resetInMs`) 추가, `agentrelay parse
+      --all [-a]` 플래그 배선(`--tool`/`--json`과 조합). 새 파서 정규식 0줄 — 기존 패턴·`tryPattern`
+      재사용. core parser +5 / cli parse +7 신규 테스트, 실제 빌드 CLI e2e로 승자·차단 진단·adapter
+      우선·JSON 검증. branch `claude/wizardly-pascal-tr0u2q`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
