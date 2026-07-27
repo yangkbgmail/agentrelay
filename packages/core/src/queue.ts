@@ -243,6 +243,18 @@ export class RelayQueue {
     this.update(id, { status: "waiting_for_reset", resetAt: at, attempts: 0, lastError: null });
   }
 
+  /**
+   * Move a still-pending job's wake time to `resetAt` (user-initiated
+   * reschedule). Unlike {@link requeueNow} this preserves the attempt counter
+   * and last error — it only changes *when* the scheduler will next pick the
+   * job up, not its retry accounting. Parks the job in `waiting_for_reset` so
+   * {@link listDue} honours the new time. A no-op if the id is unknown; callers
+   * guard reschedulability via {@link canReschedule}.
+   */
+  reschedule(id: string, resetAt: string) {
+    this.update(id, { status: "waiting_for_reset", resetAt });
+  }
+
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {
     this.load();
     const existing = this.jobs.get(id);

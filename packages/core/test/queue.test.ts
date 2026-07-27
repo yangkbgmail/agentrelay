@@ -194,6 +194,29 @@ describe("RelayQueue", () => {
     expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(1);
   });
 
+  it("reschedules a job's wake time without resetting attempts or clearing the error", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    queue.markResuming(job.id);
+    queue.markRetryScheduled(job.id, new Date(Date.now() + 1000).toISOString(), "transient boom");
+    expect(queue.getById(job.id)?.attempts).toBe(1);
+
+    const later = new Date(Date.now() + 3_600_000).toISOString();
+    queue.reschedule(job.id, later);
+    const moved = queue.getById(job.id);
+    expect(moved?.status).toBe("waiting_for_reset");
+    expect(moved?.resetAt).toBe(later);
+    // Unlike requeueNow, attempts and lastError are preserved.
+    expect(moved?.attempts).toBe(1);
+    expect(moved?.lastError).toBe("transient boom");
+    // Not due until the new time arrives.
+    expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(0);
+    expect(queue.listDue(new Date(Date.now() + 3_700_000))).toHaveLength(1);
+  });
+
+  it("reschedule is a no-op for an unknown id", () => {
+    expect(() => queue.reschedule("does-not-exist", new Date().toISOString())).not.toThrow();
+  });
+
   describe("importJobs", () => {
     const historyJob = (id: string, project = "imported"): RelayJob => ({
       id,
