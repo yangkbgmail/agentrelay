@@ -1489,3 +1489,25 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서 완충어(hedge word) 상대 시간 인식] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-62yntg`)
+- **배경:** BACKLOG의 👷(클로드 코드) 소유 항목이 전부 완료 상태. CLAUDE.md 지침("백로그가 비면
+  스스로 새 개선 항목을 발굴")에 따라, 파서에서 실사용으로 놓치던 구체적 갭을 발굴해 구현.
+- **발굴한 갭:** 기존 `relative-duration` 패턴(`try again in 4h32m` 등)은 "in" 직후에 숫자만 받아,
+  서비스가 흔히 쓰는 **완충 표현**이 숫자 앞에 오면 매치에 실패해 잡이 큐잉되지 않았다:
+  `try again in about 15 minutes`, `retry in approximately 1h30m`, `resets in ~2h`,
+  `try again in under 5 minutes`, `resets in less than 30m`.
+- **한 일:**
+  1. `packages/core/src/parser.ts`의 `relative-duration` 정규식에 "in" 뒤 **비캡처** 완충어 그룹
+     `(?:about|approximately|around|roughly|nearly|almost|just|under|less than)` + optional `~`를
+     삽입. day/hour/minute 캡처 인덱스가 그대로라 `resolve` 로직은 0줄 변경, 완충어 없는 기존
+     표현은 완전 하위호환.
+  2. "under"/"less than"는 실제 리셋이 명시값보다 살짝 이르지만 명시값을 대기로 취급 — 리셋 *후*
+     재개(절대 이전 아님)라는 안전한 방향(문서화 주석 추가).
+  3. 완충어가 숫자 없이 오면(`in the morning`) 여전히 null(제로 길이 대기 방지) — 회귀 테스트로 고정.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  전 패키지 통과(core 파서 테스트 33→38 = +5 신규: about/approximately+combined/~tilde/under+less-than/
+  숫자없는 완충어→null). 실제 빌드된 CLI e2e(mock 아님): `parse "…in about 15 minutes"`→15m,
+  `parse "resets in ~2h"`→2h, `parse "…in under 5 minutes"`→5m, `parse "…in the morning"`→미검출.
+- **다음 할 일:** 파서 추가 실사용 포맷(named IANA tz 실제 변환·weekday 창)은 코워크 리서치(🧭)와 조율.
+  남은 distinct 열린 PR 통합. README/ARCHITECTURE(🧭 코워크).

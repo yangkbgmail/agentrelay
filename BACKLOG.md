@@ -575,6 +575,18 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 완충어(hedge word) 상대 시간 인식 — "try again in **about** 15 minutes" /
+      "resets in **~**2h" / "retry in **under** 5 minutes" 같은 근사 표현을 놓치지 않음.
+      (완료 — 기존 `relative-duration` 패턴은 "in" 직후 숫자만 받아, 서비스가 흔히 쓰는 완충
+      표현("about"/"approximately"/"around"/"roughly"/"nearly"/"almost"/"just"/"under"/
+      "less than"/"~")이 숫자 앞에 오면 매치에 실패해 잡이 큐잉되지 않았다. `parser.ts`의
+      정규식에 "in" 뒤 **비캡처** 완충어 그룹 + optional `~`를 삽입 → day/hour/minute 캡처
+      인덱스 불변(resolve 로직 0줄 변경), 완충어 없는 기존 표현은 완전 하위호환. "under"/
+      "less than"는 실제 리셋이 명시값보다 살짝 이르지만 명시값을 대기로 취급 — 리셋 *후*
+      재개(절대 이전 아님)라는 안전한 방향. 완충어가 숫자 없이 오면("in the morning")
+      여전히 null(제로 길이 대기 방지). parser.test +5 회귀. branch
+      `claude/wizardly-pascal-62yntg`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
