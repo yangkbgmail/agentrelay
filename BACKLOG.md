@@ -575,6 +575,22 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 시각(clock-time) 리셋에 명시된 타임존을 정확히 반영 — 제품 핵심(리셋 시각) 정확성 버그 수정.
+      (👷 자율 발굴 항목. Claude Code가 실제로 출력하는 `"Your limit will reset at 5pm (America/New_York)."`
+      같은 메시지에서 `clock-time`/`clock-time-meridiem` 패턴이 명시된 타임존을 **무시하고 로컬 시각으로
+      해석**하던 문제. UTC+9 사용자에겐 리셋 시각이 13~14시간 틀어져 "리셋 시점에 재개"라는 제품 본질이
+      깨졌다. 완료 — `@agentrelay/core/tz.ts` 신설(의존성 0개, `Intl.DateTimeFormat`의 IANA/DST 데이터만
+      사용): 순수 `nextZonedClockTime(now,hour,minute,timeZone)`가 명시 존의 벽시계 hour:minute에 해당하는
+      **다음 미래 UTC 인스턴트**를 계산(존의 캘린더 날짜 기준 "이미 지났으면 내일" 롤오버, 오프셋 2-패스
+      보정으로 DST 경계 정확), `normalizeZone`은 IANA 이름(`/` 포함)·`UTC`/`GMT`만 수용하고 모호한 약어
+      (`PST`/`EST`)는 null 반환→파서가 **로컬 시각으로 안전 폴백**(기존 동작 보존). 파서의 두 clock 패턴에
+      선택적 타임존 접미사(`TZ_SUFFIX`: 괄호 유무 무관·`UTC`/`GMT`/IANA) 캡처를 추가하고 공용 `resolveClock`로
+      존 인지/로컬 폴백 통합 — 존 미지정 메시지는 이전과 100% 동일하게 동작(하위호환). 잘못된 IANA 이름
+      (`Not/AZone`)은 `RangeError`를 catch해 폴백. tz.test.ts 12케이스(normalizeZone·Seoul/NY DST 겨울·
+      월/연 경계 롤오버·미지 존 폴백) + parser.test.ts에 존 인지 4케이스 추가, 기존 로컬-해석 테스트 1건은
+      정정된 절대 인스턴트로 갱신. `pnpm build`/`pnpm test`(core 518) 통과, 실제 빌드 CLI `agentrelay parse`로
+      NY/Seoul/PST-폴백 e2e 검증. branch `claude/tz-aware-clock-reset`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -25,8 +25,10 @@ describe("parseRateLimitMessage", () => {
     expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
   });
 
-  it("parses the real Claude Code wording: 'reset at 5pm' (hour + meridiem, no minutes)", () => {
+  it("parses the real Claude Code wording: 'reset at 5pm (America/New_York)' honoring the named zone", () => {
     // Actual message: "Claude usage limit reached. Your limit will reset at 5pm (America/New_York)."
+    // July is EDT (UTC-4), so 5pm New York is 21:00 UTC that same day — the
+    // reset must be that instant, NOT 5pm on whatever machine runs AgentRelay.
     const now = new Date("2026-07-12T08:00:00Z"); // 08:00 UTC
     const result = parseRateLimitMessage(
       "Claude usage limit reached. Your limit will reset at 5pm (America/New_York).",
@@ -34,10 +36,7 @@ describe("parseRateLimitMessage", () => {
     );
     expect(result).not.toBeNull();
     expect(result?.pattern).toBe("clock-time-meridiem");
-    const resetDate = new Date(result!.resetAt);
-    expect(resetDate.getHours()).toBe(17); // 5pm local
-    expect(resetDate.getMinutes()).toBe(0);
-    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+    expect(result?.resetAt).toBe("2026-07-12T21:00:00.000Z");
   });
 
   it("parses 'resets at 10 AM' with a space before the meridiem, rolling to tomorrow if past", () => {
@@ -234,6 +233,38 @@ describe("parseRateLimitMessage", () => {
   it("falls through a malformed HTTP-date Retry-After instead of an invalid date", () => {
     const result = parseRateLimitMessage("Retry-After: Not, 99 Xxx 0000 99:99:99 GMT");
     expect(result).toBeNull();
+  });
+
+  it("honors a named timezone on minute-precise clock-time (Asia/Seoul, UTC+9)", () => {
+    // 3:30pm Seoul (UTC+9, no DST) = 06:30 UTC. now is 05:00 UTC → still today.
+    const now = new Date("2026-07-12T05:00:00Z");
+    const result = parseRateLimitMessage("Resets at 3:30pm (Asia/Seoul).", { now });
+    expect(result?.pattern).toBe("clock-time");
+    expect(result?.resetAt).toBe("2026-07-12T06:30:00.000Z");
+  });
+
+  it("rolls a zoned clock-time to tomorrow in the named zone when already past", () => {
+    // 5pm New York (EDT) = 21:00 UTC. now is 22:00 UTC → already past → next day.
+    const now = new Date("2026-07-12T22:00:00Z");
+    const result = parseRateLimitMessage("Your limit will reset at 5pm (America/New_York).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-07-13T21:00:00.000Z");
+  });
+
+  it("accepts a bare (non-parenthesized) trailing UTC zone", () => {
+    const now = new Date("2026-07-12T05:00:00Z");
+    const result = parseRateLimitMessage("Resets at 10am UTC.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-07-12T10:00:00.000Z");
+  });
+
+  it("falls back to local time for an unrecognized zone abbreviation like PST", () => {
+    // "PST" is ambiguous and not an IANA name → ignored, hour read as local
+    // (UTC in this test env), same as the pre-timezone behavior.
+    const now = new Date("2026-07-12T05:00:00Z");
+    const result = parseRateLimitMessage("Resets at 9am (PST).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-07-12T09:00:00.000Z"); // 9am local == 09:00Z here
   });
 
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {

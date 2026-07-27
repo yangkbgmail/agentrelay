@@ -1,4 +1,32 @@
 import type { RateLimitInfo } from "./types.js";
+import { nextZonedClockTime } from "./tz.js";
+
+/**
+ * Optional timezone suffix captured after a clock time, e.g. the parenthesized
+ * zone Claude Code prints: "reset at 5pm (America/New_York)". Also matches a
+ * bare trailing zone ("reset at 5pm America/New_York") and "UTC"/"GMT". Kept as
+ * a non-capturing optional tail so it never blocks a match — when absent the
+ * clock patterns behave exactly as before (local time).
+ */
+const TZ_SUFFIX = /(?:\s*\(?\s*([A-Za-z]+(?:\/[A-Za-z_+-]+)+|UTC|GMT)\s*\)?)?/.source;
+
+/**
+ * Resolve a captured hour:minute to a future instant, honoring a named
+ * timezone when one was captured and recognized; otherwise fall back to the
+ * machine-local interpretation (roll to tomorrow if already past today).
+ */
+function resolveClock(now: Date, hour: number, minute: number, zone: string | undefined): Date {
+  if (zone) {
+    const zoned = nextZonedClockTime(now, hour, minute, zone);
+    if (zoned) return zoned;
+  }
+  const candidate = new Date(now);
+  candidate.setHours(hour, minute, 0, 0);
+  if (candidate.getTime() <= now.getTime()) {
+    candidate.setDate(candidate.getDate() + 1);
+  }
+  return candidate;
+}
 
 /**
  * Parses CLI output from AI coding agents (Claude Code, etc.) looking for
@@ -43,21 +71,18 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
-    // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
+    // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if
+    // already past), optionally followed by a named timezone
+    // ("resets at 3:00pm (America/New_York)") which is honored when present.
     name: "clock-time",
-    regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
+    regex: new RegExp(`reset[s]?\\s+at\\s+(\\d{1,2}):(\\d{2})\\s*(am|pm)?${TZ_SUFFIX}`, "i"),
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       const minute = parseInt(m[2], 10);
       const meridiem = m[3]?.toLowerCase();
       if (meridiem === "pm" && hour < 12) hour += 12;
       if (meridiem === "am" && hour === 12) hour = 0;
-      const candidate = new Date(now);
-      candidate.setHours(hour, minute, 0, 0);
-      if (candidate.getTime() <= now.getTime()) {
-        candidate.setDate(candidate.getDate() + 1);
-      }
-      return candidate;
+      return resolveClock(now, hour, minute, m[4]);
     },
   },
   {
@@ -65,24 +90,19 @@ const PATTERNS: RateLimitPattern[] = [
     // This is the wording Claude Code actually prints ("Your limit will reset
     // at 5pm (America/New_York)."), which the minute-requiring clock-time
     // pattern above misses. Meridiem is required: a bare "reset at 5" (no
-    // colon, no am/pm) is too ambiguous to treat as a clock time. The named
-    // timezone in the message is ignored — the hour is interpreted in local
-    // time, same known limitation as clock-time (a real reset is a future
+    // colon, no am/pm) is too ambiguous to treat as a clock time. When the
+    // message names a timezone it is honored (see resolveClock/tz.ts); with no
+    // zone the hour is interpreted in local time (a real reset is a future
     // instant, so rolling to tomorrow when already past keeps us safe).
     name: "clock-time-meridiem",
-    regex: /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b/i,
+    regex: new RegExp(`reset[s]?\\s+at\\s+(\\d{1,2})\\s*(am|pm)\\b${TZ_SUFFIX}`, "i"),
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       if (hour > 12) return null; // 13pm etc. is not a valid 12-hour clock time
       const meridiem = m[2].toLowerCase();
       if (meridiem === "pm" && hour < 12) hour += 12;
       if (meridiem === "am" && hour === 12) hour = 0;
-      const candidate = new Date(now);
-      candidate.setHours(hour, 0, 0, 0);
-      if (candidate.getTime() <= now.getTime()) {
-        candidate.setDate(candidate.getDate() + 1);
-      }
-      return candidate;
+      return resolveClock(now, hour, 0, m[3]);
     },
   },
   {
