@@ -94,6 +94,42 @@ describe("exportStore", () => {
     expect(onDisk.trimEnd()).toBe(result.content);
   });
 
+  it("produces TSV with a tab-joined header and one row per job", () => {
+    seed();
+    const result = exportStore({ storePath, format: "tsv" });
+    expect(result.count).toBe(2);
+    const lines = result.content.split("\n");
+    expect(lines).toHaveLength(3); // header + 2 rows
+    expect(lines[0].split("\t")).toEqual([
+      "id",
+      "project",
+      "tool",
+      "status",
+      "attempts",
+      "resetAt",
+      "createdAt",
+      "updatedAt",
+      "command",
+      "cwd",
+      "lastError",
+    ]);
+    // Naive `cut -f`/`awk -F'\t'` splitting yields the full column count per row.
+    for (const row of lines.slice(1)) {
+      expect(row.split("\t")).toHaveLength(11);
+    }
+  });
+
+  it("honors a --columns subset/order for TSV", () => {
+    seed();
+    const result = exportStore({ storePath, format: "tsv", columns: ["status", "project", "tool"] });
+    const lines = result.content.split("\n");
+    expect(lines[0]).toBe("status\tproject\ttool");
+    expect(lines).toHaveLength(3); // header + 2 rows
+    for (const row of lines.slice(1)) {
+      expect(row.split("\t")).toHaveLength(3);
+    }
+  });
+
   it("exports just the CSV header for an empty store", () => {
     const result = exportStore({ storePath, format: "csv" });
     expect(result.count).toBe(0);

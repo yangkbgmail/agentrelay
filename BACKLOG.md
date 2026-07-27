@@ -575,6 +575,20 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay export --format tsv` — 탭 구분(tab-separated) 무손실 테이블 내보내기(Unix
+      파이프라인/`cut -f`·`awk -F'\t'`/스프레드시트 붙여넣기용). CSV는 RFC 4180 인용(`"…"`)이 필요해
+      순진한 splitter가 콤마 포함 필드에서 깨지지만, TSV는 인용 규약이 없어 그런 도구에 바로 안전.
+      (완료 — core `export.ts`에 순수 `escapeTsvField`(백슬래시 우선 → 탭 `\t`·CR `\r`·LF `\n`
+      백슬래시 이스케이프 → 필드가 열/행 구분을 절대 안 깨고 라운드트립 가능)·`jobsToTsv`(CSV와
+      동일 shape·`JOB_CSV_COLUMNS`/`jobCsvValue` 공유로 lockstep, 빈 스토어도 헤더행 유지) 추가 +
+      `EXPORT_FORMATS`·`COLUMN_AWARE_FORMATS`에 `tsv` 등록·`exportJobs` 디스패치. CLI export는
+      `EXPORT_FORMATS`/`COLUMN_AWARE_FORMATS` 기반이라 `-f tsv`·`--columns`·스코프 필터(--status/
+      --tool/--project/--since/--until/--sort/--reverse) 전부 자동 배선(설명 문구만 갱신). CSV/md/html과
+      달리 인용 없이 제어문자만 이스케이프 — 콤마는 verbatim. core export.test에 escapeTsvField 3 +
+      jobsToTsv 5 + exportJobs dispatch/columns 2, cli export.test에 tsv 헤더·필드수·컬럼 2케이스 추가.
+      실제 빌드 CLI e2e로 탭/콤마/개행 주입 필드가 매 행 정확히 11필드·`cut -f`·`awk -F'\t'`로 안 깨짐
+      검증. branch `claude/wizardly-pascal-0l00b8`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
