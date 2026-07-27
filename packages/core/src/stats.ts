@@ -197,6 +197,46 @@ export function computeDailyTrend(jobs: RelayJob[], options: { nowMs: number; da
   return trend;
 }
 
+/** Short weekday names in ISO order (Monday first), index 0..6 = Mon..Sun. */
+export const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+
+/** One weekday's slot in a {@link computeWeekdayTrend} activity histogram. */
+export interface WeekdayActivity {
+  /** ISO weekday number, 1=Monday .. 7=Sunday. */
+  weekday: number;
+  /** Short weekday name, "Mon".."Sun". */
+  label: string;
+  /** Jobs created on this weekday (bucketed by `createdAt`, UTC). */
+  count: number;
+}
+
+/**
+ * Buckets jobs by the UTC weekday they were created on, so `agentrelay stats
+ * --by-weekday` can reveal which days of the week rate-limits actually pile up
+ * — useful because weekly usage windows reset on a fixed weekday, so the
+ * relay's busiest day is often the tail-end of a weekly cap. Unlike
+ * {@link computeDailyTrend} (a calendar-day timeline), this collapses the whole
+ * (already scoped) job set onto a cyclic Mon..Sun axis, so it needs no clock or
+ * window — it aggregates exactly the jobs it is given.
+ *
+ * The result is always exactly 7 entries, Monday first, zero-filled for quiet
+ * weekdays so the histogram has a stable shape. Jobs with a missing or
+ * unparseable `createdAt` are skipped — they can't be placed on the axis.
+ * Pure and non-mutating.
+ */
+export function computeWeekdayTrend(jobs: RelayJob[]): WeekdayActivity[] {
+  const counts = new Array(7).fill(0);
+  for (const job of jobs) {
+    const created = Date.parse(job.createdAt);
+    if (Number.isNaN(created)) continue;
+    // getUTCDay(): 0=Sunday..6=Saturday. Remap to ISO index 0=Mon..6=Sun so
+    // Sunday (JS 0) lands in the last slot, matching WEEKDAY_LABELS order.
+    const isoIndex = (new Date(created).getUTCDay() + 6) % 7;
+    counts[isoIndex] += 1;
+  }
+  return WEEKDAY_LABELS.map((label, i) => ({ weekday: i + 1, label, count: counts[i] }));
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 

@@ -575,6 +575,18 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay stats --by-weekday` — 잡 생성 요일별(Mon..Sun, UTC) 활동 히스토그램. 주간
+      사용량 한도가 특정 요일에 리셋되므로 "릴레이가 어느 요일에 가장 바빴나"를 드러냄. `--trend`
+      (달력-일 타임라인)와 달리 전체(스코프된) 잡을 순환 요일 축으로 접어 시계/윈도우가 불필요.
+      (완료 — core `stats.ts`에 순수 `computeWeekdayTrend(jobs)`(항상 7슬롯 Mon-first zero-fill,
+      `getUTCDay`를 ISO 인덱스 `(day+6)%7`로 remap해 일요일을 마지막 슬롯에, 파싱 불가 createdAt은
+      스킵) + `WeekdayActivity`/`WEEKDAY_LABELS` 추가. CLI `stats.ts`에 순수 `renderWeekday`(renderTrend
+      미러: 최대 요일에 막대 스케일·빈 요일 dim dot·busiest 요일 푸터, 동률은 최선행 요일) + `renderStatsJson`에
+      optional `weekday` 필드(요청 시에만 방출, 기본 shape 불변). CLI `stats --by-weekday` 플래그(--trend·
+      스코프 필터와 공존, 스토어 비면 미출력). 새 core 로직은 기존 스코프 파이프라인 재사용. core stats
+      +6 / cli stats +6 신규 테스트, 실제 빌드 CLI e2e로 히스토그램·busiest·JSON 방출/기본 생략·--trend
+      공존·--tool 스코프 검증. branch `claude/wizardly-pascal-wkrm5w`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

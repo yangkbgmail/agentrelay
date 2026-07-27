@@ -3,7 +3,15 @@
 // breakdown). Kept as pure functions here, separate from the commander wiring
 // in cli.ts, so the exact output is unit-testable without a store or a clock.
 
-import type { DailyActivity, GroupDimension, GroupedStat, JobScope, JobStatus, RelayStats } from "@agentrelay/core";
+import type {
+  DailyActivity,
+  GroupDimension,
+  GroupedStat,
+  JobScope,
+  JobStatus,
+  RelayStats,
+  WeekdayActivity,
+} from "@agentrelay/core";
 import { isJobScopeActive } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
@@ -204,18 +212,54 @@ export function renderTrend(trend: DailyActivity[], options: { color?: boolean }
   return lines.join("\n");
 }
 
+/**
+ * Renders a weekday activity histogram (Mon..Sun, UTC) as a labelled ASCII bar
+ * chart, mirroring {@link renderTrend}: bars scale to the busiest weekday so the
+ * shape is readable at any volume, and a quiet weekday shows a dim baseline dot.
+ * The busiest weekday is called out in the footer. Pure: no I/O, no clock — the
+ * already-computed histogram is passed in so the output stays testable.
+ */
+export function renderWeekday(weekday: WeekdayActivity[], options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [b("weekday") + d(" (jobs created per weekday, UTC)")];
+  const max = weekday.reduce((m, day) => Math.max(m, day.count), 0);
+  const total = weekday.reduce((sum, day) => sum + day.count, 0);
+  for (const { label, count } of weekday) {
+    const filled = max === 0 || count === 0 ? 0 : Math.max(1, Math.round((count / max) * TREND_BAR_WIDTH));
+    const plain = count === 0 ? "·" : "█".repeat(filled);
+    const padded = plain.padEnd(TREND_BAR_WIDTH);
+    const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
+    lines.push(`  ${label}  ${shown} ${count}`);
+  }
+  // Name the busiest weekday only when there's any activity to point at; ties
+  // resolve to the earliest weekday (Mon..Sun) since the scan keeps the first max.
+  const busiest = max > 0 ? weekday.find((day) => day.count === max) : undefined;
+  const footer = busiest ? `${total} job(s), busiest ${busiest.label}` : `${total} job(s)`;
+  lines.push(d(`  ${footer}`));
+  return lines.join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,
   storePath: string,
-  options: { generatedAt?: string; scope?: JobScope; trend?: DailyActivity[] | null } = {}
+  options: {
+    generatedAt?: string;
+    scope?: JobScope;
+    trend?: DailyActivity[] | null;
+    weekday?: WeekdayActivity[] | null;
+  } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
-  // Only emit `trend` when --trend was requested; omit it entirely otherwise so
-  // the default JSON shape is unchanged for existing consumers.
+  // Only emit `trend`/`weekday` when the matching flag was requested; omit them
+  // entirely otherwise so the default JSON shape is unchanged for existing consumers.
   const trend = options.trend ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, stats }, null, 2);
+  const weekday = options.weekday ?? undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, trend, weekday, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */
