@@ -4,17 +4,17 @@
 // only way to get it is to hand the shell a completion script.
 //
 // This module holds only the pure *rendering*: given a description of the
-// command tree (a `CompletionSpec`), produce a valid bash or zsh completion
-// script as a string. The CLI derives the spec from the live commander program
+// command tree (a `CompletionSpec`), produce a valid bash, zsh, or fish
+// completion script as a string. The CLI derives the spec from the live commander program
 // (so it never drifts from the real command surface) and prints the script; the
 // generator here is filesystem/commander-free so it's trivially unit-testable
 // and deterministic.
 
 /** Shells we can emit a completion script for. */
-export type CompletionShell = "bash" | "zsh";
+export type CompletionShell = "bash" | "zsh" | "fish";
 
 /** Every shell `agentrelay completion` accepts, in a stable order. */
-export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh"] as const;
+export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh", "fish"] as const;
 
 /** Type guard: is `value` one of the shells we support? */
 export function isCompletionShell(value: string): value is CompletionShell {
@@ -86,6 +86,7 @@ export function generateCompletion(shell: CompletionShell, spec: CompletionSpec)
     for (const sub of cmd.subcommands ?? []) assertSafeToken(sub.name, "subcommand name");
   }
   if (shell === "bash") return generateBash(spec);
+  if (shell === "fish") return generateFish(spec);
   return generateZsh(spec);
 }
 
@@ -267,4 +268,85 @@ ${caseArms.join("\n")}
 }
 ${fn} "$@"
 `;
+}
+
+/**
+ * Turn one of our option tokens (`--json`, `-r`) into the `complete` flag
+ * fragment fish expects: long options as `-l json`, short options as `-s r`.
+ * Fish wants the dashes stripped and the kind of option named explicitly.
+ * Returns `null` for a bare `-`/`--` with no name (nothing to complete). The
+ * remaining name is validated so a future flag can never inject shell into the
+ * generated script.
+ */
+function fishOptionFlag(token: string): string | null {
+  if (token.startsWith("--")) {
+    const name = token.slice(2);
+    if (name.length === 0) return null;
+    assertSafeToken(name, "option");
+    return `-l ${name}`;
+  }
+  if (token.startsWith("-")) {
+    const name = token.slice(1);
+    if (name.length === 0) return null;
+    assertSafeToken(name, "option");
+    return `-s ${name}`;
+  }
+  // A bare word (unusual for an option) — treat it as a long option.
+  assertSafeToken(token, "option");
+  return `-l ${token}`;
+}
+
+/**
+ * Fish: one `complete` line per completable token, gated by fish's built-in
+ * subcommand helpers (`__fish_use_subcommand` = no subcommand chosen yet,
+ * `__fish_seen_subcommand_from <cmd>` = that command is on the line). This is
+ * the idiomatic fish approach and keeps the generator simple and robust rather
+ * than re-implementing a line parser. `-f` on the command/option completions
+ * suppresses file completion for those (positional file args still get fish's
+ * default file completion since we don't disable it globally).
+ */
+function generateFish(spec: CompletionSpec): string {
+  const prog = spec.program;
+  const lines: string[] = [
+    `# fish completion for ${prog}`,
+    `# Install: ${prog} completion fish > ~/.config/fish/completions/${prog}.fish`,
+    "",
+  ];
+
+  // Top-level command names, offered only before a subcommand is present.
+  for (const cmd of spec.commands) {
+    lines.push(`complete -c ${prog} -f -n '__fish_use_subcommand' -a '${cmd.name}' -d 'command'`);
+  }
+
+  // Global options, offered at the same position as the top-level commands.
+  for (const opt of uniq([...spec.options, "--help", "--version"].filter((o) => o.length > 0))) {
+    const frag = fishOptionFlag(opt);
+    if (frag) lines.push(`complete -c ${prog} -f -n '__fish_use_subcommand' ${frag}`);
+  }
+
+  for (const cmd of spec.commands) {
+    const subs = cmd.subcommands ?? [];
+    if (subs.length > 0) {
+      // Parent command: offer subcommand names once the parent is on the line…
+      for (const sub of subs) {
+        lines.push(
+          `complete -c ${prog} -f -n '__fish_seen_subcommand_from ${cmd.name}' -a '${sub.name}' -d 'subcommand'`
+        );
+      }
+      // …and each subcommand's flags once that subcommand is on the line.
+      for (const sub of subs) {
+        for (const opt of uniq([...sub.options, "--help"].filter((o) => o.length > 0))) {
+          const frag = fishOptionFlag(opt);
+          if (frag) lines.push(`complete -c ${prog} -f -n '__fish_seen_subcommand_from ${sub.name}' ${frag}`);
+        }
+      }
+    } else {
+      for (const opt of uniq([...cmd.options, "--help"].filter((o) => o.length > 0))) {
+        const frag = fishOptionFlag(opt);
+        if (frag) lines.push(`complete -c ${prog} -f -n '__fish_seen_subcommand_from ${cmd.name}' ${frag}`);
+      }
+    }
+  }
+
+  return `${lines.join("\n")}\n`;
 }

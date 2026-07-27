@@ -1489,3 +1489,33 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — `agentrelay completion fish`(fish 셸 탭 완성)] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-9xd01q`)
+- **배경:** BACKLOG의 👷 명시 항목이 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴.
+  열린 PR 30건(reschedule·config get·weekday-reset·export yaml·calendar·tools·wait --all·tail·
+  --no-color·man·tomorrow·dashboard effectiveness·config schema·verify·stats --watch·projects·
+  fixed-offset tz·X-RateLimit-Reset·week relative·resume buffer·run --max-wait·upcoming·run --dry-run·
+  health 등)을 전수 확인 — **셸 완성(completion) 계열은 어느 PR과도 겹치지 않음**을 확인. 기존
+  `completion` 커맨드는 bash/zsh만 지원해 fish 사용자(무시 못 할 개발자층)는 `agentrelay <TAB>` 완성을
+  아예 못 썼다. 이미 잘 검증된 `CompletionSpec`/커맨더 파생 인프라를 재사용해 세 번째 셸을 붙이는,
+  격리도 높고 자기완결적인 항목.
+- **한 일:**
+  1. core `completion.ts` — `CompletionShell`에 `"fish"` 추가, `COMPLETION_SHELLS`에 등록(그 결과
+     `isCompletionShell`·CLI 인자 검증·설명 문구가 자동으로 fish를 수용). `generateCompletion`
+     디스패치에 fish 분기 추가.
+  2. 순수 `generateFish(spec)` 신설 — fish 관용 built-in 헬퍼로 게이트한 `complete` 라인 방출:
+     최상위 커맨드 이름·전역 옵션은 `__fish_use_subcommand`(서브커맨드 미선택 시), 커맨드별 옵션은
+     `__fish_seen_subcommand_from <cmd>`, 부모 커맨드(`config`)는 서브커맨드 이름을 인자로+각 서브의
+     옵션을 서브 게이트로 제공(zsh 생성기와 동일한 "단순·견고" 철학). `fishOptionFlag`가 옵션 토큰을
+     fish 표기로 변환(`--json`→`-l json`, `-r`→`-s r`)하며 스트립한 이름을 기존 `assertSafeToken`으로
+     검증(스크립트 인젝션 차단). 커맨드/옵션 완성엔 `-f`만 개별 부착 → 위치 파일 인자(import <file>·
+     restore <snapshot> 등)의 fish 기본 파일 완성은 그대로 보존(전역 비활성화 안 함).
+  3. CLI `cli.ts` — 새 스키마·커맨더 파생 로직 재사용이라 배선 변경 최소: `completion` 커맨드 설명을
+     "(bash, zsh, or fish)"로, 예시에 fish 설치 라인 추가.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  **755 통과 + 1 skip**(core 513 + cli 235/1skip + dashboard 7 — completion.test.ts 20개 = fish 7
+  신규 + bash/zsh/헬퍼 유지). 실제 빌드된 CLI e2e(mock 아님): `completion fish`가 라이브 커맨더
+  프로그램에서 파생된 193줄 스크립트 방출 → `fish -n`(문법 검사) 통과 → 실제 fish 세션에 `source`
+  해 193개 `complete` 등록 확인, 알 수 없는 셸(`fissh`)은 "Valid: bash, zsh, fish" + exit 1.
+- **다음 할 일:** 셸 완성 계열 확장(PowerShell·nushell) 후보(👷), 남은 distinct 열린 PR 통합 계속,
+  README/ARCHITECTURE(🧭 코워크).
