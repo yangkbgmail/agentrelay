@@ -249,4 +249,101 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("relative-duration");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
   });
+
+  // --- weekday / calendar-date resets (weekly usage limits) ---
+
+  it("parses 'resets on Monday at 9am' (weekly-limit weekday wording)", () => {
+    const now = new Date("2026-07-15T12:00:00"); // Wednesday, local time
+    const result = parseRateLimitMessage("You've reached your weekly limit. Your limit will reset on Monday at 9am.", {
+      now,
+    });
+    expect(result?.pattern).toBe("weekday-date");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(1); // Monday
+    expect(reset.getHours()).toBe(9);
+    expect(reset.getMinutes()).toBe(0);
+    expect(reset.getTime()).toBeGreaterThan(now.getTime());
+    // Next Monday after Wed Jul 15 is Jul 20.
+    expect(reset.getDate()).toBe(20);
+  });
+
+  it("defaults a weekday reset with no time to midnight (start of that day)", () => {
+    const now = new Date("2026-07-15T12:00:00"); // Wednesday
+    const result = parseRateLimitMessage("Usage limit reached. Resets Friday.", { now });
+    expect(result?.pattern).toBe("weekday-date");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(5); // Friday
+    expect(reset.getHours()).toBe(0);
+    expect(reset.getMinutes()).toBe(0);
+    expect(reset.getDate()).toBe(17); // Fri Jul 17
+  });
+
+  it("rolls a weekday reset a full week forward when today matches but the time has passed", () => {
+    const now = new Date("2026-07-15T18:00:00"); // Wednesday 6pm
+    const result = parseRateLimitMessage("Your limit will reset on Wednesday at 9am.", { now });
+    expect(result?.pattern).toBe("weekday-date");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(3); // Wednesday
+    expect(reset.getHours()).toBe(9);
+    expect(reset.getDate()).toBe(22); // next Wednesday, not today
+  });
+
+  it("accepts an abbreviated weekday ('reset on Wed at 14:30')", () => {
+    const now = new Date("2026-07-15T12:00:00"); // Wednesday noon
+    const result = parseRateLimitMessage("Rate limit. Reset on Wed at 14:30.", { now });
+    expect(result?.pattern).toBe("weekday-date");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(3);
+    expect(reset.getHours()).toBe(14);
+    expect(reset.getMinutes()).toBe(30);
+    // Wed 14:30 is later today (now is Wed noon) -> stays today.
+    expect(reset.getDate()).toBe(15);
+  });
+
+  it("parses a calendar date 'resets on Nov 4 at 9am'", () => {
+    const now = new Date("2026-07-15T12:00:00");
+    const result = parseRateLimitMessage("Weekly usage limit. Resets on Nov 4 at 9am.", { now });
+    expect(result?.pattern).toBe("month-day-date");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getMonth()).toBe(10); // November
+    expect(reset.getDate()).toBe(4);
+    expect(reset.getHours()).toBe(9);
+    expect(reset.getFullYear()).toBe(2026);
+  });
+
+  it("rolls a calendar date to next year when it has already passed this year", () => {
+    const now = new Date("2026-07-15T12:00:00");
+    const result = parseRateLimitMessage("Limit resets on January 15.", { now });
+    expect(result?.pattern).toBe("month-day-date");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getMonth()).toBe(0); // January
+    expect(reset.getDate()).toBe(15);
+    expect(reset.getHours()).toBe(0); // no time -> midnight
+    expect(reset.getFullYear()).toBe(2027);
+  });
+
+  it("returns null for a calendar-invalid date (Feb 30)", () => {
+    const now = new Date("2026-07-15T12:00:00");
+    const result = parseRateLimitMessage("Resets on Feb 30.", { now });
+    expect(result).toBeNull();
+  });
+
+  it("prefers the weekday date over the bare clock time in 'reset on Monday at 9am'", () => {
+    // Without weekday-date being tried first, clock-time-meridiem would resolve
+    // "9am" to today/tomorrow and silently drop the Monday.
+    const now = new Date("2026-07-15T12:00:00"); // Wednesday
+    const result = parseRateLimitMessage("Reset on Monday at 9am.", { now });
+    expect(result?.pattern).toBe("weekday-date");
+    expect(new Date(result!.resetAt).getDay()).toBe(1);
+  });
+
+  it("still uses clock-time-meridiem for a plain 'reset at 9am' (no weekday)", () => {
+    const now = new Date("2026-07-15T12:00:00");
+    const result = parseRateLimitMessage("Reset at 9am.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+  });
+
+  it("does not treat an unrelated 'monday' mention without 'reset' as a rate limit", () => {
+    expect(parseRateLimitMessage("Standup is on Monday.")).toBeNull();
+  });
 });

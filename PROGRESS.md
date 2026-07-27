@@ -1489,3 +1489,15 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서: 요일·달력 날짜 리셋 인식(주간 한도)] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-wrh8tu`)
+- **한 일:** Claude Code 주간(weekly) 사용량 한도가 리셋 시각을 요일/날짜 자연어(`reset on Monday
+  at 9am`, `resets on Nov 4`)로 출력하는데 기존 파서(ISO·시:분 clock-time)가 이를 놓쳐 긴 주간
+  한도 잡이 큐잉 안 되던 실사용 갭을 메움. `parser.ts`에 순수 헬퍼 `parseTimeOfDay`/`nextWeekday`/
+  `nextMonthDay` + 두 신규 패턴 `weekday-date`·`month-day-date`를 clock-time 계열보다 앞에 배치
+  (요일 우선). 사전필터에 요일·월 토큰 추가. 새 CLI 코드 0줄(기존 `parse`·큐잉 경로가 자동 노출).
+- **검증:** `pnpm build`(Next 포함) 클린, `pnpm ci:lint`(Biome) 통과, `pnpm test` 전 패키지 통과
+  (parser.test +11 회귀 → core 516). 실제 빌드 CLI `parse`로 weekday(다음 월요일)·month-day(Nov 4)·
+  Feb 30 무효 null·무관 "Monday" 음성 e2e 확인.
+- **다음 할 일:** 파서 잔여 실사용 포맷(명명 IANA tz 실제 변환·"in an hour" 워드 수) 검토, 남은
+  distinct 열린 PR 통합. README/ARCHITECTURE(🧭 코워크).
