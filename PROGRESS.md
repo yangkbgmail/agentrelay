@@ -1489,3 +1489,26 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — `agentrelay stats --by-weekday` 요일별 활동 히스토그램] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-wkrm5w`)
+- **배경:** 명시된 👷 BACKLOG 항목이 전부 완료 상태. CLAUDE.md의 "무한 개선 백로그가 비면 스스로
+  새 항목 발굴" 지침에 따라, 최신 main(4abefa1) 기준으로 신규·자기완결·비중복 기능을 발굴.
+  기존 `stats --trend`(달력-일 타임라인)는 있지만 순환 시간축 집계가 없었고, 중복 PR 무리로 알려진
+  `--by-hour`(시각별)는 의도적으로 피하고 **요일별(--by-weekday)** 을 선택 — 주간 사용량 한도가
+  특정 요일에 리셋되므로 "어느 요일에 rate-limit이 몰리나"가 실사용 가치가 있고 avoid 무리와 겹치지 않음.
+- **한 일:** `agentrelay stats --by-weekday` 신규 구현.
+  - core `stats.ts`: 순수 `computeWeekdayTrend(jobs)` — 항상 7슬롯(Mon-first) zero-fill, `getUTCDay()`
+    (0=Sun..6=Sat)를 ISO 인덱스 `(day+6)%7`로 remap해 일요일을 마지막 슬롯에 배치, 파싱 불가 `createdAt`은
+    스킵. `WeekdayActivity` 타입 + `WEEKDAY_LABELS` export. 시계/윈도우 불필요(스코프된 잡을 순환 축으로 접음).
+  - CLI `stats.ts`: 순수 `renderWeekday`(renderTrend 미러 — 최대 요일에 막대 스케일, 빈 요일 dim dot,
+    busiest 요일 푸터[동률은 최선행 요일]). `renderStatsJson`에 optional `weekday` 필드(요청 시에만 방출,
+    기본 JSON shape 불변 → 기존 소비자 호환).
+  - CLI `cli.ts`: `--by-weekday` 플래그 배선. `--trend`·스코프 필터(--status/--tool/--project/--since/--until)와
+    공존, 스토어가 비면 미출력(renderStats가 온보딩/no-match 메시지 담당). 새 core 직렬화/스코프 로직 0줄 —
+    기존 검증된 파이프라인 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린, `pnpm ci:lint`(Biome) 0경고, `pnpm test`
+  전 패키지 통과(core stats +6, cli stats +6 신규 포함). 실제 빌드된 CLI e2e(mock 아님)로 요일 히스토그램
+  렌더·busiest Mon 푸터·`--json` weekday 필드 방출·기본 stats --json은 weekday 생략·`--trend 3` 공존·
+  `--tool codex-cli` 스코프(busiest Tue)·`--help` 노출 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합(#125 --no-color 등) 또는 신규 자기완결 개선(예: 파서 실사용
+  포맷은 🧭 리서치와 조율). README/ARCHITECTURE(🧭 코워크).

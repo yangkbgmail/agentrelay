@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { computeDailyTrend, computeStats, GROUP_DIMENSIONS, groupStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import {
+  computeDailyTrend,
+  computeStats,
+  computeWeekdayTrend,
+  GROUP_DIMENSIONS,
+  groupStats,
+  isJobScopeActive,
+  scopeJobs,
+  WEEKDAY_LABELS,
+} from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -475,5 +484,54 @@ describe("computeDailyTrend", () => {
     expect(computeDailyTrend([], { nowMs: now, days: 0 }).map((d) => d.date)).toEqual(["2026-07-20"]);
     expect(computeDailyTrend([], { nowMs: now, days: -5 })).toHaveLength(1);
     expect(computeDailyTrend([], { nowMs: now, days: 2.9 })).toHaveLength(2);
+  });
+});
+
+describe("computeWeekdayTrend", () => {
+  it("returns exactly 7 slots, Monday first, zero-filled for an empty store", () => {
+    const wd = computeWeekdayTrend([]);
+    expect(wd.map((w) => w.label)).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
+    expect(wd.map((w) => w.weekday)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(wd.every((w) => w.count === 0)).toBe(true);
+  });
+
+  it("buckets jobs by their UTC creation weekday (Mon..Sun)", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-13T00:00:00.000Z" }), // Mon
+      job({ createdAt: "2026-07-13T23:00:00.000Z" }), // Mon (same weekday, different day)
+      job({ createdAt: "2026-07-14T12:00:00.000Z" }), // Tue
+      job({ createdAt: "2026-07-19T12:00:00.000Z" }), // Sun
+    ];
+    const counts = Object.fromEntries(computeWeekdayTrend(jobs).map((w) => [w.label, w.count]));
+    expect(counts.Mon).toBe(2);
+    expect(counts.Tue).toBe(1);
+    expect(counts.Sun).toBe(1);
+    expect(counts.Wed).toBe(0);
+  });
+
+  it("places Sunday (JS getUTCDay 0) in the last slot, not the first", () => {
+    const wd = computeWeekdayTrend([job({ createdAt: "2026-07-19T06:00:00.000Z" })]); // Sunday
+    expect(wd[0].count).toBe(0); // Mon untouched
+    expect(wd[6]).toEqual({ weekday: 7, label: "Sun", count: 1 });
+  });
+
+  it("skips jobs with a missing/unparseable createdAt", () => {
+    const jobs = [job({ createdAt: "not-a-date" }), job({ createdAt: "2026-07-14T00:00:00.000Z" })]; // Tue
+    const total = computeWeekdayTrend(jobs).reduce((sum, w) => sum + w.count, 0);
+    expect(total).toBe(1);
+  });
+
+  it("uses UTC weekday boundaries regardless of the local zone offset in the timestamp", () => {
+    // 2026-07-14T01:00:00+05:00 == 2026-07-13T20:00:00Z, still Monday in UTC.
+    const wd = computeWeekdayTrend([job({ createdAt: "2026-07-14T01:00:00.000+05:00" })]);
+    const counts = Object.fromEntries(wd.map((w) => [w.label, w.count]));
+    expect(counts.Mon).toBe(1);
+    expect(counts.Tue).toBe(0);
+  });
+
+  it("WEEKDAY_LABELS has 7 entries in ISO order", () => {
+    expect(WEEKDAY_LABELS).toHaveLength(7);
+    expect(WEEKDAY_LABELS[0]).toBe("Mon");
+    expect(WEEKDAY_LABELS[6]).toBe("Sun");
   });
 });

@@ -1,5 +1,5 @@
-import type { DailyActivity, RelayJob } from "@agentrelay/core";
-import { computeDailyTrend, computeStats, groupStats } from "@agentrelay/core";
+import type { DailyActivity, RelayJob, WeekdayActivity } from "@agentrelay/core";
+import { computeDailyTrend, computeStats, computeWeekdayTrend, groupStats } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
   formatDurationMs,
@@ -12,6 +12,7 @@ import {
   renderStats,
   renderStatsJson,
   renderTrend,
+  renderWeekday,
 } from "../src/stats.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
@@ -314,5 +315,79 @@ describe("renderStatsJson trend field", () => {
     const trend: DailyActivity[] = [{ date: "2026-07-20", count: 1 }];
     const withTrend = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", trend }));
     expect(withTrend.trend).toEqual(trend);
+  });
+});
+
+describe("renderWeekday", () => {
+  const weekday: WeekdayActivity[] = [
+    { weekday: 1, label: "Mon", count: 4 },
+    { weekday: 2, label: "Tue", count: 0 },
+    { weekday: 3, label: "Wed", count: 2 },
+    { weekday: 4, label: "Thu", count: 0 },
+    { weekday: 5, label: "Fri", count: 1 },
+    { weekday: 6, label: "Sat", count: 0 },
+    { weekday: 7, label: "Sun", count: 0 },
+  ];
+
+  it("renders a header, one row per weekday, and a footer naming the busiest day", () => {
+    const out = renderWeekday(weekday);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("weekday");
+    for (const label of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) {
+      expect(out).toContain(label);
+    }
+    // The busiest weekday (Mon, count 4) is called out with the total (7).
+    expect(lines[lines.length - 1]).toContain("7 job(s), busiest Mon");
+  });
+
+  it("scales bars to the busiest weekday and leaves quiet days without a block", () => {
+    const out = renderWeekday(weekday);
+    const rows = out.split("\n");
+    const width = (label: string) => ((rows.find((r) => r.includes(label)) ?? "").match(/█/g) ?? []).length;
+    expect(width("Mon")).toBeGreaterThanOrEqual(width("Wed"));
+    expect(width("Wed")).toBeGreaterThanOrEqual(1);
+    expect(width("Tue")).toBe(0);
+  });
+
+  it("handles an all-zero week without any bars and omits the busiest note", () => {
+    const zeros = computeWeekdayTrend([]);
+    const out = renderWeekday(zeros);
+    expect(out).not.toContain("█");
+    expect(out).toContain("0 job(s)");
+    expect(out).not.toContain("busiest");
+  });
+
+  it("resolves a tie to the earliest weekday (Mon..Sun)", () => {
+    const tie: WeekdayActivity[] = [
+      { weekday: 1, label: "Mon", count: 0 },
+      { weekday: 2, label: "Tue", count: 3 },
+      { weekday: 3, label: "Wed", count: 3 },
+      { weekday: 4, label: "Thu", count: 0 },
+      { weekday: 5, label: "Fri", count: 0 },
+      { weekday: 6, label: "Sat", count: 0 },
+      { weekday: 7, label: "Sun", count: 0 },
+    ];
+    expect(renderWeekday(tie)).toContain("busiest Tue");
+  });
+
+  it("round-trips a store subset through computeWeekdayTrend + renderWeekday", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-13T01:00:00.000Z" }), // Mon
+      job({ createdAt: "2026-07-13T09:00:00.000Z" }), // Mon
+      job({ createdAt: "2026-07-14T09:00:00.000Z" }), // Tue
+    ];
+    const computed = computeWeekdayTrend(jobs);
+    expect(renderWeekday(computed)).toContain("3 job(s), busiest Mon");
+  });
+});
+
+describe("renderStatsJson weekday field", () => {
+  it("omits `weekday` by default but includes it when provided", () => {
+    const stats = computeStats([job()]);
+    const withoutWeekday = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("weekday" in withoutWeekday).toBe(false);
+    const weekday = computeWeekdayTrend([job({ createdAt: "2026-07-13T00:00:00.000Z" })]);
+    const withWeekday = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", weekday }));
+    expect(withWeekday.weekday).toEqual(weekday);
   });
 });
