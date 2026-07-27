@@ -118,6 +118,44 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 3 * 60_000).toISOString());
   });
 
+  it("tolerates a hedge word before the number ('in about 15 minutes')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in about 15 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 15 * 60_000).toISOString());
+  });
+
+  it("tolerates 'approximately' before a combined hour+minute wait", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Retry in approximately 1h30m.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + (60 + 30) * 60_000).toISOString());
+  });
+
+  it("tolerates a tilde approximation ('resets in ~2h')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit — resets in ~2h.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
+  it("tolerates 'under' / 'less than' (treats the stated number as the wait)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const under = parseRateLimitMessage("Try again in under 5 minutes.", { now });
+    expect(under?.pattern).toBe("relative-duration");
+    expect(under?.resetAt).toBe(new Date(now.getTime() + 5 * 60_000).toISOString());
+
+    const lessThan = parseRateLimitMessage("Rate limit exceeded, resets in less than 30m.", { now });
+    expect(lessThan?.pattern).toBe("relative-duration");
+    expect(lessThan?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
+
+  it("does not treat a non-hedge filler word as a duration ('in the morning')", () => {
+    // "the morning" has no number, so the relative-duration pattern must not
+    // match it into a zero-length (invalid) wait.
+    expect(parseRateLimitMessage("Rate limit reached, try again in the morning.")).toBeNull();
+  });
+
   it("parses a unix epoch retry_after field", () => {
     const result = parseRateLimitMessage("rate_limit_error retry_after=1752345600");
     expect(result).not.toBeNull();

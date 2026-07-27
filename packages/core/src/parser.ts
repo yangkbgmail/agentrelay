@@ -90,9 +90,17 @@ const PATTERNS: RateLimitPattern[] = [
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
     // are OpenAI/Codex-style wording that the Codex adapter contributes).
+    //
+    // Hedge/filler words between "in" and the number are tolerated so real-world
+    // phrasings like "try again in about 15 minutes", "resets in ~2h", and
+    // "retry in under 5 minutes" still queue. The filler group is non-capturing,
+    // so the day/hour/minute capture indices are unchanged. For "less than" /
+    // "under" the reset is actually a bit sooner than the stated number, but we
+    // treat the stated number as the wait — erring on the side of resuming *after*
+    // the true reset (never before it), the safe direction for a rate limit.
     name: "relative-duration",
     regex:
-      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
+      /(?:try again|resets?|retry)\s+in\s+(?:(?:about|approximately|around|roughly|nearly|almost|just|under|less\s+than)\s+)?~?\s*(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
     resolve: (m, now) => {
       const days = m[1] ? parseInt(m[1], 10) : 0;
       const hours = m[2] ? parseInt(m[2], 10) : 0;
