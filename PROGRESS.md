@@ -1489,3 +1489,25 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 발굴 `agentrelay stats --watch` 라이브 뷰 구현] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-statswatch`)
+- **배경:** 명시된 👷 BACKLOG 항목이 전부 [완료] 상태. CLAUDE.md 지침("비면 스스로 새 개선 항목을 발굴")에
+  따라 자족적(self-contained)이고 기존 열린 PR과 겹치지 않는 신규 대칭성 갭을 발굴. `status`에는 `--watch`
+  라이브 TUI가 있지만 `stats`에는 없어, 릴레이 효과(성공률·해결 시간·다음 리셋 카운트다운·일별 트렌드)를
+  라이브로 지켜볼 방법이 없던 명확한 갭을 선정.
+- **한 일:** `agentrelay stats --watch [초]` 구현.
+  - core 코드 0줄 — CLI만. `packages/cli/src/stats.ts`에 순수 `renderStatsWatchFrame(body, storePath,
+    intervalMs, now)` 신설: `status`의 `renderWatchFrame`을 미러링하되 **본문을 문자열로 받아** 같은 프레임이
+    plain summary·`--group-by` 브레이크다운·summary+trend 어느 것이든 감쌈.
+  - `cli.ts` stats 액션에 `-w/--watch [초]` 배선: 렌더 로직을 `buildBody(frameNow, color)` 클로저로 추출
+    (매 호출 스토어 재읽기 → 데몬 쓰기 자동 반영, 카운트다운·트렌드는 frameNow로 재계산, 스코프 시간창 경계는
+    명령 시작 시 고정 = status --watch와 동일 의미). `runStatsWatch` 루프가 화면 클리어 + 프레임 페인트,
+    SIGINT/SIGTERM 정리. `--json`은 원샷 스냅샷이라 둘 다 주면 --json 우선(status와 동일).
+  - 기존 스코프 필터(--status/--tool/--project/--since/--until)·--group-by·--trend와 전부 조합.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린·`pnpm ci:lint`(Biome 0경고)·`pnpm test` 전 패키지
+  통과(cli stats 24→27, cli 총 238 pass/1 skip, core 506, dashboard 7). 실제 빌드된 CLI e2e(mock 아님):
+  임시 3-job 스토어로 `stats --watch 1`이 화면 클리어(`\x1b[2J\x1b[H`)+컬러 본문 라이브 렌더, `--watch
+  --group-by tool`·`--watch --trend 3` 조합, `--json --watch`는 --json 우선, `stats --help`에 `-w, --watch`
+  노출 확인.
+- **다음 할 일:** 추가 대칭성 갭(예: `metrics --watch`?, `patterns`/`errors`의 라이브 뷰) 또는 남은 distinct
+  열린 PR 통합. README/ARCHITECTURE(🧭 코워크).

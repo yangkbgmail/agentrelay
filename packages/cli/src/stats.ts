@@ -204,6 +204,27 @@ export function renderTrend(trend: DailyActivity[], options: { color?: boolean }
   return lines.join("\n");
 }
 
+/**
+ * One frame of the live `agentrelay stats --watch` view: a title/meta header
+ * block plus an already-rendered stats body. Mirrors `status`'s
+ * `renderWatchFrame`, but takes the body as a string so the same frame wraps a
+ * plain summary, a `--group-by` breakdown, or a summary-plus-trend block —
+ * whatever the command computed this pass. Pure: `now` and `body` are injected.
+ */
+export function renderStatsWatchFrame(
+  body: string,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now()
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay stats${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", body].join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,

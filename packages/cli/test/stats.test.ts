@@ -11,6 +11,7 @@ import {
   renderGroupedStatsJson,
   renderStats,
   renderStatsJson,
+  renderStatsWatchFrame,
   renderTrend,
 } from "../src/stats.js";
 
@@ -314,5 +315,31 @@ describe("renderStatsJson trend field", () => {
     const trend: DailyActivity[] = [{ date: "2026-07-20", count: 1 }];
     const withTrend = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", trend }));
     expect(withTrend.trend).toEqual(trend);
+  });
+});
+
+describe("renderStatsWatchFrame", () => {
+  it("wraps a rendered body with the live title, store path and timestamp", () => {
+    const body = renderStats(computeStats([job()]), { now: NOW });
+    const frame = renderStatsWatchFrame(body, "/tmp/store.json", 2000, NOW);
+    expect(frame).toContain("agentrelay stats");
+    expect(frame).toContain("every 2s");
+    expect(frame).toContain("/tmp/store.json");
+    expect(frame).toContain("2026-07-13 00:00:00");
+    // The body is passed through verbatim, right after the header block.
+    expect(frame).toContain(body);
+    expect(frame.endsWith(body)).toBe(true);
+  });
+
+  it("rounds a sub-second-precise interval to whole seconds in the title", () => {
+    const frame = renderStatsWatchFrame("body", "/tmp/store.json", 1500, NOW);
+    expect(frame).toContain("every 2s");
+  });
+
+  it("passes any body through unchanged (grouped or trend blocks alike)", () => {
+    const grouped = renderGroupedStats(groupStats([job()], "tool"), "tool");
+    const frame = renderStatsWatchFrame(grouped, "/tmp/store.json", 5000, NOW);
+    expect(frame).toContain("every 5s");
+    expect(frame).toContain(grouped);
   });
 });
