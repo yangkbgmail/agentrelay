@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted, retryPolicyFromEnv } from "../src/retry.js";
+import {
+  computeBackoffMs,
+  computeBackoffSchedule,
+  DEFAULT_BACKOFF_PREVIEW_STEPS,
+  DEFAULT_RETRY_POLICY,
+  isRetryExhausted,
+  retryPolicyFromEnv,
+} from "../src/retry.js";
 import type { RetryPolicy } from "../src/types.js";
 
 const policy: RetryPolicy = {
@@ -111,5 +118,66 @@ describe("retryPolicyFromEnv", () => {
   it("falls back to the default jitter for negative or invalid values", () => {
     expect(retryPolicyFromEnv({ AGENTRELAY_RETRY_JITTER: "-1" }).jitter).toBe(DEFAULT_RETRY_POLICY.jitter);
     expect(retryPolicyFromEnv({ AGENTRELAY_RETRY_JITTER: "nope" }).jitter).toBe(DEFAULT_RETRY_POLICY.jitter);
+  });
+});
+
+describe("computeBackoffSchedule", () => {
+  it("yields maxAttempts - 1 waits matching the scheduler's per-attempt backoff", () => {
+    const schedule = computeBackoffSchedule(policy); // max 5, base 1000, ×2, cap 10000
+    expect(schedule.unlimited).toBe(false);
+    expect(schedule.steps.map((s) => s.attempt)).toEqual([1, 2, 3, 4]);
+    expect(schedule.steps.map((s) => s.delayMs)).toEqual([1000, 2000, 4000, 8000]);
+    // Each step equals the scheduler's own computeBackoffMs for that attempt.
+    for (const step of schedule.steps) {
+      expect(step.delayMs).toBe(computeBackoffMs(policy, step.attempt));
+    }
+    expect(schedule.totalMs).toBe(1000 + 2000 + 4000 + 8000);
+  });
+
+  it("flags capped steps once the exponential reaches the ceiling", () => {
+    const capped: RetryPolicy = { ...policy, maxAttempts: 6 }; // adds attempt 5 → 16000 clamped to 10000
+    const schedule = computeBackoffSchedule(capped);
+    expect(schedule.steps.map((s) => s.delayMs)).toEqual([1000, 2000, 4000, 8000, 10_000]);
+    expect(schedule.steps.map((s) => s.capped)).toEqual([false, false, false, false, true]);
+  });
+
+  it("previews DEFAULT_BACKOFF_PREVIEW_STEPS for an unlimited policy", () => {
+    const unlimited: RetryPolicy = { ...policy, maxAttempts: 0 };
+    const schedule = computeBackoffSchedule(unlimited);
+    expect(schedule.unlimited).toBe(true);
+    expect(schedule.steps).toHaveLength(DEFAULT_BACKOFF_PREVIEW_STEPS);
+  });
+
+  it("honours an explicit step override, even past the attempt cap", () => {
+    const schedule = computeBackoffSchedule(policy, { steps: 7 });
+    expect(schedule.steps).toHaveLength(7);
+    // attempts 5,6,7 are all clamped to the cap.
+    expect(schedule.steps.slice(4).every((s) => s.capped && s.delayMs === 10_000)).toBe(true);
+  });
+
+  it("returns zero steps when the policy allows no retries (maxAttempts 1)", () => {
+    const schedule = computeBackoffSchedule({ ...policy, maxAttempts: 1 });
+    expect(schedule.steps).toHaveLength(0);
+    expect(schedule.totalMs).toBe(0);
+    expect(schedule.totalLowMs).toBeUndefined();
+  });
+
+  it("reports jitter [min, max] bounds and a total range when jitter is active", () => {
+    const jittered: RetryPolicy = { ...policy, jitter: 0.5 };
+    const schedule = computeBackoffSchedule(jittered);
+    const first = schedule.steps[0];
+    expect(first.jitterLowMs).toBe(500); // 1000·(1−0.5)
+    expect(first.jitterHighMs).toBe(1500); // 1000·(1+0.5)
+    // High bound is re-clamped to maxDelayMs.
+    const last = schedule.steps[3]; // delay 8000 → high 12000 clamped to 10000
+    expect(last.jitterHighMs).toBe(10_000);
+    expect(schedule.totalLowMs).toBe(schedule.steps.reduce((sum, s) => sum + (s.jitterLowMs ?? 0), 0));
+    expect(schedule.totalHighMs).toBe(schedule.steps.reduce((sum, s) => sum + (s.jitterHighMs ?? 0), 0));
+  });
+
+  it("ignores a non-positive or fractional step override", () => {
+    expect(computeBackoffSchedule(policy, { steps: 0 }).steps).toHaveLength(4); // falls back to policy count
+    expect(computeBackoffSchedule(policy, { steps: -2 }).steps).toHaveLength(4);
+    expect(computeBackoffSchedule(policy, { steps: 3.9 }).steps).toHaveLength(3); // floored
   });
 });

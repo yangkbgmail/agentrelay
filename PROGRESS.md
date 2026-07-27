@@ -1489,3 +1489,27 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — `agentrelay backoff` 재시도 백오프 스케줄 미리보기 (최신 main 위 신규 구현)] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-1o4sub`)
+- **배경:** 명시적 👷 BACKLOG 항목이 전부 완료 상태이고 열린 PR이 100건까지 적체(대부분 중복). 세션 45의
+  "다음 할 일"이 distinct PR로 #168(backoff)을 지목했으나, 해당 PR은 base가 오래되어(f37d2f9) CI가 돌지
+  않은 상태(total_count 0)라 스테일 cherry-pick 리스크가 있었다. 그래서 이 기능을 **최신 main(4abefa1) 위에
+  직접 새로 구현**해 로컬에서 build+lint+test 초록을 확실히 검증하는 쪽을 택함.
+- **한 일:** `agentrelay backoff` — 재시도 정책이 transient failure(spawn 에러·rate-limit 아닌 non-zero
+  exit)에 대해 만들어내는 구체적 대기 시퀀스를 사람이 읽을 수 있게 번역하는 진단 커맨드 추가.
+  - core `retry.ts`: 순수 `computeBackoffSchedule(policy, {steps?})` + `BackoffSchedule`/`BackoffStep` +
+    `DEFAULT_BACKOFF_PREVIEW_STEPS`(5). 스케줄러와 동일 의미(attempt N 실패 → `computeBackoffMs(policy,N)`
+    대기 → attempt N+1)로 attempt 1..maxAttempts-1의 대기를 산출. 무제한(maxAttempts≤0)은 5개 미리보기,
+    `steps`로 명시 오버라이드(무제한/캡 초과 확인), jitter는 `[min,max]` 경계로 리포트(computeBackoffMs와
+    동일 spread/재클램프), 각 step에 캡 적중 플래그. 시계/난수/I/O 0.
+  - CLI `packages/cli/src/backoff.ts`: 순수 `formatPolicyLine`·`renderBackoff`(정책 줄 + step별 대기[지터
+    시 범위] + 총합, 기존 `formatDurationMs` 재사용, color 게이트)·`renderBackoffJson`. `agentrelay backoff
+    [-n/--attempts N] [--json]`이 `retryPolicyFromEnv()`로 env+설정파일 반영 정책 해소, 잘못된 `--attempts`는
+    exit 1. 새 파서/스케줄러 로직 0줄 — 검증된 `computeBackoffMs`/`retryPolicyFromEnv`/`formatDurationMs` 재사용.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  전 패키지 통과(**core 513 + cli 243/1skip + dashboard 7**; 신규 core retry.test +8·cli backoff.test +8).
+  실제 빌드된 CLI e2e(mock 아님): 기본 5시도 스케줄(1m/2m/4m/8m, ~15m 총합)·커스텀 정책+지터 경계(base 30s
+  ×3 jitter 20%)·무제한 `--attempts 6`(캡 표시)·`maxAttempts 1`(재시도 없음 메시지)·`--json` 전체 스케줄·
+  잘못된 `--attempts`→exit 1 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합/신규 발굴 계속. 중복 무리(파서 reset-at·config get·stats
+  --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
