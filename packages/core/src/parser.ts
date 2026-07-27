@@ -32,6 +32,33 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/** Spelled-out cardinals agent CLIs / HTTP APIs use in prose rate-limit messages. */
+const WORD_NUMBERS: Record<string, number> = {
+  a: 1,
+  an: 1,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+};
+
+/** Duration units (already singularized) mapped to minutes. */
+const WORD_DURATION_UNIT_MINUTES: Record<string, number> = {
+  hour: 60,
+  hr: 60,
+  minute: 1,
+  min: 1,
+  day: 24 * 60,
+};
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
@@ -99,6 +126,28 @@ const PATTERNS: RateLimitPattern[] = [
       const minutes = m[3] ? parseInt(m[3], 10) : 0;
       if (days === 0 && hours === 0 && minutes === 0) return null;
       return new Date(now.getTime() + ((days * 24 + hours) * 60 + minutes) * 60_000);
+    },
+  },
+  {
+    // Word-number relative durations that agent CLIs and HTTP APIs phrase in
+    // prose rather than digits, e.g. "try again in an hour", "resets in one
+    // hour", "try again in half an hour", "resets in a minute", "retry in two
+    // days". The digit-based `relative-duration` above requires `\d+` and
+    // returns null on these, so this pattern picks them up next. "half" (with
+    // an optional a/an article) means 0.5 of the unit: half an hour = 30m,
+    // half a day = 12h. Only a single leading quantity+unit is read — combined
+    // prose like "one hour and thirty minutes" resumes on the hour, and any
+    // early resume simply re-detects and re-queues (safe, self-correcting).
+    name: "word-relative-duration",
+    regex:
+      /(?:try again|resets?|retry)\s+in\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|half(?:\s+an?)?)\s+(hours?|hrs?|minutes?|mins?|days?)\b/i,
+    resolve: (m, now) => {
+      const word = m[1].toLowerCase().replace(/\s+/g, " ");
+      const count = word.startsWith("half") ? 0.5 : WORD_NUMBERS[word];
+      if (count === undefined) return null;
+      const unitMinutes = WORD_DURATION_UNIT_MINUTES[m[2].toLowerCase().replace(/s$/, "")];
+      if (unitMinutes === undefined) return null;
+      return new Date(now.getTime() + count * unitMinutes * 60_000);
     },
   },
   {
