@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseRateLimitMessage } from "../src/parser.js";
+import { CODEX_CLI_ADAPTER } from "../src/adapters.js";
+import { explainRateLimitMessage, parseRateLimitMessage } from "../src/parser.js";
 
 describe("parseRateLimitMessage", () => {
   it("returns null for unrelated text", () => {
@@ -248,5 +249,67 @@ describe("parseRateLimitMessage", () => {
     const result = parseRateLimitMessage(noisy, { now });
     expect(result?.pattern).toBe("relative-duration");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
+  });
+});
+
+describe("explainRateLimitMessage", () => {
+  const now = new Date("2026-07-20T12:00:00.000Z");
+
+  it("reports a probe for every generic pattern in priority order", () => {
+    const ex = explainRateLimitMessage("Build succeeded.", { now });
+    // One probe per built-in generic pattern, none matched.
+    expect(ex.patterns.length).toBeGreaterThanOrEqual(7);
+    expect(ex.patterns.every((p) => p.source === "generic")).toBe(true);
+    expect(ex.patterns.some((p) => p.matched)).toBe(false);
+    expect(ex.detected).toBeNull();
+    // First generic pattern is the ISO one.
+    expect(ex.patterns[0].name).toBe("iso-timestamp");
+  });
+
+  it("winning detection is identical to parseRateLimitMessage", () => {
+    const text = "usage limit reached — resets at 2026-07-20T17:00:00Z";
+    const ex = explainRateLimitMessage(text, { now });
+    expect(ex.detected).toEqual(parseRateLimitMessage(text, { now }));
+    expect(ex.detected?.pattern).toBe("iso-timestamp");
+    const winner = ex.patterns.find((p) => p.name === "iso-timestamp");
+    expect(winner?.matched).toBe(true);
+    expect(winner?.resetAt).toBe("2026-07-20T17:00:00.000Z");
+  });
+
+  it("flags a pattern that matches but is blocked by the pre-filter", () => {
+    // "5-hour limit" matches the five-hour fallback regex, but trips no
+    // pre-filter keyword, so the real parser ignores it.
+    const text = "You are on the 5-hour limit plan.";
+    expect(parseRateLimitMessage(text, { now })).toBeNull();
+    const ex = explainRateLimitMessage(text, { now });
+    expect(ex.prefilterPassed).toBe(false);
+    expect(ex.detected).toBeNull();
+    const fallback = ex.patterns.find((p) => p.name === "five-hour-window-fallback");
+    expect(fallback?.matched).toBe(true);
+    expect(fallback?.blockedByPrefilter).toBe(true);
+  });
+
+  it("marks lower-priority matches that lost, not the winner, and never flags them blocked", () => {
+    // Both a relative duration and the five-hour fallback appear; the earlier
+    // (higher-priority) pattern wins, the pre-filter passes.
+    const text = "usage limit: this is a 5-hour limit, try again in 2h";
+    const ex = explainRateLimitMessage(text, { now });
+    expect(ex.prefilterPassed).toBe(true);
+    expect(ex.detected?.pattern).toBe("relative-duration");
+    const fallback = ex.patterns.find((p) => p.name === "five-hour-window-fallback");
+    expect(fallback?.matched).toBe(true);
+    expect(fallback?.blockedByPrefilter).toBe(false); // matched but lost priority, not blocked
+  });
+
+  it("tries adapter patterns first, bypassing the pre-filter", () => {
+    // Bare-seconds wording the generic parser misses; codex adapter catches it.
+    const ex = explainRateLimitMessage("Please try again in 20s.", {
+      now,
+      extraPatterns: CODEX_CLI_ADAPTER.patterns,
+    });
+    expect(ex.patterns[0].source).toBe("adapter");
+    expect(ex.patterns[0].name).toBe("codex-relative-seconds");
+    expect(ex.detected?.pattern).toBe("codex-relative-seconds");
+    expect(ex.detected?.resetAt).toBe(new Date(now.getTime() + 20_000).toISOString());
   });
 });

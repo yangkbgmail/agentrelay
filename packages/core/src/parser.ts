@@ -170,3 +170,95 @@ export function parseRateLimitMessage(text: string, options: ParseOptions = {}):
 
   return null;
 }
+
+/**
+ * The outcome of trying one named pattern against a message. Used by
+ * {@link explainRateLimitMessage} to expose *every* pattern's result, not just
+ * the winning one.
+ */
+export interface PatternProbe {
+  /** The pattern's stable name (matches `RateLimitInfo.pattern` for the winner). */
+  name: string;
+  /** Where the pattern came from: an agent adapter, or the built-in generic set. */
+  source: "adapter" | "generic";
+  /** Whether the pattern's regex matched and resolved to a valid reset time. */
+  matched: boolean;
+  /** The substring that matched, when `matched` is true (else null). */
+  rawMatch: string | null;
+  /** The reset time the pattern resolved to (ISO), when it matched (else null). */
+  resetAt: string | null;
+  /**
+   * True when this pattern matched but did *not* become the winning detection
+   * solely because the generic pre-filter rejected the message. Surfaces the
+   * otherwise-invisible case where a generic pattern would match in isolation
+   * yet can never fire in real use (e.g. `"5-hour limit"` matches the fallback
+   * pattern but trips no pre-filter keyword). Always false for adapter patterns
+   * (they bypass the pre-filter) and for the winner itself.
+   */
+  blockedByPrefilter: boolean;
+}
+
+/**
+ * A full diagnostic of how the parser sees one message: the winning detection
+ * (byte-for-byte what {@link parseRateLimitMessage} returns for the same input
+ * and options), every pattern's individual outcome in priority order, and
+ * whether the generic pre-filter passed.
+ *
+ * Unlike `parseRateLimitMessage`, this keeps probing *all* generic patterns
+ * even when the pre-filter fails, so a pattern that matches in isolation but is
+ * blocked from ever firing is still visible (flagged `blockedByPrefilter`).
+ */
+export interface RateLimitExplanation {
+  /** The winning detection, identical to `parseRateLimitMessage`. Null if none. */
+  detected: RateLimitInfo | null;
+  /** Every pattern tried, in the same priority order the parser uses. */
+  patterns: PatternProbe[];
+  /** Whether the generic pre-filter matched (adapter patterns bypass it). */
+  prefilterPassed: boolean;
+}
+
+/**
+ * Diagnostic sibling of {@link parseRateLimitMessage}: reports how every
+ * pattern reacts to `text`, which one wins, and whether the pre-filter passed.
+ * Pure aside from `options.now` defaulting to the current time.
+ */
+export function explainRateLimitMessage(text: string, options: ParseOptions = {}): RateLimitExplanation {
+  const now = options.now ?? new Date();
+  const probes: PatternProbe[] = [];
+  let detected: RateLimitInfo | null = null;
+
+  // Adapter patterns are highest priority and bypass the pre-filter, exactly as
+  // in `parseRateLimitMessage`.
+  for (const pattern of options.extraPatterns ?? []) {
+    const hit = tryPattern(pattern, text, now);
+    if (hit && !detected) detected = hit;
+    probes.push({
+      name: pattern.name,
+      source: "adapter",
+      matched: hit !== null,
+      rawMatch: hit?.rawMatch ?? null,
+      resetAt: hit?.resetAt ?? null,
+      blockedByPrefilter: false,
+    });
+  }
+
+  const prefilterPassed = LOOKS_LIKE_RATE_LIMIT.test(text);
+
+  for (const pattern of PATTERNS) {
+    const hit = tryPattern(pattern, text, now);
+    const isWinner = hit !== null && detected === null && prefilterPassed;
+    if (isWinner) detected = hit;
+    probes.push({
+      name: pattern.name,
+      source: "generic",
+      matched: hit !== null,
+      rawMatch: hit?.rawMatch ?? null,
+      resetAt: hit?.resetAt ?? null,
+      // A generic pattern that matched but couldn't win *only* because the
+      // pre-filter rejected the whole message.
+      blockedByPrefilter: hit !== null && !prefilterPassed,
+    });
+  }
+
+  return { detected, patterns: probes, prefilterPassed };
+}

@@ -4,8 +4,8 @@
 // would resume. Kept as pure functions here (no stdin/clock unless injected),
 // separate from the commander wiring in cli.ts, so the exact output is testable.
 
-import type { AgentTool, RateLimitInfo } from "@agentrelay/core";
-import { resolveAdapter } from "@agentrelay/core";
+import type { AgentTool, PatternProbe, RateLimitInfo } from "@agentrelay/core";
+import { explainRateLimitMessage, resolveAdapter } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
 const BOLD = "\x1b[1m";
@@ -83,6 +83,121 @@ export function renderParseReport(report: ParseReport, options: { now?: number; 
  * don't re-parse the ISO string. Pure aside from `now` defaulting.
  */
 export function renderParseReportJson(report: ParseReport, options: { now?: number } = {}): string {
+  const now = options.now ?? Date.now();
+  let resetInMs: number | null = null;
+  if (report.resetAt) {
+    const target = new Date(report.resetAt).getTime();
+    if (!Number.isNaN(target)) resetInMs = target - now;
+  }
+  return JSON.stringify({ ...report, resetInMs }, null, 2);
+}
+
+/**
+ * The `--all` view of a parse: the same winning-detection fields as
+ * {@link ParseReport}, plus every pattern's individual outcome (in the parser's
+ * priority order) and whether the generic pre-filter passed. Lets pattern
+ * authors and users see exactly which patterns fire, which merely match but
+ * lose priority, and which match yet are blocked by the pre-filter.
+ */
+export interface ParseExplanation {
+  tool: AgentTool;
+  matched: boolean;
+  resetAt: string | null;
+  rawMatch: string | null;
+  pattern: string | null;
+  prefilterPassed: boolean;
+  patterns: PatternProbe[];
+}
+
+/**
+ * Run the diagnostic explainer against `text` for the given tool's adapter.
+ * Pure aside from `options.now` (defaults inside the core explainer).
+ */
+export function buildParseExplanation(text: string, options: { tool?: AgentTool; now?: Date } = {}): ParseExplanation {
+  const adapter = resolveAdapter({ tool: options.tool });
+  const explanation = explainRateLimitMessage(text, {
+    extraPatterns: adapter.patterns,
+    ...(options.now ? { now: options.now } : {}),
+  });
+  const { detected } = explanation;
+  return {
+    tool: adapter.tool,
+    matched: detected !== null,
+    resetAt: detected?.resetAt ?? null,
+    rawMatch: detected?.rawMatch ?? null,
+    pattern: detected?.pattern ?? null,
+    prefilterPassed: explanation.prefilterPassed,
+    patterns: explanation.patterns,
+  };
+}
+
+/**
+ * Render the `--all` explanation as a human-readable table: one row per
+ * pattern in priority order, with a marker for the winner (★), plain matches
+ * that lost priority (✓), pre-filter-blocked matches (⚠), and misses (·). Pure:
+ * no I/O; `now` is only used for the winner's reset countdown, `color` gates
+ * ANSI codes (TTY only).
+ */
+export function renderParseExplanation(
+  report: ParseExplanation,
+  options: { now?: number; color?: boolean } = {}
+): string {
+  const color = options.color ?? false;
+  const now = options.now ?? Date.now();
+
+  const nameWidth = report.patterns.reduce((max, p) => Math.max(max, p.name.length), 0);
+  const lines: string[] = [`Pattern report ${paint(DIM, `(adapter: ${report.tool})`, color)}`, ""];
+
+  for (const probe of report.patterns) {
+    const isWinner = report.matched && probe.name === report.pattern && probe.rawMatch === report.rawMatch;
+    let marker: string;
+    let detail: string;
+    if (isWinner) {
+      const countdown = formatCountdown(probe.resetAt, now);
+      marker = paint(GREEN, "★", color);
+      detail = `${JSON.stringify(probe.rawMatch)} ${paint(DIM, `→ ${probe.resetAt} (in ${countdown})`, color)}`;
+    } else if (probe.blockedByPrefilter) {
+      marker = paint(YELLOW, "⚠", color);
+      detail = `${JSON.stringify(probe.rawMatch)} ${paint(YELLOW, "(matched but blocked by pre-filter)", color)}`;
+    } else if (probe.matched) {
+      marker = paint(DIM, "✓", color);
+      detail = `${JSON.stringify(probe.rawMatch)} ${paint(DIM, "(matched but a higher-priority pattern won)", color)}`;
+    } else {
+      marker = paint(DIM, "·", color);
+      detail = paint(DIM, "—", color);
+    }
+    const label = paint(DIM, `[${probe.source}]`, color);
+    lines.push(`  ${marker} ${probe.name.padEnd(nameWidth)}  ${label}  ${detail}`);
+  }
+
+  lines.push("");
+  if (report.matched) {
+    const countdown = formatCountdown(report.resetAt, now);
+    lines.push(
+      `${paint(GREEN, "Result:", color)} rate limit detected via ${paint(BOLD, report.pattern ?? "", color)} — resumes in ${countdown}.`
+    );
+  } else {
+    const blocked = report.patterns.some((p) => p.blockedByPrefilter);
+    lines.push(`${paint(YELLOW, "Result:", color)} no rate-limit detected.`);
+    if (blocked) {
+      lines.push(
+        paint(
+          DIM,
+          "  A pattern matched but the message tripped no pre-filter keyword, so AgentRelay ignores it.",
+          color
+        )
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Render the `--all` explanation as JSON (machine-readable). Adds `resetInMs`
+ * to the winning detection (as {@link renderParseReportJson} does). Pure aside
+ * from `now` defaulting.
+ */
+export function renderParseExplanationJson(report: ParseExplanation, options: { now?: number } = {}): string {
   const now = options.now ?? Date.now();
   let resetInMs: number | null = null;
   if (report.resetAt) {
