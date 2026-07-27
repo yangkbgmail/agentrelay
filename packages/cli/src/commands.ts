@@ -43,6 +43,7 @@ import {
   evaluateWait,
   exportJobs,
   findConfigField,
+  getEffectiveConfigValue,
   hasConfigErrors,
   heartbeatStaleAfterMs,
   type ImportFormat,
@@ -63,6 +64,7 @@ import {
   planImport,
   RelayQueue,
   RelayScheduler,
+  type ResolvedConfigValue,
   type RestorePreview,
   type RestoreResult,
   resolveAdapter,
@@ -1102,6 +1104,46 @@ export function showConfig(options: ConfigShowOptions = {}): ConfigShowResult {
   }
   const entries = resolveEffectiveConfig(fileConfig, env);
   return { path, entries, loadError };
+}
+
+/** Outcome of {@link getConfigValue}: one resolved setting plus where it came from. */
+export interface ConfigGetResult {
+  /** The dotted key the caller asked for. */
+  key: string;
+  /** True when `key` is a known settable field; false → `resolved` is null. */
+  found: boolean;
+  /** The resolved value + source, or null when the key is unknown. */
+  resolved: ResolvedConfigValue | null;
+  /** The config file that fed the resolution, or null when none was found. */
+  path: string | null;
+  /** Set when a config file was found but couldn't be loaded/parsed (non-fatal). */
+  loadError?: string;
+}
+
+/**
+ * Resolves a *single* config setting by its dotted key — the scriptable
+ * counterpart to `showConfig`. Same env > file > default precedence and the
+ * same never-throw contract (a malformed file is reported via `loadError` but
+ * env/default resolution still proceeds). Returns `found: false` for an
+ * unknown key so the CLI can print the valid list and exit non-zero.
+ */
+export function getConfigValue(key: string, options: ConfigShowOptions = {}): ConfigGetResult {
+  const env = options.env ?? process.env;
+  let fileConfig: AgentRelayConfig | null = null;
+  let path: string | null = null;
+  let loadError: string | undefined;
+  try {
+    const loaded = loadConfigFile({ path: options.path, cwd: options.cwd, env });
+    if (loaded) {
+      fileConfig = loaded.config;
+      path = loaded.path;
+    }
+  } catch (error) {
+    path = resolveConfigPath({ path: options.path, cwd: options.cwd, env });
+    loadError = String(error);
+  }
+  const resolved = getEffectiveConfigValue(key, fileConfig, env);
+  return { key, found: resolved !== null, resolved, path, loadError };
 }
 
 export interface DoctorOptions {

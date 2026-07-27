@@ -575,6 +575,19 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay config get <key>` — 단일 설정 키의 유효값을 스크립트 친화적으로 한 값만 stdout에
+      출력(`STORE=$(agentrelay config get store)`). `config show`가 전체 표를 출력·마스킹하는 데 반해,
+      `get`은 값 하나만 뽑아 셸 변수/CI에서 바로 쓰게 함. env > 파일 > 기본값 정밀도를 그대로 따르고,
+      기본값(미설정) 키는 아무것도 출력하지 않고 exit 3으로 "설정된 빈 값"과 구분, 알 수 없는 키는 exit 2.
+      (완료 — 순수 core `getEffectiveConfigValue(dottedKey, fileConfig, env)` 신설: 점(dot) 키를 인덱스
+      대응으로 `AGENTRELAY_*` env 키에 매핑 후 `resolveEffectiveConfig`로 값·출처 해소, 미지의 키엔 null
+      반환(→ CLI가 유효 키 목록과 함께 exit 2). CLI `getConfigValue`(never-throw, `showConfig`와 동일한
+      로드 규약)·`config.ts`에 `configGetDisplayValue`(비밀값은 기본 마스킹, `--show-secrets`로 노출)·
+      `renderConfigGetJson`. `config get`을 부트스트랩 스킵 목록에 추가해 파일값이 env로 접혀 출처가
+      왜곡되지 않도록 함(`config show`와 동일 처리). core 7 + cli 7 신규 테스트, 실제 빌드 CLI e2e로
+      파일값/env 우선순위/기본값 exit 3/미지 키 exit 2/비밀 마스킹·노출/`--json`/`$(...)` 캡처 검증.
+      branch `claude/wizardly-pascal-i7sk54`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

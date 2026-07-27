@@ -1,8 +1,8 @@
 // Shared with the dashboard via @agentrelay/core so every entry point
 // resolves the same store file.
-import type { ConfigGroup, EffectiveConfigEntry } from "@agentrelay/core";
+import type { ConfigGroup, EffectiveConfigEntry, ResolvedConfigValue } from "@agentrelay/core";
 import { applyConfigToEnv, loadConfigFile } from "@agentrelay/core";
-import type { ConfigShowResult } from "./commands.js";
+import type { ConfigGetResult, ConfigShowResult } from "./commands.js";
 
 export { defaultStorePath } from "@agentrelay/core";
 
@@ -37,7 +37,7 @@ export function configPathFromArgv(argv: string[]): string | undefined {
 }
 
 /** `config` subcommands that must run without the startup {@link bootstrapConfig}. */
-const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "set", "unset"]);
+const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "get", "set", "unset"]);
 
 /**
  * True when argv invokes a `config` subcommand that must run *without* the
@@ -45,10 +45,10 @@ const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "set", "unset"])
  *
  * - `validate` diagnoses a possibly-malformed file; bootstrap throws on one,
  *   which would abort before validate can report the problem.
- * - `show` reports the env > file > default precedence; bootstrap would fold
- *   the config file's values into `process.env` first, making them all look
- *   like they came from the environment. Skipping it keeps the layers distinct
- *   (`show` loads the file itself to attribute each value).
+ * - `show`/`get` report the env > file > default precedence; bootstrap would
+ *   fold the config file's values into `process.env` first, making them all
+ *   look like they came from the environment. Skipping it keeps the layers
+ *   distinct (both load the file themselves to attribute each value).
  * - `set`/`unset` edit the file directly; bootstrap would abort on a malformed
  *   existing file before the command can report its own clear error, and its
  *   env-folding is irrelevant since these commands never read env-driven options.
@@ -178,4 +178,42 @@ export function renderEffectiveConfigJson(
   generatedAt: string = new Date().toISOString()
 ): string {
   return JSON.stringify({ generatedAt, ...result }, null, 2);
+}
+
+/**
+ * The bare value a `config get <key>` should print to stdout so a script can
+ * capture it (`X=$(agentrelay config get store)`): the effective value, masked
+ * when it's a secret unless `showSecrets` is set, or `undefined` when the
+ * built-in default applies (the CLI prints nothing then, keeping stdout clean).
+ * Pure — no I/O.
+ */
+export function configGetDisplayValue(resolved: ResolvedConfigValue, showSecrets: boolean): string | undefined {
+  if (resolved.value === undefined) return undefined;
+  if (resolved.secret && !showSecrets) return maskSecret(resolved.value);
+  return resolved.value;
+}
+
+/**
+ * Machine-readable form for `config get --json`: the dotted key, the env var it
+ * maps to, the (masked-unless-`showSecrets`) value, its source, and the config
+ * file consulted. `value` is null when the built-in default applies. For an
+ * unknown key, `found` is false and value/source/envKey are null.
+ */
+export function renderConfigGetJson(result: ConfigGetResult, showSecrets: boolean): string {
+  const r = result.resolved;
+  const value = r && r.value !== undefined ? (r.secret && !showSecrets ? maskSecret(r.value) : r.value) : null;
+  return JSON.stringify(
+    {
+      key: result.key,
+      found: result.found,
+      envKey: r?.envKey ?? null,
+      value,
+      source: r?.source ?? null,
+      secret: r?.secret ?? null,
+      configPath: result.path,
+      ...(result.loadError ? { loadError: result.loadError } : {}),
+    },
+    null,
+    2
+  );
 }
