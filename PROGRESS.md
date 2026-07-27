@@ -1489,3 +1489,32 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 기능 `agentrelay show <id> --watch` (특정 잡 라이브 상세 뷰)] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-sk0kgn`)
+- **배경:** BACKLOG의 👷(클로드 코드) 명시 항목이 전부 완료 상태. CLAUDE.md 지침("§8 무한 개선
+  백로그를 계속 소진, 비면 스스로 새 개선 항목 발굴")에 따라, 파서 reset-at·config get·stats
+  --by-hour·재개 stagger 등 열린 PR이 몰린 중복 무리를 피해 어느 것과도 겹치지 않는 distinct
+  신규 기능을 발굴. `status --watch`는 큐 전체를 라이브로 보여주지만, **잡 하나를 큐잉하고 그
+  리셋 카운트다운을 지켜보다 재개·완료를 확인하는 가장 흔한 시나리오**에는 초점 뷰가 없던 갭을 선택.
+- **한 일:** **`agentrelay show <id> --watch [seconds]`** 구현 — 특정 잡 하나의 전체 상세 뷰를
+  인터벌마다 재렌더해 리셋 카운트다운이 제자리에서 똑딱거리는 라이브 TUI. `wait`(무음 블록)·
+  `next`(한 줄)와 상보적.
+  - CLI `show.ts`에 순수 `renderShowWatchFrame(job|null, storePath, intervalMs, now, missingNote?)`
+    신설: `status`의 `renderWatchFrame`을 미러(제목 + 타임스탬프/스토어 경로 메타 헤더 +
+    `renderJobDetail` 본문, color 항상 on — watch는 TTY 전제). 잡이 watch 도중 사라지거나(prune)
+    prefix가 더 이상 해소 안 되면 `job=null`로 note를 대신 렌더하고 루프는 계속(일시적 스토어
+    재기록이 뷰를 무너뜨리지 않게).
+  - CLI `cli.ts`에 `runShowWatch(store, id, intervalMs)` 루프 추가 — `runWatch`를 미러하되 매 패스
+    `showJob`으로 스토어 재읽기 + id 재해소(별도 daemon/tick의 상태 flip·resetAt 갱신·재개/완료를
+    자동 관측), 화면 클리어 후 프레임 페인트, SIGINT/SIGTERM에 정리. `show` 커맨드에
+    `-w, --watch [seconds]` 옵션 배선(기본 2초, `status`와 동일 인터벌 파싱).
+  - 우선순위 규칙: 미존재/모호 id는 루프 진입 **전** 1회 해소로 fail-fast(exit 1), `--json`은
+    `--watch`보다 우선(스냅샷 스트림이 스크립트를 안 놀래킴). 새 core 코드 0줄 — 기존 검증된
+    `renderJobDetail`(show.ts)·`showJob`(commands.ts) 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린 · `pnpm ci:lint`(Biome) 0경고 ·
+  `pnpm test` 전 패키지 통과(show.test.ts 18, renderShowWatchFrame 5케이스 신규). 실제 빌드된 CLI
+  e2e(mock 아님): 활성 잡 시드 후 `show <id> --watch 1`이 1초마다 라이브 프레임 재드로우(타임스탬프
+  전진 확인)·전체 상세 블록 렌더, 미존재 id `--watch`는 exit 1로 fail-fast, `--json --watch`는 json
+  스냅샷 우선(루프 미진입) 검증.
+- **다음 할 일:** 남은 distinct 신규 기능 발굴 또는 열린 PR 통합 계속. 대시보드에 단일 잡 상세/watch
+  대응 화면도 후보. README/ARCHITECTURE·경쟁 도구 조사(🧭 코워크).

@@ -1,6 +1,6 @@
 import type { RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { formatCommand, renderJobDetail, renderJobDetailJson } from "../src/show.js";
+import { formatCommand, renderJobDetail, renderJobDetailJson, renderShowWatchFrame } from "../src/show.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -125,5 +125,40 @@ describe("renderJobDetailJson", () => {
     expect(parsed.generatedAt).toBe(generatedAt);
     expect(parsed.job.id).toBe("abcdef1234567890");
     expect(parsed.job.command).toEqual(["claude", "-p", "continue the refactor"]);
+  });
+});
+
+describe("renderShowWatchFrame", () => {
+  it("renders a live header, the store path, and the job's detail block", () => {
+    const out = renderShowWatchFrame(job(), "/store/jobs.json", 2000, NOW);
+    expect(out).toContain("agentrelay show");
+    expect(out).toContain("live, every 2s");
+    expect(out).toContain("/store/jobs.json");
+    // The body is the same detail view as one-shot `show`.
+    expect(out).toContain("Job abcdef1234567890");
+    expect(out).toContain("resets in");
+  });
+
+  it("stamps the header with the injected now (deterministic)", () => {
+    const out = renderShowWatchFrame(job(), "/store/jobs.json", 5000, NOW);
+    expect(out).toContain("2026-07-13 00:00:00Z");
+    expect(out).toContain("live, every 5s");
+  });
+
+  it("always emits color in the detail body (watch is a TTY view)", () => {
+    expect(renderShowWatchFrame(job(), "/store/jobs.json", 2000, NOW)).toContain("\x1b[");
+  });
+
+  it("shows the default not-found note when the job is null", () => {
+    const out = renderShowWatchFrame(null, "/store/jobs.json", 2000, NOW);
+    expect(out).toContain("agentrelay show");
+    expect(out).toContain("Job not found (it may have been pruned).");
+    expect(out).not.toContain("Job abcdef");
+  });
+
+  it("shows a caller-supplied missing note in place of the detail block", () => {
+    const out = renderShowWatchFrame(null, "/store/jobs.json", 2000, NOW, "ambiguous id prefix");
+    expect(out).toContain("ambiguous id prefix");
+    expect(out).not.toContain("Job not found");
   });
 });

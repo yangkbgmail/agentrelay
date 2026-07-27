@@ -116,6 +116,33 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
   return lines.join("\n");
 }
 
+/**
+ * One frame of the live `show --watch` view: a title/meta header block plus the
+ * full detail of the one job being tracked. Mirrors `status`'s `renderWatchFrame`
+ * so the two live views feel the same. When the job can't be resolved (e.g. it
+ * was pruned mid-watch, or a prefix became ambiguous), `job` is null and
+ * `missingNote` is shown in its place instead — the loop keeps running rather
+ * than tearing down, so a transient store rewrite doesn't kill the view.
+ * Color is always on (a watch only makes sense on a TTY).
+ */
+export function renderShowWatchFrame(
+  job: RelayJob | null,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now(),
+  missingNote?: string
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay show${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  const body = job
+    ? renderJobDetail(job, { now, color: true })
+    : `${DIM}${missingNote ?? "Job not found (it may have been pruned)."}${RESET}`;
+  return [title, meta, "", body].join("\n");
+}
+
 /** Machine-readable single-job snapshot for `--json` (scripts, jq, tooling). */
 export function renderJobDetailJson(
   job: RelayJob,

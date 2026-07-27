@@ -575,6 +575,23 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay show <id> --watch` — 특정 잡 하나의 상세 뷰를 라이브로 재렌더(리셋
+      카운트다운이 제자리에서 똑딱). `status --watch`는 큐 전체를 보여주지만, 잡 하나를
+      큐잉하고 리셋을 지켜보다 재개·완료를 확인하는 가장 흔한 시나리오에는 초점 뷰가 없었다.
+      (완료 — CLI `show.ts`에 순수 `renderShowWatchFrame(job|null, storePath, intervalMs, now,
+      missingNote?)` 신설: `status`의 `renderWatchFrame`을 미러(제목/타임스탬프/스토어 경로 헤더 +
+      `renderJobDetail` 본문, color 항상 on). 잡이 watch 도중 사라지거나(prune) prefix가 더 이상
+      해소 안 되면 `job=null`로 note를 대신 렌더하고 루프는 계속(일시적 스토어 재기록이 뷰를
+      무너뜨리지 않게). CLI `cli.ts`에 `runShowWatch(store, id, intervalMs)` 루프 추가 —
+      `status`의 `runWatch`를 미러하되 매 패스 `showJob`으로 스토어 재읽기+id 재해소(별도
+      daemon/tick의 상태 flip·resetAt 갱신·재개/완료를 자동 관측), SIGINT/SIGTERM에 정리. `show`에
+      `-w, --watch [seconds]` 옵션 배선(기본 2초, `status`와 동일 인터벌 파싱). 우선순위: 미존재 id는
+      루프 진입 **전** 1회 해소로 fail-fast(exit 1), `--json`은 `--watch`보다 우선(스냅샷 스트림이
+      스크립트를 안 놀래킴). 새 core 코드 0줄 — 기존 검증된 `renderJobDetail`(show.ts)·`showJob`
+      (commands.ts) 재사용. show.test.ts에 renderShowWatchFrame 5케이스 추가(총 18), 실제 빌드 CLI
+      e2e로 라이브 프레임 1초 재드로우·미존재 id exit 1·`--json` 우선·not-found note 검증.
+      branch `claude/wizardly-pascal-sk0kgn`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
