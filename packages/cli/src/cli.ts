@@ -15,6 +15,7 @@ import {
   ALL_TOOLS,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
+  computeBackoffSchedule,
   computeDailyTrend,
   computeErrorBreakdown,
   computeStats,
@@ -30,6 +31,7 @@ import {
   parseCsvColumns,
   parseDuration,
   renderPrometheusMetrics,
+  retryPolicyFromEnv,
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
   selectNextResume,
@@ -37,6 +39,7 @@ import {
   summarizeRateLimitPatterns,
 } from "@agentrelay/core";
 import { Command } from "commander";
+import { renderBackoff, renderBackoffJson } from "./backoff.js";
 import {
   ALL_JOB_STATUSES,
   type BulkControlAction,
@@ -549,6 +552,45 @@ export function buildCli(): Command {
         if (next === null) process.exitCode = 4;
         else if (!next.due) process.exitCode = 3;
         // due-now → exit 0 (default).
+      }
+    });
+
+  program
+    .command("backoff")
+    .description("Preview the retry backoff schedule for transient failures (spawn error / non-zero exit)")
+    .option(
+      "-n, --attempts <n>",
+      "Number of backoff steps to preview (overrides the policy's own count; useful for unlimited policies)"
+    )
+    .option("--json", "Print the schedule as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # what the default policy waits between transient retries\n" +
+        "  agentrelay backoff\n" +
+        "  # preview 8 steps of an unlimited policy\n" +
+        "  AGENTRELAY_MAX_ATTEMPTS=0 agentrelay backoff --attempts 8"
+    )
+    .action((opts: { attempts?: string; json?: boolean }) => {
+      let steps: number | undefined;
+      if (opts.attempts !== undefined) {
+        const n = Number(opts.attempts);
+        if (!Number.isFinite(n) || n <= 0 || Math.floor(n) !== n) {
+          console.error(`[agentrelay] Invalid --attempts: ${opts.attempts}. Use a positive integer (e.g. 5).`);
+          process.exitCode = 1;
+          return;
+        }
+        steps = n;
+      }
+
+      // Reflects env + config-file (via startup bootstrap) tuning, exactly like
+      // the scheduler resolves its policy — so the preview matches reality.
+      const schedule = computeBackoffSchedule(retryPolicyFromEnv(), steps === undefined ? {} : { steps });
+
+      if (opts.json) {
+        console.log(renderBackoffJson(schedule));
+      } else {
+        console.log(renderBackoff(schedule, { color: Boolean(process.stdout.isTTY) }));
       }
     });
 

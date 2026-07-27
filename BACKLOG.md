@@ -575,6 +575,21 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay backoff` — 재시도 백오프 스케줄 미리보기(transient failure의 구체적 대기 시퀀스).
+      (완료 — `config show`/`config validate`는 재시도 정책의 raw 값[baseDelayMs/factor/maxDelayMs/jitter/
+      maxAttempts]만 노출할 뿐 그 값들이 실제로 어떤 대기 시퀀스를 만드는지 확인할 방법이 없었다.
+      core `retry.ts`에 순수 `computeBackoffSchedule(policy, {steps?})` + `BackoffSchedule`/`BackoffStep`
+      타입 + `DEFAULT_BACKOFF_PREVIEW_STEPS`(5) 추가 — 스케줄러와 동일 의미로 attempt 1..maxAttempts-1의
+      between-attempt 대기를 산출(캡 정책), 무제한(maxAttempts≤0)은 기본 5개 미리보기, `steps`로 명시
+      오버라이드(무제한/캡 초과 확인), jitter는 샘플이 아닌 `computeBackoffMs`가 퍼뜨릴 `[min,max]` 경계로
+      리포트(동일 재클램프), 각 step에 캡 적중 플래그. 시계/난수/I/O 0. CLI `backoff.ts`에 순수
+      `formatPolicyLine`·`renderBackoff`(정책 줄 + step별 대기[지터 시 범위] + 총합, 기존 `formatDurationMs`
+      재사용, color 게이트)·`renderBackoffJson`. `agentrelay backoff [-n/--attempts N] [--json]`이
+      `retryPolicyFromEnv()`로 env+설정파일 반영 정책 해소, 잘못된 `--attempts`는 exit 1. 새 파서/스케줄러
+      로직 0줄. core retry.test +8 / cli backoff.test +8, 실제 빌드 CLI e2e로 기본 스케줄·커스텀+지터 경계·
+      무제한 --attempts·maxAttempts 1(재시도 없음)·--json·잘못된 --attempts→exit1 검증. branch
+      `claude/wizardly-pascal-1o4sub`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

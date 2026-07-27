@@ -57,6 +57,106 @@ export function isRetryExhausted(policy: RetryPolicy, attemptNumber: number): bo
   return policy.maxAttempts > 0 && attemptNumber >= policy.maxAttempts;
 }
 
+/** How many backoff steps to preview when the policy is unlimited (`maxAttempts <= 0`). */
+export const DEFAULT_BACKOFF_PREVIEW_STEPS = 5;
+
+/**
+ * One between-attempt wait in a retry schedule. `attempt` is the 1-indexed
+ * attempt *after which* the relay waits `delayMs` before retrying (matching the
+ * scheduler: attempt N fails → wait `computeBackoffMs(policy, N)` → attempt
+ * N+1). `capped` is true when the uncapped exponential value reached or exceeded
+ * `maxDelayMs` (so this and every later step show the ceiling). When the policy
+ * has jitter, `jitterLowMs`/`jitterHighMs` carry the `[min, max]` bounds the
+ * actual wait can land in; otherwise they are undefined.
+ */
+export interface BackoffStep {
+  attempt: number;
+  delayMs: number;
+  capped: boolean;
+  jitterLowMs?: number;
+  jitterHighMs?: number;
+}
+
+/**
+ * A preview of the exponential-backoff wait sequence a {@link RetryPolicy}
+ * produces for *transient* failures (spawn error / non-zero exit that isn't a
+ * rate limit). `totalMs` is the sum of the deterministic waits; with jitter,
+ * `totalLowMs`/`totalHighMs` bound the total. `unlimited` mirrors the policy's
+ * uncapped attempts (`maxAttempts <= 0`), in which case `steps` is a finite
+ * preview rather than the full sequence.
+ */
+export interface BackoffSchedule {
+  policy: RetryPolicy;
+  steps: BackoffStep[];
+  totalMs: number;
+  totalLowMs?: number;
+  totalHighMs?: number;
+  unlimited: boolean;
+}
+
+/**
+ * Translates a raw {@link RetryPolicy} into the concrete sequence of waits it
+ * produces, so users can answer "base 30s, ×3, jitter 0.2 — how long between
+ * retries?" *before* a failure happens. Pure: no clock, no randomness, no I/O.
+ *
+ * Step count:
+ * - `options.steps` (a positive integer), when given, is used verbatim — handy
+ *   for previewing an unlimited policy or looking past the attempt cap.
+ * - otherwise a limited policy (`maxAttempts > 0`) yields `maxAttempts - 1`
+ *   waits (the scheduler stops waiting once the attempt cap is hit), and an
+ *   unlimited policy yields {@link DEFAULT_BACKOFF_PREVIEW_STEPS}.
+ *
+ * Delays reuse {@link computeBackoffMs} (jitter off) so the deterministic value
+ * matches the scheduler exactly; jitter bounds mirror its spread/re-clamp.
+ */
+export function computeBackoffSchedule(policy: RetryPolicy, options: { steps?: number } = {}): BackoffSchedule {
+  const unlimited = policy.maxAttempts <= 0;
+
+  let count: number;
+  if (options.steps !== undefined && Number.isFinite(options.steps) && options.steps > 0) {
+    count = Math.floor(options.steps);
+  } else if (unlimited) {
+    count = DEFAULT_BACKOFF_PREVIEW_STEPS;
+  } else {
+    count = Math.max(0, policy.maxAttempts - 1);
+  }
+
+  const fraction = policy.jitter > 0 ? Math.min(1, policy.jitter) : 0;
+  const steps: BackoffStep[] = [];
+  let totalMs = 0;
+  let totalLowMs = 0;
+  let totalHighMs = 0;
+
+  for (let attempt = 1; attempt <= count; attempt++) {
+    const exponent = Math.max(0, attempt - 1);
+    const raw = policy.baseDelayMs * policy.factor ** exponent;
+    const rawRounded = Number.isFinite(raw) ? Math.round(raw) : Number.POSITIVE_INFINITY;
+    const delayMs = computeBackoffMs(policy, attempt); // clamped, deterministic (no rng)
+    const capped = rawRounded >= policy.maxDelayMs;
+
+    const step: BackoffStep = { attempt, delayMs, capped };
+    totalMs += delayMs;
+
+    if (fraction > 0) {
+      const low = Math.max(0, Math.round(delayMs * (1 - fraction)));
+      const high = Math.min(policy.maxDelayMs, Math.round(delayMs * (1 + fraction)));
+      step.jitterLowMs = low;
+      step.jitterHighMs = high;
+      totalLowMs += low;
+      totalHighMs += high;
+    }
+
+    steps.push(step);
+  }
+
+  const schedule: BackoffSchedule = { policy, steps, totalMs, unlimited };
+  if (fraction > 0) {
+    schedule.totalLowMs = totalLowMs;
+    schedule.totalHighMs = totalHighMs;
+  }
+  return schedule;
+}
+
 function positiveIntOr(value: string | undefined, fallback: number): number {
   if (value === undefined || value.trim() === "") return fallback;
   const n = Number(value);
