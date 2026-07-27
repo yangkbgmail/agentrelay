@@ -575,6 +575,18 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서 자연어 상대 시간 보강 — 연결어("and"/콤마)·부정관사("an hour")·"half an hour" 인식.
+      (완료 — `relative-duration` 패턴에 세 가지 실사용 갭을 메움: (1) 컴포넌트 사이의 `and`/콤마
+      연결어("try again in 1 hour and 30 minutes", "2 days, 3 hours") — 기존엔 컴포넌트 사이에 공백만
+      허용해 `and` 뒤 30분을 조용히 버리고 재개를 30분 **일찍** 큐잉하던 under-wait 버그를 수정,
+      (2) 부정관사를 1로("in an hour"→1h, "in a minute"→1m), (3) 흔한 자연어 "half an hour"→30m /
+      "half a minute"→30s. 순수 `parseWordQuantity`(digits/`a`·`an`=1/`half`·`half a`·`half an`=0.5,
+      미인식은 0으로 → spurious 캡처가 대기를 부풀리지 않음) + 재사용 프래그먼트 `REL_QTY`·`REL_SEP`로
+      정규식 재구성, resolve는 프래그먼트가 분수를 낼 수 있어 `Math.round(totalMinutes*60_000)`.
+      기존 digit 포맷(`4h32m`/`45m`/`1d 4h`/`2 days`/`in 3 minutes`)은 전부 동일 동작(하위호환), "in a
+      while" 같은 단위 없는 관사는 여전히 null. parser.test +5 회귀(and·콤마·관사·half·"in a while"→null),
+      실제 빌드 CLI `parse` e2e로 각 포맷 확인. branch `claude/wizardly-pascal-7uh2n2`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

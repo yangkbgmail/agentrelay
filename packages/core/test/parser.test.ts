@@ -118,6 +118,48 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 3 * 60_000).toISOString());
   });
 
+  it("parses a relative duration joined by 'and' ('1 hour and 30 minutes')", () => {
+    // Regression: the old pattern only allowed whitespace between components and
+    // silently dropped everything after the "and", queuing a resume 30 min early.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit, try again in 1 hour and 30 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + (60 + 30) * 60_000).toISOString());
+  });
+
+  it("parses a relative duration joined by a comma ('2 days, 3 hours')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly usage limit reached, try again in 2 days, 3 hours.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + (2 * 24 + 3) * 60 * 60_000).toISOString());
+  });
+
+  it("parses the indefinite article as one ('in an hour', 'in a minute')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const anHour = parseRateLimitMessage("Please try again in an hour.", { now });
+    expect(anHour?.pattern).toBe("relative-duration");
+    expect(anHour?.resetAt).toBe(new Date(now.getTime() + 60 * 60_000).toISOString());
+    const aMinute = parseRateLimitMessage("resets in a minute", { now });
+    expect(aMinute?.pattern).toBe("relative-duration");
+    expect(aMinute?.resetAt).toBe(new Date(now.getTime() + 60_000).toISOString());
+  });
+
+  it("parses 'half an hour' and 'half a minute' as fractional waits", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const halfHour = parseRateLimitMessage("resets in half an hour", { now });
+    expect(halfHour?.pattern).toBe("relative-duration");
+    expect(halfHour?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+    const halfMinute = parseRateLimitMessage("try again in half a minute", { now });
+    expect(halfMinute?.pattern).toBe("relative-duration");
+    expect(halfMinute?.resetAt).toBe(new Date(now.getTime() + 30_000).toISOString());
+  });
+
+  it("still requires a real quantity — a bare 'in a while' is not a duration", () => {
+    // "a"/"an" only count when followed by a d/h/m unit; free-standing prose
+    // must not be misread as a wait.
+    expect(parseRateLimitMessage("Rate limit hit, try again in a while.")).toBeNull();
+  });
+
   it("parses a unix epoch retry_after field", () => {
     const result = parseRateLimitMessage("rate_limit_error retry_after=1752345600");
     expect(result).not.toBeNull();
