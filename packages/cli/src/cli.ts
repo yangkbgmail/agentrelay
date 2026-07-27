@@ -44,6 +44,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  diffStore,
   exportStore,
   importStore,
   initConfig,
@@ -67,6 +68,7 @@ import {
   waitForJob,
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
+import { renderDiff, renderDiffJson } from "./diff.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderNext, renderNextJson } from "./next.js";
@@ -1394,6 +1396,26 @@ export function buildCli(): Command {
         console.log(`[agentrelay] Restored ${result.jobCount} job(s) from ${result.from}.`);
         if (result.backedUpTo) {
           console.log(`[agentrelay] Previous store backed up to ${result.backedUpTo}.`);
+        }
+      } catch (error) {
+        console.error(`[agentrelay] ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = 1;
+      }
+    });
+
+  program
+    .command("diff")
+    .argument("[snapshot]", 'Snapshot to compare against: "latest" (default), a stamp, a snapshot filename, or a path')
+    .description("Show what changed between a snapshot and the current store (added/removed/changed jobs)")
+    .option("--json", "Print the diff as JSON (machine-readable, for scripts/jq)")
+    .action((snapshot: string | undefined, opts: { json?: boolean }) => {
+      const { store } = program.opts();
+      try {
+        const { diff, from } = diffStore({ storePath: store, selector: snapshot ?? "latest" });
+        if (opts.json) {
+          console.log(renderDiffJson(diff, { from }));
+        } else {
+          console.log(renderDiff(diff, { color: Boolean(process.stdout.isTTY), from }));
         }
       } catch (error) {
         console.error(`[agentrelay] ${error instanceof Error ? error.message : String(error)}`);

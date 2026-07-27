@@ -1489,3 +1489,31 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+## 세션 45 (2026-07-27) — `agentrelay diff <snapshot>` (스토어 델타 진단)
+
+- **배경:** BACKLOG의 순수 👷 명시 항목이 전부 완료 상태이고 열린 PR 50개가 대부분의 인접
+  아이디어(reschedule·config get·tools·calendar·verify·projects·upcoming·health·when 등)를
+  이미 점유하고 있어, 어느 것과도 겹치지 않는 신규 개선 항목을 발굴. 스토어 데이터 이동 생태계는
+  이미 backup(스냅샷)·restore(롤백)·export/import(머신 간 이전)로 완비돼 있는데, 그 뒤 자연히
+  뒤따르는 질문 — "그래서 두 상태 사이에 *무엇이* 바뀌었나?" — 에 답하는 수단만 비어 있었다.
+- **한 일:** **`agentrelay diff [snapshot] [--json]` 신설** — 백업 스냅샷(before)과 현재 스토어
+  (after)를 비교해 추가/삭제/상태변경된 잡을 한눈에 보여주는 read-only 진단 커맨드.
+  1. 순수 core `packages/core/src/diff.ts`: `diffJobStores(before, after)`가 두 잡 배열을 id로
+     매칭해 `StoreDiff`(added·removed·changed·unchangedCount·before/afterCount) 산출. 추적 필드는
+     큐레이션된 생애주기 필드 `DIFF_FIELDS`(status·resetAt·attempts·lastError)만 — `updatedAt`은
+     어떤 터치에도 갱신돼 신호를 오염시키고 command/cwd/project/tool은 사실상 불변이라 제외.
+     null/undefined는 `(none)`로 렌더, 순서 무관(added/removed=소스 순서, changed=after 순서).
+     `isStoreDiffEmpty` 헬퍼.
+  2. CLI 렌더 `packages/cli/src/diff.ts`: `renderDiff`(+added/-removed/~changed 섹션[빈 섹션 생략]
+     +요약 라인, no-diff는 "No differences", 짧은 8자 id·color 게이트)·`renderDiffJson`.
+  3. `commands.ts` `diffStore`: restore와 **동일한** `resolveRestoreSource`로 선택자(latest/스탬프/
+     파일명/경로) 해소 → 스냅샷+현재 스토어 읽어 `diffJobStores` 위임(스토어 불변). `readSnapshotJobs`
+     는 JSON 배열만 허용(그 외 명확한 에러)·id 없는 원소 드롭. 미매칭 선택자는 exit 1.
+  4. index.ts export(알파벳 control↔doctor 사이) + cli.ts 커맨드 배선(restore 인접).
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린·`pnpm ci:lint`(Biome) 0경고·`pnpm test`
+  전 패키지 통과(core diff 10 + cli diff 9 신규 포함, core 516 / cli 244). 실제 빌드된 CLI로 임시
+  스토어에 backup→스토어 변형→diff e2e: added/removed/changed 3섹션·필드별 before→after·no-diff·
+  미매칭 선택자 exit 1·`--json` 스키마 모두 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속. 새 개선 아이디어: `diff <a> <b>`(두 스냅샷 직접
+  비교)·`diff --stat`(요약만). README/ARCHITECTURE(🧭 코워크).
