@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { canCancel, canRequeue, partitionForControl, resolveJobId } from "../src/control.js";
+import {
+  canCancel,
+  canRequeue,
+  canReschedule,
+  partitionForControl,
+  resolveJobId,
+  resolveResetAt,
+} from "../src/control.js";
 import type { JobStatus, RelayJob } from "../src/types.js";
 
 function job(id: string, status: JobStatus): RelayJob {
@@ -47,6 +54,63 @@ describe("canRequeue", () => {
     const result = canRequeue(job("a", "resuming"));
     expect(result.ok).toBe(false);
     expect(result.reason).toContain("resuming");
+  });
+});
+
+describe("canReschedule", () => {
+  it("allows rescheduling still-pending jobs", () => {
+    for (const status of ["queued", "waiting_for_reset"] as JobStatus[]) {
+      expect(canReschedule(job("a", status)).ok).toBe(true);
+    }
+  });
+
+  it("rejects rescheduling a mid-flight job", () => {
+    const result = canReschedule(job("a", "resuming"));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("resuming");
+  });
+
+  it("rejects rescheduling terminal jobs", () => {
+    for (const status of ["completed", "failed", "cancelled"] as JobStatus[]) {
+      const result = canReschedule(job("a", status));
+      expect(result.ok).toBe(false);
+      expect(result.reason).toBeTruthy();
+    }
+  });
+});
+
+describe("resolveResetAt", () => {
+  const now = Date.parse("2026-07-27T00:00:00.000Z");
+
+  it("resolves a bare relative duration from now", () => {
+    expect(resolveResetAt("30m", now)).toEqual({ resetAt: "2026-07-27T00:30:00.000Z" });
+    expect(resolveResetAt("2h", now)).toEqual({ resetAt: "2026-07-27T02:00:00.000Z" });
+    expect(resolveResetAt("1d", now)).toEqual({ resetAt: "2026-07-28T00:00:00.000Z" });
+  });
+
+  it("accepts a leading + on the duration", () => {
+    expect(resolveResetAt("+45m", now)).toEqual({ resetAt: "2026-07-27T00:45:00.000Z" });
+    expect(resolveResetAt("+ 45m", now)).toEqual({ resetAt: "2026-07-27T00:45:00.000Z" });
+  });
+
+  it("resolves an absolute ISO timestamp in the future", () => {
+    expect(resolveResetAt("2026-07-27T06:00:00Z", now)).toEqual({ resetAt: "2026-07-27T06:00:00.000Z" });
+  });
+
+  it("rejects an absolute time in the past", () => {
+    const result = resolveResetAt("2026-07-26T00:00:00Z", now);
+    expect(result.resetAt).toBeUndefined();
+    expect(result.error).toContain("past");
+  });
+
+  it("rejects an empty or unparseable input", () => {
+    expect(resolveResetAt("   ", now).error).toBeTruthy();
+    expect(resolveResetAt("soon", now).error).toContain("could not understand");
+  });
+
+  it("prefers the relative reading over the date parser for bare durations", () => {
+    // "1d" must mean one day from now, not be handed to Date.parse.
+    expect(resolveResetAt("1d", now)).toEqual({ resetAt: "2026-07-28T00:00:00.000Z" });
   });
 });
 

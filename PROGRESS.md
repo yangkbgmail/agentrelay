@@ -1489,3 +1489,24 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 기능 `agentrelay reschedule <id> <when>` 구현] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-71h524`)
+- **배경:** 명시된 👷 BACKLOG 항목이 전부 완료 상태. CLAUDE.md "비면 스스로 새 개선 항목을 발굴"
+  지침에 따라, 기존 열린 PR 무리(파서 reset-at·config get·stats --by-hour·재개 stagger·--no-color·
+  backoff·clean·verify)와 겹치지 않는 distinct 신규 기능을 발굴해 구현.
+- **한 일:** **`agentrelay reschedule <id> <when>` — 대기 중 잡의 재개 시각을 취소 없이 조정하는
+  수동 제어 커맨드.** `retry`는 즉시 재개하며 attempts를 0으로 리셋하고, `cancel`은 잡을 중단하는데,
+  그 사이에 "재개 시점만 미루거나 당기고 싶다"(파서가 리셋 시각을 잘못 잡았거나 사용자가 실제 리셋을
+  아는 경우)를 채우는 갭이었다.
+  - core `control.ts`: 순수 `canReschedule(job)`(queued/waiting_for_reset만 허용, resuming·종료 상태
+    거부) + `RESCHEDULABLE_STATUSES` + `resolveResetAt(input, nowMs)`(시계 미접촉 순수 파서: `+` 선택적
+    상대 기간→절대 ISO 순, 상대 우선으로 `1d` 오독 방지, 과거·미해석은 error 반환).
+  - core `queue.ts`: `reschedule(id, resetAt)` — `requeueNow`와 달리 attempts/lastError 불변, 오직 wake
+    시각만 이동(`waiting_for_reset`로 파킹).
+  - cli `commands.ts`: `rescheduleJob(id, when, {storePath, nowMs})` — 시각 파싱을 스토어 오픈 전 수행,
+    `resolveJobId`로 짧은 prefix·모호/미존재 처리.
+  - cli `cli.ts`: `reschedule <id> <when>` 커맨드 배선(잘못된 입력/id exit 1).
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린, `pnpm ci:lint`(Biome) 0 경고,
+  `pnpm test` 전 패키지 통과(core control 24·queue 20 포함, cli commands 75). 실제 빌드된 CLI e2e로
+  상대 `2h`·절대 ISO `2030-01-01T00:00:00Z`·과거 시각 거부(exit 1)·미해석 문자열 거부(exit 1) 검증.
+- **다음 할 일:** README/ARCHITECTURE(🧭 코워크). 남은 distinct 열린 PR 통합 계속 또는 신규 개선 발굴.

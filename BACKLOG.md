@@ -575,6 +575,23 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay reschedule <id> <when>` — 대기 중 잡의 재개 시각을 취소 없이 옮기기(파서가
+      리셋 시각을 잘못 잡았거나 사용자가 실제 리셋을 알 때 재개 시점만 조정). `retry`(즉시 재개+
+      attempts 리셋)·`cancel`(중단)과 달리 오직 *언제* 깨어날지만 바꾸며 attempts/lastError 보존.
+      (완료 — core `control.ts`에 순수 `canReschedule(job)`(guard: queued/waiting_for_reset만 허용,
+      resuming[레이스]·완료/실패/취소[스케줄할 것 없음] 거부, `RESCHEDULABLE_STATUSES` export) +
+      `resolveResetAt(input, nowMs)`(시계 미접촉 순수 파서: `+` 선택적 상대 기간[기존 `parseDuration`
+      문법 재사용] → 절대 ISO[`Date.parse`] 순서로 해석, 상대 우선이라 `1d`가 날짜로 오독 안 됨,
+      과거 시각·빈 문자열·미해석은 throw 대신 `error` 반환). core `queue.ts`에 `reschedule(id, resetAt)`
+      메서드 — `requeueNow`와 달리 attempts/lastError 불변, `waiting_for_reset`로 파킹해 `listDue`가
+      새 시각 반영, 미존재 id는 no-op. CLI `commands.ts` `rescheduleJob(id, when, {storePath, nowMs})`
+      (nowMs 주입 가능·테스트 결정성, `resolveResetAt`로 시각 파싱을 스토어 오픈 **전**에 수행해 잘못된
+      입력은 스토어 미변경, `resolveJobId`로 짧은 prefix·모호/미존재 처리 cancel/retry와 동일). CLI
+      `cli.ts` `agentrelay reschedule <id> <when>` 커맨드(잘못된 입력/id는 exit 1, 커맨드 서피스에서
+      completion 스크립트 자동 파생). core control +9(canReschedule 3 + resolveResetAt 6) / queue +2,
+      cli commands +5 신규 테스트, 실제 빌드 CLI e2e로 상대 `2h`·절대 ISO·과거 거부·미해석 거부 검증.
+      branch `claude/wizardly-pascal-71h524`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

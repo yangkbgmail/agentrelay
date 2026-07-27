@@ -15,6 +15,7 @@ import {
   listStoreBackups,
   previewRestoreStore,
   pruneJobs,
+  rescheduleJob,
   restoreStore,
   retryJob,
   runCommand,
@@ -217,6 +218,68 @@ describe("cancelJob / retryJob", () => {
     expect(result.job?.status).toBe("waiting_for_reset");
     expect(result.job?.attempts).toBe(0);
     expect(result.job?.lastError).toBeNull();
+  });
+});
+
+describe("rescheduleJob", () => {
+  let dir: string;
+  let storePath: string;
+  const nowMs = Date.parse("2026-07-27T00:00:00.000Z");
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cli-reschedule-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function seed(status: "waiting_for_reset" | "completed") {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    if (status === "waiting_for_reset") queue.markWaitingForReset(job.id, new Date(nowMs + 60_000).toISOString());
+    if (status === "completed") queue.markCompleted(job.id, "done");
+    queue.close();
+    return job.id;
+  }
+
+  it("moves a waiting job to a new relative time by short prefix", () => {
+    const id = seed("waiting_for_reset");
+    const result = rescheduleJob(id.slice(0, 8), "2h", { storePath, nowMs });
+    expect(result.ok).toBe(true);
+    expect(result.job?.status).toBe("waiting_for_reset");
+    expect(result.job?.resetAt).toBe("2026-07-27T02:00:00.000Z");
+    expect(listStatus(storePath)[0].resetAt).toBe("2026-07-27T02:00:00.000Z");
+  });
+
+  it("accepts an absolute future ISO timestamp", () => {
+    const id = seed("waiting_for_reset");
+    const result = rescheduleJob(id, "2026-07-27T06:30:00Z", { storePath, nowMs });
+    expect(result.ok).toBe(true);
+    expect(result.job?.resetAt).toBe("2026-07-27T06:30:00.000Z");
+  });
+
+  it("refuses a terminal job and leaves the store untouched", () => {
+    const id = seed("completed");
+    const result = rescheduleJob(id, "1h", { storePath, nowMs });
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("already completed");
+    expect(listStatus(storePath)[0].status).toBe("completed");
+  });
+
+  it("rejects an unparseable time before touching the store", () => {
+    seed("waiting_for_reset");
+    const result = rescheduleJob("deadbeef", "whenever", { storePath, nowMs });
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("could not understand");
+  });
+
+  it("reports an unknown id", () => {
+    seed("waiting_for_reset");
+    const result = rescheduleJob("deadbeef", "1h", { storePath, nowMs });
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("no job matches");
   });
 });
 
