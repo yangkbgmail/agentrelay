@@ -575,6 +575,25 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay waited` — 릴레이가 사용자 대신 흡수한 rate-limit 대기 시간 총량 집계
+      (자동 재개로 babysitting을 얼마나 없앴는지 정량화하는 핵심-가치 지표).
+      (완료 — 세션 38의 provenance(`lastRateLimit`) 영속 작업 후속. 잡마다 감지 시각
+      `detectedAt`과 리셋 시각 `resetAt` 사이의 스팬 = 릴레이가 그 잡을 대신 기다린 시간이므로,
+      큐 전체를 합치면 "사용자가 지켜보지 않아도 릴레이가 흡수한 총 대기 시간"이 된다.
+      stats(라이프사이클 span createdAt→updatedAt)·patterns(어떤 패턴 발화)·errors(실패 사유)와
+      전혀 겹치지 않는 새 차원. `@agentrelay/core/waittime.ts` 신설(순수·파일시스템/시계 미접촉):
+      `computeWaitTime(jobs)`→`WaitTimeStats`(total·withWait·withoutWait·totalWaitMs·avg/min/maxWaitMs·
+      longestJobId). 각 잡의 `lastRateLimit`에서 `resetAt−detectedAt`을 스팬으로 취하되 둘 다 파싱
+      가능하고 스팬이 음수 아닐 때만 카운트(clock skew·이미 지난 리셋은 클램프 대신 드롭 → 불량
+      레코드가 총합을 부풀리지 않음), 미감지·malformed는 withoutWait. 잡당 마지막 감지 하나만
+      영속되므로 여러 번 rate-limited 잡은 과소집계(문서화). CLI `packages/cli/src/waittime.ts`에
+      순수 `renderWaitTime`(헤드라인 총 대기 + average/shortest/longest + longest 잡 short-id
+      드릴다운)·`renderWaitTimeJson`(stats와 동일 envelope), `stats.ts`의 `formatDurationMs` 재사용.
+      `agentrelay waited [--json]` + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용,
+      잘못된 status/tool·기간은 exit 1. core waittime 10 + cli waittime 6 신규 테스트, 실제 빌드 CLI
+      e2e로 총합·평균/최단/최장·드릴다운 id·스코프 부분집합·JSON envelope·no-wait·에러 exit 검증.
+      branch `claude/wizardly-pascal-c4bic6`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

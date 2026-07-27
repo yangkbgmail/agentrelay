@@ -1489,3 +1489,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 `agentrelay waited` 커맨드(릴레이가 흡수한 대기 시간 정량화)] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-c4bic6`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태. CLAUDE.md 지침("백로그 비면 스스로 새 개선 항목을
+  발굴")에 따라, 적체된 열린 PR의 중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)와
+  겹치지 않는 격리도 높은 신규 기능을 발굴. 세션 38이 영속하기 시작한 detection provenance
+  (`lastRateLimit.detectedAt`/`resetAt`)가 "릴레이가 각 잡을 대신 기다린 시간"을 담고 있는데, 이를
+  플릿 레벨로 합산하는 지표가 없다는 갭을 포착 — AgentRelay 핵심 가치(자동 재개로 babysitting 제거)를
+  직접 정량화하는 on-message 지표.
+- **한 일:** **`agentrelay waited` 커맨드 신설.** 잡마다 `resetAt−detectedAt` 스팬을 합산해 릴레이가
+  흡수한 총 대기 시간·평균/최단/최장·최장 잡 드릴다운 id를 보고. `patterns`/`errors`처럼 격리된
+  모듈+커맨드 패턴을 미러링:
+  - core `waittime.ts`(순수·파일시스템/시계 미접촉): `computeWaitTime(jobs)`→`WaitTimeStats`. 둘 다
+    파싱 가능하고 음수 아닌 스팬만 카운트(clock skew·이미 지난 리셋은 드롭 → 총합 오염 방지),
+    미감지·malformed는 withoutWait. 잡당 마지막 감지만 영속되므로 여러 번 rate-limited 잡은 과소집계.
+  - CLI `waittime.ts`: 순수 `renderWaitTime`(헤드라인 총 대기+avg/min/max+longest short-id)·
+    `renderWaitTimeJson`(stats와 동일 envelope), `formatDurationMs` 재사용. `agentrelay waited [--json]`
+    + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용.
+  - stats(라이프사이클 span)·patterns(패턴 발화)·errors(실패 사유)와 전혀 겹치지 않는 새 차원.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0 에러·
+  `pnpm test` 전 패키지 통과(core waittime 10 + cli waittime 6 신규 포함, 총 516 core 테스트). 실제
+  빌드된 CLI(`packages/cli/dist/bin.js`)로 임시 스토어 e2e: 총 6h 흡수·평균/최단/최장·드릴다운 id·
+  `--tool claude-code` 스코프(5h)·`--json` envelope(scope 미활성 시 생략)·`--tool bogus`→exit 1 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
+  `waited`의 후속으로 대시보드에 "흡수한 대기 시간" 카드 노출, 또는 잡별 rate-limit *히스토리*
+  영속(현재는 마지막 감지만)으로 과소집계 해소 검토. README/ARCHITECTURE(🧭 코워크).
