@@ -1489,3 +1489,27 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서 단어형(spelled-out) 상대 기간 인식] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-rsgdsi`)
+- **배경:** 명시 👷 BACKLOG 항목이 전부 완료 상태이고 열린 PR이 100개+로 적체(대부분 이미
+  병합된 기능의 중복). 커맨드 표면은 완전 포화. 프로젝트의 핵심 가치(감지→재개)인 **파서**에서
+  실제 미커버 + 열린 PR 더미에도 없는 갭을 찾아 신규 구현하는 것이 가장 높은 순증분 가치로 판단.
+  기존 파서 PR들(midnight/noon·weekday·IANA tz·epoch·tomorrow/today·week 단위·"try again at"·
+  "in about/~")을 전수 확인 → 전부 **숫자(digit) 기반**. 단어형 산문 기간은 어디에도 없음.
+- **한 일:** `packages/core/src/parser.ts`에 순수 `word-relative-duration` 패턴 신설.
+  1. `WORD_NUMBERS`(a/an/one…twelve → 1..12) + `WORD_DURATION_UNIT_MINUTES`(hour/hr·minute/min·day)
+     모듈 상수 추가. 정규식 `(?:try again|resets?|retry)\s+in\s+(<word>)\s+(<unit>)s?`.
+  2. `half`(선택적 a/an 관사)는 단위의 0.5 → half an hour=30m, half a day=12h, half a minute=30s.
+     단위는 매치 후 단수화(`replace(/s$/,"")`)해 매핑, 알 수 없는 단어/단위는 null 반환(비매치).
+  3. digit `relative-duration` **바로 뒤**에 배치 → 숫자 기간은 여전히 그 패턴이 우선(digit
+     regex는 단어 입력에 null 반환하므로 자연 폴스루). 초(second)는 기존 설계대로 어댑터 소관 미포함.
+     "in a moment"처럼 알려진 단위가 아니면 매치 안 함. 새 CLI 코드 0줄 — 기존 `parse` 자동 노출.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·
+  `pnpm test` 전 패키지 통과(core 514[+8 신규]·cli 235/1skip·dashboard 7). parser.test +8 회귀:
+  an hour·one hour·a minute·two days·half an hour·half a day·digit 우선·"in a moment" 비매치.
+  실제 빌드된 CLI e2e(mock 아님): `parse "Try again in an hour."`→word-relative-duration/now+1h,
+  `parse "try again in half an hour"`→30m, `parse "try again in 2 hours"`→relative-duration(digit
+  우선 확인), `parse "Please try again in a moment."`→미감지.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171
+  verify 등). 추가 파서 실사용 포맷("in about an hour" 근사+단어 조합 등)은 코워크 리서치(🧭)와
+  조율. README/ARCHITECTURE(🧭 코워크).

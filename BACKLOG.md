@@ -575,6 +575,21 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 단어형(spelled-out) 상대 기간 인식 — "try again in an hour" / "resets in one hour" /
+      "try again in half an hour" / "resets in a minute" / "try again in two days".
+      (완료 — 기존 `relative-duration`은 `\d+`를 요구해 숫자 없는 산문형 문구를 전부 놓쳤다. 실제
+      에이전트 CLI·HTTP API가 "try again in an hour" 같은 단어형 기간을 흔히 출력하는데도 파서가
+      큐잉하지 못하던 실사용 갭. `parser.ts`에 순수 `word-relative-duration` 패턴 추가(digit
+      `relative-duration` 바로 뒤 배치 → 숫자는 여전히 우선): `WORD_NUMBERS`(a/an/one…twelve=1..12) +
+      `WORD_DURATION_UNIT_MINUTES`(hour/hr·minute/min·day, 단수화 후 매핑). `half`(선택적 a/an
+      관사)는 단위의 0.5 — half an hour=30m, half a day=12h, half a minute=30s. 단일 선행
+      수량+단위만 읽음(combined 산문 "one hour and thirty minutes"는 시(hour) 기준으로 조기 재개 →
+      benign re-detect·re-queue로 자기교정). 초(second)는 기존 설계대로 어댑터 소관이라 미포함.
+      "in a moment"처럼 알려진 단위가 아니면 매치 안 함. 새 CLI 코드 0줄 — 기존 `parse` 커맨드가
+      자동 노출. parser.test +8 회귀(an hour/one hour/a minute/two days/half an hour/half a day/
+      digit 우선/moment 비매치), 실제 빌드 CLI `parse`로 word-relative-duration 매치·half·digit
+      우선·비매치 e2e 검증. branch `claude/wizardly-pascal-rsgdsi`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

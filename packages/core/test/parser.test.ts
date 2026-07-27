@@ -118,6 +118,64 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 3 * 60_000).toISOString());
   });
 
+  it("parses a word-number duration 'try again in an hour'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Try again in an hour.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("word-relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 60 * 60_000).toISOString());
+  });
+
+  it("parses 'resets in one hour' (spelled cardinal)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit — resets in one hour.", { now });
+    expect(result?.pattern).toBe("word-relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 60 * 60_000).toISOString());
+  });
+
+  it("parses 'try again in a minute'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Slow down, try again in a minute.", { now });
+    expect(result?.pattern).toBe("word-relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 60_000).toISOString());
+  });
+
+  it("parses 'try again in two days' (weekly window)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly usage limit reached, try again in two days.", { now });
+    expect(result?.pattern).toBe("word-relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 24 * 60 * 60_000).toISOString());
+  });
+
+  it("parses 'half an hour' as 30 minutes", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit — try again in half an hour.", { now });
+    expect(result?.pattern).toBe("word-relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
+
+  it("parses 'half a day' as 12 hours", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Resets in half a day.", { now });
+    expect(result?.pattern).toBe("word-relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 12 * 60 * 60_000).toISOString());
+  });
+
+  it("still prefers the digit relative-duration over the word pattern", () => {
+    // Regression: a digit wait must not be captured by the word pattern.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in 2 hours.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
+  it("does not treat a non-duration word unit as a wait ('try again in a moment')", () => {
+    const result = parseRateLimitMessage("Please try again in a moment.", {
+      now: new Date("2026-07-12T10:00:00Z"),
+    });
+    expect(result).toBeNull();
+  });
+
   it("parses a unix epoch retry_after field", () => {
     const result = parseRateLimitMessage("rate_limit_error retry_after=1752345600");
     expect(result).not.toBeNull();
