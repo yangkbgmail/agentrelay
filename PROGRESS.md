@@ -1489,3 +1489,27 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서 자연어 상대 시간 보강] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-7uh2n2`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴.
+  열린 PR 100+개(다수 중복 — config get·stats 변형·wait --all·파서 tz/weekday/tomorrow/header
+  계열)를 훑어 **어느 열린 PR과도 겹치지 않는** 파서 갭을 실증적으로 확인했다. `relative-duration`
+  패턴이 세 가지 실사용 자연어 포맷을 놓치고 있었다: (1) `try again in 1 hour and 30 minutes`가
+  "1 hour"(60분)만 잡고 `and` 뒤 30분을 조용히 버려 재개를 **30분 일찍** 큐잉(under-wait 버그),
+  (2) `in an hour`/`in a minute`(부정관사) 아예 미인식→잡 미큐잉, (3) `half an hour` 미인식.
+- **한 일:**
+  1. `packages/core/src/parser.ts`: 순수 `parseWordQuantity`(digits/`a`·`an`=1/`half`·`half a`·
+     `half an`=0.5, 미인식은 0으로 → spurious 캡처가 대기를 부풀리지 않음) 추가. 재사용 프래그먼트
+     `REL_QTY`(digits|`a`/`an`|`half…`)·`REL_SEP`(`[\s,]*(?:and\s+)?`)로 `relative-duration` 정규식을
+     재구성 — 컴포넌트 사이에 공백뿐 아니라 콤마·`and` 연결어 허용. resolve는 프래그먼트가 분수를
+     낼 수 있어 `Math.round(totalMinutes*60_000)`로 최종 오프셋 반올림.
+  2. 하위호환: 기존 digit 포맷(`4h32m`/`45m`/`2h`/`1d 4h`/`2 days`/singular `1 day`/`in 3 minutes`)은
+     전부 동일 결과. 단위 없는 관사("try again in a while")는 여전히 null(오검출 방지).
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0 에러·`pnpm test` 전 패키지 통과
+  (core 511[+5 파서 회귀: and 연결·콤마 연결·부정관사·half·"in a while"→null] + cli 235/1skip +
+  dashboard 7). 실제 빌드된 CLI e2e(mock 아님): `parse "try again in 1 hour and 30 minutes"`→1h30m
+  (버그 수정 확인), `parse "in an hour"`→1h, `parse "half an hour"`→30m, `parse "2 days, 3 hours"`→
+  2d3h, 기존 포맷 회귀 없음.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(중복 무리는 각 하나로 수렴 후 나머지 닫기 권장).
+  파서 추가 자연어("in about"·"an hour and a half"의 정확 분수)나 named IANA tz 실변환은 코워크
+  리서치(🧭)와 조율. README/ARCHITECTURE(🧭 코워크).

@@ -32,6 +32,31 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/**
+ * A single quantity in a relative-duration expression. Covers plain digits
+ * (`3`), the indefinite article as one (`a`/`an` — "in an hour"), and the
+ * common natural-language half (`half`, `half an`/`half a` — "half an hour").
+ * A missing group is 0. Anything unrecognized is 0 so a spurious capture can
+ * never inflate the wait.
+ */
+function parseWordQuantity(raw: string | undefined): number {
+  if (!raw) return 0;
+  const s = raw.trim().toLowerCase();
+  if (/^\d+$/.test(s)) return parseInt(s, 10);
+  if (s === "half" || /^half\s+an?$/.test(s)) return 0.5;
+  if (/^an?$/.test(s)) return 1;
+  return 0;
+}
+
+// Quantity token shared by every component of the relative-duration pattern:
+// digits, "a"/"an" (=1), or "half"/"half a"/"half an" (=0.5).
+const REL_QTY = String.raw`(\d+|(?:half\s+)?an?|half)`;
+// Separator allowed between components: whitespace/commas and an optional "and"
+// connector, so "1 hour and 30 minutes" and "2 days, 3 hours" both parse. The
+// old pattern only allowed whitespace here and silently dropped everything after
+// an "and", under-counting the wait.
+const REL_SEP = String.raw`[\s,]*(?:and\s+)?`;
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
@@ -88,17 +113,28 @@ const PATTERNS: RateLimitPattern[] = [
   {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
-    // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
+    // windows. Also handles natural-language forms: an "and"/comma connector
+    // between components ("1 hour and 30 minutes"), the indefinite article as one
+    // ("in an hour", "in a minute"), and the common "half an hour"/"half a
+    // minute". Seconds are deliberately *not* handled here (see adapters.ts: they
     // are OpenAI/Codex-style wording that the Codex adapter contributes).
     name: "relative-duration",
-    regex:
-      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
+    regex: new RegExp(
+      `(?:try again|resets?|retry)\\s+in\\s+` +
+        `(?:${REL_QTY}\\s*d(?:ays?)?)?${REL_SEP}` +
+        `(?:${REL_QTY}\\s*h(?:ours?)?)?${REL_SEP}` +
+        `(?:${REL_QTY}\\s*m(?:in(?:utes?)?)?)?`,
+      "i"
+    ),
     resolve: (m, now) => {
-      const days = m[1] ? parseInt(m[1], 10) : 0;
-      const hours = m[2] ? parseInt(m[2], 10) : 0;
-      const minutes = m[3] ? parseInt(m[3], 10) : 0;
+      const days = parseWordQuantity(m[1]);
+      const hours = parseWordQuantity(m[2]);
+      const minutes = parseWordQuantity(m[3]);
       if (days === 0 && hours === 0 && minutes === 0) return null;
-      return new Date(now.getTime() + ((days * 24 + hours) * 60 + minutes) * 60_000);
+      // Components can be fractional ("half an hour" -> 0.5), so round the final
+      // millisecond offset rather than assuming whole minutes.
+      const totalMinutes = (days * 24 + hours) * 60 + minutes;
+      return new Date(now.getTime() + Math.round(totalMinutes * 60_000));
     },
   },
   {
