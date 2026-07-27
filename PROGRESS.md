@@ -1489,3 +1489,21 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서 타임존 인지 리셋(clock-time TZ) 정확성 수정] (2026-07-27, 무인 자율 세션, branch `claude/tz-aware-clock-reset`)
+- **배경:** 명시 BACKLOG의 👷 항목이 전부 완료 상태라, CLAUDE.md "무한 개선 백로그" 지침대로 새 👷 항목을
+  자율 발굴. 제품 핵심(정확한 리셋 시각 감지)에 직결되는 **실제 정확성 버그**를 파서에서 발견:
+  `clock-time`/`clock-time-meridiem` 패턴이 Claude Code가 실제 출력하는 `"reset at 5pm (America/New_York)"`
+  에서 명시 타임존을 무시하고 **로컬 시각**으로 해석 → UTC+9 사용자에겐 리셋이 13~14시간 틀어져 "리셋 시점
+  재개"라는 본질이 깨졌다(코드 주석에도 known limitation으로 남아있던 갭).
+- **한 일:** `@agentrelay/core/tz.ts` 신설(의존성 0개 — `Intl.DateTimeFormat`의 IANA/DST 데이터만 사용).
+  순수 `nextZonedClockTime(now,hour,minute,timeZone)`가 명시 존의 벽시계에 해당하는 다음 미래 UTC 인스턴트를
+  계산(존 캘린더 기준 "이미 지났으면 내일" 롤오버, 오프셋 2-패스 보정으로 DST 경계 정확), `normalizeZone`은
+  IANA 이름(`/` 포함)·`UTC`/`GMT`만 수용하고 모호한 약어(`PST`/`EST`)는 null→**로컬 시각 안전 폴백**. 파서의
+  두 clock 패턴에 선택적 `TZ_SUFFIX`(괄호 유무 무관) 캡처 추가 + 공용 `resolveClock`로 존 인지/로컬 폴백
+  통합. 존 미지정 메시지는 이전과 100% 동일(하위호환). index.ts export 추가.
+- **검증:** `pnpm build` 클린, `pnpm test` 전 패키지 통과(core 506→518: tz.test.ts 12 + parser 존 인지 4).
+  기존 로컬-해석 테스트 1건은 정정된 절대 인스턴트로 갱신. 실제 빌드 CLI `agentrelay parse`로 5pm NY(EDT)
+  →21:00Z·9am Seoul(UTC+9)·PST→로컬 폴백 e2e 확인.
+- **다음 할 일:** 파서가 명시 존을 인지하게 됐으니, `agentrelay parse`/`show`에 감지 존을 노출하거나 job
+  provenance에 타임존 기록을 붙이는 후속 개선 여지. 남은 distinct 열린 PR 통합·🧭 README/ARCHITECTURE는 계속.
