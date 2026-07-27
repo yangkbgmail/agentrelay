@@ -1489,3 +1489,25 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+## 세션 45 (2026-07-27) — `agentrelay export --format tsv` (탭 구분 무손실 내보내기)
+
+- **상황 파악:** 최신 main(4abefa1)으로 지정 브랜치 재설정(이전 PR #206 병합 완료). BACKLOG의 👷
+  항목은 전부 `[x]` — 남은 미완료는 🧭(README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. 열린 PR
+  50개(자율 빌더가 다수 생성: 파서 패턴·신규 커맨드 diff/reschedule/tools/calendar/man/verify/config
+  get/export yaml 등)와 중복되지 않는 격리 영역을 스스로 발굴. export 포맷 계열(csv/json/md/ndjson/
+  html + PR #236 yaml)에 **tsv 부재**를 확인 → 신규 개선 항목으로 선정.
+- **한 일:** `agentrelay export --format tsv` 구현. core `export.ts`에 순수 `escapeTsvField`(백슬래시
+  우선 → 탭 `\t`·CR `\r`·LF `\n` 백슬래시 이스케이프, 필드가 열/행 구분을 절대 안 깨고 라운드트립
+  가능)·`jobsToTsv`(CSV와 동일 shape·`JOB_CSV_COLUMNS`/`jobCsvValue` 공유 lockstep, 빈 스토어도
+  헤더행) 추가 + `EXPORT_FORMATS`·`COLUMN_AWARE_FORMATS`에 `tsv` 등록·`exportJobs` 디스패치. CLI
+  export는 `EXPORT_FORMATS`/`COLUMN_AWARE_FORMATS` 기반이라 `-f tsv`·`--columns`·스코프 필터 전부
+  자동 배선(설명 문구만 갱신). CSV(RFC 4180 인용)와 달리 인용 없이 제어문자만 이스케이프해 순진한
+  `cut -f`/`awk -F'\t'` 파이프라인에 바로 안전, 콤마는 verbatim.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린·`pnpm ci:lint`(Biome 0 경고)·`pnpm test`
+  전 패키지 통과(core 516·cli 237/1skip·dashboard 7). 신규 테스트: core escapeTsvField 3 + jobsToTsv 5
+  + exportJobs dispatch/columns 2 + EXPORT_FORMATS/COLUMN_AWARE_FORMATS 갱신, cli tsv 헤더·필드수·컬럼 2.
+  실제 빌드 CLI e2e로 탭/콤마/개행 주입 필드가 매 행 정확히 11필드·`cut -f2,4`/`awk -F'\t'`로 안 깨짐 확인.
+- **다음 할 일:** export 포맷은 tsv까지 커버(yaml은 PR #236). 남은 격리 개선 후보 — 파서 신규 포맷
+  (ISO 8601 duration `PT#H#M` 등, 단 파서 PR 다수와 겹치지 않게)·metrics OpenMetrics·대시보드 패널.
+  README/ARCHITECTURE(🧭 코워크).

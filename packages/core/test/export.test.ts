@@ -6,6 +6,7 @@ import {
   escapeHtml,
   escapeHtmlCell,
   escapeMarkdownCell,
+  escapeTsvField,
   exportJobs,
   isJobCsvColumn,
   JOB_CSV_COLUMNS,
@@ -15,6 +16,7 @@ import {
   jobsToJson,
   jobsToMarkdown,
   jobsToNdjson,
+  jobsToTsv,
   parseCsvColumns,
 } from "../src/export.js";
 import type { RelayJob } from "../src/types.js";
@@ -122,6 +124,64 @@ describe("jobsToCsv", () => {
   });
 });
 
+describe("escapeTsvField", () => {
+  it("leaves plain values untouched", () => {
+    expect(escapeTsvField("hello")).toBe("hello");
+    expect(escapeTsvField("")).toBe("");
+    expect(escapeTsvField("a b c")).toBe("a b c");
+  });
+
+  it("escapes tabs, CR, and LF so a field never breaks the column/row layout", () => {
+    expect(escapeTsvField("a\tb")).toBe("a\\tb");
+    expect(escapeTsvField("line1\nline2")).toBe("line1\\nline2");
+    expect(escapeTsvField("line1\r\nline2")).toBe("line1\\r\\nline2");
+  });
+
+  it("escapes backslash first so the escapes round-trip unambiguously", () => {
+    expect(escapeTsvField("a\\b")).toBe("a\\\\b");
+    // A literal backslash-t stays distinguishable from an escaped tab.
+    expect(escapeTsvField("a\\tb")).toBe("a\\\\tb");
+  });
+});
+
+describe("jobsToTsv", () => {
+  it("emits just the tab-joined header row for an empty store", () => {
+    expect(jobsToTsv([])).toBe(JOB_CSV_COLUMNS.join("\t"));
+  });
+
+  it("emits nothing when both empty and header:false", () => {
+    expect(jobsToTsv([], { header: false })).toBe("");
+  });
+
+  it("emits a header plus one tab-separated row per job", () => {
+    const tsv = jobsToTsv([
+      job({ id: "j1", project: "p1", attempts: 2 }),
+      job({ id: "j2", project: "p2", status: "failed" }),
+    ]);
+    const lines = tsv.split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe(JOB_CSV_COLUMNS.join("\t"));
+    expect(lines[1].startsWith("j1\tp1\tclaude-code\tcompleted\t2\t")).toBe(true);
+    expect(lines[2].startsWith("j2\tp2\tclaude-code\tfailed\t1\t")).toBe(true);
+  });
+
+  it("escapes tabs/newlines inside fields so every row stays one line with aligned columns", () => {
+    const tsv = jobsToTsv([job({ command: ["claude", "-p", "a\tb"], lastError: "boom\nbang" })], {
+      header: false,
+    });
+    // The whole export is a single physical line...
+    expect(tsv.split("\n")).toHaveLength(1);
+    // ...and the injected tab/newline survive as escapes, not real delimiters.
+    expect(tsv).toContain("claude -p a\\tb");
+    expect(tsv).toContain("boom\\nbang");
+  });
+
+  it("honors a custom column subset and order", () => {
+    const tsv = jobsToTsv([job({ id: "x", status: "queued" })], { columns: ["status", "id"] });
+    expect(tsv).toBe("status\tid\nqueued\tx");
+  });
+});
+
 describe("isJobCsvColumn", () => {
   it("accepts every declared column and rejects unknown names", () => {
     for (const col of JOB_CSV_COLUMNS) {
@@ -173,7 +233,7 @@ describe("parseCsvColumns", () => {
 
 describe("COLUMN_AWARE_FORMATS", () => {
   it("lists exactly the tabular formats and is a subset of EXPORT_FORMATS", () => {
-    expect([...COLUMN_AWARE_FORMATS]).toEqual(["csv", "md", "html"]);
+    expect([...COLUMN_AWARE_FORMATS]).toEqual(["csv", "tsv", "md", "html"]);
     for (const f of COLUMN_AWARE_FORMATS) {
       expect(EXPORT_FORMATS).toContain(f);
     }
@@ -294,6 +354,17 @@ describe("exportJobs", () => {
     expect(exportJobs(jobs, "csv")).toBe(jobsToCsv(jobs));
   });
 
+  it("dispatches to TSV", () => {
+    const jobs = [job({ id: "d" })];
+    expect(exportJobs(jobs, "tsv")).toBe(jobsToTsv(jobs));
+  });
+
+  it("passes the column subset through to TSV", () => {
+    const jobs = [job({ id: "d", status: "queued" })];
+    const columns = ["status", "id"] as const;
+    expect(exportJobs(jobs, "tsv", { columns: [...columns] })).toBe(jobsToTsv(jobs, { columns: [...columns] }));
+  });
+
   it("dispatches to JSON", () => {
     const jobs = [job({ id: "d" })];
     expect(exportJobs(jobs, "json")).toBe(jobsToJson(jobs));
@@ -321,7 +392,7 @@ describe("exportJobs", () => {
   });
 
   it("exposes the supported formats", () => {
-    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md", "ndjson", "html"]);
+    expect(EXPORT_FORMATS).toEqual(["csv", "tsv", "json", "md", "ndjson", "html"]);
   });
 });
 
