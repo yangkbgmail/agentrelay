@@ -6,6 +6,7 @@ import {
   escapeHtml,
   escapeHtmlCell,
   escapeMarkdownCell,
+  escapeXml,
   exportJobs,
   isJobCsvColumn,
   JOB_CSV_COLUMNS,
@@ -15,6 +16,7 @@ import {
   jobsToJson,
   jobsToMarkdown,
   jobsToNdjson,
+  jobsToXml,
   parseCsvColumns,
 } from "../src/export.js";
 import type { RelayJob } from "../src/types.js";
@@ -173,7 +175,7 @@ describe("parseCsvColumns", () => {
 
 describe("COLUMN_AWARE_FORMATS", () => {
   it("lists exactly the tabular formats and is a subset of EXPORT_FORMATS", () => {
-    expect([...COLUMN_AWARE_FORMATS]).toEqual(["csv", "md", "html"]);
+    expect([...COLUMN_AWARE_FORMATS]).toEqual(["csv", "md", "html", "xml"]);
     for (const f of COLUMN_AWARE_FORMATS) {
       expect(EXPORT_FORMATS).toContain(f);
     }
@@ -320,8 +322,19 @@ describe("exportJobs", () => {
     expect(exportJobs(jobs, "html", { columns: [...columns] })).toBe(jobsToHtml(jobs, { columns: [...columns] }));
   });
 
+  it("dispatches to XML", () => {
+    const jobs = [job({ id: "d" })];
+    expect(exportJobs(jobs, "xml")).toBe(jobsToXml(jobs));
+  });
+
+  it("passes the column subset through to XML", () => {
+    const jobs = [job({ id: "d", status: "queued" })];
+    const columns = ["status", "id"] as const;
+    expect(exportJobs(jobs, "xml", { columns: [...columns] })).toBe(jobsToXml(jobs, { columns: [...columns] }));
+  });
+
   it("exposes the supported formats", () => {
-    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md", "ndjson", "html"]);
+    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md", "ndjson", "html", "xml"]);
   });
 });
 
@@ -407,5 +420,78 @@ describe("jobsToHtml", () => {
     const out = jobsToHtml([job({ id: "x", status: "queued" })], { columns: ["status", "id"] });
     expect(out).toContain("<th>status</th><th>id</th>");
     expect(out).not.toContain("<th>project</th>");
+  });
+});
+
+describe("escapeXml", () => {
+  it("leaves plain values untouched", () => {
+    expect(escapeXml("hello world")).toBe("hello world");
+    expect(escapeXml("")).toBe("");
+  });
+
+  it("escapes the three content-special characters", () => {
+    expect(escapeXml("a < b & c > d")).toBe("a &lt; b &amp; c &gt; d");
+  });
+
+  it("escapes ampersands first so entities are not double-escaped", () => {
+    // A literal "&lt;" must become "&amp;lt;", not "&lt;".
+    expect(escapeXml("&lt;")).toBe("&amp;lt;");
+  });
+
+  it("does not touch quotes (job fields are only ever element text)", () => {
+    expect(escapeXml(`say "hi" it's fine`)).toBe(`say "hi" it's fine`);
+  });
+});
+
+describe("jobsToXml", () => {
+  it("emits a well-formed document: XML declaration + a counted <jobs> root", () => {
+    const out = jobsToXml([job({ id: "a" }), job({ id: "b" })]);
+    expect(out.startsWith('<?xml version="1.0" encoding="UTF-8"?>')).toBe(true);
+    expect(out).toContain('<jobs count="2">');
+    expect(out.trimEnd().endsWith("</jobs>")).toBe(true);
+    // One <job> element per row.
+    expect(out.match(/<job>/g)).toHaveLength(2);
+  });
+
+  it("emits one child element per shared column, named after the column", () => {
+    const out = jobsToXml([job({ id: "x" })]);
+    for (const col of JOB_CSV_COLUMNS) {
+      // Each column appears either as a filled or a self-closing element.
+      expect(new RegExp(`<${col}[/>]`).test(out)).toBe(true);
+    }
+    expect(out).toContain("<id>x</id>");
+  });
+
+  it("renders an empty cell as a self-closing element", () => {
+    // A completed job with no error/resetAt -> those cells are empty.
+    const out = jobsToXml([job({ resetAt: null, lastError: null })]);
+    expect(out).toContain("<lastError/>");
+    expect(out).toContain("<resetAt/>");
+  });
+
+  it("escapes markup in cell values so a command cannot break the document", () => {
+    const out = jobsToXml([job({ command: ["echo", "<x> & <y>"] })]);
+    expect(out).toContain("<command>echo &lt;x&gt; &amp; &lt;y&gt;</command>");
+    expect(out).not.toContain("<x>");
+  });
+
+  it("still emits an (empty) counted root for an empty job list", () => {
+    const out = jobsToXml([]);
+    expect(out).toContain('<jobs count="0">');
+    expect(out).not.toContain("<job>");
+    expect(out.trimEnd().endsWith("</jobs>")).toBe(true);
+  });
+
+  it("honors a column subset and order (composing with --columns)", () => {
+    const out = jobsToXml([job({ id: "x", status: "queued" })], { columns: ["status", "id"] });
+    const jobBlock = out.match(/<job>[\s\S]*?<\/job>/)?.[0] ?? "";
+    expect(jobBlock.indexOf("<status>")).toBeLessThan(jobBlock.indexOf("<id>"));
+    expect(jobBlock).not.toContain("<project>");
+  });
+
+  it("uses LF line endings with no trailing newline", () => {
+    const out = jobsToXml([job()]);
+    expect(out).not.toContain("\r");
+    expect(out.endsWith("\n")).toBe(false);
   });
 });
