@@ -34,6 +34,7 @@ import {
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  canReschedule,
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
@@ -71,6 +72,7 @@ import {
   resolveConfigWritePath,
   resolveEffectiveConfig,
   resolveJobId,
+  resolveResumeAt,
   retryPolicyFromEnv,
   runDiagnostics,
   sampleConfigJson,
@@ -460,6 +462,58 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
       ok: true,
       job: updated,
       message: `job ${shortId(job.id)} (${job.project}) queued to resume now — run "agentrelay tick" or the daemon to pick it up`,
+    };
+  } finally {
+    queue.close();
+  }
+}
+
+/** Result of {@link rescheduleJob}, extending the shared control result. */
+export interface RescheduleResult extends JobControlResult {
+  /** The resolved resume time (epoch ms), present only when `ok`. */
+  resumeAtMs?: number;
+}
+
+/**
+ * Change when a pending job will resume, by full id or short prefix. Accepts a
+ * duration from now (`2h`, `+1d`) or an absolute timestamp; see
+ * {@link resolveResumeAt}. In-flight (`resuming`) and terminal jobs are rejected
+ * with an explanatory message (use `retry` to revive a finished job). The job is
+ * parked in `waiting_for_reset` with the new time so the next scheduler tick /
+ * daemon picks it up exactly then. A resolved time in the past is honoured (the
+ * job becomes due immediately) and reported as such.
+ */
+export function rescheduleJob(
+  idOrPrefix: string,
+  when: string,
+  options: { storePath?: string; now?: number } = {}
+): RescheduleResult {
+  const nowMs = options.now ?? Date.now();
+  const queue = openQueue(options.storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { ok: false, job: null, message: resolved.error ?? "job not found" };
+
+    const job = jobs.find((j) => j.id === resolved.id) as RelayJob;
+    const guard = canReschedule(job);
+    if (!guard.ok) return { ok: false, job, message: `cannot reschedule ${shortId(job.id)}: ${guard.reason}` };
+
+    const resume = resolveResumeAt(when, nowMs);
+    if ("error" in resume) return { ok: false, job, message: `cannot reschedule ${shortId(job.id)}: ${resume.error}` };
+
+    const iso = new Date(resume.atMs).toISOString();
+    // A manual reschedule is not a parsed rate-limit detection, so no provenance
+    // is attached; markWaitingForReset without `detection` leaves any prior
+    // detection untouched and just moves the job's due time.
+    queue.markWaitingForReset(job.id, iso);
+    const updated = queue.getById(job.id) ?? null;
+    const whenDesc = resume.atMs <= nowMs ? `${iso} (due immediately)` : iso;
+    return {
+      ok: true,
+      job: updated,
+      message: `job ${shortId(job.id)} (${job.project}) rescheduled to resume at ${whenDesc}`,
+      resumeAtMs: resume.atMs,
     };
   } finally {
     queue.close();
