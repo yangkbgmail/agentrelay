@@ -13,7 +13,8 @@
 - [x] 5. 테스트 커버리지 점검 (core/cli 엣지 케이스 보강) — 파서 회귀 12케이스 + 스케줄러
       재시도/백오프/최대시도 5케이스 + retry 유닛 9케이스 추가 (core 51 테스트 통과)
 - [ ] 6. 문서: README / ARCHITECTURE.md / ROADMAP.md
-- [ ] 7. 최종 QA + 데모 시나리오 스크립트
+- [x] 7. 최종 QA + 데모 시나리오 스크립트 — `scripts/demo.mjs`(빌드된 CLI로 run→감지→큐잉→tick→
+      재개→completed 전 과정 자립 시연·검증) + `packages/cli/test/demo.test.ts` e2e 회귀
 
 ## 중요한 설계 결정 로그 (반드시 읽을 것)
 
@@ -1489,3 +1490,25 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 재현 가능한 엔드투엔드 데모 스크립트 + e2e 회귀] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-uqoxav`)
+- **배경:** 순수 👷 BACKLOG 항목이 전부 완료 상태. 남은 미완 항목 중 유일하게 빌더가 손댈 수 있는
+  것은 MVP의 `👷🧭 최종 QA + 재현 가능한 데모 스크립트`(SPEC §3 체크리스트 7번). 그동안 각 세션은
+  개별 커맨드를 만들고 수동 e2e로만 확인해, "run→감지→큐잉→tick→재개→completed" **전 수명주기가
+  한 번에 도는지**를 재현 가능하게 검증하는 자립형 산출물이 없었다.
+- **한 일:** `scripts/demo.mjs` 신설 — 준비물 없이 릴레이 핵심 수명주기를 **실제 빌드된 CLI**로 끝까지
+  시연·자가검증하는 자립형 데모. 사용자 실제 스토어(`~/.agentrelay/jobs.json`)를 절대 안 건드리도록 매
+  실행 OS 임시 디렉터리에 격리 스토어를 만들고 끝나면 정리, 네트워크/클라우드/발송 없음. 진짜 에이전트
+  대신 상태 파일로 호출 횟수를 세는 가짜 에이전트(첫 호출=Codex식 `Please try again in 2s.` 레이트리밋
+  문구 출력, 재개 호출=성공 메시지)로 다음을 단계별 내레이션+인라인 assert 로 통과시킨다:
+  `run --tool codex-cli`(감지→잡 큐잉)→`status --json`(waiting_for_reset·project=demo 확인)→
+  `next`/`show`(다음 재개 대상·감지 출처)→리셋 대기(2s)→`tick`(스케줄러 재개)→`status`/`stats`
+  (completed·가짜 에이전트 정확히 2회 호출 확인). 성공 시 `DEMO OK`, 어느 단계든 어긋나면 exit 1(`DEMO
+  FAIL`). `packages/cli/test/demo.test.ts` e2e 회귀 추가 — 빌드된 CLI(`packages/cli/dist/bin.js`)로 데모를
+  실제 실행해 `DEMO OK`·`-> completed`를 단언, `DEMO FAIL` 부재 확인(CI는 build 후 test 라 dist 존재 보장,
+  미빌드는 조용히 스킵하지 않고 명확 실패). 새 core/CLI 프로덕션 코드 0줄 — 기존 커맨드만 조립.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린→`pnpm ci:lint`(Biome, 85파일 0경고)→`pnpm test`
+  전 패키지 통과(cli 236 통과/1 skip, demo e2e 포함). 데모 수동 실행도 `DEMO OK`·exit 0 확인.
+- **다음 할 일:** 남은 미완은 전부 🧭 코워크 소유(README·ARCHITECTURE/ROADMAP·경쟁조사·샘플수집·
+  성능분석). 빌더 관점 신규 개선 항목 발굴 여지: 데모를 `--json` 스냅샷 리그레션으로 확장하거나,
+  daemon 경로(현재 tick 만 시연)까지 커버하는 시나리오 추가 고려.

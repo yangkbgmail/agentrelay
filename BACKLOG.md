@@ -16,7 +16,16 @@
       (완료 — `parser.test.ts`에 12케이스 회귀 추가: 빈 문자열/시간없는 rate-limit/24h 시계/
       12am·12pm/타임존 오프셋 ISO/잘못된 ISO fallthrough/시간단위만/JSON `retry_after`/멀티라인.
       파서도 `"retry_after": N` JSON 형식 인식하도록 개선. branch `claude/keen-allen-u5qt1l`)
-- [ ] 👷🧭 최종 QA + 재현 가능한 데모 스크립트.
+- [x] 👷 최종 QA + 재현 가능한 데모 스크립트.
+      (완료 — `scripts/demo.mjs` 신설: 준비물 없이 릴레이 핵심 수명주기를 **실제 빌드된 CLI**로
+      끝까지 시연·검증하는 자립형 데모. 사용자 실제 스토어를 절대 안 건드리도록 매 실행 OS 임시
+      디렉터리에 격리 스토어를 만들고 끝나면 정리, 네트워크/발송 없음. 진짜 에이전트 대신 호출
+      횟수를 세는 가짜 에이전트(첫 호출=Codex식 `try again in 2s` 레이트리밋 문구, 재개 호출=성공)로
+      `run`(감지→큐잉)→`status`/`next`/`show`(waiting_for_reset 확인)→리셋 대기→`tick`(재개)→
+      `status`/`stats`(completed 확인) 전 과정을 단계별 내레이션+인라인 assert 로 통과시키고, 성공 시
+      "DEMO OK"·실패 시 exit 1. `packages/cli/test/demo.test.ts` e2e가 빌드된 CLI로 데모를 실제 실행해
+      "DEMO OK"/"-> completed"를 단언(CI는 build 후 test 라 dist 존재 보장, 미빌드는 스킵 대신 명확
+      실패). 새 core/CLI 프로덕션 코드 0줄 — 기존 커맨드만 조립. branch `claude/wizardly-pascal-uqoxav`)
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
