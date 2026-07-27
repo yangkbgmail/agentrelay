@@ -165,6 +165,36 @@ describe("exportStore", () => {
     expect(result.content).not.toContain("<th>project</th>");
   });
 
+  it("produces a well-formed XML document with a <job> element per row", () => {
+    seed();
+    const result = exportStore({ storePath, format: "xml" });
+    expect(result.count).toBe(2);
+    expect(result.content.startsWith('<?xml version="1.0" encoding="UTF-8"?>')).toBe(true);
+    expect(result.content).toContain('<jobs count="2">');
+    expect(result.content.match(/<job>/g)).toHaveLength(2);
+    expect(result.content).toContain("<project>alpha</project>");
+    expect(result.content).toContain("<project>beta</project>");
+    expect(result.content.trimEnd().endsWith("</jobs>")).toBe(true);
+  });
+
+  it("writes an XML export to a file with a trailing newline", () => {
+    seed();
+    const out = join(dir, "jobs.xml");
+    const result = exportStore({ storePath, format: "xml", outPath: out });
+    expect(result.writtenTo).toBe(out);
+    const onDisk = readFileSync(out, "utf8");
+    expect(onDisk.startsWith('<?xml version="1.0"')).toBe(true);
+    expect(onDisk.endsWith("</jobs>\n")).toBe(true);
+  });
+
+  it("honors a --columns subset/order for the XML export", () => {
+    seed();
+    const result = exportStore({ storePath, format: "xml", columns: ["status", "id"] });
+    const jobBlock = result.content.match(/<job>[\s\S]*?<\/job>/)?.[0] ?? "";
+    expect(jobBlock.indexOf("<status>")).toBeLessThan(jobBlock.indexOf("<id>"));
+    expect(result.content).not.toContain("<project>");
+  });
+
   // The `export` command applies the same scope filters as `stats`/`status`:
   // the --since/--until time window via core scopeJobs, then
   // --status/--tool/--project/--sort/--reverse via selectJobs. These tests

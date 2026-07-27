@@ -575,6 +575,16 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay export --format xml` — 잡 이력을 구조화된 XML 문서로 내보내기(엔터프라이즈 수집·
+      레거시 BI·XSLT/XPath 파이프라인용). CSV/MD/HTML의 tabular 형제.
+      (완료 — core `export.ts`에 순수 `escapeXml`(콘텐츠용 `&`/`<`/`>`, `&` 먼저 → 이중 이스케이프 방지) +
+      `jobsToXml(jobs,{columns})`(XML 선언 + `count` 속성 `<jobs>` 루트 + 행당 `<job>` + 컬럼당 자식 요소,
+      빈 셀은 자기닫힘 요소, LF·trailing newline 없음) 신설. `JOB_CSV_COLUMNS`/`jobCsvValue` 공유로 CSV/MD/
+      HTML과 lockstep, `COLUMN_AWARE_FORMATS`에 `xml` 추가해 `--columns` 조합, `EXPORT_FORMATS`+`exportJobs`
+      디스패치. CLI는 `EXPORT_FORMATS.includes`로 자동 배선(설명 문구·`--columns` 도움말 갱신). 새 파서/스토어
+      코드 0줄. core export +14 / cli export +3 신규 테스트, 실제 빌드 CLI e2e + `xmllint` well-formed 검증.
+      branch `claude/wizardly-pascal-mh5c0e`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

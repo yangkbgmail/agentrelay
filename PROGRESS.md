@@ -1489,3 +1489,24 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### 2026-07-27 — `agentrelay export --format xml`
+- **상황 판단:** 지정 브랜치(`claude/wizardly-pascal-mh5c0e`)의 이전 PR이 병합돼 origin에서 삭제된 상태 →
+  최신 main(4abefa1)에서 브랜치를 새로 파 후속 작업 시작. BACKLOG의 👷 항목은 전부 `[x]` 완료, 🧭 코워크
+  항목만 미완이라 CLAUDE.md "무한 개선" 원칙대로 새 항목을 발굴. 열린 PR 60여 개(대부분 미병합 중복)를
+  훑어 겹치지 않고 CI-그린이 확실한 항목으로 XML 내보내기 선정(기존 tsv #253·yaml #236 열린 PR과 구별).
+- **한 일:** `agentrelay export`에 **여섯 번째 포맷 `xml`** 추가. 순수 core `@agentrelay/core/export.ts`에
+  `escapeXml`(콘텐츠용 3문자 `&`/`<`/`>` — `&` 먼저 치환해 이중 이스케이프 방지, 인용부호는 요소 텍스트라
+  건드리지 않음)·`jobsToXml(jobs,{columns})`(XML 선언 + `count` 속성 붙은 `<jobs>` 루트 + 행당 `<job>` +
+  컬럼당 자식 요소, 빈 셀은 자기닫힘 `<lastError/>`, LF·trailing newline 없음) 신설. 기존 CSV/MD/HTML과
+  **완전 lockstep**: `JOB_CSV_COLUMNS`/`jobCsvValue` 공유(command는 공백 조인), `COLUMN_AWARE_FORMATS`에
+  `xml` 추가해 `--columns` 조합 지원. `EXPORT_FORMATS`에 `xml` 등록·`exportJobs` 디스패치. CLI는
+  `EXPORT_FORMATS.includes`로 자동 배선 — 설명 문구에 XML 추가, `--columns` 도움말을 `COLUMN_AWARE_FORMATS`
+  파생으로 교체(csv/md → csv/md/html/xml). 새 파서/스토어 코드 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린·`pnpm ci:lint`(Biome, 84파일 0경고)·`pnpm test`
+  전 패키지 통과(core export +14 = 519 core / cli export +3 = 239 cli). 실제 빌드된 CLI e2e로 full XML·
+  markup 이스케이프(`<hi> & bye`→`&lt;hi&gt; &amp; bye`)·빈 셀 자기닫힘·`--columns` subset/order·
+  json+columns 거부(에러 문구에 xml 노출)·파일 출력 trailing newline 검증, `xmllint --noout`으로
+  well-formed 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합(#125/#168/#170/#171 등) 또는 새 개선 항목 발굴. README/
+  ARCHITECTURE는 🧭 코워크 소유.

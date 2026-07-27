@@ -67,7 +67,7 @@ export function parseCsvColumns(input: string): { columns: JobCsvColumn[]; inval
 }
 
 /** Formats that honor a `--columns` subset (the tabular ones). JSON/NDJSON are lossless full-shape and ignore it. */
-export const COLUMN_AWARE_FORMATS = ["csv", "md", "html"] as const;
+export const COLUMN_AWARE_FORMATS = ["csv", "md", "html", "xml"] as const;
 
 /**
  * RFC 4180 field escaping: a field is wrapped in double quotes when it contains
@@ -293,8 +293,53 @@ export function jobsToHtml(jobs: RelayJob[], options: HtmlOptions = {}): string 
   ].join("\n");
 }
 
+/**
+ * Escape a value for XML text content: the three characters that must never
+ * appear literally in element content (`&`, `<`, `>`) become their predefined
+ * entities. `&` is replaced first so the ampersands introduced by the later
+ * replacements aren't double-escaped. Note the XML predefined entity for a
+ * greater-than is `&gt;` (only strictly required inside `]]>`, but escaping it
+ * unconditionally keeps the output uniform and safe). Unlike {@link escapeHtml}
+ * we don't touch quotes here — job fields are only ever emitted as element text
+ * (never inside an attribute), where quotes are perfectly legal.
+ */
+export function escapeXml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Render jobs as a well-formed, self-contained XML document — the structured
+ * sibling of the CSV/Markdown/HTML exports for pipelines that speak XML
+ * (enterprise ingestion, legacy BI, XSLT, or `xmllint`/XPath). A `<jobs>` root
+ * (with a `count` attribute) wraps one `<job>` element per row, and each column
+ * becomes a child element named after the column ({@link JOB_CSV_COLUMNS}) whose
+ * text is the same flat cell value the other tabular exports emit
+ * ({@link jobCsvValue}), so all four stay in lockstep and honor the same
+ * `--columns` subset. An empty cell is a self-closing element (e.g. `<lastError/>`).
+ * An empty job list still emits the (empty) `<jobs count="0">` root, so consumers
+ * see the schema rather than a blank file. LF line endings, no trailing newline
+ * (matching the other serializers; the CLI file writer adds the final LF).
+ */
+export function jobsToXml(jobs: RelayJob[], options: Pick<CsvOptions, "columns"> = {}): string {
+  const columns = options.columns ?? JOB_CSV_COLUMNS;
+  const lines: string[] = ['<?xml version="1.0" encoding="UTF-8"?>'];
+  lines.push(`<jobs count="${jobs.length}">`);
+  for (const job of jobs) {
+    lines.push("  <job>");
+    for (const col of columns) {
+      const value = jobCsvValue(job, col);
+      // The column names are all valid XML element names (NCNames), so they're
+      // safe to use unescaped as tags; only the text content needs escaping.
+      lines.push(value === "" ? `    <${col}/>` : `    <${col}>${escapeXml(value)}</${col}>`);
+    }
+    lines.push("  </job>");
+  }
+  lines.push("</jobs>");
+  return lines.join("\n");
+}
+
 /** Supported export formats. */
-export const EXPORT_FORMATS = ["csv", "json", "md", "ndjson", "html"] as const;
+export const EXPORT_FORMATS = ["csv", "json", "md", "ndjson", "html", "xml"] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 /** Dispatch to the right serializer for the given format. */
@@ -308,6 +353,8 @@ export function exportJobs(jobs: RelayJob[], format: ExportFormat, options: CsvO
       return jobsToNdjson(jobs);
     case "html":
       return jobsToHtml(jobs, options);
+    case "xml":
+      return jobsToXml(jobs, options);
     default:
       return jobsToCsv(jobs, options);
   }
