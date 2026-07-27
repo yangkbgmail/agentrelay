@@ -575,6 +575,23 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay stats --watch [초]` — `stats`를 실시간으로 재렌더하는 라이브 뷰(카운트다운·트렌드
+      갱신). `status --watch`에는 있지만 `stats`에는 없던 대칭성 갭을 메움(자족적 신규 발굴 항목).
+      (완료 — `status`는 `--watch`로 화면을 지우고 N초마다 큐를 재렌더하는 라이브 카운트다운 TUI를 제공했지만
+      `stats`엔 없어, 릴레이 효과(성공률·해결 시간·다음 리셋 카운트다운·일별 트렌드)를 라이브로 지켜볼 방법이
+      없었다. CLI `stats.ts`에 순수 `renderStatsWatchFrame(body, storePath, intervalMs, now)` 신설 —
+      `status`의 `renderWatchFrame`을 미러링하되 **본문을 문자열로 받아** 같은 프레임이 plain summary·
+      `--group-by` 브레이크다운·summary+trend 블록 어느 것이든 감쌈(그 패스가 계산한 것). CLI `cli.ts`의
+      stats 액션에 `-w/--watch [초]` 배선: 렌더 로직을 `buildBody(frameNow, color)` 클로저로 추출(매 호출
+      스토어 재읽기 → 데몬 쓰기 자동 반영, 카운트다운·트렌드는 `frameNow`로 재계산, 스코프의 시간창 경계는
+      명령 시작 시 고정 = `status --watch`와 동일 의미). `runStatsWatch` 루프가 화면 클리어(`\x1b[2J\x1b[H`)+
+      프레임 페인트, SIGINT/SIGTERM에 정리 후 종료. `--json`은 원샷 머신 스냅샷이라 둘 다 주면 `--json` 우선
+      (`status`와 동일). 기존 스코프 필터(--status/--tool/--project/--since/--until)·`--group-by`·`--trend`와
+      전부 조합. 새 core 코드 0줄 — 전부 기존 검증된 `renderStats`/`renderGroupedStats`/`renderTrend` 재사용.
+      stats.test.ts에 renderStatsWatchFrame 3케이스 추가(제목/타임스탬프/본문 pass-through·초 반올림·grouped
+      본문), 실제 빌드 CLI e2e로 라이브 프레임·--group-by/--trend 조합·--json 우선·help 노출 검증.
+      branch `claude/wizardly-pascal-statswatch`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
