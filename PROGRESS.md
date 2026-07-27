@@ -1489,3 +1489,31 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서 타임존 인식 clock-time 해석] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-ng884k`)
+- **배경:** 세션 시작 시 지정 브랜치=main(4abefa1) 동일, 명시 👷 BACKLOG 항목은 전부 완료 상태.
+  CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다. 파서를 읽던 중 실사용 정확성 갭을 발견 —
+  `clock-time`/`clock-time-meridiem` 패턴이 `reset at 5pm (America/New_York)` 같은 실제 Claude Code
+  문구의 **명명된 타임존을 무시하고 로컬 시각으로 해석**하고 있었다. 데몬이 UTC(클라우드/CI에서
+  매우 흔함)에서 도는데 메시지가 US-Eastern 리셋을 말하면 리셋 시각이 4~5시간 틀어져, 너무 일찍
+  재개해 재차단되거나 너무 늦게 재개된다. 릴레이 도구의 핵심 가치(정확한 재개 시점)에 직결되는 버그.
+- **한 일:** **타임존 인식 clock-time 해석** —
+  1. `@agentrelay/core/timezone.ts` 신설(순수·`Date.now()` 미접촉, Node 번들 ICU만 의존):
+     `normalizeTimeZone(raw)`가 존 토큰을 정규화 — 바 UTC/GMT→"UTC", 부호 오프셋
+     `UTC+9`/`GMT-5`/`UTC+05:30`/`GMT-0800`→`OFFSET:<분>`(±14h 범위 밖 거부), IANA 존은 ICU로
+     실제 검증(`Foo/Bar`·모호 약어 PST/EST는 null → 로컬 폴백). `resolveZonedClock(now,h,m,zone)`가
+     그 존의 오늘 날짜 벽시계 시각을 절대 UTC instant로 변환(IANA는 DST 경계 안전을 위한 2-pass
+     오프셋 계산, 이미 지난 시각이면 **존 기준** 익일로 롤).
+  2. `parser.ts`의 두 clock 패턴 정규식에 선택적 존 접미사(`ZONE_SUFFIX`) 추가 — 괄호형
+     `(America/New_York)` 또는 IANA-path/UTC·GMT 오프셋만 잡는 좁은 무괄호형(`5pm today`의 "today"
+     같은 후행 산문을 존으로 오검출하지 않음). 공용 `resolveClockTime(now,h,m,zoneRaw)`가 존이
+     인식되면 존 해석, 없거나 미인식이면 **기존 로컬 해석으로 그레이스풀 폴백**(하위호환 완전 유지).
+  3. index.ts에 timezone 모듈 export. 기존 테스트(로컬 5pm 가정으로 버그 동작을 검증하던 케이스)를
+     올바른 절대 instant(21:00Z) 단언으로 갱신.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **전 패키지 통과**(core timezone.test 12 + parser 회귀 +4 → core 522, cli 235+1skip,
+    dashboard 7). **실제 빌드된 CLI `parse` e2e**(mock 아님, TZ 환경변수 고정): `5pm (America/New_York)`
+    →21:00Z(로컬 무관), `9am UTC+9`→00:00Z(익일 롤), 무존은 `TZ=UTC`→17:00Z·`TZ=America/New_York`
+    →21:00Z 로컬 폴백, `5pm today`(존 아님)→로컬 17:00Z 폴백 확인.
+- **다음 할 일:** 파서 존 확장(명명 약어 안전 매핑 검토는 보류 — 계절별 오프셋 모호성), 대시보드가
+  리셋 카운트다운에 원본 존 표기 노출(👷 후보). README/ARCHITECTURE(🧭 코워크).

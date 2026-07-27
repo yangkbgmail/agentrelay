@@ -25,19 +25,18 @@ describe("parseRateLimitMessage", () => {
     expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
   });
 
-  it("parses the real Claude Code wording: 'reset at 5pm' (hour + meridiem, no minutes)", () => {
+  it("parses the real Claude Code wording: 'reset at 5pm (America/New_York)' in that zone", () => {
     // Actual message: "Claude usage limit reached. Your limit will reset at 5pm (America/New_York)."
-    const now = new Date("2026-07-12T08:00:00Z"); // 08:00 UTC
+    // 2026-07-12 is EDT (UTC-4), so 5pm New York == 21:00 UTC. The zone must be
+    // honored regardless of the machine's local time — assert the absolute instant.
+    const now = new Date("2026-07-12T08:00:00Z"); // 08:00 UTC, before the reset
     const result = parseRateLimitMessage(
       "Claude usage limit reached. Your limit will reset at 5pm (America/New_York).",
       { now }
     );
     expect(result).not.toBeNull();
     expect(result?.pattern).toBe("clock-time-meridiem");
-    const resetDate = new Date(result!.resetAt);
-    expect(resetDate.getHours()).toBe(17); // 5pm local
-    expect(resetDate.getMinutes()).toBe(0);
-    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+    expect(result?.resetAt).toBe("2026-07-12T21:00:00.000Z");
   });
 
   it("parses 'resets at 10 AM' with a space before the meridiem, rolling to tomorrow if past", () => {
@@ -67,6 +66,41 @@ describe("parseRateLimitMessage", () => {
   it("does not treat a bare 'reset at 5' (no minutes, no meridiem) as a clock time", () => {
     // Too ambiguous — could be "5 hours", "5th", etc. Requiring am/pm keeps us safe.
     expect(parseRateLimitMessage("Rate limit hit, reset at 5.")).toBeNull();
+  });
+
+  it("honors a named IANA timezone on a minute-precise clock-time", () => {
+    // 5:30pm New York on 2026-07-12 (EDT, UTC-4) == 21:30 UTC. Independent of
+    // the machine's local zone since we assert the absolute instant.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Resets at 5:30pm (America/New_York).", { now });
+    expect(result?.pattern).toBe("clock-time");
+    expect(result?.resetAt).toBe("2026-07-12T21:30:00.000Z");
+  });
+
+  it("honors a bare UTC offset timezone with no parentheses", () => {
+    // 9am at UTC+9 == 00:00 UTC. now is just before that, so it stays same-day.
+    const now = new Date("2026-07-11T23:00:00Z");
+    const result = parseRateLimitMessage("Your limit will reset at 9am UTC+9.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-07-12T00:00:00.000Z");
+  });
+
+  it("falls back to local time when the trailing token is not a real zone", () => {
+    // "today" is not a zone → local interpretation, same as before the feature.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Resets at 5pm today.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(17); // 5pm local
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("rolls a zoned reset to tomorrow-in-zone when already past", () => {
+    // 23:00 UTC — 5pm NY (21:00 UTC) already passed → next day 5pm NY = 2026-07-13T21:00Z.
+    const now = new Date("2026-07-12T23:00:00Z");
+    const result = parseRateLimitMessage("Your limit will reset at 5pm (America/New_York).", { now });
+    expect(result?.resetAt).toBe("2026-07-13T21:00:00.000Z");
   });
 
   it("parses a relative duration like '4h32m'", () => {

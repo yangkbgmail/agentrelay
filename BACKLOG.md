@@ -575,6 +575,23 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 타임존 인식 clock-time 해석 — `reset at 5pm (America/New_York)` 같은 메시지의
+      명명된 IANA 타임존/UTC·GMT 오프셋을 해석해 리셋 시각을 **그 타임존 기준**으로 계산.
+      지금까지 `clock-time`/`clock-time-meridiem`은 괄호 안 타임존을 무시하고 로컬 시각으로
+      해석해, 데몬이 UTC(클라우드/CI에서 흔함)에서 돌 때 몇 시간씩 틀어져 너무 일찍 재개→재차단
+      되거나 너무 늦게 재개됐다.
+      (완료 — `@agentrelay/core/timezone.ts` 신설(순수·`Date.now()` 미접촉, ICU만 의존):
+      `normalizeTimeZone(raw)`가 괄호/무괄호 토큰을 정규화 — 바 UTC/GMT→"UTC", 부호 오프셋
+      `UTC+9`/`GMT-5`/`UTC+05:30`/`GMT-0800`→`OFFSET:<분>`(범위 밖 offset 거부), IANA는 ICU로
+      검증(`Foo/Bar`·모호 약어 PST/EST는 null=로컬 폴백). `resolveZonedClock(now,h,m,zone)`가
+      그 존의 오늘 날짜에 벽시계 시각의 절대 UTC instant를 계산(IANA는 DST 경계용 2-pass 오프셋,
+      이미 지났으면 존 기준 익일로 롤). 파서의 `clock-time`/`clock-time-meridiem` 정규식에
+      선택적 존 접미사(괄호형 또는 IANA/UTC오프셋만 잡는 좁은 무괄호형)를 추가하고 공용
+      `resolveClockTime`가 존 있으면 존 해석·없거나 미인식이면 기존 로컬 해석으로 그레이스풀
+      폴백(하위호환 완전 유지). core timezone 12 + parser +4 회귀 테스트, 실제 빌드 CLI `parse`
+      e2e로 `5pm (America/New_York)`→21:00Z·`9am UTC+9`→00:00Z·무존 로컬 폴백·`today` 오검출 방지
+      검증. branch `claude/wizardly-pascal-ng884k`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
