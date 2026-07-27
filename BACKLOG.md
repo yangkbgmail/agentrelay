@@ -575,6 +575,21 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 라이프사이클 명령 훅 `AGENTRELAY_ON_EVENT` — 릴레이 이벤트마다 로컬 셸 명령 실행
+      (desktop notify·커스텀 스크립트·로깅). 기존 알림은 Slack/웹훅(원격 HTTP)뿐이라 로컬 액션을
+      걸 수단이 없었다.
+      (완료 — `@agentrelay/core/exec.ts` 신설: 매 라이프사이클 이벤트(resumed/queued/completed/failed)에
+      로컬 셸 명령을 실행하는 `Notifier`(스케줄러 변경 0줄, 기존 `Notifier` 추상화에 그대로 결합). 이벤트
+      데이터는 환경변수(`AGENTRELAY_EVENT`/`_JOB_ID`/`_PROJECT`/`_MESSAGE`)로 전달 — 문자열 보간 아닌 env라
+      injection-safe, 명령은 플랫폼 셸(`sh -c`/`cmd /c`)로 실행. 순수 `buildHookEnv`(base 미변경),
+      `createExecNotifier`(spawn 실패·error·non-zero exit·타임아웃 모두 `onError`로 보고, 절대 throw 안 함 —
+      릴레이 루프 보호. 기본 10s 후 SIGKILL[unref된 타이머], `timeoutMs<=0`이면 무제한), 순수
+      `parseHookTimeoutMs`(미설정/파싱불가는 기본값 fallback), `execNotifierFromEnv`. `notifiersFromEnv`가
+      Slack+웹훅+훅을 한 fan-out으로 결합 → run/daemon/tick 자동 배선. config 전 계층 배선
+      (`notify.onEvent` → `AGENTRELAY_ON_EVENT`, 드리프트 sync 통과) → config set/unset/show/validate 자동
+      인식. 새 CLI 커맨드 0개. core +16(exec 15 + notify fan-out 1) 테스트, 실제 빌드 CLI e2e로 훅 발화·
+      env 전달·config 왕복 검증. branch `claude/wizardly-pascal-onevent`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

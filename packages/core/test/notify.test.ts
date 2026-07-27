@@ -239,6 +239,32 @@ describe("notifiersFromEnv", () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(fetchFn.mock.calls[0][0]).toBe("https://hooks.example.test/relay");
   });
+
+  it("includes the local event hook (AGENTRELAY_ON_EVENT) in the fan-out", async () => {
+    let hookRan = false;
+    const notify = notifiersFromEnv(
+      { AGENTRELAY_ON_EVENT: "log-it" },
+      {
+        // Inject a synchronous fake child so no real shell is spawned in tests.
+        spawnFn: () => {
+          hookRan = true;
+          return {
+            on(event: string, listener: (arg: never) => void) {
+              if (event === "close") (listener as (code: number | null) => void)(0);
+              return this;
+            },
+            kill() {
+              return true;
+            },
+          };
+        },
+      }
+    );
+    expect(notify).not.toBeNull();
+
+    await notify!(payload);
+    expect(hookRan).toBe(true);
+  });
 });
 
 describe("listNotifyChannels", () => {
