@@ -575,6 +575,17 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay reschedule <id> <when>` — 대기 중인 잡의 재개 시각을 수동으로 변경(파서 오검출
+      교정·연기). 기존 수동 제어는 `cancel`(영구 중단)·`retry`(즉시 재개)뿐이라 "이 잡을 2시간 뒤/특정
+      시각에 재개"할 방법이 없던 실제 갭.
+      (완료 — 순수 core `reschedule.ts` 신설: `RESCHEDULABLE_STATUSES`(pending만) + `canReschedule(job)`
+      (resuming/terminal 거부, 사유별 메시지) + `resolveResumeAt(when, nowMs)`(선행 `+` 허용 duration→
+      now+기간, 절대 타임스탬프→Date; parseDuration 앵커로 무충돌 disambiguate; bare number 거부로
+      `new Date("3600")`=3600년 footgun 방지; 과거 시각=즉시 due 허용). CLI `rescheduleJob`가 resolveJobId+
+      canReschedule 가드 후 `markWaitingForReset`(provenance 미부착)로 새 시각에 파킹. `agentrelay
+      reschedule <id> <when>` 커맨드(예시 헬프). core 12 + cli 7 신규 테스트, 실제 빌드 CLI e2e 검증.
+      branch `claude/reschedule-command`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

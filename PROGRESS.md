@@ -1489,3 +1489,27 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 기능 `agentrelay reschedule <id> <when>`] (2026-07-27, 무인 자율 세션, branch `claude/reschedule-command`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태. CLAUDE.md 지침("MVP 이후에도 §8 무한 개선 백로그를
+  계속 소진, 비면 스스로 새 개선 항목 발굴")에 따라, 기존 수동 잡 제어(`cancel`/`retry`)에 있던 실제
+  갭을 채우는 신규 기능을 발굴·구현. 열린 PR 중복 클러스터(--no-color·backoff·clean·verify·config get·
+  parser reset-at·stats --by-hour·재개 stagger)와 겹치지 않는 격리된 항목으로 선정.
+- **한 일:** **`agentrelay reschedule <id> <when>` — 대기 중인 잡의 재개 시각을 수동으로 변경.** 지금까지
+  수동 제어는 `cancel`(영구 중단)·`retry`(즉시 재개)뿐이라, 파서가 리셋 시각을 잘못 읽었을 때(너무 이르면
+  재개→재충돌로 낭비, 너무 늦으면 릴레이가 불필요하게 유휴) 교정하거나 잡을 특정 시각으로 연기할 방법이
+  없었다.
+  - 구현: 순수 core `@agentrelay/core/reschedule.ts` 신설 — `RESCHEDULABLE_STATUSES`(pending만:
+    queued/waiting_for_reset. resuming은 in-flight 레이스, terminal은 retry로 부활) + `canReschedule(job)`
+    (거부 사유별 메시지) + `resolveResumeAt(when, nowMs)`(두 형식: 선행 `+` 허용 duration→now+기간,
+    절대 타임스탬프→Date 파싱. parseDuration이 `^숫자단위$` 앵커라 겹침 없이 disambiguate. **bare number는
+    거부** — `new Date("3600")`이 3600년으로 오파싱되는 footgun 방지. 과거 시각은 허용=즉시 due).
+    CLI `commands.ts` `rescheduleJob(idOrPrefix, when, {storePath, now})`가 resolveJobId(짧은 prefix/
+    모호 처리)+canReschedule 가드 후 `markWaitingForReset`(provenance 미부착 — 수동 조정은 파서 감지가
+    아니므로)로 잡을 새 시각에 파킹, 과거 시각은 "(due immediately)" 표기. `cli.ts` `reschedule` 커맨드
+    (예시 헬프 포함). 셸 완성/`config` 등 기존 배선에 자동 반영.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린·`pnpm ci:lint`(Biome) 0 경고·`pnpm test`
+  전 패키지 통과(core reschedule 12 + cli rescheduleJob 7 신규). 실제 빌드된 CLI e2e로 duration(+2h)·
+  절대 타임스탬프·과거→due immediately·잘못된 값→exit 1·`completion bash`에 reschedule 노출 검증.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify).
+  reschedule의 자연스러운 후속: 대량 `reschedule --all`(scope 필터) 또는 `--dry-run`. README/ARCHITECTURE(🧭 코워크).
