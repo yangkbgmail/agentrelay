@@ -1404,7 +1404,7 @@ export function buildCli(): Command {
   program
     .command("prune")
     .description("Remove old finished jobs (completed/failed) from the store to keep it small")
-    .option("--older-than <duration>", "Only prune jobs untouched for at least this long (e.g. 7d, 24h, 30m)")
+    .option("--older-than <duration>", "Only prune jobs untouched for at least this long (e.g. 2w, 7d, 24h, 30m)")
     .option("--status <statuses>", "Comma-separated statuses to prune (default: completed,failed)")
     .option("--keep <n>", "Always keep the N most recently updated eligible jobs")
     .option("--dry-run", "Show what would be pruned without deleting anything")
@@ -1415,7 +1415,7 @@ export function buildCli(): Command {
       if (opts.olderThan !== undefined) {
         const parsed = parseDuration(opts.olderThan);
         if (parsed === null) {
-          console.error(`Invalid --older-than value "${opts.olderThan}". Use a duration like 7d, 24h, 30m, 90s.`);
+          console.error(`Invalid --older-than value "${opts.olderThan}". Use a duration like 2w, 7d, 24h, 30m, 90s.`);
           process.exitCode = 1;
           return;
         }

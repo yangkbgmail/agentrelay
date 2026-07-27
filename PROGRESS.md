@@ -1489,3 +1489,24 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — `parseDuration` 주(week) 단위 추가] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-5f9id6`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태이고 열린 PR이 100개+로 적체(대부분 신규 커맨드
+  중복 제안). 새 커맨드를 또 더하는 것보다, 어떤 열린 PR도 건드리지 않고 파서-리서치(🧭)와도
+  겹치지 않는 작은 인프라 갭을 찾았다. `parseDuration`(prune.ts, CLI 기간 플래그 파서 — rate-limit
+  메시지 파서 parser.ts와 별개 코드경로)이 `ms/s/m/h/d`만 받아, AgentRelay의 핵심 도메인인 주간
+  사용량 창을 `--older-than 2w`처럼 자연스럽게 못 쓰고 `14d`로 풀어 써야 했다.
+- **한 일:**
+  1. `packages/core/src/prune.ts`: `DURATION_RE`에 `w` 그룹 추가, `UNIT_MS`에 `w: 604_800_000`(7일).
+     순수 파서라 모든 소비처(prune·stats/status/export/metrics/patterns/errors `--since`/`--until`·
+     autoPrune `after`/`every`·config `duration` 필드 검증)에 자동 파급 — 새 소비처 코드 0줄.
+     분수 주(`0.5w`)·대소문자(`3W`)·trim 유지, 음수·미지 단위는 여전히 null(하위호환).
+  2. 도움말·에러 문구에 `2w` 예시 반영: prune `--older-than` 도움말/에러, config.ts duration
+     docstring + `config set`/`config validate`(autoPrune.after)의 duration 에러 메시지.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**(긴 에러 문구는
+  `pnpm format`으로 줄바꿈 정규화)·`pnpm test` 전 패키지 통과(core 507[+6: 주 단위 5 + 음수 1] /
+  cli 235·1skip / dashboard 7). 실제 빌드된 CLI e2e(mock 아님): `prune --older-than 2w`·
+  `--older-than 1w` 수용, `--older-than 2y`→exit 1, `config set autoPrune.after 2w` 수용 /
+  `2y` 거부.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(중복 무리는 각각 하나로 수렴 후 나머지 닫기 권장).
+  파서 추가 실사용 포맷은 코워크 리서치(🧭)와 조율. README/ARCHITECTURE(🧭 코워크).

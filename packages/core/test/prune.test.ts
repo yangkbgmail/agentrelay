@@ -92,12 +92,21 @@ describe("parseDuration", () => {
     expect(parseDuration(" 2h ")).toBe(7_200_000);
   });
 
+  it("parses weeks as 7 days", () => {
+    expect(parseDuration("1w")).toBe(604_800_000);
+    expect(parseDuration("2w")).toBe(1_209_600_000);
+    expect(parseDuration("2w")).toBe(parseDuration("14d"));
+    expect(parseDuration("0.5w")).toBe(302_400_000); // fractional weeks allowed
+    expect(parseDuration(" 3W ")).toBe(1_814_400_000); // case-insensitive + trimmed
+  });
+
   it("returns null for invalid input", () => {
     expect(parseDuration("")).toBeNull();
     expect(parseDuration("10")).toBeNull(); // no unit
     expect(parseDuration("10x")).toBeNull(); // unknown unit
     expect(parseDuration("abc")).toBeNull();
     expect(parseDuration("-5m")).toBeNull();
+    expect(parseDuration("-1w")).toBeNull(); // negative weeks
   });
 });
 

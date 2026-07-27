@@ -109,8 +109,8 @@ export function sampleConfigJson(): string {
  * - `number` — parsed with {@link Number}; must be finite.
  * - `boolean` — accepts true/false, 1/0, yes/no, on/off (case-insensitive).
  * - `duration` — stored as the raw string but must parse via {@link parseDuration}
- *   (e.g. `7d`, `24h`, `30m`), so a typo is rejected at set time rather than
- *   silently ignored later.
+ *   (e.g. `2w`, `7d`, `24h`, `30m`), so a typo is rejected at set time rather
+ *   than silently ignored later.
  */
 export type ConfigFieldType = "string" | "number" | "boolean" | "duration";
 
@@ -180,7 +180,9 @@ export function coerceConfigValue(field: ConfigField, raw: string): string | num
     case "duration": {
       const trimmed = raw.trim();
       if (parseDuration(trimmed) === null) {
-        throw new Error(`${field.key} must be a duration like "7d", "24h", "30m", "90s" or "500ms", got "${raw}"`);
+        throw new Error(
+          `${field.key} must be a duration like "2w", "7d", "24h", "30m", "90s" or "500ms", got "${raw}"`
+        );
       }
       return trimmed;
     }
@@ -467,7 +469,7 @@ export function validateConfig(config: AgentRelayConfig): ConfigIssue[] {
   const autoPrune = config.autoPrune;
   if (autoPrune) {
     if (autoPrune.after !== undefined && parseDuration(autoPrune.after) === null) {
-      error("autoPrune.after", `is not a valid duration like "7d", "24h", "30m", "90s" or "500ms"`);
+      error("autoPrune.after", `is not a valid duration like "2w", "7d", "24h", "30m", "90s" or "500ms"`);
     }
     if (autoPrune.every !== undefined && parseDuration(autoPrune.every) === null) {
       error("autoPrune.every", `is not a valid duration like "1h", "30m" or "90s"`);

@@ -575,6 +575,19 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `parseDuration`에 주(week, `w`) 단위 추가 — AgentRelay의 핵심 도메인이 주간(weekly)
+      사용량 한도인데, CLI 기간 플래그(`--older-than`/`--since`/`--until`/autoPrune `after`·`every`)와
+      `config set` duration 필드가 `ms/s/m/h/d`만 받아 주간 창을 `14d`처럼 풀어 써야 했다.
+      (완료 — `@agentrelay/core/prune.ts`의 `DURATION_RE`에 `w` 그룹 + `UNIT_MS`에 `w: 604_800_000`
+      (7일) 추가. 순수 파서라 모든 소비처(prune·stats/status/export/metrics/patterns/errors의
+      `--since`/`--until`·autoPrune 임계값·config `duration` 필드 검증)에 자동 파급 — 새 소비처 코드
+      0줄. 분수 주(`0.5w`)·대소문자(`3W`)·trim 유지, 음수(`-1w`)·미지 단위는 여전히 null(하위호환).
+      CLI 도움말·에러 문구(prune `--older-than`, config set/validate duration)에 `2w` 예시 반영.
+      이 코드경로는 파서(파서.ts rate-limit 메시지)와 무관해 🧭 파서-리서치 영역과 겹치지 않음.
+      prune.test.ts에 주 단위 5 + 음수 1 회귀 추가(core 507 통과), 실제 빌드 CLI e2e로
+      `prune --older-than 2w`·`config set autoPrune.after 2w` 수용 / `2y` 거부 검증.
+      branch `claude/wizardly-pascal-5f9id6`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
