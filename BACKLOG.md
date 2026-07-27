@@ -575,6 +575,21 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay completion pwsh` — PowerShell 셸 탭 완성 지원. bash/zsh는 이미 병합됐지만
+      PowerShell(Windows·크로스플랫폼 pwsh)은 지원 셸 목록에 빠져 있었다.
+      (완료 — `@agentrelay/core/completion.ts`의 `CompletionShell`/`COMPLETION_SHELLS`에 `"pwsh"` 추가,
+      `generateCompletion` 디스패치에 pwsh 분기. 순수 `generatePowerShell(spec)`가 표준
+      `Register-ArgumentCompleter -Native -CommandName agentrelay -ScriptBlock {…}` 블록을 방출 —
+      `$commandAst.CommandElements`를 훑어 첫 비옵션 토큰(서브커맨드)을 찾고, 그 커맨드의 플래그(또는
+      부모 커맨드면 서브커맨드 이름, zsh 제너레이터와 동일 모델)를 `switch`로 제안, 라인 시작에선
+      전역 옵션/커맨드 목록으로 폴백, `$wordToComplete` 접두 매칭 후 `CompletionResult`로 방출. 순수
+      `psArray`가 검증된 토큰만 단일따옴표 PS 배열로 렌더(기존 `assertSafeToken` 재사용 → 따옴표 인젝션
+      불가). CLI `completion` 커맨드는 `COMPLETION_SHELLS` 기반이라 pwsh 자동 배선(설명·help 예시만
+      갱신: `agentrelay completion pwsh | Out-String | Invoke-Expression`). 새 파서/커맨드 로직 0줄 —
+      buildCompletionSpec가 live commander 프로그램에서 spec을 파생하므로 실제 커맨드 표면과 무드리프트.
+      completion.test에 pwsh 8 + 안전성 1 신규(총 21), 실제 빌드 CLI e2e로 24개 커맨드·config 서브커맨드·
+      전역 옵션 반영·미지원 `powershell`→exit 1 검증. branch `claude/wizardly-pascal-pwshcomp`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

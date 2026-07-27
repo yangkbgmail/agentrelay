@@ -1489,3 +1489,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — agentrelay completion pwsh (PowerShell 셸 완성 지원)] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-pwshcomp`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 발굴.
+  열린 PR 76+개를 훑어 파서·stats 변형·각종 커맨드가 포화 상태임을 확인. 처음엔 `NO_COLOR`/`FORCE_COLOR`
+  env 표준을 후보로 잡았으나, 원격에 이미 동일 기능을 담은 열린 PR #125(branch `claude/wizardly-pascal-nocolor`,
+  "전역 --no-color 플래그 + NO_COLOR/FORCE_COLOR 환경변수 지원")가 있어 **중복 회피** 원칙에 따라 폐기.
+  대신 어느 열린 PR과도 겹치지 않는 격리된 갭을 선정: **셸 완성이 bash/zsh만 지원(pwsh 부재)** —
+  fish는 PR 대기 중(#210/#241)이나 PowerShell은 어디에도 없음.
+- **한 일:**
+  1. `@agentrelay/core/completion.ts`의 `CompletionShell`/`COMPLETION_SHELLS`에 `"pwsh"` 추가,
+     `generateCompletion` 디스패치에 pwsh 분기 추가.
+  2. 순수 `generatePowerShell(spec)` 신설 — 표준 `Register-ArgumentCompleter -Native` 스크립트 방출:
+     `$commandAst.CommandElements`를 훑어 첫 비옵션 토큰(서브커맨드)을 찾고, 그 커맨드의 플래그(부모
+     커맨드면 서브커맨드 이름, zsh 제너레이터와 동일 모델)를 `switch`로 제안, 라인 시작에선 전역 옵션/
+     커맨드 목록으로 폴백, `$wordToComplete` 접두 매칭 후 `CompletionResult`로 방출. 순수 `psArray`가
+     검증된 토큰만 단일따옴표 PS 배열로 렌더(기존 `assertSafeToken` 재사용 → 따옴표 인젝션 불가).
+  3. CLI `completion` 커맨드는 `COMPLETION_SHELLS` 기반이라 pwsh 자동 배선 — 설명/help 예시만 갱신
+     (`agentrelay completion pwsh | Out-String | Invoke-Expression`).
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0 경고/0 에러·`pnpm test` 전 패키지
+  통과(completion.test 21개 = pwsh 8 + pwsh 안전성 1 신규 포함; core 514, cli 235/1skip, dashboard 7).
+  실제 빌드된 CLI e2e(mock 아님): `completion pwsh`가 24개 커맨드·config 서브커맨드(init/validate/show/
+  set/unset)·전역 옵션을 live commander에서 파생해 방출, 미지원 `powershell`→exit 1. pwsh 런타임 미설치라
+  파서 파스 검증은 스킵(구조는 유닛 테스트로 커버, Register-ArgumentCompleter는 표준 패턴).
+- **다음 할 일:** 남은 distinct 열린 PR 통합/신규 격리 개선 계속. 중복 무리(파서 reset-at·config get·
+  stats --by-hour·재개 stagger·color)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
