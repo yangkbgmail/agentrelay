@@ -1,3 +1,4 @@
+import { execNotifierFromEnv, type HookSpawnFn } from "./exec.js";
 import type { Notifier } from "./scheduler.js";
 import type { NotifyPayload } from "./types.js";
 
@@ -144,17 +145,20 @@ export function webhookNotifierFromEnv(
 
 /**
  * Assembles the notifier configured through the environment: Slack
- * (`AGENTRELAY_SLACK_WEBHOOK`) and/or a generic webhook
- * (`AGENTRELAY_WEBHOOK_URL`), fanned out together. Returns null when neither
- * is configured, so callers can report "notifications off" and skip work.
+ * (`AGENTRELAY_SLACK_WEBHOOK`), a generic webhook (`AGENTRELAY_WEBHOOK_URL`),
+ * and/or a local event-hook command (`AGENTRELAY_ON_EVENT`), fanned out
+ * together. Returns null when none is configured, so callers can report
+ * "notifications off" and skip work.
  */
 export function notifiersFromEnv(
   env: Record<string, string | undefined> = process.env,
-  options: { fetchFn?: typeof fetch; onError?: (error: unknown) => void } = {}
+  options: { fetchFn?: typeof fetch; onError?: (error: unknown) => void; spawnFn?: HookSpawnFn } = {}
 ): Notifier | null {
-  const configured = [slackNotifierFromEnv(env, options), webhookNotifierFromEnv(env, options)].filter(
-    (n): n is Notifier => typeof n === "function"
-  );
+  const configured = [
+    slackNotifierFromEnv(env, options),
+    webhookNotifierFromEnv(env, options),
+    execNotifierFromEnv(env, { onError: options.onError, spawnFn: options.spawnFn }),
+  ].filter((n): n is Notifier => typeof n === "function");
   if (configured.length === 0) return null;
   return combineNotifiers(...configured);
 }

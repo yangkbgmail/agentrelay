@@ -5,6 +5,7 @@ export * from "./config.js";
 export * from "./control.js";
 export * from "./doctor.js";
 export * from "./errors.js";
+export * from "./exec.js";
 export * from "./export.js";
 export * from "./heartbeat.js";
 export * from "./import.js";

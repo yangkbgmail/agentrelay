@@ -1489,3 +1489,35 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 라이프사이클 명령 훅 `AGENTRELAY_ON_EVENT`(로컬 액션 알림자)] (2026-07-27, 무인 자율 세션, branch `claude/wizardly-pascal-onevent`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료, 남은 `[ ]`는 전부 🧭 코워크 소유(README·ARCHITECTURE·
+  경쟁조사·샘플수집·성능분석). CLAUDE.md 지침("백로그가 비면 스스로 새 개선 항목을 발굴")에 따라,
+  열린 PR 100개 제목을 키워드(hook/lifecycle/exec/desktop/sound …)로 대조해 **어느 열린 PR과도 겹치지
+  않는** net-new 기능을 선정: 로컬 명령 훅. 기존 알림은 Slack/웹훅(원격 HTTP)뿐이라, `notify-send`·
+  `terminal-notifier`·커스텀 스크립트·로깅·벨 같은 **로컬 액션**을 이벤트에 걸 방법이 없었다.
+- **한 일:** `@agentrelay/core/exec.ts` 신설 — 매 릴레이 라이프사이클 이벤트(resumed/queued/completed/
+  failed)마다 로컬 셸 명령을 실행하는 **`Notifier`**. 기존 `Notifier` 추상화에 그대로 꽂혀 **스케줄러
+  변경 0줄**.
+  - 이벤트 데이터는 **환경변수**(`AGENTRELAY_EVENT`/`_JOB_ID`/`_PROJECT`/`_MESSAGE`)로 전달 —
+    문자열 보간이 아니라 env라 임의 project/message가 셸 문법을 주입할 수 없음(injection-safe). 명령
+    자체는 플랫폼 셸(`sh -c`/`cmd /c`)로 실행해 사용자가 `$AGENTRELAY_EVENT`로 분기·파이프 가능.
+  - 순수 `buildHookEnv(payload, baseEnv?)`(base 미변경, PATH 상속 위해 기본 process.env),
+    `createExecNotifier`(spawn 실패·error 이벤트·non-zero exit·**타임아웃** 전부 `onError`로 보고하되
+    절대 throw 안 함 — HTTP 알림자와 동일하게 릴레이 루프 보호). 훅이 멈춰도 릴레이가 정지하지 않도록
+    기본 10s 후 SIGKILL(`unref`된 타이머라 프로세스를 살려두지 않음), `timeoutMs<=0`이면 무제한.
+  - 순수 `parseHookTimeoutMs`(duration 문자열, 미설정/파싱불가는 기본값 fallback → 오타가 안전
+    타임아웃을 조용히 끄지 않음), `execNotifierFromEnv`(`AGENTRELAY_ON_EVENT` 없으면 null,
+    `AGENTRELAY_ON_EVENT_TIMEOUT`로 타임아웃 override).
+  - `notifiersFromEnv`가 Slack+웹훅+훅을 한 fan-out으로 결합(테스트용 `spawnFn` 주입 옵션 추가) →
+    run/daemon/tick 세 배선 지점 모두 자동으로 훅 발화.
+  - config 전 계층 배선(`notify.onEvent` → `AGENTRELAY_ON_EVENT`): interface·sampleConfig·
+    CONFIG_FIELDS·parseConfig·configToEnv·CONFIG_ENV_KEYS(드리프트 sync 테스트 통과) →
+    `config set/unset/show/validate`가 자동 인식. 새 CLI 커맨드 0개(env/config 구동).
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·
+  `pnpm test` 전 패키지 통과(core 521 = +15 exec + notify fan-out +1; cli 235; dashboard 7). 실제 빌드된
+  CLI e2e(mock 아님): rate-limit 뱉는 명령 + 파일 기록 훅으로 `run`→`queued` 이벤트에서 훅이
+  `event/project/jobId` env와 함께 발화 확인, `config set notify.onEvent`→파일 왕복·`config validate`
+  통과·`config show`에 `AGENTRELAY_ON_EVENT` 노출 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속. 추가 로컬-액션 확장(이벤트별 개별 훅
+  `AGENTRELAY_ON_RESUMED` 등, `notify test`가 훅도 발화)은 후속 항목으로. README/ARCHITECTURE(🧭 코워크).
