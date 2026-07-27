@@ -24,6 +24,7 @@ import type {
   Notifier,
   PruneOptions,
   RelayJob,
+  StoreDiff,
   WritableFacts,
 } from "@agentrelay/core";
 import {
@@ -37,6 +38,7 @@ import {
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
+  diffJobStores,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
   type ExportFormat,
@@ -964,6 +966,59 @@ export function previewRestoreStore(options: RestoreStoreOptions = {}): RestoreP
   } finally {
     queue.close();
   }
+}
+
+export interface DiffStoreOptions {
+  storePath?: string;
+  /**
+   * Which snapshot to compare against (the "before" side). Resolved exactly like
+   * `restore`: a filesystem path to any snapshot file, or — for this store's own
+   * rotating snapshots — `"latest"`, a snapshot basename, or its sortable stamp.
+   * Defaults to `"latest"`.
+   */
+  selector?: string;
+}
+
+export interface DiffStoreResult {
+  /** The computed delta (snapshot → current store). */
+  diff: StoreDiff;
+  /** Absolute path of the snapshot compared against. */
+  from: string;
+}
+
+/**
+ * Read a snapshot file as a job array. Snapshots are our own store dumps
+ * (`JSON.stringify` of `RelayJob[]`), so this expects a JSON array; anything
+ * else throws a clear error rather than diffing garbage. Elements without a
+ * string `id` are dropped (they can't be matched across stores) — the same
+ * lenient stance `restore` takes toward a well-formed-but-unusual snapshot.
+ */
+function readSnapshotJobs(path: string): RelayJob[] {
+  const text = readFileSync(path, "utf8");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(`Snapshot ${path} is not valid JSON.`);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Snapshot ${path} is not a job array.`);
+  }
+  return parsed.filter((job): job is RelayJob => typeof (job as RelayJob)?.id === "string");
+}
+
+/**
+ * Compare a snapshot (the "before" state) against the current store (the "after"
+ * state) and report the delta — the read-only companion to `backup`/`restore`.
+ * Resolves the selector the same way `restore` does, reads both sides, and lets
+ * the pure `diffJobStores` compute added/removed/changed. Never mutates the store.
+ */
+export function diffStore(options: DiffStoreOptions = {}): DiffStoreResult {
+  const storePath = options.storePath ?? defaultStorePath();
+  const from = resolveRestoreSource(storePath, options.selector ?? "latest");
+  const before = readSnapshotJobs(from);
+  const after = listStatus(storePath);
+  return { diff: diffJobStores(before, after), from };
 }
 
 export interface ExportJobsOptions {

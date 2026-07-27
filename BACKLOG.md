@@ -575,6 +575,26 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay diff <snapshot>` — 백업 스냅샷과 현재 스토어의 델타(추가/삭제/상태변경 잡)를 한눈에.
+      backup/restore(시점 롤백)·export/import(머신 간 이전)는 스토어를 상태 간 이동시키지만, 그 뒤
+      자연히 뒤따르는 "그래서 *무엇이* 바뀌었나?"에 답하는 수단이 없었다(restore/import 후, 데몬이
+      무인 실행된 뒤 등).
+      (완료 — `@agentrelay/core/diff.ts` 신설(순수·파일시스템 미접촉): `diffJobStores(before, after)`가
+      두 로드된 잡 배열을 id로 매칭해 `StoreDiff`(added[after에만]·removed[before에만]·changed[양쪽
+      존재+추적필드 상이]·unchangedCount·before/afterCount) 산출. 추적 필드는 큐레이션된 **의미있는
+      생애주기 필드** `DIFF_FIELDS`(status·resetAt·attempts·lastError)만 — `updatedAt`은 어떤 터치에도
+      갱신돼 거의 모든 잡을 changed로 오염시키고 command/cwd/project/tool은 enqueue 시 1회 설정 후
+      불변이라 제외. null/undefined는 `(none)`로 렌더, 순서 무관(added/removed는 소스 순서, changed는
+      after 순서 보존). `isStoreDiffEmpty` 헬퍼. CLI `packages/cli/src/diff.ts`에 순수 `renderDiff`
+      (+added/-removed/~changed 섹션[빈 섹션 생략]+요약 라인, no-diff는 "No differences", 짧은 8자
+      id·color 게이트)·`renderDiffJson`(--json). `commands.ts` `diffStore`가 restore와 **동일한**
+      `resolveRestoreSource`로 스냅샷 선택자(latest/스탬프/파일명/경로) 해소→스냅샷+현재 스토어 읽어
+      `diffJobStores` 위임(스토어 불변, 순수 로직은 core), `readSnapshotJobs`는 JSON 배열만 허용(그 외
+      명확한 에러)·id 없는 원소 드롭. `agentrelay diff [snapshot] [--json]` 커맨드, 미매칭 선택자는
+      exit 1. 새 파서/직렬화 로직 0줄 — backup 생태계의 검증된 경로 재사용. core diff 10 + cli diff 9
+      신규 테스트, 실제 빌드 CLI e2e로 added/removed/changed·no-diff·미매칭 exit 1·--json 검증.
+      branch `claude/wizardly-pascal-qkpc1q`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
