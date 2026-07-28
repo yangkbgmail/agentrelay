@@ -575,6 +575,25 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 재개 활성 시간(resume window / quiet hours) — `AGENTRELAY_RESUME_WINDOW`로 스케줄러가
+      하루 중 지정된 시간대(예: `09:00-18:00`)에만 잡을 자동 재개하도록 게이트. 야간·업무 외
+      시간에 코딩 에이전트가 토큰을 태우거나 커밋을 밀어붙이는 것을 막는, 제품 핵심(자동 재개)에
+      직결된 opt-in 안전장치.
+      (완료 — `@agentrelay/core/window.ts` 신설(순수·시계 미접촉, 시각은 주입된 `Date`만 사용):
+      `ResumeWindow`(로컬 자정 기준 분 `[0,1439]`, start>end면 자정 넘어 wrap) + `parseResumeWindow`
+      (`HH:MM-HH:MM`·bare hour·공백 관용, blank/malformed/동일 끝점은 null=창 없음) + `parseClockMinutes`
+      + `resumeWindowFromEnv`(malformed는 **fail-open**=null → 릴레이가 절대 조용히 멈추지 않음, 오타는
+      `config validate`가 잡음) + `isWithinResumeWindow`(half-open `[start,end)`, wrap 처리) +
+      `isResumeAllowed`(창 null이면 항상 허용=기존 동작 불변) + `localMinuteOfDay`/`formatResumeWindow`.
+      `RelayScheduler`에 `resumeWindow?` 옵션 추가 — `tick`이 창 밖이면 이번 tick은 아무 잡도 재개
+      안 하고(대기 잡은 창이 열릴 때까지 보류, **절대 failed 처리 안 함**), auto-prune·하트비트는 계속
+      실행돼 루프가 살아있음을 유지. config 전 계층 배선(`schedule.resumeWindow` 그룹 → `AGENTRELAY_RESUME_WINDOW`:
+      type·sampleConfig·CONFIG_FIELDS·parseConfig·validateConfig[malformed=error]·configToEnv·CONFIG_ENV_KEYS·
+      ConfigGroup — drift-sync 테스트 통과). CLI daemon/tick이 `resumeWindowFromEnv`로 배선, 데몬 배너에
+      "(resume window 09:00–18:00)". core window 30 + scheduler +4 + config +2 신규 테스트, 실제 빌드 CLI e2e로
+      배너·`config validate`(malformed→exit1/valid→exit0)·`config show` schedule 그룹·창 밖 tick=보류/창 안 tick=
+      재개(실제 클럭) 검증. branch `claude/wizardly-pascal-bkkh79`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -4,6 +4,7 @@ import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./pr
 import type { RelayQueue } from "./queue.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
 import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
+import { isResumeAllowed, type ResumeWindow } from "./window.js";
 
 export type Notifier = (payload: NotifyPayload) => void | Promise<void>;
 
@@ -53,6 +54,16 @@ export interface SchedulerOptions {
    * time throttle, only meaningful for the long-running scheduler.
    */
   autoPruneEveryTicks?: number;
+  /**
+   * "Active hours" gate: when set, jobs are only resumed while the tick's local
+   * time-of-day falls inside this daily window (see {@link ResumeWindow}).
+   * Outside the window nothing is resumed — a job whose reset already passed
+   * just waits until the window next opens (it is never failed for this). Store
+   * maintenance (auto-prune) and the liveness heartbeat still run every tick, so
+   * the loop stays visibly alive. `null`/omitted means resume any time (the
+   * default), leaving behavior unchanged.
+   */
+  resumeWindow?: ResumeWindow | null;
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
   /**
@@ -84,6 +95,7 @@ export class RelayScheduler {
   private autoPruneEveryTicks: number;
   private lastPruneAtMs: number | null = null;
   private pruneTickCounter = 0;
+  private resumeWindow: ResumeWindow | null;
   private onPrune?: (pruned: RelayJob[]) => void;
   private onTick?: (referenceTime: Date) => void | Promise<void>;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -99,6 +111,7 @@ export class RelayScheduler {
     this.autoPrune = options.autoPrune ?? null;
     this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
+    this.resumeWindow = options.resumeWindow ?? null;
     this.onPrune = options.onPrune;
     this.onTick = options.onTick;
   }
@@ -117,7 +130,10 @@ export class RelayScheduler {
 
   /** Runs one polling cycle immediately. Exposed for tests and manual `agentrelay tick`. */
   async tick(referenceTime: Date = new Date()): Promise<RelayJob[]> {
-    const due = this.queue.listDue(referenceTime);
+    // Respect the "active hours" gate: outside the window we resume nothing this
+    // tick (due jobs simply wait for the window to reopen), but store
+    // maintenance and the heartbeat below still run so the loop stays alive.
+    const due = isResumeAllowed(referenceTime, this.resumeWindow) ? this.queue.listDue(referenceTime) : [];
     const processed: RelayJob[] = [];
     for (const job of due) {
       processed.push(await this.resume(job, referenceTime));

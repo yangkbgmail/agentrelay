@@ -1489,3 +1489,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 기능: 재개 활성 시간(resume window / quiet hours)] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-bkkh79`)
+- **배경:** 명시된 👷 BACKLOG 항목이 전부 완료 상태이고 열린 PR이 146개(#61~#277)까지 적체된
+  상황. CLAUDE.md 지침("§8 무한 개선 백로그가 비면 스스로 새 개선 항목 발굴")에 따라, 열린 PR
+  146개 전수 조사로 **어느 것과도 겹치지 않는** 신규 기능을 발굴 — 스케줄러의 자동 재개를 하루 중
+  특정 시간대로 제한하는 **재개 활성 시간(quiet hours)**. 가장 가까운 기존 작업도 resume-stagger
+  (#161/#162, thundering-herd 분산)·resume-buffer(#217, 리드타임)로 개념이 다르며, 제품 핵심
+  ("리셋 시점 자동 재개")에 직결된 opt-in 안전장치(야간·업무 외 시간에 코딩 에이전트가 토큰을
+  태우거나 커밋을 밀어붙이는 것 방지).
+- **한 일:** `@agentrelay/core/window.ts` 신설(순수·시계 미접촉): `ResumeWindow`(로컬 자정 기준
+  분, start>end면 자정 wrap) + `parseResumeWindow`/`parseClockMinutes`(`HH:MM-HH:MM`·bare hour·
+  공백 관용, blank/malformed/동일 끝점은 null) + `resumeWindowFromEnv`(malformed는 **fail-open**
+  =창 비활성 → 릴레이가 조용히 멈추지 않음) + `isWithinResumeWindow`(half-open `[start,end)`, wrap
+  처리) + `isResumeAllowed`(창 null이면 항상 허용=기존 동작 불변) + `localMinuteOfDay`/
+  `formatResumeWindow`. `RelayScheduler`에 `resumeWindow?` 옵션 — `tick`이 창 밖이면 이번 tick은
+  아무 잡도 재개 안 하고 대기 잡은 창이 열릴 때까지 보류(**절대 failed 처리 안 함**), auto-prune·
+  하트비트는 계속 실행. config 전 계층 배선(`schedule.resumeWindow` 그룹 → `AGENTRELAY_RESUME_WINDOW`)
+  + CLI daemon/tick 배선 + 데몬 배너 "(resume window HH:MM–HH:MM)".
+- **검증:** `pnpm build`(Next.js 포함)·`pnpm ci:lint`(Biome, 0 경고)·`pnpm test` 전 패키지 통과
+  (core 528[window 30 + scheduler +4 + config +2 신규 포함]·cli 235·dashboard 7). 실제 빌드된 CLI
+  e2e(mock 아님): 데몬 배너·`config validate`(malformed window→exit1/valid→exit0)·`config show`의
+  schedule 그룹·**실제 클럭**으로 창 밖 tick=보류/창 안 tick=재개 검증.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(파서 계열·config get·stats --by-hour·재개 stagger
+  등 중복 무리는 각각 하나로 수렴). 향후 개선: `next`/`upcoming`이 창 지연을 반영하도록(현재는 raw
+  resetAt만 표시), 요일별 창(주중만). README/ARCHITECTURE(🧭 코워크).

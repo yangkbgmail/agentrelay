@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseDuration } from "./prune.js";
+import { parseResumeWindow } from "./window.js";
 
 /**
  * Persistent configuration for AgentRelay, read from a JSON file so users don't
@@ -38,6 +39,16 @@ export interface AgentRelayConfig {
     maxDelayMs?: number;
     /** Backoff jitter fraction in `[0, 1]` — maps to `AGENTRELAY_RETRY_JITTER`. */
     jitter?: number;
+  };
+  /** Scheduler / resume behavior. */
+  schedule?: {
+    /**
+     * "Active hours" window like `09:00-18:00` during which the scheduler is
+     * allowed to resume jobs — maps to `AGENTRELAY_RESUME_WINDOW`. A start later
+     * than the end wraps past midnight (`22:00-06:00`). Empty/omitted resumes at
+     * any time.
+     */
+    resumeWindow?: string;
   };
   /** Daemon auto-prune settings. */
   autoPrune?: {
@@ -80,6 +91,9 @@ export function sampleConfig(): AgentRelayConfig {
       factor: 2,
       maxDelayMs: 300000,
       jitter: 0,
+    },
+    schedule: {
+      resumeWindow: "",
     },
     autoPrune: {
       enabled: false,
@@ -140,6 +154,7 @@ export const CONFIG_FIELDS: ConfigField[] = [
   { key: "retry.factor", group: "retry", type: "number" },
   { key: "retry.maxDelayMs", group: "retry", type: "number" },
   { key: "retry.jitter", group: "retry", type: "number" },
+  { key: "schedule.resumeWindow", group: "schedule", type: "string" },
   { key: "autoPrune.enabled", group: "autoPrune", type: "boolean" },
   { key: "autoPrune.after", group: "autoPrune", type: "duration" },
   { key: "autoPrune.keep", group: "autoPrune", type: "number" },
@@ -193,6 +208,7 @@ function cloneConfig(config: AgentRelayConfig): AgentRelayConfig {
   if (config.store !== undefined) clone.store = config.store;
   if (config.notify) clone.notify = { ...config.notify };
   if (config.retry) clone.retry = { ...config.retry };
+  if (config.schedule) clone.schedule = { ...config.schedule };
   if (config.autoPrune) clone.autoPrune = { ...config.autoPrune };
   return clone;
 }
@@ -378,6 +394,13 @@ export function parseConfig(value: unknown, source = "config"): AgentRelayConfig
     if (retry.jitter !== undefined) config.retry.jitter = asNumber(retry.jitter, `${source}.retry.jitter`);
   }
 
+  if (root.schedule !== undefined) {
+    const schedule = asObject(root.schedule, `${source}.schedule`);
+    config.schedule = {};
+    if (schedule.resumeWindow !== undefined)
+      config.schedule.resumeWindow = asString(schedule.resumeWindow, `${source}.schedule.resumeWindow`);
+  }
+
   if (root.autoPrune !== undefined) {
     const autoPrune = asObject(root.autoPrune, `${source}.autoPrune`);
     config.autoPrune = {};
@@ -464,6 +487,14 @@ export function validateConfig(config: AgentRelayConfig): ConfigIssue[] {
     }
   }
 
+  const resumeWindow = config.schedule?.resumeWindow;
+  if (resumeWindow !== undefined && resumeWindow.trim() !== "" && parseResumeWindow(resumeWindow) === null) {
+    error(
+      "schedule.resumeWindow",
+      'is not a valid time window like "09:00-18:00" (24-hour HH:MM-HH:MM; a later start wraps past midnight)'
+    );
+  }
+
   const autoPrune = config.autoPrune;
   if (autoPrune) {
     if (autoPrune.after !== undefined && parseDuration(autoPrune.after) === null) {
@@ -529,6 +560,8 @@ export function configToEnv(config: AgentRelayConfig): Record<string, string> {
   set("AGENTRELAY_RETRY_MAX_MS", config.retry?.maxDelayMs);
   set("AGENTRELAY_RETRY_JITTER", config.retry?.jitter);
 
+  set("AGENTRELAY_RESUME_WINDOW", config.schedule?.resumeWindow);
+
   // The opt-in flag is boolean in the file but "1"/"0" in the env layer.
   if (config.autoPrune?.enabled !== undefined) {
     env.AGENTRELAY_AUTOPRUNE = config.autoPrune.enabled ? "1" : "0";
@@ -542,7 +575,7 @@ export function configToEnv(config: AgentRelayConfig): Record<string, string> {
 }
 
 /** Logical grouping of an {@link AgentRelayConfig} env var, used for display. */
-export type ConfigGroup = "store" | "notify" | "retry" | "autoPrune";
+export type ConfigGroup = "store" | "notify" | "retry" | "schedule" | "autoPrune";
 
 /**
  * Metadata for one `AGENTRELAY_*` env var that the config file can populate.
@@ -567,6 +600,7 @@ export const CONFIG_ENV_KEYS: ConfigEnvKey[] = [
   { key: "AGENTRELAY_RETRY_FACTOR", group: "retry" },
   { key: "AGENTRELAY_RETRY_MAX_MS", group: "retry" },
   { key: "AGENTRELAY_RETRY_JITTER", group: "retry" },
+  { key: "AGENTRELAY_RESUME_WINDOW", group: "schedule" },
   { key: "AGENTRELAY_AUTOPRUNE", group: "autoPrune" },
   { key: "AGENTRELAY_AUTOPRUNE_AFTER", group: "autoPrune" },
   { key: "AGENTRELAY_AUTOPRUNE_KEEP", group: "autoPrune" },
