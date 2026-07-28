@@ -86,6 +86,25 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // "try again in 1.5 hours" / "resets in 0.5h" / "retry in 2.5 days" — a single
+    // *fractional* duration unit. The integer relative-duration pattern below uses
+    // `\d+` per unit, so a decimal like "1.5 hours" slips through it (its `\d+ h`
+    // group can't span the ".5"), leaving the whole message unqueued. A decimal
+    // point is *required* here (`\d+\.\d+`), which keeps this disjoint from every
+    // integer form: it never steals "4h32m" or "in 2 days" (no dot), and the
+    // integer pattern never matched a decimal to begin with, so ordering is safe.
+    // Seconds stay adapter-only, matching relative-duration's scope.
+    name: "fractional-duration",
+    regex: /(?:try again|resets?|retry)\s+in\s+(\d+\.\d+)\s*(d(?:ays?)?|h(?:ours?)?|m(?:in(?:utes?)?)?)\b/i,
+    resolve: (m, now) => {
+      const value = parseFloat(m[1]);
+      if (!Number.isFinite(value) || value <= 0) return null;
+      const unit = m[2][0].toLowerCase();
+      const unitMs = unit === "d" ? 24 * 60 * 60_000 : unit === "h" ? 60 * 60_000 : 60_000;
+      return new Date(now.getTime() + Math.round(value * unitMs));
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
