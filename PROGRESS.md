@@ -1489,3 +1489,25 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서: `try again at <절대 시각>` 인식(스스로 발굴한 신규 개선)] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-45a4iz`)
+- **맥락:** 지정 브랜치의 직전 PR이 병합돼 브랜치가 origin에서 삭제된 상태 → 지침대로 최신
+  `main`(4abefa1)에서 동명 브랜치를 새로 시작. BACKLOG의 순수 👷 항목이 전부 `[x]`(미완료 `[ ]`는
+  README/ARCHITECTURE 등 🧭 코워크 소유뿐)이라, CLAUDE.md "백로그가 비면 스스로 새 개선 항목을 발굴"
+  지침에 따라 파서에서 실사용 갭 하나를 발굴·구현.
+- **한 일:** rate-limit 파서가 **절대 시각을 가리키는 `try again at ...`** 문구를 인식하도록 확장.
+  상대시간 `try again in <duration>`은 `relative-duration`이 잡았지만, `try again at 5pm` /
+  `try again at 3:30pm` / `try again at 2026-07-13T05:00:00Z`처럼 **`at` + 절대 시각**을 쓰는 표현은
+  세 "at" 기반 패턴(iso-timestamp·clock-time·clock-time-meridiem)이 선행부를 `reset[s]?`로만 고정해
+  어디에도 안 걸리던 갭이었다(HTTP API를 프록시하는 에이전트 CLI가 429에서 흔히 쓰는 문구).
+  세 패턴 선행부를 `reset[s]?` → `(?:reset[s]?|try again)`로 확장.
+  - `at`(절대) vs `in`(상대) 분기는 그대로라 `try again in 2h`는 여전히 relative-duration으로
+    처리(무회귀), 애매한 `try again at 5`(분·meridiem 없음)는 계속 null, 사전필터엔 `try again`이
+    이미 있어 손대지 않음. resolve 로직·초 단위 어댑터 소관 등 기존 설계 결정 전부 존중, 새 resolve 코드 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함)→`pnpm ci:lint`(Biome, `pnpm format` 후 0 경고)→
+  `pnpm test` 전 패키지 통과(core 511·cli 236·dashboard 7). parser.test +6 회귀(ISO/meridiem/
+  minute-precise/`in`은 여전히 상대/bare `at 5`는 null). 실제 빌드 CLI `agentrelay parse`로
+  `try again at 5pm`→clock-time-meridiem·`try again at <ISO>`→iso-timestamp·`try again in 2h`→
+  relative-duration e2e 확인.
+- **다음 할 일:** 남은 🧭 문서(README/ARCHITECTURE/ROADMAP)는 코워크 소유. 👷는 파서 실사용 포맷
+  추가 발굴(자연어 "tomorrow at 9am" 등)·기존 열린 PR 통합 계속 후보.

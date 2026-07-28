@@ -575,6 +575,20 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: "at + 절대 시각" 문구를 `reset at`뿐 아니라 `try again at`에서도 인식
+      (예: `try again at 5pm`, `try again at 3:30pm`, `try again at 2026-07-13T05:00:00Z`).
+      (기존 👷 항목이 모두 소진돼 스스로 발굴한 개선. 상대시간 `try again in <duration>`은
+      `relative-duration`이 잡지만, **절대 시각을 가리키는** `try again at <clock/ISO>` 문구는
+      세 "at" 기반 패턴이 선행부를 `reset[s]?`로만 고정해 어디에도 안 걸리던 실사용 갭이었다
+      — HTTP API를 프록시하는 에이전트 CLI가 429에서 흔히 쓰는 표현. `parser.ts`의 iso-timestamp·
+      clock-time·clock-time-meridiem 세 패턴 선행부를 `reset[s]?` → `(?:reset[s]?|try again)`로
+      확장. `at`(절대)과 `in`(상대) 분기는 그대로라 `try again in 2h`는 여전히 relative-duration으로
+      처리(무회귀), 애매한 `try again at 5`(분·meridiem 없음)는 계속 null. 사전필터(`try again`
+      이미 포함)·resolve 로직·초 단위 어댑터 소관 등 기존 설계 결정 전부 존중, 새 resolve 코드 0줄.
+      parser.test +6 회귀(ISO/meridiem/minute-precise/`in`은 여전히 상대/bare `at 5`는 null),
+      실제 빌드 CLI `parse`로 clock-time-meridiem·iso-timestamp 매치 e2e 확인.
+      branch `claude/wizardly-pascal-45a4iz`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
