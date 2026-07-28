@@ -20,6 +20,17 @@
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
+- [x] 👷 `agentrelay summary` — 큐 상태를 한 줄로 요약하는 스크립터블 커맨드(쉘 프롬프트/tmux/CI).
+      (완료 — core 무변경(기존 `summarizeJobs`/`QueueSummary` 재사용). CLI 순수 렌더러 모듈
+      `packages/cli/src/summary.ts` 신설: `renderSummaryLine`(비-제로 상태만 라이프사이클 순서로
+      `2 waiting · 1 done · next reset in 12m`, 빈 스토어=`no jobs`), `--icons`(글리프 `⏳2 ✔1`,
+      공백 구분·짧은 `next 12m`), `summaryFieldValue`(`--field`: total/active/queued/waiting/
+      resuming/completed/failed/cancelled/next_reset_at/next_reset_ms/next_reset — jq 없이 캡처),
+      `nextResetInMs`(음수 클램프), `renderSummaryJson`(파생 active·nextResetInMs, storePath 옵션).
+      `formatCountdown` 재사용. `cli.ts`에 `summary` 커맨드(`--icons`/`--json`/`--field`, 미지 field
+      exit 1); completion은 동적 파생돼 자동 포함. summary.test.ts 17케이스 + 빌드 CLI e2e 검증.
+      branch `claude/wizardly-pascal-fvt5jz`)
+
 - [x] 👷 Codex CLI 등 다른 에이전트 툴 어댑터.
       (완료 — `@agentrelay/core`에 `adapters.ts` 신설: `AgentAdapter` 인터페이스 +
       `CLAUDE_CODE_ADAPTER`/`CODEX_CLI_ADAPTER`/`GENERIC_ADAPTER` + `ADAPTERS` 레지스트리.

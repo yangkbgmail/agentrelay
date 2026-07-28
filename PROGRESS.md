@@ -1489,3 +1489,23 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+- **2026-07-28 05:40 UTC · 지정 브랜치 `claude/wizardly-pascal-fvt5jz`** (base main 4abefa1)
+- **맥락:** 40개 열린 PR과 다수 브랜치(tail·upcoming·export xml/tsv/yaml·backoff·stats
+  --watch·show --watch·diff·parse --all·reschedule·config get·tools·wait --all·man·
+  calendar·on-event 등)를 대조해 겹치지 않는 신규 빌더 항목을 발굴. `summarizeJobs`(core)는
+  이미 status 풋터로 쓰이지만, **프롬프트/tmux/CI용 단일 라인 스냅샷 커맨드는 부재**라 이를 채움.
+- **한 일:** `agentrelay summary` 신설 — 큐 상태를 한 줄로 요약하는 스크립터블 커맨드.
+  - core는 무변경(기존 `summarizeJobs`/`QueueSummary` 재사용). CLI에 순수 렌더러 모듈
+    `packages/cli/src/summary.ts` 신설: `renderSummaryLine`(비-제로 상태만 라이프사이클 순서로,
+    `2 waiting · 1 done · next reset in 12m`; 빈 스토어는 `no jobs`), `--icons`(글리프 `⏳2 ✔1`,
+    공백 구분·짧은 `next 12m` 절), `summaryFieldValue`(`--field` 단일값 접근자:
+    total/active/queued/waiting/resuming/completed/failed/cancelled/next_reset_at/next_reset_ms/
+    next_reset — jq 없이 쉘에서 바로 캡처), `nextResetInMs`(음수 클램프), `renderSummaryJson`
+    (파생 active·nextResetInMs 추가, storePath 옵션). `formatCountdown`(status.ts) 재사용.
+  - `cli.ts`에 `summary` 커맨드 배선(`--icons`/`--json`/`--field <name>`, 미지 field는 exit 1).
+    completion 스펙은 `program.commands`에서 동적 파생되어 자동 포함.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린, `pnpm test` 전 패키지 통과
+  (summary.test.ts 17케이스 신규: 라인/아이콘/필드/JSON/빈 스토어/due now/음수 클램프 커버).
+  실제 빌드된 CLI를 임시 스토어로 e2e 확인(default·--icons·--json·--field·미지 field exit 1·빈 스토어).
+- **다음 할 일:** 남은 distinct 열린 PR 통합/수렴 계속. README/ARCHITECTURE(🧭 코워크).
