@@ -1489,3 +1489,23 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서: 자연어 커넥터('and'/',') 기간 표현 인식] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-0ewjwd`)
+- **배경:** 명시 👷 BACKLOG 항목이 전부 완료 상태라 CLAUDE.md 지침("비면 스스로 새 개선 항목 발굴")대로
+  파서의 실사용 갭을 직접 발굴. `relative-duration` 패턴은 `4h32m`·`1d 4h`처럼 성분 사이가 공백(`\s*`)일
+  때만 전부 잡고, 에이전트가 실제로 자주 출력하는 **철자 그대로의 자연어 커넥터**("try again in 1 hour
+  **and** 30 minutes", "resets in 2 hours**,** 15 minutes", "1 day, 4 hours and 30 minutes")에서는 커넥터
+  뒤 성분을 **조용히 버렸다**. 결과적으로 90분 대기를 60분으로 축소 → 리셋 **전에** 재개해 rate-limit에
+  다시 걸리는 실제 기능 버그(코어 가치인 "정확한 재개 시각" 훼손).
+- **한 일:** `packages/core/src/parser.ts`의 `relative-duration` 정규식에서 day/hour/minute 성분 사이
+  구분자를 커넥터 허용(`[\s,]*(?:and\s+)?`)으로 확장하되, 커넥터를 **각 후행 성분의 optional 그룹 안쪽**에
+  배치해 그 성분이 실제로 있을 때만 소비되게 함(그룹 인덱스·`resolve()` 불변, 하위호환 100%). 덕분에
+  "5 hours and then contact support"처럼 **숫자 없는 'and …' 절**은 minutes 그룹이 임시 소비한 커넥터를
+  backtrack으로 되돌려 5h로만 해석(누출 방지). 새 파서 로직 최소(정규식 1줄)·기존 초 처리 설계(어댑터
+  소관) 존중.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린, `pnpm ci:lint`(Biome) 0경고, `pnpm test` 전
+  패키지 통과. parser.test.ts +4 회귀(1h+30m·2h,15m·mixed 1d,4h and 30m·'and then' 비누출) → 코어 파서
+  37케이스. 실제 빌드된 CLI e2e(`node packages/cli/dist/bin.js parse … --json`)로 90분→5.4M ms·135분→8.1M
+  ms·1710분→102.6M ms·5h→18M ms(커넥터 비누출) 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속. 파서 추가 실사용 포맷(named IANA tz 실제 변환·weekday
+  창)은 코워크 리서치(🧭)와 조율. README/ARCHITECTURE(🧭 코워크).
