@@ -236,6 +236,51 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  // --- absolute-time verbs beyond "reset at" (resume / try again / available) ---
+
+  it("parses 'resume at' with a clock time (Anthropic 'access will resume at' wording)", () => {
+    // Real message: "You've reached your usage limit. Your access will resume at 10:30 PM."
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("You've reached your usage limit. Your access will resume at 10:30 PM.", {
+      now,
+    });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(22);
+    expect(resetDate.getMinutes()).toBe(30);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'try again at' with a meridiem-only hour", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit. You can try again at 3pm.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(15);
+    expect(resetDate.getMinutes()).toBe(0);
+  });
+
+  it("parses 'available again at' with a 24-hour clock time", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached — available again at 15:00.", { now });
+    expect(result?.pattern).toBe("clock-time");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'resume at' with an explicit ISO timestamp", () => {
+    const result = parseRateLimitMessage("Your access will resume at 2026-07-13T05:00:00Z.");
+    expect(result?.pattern).toBe("iso-timestamp");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("still requires the '… at' form — 'resume in 2h' is not an absolute-time match", () => {
+    // "resume" is only an absolute-time lead-in; a relative "resume in <dur>"
+    // must not be silently accepted (relative durations use try again/resets/retry).
+    expect(parseRateLimitMessage("Access will resume in a while.")).toBeNull();
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [
