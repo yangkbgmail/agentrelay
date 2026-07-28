@@ -102,6 +102,29 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Word-number relative durations with no digits, e.g. "try again in an
+    // hour", "resets in a minute", "retry in a day", or "try again in half an
+    // hour". The numeric `relative-duration` pattern above requires `\d+`, so
+    // these purely-spelled-out phrasings (which agents and the humans quoting
+    // them do use) would otherwise slip through and leave a rate-limited job
+    // silently un-queued. Only the singular article ("a"/"an", = 1 unit) and
+    // the "half" quantifier are handled — anything more elaborate ("in two
+    // hours") is spelled with digits far more often and stays out of scope to
+    // keep this matcher unambiguous. Placed after the numeric pattern so a
+    // message carrying digits is always resolved with full precision first.
+    name: "relative-duration-words",
+    regex: /(?:try again|resets?|retry)\s+in\s+(half\s+)?an?\s+(day|hour|minute|min)\b/i,
+    resolve: (m, now) => {
+      const unitMs = m[2].toLowerCase().startsWith("day")
+        ? 24 * 60 * 60_000
+        : m[2].toLowerCase().startsWith("hour")
+          ? 60 * 60_000
+          : 60_000; // minute / min
+      const ms = m[1] ? unitMs / 2 : unitMs;
+      return new Date(now.getTime() + ms);
+    },
+  },
+  {
     // Unix epoch seconds embedded in structured error payloads, e.g.
     // `retry_after=1752345600`, `retry_after: 1752345600`, or the JSON form
     // `"retry_after": 1752345600`.
@@ -136,7 +159,7 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry\s+in|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);

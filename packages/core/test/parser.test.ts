@@ -249,4 +249,39 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("relative-duration");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
   });
+
+  it("parses the word-number form 'try again in an hour' as +1h", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit reached, try again in an hour.", { now });
+    expect(result?.pattern).toBe("relative-duration-words");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 60 * 60_000).toISOString());
+  });
+
+  it("parses 'resets in a minute' as +1m", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit — resets in a minute.", { now });
+    expect(result?.pattern).toBe("relative-duration-words");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 60_000).toISOString());
+  });
+
+  it("parses 'retry in a day' as +24h (retry-in phrasing passes the pre-filter)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly limit hit, retry in a day.", { now });
+    expect(result?.pattern).toBe("relative-duration-words");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 24 * 60 * 60_000).toISOString());
+  });
+
+  it("parses the 'half an hour' quantifier as +30m", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded. Try again in half an hour.", { now });
+    expect(result?.pattern).toBe("relative-duration-words");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
+
+  it("still prefers the digit form when a number is present (word matcher does not shadow it)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("try again in 2 hours", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
 });
