@@ -575,6 +575,22 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 마감형(deadline) 문구 `... until <시각>` 인식 — "rate limited until 3pm" /
+      "blocked until 2026-07-13T05:00:00Z" 처럼 리셋을 "reset at"이 아니라 "until <언제>"로
+      표현하는 에이전트/API 메시지를 큐잉.
+      (완료 — 기존 파서는 리셋 시각을 오직 `reset[s] at …` 전치사로만 잡아, 쿨다운을 마감 시각으로
+      말하는 "limited until <when>" 계열을 통째로 놓쳤다. `parser.ts`에 공유 헬퍼 `resolveIsoTimestamp`·
+      `nextClockInstant`·`applyMeridiem`를 추출(기존 reset-at 3패턴도 이 헬퍼로 재작성 — 동작 불변,
+      중복 제거)한 뒤, `until` 트리거의 3패턴 신설: `until-iso-timestamp`(명시 ISO), `until-clock-time`
+      (`until 3:00pm`/`15:00`), `until-clock-meridiem`(`until 5pm`, 분 없음·13pm 등 무효 hour 거부).
+      **오검출 방지**가 핵심 — "until"은 일상 영어에 흔하므로 사전필터(`LOOKS_LIKE_RATE_LIMIT`)에서
+      `until` 앞 40자 이내에 limit-계열 단어(limit/limited/quota/blocked/locked/throttl/cooldown/
+      unavailable/paused/suspended)가 있을 때만 게이트 → "wait until 10:30 for the meeting"은 통과 안 함.
+      ISO는 clock 앞에 배치(부분 매칭 방지), 분 정밀 until-clock은 meridiem-only보다 우선. 새 CLI 코드
+      0줄 — 기존 `agentrelay parse`가 자동 노출. parser.test +6 회귀(ISO/clock/meridiem/우선순위/
+      no-context 부정/13pm 무효), 실제 빌드 CLI `parse`로 긍정 2건 감지·부정 1건 미감지 e2e 검증.
+      branch `claude/wizardly-pascal-until-reset`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

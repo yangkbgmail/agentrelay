@@ -249,4 +249,46 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("relative-duration");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
   });
+
+  it("parses an ISO deadline phrased as 'limited until <ISO>'", () => {
+    const result = parseRateLimitMessage("You are rate limited until 2026-07-13T05:00:00Z.");
+    expect(result?.pattern).toBe("until-iso-timestamp");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses a clock deadline phrased as 'blocked until 3:00pm', rolling to tomorrow if past", () => {
+    const now = new Date("2026-07-12T20:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached — blocked until 3:00pm.", { now });
+    expect(result?.pattern).toBe("until-clock-time");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getUTCHours() === 15 || resetDate.getHours() === 15).toBeTruthy();
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses an hour+meridiem deadline phrased as 'limited until 5pm' (no minutes)", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("You are rate limited until 5pm.", { now });
+    expect(result?.pattern).toBe("until-clock-meridiem");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(17);
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("prefers the minute-precise until-clock over the meridiem-only until pattern", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("locked until 5:30pm", { now });
+    expect(result?.pattern).toBe("until-clock-time");
+    expect(new Date(result!.resetAt).getMinutes()).toBe(30);
+  });
+
+  it("does not treat a bare English 'until' with no limit context as a reset", () => {
+    // "until" is far too common in ordinary output to be a rate-limit signal on
+    // its own; the pre-filter requires a limit-y word before it.
+    expect(parseRateLimitMessage("Please wait until 10:30 for the next meeting.")).toBeNull();
+  });
+
+  it("rejects an invalid 12-hour clock in the 'until' meridiem form", () => {
+    expect(parseRateLimitMessage("rate limited until 13pm")).toBeNull();
+  });
 });

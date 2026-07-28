@@ -32,33 +32,46 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/** Parse an explicit ISO-8601 timestamp; null if it isn't a valid date. */
+function resolveIsoTimestamp(raw: string): Date | null {
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * The next future instant matching a wall-clock `hour:minute` (local time).
+ * If that time already passed today, roll to tomorrow — a reset is always a
+ * future instant, so rolling forward keeps us from resuming a whole day early.
+ */
+function nextClockInstant(hour: number, minute: number, now: Date): Date {
+  const candidate = new Date(now);
+  candidate.setHours(hour, minute, 0, 0);
+  if (candidate.getTime() <= now.getTime()) {
+    candidate.setDate(candidate.getDate() + 1);
+  }
+  return candidate;
+}
+
+/** Apply 12-hour meridiem (am/pm) to a bare hour: 12am -> 0, 12pm -> 12. */
+function applyMeridiem(hour: number, meridiem: string | undefined): number {
+  const m = meridiem?.toLowerCase();
+  if (m === "pm" && hour < 12) return hour + 12;
+  if (m === "am" && hour === 12) return 0;
+  return hour;
+}
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
     name: "iso-timestamp",
     regex: /reset[s]?\s+at\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/i,
-    resolve: (m) => {
-      const d = new Date(m[1]);
-      return Number.isNaN(d.getTime()) ? null : d;
-    },
+    resolve: (m) => resolveIsoTimestamp(m[1]),
   },
   {
     // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
     name: "clock-time",
     regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
-    resolve: (m, now) => {
-      let hour = parseInt(m[1], 10);
-      const minute = parseInt(m[2], 10);
-      const meridiem = m[3]?.toLowerCase();
-      if (meridiem === "pm" && hour < 12) hour += 12;
-      if (meridiem === "am" && hour === 12) hour = 0;
-      const candidate = new Date(now);
-      candidate.setHours(hour, minute, 0, 0);
-      if (candidate.getTime() <= now.getTime()) {
-        candidate.setDate(candidate.getDate() + 1);
-      }
-      return candidate;
-    },
+    resolve: (m, now) => nextClockInstant(applyMeridiem(parseInt(m[1], 10), m[3]), parseInt(m[2], 10), now),
   },
   {
     // "resets at 5pm" / "reset at 10 AM" — hour + meridiem with NO minutes.
@@ -72,17 +85,37 @@ const PATTERNS: RateLimitPattern[] = [
     name: "clock-time-meridiem",
     regex: /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b/i,
     resolve: (m, now) => {
-      let hour = parseInt(m[1], 10);
+      const hour = parseInt(m[1], 10);
       if (hour > 12) return null; // 13pm etc. is not a valid 12-hour clock time
-      const meridiem = m[2].toLowerCase();
-      if (meridiem === "pm" && hour < 12) hour += 12;
-      if (meridiem === "am" && hour === 12) hour = 0;
-      const candidate = new Date(now);
-      candidate.setHours(hour, 0, 0, 0);
-      if (candidate.getTime() <= now.getTime()) {
-        candidate.setDate(candidate.getDate() + 1);
-      }
-      return candidate;
+      return nextClockInstant(applyMeridiem(hour, m[2]), 0, now);
+    },
+  },
+  {
+    // "rate limited until 2026-07-13T05:00:00Z" — an explicit ISO reset after
+    // the "until" preposition. Some agent CLIs / APIs phrase the cooldown as a
+    // deadline ("limited until <when>") rather than "reset at <when>". Ordered
+    // before the until-clock patterns so an ISO timestamp isn't partially
+    // matched as a bare clock time. The generic pre-filter only lets these run
+    // when a limit word precedes "until", so plain English "until 5pm" in
+    // unrelated output won't be misread as a reset.
+    name: "until-iso-timestamp",
+    regex: /until\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/i,
+    resolve: (m) => resolveIsoTimestamp(m[1]),
+  },
+  {
+    // "limited until 3:00pm" / "blocked until 15:00" — wall-clock deadline.
+    name: "until-clock-time",
+    regex: /until\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
+    resolve: (m, now) => nextClockInstant(applyMeridiem(parseInt(m[1], 10), m[3]), parseInt(m[2], 10), now),
+  },
+  {
+    // "limited until 5pm" / "locked until 10 AM" — hour + meridiem, no minutes.
+    name: "until-clock-meridiem",
+    regex: /until\s+(\d{1,2})\s*(am|pm)\b/i,
+    resolve: (m, now) => {
+      const hour = parseInt(m[1], 10);
+      if (hour > 12) return null; // 13pm etc. is not a valid 12-hour clock time
+      return nextClockInstant(applyMeridiem(hour, m[2]), 0, now);
     },
   },
   {
@@ -135,8 +168,15 @@ const PATTERNS: RateLimitPattern[] = [
   },
 ];
 
-/** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+/**
+ * Quick pre-filter so we don't run every regex on every line of noisy CLI output.
+ * The `until` clause is deliberately gated behind a limit-y word within a short
+ * span before it — "until" alone is far too common in ordinary English to treat
+ * as a rate-limit signal, so a bare "wait until 10:30 for the meeting" won't trip
+ * the parser, while "you are rate limited until 3pm" does.
+ */
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after|(?:limit|limited|quota|blocked|locked|throttl|cooldown|unavailable|paused|suspended)[^\n]{0,40}?until\b)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);
