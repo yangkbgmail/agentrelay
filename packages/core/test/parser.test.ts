@@ -118,6 +118,64 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 3 * 60_000).toISOString());
   });
 
+  it("parses a countdown H:M:S duration like 'try again in 1:30:00'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in 1:30:00.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("countdown-duration");
+    const expected = new Date(now.getTime() + (90 * 60 + 0) * 1000).toISOString();
+    expect(result?.resetAt).toBe(expected);
+  });
+
+  it("parses a countdown M:S duration like 'resets in 45:00'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit hit — resets in 45:00.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("countdown-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 45 * 60 * 1000).toISOString());
+  });
+
+  it("includes the seconds field of a countdown timer", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("resets in 2:03:30", { now });
+    expect(result?.pattern).toBe("countdown-duration");
+    const expected = new Date(now.getTime() + ((2 * 60 + 3) * 60 + 30) * 1000).toISOString();
+    expect(result?.resetAt).toBe(expected);
+  });
+
+  it("allows a two-field countdown minutes value above 59 (e.g. '90:00')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("try again in 90:00", { now });
+    expect(result?.pattern).toBe("countdown-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60 * 1000).toISOString());
+  });
+
+  it("rejects an out-of-range seconds field in a countdown ('in 12:99')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    // 99 seconds is not a valid timer field; must not be treated as a reset.
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in 12:99.", { now });
+    expect(result).toBeNull();
+  });
+
+  it("rejects an out-of-range minutes field in an H:M:S countdown ('in 1:99:00')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("resets in 1:99:00", { now });
+    expect(result).toBeNull();
+  });
+
+  it("does not treat a zero countdown 'in 0:00' as a future reset", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit — try again in 0:00.", { now });
+    expect(result).toBeNull();
+  });
+
+  it("prefers the unit-letter relative-duration over the countdown form", () => {
+    // "in 2h" has no colon, so only relative-duration should ever match it.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("resets in 2h", { now });
+    expect(result?.pattern).toBe("relative-duration");
+  });
+
   it("parses a unix epoch retry_after field", () => {
     const result = parseRateLimitMessage("rate_limit_error retry_after=1752345600");
     expect(result).not.toBeNull();

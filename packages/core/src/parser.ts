@@ -86,6 +86,36 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Countdown/timer form: a colon-separated duration after "in", the way a
+    // live progress display or countdown timer renders remaining time.
+    //   - H:M:S  "try again in 1:30:00"  -> 1h30m from now
+    //   - M:S    "resets in 45:00"        -> 45m from now
+    // Distinct from `relative-duration` (which needs the unit letters d/h/m) and
+    // from the `at`-anchored clock-time patterns (this is a relative "in" delay,
+    // not an absolute wall-clock reset time). Seconds must be 0-59, and in the
+    // three-field form minutes must be 0-59 too, so a stray "in 12:99" or a bare
+    // "resets in 5" won't false-match. The minutes field in the two-field M:S
+    // form is left unbounded (a timer can legitimately show "90:00").
+    name: "countdown-duration",
+    regex: /(?:try again|resets?|retry)\s+in\s+(?:(\d{1,3}):)?(\d{1,2}):(\d{2})\b/i,
+    resolve: (m, now) => {
+      const seconds = parseInt(m[3], 10);
+      if (seconds > 59) return null;
+      let hours = 0;
+      let minutes: number;
+      if (m[1] !== undefined) {
+        hours = parseInt(m[1], 10);
+        minutes = parseInt(m[2], 10);
+        if (minutes > 59) return null;
+      } else {
+        minutes = parseInt(m[2], 10);
+      }
+      const totalMs = ((hours * 60 + minutes) * 60 + seconds) * 1000;
+      if (totalMs === 0) return null; // "in 0:00" is not a real future reset
+      return new Date(now.getTime() + totalMs);
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
