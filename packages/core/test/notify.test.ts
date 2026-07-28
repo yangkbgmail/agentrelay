@@ -3,9 +3,14 @@ import {
   combineNotifiers,
   createSlackNotifier,
   createWebhookNotifier,
+  filterNotifierByEvents,
   formatSlackText,
+  isNotifyEvent,
   listNotifyChannels,
+  NOTIFY_EVENTS,
   notifiersFromEnv,
+  notifyEventsFromEnv,
+  parseNotifyEvents,
   sendTestNotification,
   slackNotifierFromEnv,
   testNotifyPayload,
@@ -336,5 +341,81 @@ describe("sendTestNotification", () => {
     });
     const [, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer t0ken");
+  });
+});
+
+describe("notify event filtering", () => {
+  it("NOTIFY_EVENTS lists all four lifecycle events and isNotifyEvent guards them", () => {
+    expect(NOTIFY_EVENTS).toEqual(["queued", "resumed", "completed", "failed"]);
+    expect(isNotifyEvent("failed")).toBe(true);
+    expect(isNotifyEvent("resumed")).toBe(true);
+    expect(isNotifyEvent("done")).toBe(false);
+    expect(isNotifyEvent("")).toBe(false);
+  });
+
+  it("parseNotifyEvents recognizes events, is case-insensitive, trims, and dedupes in first-seen order", () => {
+    expect(parseNotifyEvents("failed, Completed ,FAILED")).toEqual({
+      events: ["failed", "completed"],
+      invalid: [],
+    });
+  });
+
+  it("parseNotifyEvents collects unknown tokens and skips blank ones", () => {
+    expect(parseNotifyEvents("failed, , bogus, nope, bogus")).toEqual({
+      events: ["failed"],
+      invalid: ["bogus", "nope"],
+    });
+  });
+
+  it("notifyEventsFromEnv returns null when unset/blank so every event fires", () => {
+    expect(notifyEventsFromEnv({})).toBeNull();
+    expect(notifyEventsFromEnv({ AGENTRELAY_NOTIFY_EVENTS: "   " })).toBeNull();
+  });
+
+  it("notifyEventsFromEnv returns null when the value names only unknown events (typo never mutes everything)", () => {
+    expect(notifyEventsFromEnv({ AGENTRELAY_NOTIFY_EVENTS: "complete,failedx" })).toBeNull();
+  });
+
+  it("notifyEventsFromEnv returns the recognized subset", () => {
+    const set = notifyEventsFromEnv({ AGENTRELAY_NOTIFY_EVENTS: "failed, completed" });
+    expect(set).not.toBeNull();
+    expect([...(set as Set<string>)].sort()).toEqual(["completed", "failed"]);
+  });
+
+  it("filterNotifierByEvents only forwards payloads whose event is allowed", async () => {
+    const seen: string[] = [];
+    const inner = vi.fn(async (p: NotifyPayload) => {
+      seen.push(p.event);
+    });
+    const filtered = filterNotifierByEvents(inner, new Set(["failed"] as const));
+    for (const event of NOTIFY_EVENTS) {
+      await filtered({ ...payload, event });
+    }
+    expect(seen).toEqual(["failed"]);
+    expect(inner).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifiersFromEnv applies the event filter so a muted event never reaches the webhook", async () => {
+    const fetchFn = vi.fn(async () => new Response(null, { status: 200 }));
+    const notify = notifiersFromEnv(
+      {
+        AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+        AGENTRELAY_NOTIFY_EVENTS: "failed",
+      },
+      { fetchFn }
+    );
+    expect(notify).not.toBeNull();
+    await (notify as (p: NotifyPayload) => Promise<void>)({ ...payload, event: "queued" });
+    expect(fetchFn).not.toHaveBeenCalled();
+    await (notify as (p: NotifyPayload) => Promise<void>)({ ...payload, event: "failed" });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifiersFromEnv without a filter delivers every event", async () => {
+    const fetchFn = vi.fn(async () => new Response(null, { status: 200 }));
+    const notify = notifiersFromEnv({ AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay" }, { fetchFn });
+    await (notify as (p: NotifyPayload) => Promise<void>)({ ...payload, event: "queued" });
+    await (notify as (p: NotifyPayload) => Promise<void>)({ ...payload, event: "failed" });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 });
