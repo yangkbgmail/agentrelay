@@ -11,6 +11,7 @@ import {
   renderGroupedStatsJson,
   renderStats,
   renderStatsJson,
+  renderStatsWatchFrame,
   renderTrend,
 } from "../src/stats.js";
 
@@ -303,6 +304,37 @@ describe("renderTrend", () => {
       { date: "2026-07-20", count: 2 },
     ]);
     expect(renderTrend(computed)).toContain("3 job(s) over 2 day(s)");
+  });
+});
+
+describe("renderStatsWatchFrame", () => {
+  const STAMP_MS = Date.parse("2026-07-13T14:05:09.000Z");
+
+  it("wraps a body with a header, timestamp, store path, and blank separator", () => {
+    const frame = renderStatsWatchFrame("BODY-CONTENT", {
+      store: "/tmp/jobs.json",
+      intervalMs: 3000,
+      nowMs: STAMP_MS,
+    });
+    const lines = frame.split("\n");
+    expect(lines[0]).toBe("agentrelay stats (live, every 3s — Ctrl-C to exit)");
+    expect(lines[1]).toBe("2026-07-13 14:05:09Z · /tmp/jobs.json");
+    expect(lines[2]).toBe("");
+    expect(lines[3]).toBe("BODY-CONTENT");
+  });
+
+  it("rounds the interval to whole seconds", () => {
+    const frame = renderStatsWatchFrame("x", { store: "/s.json", intervalMs: 2400, nowMs: STAMP_MS });
+    expect(frame).toContain("every 2s");
+  });
+
+  it("emits no ANSI codes when color is off (default), and codes when on", () => {
+    const plain = renderStatsWatchFrame("x", { store: "/s.json", intervalMs: 2000, nowMs: STAMP_MS });
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting ANSI absence
+    expect(/\x1b\[/.test(plain)).toBe(false);
+    const colored = renderStatsWatchFrame("x", { store: "/s.json", intervalMs: 2000, nowMs: STAMP_MS, color: true });
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting ANSI presence
+    expect(/\x1b\[/.test(colored)).toBe(true);
   });
 });
 

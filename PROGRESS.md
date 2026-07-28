@@ -1489,3 +1489,21 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — `agentrelay stats --watch` 라이브 지표 대시보드] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-rt0csx`)
+- **배경:** 명시된 👷 BACKLOG 항목이 전부 완료 상태라, CLAUDE.md "비면 스스로 새 개선 항목을 발굴"
+  지침에 따라 열린 PR 중복 클러스터(config get·stats --by-hour·재개 stagger·파서 reset-at·verify 등)와
+  겹치지 않는 신규·자족 항목을 발굴. `status`엔 `--watch` 라이브 뷰가 있지만 `stats`엔 없어, 릴레이
+  효과 지표(성공률이 데몬 진행에 따라 어떻게 움직이는지)를 보려면 매번 커맨드를 재실행해야 하는 갭 발견.
+- **한 일:** `agentrelay stats --watch [seconds]` 구현. CLI `stats.ts`에 순수 `renderStatsWatchFrame`
+  (status의 `renderWatchFrame` 미러 헤더로 렌더된 stats 블록을 감쌈, color 게이트). `cli.ts`에
+  `runStatsWatch`(매 tick 스토어 재읽기→scope 재적용→화면 클리어+프레임, SIGINT/SIGTERM 클린 종료) +
+  stats 액션 리팩터: 순수 `renderBody(scopedJobs, frameNow)` 클로저로 일회성·watch 두 경로 동일 렌더
+  (group-by·trend·scope 전부 지원). `frameNow`는 "next reset in" 카운트다운을 라이브 틱, trend는 시작
+  `now`로 고정. `--json`+`--watch`는 exit 1 거부.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린·`pnpm ci:lint`(Biome) 통과·`pnpm test`
+  전 패키지 통과(cli 238 pass/1 skip, dashboard 7, renderStatsWatchFrame 3 신규 포함). 실제 빌드된
+  CLI e2e: `stats --watch 1`(라이브 프레임·카운트다운)·`--watch --group-by tool`·`--watch --trend
+  --project demo`·`--watch --json`→exit 1·`stats --help`에 `-w, --watch` 노출 확인.
+- **다음 할 일:** 무한 개선 백로그 계속 발굴(예: `metrics --watch`/대시보드 지표 카드/파서 실사용 포맷은
+  🧭 코워크 리서치와 조율). 남은 distinct 열린 PR 통합도 고가치. README/ARCHITECTURE(🧭 코워크).

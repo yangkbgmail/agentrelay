@@ -575,6 +575,22 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay stats --watch [seconds]` — 릴레이 효과 지표(성공률·재시도·해결 시간·다음 리셋
+      카운트다운·툴/프로젝트 breakdown)를 실시간으로 갱신하는 라이브 대시보드. `status --watch`의 stats
+      버전으로, 데몬이 도는 동안 잡이 완료되며 성공률이 어떻게 움직이는지 화면을 떠나지 않고 관찰.
+      (완료 — `status`엔 `--watch`가 있지만 `stats`엔 없어 지표를 보려면 매번 커맨드를 재실행해야 했다.
+      CLI `stats.ts`에 순수 `renderStatsWatchFrame(body, {store,intervalMs,nowMs?,color?})` 신설 —
+      `status`의 `renderWatchFrame`와 동일한 헤더(커맨드명·갱신 간격·타임스탬프·스토어 경로) 스타일로
+      이미 렌더된 stats 블록을 감쌈, color 게이트로 ANSI 테스트 가능. `cli.ts`에 `runStatsWatch`
+      (`runWatch` 미러 — 매 tick 스토어 재읽기→scope 재적용→renderBody→화면 클리어+프레임 출력,
+      SIGINT/SIGTERM 클린 종료). stats 액션을 리팩터: 순수 `renderBody(scopedJobs, frameNow)` 클로저를
+      추출해 일회성·watch 두 경로가 동일 렌더(group-by·trend·scope 필터 전부 지원). `frameNow`는 "next
+      reset in" 카운트다운을 라이브로 틱, trend 히스토그램은 커맨드 시작 `now`로 고정(일 버킷이 워치
+      중 밀리지 않게). `--since`/`--until` 시간 창 경계는 절대 epoch로 고정돼 매 프레임 재적용 안전.
+      `--json`+`--watch`는 무의미해 exit 1로 거부. `-w, --watch [seconds]` 배선(값 없으면 2s 기본).
+      cli stats.test에 renderStatsWatchFrame 3케이스 추가, 실제 빌드 CLI e2e로 라이브 프레임·group-by·
+      trend·scope 조합·json 거부·help 노출 검증. branch `claude/wizardly-pascal-rt0csx`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
