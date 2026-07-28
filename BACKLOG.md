@@ -575,6 +575,15 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 숫자 없는 단어형 상대 시간 인식 (`try again in an hour` / `resets in a minute` /
+      `retry in a day` / `try again in half an hour`).
+      (완료 — 기존 `relative-duration`은 `\d+`가 필수라 순수 단어형 문구를 놓쳐 rate-limit 잡이
+      조용히 큐잉 안 되던 갭. `parser.ts`에 순수 신규 패턴 `relative-duration-words`를 숫자 패턴 뒤에
+      추가 — 단수 관사(`a`/`an`=1단위)와 `half` 수식어만 취급(day/hour/minute/min), 숫자가 있으면
+      기존 정밀 패턴이 먼저 이김. 사전필터 `LOOKS_LIKE_RATE_LIMIT`에 `retry\s+in` 추가해 "retry in …"
+      문구가 필터를 통과하도록 교정. 새 CLI 코드 0줄 — `parse`/run/scheduler 자동 노출. parser.test +5
+      회귀. branch `claude/wizardly-pascal-relword`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

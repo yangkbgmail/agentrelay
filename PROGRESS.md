@@ -1489,3 +1489,21 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 41 — 파서 단어형 상대 시간] (2026-07-28, 무인 자동 트리거)
+- **맥락:** BACKLOG의 👷(클로드 코드) 항목이 전부 [완료] 상태라, CLAUDE.md 지침대로 새 개선 항목을
+  스스로 발굴. 파서(`parser.ts`)를 훑어 실사용 갭 하나를 확인: 숫자 없는 **단어형 상대 시간**
+  (`try again in an hour`, `resets in a minute`, `retry in a day`, `try again in half an hour`)을
+  기존 `relative-duration`(`\d+` 필수)이 놓쳐, 이 문구로 rate-limit이 오면 잡이 큐잉되지 않고
+  조용히 재개 실패(가장 나쁜 실패 모드)했다.
+- **한 일:** `parser.ts`에 순수 신규 패턴 `relative-duration-words`를 숫자 패턴 **뒤에** 추가 —
+  단수 관사(`a`/`an`=1단위)와 `half` 수식어만 취급(`day`/`hour`/`minute`/`min`), 숫자가 있으면 항상
+  기존 정밀 패턴이 먼저 이기게 배치. 부수로 사전필터 `LOOKS_LIKE_RATE_LIMIT`에 `retry\s+in`을 추가해
+  `retry in …` 문구(숫자·단어형 모두)가 필터를 통과하도록 교정(기존엔 `retry.?after`만 있어 "retry in"
+  단독은 사전필터에서 탈락하던 잠재 갭). 새 CLI 코드 0줄 — 기존 `agentrelay parse`/run/scheduler가 자동
+  노출. parser.test.ts +5 회귀(an hour/a minute/retry in a day/half an hour/숫자 우선).
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함)·`pnpm ci:lint`(Biome 0경고)·`pnpm test`
+  전 패키지 통과. 실제 빌드된 CLI `parse`로 an hour→+1h / half an hour→+30m / retry in a day→+24h /
+  "2 hours"→여전히 relative-duration(정밀) e2e 확인. branch `claude/wizardly-pascal-relword`.
+- **다음 할 일:** 남은 열린 PR 통합/수렴 계속, README/ARCHITECTURE(🧭 코워크 소유). 추가 파서 갭
+  발굴(예: 워드넘버 2~9, "in a few minutes" 저신뢰 fallback).
