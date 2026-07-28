@@ -1489,3 +1489,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — distinct CI-초록 PR #171(`agentrelay verify`) 최신 main 통합] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-od2gq5`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태이고 열린 PR이 100개 이상 적체된 상황(다수 중복:
+  파서 reset-at 계열·config get·stats --by-hour/--watch·재개 stagger·upcoming/agenda 등). 세션
+  42~45의 판단(신규 기능을 더하기보다 **CI 초록·서로 겹치지 않는 distinct PR을 최신 main 위로 통합**)을
+  이어, 세션 45가 다음 후보로 지목한 것 중 가장 격리도 높고 실사용 관측성 갭을 메우는 **#171
+  (`agentrelay verify`)**을 통합 대상으로 선정.
+- **한 일:** **#171(`agentrelay verify` — 잡 스토어 무결성 린터)을 최신 main(4abefa1) 위로 통합.**
+  PR이 오래된 base 기반이라 head 커밋(56ab679)을 지정 브랜치에 cherry-pick → 충돌은 문서 2개
+  (BACKLOG.md·PROGRESS.md)뿐, 코드 파일(`cli.ts`·`commands.ts`·`core/index.ts`)과 신규 모듈
+  (core `verify.ts`·`verify.test.ts`, cli `verify.ts`·`verify.test.ts`)은 무충돌 자동 병합.
+  문서 충돌은 HEAD 히스토리 유지 + verify 항목/이 세션 로그를 덧붙여 해소.
+  - 구현 요약: 순수 core `verifyStore(records: unknown[])`가 **원시** 파싱 배열(큐의 post-cast 뷰가
+    아님 — 이미 중복 id를 붕괴시킨 뒤라서)을 받아 두 층으로 검사 — 구조 검증은 `import.ts`의
+    `validateJobRecord` 재사용(에러), 교차·의미 검사는 중복 id(에러)·resetAt 없는 waiting_for_reset·
+    파싱 불가 resetAt/createdAt/updatedAt·클럭 스큐(경고). `StoreVerification`(total·validJobs·
+    error/warningCount·ok·issues[]) 반환. CLI `runVerify`가 파일시스템 엣지만 담당(없음=clean·
+    비배열=corrupt·빈 파일=빈 스토어, 절대 throw 안 함), `renderVerify`(에러 먼저·경고 나중)·
+    `renderVerifyJson`. `agentrelay verify [--json]`, corrupt나 error-level 이슈면 exit 1.
+- **검증:** 통합 후 로컬 `pnpm install`→`pnpm build`·`pnpm ci:lint`(Biome)·`pnpm test` 전 패키지
+  통과(core verify 14 + cli verify 8 신규 포함). 실제 빌드된 CLI e2e로 missing/clean/중복id·
+  corrupt/--json 동작 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#168 backoff·#170 clean·#125 --no-color·
+  #152 resolution Prometheus 히스토그램·데모 계열). 중복 무리는 각각 하나로 수렴 후 나머지 닫기 권장.
+  README/ARCHITECTURE(🧭 코워크). verify 후속 아이디어: `--fix`로 안전한 자동 교정(중복 id 정리 등).
