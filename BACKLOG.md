@@ -575,6 +575,14 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 소수(fractional) 상대 기간 인식 (`try again in 1.5 hours` / `resets in 0.5h` / `2.5 days`).
+      (완료 — 기존 `relative-duration`이 단위별 `\d+`(정수)만 받아 소수 상대 기간을 통째로 놓쳐 잡이
+      큐잉 안 되던 실사용 갭. `parser.ts`에 신규 `fractional-duration` 패턴 추가 — 정규식이 소수점을
+      **필수**(`\d+\.\d+`)로 요구해 정수형(`4h32m`·`in 2 days`)과 완전 disjoint(순서 안전), 단위
+      day/hour/minute 첫 글자로 ms 환산·유한 양수만 큐잉(`Math.round`). 초는 어댑터 소관 유지. parser.test
+      +5 회귀(소수 시/분/일 + 정수 미섀도). 실제 빌드 CLI `parse`로 e2e 확인. branch
+      `claude/wizardly-pascal-yjhya1`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

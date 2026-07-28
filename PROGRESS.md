@@ -1489,3 +1489,18 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서: 소수(fractional) 상대 기간 인식] (2026-07-28, 무인 자율 세션)
+- **배경:** 세션 시작 시 BACKLOG의 👷 항목은 전부 `[x]` 완료 상태였고, 열린 PR ~40개(#241~#280)가
+  파서·CLI 커맨드 다수를 이미 점유 중이었다. 40개 PR 제목을 전부 스캔해 어느 것과도 겹치지 않는
+  실사용 갭을 발굴 — 기존 `relative-duration` 패턴이 `\d+`(정수)만 받아 **"try again in 1.5 hours" /
+  "resets in 0.5h" 같은 소수 상대 기간을 전부 놓쳐** 잡이 큐잉조차 안 되던 문제.
+- **한 일 (branch `claude/wizardly-pascal-yjhya1`):** `packages/core/src/parser.ts`에 신규 순수 패턴
+  `fractional-duration` 추가. 정규식 `(?:try again|resets?|retry)\s+in\s+(\d+\.\d+)\s*(d|h|m…)\b`로
+  **소수점을 필수(`\d+\.\d+`)** 로 요구 → 정수형(`4h32m`·`in 2 days`)과 완전히 disjoint(도트가 없으면
+  안 걸림, 정수 패턴도 애초에 소수를 못 잡았으므로 순서 안전). 단위(day/hour/minute) 첫 글자로 ms 환산,
+  값이 유한·양수일 때만 큐잉(`Math.round`로 정수 ms). 초(second)는 기존 설계대로 어댑터 소관 유지.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) 0경고, `pnpm test` 전 패키지 통과
+  (parser.test에 소수 시/분/일·정수 미섀도 회귀 5케이스 추가). 실제 빌드된 CLI `parse "…try again in
+  1.5 hours"` e2e로 `fractional-duration` 매치·resets in 1h 30m 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합(중복 무리는 하나로 수렴 후 닫기 권장). README/ARCHITECTURE(🧭).

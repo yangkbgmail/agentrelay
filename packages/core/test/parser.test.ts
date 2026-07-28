@@ -78,6 +78,43 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(expected);
   });
 
+  it("parses a fractional-hour relative duration like '1.5 hours'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in 1.5 hours.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("fractional-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
+  });
+
+  it("parses a compact fractional duration like '0.5h'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("resets in 0.5h", { now });
+    expect(result?.pattern).toBe("fractional-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
+
+  it("parses a fractional-day relative duration like '2.5 days'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly limit reached, try again in 2.5 days.", { now });
+    expect(result?.pattern).toBe("fractional-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2.5 * 24 * 60 * 60_000).toISOString());
+  });
+
+  it("parses a fractional-minute relative duration like '1.5 minutes'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("try again in 1.5 minutes", { now });
+    expect(result?.pattern).toBe("fractional-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 1000).toISOString());
+  });
+
+  it("still uses the integer relative-duration pattern for '4h32m' (no decimal)", () => {
+    // Regression: the fractional pattern must not shadow the integer compound form.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("try again in 4h32m", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + (4 * 60 + 32) * 60_000).toISOString());
+  });
+
   it("parses a relative duration with only minutes", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("resets in 45m", { now });
