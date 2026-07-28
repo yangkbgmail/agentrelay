@@ -68,6 +68,26 @@ describe("RelayQueue", () => {
     expect(queue.getById(job.id)?.lastRateLimit).toBeNull();
   });
 
+  it("persists the output tail that contained the rate-limit message when parking", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    const resetAt = new Date(Date.now() + 60_000).toISOString();
+    const detection = { pattern: "relative-duration", rawMatch: "resets in 10m", resetAt, detectedAt: resetAt };
+    queue.markWaitingForReset(job.id, resetAt, detection, "...working\nUsage limit reached. Resets in 10m.");
+
+    const reloaded = queue.getById(job.id);
+    expect(reloaded?.lastOutputTail).toBe("...working\nUsage limit reached. Resets in 10m.");
+    expect(reloaded?.lastRateLimit).toEqual(detection);
+  });
+
+  it("leaves lastOutputTail untouched when parking without an output tail", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    queue.markCompleted(job.id, "earlier output");
+    const resetAt = new Date(Date.now() + 60_000).toISOString();
+    // Re-parking with no tail (e.g. a manual re-queue) must not wipe the tail.
+    queue.markWaitingForReset(job.id, resetAt);
+    expect(queue.getById(job.id)?.lastOutputTail).toBe("earlier output");
+  });
+
   it("tracks attempts across resumes", () => {
     const job = queue.enqueue({
       project: "demo",

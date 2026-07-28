@@ -95,6 +95,8 @@ describe("RelayScheduler", () => {
     expect(results).toHaveLength(1);
     expect(results[0].status).toBe("waiting_for_reset");
     expect(results[0].resetAt).not.toBeNull();
+    // The output that re-tripped the limit is preserved for post-hoc diagnosis.
+    expect(results[0].lastOutputTail).toBe("Usage limit reached again. Resets in 2h.");
   });
 
   it("does not touch jobs that are not yet due", async () => {

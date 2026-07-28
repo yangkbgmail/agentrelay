@@ -575,6 +575,19 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 rate-limit 감지 시점의 출력 tail을 잡에 영속 — `run`이 리밋을 감지해 큐잉할 때 그 리밋
+      메시지를 담고 있던 자식 프로세스 출력을 버리지 않고 `lastOutputTail`에 저장. 지금까지
+      `lastOutputTail`은 잡이 종료 상태(completed/failed)에 도달해야만 채워져, 갓 큐잉된
+      `waiting_for_reset` 잡을 `agentrelay show`로 열면 정작 원인이 된 출력이 비어 있었다.
+      (완료 — `@agentrelay/core/queue.ts`에 공유 상수 `DEFAULT_OUTPUT_TAIL_LENGTH`(2000, 스케줄러
+      기본값과 통일) 추가 + `markWaitingForReset(id, resetAt, detection?, outputTail?)`가 `outputTail`
+      제공 시에만 `lastOutputTail` 영속(미제공 시 기존 tail 불변 → 수동 재큐가 tail을 지우지 않음).
+      스케줄러의 resume 재감지 재큐 경로도 캡처한 `tail`을 넘기도록 배선(기존엔 최초 run과 동일하게
+      누락). CLI `runCommand`가 `output.slice(-DEFAULT_OUTPUT_TAIL_LENGTH)`를 전달. `show`/`export`/
+      `import`/대시보드는 기존 `lastOutputTail` 경로를 그대로 재사용(새 렌더 코드 0줄). core queue +2 /
+      scheduler +1(기존 테스트 확장) / cli commands +1 신규 테스트, 실제 빌드 CLI e2e로 run→감지→
+      `show --json`의 `lastOutputTail`에 리밋 메시지 영속 검증. branch `claude/wizardly-pascal-alwfru`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

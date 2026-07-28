@@ -56,6 +56,14 @@ export interface RelayQueueOptions {
 }
 
 /**
+ * How many trailing characters of a job's combined stdout/stderr are kept as
+ * `lastOutputTail` for post-hoc diagnosis (`agentrelay show`, the dashboard,
+ * export/import). Shared so the initial `run` detection and the scheduler's
+ * resume path truncate to the same length instead of drifting apart.
+ */
+export const DEFAULT_OUTPUT_TAIL_LENGTH = 2000;
+
+/**
  * Where a corrupt store file is moved aside before the queue starts fresh, so
  * the unreadable data is preserved for inspection/recovery instead of being
  * silently clobbered by the next write. The suffix is filesystem-safe (the
@@ -189,12 +197,19 @@ export class RelayQueue {
    * it is persisted on the job so `agentrelay show` / the dashboard can explain
    * *why* the relay chose this reset time. Omit `detection` for reset times
    * that aren't a parsed rate limit (e.g. manual re-queues).
+   *
+   * When `outputTail` is supplied it is persisted as `lastOutputTail` so the
+   * agent output that *contained* the rate-limit message is preserved from the
+   * moment of detection — previously that diagnostic output was only captured
+   * once a job reached a terminal state, so a freshly-queued job showed no
+   * output tail at all. Pass `undefined` to leave the existing tail untouched.
    */
-  markWaitingForReset(id: string, resetAt: string, detection?: RateLimitDetection) {
+  markWaitingForReset(id: string, resetAt: string, detection?: RateLimitDetection, outputTail?: string) {
     this.update(id, {
       status: "waiting_for_reset",
       resetAt,
       ...(detection ? { lastRateLimit: detection } : {}),
+      ...(outputTail !== undefined ? { lastOutputTail: outputTail } : {}),
     });
   }
 

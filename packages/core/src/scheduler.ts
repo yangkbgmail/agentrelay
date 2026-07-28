@@ -1,7 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { resolveAdapter } from "./adapters.js";
 import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
-import type { RelayQueue } from "./queue.js";
+import { DEFAULT_OUTPUT_TAIL_LENGTH, type RelayQueue } from "./queue.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
 import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
 
@@ -93,7 +93,7 @@ export class RelayScheduler {
     this.pollIntervalMs = options.pollIntervalMs ?? 30_000;
     this.spawnFn = options.spawnFn ?? defaultSpawn;
     this.notify = options.notify ?? (() => {});
-    this.outputTailLength = options.outputTailLength ?? 2000;
+    this.outputTailLength = options.outputTailLength ?? DEFAULT_OUTPUT_TAIL_LENGTH;
     this.retryPolicy = options.retryPolicy ?? DEFAULT_RETRY_POLICY;
     this.rng = options.rng ?? Math.random;
     this.autoPrune = options.autoPrune ?? null;
@@ -189,12 +189,17 @@ export class RelayScheduler {
         this.queue.markFailed(job.id, msg, tail);
         await this.notify({ jobId: job.id, project: job.project, event: "failed", message: msg });
       } else {
-        this.queue.markWaitingForReset(job.id, rateLimit.resetAt, {
-          pattern: rateLimit.pattern,
-          rawMatch: rateLimit.rawMatch,
-          resetAt: rateLimit.resetAt,
-          detectedAt: new Date().toISOString(),
-        });
+        this.queue.markWaitingForReset(
+          job.id,
+          rateLimit.resetAt,
+          {
+            pattern: rateLimit.pattern,
+            rawMatch: rateLimit.rawMatch,
+            resetAt: rateLimit.resetAt,
+            detectedAt: new Date().toISOString(),
+          },
+          tail
+        );
         await this.notify({
           jobId: job.id,
           project: job.project,
