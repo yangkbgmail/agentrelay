@@ -32,20 +32,36 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/**
+ * Lead-in verbs that introduce an absolute reset time ("... at <time>"). The
+ * `clock-time` family originally only recognized "reset[s] at", but agent CLIs
+ * phrase the same fact many ways: "Please try again at 5pm", "You can retry at
+ * 15:00", "available again at 3:30pm", "comes back at 10am". Without these
+ * lead-ins such messages match *no* pattern at all — `relative-duration` needs
+ * "in", the clock patterns needed "reset at" — so the job is never queued. This
+ * shared fragment keeps the three "at <time>" patterns (iso-timestamp,
+ * clock-time, clock-time-meridiem) in lockstep so a new wording is added once.
+ */
+const AT_LEAD = "(?:reset[s]?|try\\s+again|retry|available(?:\\s+again)?|comes?\\s+back)";
+
 const PATTERNS: RateLimitPattern[] = [
   {
-    // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
+    // "reset at 2026-07-13T05:00:00Z" / "try again at 2026-07-13T05:00:00Z" —
+    // explicit ISO timestamps behind any of the AT_LEAD verbs.
     name: "iso-timestamp",
-    regex: /reset[s]?\s+at\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/i,
+    regex: new RegExp(
+      `${AT_LEAD}\\s+at\\s+(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?)`,
+      "i"
+    ),
     resolve: (m) => {
       const d = new Date(m[1]);
       return Number.isNaN(d.getTime()) ? null : d;
     },
   },
   {
-    // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
+    // "resets at 3:00pm" / "try again at 15:00" (assume today, or tomorrow if already past)
     name: "clock-time",
-    regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
+    regex: new RegExp(`${AT_LEAD}\\s+at\\s+(\\d{1,2}):(\\d{2})\\s*(am|pm)?`, "i"),
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       const minute = parseInt(m[2], 10);
@@ -61,16 +77,16 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
-    // "resets at 5pm" / "reset at 10 AM" — hour + meridiem with NO minutes.
-    // This is the wording Claude Code actually prints ("Your limit will reset
-    // at 5pm (America/New_York)."), which the minute-requiring clock-time
-    // pattern above misses. Meridiem is required: a bare "reset at 5" (no
-    // colon, no am/pm) is too ambiguous to treat as a clock time. The named
+    // "resets at 5pm" / "reset at 10 AM" / "try again at 9 PM" — hour + meridiem
+    // with NO minutes. This is the wording Claude Code actually prints ("Your
+    // limit will reset at 5pm (America/New_York)."), which the minute-requiring
+    // clock-time pattern above misses. Meridiem is required: a bare "reset at 5"
+    // (no colon, no am/pm) is too ambiguous to treat as a clock time. The named
     // timezone in the message is ignored — the hour is interpreted in local
     // time, same known limitation as clock-time (a real reset is a future
     // instant, so rolling to tomorrow when already past keeps us safe).
     name: "clock-time-meridiem",
-    regex: /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b/i,
+    regex: new RegExp(`${AT_LEAD}\\s+at\\s+(\\d{1,2})\\s*(am|pm)\\b`, "i"),
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       if (hour > 12) return null; // 13pm etc. is not a valid 12-hour clock time
@@ -135,8 +151,14 @@ const PATTERNS: RateLimitPattern[] = [
   },
 ];
 
-/** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+/**
+ * Quick pre-filter so we don't run every regex on every line of noisy CLI
+ * output. Must admit anything the AT_LEAD patterns can match: besides the
+ * classic "resets at/in" and "try again", the newer lead-ins "retry at",
+ * "available (again) at" and "comes back at" need to pass through here too.
+ */
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after|(?:retry|available(?:\s+again)?|comes?\s+back)\s+at)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);
