@@ -425,4 +425,80 @@ describe("RelayScheduler", () => {
     expect(processed).toHaveLength(1);
     expect(queue.getById(job.id)?.status).toBe("completed");
   });
+
+  describe("resume window (active hours)", () => {
+    // Reference time is constructed with local clock components, so
+    // localMinuteOfDay reads back 10:00 regardless of the runner's timezone.
+    const at1000 = () => new Date(2026, 0, 15, 10, 0, 0);
+    function dueJob() {
+      const job = queue.enqueue({ project: "p", tool: "claude-code", command: ["cmd"], cwd: dir });
+      queue.markWaitingForReset(job.id, new Date(2026, 0, 15, 9, 59, 0).toISOString());
+      return job;
+    }
+
+    it("resumes a due job when the tick falls inside the window", async () => {
+      const job = dueJob();
+      const scheduler = new RelayScheduler({
+        queue,
+        spawnFn: fakeSpawnFn({ cmd: "All done." }),
+        resumeWindow: { startMinute: 540, endMinute: 1080 }, // 09:00-18:00
+      });
+
+      const processed = await scheduler.tick(at1000());
+      expect(processed).toHaveLength(1);
+      expect(queue.getById(job.id)?.status).toBe("completed");
+    });
+
+    it("does not resume a due job when the tick falls outside the window", async () => {
+      const job = dueJob();
+      const scheduler = new RelayScheduler({
+        queue,
+        spawnFn: fakeSpawnFn({ cmd: "All done." }),
+        resumeWindow: { startMinute: 1080, endMinute: 1320 }, // 18:00-22:00
+      });
+
+      const processed = await scheduler.tick(at1000());
+      expect(processed).toHaveLength(0);
+      // The job is left waiting — never failed — to be picked up when the window opens.
+      expect(queue.getById(job.id)?.status).toBe("waiting_for_reset");
+    });
+
+    it("honors an overnight window that wraps past midnight", async () => {
+      const job = dueJob();
+      const scheduler = new RelayScheduler({
+        queue,
+        spawnFn: fakeSpawnFn({ cmd: "All done." }),
+        // 22:00-11:00 wraps midnight and includes 10:00.
+        resumeWindow: { startMinute: 1320, endMinute: 660 },
+      });
+
+      const processed = await scheduler.tick(at1000());
+      expect(processed).toHaveLength(1);
+      expect(queue.getById(job.id)?.status).toBe("completed");
+    });
+
+    it("still runs auto-prune outside the window (store maintenance is independent)", async () => {
+      // A finished job that auto-prune should sweep even while resume is gated off.
+      const done = queue.enqueue({ project: "old", tool: "claude-code", command: ["cmd"], cwd: dir });
+      queue.markCompleted(done.id, "done");
+      const waiting = dueJob();
+
+      const pruned: string[] = [];
+      const scheduler = new RelayScheduler({
+        queue,
+        spawnFn: fakeSpawnFn({ cmd: "All done." }),
+        resumeWindow: { startMinute: 1080, endMinute: 1320 }, // 18:00-22:00 — excludes 10:00
+        autoPrune: { statuses: ["completed"], olderThanMs: 0 },
+        onPrune: (jobs) => pruned.push(...jobs.map((j) => j.id)),
+      });
+
+      const processed = await scheduler.tick(at1000());
+      // Resume was gated off...
+      expect(processed).toHaveLength(0);
+      expect(queue.getById(waiting.id)?.status).toBe("waiting_for_reset");
+      // ...but the finished job was still pruned.
+      expect(pruned).toContain(done.id);
+      expect(queue.getById(done.id)).toBeUndefined();
+    });
+  });
 });
