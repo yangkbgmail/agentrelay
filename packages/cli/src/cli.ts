@@ -17,6 +17,7 @@ import {
   COMPLETION_SHELLS,
   computeDailyTrend,
   computeErrorBreakdown,
+  computeResumeSchedule,
   computeStats,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
@@ -86,6 +87,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { renderUpcoming, renderUpcomingJson } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -550,6 +552,59 @@ export function buildCli(): Command {
         else if (!next.due) process.exitCode = 3;
         // due-now → exit 0 (default).
       }
+    });
+
+  program
+    .command("upcoming")
+    .description(
+      "Show the resume schedule: jobs waiting for a reset, bucketed by time window (due now / 1h / 24h / beyond)"
+    )
+    .option("--json", "Print the schedule as JSON (machine-readable, for scripts/jq)")
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # how backed up is the relay, and when does it clear?\n" +
+        "  agentrelay upcoming\n" +
+        "  # just this project's resume schedule, as JSON\n" +
+        "  agentrelay upcoming -p my-app --json | jq '.schedule.buckets'"
+    )
+    .action((opts: ScopeOpts & { json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const schedule = computeResumeSchedule(jobs, now);
+
+      if (opts.json) {
+        console.log(
+          renderUpcomingJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date(now).toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            schedule,
+          })
+        );
+        return;
+      }
+      console.log(
+        renderUpcoming(schedule, {
+          now,
+          color: Boolean(process.stdout.isTTY),
+          scopeNote: built.active ? built.note : undefined,
+          hasAnyJobs: allJobs.length > 0,
+        })
+      );
     });
 
   program

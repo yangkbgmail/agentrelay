@@ -1489,3 +1489,32 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 커맨드 `agentrelay upcoming`(재개 예정표) 구현] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-rxgukd`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태. 최근 세션(42~45)은 적체된 열린 PR 통합에 집중했으나,
+  이번엔 CLAUDE.md/작업 프롬프트의 "§8 무한 개선 백로그가 비면 스스로 새 개선 항목을 발굴" 지침에 따라
+  기존 커맨드·열린 PR 클러스터(파서 reset-at 계열·`config get`·`stats --by-hour`·재개 stagger 등)와
+  겹치지 않는 **distinct 신규 기능**을 발굴해 구현. `next`(단일 최근접 잡)·`status`(평면 테이블)·
+  `stats`(집계 지표) 어디에도 없던 "재개 예정을 시간 버킷으로 묶어 큐가 언제 풀릴지 한눈에 보는" 계획
+  레벨 뷰가 갭이었다.
+- **한 일:** `agentrelay upcoming` 커맨드 신설 — `waiting_for_reset` 잡을 리셋 시각까지 남은 시간으로
+  4개 고정 버킷(due now / within 1 hour / within 24 hours / beyond 24 hours)으로 분류해 예정표로 렌더.
+  - 순수 core `@agentrelay/core/upcoming.ts`: `computeResumeSchedule(jobs, now)` → `ResumeSchedule`
+    (totalWaiting·nextResetAt·항상 4개 버킷[빈 것 포함, 시간순]). 각 버킷은 count + 그 창에서 가장
+    이른 잡의 resetAt/dueInMs. 대기 집합은 스케줄러/`next`와 동일하게 `waiting_for_reset` + 파싱 가능
+    `resetAt`만(active·terminal 무시, null/비파싱 resetAt 스킵). 경계는 `[1h, 24h)` 반열림, 리셋이
+    now와 같으면 overdue(0 포함). 시계 미접촉(now 주입)이라 단위 테스트 가능. `WITHIN_HOUR_MS`/
+    `WITHIN_DAY_MS`/`RESUME_BUCKETS` export.
+  - CLI `packages/cli/src/upcoming.ts`: 순수 `renderUpcoming`(헤더[총 대기 수 + 전체 다음 리셋
+    카운트다운, "due now"면 "next reset in due now" 대신 "next reset due now"]·버킷별 비례 막대 +
+    비어있지 않은 non-overdue 버킷은 "soonest in <카운트다운>", `formatCountdown` 재사용해 status/next와
+    표기 일치)·`renderUpcomingJson`(next/patterns와 동일 envelope). 빈 스토어 vs 대기 잡 없음 vs 스코프
+    미매치를 각각 다른 안내 문구로 구분.
+  - `agentrelay upcoming [--json]` 커맨드 배선 — 공용 `buildScope`(--status/--tool/--project/--since/
+    --until) 재사용, 잘못된 필터는 exit 1. core index에 `upcoming.js` export 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린·`pnpm ci:lint`(Biome) 0경고·`pnpm test`
+  전 패키지 통과(core upcoming 9 + cli upcoming 9 신규 포함, cli 244 pass/1 skip). 실제 빌드된 CLI
+  e2e(mock 아님): 4-버킷 분류 테이블·`--json` 버킷 카운트·`-p` 스코프 필터·잘못된 `-t` → exit 1 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify).
+  추가 계획-레벨 뷰(예: `upcoming --exit-code` cron 게이트, 대시보드에 예정표 카드) 발굴 가능.
+  README/ARCHITECTURE(🧭 코워크).

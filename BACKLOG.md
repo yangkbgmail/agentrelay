@@ -575,6 +575,17 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay upcoming` — 재개 예정표: `waiting_for_reset` 잡을 리셋까지 남은 시간으로 4개 고정
+      버킷(due now / within 1h / within 24h / beyond)으로 묶어 "큐가 언제 풀릴지"를 계획 레벨로 한눈에.
+      `next`(단일 최근접)·`status`(평면 테이블)·`stats`(집계)와 구분되는 시간-버킷 뷰.
+      (완료 — 순수 core `upcoming.ts` `computeResumeSchedule(jobs, now)`→`ResumeSchedule`(totalWaiting·
+      nextResetAt·항상 4버킷[빈 것 포함, 시간순], 버킷별 count+가장 이른 resetAt/dueInMs). 대기 집합은
+      스케줄러/`next`와 동일(`waiting_for_reset`+파싱가능 resetAt만), 경계 `[1h,24h)` 반열림·now=overdue,
+      시계 미접촉. CLI `upcoming.ts` `renderUpcoming`(헤더+버킷별 비례 막대+non-overdue soonest 카운트다운,
+      `formatCountdown` 재사용)·`renderUpcomingJson`(next/patterns envelope). `agentrelay upcoming [--json]`
+      + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용, 잘못된 필터 exit 1. core 9 +
+      cli 9 신규 테스트, 실제 빌드 CLI e2e 검증. branch `claude/wizardly-pascal-rxgukd`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
