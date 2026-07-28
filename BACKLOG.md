@@ -575,6 +575,18 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 표준 rate-limit **reset** 응답 헤더 인식 — `X-RateLimit-Reset: <unix epoch>`(GitHub 등
+      대다수 API)와 `anthropic-ratelimit-<bucket>-reset: <ISO>`(Anthropic 버킷별 리셋). 에이전트 CLI가
+      HTTP API를 프록시하다 429 응답 헤더를 콘솔에 덤프하는 실사용 갭.
+      (완료 — `Retry-After`(상대 지연)·JSON `retry_after`(epoch 필드)와 구별되는 **절대 리셋 시각** 헤더를
+      기존 파서가 놓쳤다. `parser.ts`에 순수 `ratelimit-reset-header` 패턴 추가: 헤더명을
+      `ratelimit(?:-<bucket>)*-reset`로 매칭해 bare `x-ratelimit-reset`와 `anthropic-ratelimit-<bucket>-reset`
+      양쪽을 잡고, 값은 10자리 unix epoch(트레일링 digit 가드로 과길이 숫자 truncation 방지)와 ISO-8601
+      타임스탬프 두 형태를 해석. 사전필터(`rate.?limit`)는 "ratelimit" 문자열로 이미 통과 → 필터 수정 0.
+      `retry_after`(unix-epoch)·`Retry-After`(http-retry-after)와 disjoint(테스트로 비교차 확인). parser.test
+      +5 회귀(epoch/ISO/Retry-After 비혼동/과길이 거부/malformed ISO fallthrough), 실제 빌드 CLI `parse`로
+      epoch·ISO 헤더 e2e 확인. branch `claude/wizardly-pascal-8a3csv`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

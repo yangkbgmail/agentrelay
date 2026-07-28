@@ -127,6 +127,28 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Standard rate-limit *reset* response headers that agent CLIs dump verbatim
+    // on a 429. Distinct from the `Retry-After` header (a relative delay) and the
+    // JSON `retry_after` epoch field: these carry the absolute instant the bucket
+    // refills. Two real-world shapes:
+    //   - unix epoch seconds (GitHub & most APIs):  `X-RateLimit-Reset: 1752345600`
+    //   - ISO-8601 timestamp (Anthropic buckets):   `anthropic-ratelimit-requests-reset: 2026-07-28T15:00:00Z`
+    // The header name is matched as `ratelimit[-<bucket>]*-reset`, so both the
+    // bare `x-ratelimit-reset` and Anthropic's `anthropic-ratelimit-<bucket>-reset`
+    // forms hit. The epoch group is pinned to exactly 10 digits with a trailing
+    // digit guard so a longer number isn't truncated into a bogus timestamp.
+    name: "ratelimit-reset-header",
+    regex:
+      /ratelimit(?:-[a-z]+)*-reset\s*:\s*(?:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)|(\d{10})(?!\d))/i,
+    resolve: (m) => {
+      if (m[1] !== undefined) {
+        const d = new Date(m[1]);
+        return Number.isNaN(d.getTime()) ? null : d;
+      }
+      return new Date(parseInt(m[2], 10) * 1000);
+    },
+  },
+  {
     // Generic "5-hour limit" mention with no explicit time -> assume a full 5h window from now.
     // Kept last and treated as a low-confidence fallback.
     name: "five-hour-window-fallback",
