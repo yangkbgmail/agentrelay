@@ -1489,3 +1489,25 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서 카운트다운/타이머 콜론 형식(`in 1:30:00` / `in 45:00`) 인식] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-2yt304`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료([x]) 상태이고 열린 브랜치가 200개 넘게 적체돼
+  대부분의 신규 커맨드 축이 이미 누군가 작업 중. 커맨드를 또 더하면 중복 PR만 늘어나므로,
+  어느 브랜치와도 겹치지 않고 순수 core에 격리되며 CI 게런티가 확실한 **파서 실사용 갭**을 골랐다.
+  기존 파서는 `relative-duration`(단위 문자 `d/h/m` 필요)과 `clock-time` 계열(절대 벽시계 `at`)은
+  다루지만, 라이브 진행바·카운트다운 타이머가 남은 시간을 `HH:MM:SS`/`MM:SS`로 렌더하는 흔한
+  형식(`try again in 1:30:00`, `resets in 45:00`)은 어떤 패턴에도 안 걸려 리셋 시각을 놓쳤다.
+- **한 일:** `packages/core/src/parser.ts`에 순수 `countdown-duration` 패턴 추가(`relative-duration`
+  앞에 배치해 콜론 형식을 먼저 잡음). 정규식 `(?:try again|resets?|retry)\s+in\s+(?:(\d{1,3}):)?(\d{1,2}):(\d{2})\b`
+  — 세 필드형 `(H:)?M:S`, 두 필드형 `M:S`로 해석. 초는 0-59, 3필드의 분도 0-59로 검증해
+  `in 12:99`·`in 1:99:00` 같은 잘못된 타이머 필드는 매치 거부, `in 0:00`은 미래 리셋이 아니므로 null.
+  두 필드 M:S의 분은 타이머가 `90:00`을 정당히 표시할 수 있어 상한 없음. 사전필터(`resets?\s+(at|in)`·
+  `try again`)가 이미 커버하므로 필터 변경 0줄. 새 CLI 코드 0줄 — 기존 `agentrelay parse`·run 감지
+  경로가 자동으로 노출한다. BACKLOG에 해당 항목 [x]로 기록.
+- **검증:** 로컬 `pnpm install`→`pnpm build`(Next.js 포함) 클린·`pnpm ci:lint`(Biome) 무경고·
+  `pnpm test` 전 패키지 통과(core parser 33→41, +8 신규: H:M:S/M:S/초 포함/`90:00` 허용/초·분
+  범위초과 거부/`0:00` 거부/`2h`는 relative-duration 유지). 실제 빌드된 CLI e2e(mock 아님):
+  `parse "try again in 1:30:00."`→countdown-duration/now+1h30m, `parse "resets in 45:00."`→now+45m,
+  `parse "try again in 12:99."`→미감지, `parse "resets in 2h"`→relative-duration 유지 확인.
+- **다음 할 일:** 파서 추가 실사용 포맷(named IANA tz 실제 변환·weekday 창·월-이름 절대 날짜)은
+  코워크 리서치(🧭)와 조율. 적체된 distinct CI-초록 PR 통합도 병행 권장. README/ARCHITECTURE(🧭 코워크).

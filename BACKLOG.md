@@ -575,6 +575,19 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 카운트다운/타이머 형식의 콜론 구분 상대 시간 인식
+      (`try again in 1:30:00` = H:M:S, `resets in 45:00` = M:S). 라이브 진행바나 카운트다운
+      타이머가 남은 시간을 `HH:MM:SS`/`MM:SS`로 렌더할 때의 실사용 갭. 기존 `relative-duration`은
+      단위 문자(`d`/`h`/`m`)를 요구하고, `clock-time` 계열은 절대 벽시계(`at`)라 콜론 상대 지연을
+      놓쳤다.
+      (완료 — `parser.ts`에 순수 `countdown-duration` 패턴 추가(`relative-duration` 앞에 배치).
+      세 필드형은 `(H:)?M:S`, 두 필드형은 `M:S`로 해석 — 초는 0-59, 3필드 분도 0-59로 검증해
+      `in 12:99`/`in 1:99:00` 같은 잘못된 타이머 필드는 매치 거부, `in 0:00`은 미래 리셋이 아니므로
+      null. 두 필드 M:S의 분은 타이머가 `90:00`을 정당하게 표시할 수 있어 상한 없음. 사전필터는
+      `resets?\s+(at|in)`·`try again`이 이미 커버. parser.test +8(H:M:S/M:S/초 포함/90:00 허용/
+      초·분 범위초과 거부/0:00 거부/`2h`는 relative-duration 유지). 새 CLI 코드 0줄 — 기존 `parse`
+      커맨드·run 감지 경로가 자동 노출. branch `claude/wizardly-pascal-2yt304`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
