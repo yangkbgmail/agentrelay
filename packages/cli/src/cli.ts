@@ -34,6 +34,7 @@ import {
   scopeJobs,
   selectNextResume,
   sendTestNotification,
+  summarizeJobs,
   summarizeRateLimitPatterns,
 } from "@agentrelay/core";
 import { Command } from "commander";
@@ -86,6 +87,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { isSummaryField, renderSummaryJson, renderSummaryLine, SUMMARY_FIELDS, summaryFieldValue } from "./summary.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -550,6 +552,35 @@ export function buildCli(): Command {
         else if (!next.due) process.exitCode = 3;
         // due-now → exit 0 (default).
       }
+    });
+
+  program
+    .command("summary")
+    .description("Print a terse one-line queue snapshot (for shell prompts, tmux status bars, CI)")
+    .option("--icons", "Prefix each count with a glyph instead of a word (compact for prompts)")
+    .option("--json", "Print as JSON with derived active/nextResetInMs (machine-readable, for scripts/jq)")
+    .option("--field <name>", `Print just one value, no label (scriptable): ${SUMMARY_FIELDS.join(", ")}`)
+    .action((opts: { icons?: boolean; json?: boolean; field?: string }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+      const summary = summarizeJobs(listStatus(store));
+
+      if (opts.field !== undefined) {
+        if (!isSummaryField(opts.field)) {
+          console.error(`Unknown --field "${opts.field}". Valid: ${SUMMARY_FIELDS.join(", ")}.`);
+          process.exitCode = 1;
+          return;
+        }
+        console.log(summaryFieldValue(summary, opts.field, now));
+        return;
+      }
+
+      if (opts.json) {
+        console.log(renderSummaryJson(summary, now, store));
+        return;
+      }
+
+      console.log(renderSummaryLine(summary, { now, icons: opts.icons }));
     });
 
   program
