@@ -197,6 +197,41 @@ export function computeDailyTrend(jobs: RelayJob[], options: { nowMs: number; da
   return trend;
 }
 
+/** Number of hour-of-day buckets: one per UTC hour. */
+const HOURS_PER_DAY = 24;
+
+/** One hour-of-day slot (0–23, UTC) in a {@link computeHourlyDistribution} histogram. */
+export interface HourlyActivity {
+  /** Hour of day in UTC, 0–23. */
+  hour: number;
+  /** Jobs created during this UTC hour-of-day, aggregated across all days. */
+  count: number;
+}
+
+/**
+ * Buckets jobs into 24 hour-of-day slots (0–23, UTC) by the hour their
+ * `createdAt` falls in, collapsing every calendar day onto a single 24-hour
+ * clock. Where {@link computeDailyTrend} answers "which days were busy", this
+ * answers "which hours of the day rate-limits cluster in" — useful for spotting
+ * a recurring daily usage-limit reset window that a per-day view flattens out.
+ *
+ * Pure and non-mutating: no clock, no I/O. The result is always exactly 24
+ * entries, hour 0 first, zero-filled for quiet hours so the histogram has a
+ * stable shape. Jobs with a missing or unparseable `createdAt` are skipped —
+ * they can't be placed on the clock. Callers pass the already-scoped job list,
+ * so any `--status`/`--tool`/time-window filtering is honored upstream.
+ */
+export function computeHourlyDistribution(jobs: RelayJob[]): HourlyActivity[] {
+  const counts = new Array<number>(HOURS_PER_DAY).fill(0);
+  for (const job of jobs) {
+    const created = Date.parse(job.createdAt);
+    if (Number.isNaN(created)) continue;
+    // getUTCHours() is always 0–23, so the index is in range by construction.
+    counts[new Date(created).getUTCHours()] += 1;
+  }
+  return counts.map((count, hour) => ({ hour, count }));
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 

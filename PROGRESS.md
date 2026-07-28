@@ -1489,3 +1489,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 기능 `agentrelay stats --by-hour`(24시간대 생성 분포 히스토그램)] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-2d8n6t`)
+- **배경:** 명시된 👷 BACKLOG 항목이 전부 완료 상태. CLAUDE.md의 "무한 개선 백로그가 비면 스스로
+  새 개선 항목을 발굴"에 따라, 기존 `stats --trend`(일별 카운트)가 답하지 못하는 "하루 중 어느
+  시간대에 rate-limit이 몰리나"를 채우는 시간대 분포 뷰를 신규 발굴·구현. `--trend`는 각 날을
+  별도 막대로 보여줘 반복되는 일일 사용량 리셋 창(예: 매일 특정 시각 근처에 재발)이 여러 날에
+  흩어져 안 보이는 반면, `--by-hour`는 모든 날을 하나의 24시간 시계 위로 접어 그 패턴을 드러낸다.
+- **한 일:** `agentrelay stats --by-hour` 구현.
+  - core `@agentrelay/core/stats.ts`: 순수 `computeHourlyDistribution(jobs)` + `HourlyActivity`
+    (hour 0–23·count) 신설. `createdAt`을 `Date.parse`→`getUTCHours()`로 24버킷 집계(모든 날 aggregate),
+    항상 정확히 24엔트리·hour 0 먼저·zero-fill, 파싱 불가/누락 `createdAt` 스킵, 입력 비변형.
+    기존 `computeDailyTrend` 패턴을 미러링(시계·I/O 미접촉, 순수·테스트 가능).
+  - cli `stats.ts`: 순수 `renderHourly`(busiest hour 스케일 ASCII 막대·zero hour dim baseline dot·
+    `HH:00` 레이블·footer total — `renderTrend`와 lockstep 스타일) + `renderStatsJson`에 optional
+    `hourly` 필드 추가(요청 시에만 방출, `--by-hour` 없으면 기본 JSON shape 완전 불변).
+  - cli `cli.ts`: `stats`에 `--by-hour` 플래그 배선. 이미 scope된 jobs를 소비하므로 기존 스코프
+    필터(--status/--tool/--project/--since/--until)를 그대로 존중, `--trend`와 공존(둘 다 있으면
+    두 히스토그램 순차 렌더). `--group-by`는 기존대로 조기 반환(trend와 동일 정책).
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0 에러·`pnpm test`
+  전 패키지 통과(core stats +5 / cli stats +5 신규: 빈 스토어 24슬롯·hour 버킷팅·minute 경계·미파싱
+  스킵·비변형 / header·label·footer·bar 스케일·all-zero·round-trip·JSON hourly 필드). 실제 빌드된
+  CLI e2e(mock 아님): `stats --by-hour` 텍스트 히스토그램(h9=2·h23=1 막대)·`--json` hourly 24버킷·
+  기본 `--json` hourly 키 미방출·`--tool codex-cli` 스코프 반영·`--trend N --by-hour` 공존 렌더 확인.
+- **다음 할 일:** 남은 무한 개선 항목 발굴 계속(파서 추가 실사용 포맷은 🧭 리서치와 조율). 남은
+  distinct 열린 PR 통합도 병행 가능. README/ARCHITECTURE/ROADMAP는 🧭 코워크 소유.
