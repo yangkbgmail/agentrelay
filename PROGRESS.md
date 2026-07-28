@@ -1489,3 +1489,24 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 진단 커맨드 `agentrelay overdue` 발굴·구현] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-rsg8pt`)
+- **배경:** 지정 브랜치가 직전 병합된 PR #206과 동일 지점이라 최신 main(4abefa1)에서 재시작. BACKLOG의
+  👷(클로드 코드) 항목이 전부 `[x]` 완료 상태 — 남은 `[ ]`는 전부 🧭(코워크 소유: README/ARCHITECTURE/
+  경쟁조사) 또는 공유 QA. CLAUDE.md "무한 개선 백로그가 비면 스스로 새 개선 항목 발굴" 지침에 따라 실사용
+  갭을 하나 발굴: 릴레이가 멈췄을 때 `doctor` 하트비트는 재개 루프의 생사만, `next`는 가장 임박한 재개
+  1개만 보여줘 **어떤 잡이 얼마나 밀려 있는지**(리셋을 지났는데 재개 안 됨)를 한눈에 보는 수단이 없었다.
+- **한 일:** `agentrelay overdue` 커맨드 신설. 순수 core `@agentrelay/core/overdue.ts`의
+  `selectOverdueJobs(jobs, now, {thresholdMs?})`가 `waiting_for_reset`+파싱가능 `resetAt`이 threshold
+  이상 과거인 잡을 most-overdue first로 랭킹(`OverdueReport`{jobs·totalWaiting·maxOverdueMs},
+  `DEFAULT_OVERDUE_THRESHOLD_MS`=60s). threshold는 정상 poll latency 오탐 방지(음수→0 클램프, `now`에
+  딱 due한 잡은 미포함). CLI `overdue.ts` `renderOverdue`(overdue/total 헤더 + `agentrelay doctor` 힌트 +
+  잡별 short id·project·overdue 시간)·`renderOverdueJson`. 공용 `buildScope`(--status/--tool/--project/
+  --since/--until) 재사용 + `--threshold`·`--exit-code`(overdue 있으면 exit 1, cron/CI 알림)·`--json`.
+  타이브레이크(overdueMs desc→createdAt asc→id asc)는 `next`와 일치. 새 파서/스토어 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함 클린)·`pnpm ci:lint`(Biome 0경고, import 정렬·포맷
+  포함)·`pnpm test` 전 패키지 통과(core overdue 12 + cli overdue 8 신규, 총 CLI 243+1skip). 실제 빌드
+  CLI로 임시 3-job 스토어(과거/막지난/미래 reset) e2e: default 60s threshold가 1개만 overdue 분리·
+  `--exit-code`→exit 1·`--json` 구조·`--tool codex-cli --threshold 10s` 조합·잘못된 threshold exit 1 검증.
+- **다음 할 일:** 남은 distinct 열린 PR 통합(#125 --no-color·#168 backoff 등) 또는 추가 진단/파서 갭 발굴.
+  대시보드에 overdue 잡 하이라이트 노출(세션 29 하트비트 카드 옆) 후속 후보. README/ARCHITECTURE(🧭 코워크).
