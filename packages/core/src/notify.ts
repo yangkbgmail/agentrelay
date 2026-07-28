@@ -1,12 +1,84 @@
 import type { Notifier } from "./scheduler.js";
 import type { NotifyPayload } from "./types.js";
 
-const EVENT_EMOJI: Record<NotifyPayload["event"], string> = {
+/** A queue event that can trigger a notification. */
+export type NotifyEvent = NotifyPayload["event"];
+
+/** Every notifiable event, in lifecycle order. Also the set of valid filter tokens. */
+export const NOTIFY_EVENTS: readonly NotifyEvent[] = ["queued", "resumed", "completed", "failed"];
+
+const EVENT_EMOJI: Record<NotifyEvent, string> = {
   queued: "⏳",
   resumed: "▶️",
   completed: "✅",
   failed: "❌",
 };
+
+/** Type guard: is `value` one of the known notify events? */
+export function isNotifyEvent(value: string): value is NotifyEvent {
+  return (NOTIFY_EVENTS as readonly string[]).includes(value);
+}
+
+/** The parsed result of a comma-separated notify-event filter list. */
+export interface ParsedNotifyEvents {
+  /** The recognized events, deduped and in first-seen order. */
+  events: NotifyEvent[];
+  /** Tokens that weren't valid event names (for reporting typos). */
+  invalid: string[];
+}
+
+/**
+ * Parses a comma-separated event filter (e.g. `"failed,completed"`) into the
+ * recognized events plus any unknown tokens. Case-insensitive; blank tokens and
+ * surrounding whitespace are ignored; duplicates collapse to first-seen order.
+ * Pure — the single place event-list syntax is understood.
+ */
+export function parseNotifyEvents(input: string): ParsedNotifyEvents {
+  const events: NotifyEvent[] = [];
+  const invalid: string[] = [];
+  for (const raw of input.split(",")) {
+    const token = raw.trim();
+    if (token === "") continue;
+    const lower = token.toLowerCase();
+    if (isNotifyEvent(lower)) {
+      if (!events.includes(lower)) events.push(lower);
+    } else if (!invalid.includes(token)) {
+      invalid.push(token);
+    }
+  }
+  return { events, invalid };
+}
+
+/**
+ * Reads the notify-event filter from `AGENTRELAY_NOTIFY_EVENTS`. Returns a set
+ * of the events that should still fire a notification, or `null` when no filter
+ * applies (variable unset/blank) so callers notify on *every* event.
+ *
+ * A value that names only unknown events (a pure typo) also returns `null`
+ * rather than an empty set: silently swallowing *all* notifications because of a
+ * misspelling would be a worse failure than ignoring the filter. Use
+ * {@link parseNotifyEvents} directly (via `config validate`) to surface typos.
+ */
+export function notifyEventsFromEnv(env: Record<string, string | undefined> = process.env): Set<NotifyEvent> | null {
+  const raw = env.AGENTRELAY_NOTIFY_EVENTS?.trim();
+  if (!raw) return null;
+  const { events } = parseNotifyEvents(raw);
+  if (events.length === 0) return null;
+  return new Set(events);
+}
+
+/**
+ * Wraps a notifier so it only forwards payloads whose event is in `events`.
+ * Filtered-out events resolve to a no-op (never throw). Pure — the actual
+ * delivery still happens through the wrapped notifier.
+ */
+export function filterNotifierByEvents(notifier: Notifier, events: Set<NotifyEvent>): Notifier {
+  return async (payload: NotifyPayload) => {
+    if (events.has(payload.event)) {
+      await notifier(payload);
+    }
+  };
+}
 
 export function formatSlackText(payload: NotifyPayload): string {
   return `${EVENT_EMOJI[payload.event]} *AgentRelay — ${payload.project}* (${payload.event})\n${payload.message}\n_job ${payload.jobId}_`;
@@ -147,6 +219,10 @@ export function webhookNotifierFromEnv(
  * (`AGENTRELAY_SLACK_WEBHOOK`) and/or a generic webhook
  * (`AGENTRELAY_WEBHOOK_URL`), fanned out together. Returns null when neither
  * is configured, so callers can report "notifications off" and skip work.
+ *
+ * When `AGENTRELAY_NOTIFY_EVENTS` names a subset of events (e.g. `failed`),
+ * the combined notifier is wrapped so only those events are delivered — useful
+ * for muting the routine `queued`/`resumed` chatter and keeping only alerts.
  */
 export function notifiersFromEnv(
   env: Record<string, string | undefined> = process.env,
@@ -156,7 +232,9 @@ export function notifiersFromEnv(
     (n): n is Notifier => typeof n === "function"
   );
   if (configured.length === 0) return null;
-  return combineNotifiers(...configured);
+  const base = combineNotifiers(...configured);
+  const events = notifyEventsFromEnv(env);
+  return events ? filterNotifierByEvents(base, events) : base;
 }
 
 export type NotifyChannelKind = "slack" | "webhook";

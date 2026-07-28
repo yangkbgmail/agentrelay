@@ -1489,3 +1489,31 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 알림 이벤트 필터(AGENTRELAY_NOTIFY_EVENTS)] (2026-07-28, 무인 자율 세션)
+- 배경: 세션 시작 시 BACKLOG의 👷 항목이 전부 `[x]` 완료, 열린 PR 30개는 파서 변형·다양한 신규
+  커맨드(clean/tools/summary/tail/upcoming/waited/backoff/diff/stats --watch·--by-weekday/export
+  xml·tsv/completion pwsh 등)를 이미 점유. 중복을 피해 CLAUDE.md 지침대로 **새 개선 항목을 발굴** —
+  `notifiersFromEnv`가 queued/resumed/completed/failed 네 이벤트를 **무조건 전부** 발송해, 사용자가
+  "실패만 알림받기"나 "queued/resumed 잡음 뮤트"를 할 방법이 없었다(어떤 열린 PR과도 안 겹침).
+- 한 일 (branch `claude/wizardly-pascal-r651n4`): **알림 이벤트 필터**.
+  1. `@agentrelay/core/notify.ts`에 순수 계층 추가 — `NotifyEvent`(=`NotifyPayload["event"]`)·
+     `NOTIFY_EVENTS`(라이프사이클 순서 + 유효 토큰 집합)·`isNotifyEvent`(타입가드)·`parseNotifyEvents`
+     (콤마 리스트→`{events, invalid}`, 대소문자 무시·공백/빈 토큰 스킵·중복 first-seen 유지·미지 토큰
+     수집)·`notifyEventsFromEnv`(`AGENTRELAY_NOTIFY_EVENTS`; 미설정·공백=null=전체 발송, **순수 오타로
+     전 이벤트가 조용히 뮤트되는 최악을 막기 위해 유효 이벤트 0개도 null**)·`filterNotifierByEvents`
+     (허용 이벤트만 위임, 필터된 건 no-op·never throw).
+  2. `notifiersFromEnv`가 Slack+웹훅 combine **후** `notifyEventsFromEnv` 필터로 감쌈 → CLI
+     run/daemon/tick 세 진입점이 전부 기본 `notifiersFromEnv()`를 쓰므로 자동 적용.
+  3. config 전 계층 배선 — `AgentRelayConfig.notify.events?: string`(콤마 리스트) 필드,
+     sampleConfig(`events: ""`)·CONFIG_FIELDS(`notify.events` string)·parseConfig·configToEnv
+     (`AGENTRELAY_NOTIFY_EVENTS`)·CONFIG_ENV_KEYS(드리프트 sync 테스트 통과)·validateConfig(미지
+     이벤트=error+유효 목록 안내, 유효 0개=warning). 지터 세션과 동일한 config-wiring 패턴.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **전 패키지 통과**(core 515 + cli 236 + dashboard 포함 — notify 필터 9 신규).
+    **실제 빌드된 CLI e2e**(mock 아님): `config set notify.events "failed,completed"` 저장 → `config
+    validate`가 유효는 OK, 미지 이벤트(`failed,bogus`)는 "unknown event(s)" error + **exit 1** →
+    `config show`가 `AGENTRELAY_NOTIFY_EVENTS = failed [config-file]` 출처 표시. 런타임 필터는
+    `notifiersFromEnv` 단위 테스트(실제 fetch mock)로 queued 뮤트·failed 통과 검증.
+- 다음 할 일: 누적된 distinct 열린 PR 통합(파서·신규 커맨드 무리는 각각 하나로 수렴 후 나머지 닫기),
+  README/ARCHITECTURE(🧭 코워크), 대시보드/`notify test`에 활성 이벤트 필터 노출(👷 후보).

@@ -575,6 +575,19 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 알림 이벤트 필터(`AGENTRELAY_NOTIFY_EVENTS`) — queued/resumed/completed/failed 중 원하는
+      이벤트만 알림 발송(관례적 queued/resumed 잡음 뮤트, 실패 경보만 유지 등).
+      (완료 — `notifiersFromEnv`가 지금까지 네 이벤트를 무조건 전부 발송해 "실패만 알림받기"가 불가능했다.
+      core `notify.ts`에 순수 `NotifyEvent`/`NOTIFY_EVENTS`/`isNotifyEvent`/`parseNotifyEvents`(콤마
+      리스트→인식 이벤트+미지 토큰, 대소문자 무시·공백/중복 제거·first-seen 순서) + `notifyEventsFromEnv`
+      (`AGENTRELAY_NOTIFY_EVENTS` 읽음, 미설정/공백=null=전체 발송, 순수 오타로 전 이벤트가 조용히
+      뮤트되는 것 방지 위해 유효 이벤트 0개도 null) + `filterNotifierByEvents`(허용 이벤트만 위임, 필터된
+      건 no-op) 신설. `notifiersFromEnv`가 combine 후 필터로 감쌈(3개 CLI run/daemon/tick 진입점 자동 적용).
+      config 전 계층 배선: `notify.events?: string` 필드·sampleConfig·CONFIG_FIELDS·parseConfig·
+      configToEnv·CONFIG_ENV_KEYS(드리프트 sync 테스트 통과)·validateConfig(미지 이벤트=error, 유효 0개=
+      warning). core notify +9 신규 테스트, 실제 빌드 CLI e2e로 config set/validate(미지 이벤트→exit 1)/
+      show 배선 검증. branch `claude/wizardly-pascal-r651n4`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
