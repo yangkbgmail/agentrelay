@@ -236,6 +236,41 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  it("parses a standard X-RateLimit-Reset header carrying unix epoch seconds", () => {
+    // GitHub and most HTTP APIs return the reset instant as an epoch here.
+    const result = parseRateLimitMessage("HTTP 429\nX-RateLimit-Reset: 1752345600");
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("parses an Anthropic-style ratelimit-<bucket>-reset header carrying an ISO timestamp", () => {
+    const result = parseRateLimitMessage("anthropic-ratelimit-requests-reset: 2026-07-28T15:00:00Z");
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe("2026-07-28T15:00:00.000Z");
+  });
+
+  it("does not confuse the reset header with the Retry-After delay header", () => {
+    // Retry-After is a relative delay; the reset header is an absolute instant.
+    const now = new Date("2026-01-01T00:00:00Z");
+    const reset = parseRateLimitMessage("X-RateLimit-Reset: 1752345600", { now });
+    expect(reset?.pattern).toBe("ratelimit-reset-header");
+    const retry = parseRateLimitMessage("Retry-After: 3600", { now });
+    expect(retry?.pattern).toBe("http-retry-after");
+  });
+
+  it("does not truncate an over-long number in a reset header into a bogus epoch", () => {
+    // 11 digits is not a valid 10-digit epoch; the trailing-digit guard rejects it.
+    const result = parseRateLimitMessage("X-RateLimit-Reset: 175234560012");
+    expect(result).toBeNull();
+  });
+
+  it("falls through a malformed ISO value in a reset header instead of an invalid date", () => {
+    const result = parseRateLimitMessage("anthropic-ratelimit-tokens-reset: 2026-13-99T99:99:99Z");
+    expect(result).toBeNull();
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [

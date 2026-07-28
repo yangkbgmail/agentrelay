@@ -1489,3 +1489,23 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서: 표준 rate-limit reset 응답 헤더 인식] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-8a3csv`)
+- **배경:** 명시된 👷 BACKLOG 항목이 전부 완료 상태라, CLAUDE.md의 "백로그 소진 시 새 개선 항목 발굴"
+  지침에 따라 제품의 심장인 **파서**에서 실사용 갭을 신규 발굴. 기존 파서는 `Retry-After:`(상대 지연)와
+  JSON `retry_after=<epoch>`는 잡지만, **rate-limit reset 응답 헤더**(절대 리셋 시각)는 놓쳤다 — 에이전트
+  CLI가 HTTP API를 프록시하다 429 응답 헤더를 콘솔에 덤프하는 매우 흔한 케이스.
+- **한 일:** `packages/core/src/parser.ts`에 순수 `ratelimit-reset-header` 패턴을 추가.
+  - 헤더명을 `ratelimit(?:-[a-z]+)*-reset`로 매칭 → bare `x-ratelimit-reset`(GitHub 등)와
+    `anthropic-ratelimit-<bucket>-reset`(Anthropic 버킷별) 양쪽을 한 패턴으로 커버.
+  - 값 해석 두 형태: 10자리 unix epoch(GitHub식, `(\d{10})(?!\d)` 트레일링 digit 가드로 과길이 숫자가
+    가짜 epoch로 truncation되는 것 차단)와 ISO-8601 타임스탬프(Anthropic식, `iso-timestamp`와 동일 shape).
+  - `retry_after`(unix-epoch: `_` + `=`/`:`)·`Retry-After`(http-retry-after: `retry-after:`)와 disjoint —
+    reset 헤더는 `ratelimit…reset:`이라 세 패턴이 서로 다른 앵커. 테스트로 비교차 확인.
+  - 사전필터(`LOOKS_LIKE_RATE_LIMIT`)의 `rate.?limit`가 "ratelimit" 문자열을 이미 통과시키므로 필터 수정 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린, `pnpm ci:lint`(Biome) 0경고, `pnpm test` 전
+  패키지 통과(parser.test 33→38, +5 회귀: epoch 헤더·ISO 헤더·Retry-After 비혼동·과길이 숫자 거부·malformed
+  ISO fallthrough). 실제 빌드된 CLI `parse "X-RateLimit-Reset: 1752345600"`→`ratelimit-reset-header`/epoch
+  해석, `parse "anthropic-ratelimit-requests-reset: 2026-07-28T15:00:00Z"`→절대 ISO 해석 e2e 확인.
+- **다음 할 일:** 파서 추가 실사용 포맷(named IANA tz 실제 변환·weekday 창)은 🧭 코워크 리서치와 조율.
+  남은 distinct 열린 PR 통합(#125 --no-color·#168 backoff·#170 clean·#171 verify). README/ARCHITECTURE(🧭).
