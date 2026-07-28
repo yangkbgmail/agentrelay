@@ -36,6 +36,7 @@ import {
   canRequeue,
   configToJson,
   countActiveJobs,
+  DEFAULT_OUTPUT_TAIL_LENGTH,
   daemonHeartbeatPath,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
@@ -173,12 +174,20 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   const queue = openQueue(storePath);
   const project = resolveProjectName(cwd, options.project);
   const job = queue.enqueue({ project, tool, command: options.command, cwd });
-  queue.markWaitingForReset(job.id, rateLimit.resetAt, {
-    pattern: rateLimit.pattern,
-    rawMatch: rateLimit.rawMatch,
-    resetAt: rateLimit.resetAt,
-    detectedAt: new Date().toISOString(),
-  });
+  // Persist the tail of the output that *contained* the rate-limit message so
+  // `agentrelay show` / the dashboard have the diagnostic context from the
+  // moment of detection — not only once the job later reaches a terminal state.
+  queue.markWaitingForReset(
+    job.id,
+    rateLimit.resetAt,
+    {
+      pattern: rateLimit.pattern,
+      rawMatch: rateLimit.rawMatch,
+      resetAt: rateLimit.resetAt,
+      detectedAt: new Date().toISOString(),
+    },
+    output.slice(-DEFAULT_OUTPUT_TAIL_LENGTH)
+  );
   queue.close();
 
   stdout.write(

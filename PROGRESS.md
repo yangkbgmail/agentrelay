@@ -1489,3 +1489,29 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — rate-limit 감지 시점 출력 tail 영속] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-alwfru`)
+- **배경:** BACKLOG의 👷 명시 항목이 전부 완료 상태(+열린 PR 76개 적체)라 CLAUDE.md 지침대로 신규
+  개선 항목을 발굴. 코드 정독 중 실사용 갭 발견: `agentrelay run`이 rate-limit을 감지해 잡을
+  큐잉할 때, 그 리밋 메시지를 담고 있던 자식 프로세스 출력(`output`)을 캡처만 하고 **버렸다**.
+  잡은 `lastOutputTail: null`로 큐잉되고, 정작 이 필드는 스케줄러가 잡을 종료 상태(completed/
+  failed)로 마킹할 때만 채워진다. 결과적으로 갓 큐잉된 `waiting_for_reset` 잡을 `agentrelay show`
+  로 열면 리밋을 유발한 진단 출력이 비어 있는 실사용 갭이 있었다(스케줄러의 resume 재감지 재큐
+  경로도 동일하게 tail 누락).
+- **한 일:**
+  1. `@agentrelay/core/queue.ts`에 공유 상수 `DEFAULT_OUTPUT_TAIL_LENGTH`(2000) 추가 —
+     스케줄러 기본 `outputTailLength`와 CLI run이 같은 길이로 절단하도록 단일 소스화(드리프트 방지).
+  2. `RelayQueue.markWaitingForReset`에 optional `outputTail` 인자 추가 — 제공 시에만
+     `lastOutputTail` 영속, 미제공(`undefined`) 시 기존 tail 불변(수동 재큐가 tail을 지우지 않음).
+  3. 스케줄러의 resume 재감지 재큐 경로가 이미 계산해 둔 `tail`을 `markWaitingForReset`에 전달.
+  4. CLI `runCommand`가 `output.slice(-DEFAULT_OUTPUT_TAIL_LENGTH)`를 `markWaitingForReset`에 전달.
+  `show`/`export`/`import`/대시보드는 기존 `lastOutputTail` 경로를 그대로 소비 — 새 렌더/직렬화
+  코드 0줄, 데이터가 채워지는 시점만 앞당김.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0 경고·`pnpm test`
+  전 패키지 통과(core 508 [+2 queue: outputTail 영속/미제공 시 불변], cli 236/1skip [+1 commands:
+  큐잉된 잡의 lastOutputTail], dashboard 7; scheduler 기존 재큐 테스트를 tail 단언으로 확장).
+  실제 빌드된 CLI e2e(mock 아님): `run -- node -e "console.log('Usage limit reached. Resets in 10m.')"`
+  →큐잉→`show --json`의 `job.lastOutputTail`에 리밋 메시지 영속 확인, human `show`도 "last output"
+  블록 렌더 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속. 파서 신규 실사용 포맷·README/ARCHITECTURE는
+  🧭 코워크와 조율. (👷 명시 백로그가 소진 상태이므로 다음 세션도 코드 정독으로 유사 실사용 갭 발굴 권장.)

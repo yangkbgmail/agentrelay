@@ -88,6 +88,20 @@ describe("runCommand", () => {
     expect(jobs[0].command).toEqual(["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"]);
   });
 
+  it("persists the output tail that contained the rate-limit message on the queued job", async () => {
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    // Captured at the moment of detection — not only once the job later resumes
+    // to a terminal state — so `agentrelay show` has the diagnostic context.
+    expect(result.queuedJob?.lastOutputTail).toContain("Usage limit reached. Resets in 10m.");
+    expect(listStatus(storePath)[0].lastOutputTail).toContain("Usage limit reached. Resets in 10m.");
+  });
+
   it("sends a 'queued' notification when a rate-limited command is enqueued", async () => {
     const notify = vi.fn(async (_payload: NotifyPayload) => {});
     const result = await runCommand({
