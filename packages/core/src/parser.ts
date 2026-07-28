@@ -170,3 +170,11 @@ export function parseRateLimitMessage(text: string, options: ParseOptions = {}):
 
   return null;
 }
+
+/**
+ * Names of the built-in generic rate-limit patterns, in the order they are
+ * tried (match priority). Every adapter falls back to these after its own
+ * tool-specific patterns, so surfacing them (e.g. in `agentrelay tools`) shows
+ * exactly which message formats AgentRelay understands out of the box.
+ */
+export const GENERIC_PARSER_PATTERNS: string[] = PATTERNS.map((p) => p.name);

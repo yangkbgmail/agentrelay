@@ -575,6 +575,18 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay tools` — AgentRelay가 이해하는 AI 코딩 CLI(에이전트 어댑터) 목록: 툴 id·표시명·
+      자동 추론 바이너리·툴별 rate-limit 패턴을 정적 레지스트리로 노출. `patterns`(런타임 발화 빈도)와
+      달리 "무엇을 `--tool`에 넘길 수 있고 각 어댑터가 무엇을 인식하나"에 답함.
+      (완료 — core `parser.ts`에 순수 `GENERIC_PARSER_PATTERNS`(내장 패턴 이름을 match-priority 순서로
+      노출) + `core/tools.ts` 신설: `AdapterDescription`(tool·displayName·binaries·extraPatterns·
+      isGeneric) + `describeAdapters(adapters=ADAPTERS)`가 레지스트리를 프레젠테이션용으로 평탄화(배열은
+      복사본 반환→원본 불변, generic은 항상 맨 아래·나머지는 레지스트리 순서). CLI `tools.ts`에 순수
+      `renderTools`(툴별 블록 + 공유 generic 패턴 1회, 빈 바이너리/패턴 안내, color 게이트)·`renderToolsJson`.
+      `agentrelay tools [--json]`(스토어 불필요 정적 커맨드). 새 파서 로직 0줄 — 기존 ADAPTERS·PATTERNS 재사용.
+      core tools 8 + cli tools 5 신규 테스트, 실제 빌드 CLI e2e로 3어댑터 렌더·공유 패턴 7개·--json 배열·jq
+      검증. branch `claude/wizardly-pascal-43tc4x`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

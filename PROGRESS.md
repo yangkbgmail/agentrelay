@@ -1489,3 +1489,31 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — `agentrelay tools` 어댑터 레지스트리 진단 커맨드] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-43tc4x`)
+- **배경:** 세션 시작 시 명시 👷 BACKLOG 항목은 전부 완료, 열린 PR 30개+가 파서 계열(요일/단어형/콜론
+  타이머/타임존/hedge)과 CLI 커맨드(summary·tail·upcoming·export xml/tsv·waited·completion pwsh/fish·
+  backoff·stats --watch·show --watch·diff·parse --all·reschedule·on-event)를 이미 점유. 중복을 피해
+  CLAUDE.md 지침대로 **어느 열린 PR과도 겹치지 않는 신규 진단 항목을 발굴**했다 — 지금까지 사용자가
+  "AgentRelay가 어떤 AI 코딩 CLI를 이해하는지(=`--tool`에 뭘 넘길 수 있고, 어떤 바이너리가 자동 추론되며,
+  각 어댑터가 어떤 rate-limit 패턴을 추가로 인식하는지)"를 볼 방법이 없었다. `patterns`는 큐에서 실제로
+  발화한 패턴 빈도(런타임 provenance)를 보여주는 반면, 이 커맨드는 정적 어댑터 레지스트리를 노출한다.
+- **한 일 (branch `claude/wizardly-pascal-43tc4x`): `agentrelay tools` — 에이전트 어댑터 레지스트리 목록.**
+  1. `@agentrelay/core/parser.ts`에 순수 `GENERIC_PARSER_PATTERNS`(내장 패턴 이름을 match-priority 순서로
+     노출) export 추가 — 모든 어댑터가 fallback으로 쓰는 공유 패턴 목록을 표면화.
+  2. `@agentrelay/core/tools.ts` 신설(순수·파일시스템/시계 미접촉): `AdapterDescription`(tool·displayName·
+     binaries·extraPatterns·isGeneric) + `describeAdapters(adapters=ADAPTERS)`가 `ADAPTERS` 레지스트리를
+     프레젠테이션용으로 평탄화. 바이너리/패턴 배열은 **복사본** 반환(어댑터 원본 불변), generic 어댑터는
+     항상 맨 아래로 정렬(fallback이라 특정 툴 뒤)하되 나머지는 레지스트리 순서 유지. index.ts export.
+  3. CLI `packages/cli/src/tools.ts` 신설: 순수 `renderTools(adapters, genericPatterns, {color})`(툴별
+     id·displayName·binaries·tool-specific 패턴 블록 + 맨 아래 공유 generic 패턴 1회, 빈 바이너리/패턴은
+     안내 문구, color 게이트)·`renderToolsJson`. `agentrelay tools [--json]` 커맨드 배선(스토어 불필요한
+     정적 커맨드).
+  - **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+    **전 패키지 통과**(core 514 = tools.test 8 신규, cli 240+1skip = tools.test 5 신규, dashboard 7).
+    **실제 빌드된 CLI e2e**(mock 아님): `tools`가 claude-code(binaries claude/claude-code, 패턴 없음)·
+    codex-cli(binaries codex/codex-cli, `codex-relative-seconds` 패턴)·generic(fallback, 빈 바이너리)을
+    렌더하고 하단에 공유 generic 패턴 7개 나열, `--json`은 adapters 배열(generic 마지막)+genericPatterns
+    배열을 정확히 출력(jq로 tool id 3개·패턴 7개 확인).
+- **다음 할 일:** 남은 distinct CI-초록 열린 PR 통합 계속(파서/커맨드 중복 무리는 각각 하나로 수렴 후
+  나머지 닫기 권장). README/ARCHITECTURE(🧭 코워크).

@@ -18,7 +18,9 @@ import {
   computeDailyTrend,
   computeErrorBreakdown,
   computeStats,
+  describeAdapters,
   EXPORT_FORMATS,
+  GENERIC_PARSER_PATTERNS,
   GROUP_DIMENSIONS,
   generateCompletion,
   groupStats,
@@ -86,6 +88,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { renderTools, renderToolsJson } from "./tools.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -848,6 +851,27 @@ export function buildCli(): Command {
           scopeNote: built.active ? built.note : undefined,
         })
       );
+    });
+
+  program
+    .command("tools")
+    .description("List the agent CLIs AgentRelay understands (adapters): binaries, tool-specific patterns")
+    .option("--json", "Print the adapter registry as JSON (machine-readable, for scripts)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # which tools can I pass to --tool, and what does each recognize?\n" +
+        "  agentrelay tools\n" +
+        "  # list the tool ids for scripting\n" +
+        "  agentrelay tools --json | jq -r '.adapters[].tool'"
+    )
+    .action((opts: { json?: boolean }) => {
+      const adapters = describeAdapters();
+      if (opts.json) {
+        console.log(renderToolsJson({ adapters, genericPatterns: GENERIC_PARSER_PATTERNS }));
+        return;
+      }
+      console.log(renderTools(adapters, GENERIC_PARSER_PATTERNS, { color: Boolean(process.stdout.isTTY) }));
     });
 
   program
