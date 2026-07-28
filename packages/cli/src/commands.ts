@@ -113,6 +113,13 @@ export interface RunOptions {
    * meaningful, stable name that the `--project` filters key off.
    */
   project?: string;
+  /**
+   * Per-job retry cap override persisted on the queued job (see
+   * `RelayJob.maxAttempts`). A non-negative integer replaces the scheduler's
+   * global `maxAttempts` for this job only (`0` = unlimited); omitted inherits
+   * the global policy.
+   */
+  maxAttempts?: number;
   storePath?: string;
   /** Injected for tests; defaults to real stdout/stderr passthrough. */
   stdout?: NodeJS.WritableStream;
@@ -172,7 +179,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
 
   const queue = openQueue(storePath);
   const project = resolveProjectName(cwd, options.project);
-  const job = queue.enqueue({ project, tool, command: options.command, cwd });
+  const job = queue.enqueue({ project, tool, command: options.command, cwd, maxAttempts: options.maxAttempts });
   queue.markWaitingForReset(job.id, rateLimit.resetAt, {
     pattern: rateLimit.pattern,
     rawMatch: rateLimit.rawMatch,

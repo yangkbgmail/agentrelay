@@ -57,6 +57,22 @@ export function isRetryExhausted(policy: RetryPolicy, attemptNumber: number): bo
   return policy.maxAttempts > 0 && attemptNumber >= policy.maxAttempts;
 }
 
+/**
+ * The retry policy in effect for a single job: the scheduler-wide `policy` with
+ * `maxAttempts` replaced by the job's own override when it set one (via
+ * `agentrelay run --max-attempts`). A per-job value of `0` means unlimited for
+ * that job, overriding even a bounded global cap; `undefined`/`null` inherits
+ * the global. Only the cap is per-job — backoff timing (base/factor/max/jitter)
+ * always comes from the global policy. Pure and non-mutating: returns the same
+ * `policy` object unchanged when there is no override, so existing callers and
+ * the common no-override path are unaffected.
+ */
+export function jobRetryPolicy(policy: RetryPolicy, job: { maxAttempts?: number | null }): RetryPolicy {
+  const override = job.maxAttempts;
+  if (override === undefined || override === null) return policy;
+  return { ...policy, maxAttempts: override };
+}
+
 function positiveIntOr(value: string | undefined, fallback: number): number {
   if (value === undefined || value.trim() === "") return fallback;
   const n = Number(value);

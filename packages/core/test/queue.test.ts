@@ -61,6 +61,33 @@ describe("RelayQueue", () => {
     expect(reloaded?.resetAt).toBe(resetAt);
   });
 
+  it("omits maxAttempts by default and persists a per-job override across reloads", () => {
+    const plain = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    expect(plain.maxAttempts).toBeUndefined();
+
+    const capped = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude"],
+      cwd: "/tmp",
+      maxAttempts: 3,
+    });
+    expect(capped.maxAttempts).toBe(3);
+    expect(queue.getById(capped.id)?.maxAttempts).toBe(3);
+
+    // A per-job 0 (unlimited) is a meaningful override and must be persisted,
+    // not treated as "unset".
+    const unlimited = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude"],
+      cwd: "/tmp",
+      maxAttempts: 0,
+    });
+    expect(unlimited.maxAttempts).toBe(0);
+    expect(queue.getById(unlimited.id)?.maxAttempts).toBe(0);
+  });
+
   it("leaves lastRateLimit untouched when parking without a detection", () => {
     const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
     const resetAt = new Date(Date.now() + 60_000).toISOString();

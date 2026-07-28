@@ -54,6 +54,15 @@ describe("renderJobDetail", () => {
     expect(out).toContain("attempts   2");
   });
 
+  it("annotates the attempts line with a per-job max-attempts override", () => {
+    // No override: plain attempts line, no annotation.
+    expect(renderJobDetail(job(), { now: NOW })).not.toContain("max-attempts");
+    // A numeric cap is shown verbatim.
+    expect(renderJobDetail(job({ maxAttempts: 3 }), { now: NOW })).toContain("attempts   2 (max-attempts: 3)");
+    // A per-job 0 reads as unlimited, not "0".
+    expect(renderJobDetail(job({ maxAttempts: 0 }), { now: NOW })).toContain("attempts   2 (max-attempts: unlimited)");
+  });
+
   it("shows the reset countdown with the absolute time when resetAt is set", () => {
     const out = renderJobDetail(job(), { now: NOW });
     expect(out).toContain("resets in  1h 30m");

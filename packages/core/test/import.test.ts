@@ -113,6 +113,27 @@ describe("validateJobRecord", () => {
     expect(validateJobRecord({ ...job(), lastError: {} }).ok).toBe(false);
   });
 
+  it("round-trips a per-job maxAttempts override and rejects a malformed one", () => {
+    const capped = validateJobRecord({ ...job(), maxAttempts: 3 });
+    expect(capped.ok).toBe(true);
+    if (capped.ok) expect(capped.job.maxAttempts).toBe(3);
+
+    // 0 (unlimited) is a meaningful value and must survive the round-trip.
+    const unlimited = validateJobRecord({ ...job(), maxAttempts: 0 });
+    expect(unlimited.ok).toBe(true);
+    if (unlimited.ok) expect(unlimited.job.maxAttempts).toBe(0);
+
+    // Absent/null override: omit the key entirely (null ≈ absent).
+    const none = validateJobRecord({ ...job(), maxAttempts: null });
+    expect(none.ok).toBe(true);
+    if (none.ok) expect("maxAttempts" in none.job).toBe(false);
+
+    // Malformed values are rejected, not silently dropped.
+    expect(validateJobRecord({ ...job(), maxAttempts: -1 }).ok).toBe(false);
+    expect(validateJobRecord({ ...job(), maxAttempts: 2.5 }).ok).toBe(false);
+    expect(validateJobRecord({ ...job(), maxAttempts: "3" }).ok).toBe(false);
+  });
+
   it("preserves well-formed lastRateLimit provenance", () => {
     const detection = {
       pattern: "clock-time-meridiem",

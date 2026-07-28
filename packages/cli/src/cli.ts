@@ -348,13 +348,32 @@ export function buildCli(): Command {
       "-p, --project <name>",
       "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
     )
-    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
+    .option(
+      "--max-attempts <n>",
+      "Retry cap for THIS job, overriding the global AGENTRELAY_MAX_ATTEMPTS (0 = unlimited)"
+    )
+    .action(async (command: string[], opts: { tool?: string; project?: string; maxAttempts?: string }) => {
       const { store } = program.opts();
+
+      let maxAttempts: number | undefined;
+      if (opts.maxAttempts !== undefined) {
+        const n = Number(opts.maxAttempts);
+        if (!Number.isInteger(n) || n < 0) {
+          console.error(
+            `Invalid --max-attempts value "${opts.maxAttempts}". Use a non-negative integer (0 = unlimited).`
+          );
+          process.exitCode = 1;
+          return;
+        }
+        maxAttempts = n;
+      }
+
       const result = await runCommand({
         command,
         storePath: store,
         tool: opts.tool as AgentTool | undefined,
         project: opts.project,
+        maxAttempts,
       });
       process.exitCode = result.exitCode;
     });

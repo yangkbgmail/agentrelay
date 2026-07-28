@@ -177,6 +177,10 @@ export class RelayQueue {
       lastError: null,
       lastOutputTail: null,
       lastRateLimit: null,
+      // Only persist a per-job cap when one was actually requested, so jobs
+      // enqueued without `--max-attempts` round-trip to the same shape (a
+      // null ≈ absent override that inherits the global policy).
+      ...(input.maxAttempts === undefined || input.maxAttempts === null ? {} : { maxAttempts: input.maxAttempts }),
     };
     this.jobs.set(job.id, job);
     this.flush();

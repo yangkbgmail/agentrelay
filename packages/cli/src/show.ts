@@ -90,7 +90,13 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
   if (job.resetAt !== null) {
     lines.push(`  ${label("resets in")} ${formatCountdown(job.resetAt, now)} ${d(`(${job.resetAt})`)}`);
   }
-  lines.push(`  ${label("attempts")} ${job.attempts}`);
+  // Annotate the attempts line with this job's own retry cap when it overrode
+  // the global one via `run --max-attempts` (0 = unlimited for this job).
+  const capNote =
+    job.maxAttempts === undefined || job.maxAttempts === null
+      ? ""
+      : d(job.maxAttempts === 0 ? " (max-attempts: unlimited)" : ` (max-attempts: ${job.maxAttempts})`);
+  lines.push(`  ${label("attempts")} ${job.attempts}${capNote}`);
 
   const detection = job.lastRateLimit;
   if (detection) {

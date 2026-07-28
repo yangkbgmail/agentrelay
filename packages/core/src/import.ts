@@ -146,6 +146,18 @@ export function validateJobRecord(value: unknown): { ok: true; job: RelayJob } |
   // round-trips to an identical shape (null ≈ absent).
   const lastRateLimit = parseRateLimitDetection(value.lastRateLimit);
 
+  // Optional per-job retry cap override: accept a non-negative integer, reject a
+  // malformed value (rather than silently dropping it), and omit the key when
+  // absent/null so jobs without an override round-trip unchanged.
+  const rawMaxAttempts = value.maxAttempts;
+  let maxAttempts: number | undefined;
+  if (rawMaxAttempts !== undefined && rawMaxAttempts !== null) {
+    if (typeof rawMaxAttempts !== "number" || !Number.isInteger(rawMaxAttempts) || rawMaxAttempts < 0) {
+      return { ok: false, reason: "`maxAttempts` must be a non-negative integer" };
+    }
+    maxAttempts = rawMaxAttempts;
+  }
+
   return {
     ok: true,
     job: {
@@ -162,6 +174,7 @@ export function validateJobRecord(value: unknown): { ok: true; job: RelayJob } |
       lastError: lastError.value,
       lastOutputTail: lastOutputTail.value,
       ...(lastRateLimit ? { lastRateLimit } : {}),
+      ...(maxAttempts === undefined ? {} : { maxAttempts }),
     },
   };
 }
