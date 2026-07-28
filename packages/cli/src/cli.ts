@@ -33,6 +33,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
   selectNextResume,
+  selectOverdueJobs,
   sendTestNotification,
   summarizeRateLimitPatterns,
 } from "@agentrelay/core";
@@ -71,6 +72,7 @@ import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
+import { renderOverdue, renderOverdueJson } from "./overdue.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
@@ -891,6 +893,58 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderErrorBreakdown(breakdown, { color: Boolean(process.stdout.isTTY), limit, scopeNote }));
+    });
+
+  program
+    .command("overdue")
+    .description("List jobs whose reset time has passed but that haven't resumed (a stalled-relay symptom)")
+    .option("-s, --status <statuses>", "Only consider jobs with these comma-separated statuses")
+    .option("-t, --tool <tools>", `Only consider jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only consider jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only consider jobs created within the last <duration> (e.g. 24h, 7d)")
+    .option("--until <duration>", "Only consider jobs created more than <duration> ago (e.g. 1d)")
+    .option("--threshold <duration>", "How far past its reset a job must be before it counts as overdue (default 60s)")
+    .option("--exit-code", "Exit non-zero (1) when any job is overdue, for cron/CI alerting")
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/jq)")
+    .action((opts: ScopeOpts & { threshold?: string; exitCode?: boolean; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let thresholdMs: number | undefined;
+      if (opts.threshold !== undefined) {
+        const ms = parseDuration(opts.threshold);
+        if (ms === null || ms < 0) {
+          console.error(`Invalid --threshold duration: "${opts.threshold}". Use e.g. 60s, 5m, 1h.`);
+          process.exitCode = 1;
+          return;
+        }
+        thresholdMs = ms;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const all = listStatus(store);
+      const jobs = built.active ? scopeJobs(all, built.scope) : all;
+      const scopeNote = built.active ? built.note : undefined;
+      const report = selectOverdueJobs(jobs, now, { thresholdMs });
+
+      if (opts.json) {
+        console.log(renderOverdueJson(report, store, { scopeNote }));
+      } else {
+        const color = Boolean(process.stdout.isTTY);
+        if (scopeNote) console.log(color ? `\x1b[2mscope: ${scopeNote}\x1b[0m` : `scope: ${scopeNote}`);
+        console.log(renderOverdue(report, { color }));
+      }
+
+      // Opt-in gate: a non-zero exit lets `agentrelay overdue --exit-code`
+      // drive an alert (e.g. `agentrelay overdue --exit-code || notify-me`)
+      // without parsing output.
+      if (opts.exitCode && report.jobs.length > 0) process.exitCode = 1;
     });
 
   program

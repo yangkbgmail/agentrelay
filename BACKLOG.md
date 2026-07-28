@@ -575,6 +575,27 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay overdue` — 리셋 시각을 이미 지났는데도 재개되지 않은 잡을 한눈에 보고
+      (릴레이가 멈췄을 때의 대표 증상). 기존 명시 👷 항목이 전부 완료돼 스스로 발굴한 개선 항목.
+      `doctor`의 하트비트 검사는 "재개 루프가 살아있나?"만, `next`는 "가장 임박한 재개 1개"만
+      답해, **어떤 잡이 얼마나 밀려 있나**(crashed poll loop·clock skew·wedged spawn)를 알려주는
+      수단이 없던 갭.
+      (완료 — `@agentrelay/core/overdue.ts` 신설(순수·시계/스토어 미접촉): `selectOverdueJobs(jobs,
+      now, {thresholdMs?})` + `OverdueJob`(job·overdueMs)·`OverdueReport`(jobs·totalWaiting·
+      maxOverdueMs) + `DEFAULT_OVERDUE_THRESHOLD_MS`(60s). `waiting_for_reset`이고 파싱 가능한
+      `resetAt`이 `now`보다 threshold 이상 과거인 잡만 골라 most-overdue first로 랭킹(overdueMs desc→
+      createdAt asc→id asc, `next`의 타이브레이크와 일치). threshold는 정상 poll latency(막 지난 잡)를
+      stuck으로 오탐하지 않기 위한 것 — 음수는 0으로 클램프, `now`에 딱 due한 잡은 미포함(overdueMs가
+      threshold를 **초과**해야). null/파싱불가 resetAt·비 waiting 상태는 totalWaiting에도 미포함.
+      CLI `packages/cli/src/overdue.ts`에 순수 `renderOverdue`(overdue/total 헤더 + `agentrelay
+      doctor` 힌트 + 잡별 short id·project·`formatDurationMs` overdue 시간·reset 시각, color 게이트)·
+      `renderOverdueJson`. `agentrelay overdue` 커맨드는 stats/status/errors와 동일한 스코프 필터
+      (`--status`/`--tool`/`--project`/`--since`/`--until`)를 공용 `buildScope`로 재사용 +
+      `--threshold <기간>`(기존 `parseDuration`)·`--exit-code`(overdue 있으면 exit 1, cron/CI 알림용)·
+      `--json`. 새 파서/스토어 로직 0줄. core overdue 12 + cli overdue 8 신규 테스트, 실제 빌드 CLI
+      e2e로 default threshold 분리·`--exit-code`·`--json`·`--tool`+`--threshold` 조합·잘못된 threshold
+      exit 1 검증. branch `claude/wizardly-pascal-rsg8pt`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
