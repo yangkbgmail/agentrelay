@@ -1489,3 +1489,29 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서: 마감형 "until <시각>" 리셋 문구 인식] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-until-reset`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태이고 열린 PR이 100+개 적체(대부분 중복: stats --watch/
+  --by-hour/config get/upcoming/파서 reset-at 계열 등). 열린 PR 100+개를 전수 조사해 **어느 열린 PR과도
+  겹치지 않는 진짜 갭**을 발굴: 기존 파서는 리셋 시각을 오직 `reset[s] at …`로만 잡아, 쿨다운을 마감
+  시각으로 말하는 "rate limited **until** <when>" 계열을 통째로 놓치고 있었다(열린 PR 전수 검색에서 "until"
+  파서 항목 0건 확인 — `--since/--until` 플래그 PR과는 무관).
+- **한 일:** `packages/core/src/parser.ts`에 마감형 `until <시각>` 3패턴 신설.
+  - 리팩터: 공유 헬퍼 `resolveIsoTimestamp`·`nextClockInstant`·`applyMeridiem` 추출 → 기존 reset-at
+    3패턴(iso/clock/clock-meridiem)을 이 헬퍼로 재작성(동작 완전 불변, 인라인 중복 제거).
+  - 신규 패턴: `until-iso-timestamp`(명시 ISO), `until-clock-time`(`until 3:00pm`/`15:00`),
+    `until-clock-meridiem`(`until 5pm`, 분 없음 — 13pm 등 무효 hour는 null 반환). ISO를 clock 앞에
+    배치(ISO의 `05:00`이 clock으로 부분 매칭되지 않게), 분 정밀 until-clock을 meridiem-only보다 우선.
+  - **오검출 방지**(핵심): "until"은 일상 영어에 너무 흔하므로, 사전필터 `LOOKS_LIKE_RATE_LIMIT`에서
+    `until` 앞 40자 이내에 limit-계열 단어(limit/limited/quota/blocked/locked/throttl/cooldown/
+    unavailable/paused/suspended)가 있을 때만 게이트. → "Please wait until 10:30 for the meeting"은
+    통과하지 않음(리셋으로 오인 안 함).
+  - 새 CLI 코드 0줄 — 기존 `agentrelay parse`가 자동 노출.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome, 84파일 0경고)·
+  `pnpm test` 전 패키지 통과(core parser 39 = 기존 33 + 신규 6: ISO/clock/meridiem/우선순위/no-context
+  부정/13pm 무효). 실제 빌드된 CLI e2e(mock 아님): `parse "You are rate limited until 5pm."`→
+  until-clock-meridiem, `parse "...blocked until 2026-07-13T05:00:00Z."`→until-iso-timestamp,
+  `parse "Please wait until 10:30 for the meeting."`→미감지(정상 종료).
+- **다음 할 일:** 파서 추가 실사용 마감 문구(named IANA tz 실제 변환·요일 창 "until Monday")는 코워크
+  리서치(🧭)와 조율. 남은 distinct 열린 PR 통합(#125 --no-color·#168 backoff·#170 clean·#171 verify)도
+  계속. README/ARCHITECTURE(🧭 코워크).
