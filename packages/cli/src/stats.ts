@@ -204,6 +204,27 @@ export function renderTrend(trend: DailyActivity[], options: { color?: boolean }
   return lines.join("\n");
 }
 
+/**
+ * One frame of the live `stats --watch` view: a title/header block (command
+ * name, refresh interval, timestamp, store path) followed by the already-rendered
+ * stats `body`. Mirrors `renderWatchFrame` in status.ts so the two live views
+ * look consistent. Pure: no I/O, no ambient clock unless `nowMs` is omitted;
+ * `color` gates ANSI codes so tests can assert plain text.
+ */
+export function renderStatsWatchFrame(
+  body: string,
+  options: { store: string; intervalMs: number; nowMs?: number; color?: boolean }
+): string {
+  const color = options.color ?? false;
+  const now = options.nowMs ?? Date.now();
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${b("agentrelay stats")} ${d(`(live, every ${Math.round(options.intervalMs / 1000)}s — Ctrl-C to exit)`)}`;
+  const meta = d(`${stamp}Z · ${options.store}`);
+  return [title, meta, "", body].join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,
