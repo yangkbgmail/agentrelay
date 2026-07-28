@@ -1489,3 +1489,25 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 👷 발굴: 파서 요일(weekday) 기반 리셋 인식] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-l4xu8e`)
+- **배경:** BACKLOG의 명시 👷 항목이 전부 완료 상태라, CLAUDE.md "비면 스스로 새 개선 항목을
+  발굴" 지침에 따라 실사용 파서 갭을 발굴. Claude의 **주간 사용량 한도**는 시각(clock)·상대
+  시간(relative)·`Retry-After`가 아니라 **요일**로 리셋을 안내한다("resets Monday",
+  "try again next Monday", "resets Monday at 9am"). 기존 패턴 6종이 전부 이 문구를 놓쳐,
+  주간 한도에 걸린 잡이 큐잉조차 안 되던 갭.
+- **한 일:** `packages/core/src/parser.ts`에 순수 `weekday-reset` 패턴 + `WEEKDAY_INDEX`
+  (3글자 요일 prefix→`Date.getDay()` 인덱스) 추가. 요일 단어를 앞 3글자+후행 글자로 매칭해
+  `Mon`/`Monday`/`Tues`/`Thurs` 등 축약·전체 철자 모두 해소, optional `at <time>`(12/24시간·
+  meridiem)로 시각 지정, 없으면 00:00. 항상 **다음 미래 발생 요일**을 선택(오늘이 그 요일이어도
+  시각이 지났으면 한 주 뒤로 롤)해 릴레이가 조기 재개하지 않게 함. clock 패턴과 동일하게 명명
+  타임존은 무시·로컬 해석(기존 한계 계승), `13pm` 등 무효 12시간 값은 null fallthrough. 사전필터
+  `LOOKS_LIKE_RATE_LIMIT`를 `resets? (on|next|mon..sun)`로 확장. 새 CLI 코드 0줄 — 기존 `parse`
+  커맨드가 자동 노출.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린, `pnpm ci:lint`(Biome) 0 경고,
+  `pnpm test` 전 패키지 통과(parser.test 32→38, +6 회귀: 요일-only/요일+시각/next·축약 철자/
+  same-day 한 주 롤/무관 요일 무시·13pm 거부). 실제 빌드된 CLI e2e: `parse "…resets Monday at
+  9am."`→weekday-reset/다음 월요일 09:00, `parse "…try again next Tuesday."`→다음 화요일 00:00,
+  `parse "The meeting is on Monday."`→미검출(오검출 방지 확인).
+- **다음 할 일:** 파서 추가 실사용 포맷(named IANA tz 실제 변환·"resets in N weeks") 및 남은
+  distinct 열린 PR 통합은 코워크 리서치(🧭)와 조율. README/ARCHITECTURE(🧭 코워크).

@@ -249,4 +249,57 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("relative-duration");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
   });
+
+  it("parses a weekday-based reset (weekly limit): 'resets Monday' -> next Monday 00:00", () => {
+    // 2026-07-12 is a Sunday; the next Monday is 2026-07-13.
+    const now = new Date("2026-07-12T09:00:00"); // local Sunday
+    const result = parseRateLimitMessage("Your weekly usage limit resets Monday.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("weekday-reset");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(1); // Monday
+    expect(reset.getHours()).toBe(0);
+    expect(reset.getMinutes()).toBe(0);
+    expect(reset.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses a weekday reset with a clock time: 'resets Monday at 9am'", () => {
+    const now = new Date("2026-07-12T09:00:00"); // local Sunday
+    const result = parseRateLimitMessage("Usage limit reached. Your limit resets Monday at 9am.", { now });
+    expect(result?.pattern).toBe("weekday-reset");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(1);
+    expect(reset.getHours()).toBe(9);
+    expect(reset.getMinutes()).toBe(0);
+  });
+
+  it("accepts 'try again next Monday' and abbreviated / longer weekday spellings", () => {
+    const now = new Date("2026-07-12T09:00:00"); // Sunday
+    expect(parseRateLimitMessage("Please try again next Monday.", { now })?.pattern).toBe("weekday-reset");
+    expect(parseRateLimitMessage("Resets on Tues.", { now })?.pattern).toBe("weekday-reset");
+    const wed = new Date(parseRateLimitMessage("resets Wednesday", { now })!.resetAt);
+    expect(wed.getDay()).toBe(3);
+    const thu = new Date(parseRateLimitMessage("reset on Thursday at 6pm", { now })!.resetAt);
+    expect(thu.getDay()).toBe(4);
+    expect(thu.getHours()).toBe(18);
+  });
+
+  it("rolls a same-day weekday reset forward a full week when the time has already passed", () => {
+    // 2026-07-13 is a Monday at 14:00 local; "resets Monday at 9am" is earlier today.
+    const now = new Date("2026-07-13T14:00:00");
+    const result = parseRateLimitMessage("resets Monday at 9am", { now });
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(1);
+    expect(reset.getHours()).toBe(9);
+    // Next Monday, seven days out — not earlier today.
+    expect(reset.getTime()).toBeGreaterThan(now.getTime());
+    expect(reset.getDate()).toBe(20);
+  });
+
+  it("does not misread a bare weekday elsewhere as a reset, and rejects '13pm'", () => {
+    // No "reset"/"try again" trigger before the weekday -> not a rate-limit line.
+    expect(parseRateLimitMessage("The meeting is on Monday.")).toBeNull();
+    // Invalid 12-hour clock value falls through to null rather than a bogus date.
+    expect(parseRateLimitMessage("resets Monday at 13pm", { now: new Date("2026-07-12T09:00:00") })).toBeNull();
+  });
 });

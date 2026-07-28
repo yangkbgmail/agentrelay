@@ -575,6 +575,20 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 요일(weekday) 기반 리셋 인식 (`resets Monday` / `try again next Monday` /
+      `resets Monday at 9am`) — Claude의 **주간 사용량 한도**는 시각·상대 시간이 아니라 요일로
+      리셋을 안내하는데, 기존 패턴(iso/clock/relative-duration/retry-after)이 전부 이를 놓쳤다.
+      (완료 — `parser.ts`에 순수 `weekday-reset` 패턴 + `WEEKDAY_INDEX`(3글자 요일 prefix→
+      `Date.getDay()` 인덱스) 추가. 요일 단어를 앞 3글자+후행 글자로 매칭해 `Mon`/`Monday`/`Tues`/
+      `Thurs` 등 축약·전체 철자 모두 해소, optional `at <time>`(12/24시간·meridiem)로 시각 지정,
+      없으면 00:00. 항상 **다음 미래 발생 요일**을 선택(오늘이 그 요일이어도 시각이 지났으면 한 주
+      뒤로 롤) → 릴레이가 절대 조기 재개 안 함. clock 패턴과 동일하게 명명 타임존은 무시·로컬 시각
+      해석(기존 한계), `13pm` 등 잘못된 12시간 값은 null fallthrough. 사전필터(LOOKS_LIKE_RATE_LIMIT)에
+      `resets? (on|next|mon..sun)` 확장. 새 CLI 코드 0줄 — 기존 `parse` 커맨드가 자동 노출.
+      parser.test +6 회귀(요일-only/요일+시각/next·축약 철자/same-day 한 주 롤/무관 요일 무시·13pm 거부),
+      실제 빌드 CLI `parse`로 `weekday-reset` 매치·다음 요일 계산 e2e 검증. branch
+      `claude/wizardly-pascal-l4xu8e`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -32,6 +32,17 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/** Three-letter weekday prefix -> JS `Date.getDay()` index (Sun = 0). */
+const WEEKDAY_INDEX: Record<string, number> = {
+  sun: 0,
+  mon: 1,
+  tue: 2,
+  wed: 3,
+  thu: 4,
+  fri: 5,
+  sat: 6,
+};
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
@@ -102,6 +113,45 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Weekday-based resets, e.g. "resets Monday", "reset on Tuesday",
+    // "try again next Monday", "your limit resets Monday at 9am".
+    // Claude's *weekly* usage limits phrase the reset by day-of-week rather
+    // than a clock time or relative duration, which none of the patterns above
+    // catch. The weekday word is matched by its first three letters plus any
+    // trailing letters, so both "Mon" and "Monday" (and "Tues", "Thurs", …)
+    // resolve. An optional "at <time>" sets the hour; without it we default to
+    // 00:00. We always pick the *next* future occurrence of that weekday (if
+    // today is the named day but the time has already passed, we roll a full
+    // week forward), so the relay never resumes early. Like the clock-time
+    // patterns, a named timezone in the message is ignored and the hour is
+    // interpreted in local time (same known limitation).
+    name: "weekday-reset",
+    regex:
+      /(?:reset[s]?|try again)\s+(?:on\s+|next\s+)?\b(mon|tue|wed|thu|fri|sat|sun)[a-z]*\b(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/i,
+    resolve: (m, now) => {
+      const dow = WEEKDAY_INDEX[m[1].toLowerCase()];
+      if (dow === undefined) return null;
+      let hour = m[2] ? parseInt(m[2], 10) : 0;
+      const minute = m[3] ? parseInt(m[3], 10) : 0;
+      const meridiem = m[4]?.toLowerCase();
+      if (meridiem) {
+        if (hour < 1 || hour > 12) return null; // "13pm" etc. is not a valid 12-hour time
+        if (meridiem === "pm" && hour < 12) hour += 12;
+        if (meridiem === "am" && hour === 12) hour = 0;
+      } else if (hour > 23) {
+        return null; // out-of-range 24-hour value
+      }
+      const candidate = new Date(now);
+      candidate.setHours(hour, minute, 0, 0);
+      const dayDiff = (dow - candidate.getDay() + 7) % 7;
+      candidate.setDate(candidate.getDate() + dayDiff);
+      if (candidate.getTime() <= now.getTime()) {
+        candidate.setDate(candidate.getDate() + 7); // named day already passed -> next week
+      }
+      return candidate;
+    },
+  },
+  {
     // Unix epoch seconds embedded in structured error payloads, e.g.
     // `retry_after=1752345600`, `retry_after: 1752345600`, or the JSON form
     // `"retry_after": 1752345600`.
@@ -136,7 +186,8 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|try again|resets?\s+(?:at|in|on|next|mon|tue|wed|thu|fri|sat|sun)|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);
