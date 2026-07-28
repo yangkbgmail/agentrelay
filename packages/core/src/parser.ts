@@ -32,20 +32,35 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/**
+ * Verbs that introduce an *absolute* reset time in agent/LLM rate-limit
+ * messages, followed by "at". "reset" is the classic Claude Code wording, but
+ * real-world messages announce the same instant with other verbs — e.g.
+ * "Your access will resume at 10:30 PM.", "You can try again at 3pm.",
+ * "available again at 15:00.". Sharing one lead-in across every absolute-time
+ * pattern (ISO / clock-time / meridiem-only) keeps them recognizing the full
+ * verb set in lockstep. Relative durations already accept "try again in …"
+ * (see relative-duration below), so this only governs the "… at <time>" forms.
+ */
+const RESET_LEAD_IN = String.raw`(?:reset[s]?|resume[s]?|available(?:\s+again)?|try\s+again)\s+at\s+`;
+
 const PATTERNS: RateLimitPattern[] = [
   {
-    // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
+    // "reset at 2026-07-13T05:00:00Z" (also "resume at …", "try again at …")
     name: "iso-timestamp",
-    regex: /reset[s]?\s+at\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/i,
+    regex: new RegExp(
+      `${RESET_LEAD_IN}(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?)`,
+      "i"
+    ),
     resolve: (m) => {
       const d = new Date(m[1]);
       return Number.isNaN(d.getTime()) ? null : d;
     },
   },
   {
-    // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
+    // "resets at 3:00pm" / "resume at 15:00" (assume today, or tomorrow if already past)
     name: "clock-time",
-    regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
+    regex: new RegExp(`${RESET_LEAD_IN}(\\d{1,2}):(\\d{2})\\s*(am|pm)?`, "i"),
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       const minute = parseInt(m[2], 10);
@@ -61,7 +76,7 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
-    // "resets at 5pm" / "reset at 10 AM" — hour + meridiem with NO minutes.
+    // "resets at 5pm" / "resume at 10 AM" — hour + meridiem with NO minutes.
     // This is the wording Claude Code actually prints ("Your limit will reset
     // at 5pm (America/New_York)."), which the minute-requiring clock-time
     // pattern above misses. Meridiem is required: a bare "reset at 5" (no
@@ -70,7 +85,7 @@ const PATTERNS: RateLimitPattern[] = [
     // time, same known limitation as clock-time (a real reset is a future
     // instant, so rolling to tomorrow when already past keeps us safe).
     name: "clock-time-meridiem",
-    regex: /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b/i,
+    regex: new RegExp(`${RESET_LEAD_IN}(\\d{1,2})\\s*(am|pm)\\b`, "i"),
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       if (hour > 12) return null; // 13pm etc. is not a valid 12-hour clock time
@@ -136,7 +151,8 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|try again|resets?\s+(at|in)|resume[s]?\s+at|available(?:\s+again)?\s+at|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);

@@ -1489,3 +1489,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서: 절대 리셋 시각 동사 확장(resume/try again/available at)] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-l5tsr9`)
+- **배경:** BACKLOG의 명시 👷 항목이 전부 [x] 완료 상태이고, CLAUDE.md 지침("§8 무한 개선
+  백로그가 비면 스스로 새 개선 항목을 발굴")에 따라 격리도 높고 실사용 가치가 큰 파서 개선을
+  발굴. 파서를 감사한 결과: 세 절대-시각 패턴(`iso-timestamp`/`clock-time`/`clock-time-meridiem`)이
+  전부 `reset[s]?\s+at\s+` 리드인에 하드코딩돼, `reset`이 아닌 동사로 같은 리셋 순간을 알리는 실제
+  메시지를 놓치는 갭 확인. 예: Anthropic이 출력하는 "Your access will resume at 10:30 PM."·
+  "You can try again at 3pm."·"available again at 15:00." — 명시적 리셋 시각이 있는데도 큐잉 실패
+  ("try again at 3pm"은 pre-filter는 통과하지만 매칭 패턴이 없어 null).
+- **한 일:** 세 절대-시각 패턴이 공유할 공용 리드인 상수 `RESET_LEAD_IN`
+  (`(?:reset[s]?|resume[s]?|available(?:\s+again)?|try\s+again)\s+at\s+`)을 `parser.ts`에 추출하고,
+  리터럴 정규식 세 개를 `new RegExp(RESET_LEAD_IN + 본체, "i")` 조합으로 재구성 — 캡처 그룹·resolve
+  로직·우선순위(iso→clock-time→clock-time-meridiem)는 전부 무변경, 리드인만 확장. pre-filter
+  `LOOKS_LIKE_RATE_LIMIT`에 `resume[s]?\s+at`·`available(?:\s+again)?\s+at` 추가(`try again`은 이미
+  통과). "resume"/"available"은 **절대-시각 리드인 전용**이라 상대 지속시간 "resume in …"은 여전히
+  미매칭(오검출 방지) — relative-duration은 기존대로 try again/resets/retry의 `in <dur>`만 처리.
+  미지 타임존은 로컬 해석(clock-time 기존 한계 승계), 이미 지난 시각은 익일 롤 유지.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0경고·
+  `pnpm test` 전 패키지 통과(parser.test 33→38, +5 회귀: resume at 시각/try again at meridiem/
+  available again at 24h/resume at ISO/resume in 미매칭). 실제 빌드된 CLI(mock 아님) e2e:
+  `parse "…resume at 10:30 PM."`→clock-time, `parse "…try again at 3pm."`→clock-time-meridiem,
+  `parse --json "…available again at 15:00."`→clock-time/rawMatch "available again at 15:00" 확인.
+- **다음 할 일:** 파서 추가 실사용 포맷(날짜+시간 공백 구분 `2026-07-13 05:00`·"tomorrow at 9am"·
+  epoch milliseconds `retry_after: …000`)은 코워크 리서치(🧭 "실제 rate-limit 메시지 샘플 수집")와
+  조율해 실제 관측 문구부터 우선. 남은 distinct 열린 PR 통합도 계속. README/ARCHITECTURE(🧭 코워크).

@@ -575,6 +575,24 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 절대 리셋 시각을 알리는 동사 확장 — `reset at` 외에 `resume at`/`try again at`/
+      `available (again) at`도 인식. Anthropic이 실제로 출력하는 "Your access will resume at
+      10:30 PM." 및 "You can try again at 3pm." 같은 문구가 명시적 리셋 시각을 담고 있는데도
+      지금까지 전혀 큐잉되지 않던 실사용 갭.
+      (완료 — 세 절대-시각 패턴[`iso-timestamp`/`clock-time`/`clock-time-meridiem`]이 전부
+      `reset[s]?\s+at\s+` 리드인에 고정돼, `reset`이 아닌 동사로 같은 순간을 알리는 실제 메시지를
+      놓쳤다["try again at 3pm"은 pre-filter는 통과하나 매칭 패턴이 없어 null 반환]. 공용 상수
+      `RESET_LEAD_IN`(`(?:reset[s]?|resume[s]?|available(?:\s+again)?|try\s+again)\s+at\s+`)을
+      추출해 세 패턴이 동일 동사 집합을 lockstep으로 인식하도록 `new RegExp`로 재구성 —
+      리터럴 정규식을 리드인+본체 조합으로만 바꿔 기존 캡처 그룹·resolve 로직은 무변경.
+      pre-filter `LOOKS_LIKE_RATE_LIMIT`에 `resume[s]?\s+at`·`available(?:\s+again)?\s+at` 추가
+      (`try again`은 이미 통과). "resume"/"available"은 **오직 절대-시각 리드인**이라 상대 지속시간
+      "resume in …"은 여전히 미매칭(오검출 방지) — relative-duration은 기존대로 try again/resets/
+      retry의 `in <dur>`만. 미지 타임존은 로컬 해석(clock-time 기존 한계 승계), 이미 지난 시각은
+      익일 롤. parser.test +5 회귀(resume at 시각/try again at meridiem/available again at 24h/
+      resume at ISO/resume in 미매칭), 실제 빌드 CLI `parse`로 clock-time·clock-time-meridiem
+      매치 e2e 확인. branch `claude/wizardly-pascal-l5tsr9`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
