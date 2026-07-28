@@ -249,4 +249,48 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("relative-duration");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
   });
+
+  // --- "at <time>" lead-ins beyond "reset at" (try again at / retry at / ...) ---
+
+  it("parses 'try again at' with a minute-precise clock time", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded. Please try again at 15:00.", { now });
+    expect(result?.pattern).toBe("clock-time");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getHours()).toBe(15);
+    expect(reset.getMinutes()).toBe(0);
+  });
+
+  it("parses 'retry at 9pm' via the meridiem clock pattern", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. You can retry at 9pm.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(new Date(result!.resetAt).getHours()).toBe(21);
+  });
+
+  it("parses 'available again at 3:30pm'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit. Capacity available again at 3:30pm.", { now });
+    expect(result?.pattern).toBe("clock-time");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getHours()).toBe(15);
+    expect(reset.getMinutes()).toBe(30);
+  });
+
+  it("parses 'comes back at 10 AM' (spaced meridiem)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached; your quota comes back at 10 AM.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(new Date(result!.resetAt).getHours()).toBe(10);
+  });
+
+  it("parses an explicit ISO timestamp behind 'try again at'", () => {
+    const result = parseRateLimitMessage("Rate limit exceeded. Try again at 2026-07-13T05:00:00Z.");
+    expect(result?.pattern).toBe("iso-timestamp");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("still requires a real clock/ISO time after the lead-in ('retry at line 5' is not a reset)", () => {
+    expect(parseRateLimitMessage("The stack trace shows it comes back at line 5.")).toBeNull();
+  });
 });

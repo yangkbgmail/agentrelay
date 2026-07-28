@@ -1489,3 +1489,21 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+---
+
+## 세션 로그 — 2026-07-28 (파서 "at <시각>" 리드인 확장)
+
+- **시각:** 2026-07-28 11:3x UTC
+- **한 일:** 파서의 세 "at" 패턴(iso-timestamp·clock-time·clock-time-meridiem)이 `reset[s] at`
+  리드인만 인식하던 것을, 공유 `AT_LEAD` 프래그먼트(`reset[s]?`/`try again`/`retry`/`available(
+  again)?`/`comes? back`)로 일반화해 `try again at 5pm` / `retry at 15:00` / `available again at
+  3:30pm` / `comes back at 10 AM` 같은 실사용 문구도 큐잉되게 함. 리셋 동사가 "reset"이 아닐 때
+  절대 시각을 알려주는 메시지가 `relative-duration`("in" 필요)도 clock 패턴("reset at" 필요)도
+  못 잡아 잡이 아예 큐잉 안 되던 갭을 닫음. `LOOKS_LIKE_RATE_LIMIT` 사전필터도 새 리드인을 admit.
+  리드인 뒤엔 여전히 실제 clock/ISO 시각을 요구(비시각은 null). 열린 40개 PR 어디에도 없는 distinct
+  항목으로 선정(파서 PR은 커넥터·요일·word-form·countdown·timezone·hedge word 등만 다룸).
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린, `pnpm ci:lint`(Biome) 0경고,
+  `pnpm test` 전 패키지 통과(parser 33→39, +6 회귀). 실제 빌드된 CLI `parse`로 clock-time·
+  clock-time-meridiem 매치 e2e 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합/신규 파서 wording 발굴 계속. README/ARCHITECTURE(🧭 코워크).

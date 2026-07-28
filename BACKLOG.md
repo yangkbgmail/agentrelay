@@ -575,6 +575,21 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: `reset at` 외의 "at <시각>" 리드인 인식 (`try again at 5pm` / `retry at 15:00` /
+      `available again at 3:30pm` / `comes back at 10 AM`). 세 "at" 패턴(iso-timestamp·clock-time·
+      clock-time-meridiem)이 지금까지 `reset[s] at`만 인식해, 에이전트가 "다시 시도할 시각"을
+      절대 시각으로 알려주는데 리셋 동사가 "reset"이 아니면(`try again at`/`retry at`/`available at`)
+      `relative-duration`("in" 필요)도 clock 패턴("reset at" 필요)도 못 잡아 **잡이 아예 큐잉 안 되던**
+      실사용 갭.
+      (완료 — `parser.ts`에 공유 `AT_LEAD` 프래그먼트(`reset[s]?`/`try again`/`retry`/`available(
+      again)?`/`comes? back`) 신설, 세 "at" 패턴을 이 프래그먼트로 `new RegExp` 재구성해 lockstep 유지
+      (새 wording 한 곳만 추가). `LOOKS_LIKE_RATE_LIMIT` 사전필터도 `retry at`/`available at`/`comes
+      back at`를 admit하도록 확장(기존 `try again`은 이미 통과). 리드인 뒤에는 여전히 실제 clock/ISO
+      시각을 요구 → `comes back at line 5` 같은 비시각은 null. parser.test +6 회귀(try again at 15:00/
+      retry at 9pm/available again at 3:30pm/comes back at 10 AM/ISO behind try again at/비시각 null),
+      실제 빌드 CLI `parse`로 clock-time·clock-time-meridiem 매치 e2e 확인. branch
+      `claude/wizardly-pascal-26rud5`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
