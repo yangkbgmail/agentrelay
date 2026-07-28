@@ -249,4 +249,39 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("relative-duration");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
   });
+
+  it("parses 'try again at <ISO>' (absolute instant), not just 'reset at'", () => {
+    const result = parseRateLimitMessage("Rate limit exceeded. Please try again at 2026-07-13T05:00:00Z.");
+    expect(result?.pattern).toBe("iso-timestamp");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses 'try again at 5pm' (hour + meridiem) the same as 'reset at 5pm'", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("You've been rate limited. Try again at 5pm.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(17);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'try again at 3:30pm' (minute-precise clock time)", () => {
+    const now = new Date("2026-07-12T20:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Try again at 3:30pm.", { now });
+    expect(result?.pattern).toBe("clock-time");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getMinutes()).toBe(30);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("still treats 'try again in <duration>' as a relative duration, not an 'at' clock time", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in 2h.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
+  it("does not treat a bare 'try again at 5' (no minutes, no meridiem) as a clock time", () => {
+    expect(parseRateLimitMessage("Rate limit hit, try again at 5.")).toBeNull();
+  });
 });
