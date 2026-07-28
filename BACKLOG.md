@@ -575,6 +575,21 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay tail <id>` — 잡의 캡처된 출력(`lastOutputTail`)만 크롬 없이 stdout으로 뽑아
+      grep/less로 파이프. `show`가 잡 전체를 라벨·타임스탬프 상세 블록으로 렌더하는 반면, `tail`은
+      에이전트가 실제로 찍은 바이트만 출력해 실패/재개 후 원인 조사를 스크립트/파이프라인 친화적으로 만든다.
+      (완료 — `@agentrelay/core/tail.ts` 신설(순수·파일시스템/시계 미접촉): `tailLines(text, n?)`
+      (n 생략·≤0이면 전체, 그 외 마지막 n줄; null/빈 문자열→""; `\n` 분할이라 후행 개행은 바이트
+      충실하게 마지막 빈 줄로 보존) + `countLines(text)`(같은 세그먼트 규칙, null/빈→0). CLI
+      `packages/cli/src/tail.ts`에 순수 `renderJobTail(job, n?)`→`TailRender`(output·empty·lines,
+      캡처 없음이면 empty=true라 CLI가 빈 줄 대신 stderr note)·`renderJobTailJson`(id/project/status/
+      lines/output). `agentrelay tail <id> [-n <count>] [--json] [-q]` 커맨드는 기존 `showJob`
+      (resolveJobId 재사용 — 짧은 prefix·모호/미존재는 show/wait와 동일하게 exit 1)로 잡을 해소.
+      `-n`은 양의 정수만(0·음수·비수치는 exit 1), `-q`는 "no captured output" note 억제.
+      새 스토어/파서 로직 0줄. core tail 15 + cli tail 8 신규 테스트, 실제 빌드 CLI e2e로 전체 tail·
+      -n 마지막 N줄·grep 파이프·--json·빈 tail note/-q 억제·미존재 id→exit1·잘못된 -n→exit1·help
+      노출 검증. branch `claude/wizardly-pascal-6sp1ho`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

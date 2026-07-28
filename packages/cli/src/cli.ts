@@ -86,6 +86,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { renderJobTail, renderJobTailJson } from "./tail.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -1180,6 +1181,44 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("tail")
+    .description("Print just one job's captured output (the agent's last output), pipe-friendly for grep/less")
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .option("-n, --lines <count>", "Show only the last <count> lines (default: all captured output)")
+    .option("--json", "Print id/project/status/output as JSON (machine-readable, for scripts/jq)")
+    .option("-q, --quiet", "Suppress the 'no captured output' note on stderr")
+    .action((id: string, opts: { lines?: string; json?: boolean; quiet?: boolean }) => {
+      const { store } = program.opts();
+      let lines: number | undefined;
+      if (opts.lines !== undefined) {
+        lines = Number.parseInt(opts.lines, 10);
+        if (!Number.isFinite(lines) || lines <= 0) {
+          console.error(`[agentrelay] --lines must be a positive integer, got: ${opts.lines}`);
+          process.exitCode = 1;
+          return;
+        }
+      }
+      const result = showJob(id, store);
+      if (!result.ok || !result.job) {
+        console.error(`[agentrelay] ${result.error ?? "job not found"}`);
+        process.exitCode = 1;
+        return;
+      }
+      if (opts.json) {
+        console.log(renderJobTailJson(result.job, lines));
+        return;
+      }
+      const rendered = renderJobTail(result.job, lines);
+      if (rendered.empty) {
+        if (!opts.quiet) {
+          console.error(`[agentrelay] Job ${result.job.id} has no captured output yet (status: ${result.job.status}).`);
+        }
+        return;
+      }
+      console.log(rendered.output);
     });
 
   program
