@@ -1489,3 +1489,25 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 커맨드 `agentrelay tail <id>`(잡 캡처 출력만 추출)] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-6sp1ho`)
+- **배경:** 명시 BACKLOG의 👷 항목이 전부 완료 상태이고 열린 PR이 대량 적체(중복 다수). 세션 42~45의
+  통합 전략과 별개로, 이번엔 어느 열린 PR과도 겹치지 않는 **작고 격리도 높은 신규 진단 커맨드**를
+  최신 main 위에 새로 구현해 테스트 통과 PR을 연다(CLAUDE.md "비면 스스로 새 개선 항목 발굴").
+  선정 기준: 스케줄러가 완료/실패 잡에 이미 영속하는 `lastOutputTail`(에이전트 출력 마지막 2000자)을
+  `show`의 상세 블록 크롬 없이 순수 바이트로 뽑아 grep/less로 파이프하는 수단이 없던 실사용 갭.
+- **한 일:** `agentrelay tail <id> [-n <count>] [--json] [-q]` 신규 커맨드.
+  1. `@agentrelay/core/tail.ts`(순수·파일시스템/시계 미접촉): `tailLines(text, n?)`(n 생략·≤0=전체,
+     그 외 마지막 n줄; null/빈=""; `\n` 분할이라 후행 개행은 바이트 충실하게 마지막 빈 줄로 보존) +
+     `countLines(text)`(같은 세그먼트 규칙, null/빈=0). core/index.ts에 알파벳 위치로 export.
+  2. CLI `packages/cli/src/tail.ts`: 순수 `renderJobTail(job, n?)`→`TailRender`(output·empty·lines,
+     캡처 없으면 empty=true) + `renderJobTailJson`(id/project/status/lines/output). cli.ts 커맨드는
+     기존 `showJob`(resolveJobId — 짧은 prefix·모호/미존재는 show/wait와 동일 exit 1)로 잡 해소,
+     `-n`은 양의 정수만(0·음수·비수치 exit 1), `-q`는 "no captured output" note 억제, `--json`은 스크립트용.
+  새 스토어/파서 로직 0줄 — 완료/실패 잡에 이미 저장된 데이터만 읽음.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·
+  `pnpm test` 전 패키지 통과(core tail 15 + cli tail 8 신규 = core/cli 테스트 각각 증가). 실제 빌드된
+  CLI e2e(mock 아님): 전체 tail·`-n 2` 마지막 2줄·`| grep` 파이프(4줄)·`--json`·빈 tail 잡 note+
+  exit0·`-q` note 억제·미존재 id→exit1·`-n 0`→exit1·`--help` 노출 모두 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속 또는 추가 신규 소형 진단 커맨드 발굴. README/
+  ARCHITECTURE(🧭 코워크). 파서 추가 실사용 포맷은 코워크 리서치(🧭)와 조율.
