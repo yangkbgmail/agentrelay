@@ -1489,3 +1489,33 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — `agentrelay run --max-attempts` 잡별 재시도 상한 오버라이드] (2026-07-28, 무인 자율 세션, branch `claude/wizardly-pascal-maxattempts`)
+- **배경:** 세션 시작 시 지정 브랜치=main(4abefa1) 동일. 👷 명시 BACKLOG 항목이 전부 완료 상태다.
+  처음엔 `stats --watch`를 골라 구현했으나, push 시 **동일 브랜치명에 이전 무기억 세션이 같은 기능을
+  이미 올려둔 열린 PR #246을 발견**(force-push는 남의 미병합 작업을 덮으므로 하지 않음). 열린 PR
+  목록을 조사하니 `stats --watch`만 #268·#246·#223·#184 **네 개 중복**, 거의 모든 기능에 이미 PR이
+  적체(100개+). 세션 42~45의 판단(중복 회피)을 이어, 어떤 열린 PR과도 겹치지 않는 **distinct 기능**
+  으로 피벗했다 — `run --max-wait`(#215)·`run --dry-run`(#213)은 있어도 **`run --max-attempts`는 없음**.
+- **한 일:** **`agentrelay run --max-attempts <n>`** — 잡별 재시도 상한을 enqueue 시점에 지정해 전역
+  `AGENTRELAY_MAX_ATTEMPTS`를 그 잡에만 오버라이드(`0`=무제한).
+  1. core `types.ts`: `RelayJob.maxAttempts?: number | null` + `CreateJobInput.maxAttempts?`(둘 다
+     optional → 구버전 스토어 무마이그레이션 로드).
+  2. `queue.ts` enqueue: override가 실제 지정됐을 때만 키를 영속(미지정/null은 키 생략 → null≈absent
+     무손실 왕복).
+  3. 순수 `retry.ts` `jobRetryPolicy(policy, job)`: override 없으면 **동일 policy 객체를 그대로 반환**
+     (무영향·무할당), 있으면 `maxAttempts`만 교체하고 백오프 타이밍(base/factor/max/jitter)은 전역 유지.
+     비변형.
+  4. `scheduler.ts` `resume`: 잡별 유효 policy를 한 번 계산해 `isRetryExhausted`×2·`computeBackoffMs`·
+     실패 메시지에 사용 — 잡 `0`(무제한)이 전역 유한 캡을 이기고, 잡 유한 캡이 전역 무제한을 조인다.
+  5. `import.ts`: non-negative int 검증 + 왕복 보존(malformed은 조용히 드롭 대신 레코드 거부, null/부재는
+     키 생략). CLI `run --max-attempts <n>`(음수·비정수는 명확한 에러 + exit 1). `show`가 attempts 줄에
+     `(max-attempts: N)` / `(max-attempts: unlimited)` 주석으로 오버라이드를 관측 가능하게.
+  - **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **전 패키지 통과**(core 514[+8: retry 4·scheduler 2·queue 1·import 1] + cli 236[+1: show] +
+    dashboard 7). **실제 빌드된 CLI e2e**(mock 아님): rate-limit 스텁을 `run --max-attempts 2`로 큐잉 →
+    `show`가 "attempts 0 (max-attempts: 2)"·JSON `maxAttempts:2` 영속 확인, `--max-attempts -3`/`abc`는
+    exit 1, `run --help`에 플래그 노출, `export -f json` → `import`로 `maxAttempts:7` 무손실 왕복 확인.
+- **다음 할 일:** README/ARCHITECTURE(🧭 코워크). **적체된 열린 PR 100개+(다수 중복)** — 세션 42~45
+  방식대로 CI-초록·distinct PR을 main에 통합하고 중복 무리는 하나로 수렴 후 나머지 닫는 정리가 여전히
+  최고가치. `stats --watch`(#246 등)·`show --watch`(#207/#250)·파서 계열 다수가 병합 대기 중.

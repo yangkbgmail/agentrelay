@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted, retryPolicyFromEnv } from "../src/retry.js";
+import {
+  computeBackoffMs,
+  DEFAULT_RETRY_POLICY,
+  isRetryExhausted,
+  jobRetryPolicy,
+  retryPolicyFromEnv,
+} from "../src/retry.js";
 import type { RetryPolicy } from "../src/types.js";
 
 const policy: RetryPolicy = {
@@ -111,5 +117,38 @@ describe("retryPolicyFromEnv", () => {
   it("falls back to the default jitter for negative or invalid values", () => {
     expect(retryPolicyFromEnv({ AGENTRELAY_RETRY_JITTER: "-1" }).jitter).toBe(DEFAULT_RETRY_POLICY.jitter);
     expect(retryPolicyFromEnv({ AGENTRELAY_RETRY_JITTER: "nope" }).jitter).toBe(DEFAULT_RETRY_POLICY.jitter);
+  });
+});
+
+describe("jobRetryPolicy", () => {
+  it("returns the same policy object unchanged when the job has no override", () => {
+    expect(jobRetryPolicy(policy, {})).toBe(policy);
+    expect(jobRetryPolicy(policy, { maxAttempts: undefined })).toBe(policy);
+    expect(jobRetryPolicy(policy, { maxAttempts: null })).toBe(policy);
+  });
+
+  it("overrides only maxAttempts, preserving backoff timing", () => {
+    const effective = jobRetryPolicy(policy, { maxAttempts: 2 });
+    expect(effective.maxAttempts).toBe(2);
+    expect(effective.baseDelayMs).toBe(policy.baseDelayMs);
+    expect(effective.factor).toBe(policy.factor);
+    expect(effective.maxDelayMs).toBe(policy.maxDelayMs);
+    expect(effective.jitter).toBe(policy.jitter);
+    // Non-mutating: the source policy is untouched.
+    expect(policy.maxAttempts).toBe(5);
+  });
+
+  it("lets a per-job 0 mean unlimited even under a bounded global cap", () => {
+    const effective = jobRetryPolicy(policy, { maxAttempts: 0 });
+    expect(effective.maxAttempts).toBe(0);
+    // A job with an unlimited cap is never exhausted, however many attempts.
+    expect(isRetryExhausted(effective, 99)).toBe(false);
+  });
+
+  it("lets a per-job cap tighten a generous global one", () => {
+    const generous: RetryPolicy = { ...policy, maxAttempts: 0 }; // global = unlimited
+    const effective = jobRetryPolicy(generous, { maxAttempts: 3 });
+    expect(isRetryExhausted(effective, 2)).toBe(false);
+    expect(isRetryExhausted(effective, 3)).toBe(true);
   });
 });

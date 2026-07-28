@@ -203,6 +203,54 @@ describe("RelayScheduler", () => {
     expect(result.lastError).toContain("Still rate-limited");
   });
 
+  it("honors a per-job --max-attempts cap that tightens a generous global policy", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+      maxAttempts: 2, // this job gives up after 2, despite the unlimited global
+    });
+    queue.markResuming(job.id); // attempts -> 1
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnWith({ output: "still broken", exitCode: 2 }),
+      retryPolicy: { maxAttempts: 0, baseDelayMs: 1000, factor: 2, maxDelayMs: 10_000, jitter: 0 }, // global = unlimited
+    });
+
+    // This resume is attempt 2 == the job's own cap -> failed, not retried,
+    // even though the global policy would keep going forever.
+    const [result] = await scheduler.tick();
+    expect(result.status).toBe("failed");
+    expect(result.attempts).toBe(2);
+    expect(result.lastError).toContain("Failed after 2 attempt(s)");
+  });
+
+  it("lets a per-job maxAttempts of 0 keep relaying past a bounded global cap", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+      maxAttempts: 0, // unlimited for this job
+    });
+    queue.markResuming(job.id);
+    queue.markResuming(job.id); // attempts -> 2, past the global cap of 2
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnWith({ output: "Usage limit reached. Resets in 2h." }),
+      retryPolicy: { maxAttempts: 2, baseDelayMs: 1000, factor: 2, maxDelayMs: 10_000, jitter: 0 },
+    });
+
+    // Global cap would fail it here, but the job's own 0 = unlimited re-queues.
+    const [result] = await scheduler.tick();
+    expect(result.status).toBe("waiting_for_reset");
+  });
+
   it("keeps re-queuing a rate-limited job forever when maxAttempts is 0", async () => {
     const job = dueJob();
     queue.markResuming(job.id);

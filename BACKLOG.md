@@ -575,6 +575,20 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay run --max-attempts <n>` — 잡별 재시도 상한을 enqueue 시점에 지정(전역
+      `AGENTRELAY_MAX_ATTEMPTS`를 이 잡에만 오버라이드, `0`=무제한). 짧은 일회성 작업은 빨리
+      포기시키고, 오래 걸리는 작업은 전역 캡과 무관하게 계속 재개시키는 잡별 제어.
+      (완료 — core `types.ts` `RelayJob.maxAttempts?`/`CreateJobInput.maxAttempts?`(optional=구버전
+      스토어 무마이그레이션 로드), `queue.ts` enqueue가 override 있을 때만 키 영속(null≈absent 왕복),
+      순수 `retry.ts` `jobRetryPolicy(policy, job)`(override 없으면 동일 policy 객체 그대로 반환=무영향,
+      있으면 maxAttempts만 교체·백오프 타이밍은 전역 유지, 비변형). 스케줄러 `resume`가 잡별 유효 policy로
+      `isRetryExhausted`×2·`computeBackoffMs` 판정 — 잡 `0`=무제한이 전역 유한 캡을 이기고, 잡 유한 캡이
+      전역 무제한을 조인다. `import.ts`가 non-negative int 검증+왕복 보존(malformed 거부·null 생략),
+      CLI `run --max-attempts <n>`(음수·비정수는 exit 1), `show`가 attempts 줄에 "(max-attempts: N|
+      unlimited)" 주석. core retry 4 + scheduler 2 + queue 1 + import 1 + cli show 1 신규 테스트,
+      실제 빌드 CLI e2e로 persist·show·검증 exit 1·export→import 왕복 검증. branch
+      `claude/wizardly-pascal-maxattempts`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
