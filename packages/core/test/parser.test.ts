@@ -118,6 +118,41 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 3 * 60_000).toISOString());
   });
 
+  it("captures every component of a spelled-out 'X hours and Y minutes' wait", () => {
+    // Regression: before the connector-tolerant separator, "and 30 minutes" was
+    // dropped and the wait collapsed to 1 hour — resuming 30 minutes early and
+    // re-hitting the limit.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit reached, try again in 1 hour and 30 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + (60 + 30) * 60_000).toISOString());
+  });
+
+  it("accepts a comma between duration components ('2 hours, 15 minutes')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit hit — resets in 2 hours, 15 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + (2 * 60 + 15) * 60_000).toISOString());
+  });
+
+  it("captures all three components with mixed comma + 'and' connectors", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly limit reached, try again in 1 day, 4 hours and 30 minutes.", {
+      now,
+    });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + ((24 + 4) * 60 + 30) * 60_000).toISOString());
+  });
+
+  it("does not let a trailing 'and <non-duration>' clause bleed into the wait", () => {
+    // "and then ..." has no number, so the minutes group must give back the
+    // connector it tentatively consumed and resolve to just the hours.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit — try again in 5 hours and then contact support.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 5 * 60 * 60_000).toISOString());
+  });
+
   it("parses a unix epoch retry_after field", () => {
     const result = parseRateLimitMessage("rate_limit_error retry_after=1752345600");
     expect(result).not.toBeNull();

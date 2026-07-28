@@ -88,11 +88,20 @@ const PATTERNS: RateLimitPattern[] = [
   {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
-    // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
-    // are OpenAI/Codex-style wording that the Codex adapter contributes).
+    // windows. The separator between day/hour/minute components tolerates a
+    // natural-language connector, so the spelled-out forms agents actually print
+    // ("try again in 1 hour and 30 minutes", "resets in 2 hours, 15 minutes",
+    // "1 day, 4 hours and 30 minutes") capture *every* component instead of
+    // silently dropping the tail — dropping the minutes would make AgentRelay
+    // resume before the limit truly resets and re-hit it. The connector lives
+    // inside each trailing component's optional group, so it's only consumed when
+    // that component is actually present (a bare "resets in " still resolves to
+    // null via the all-zero guard below). Seconds are deliberately *not* handled
+    // here (see adapters.ts: they are OpenAI/Codex-style wording that the Codex
+    // adapter contributes).
     name: "relative-duration",
     regex:
-      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
+      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?)?(?:[\s,]*(?:and\s+)?(\d+)\s*h(?:ours?)?)?(?:[\s,]*(?:and\s+)?(\d+)\s*m(?:in(?:utes?)?)?)?/i,
     resolve: (m, now) => {
       const days = m[1] ? parseInt(m[1], 10) : 0;
       const hours = m[2] ? parseInt(m[2], 10) : 0;
