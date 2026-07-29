@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RelayQueue } from "../src/queue.js";
 import type { SpawnFn } from "../src/scheduler.js";
-import { RelayScheduler } from "../src/scheduler.js";
+import { maxResumesPerTickFromEnv, orderDueByUrgency, RelayScheduler } from "../src/scheduler.js";
 import type { RelayJob } from "../src/types.js";
 
 // Minimal fake ChildProcess: emits given stdout data then closes.
@@ -424,5 +424,126 @@ describe("RelayScheduler", () => {
     // The due job was still resumed despite the throwing hook.
     expect(processed).toHaveLength(1);
     expect(queue.getById(job.id)?.status).toBe("completed");
+  });
+
+  it("caps the number of resumes per tick, resuming the most-overdue jobs first", async () => {
+    // Three jobs all due, with distinct reset times so ordering is deterministic.
+    const mk = (project: string, resetOffsetMs: number) => {
+      const job = queue.enqueue({
+        project,
+        tool: "claude-code",
+        command: ["claude", "-p", project],
+        cwd: dir,
+      });
+      queue.markWaitingForReset(job.id, new Date(Date.now() + resetOffsetMs).toISOString());
+      return job;
+    };
+    const oldest = mk("oldest", -3000); // most overdue
+    const middle = mk("middle", -2000);
+    const newest = mk("newest", -1000); // least overdue
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({
+        "claude -p oldest": "done",
+        "claude -p middle": "done",
+        "claude -p newest": "done",
+      }),
+      maxResumesPerTick: 2,
+    });
+
+    // First tick resumes only the 2 most-overdue jobs.
+    const first = await scheduler.tick();
+    expect(first.map((j) => j.id)).toEqual([oldest.id, middle.id]);
+    expect(first.every((j) => j.status === "completed")).toBe(true);
+    // The least-overdue job is left waiting for a later tick.
+    expect(queue.getById(newest.id)?.status).toBe("waiting_for_reset");
+
+    // Next tick picks up the remaining job.
+    const second = await scheduler.tick();
+    expect(second.map((j) => j.id)).toEqual([newest.id]);
+    expect(queue.getById(newest.id)?.status).toBe("completed");
+  });
+
+  it("resumes every due job when maxResumesPerTick is 0 (unlimited)", async () => {
+    for (const p of ["a", "b", "c"]) {
+      const job = queue.enqueue({ project: p, tool: "claude-code", command: ["claude", "-p", p], cwd: dir });
+      queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+    }
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({ "claude -p a": "done", "claude -p b": "done", "claude -p c": "done" }),
+      maxResumesPerTick: 0,
+    });
+
+    const processed = await scheduler.tick();
+    expect(processed).toHaveLength(3);
+    expect(processed.every((j) => j.status === "completed")).toBe(true);
+  });
+});
+
+describe("orderDueByUrgency", () => {
+  const job = (id: string, resetAt: string | null, createdAt: string): RelayJob =>
+    ({ id, resetAt, createdAt }) as RelayJob;
+
+  it("orders by resetAt ascending (most overdue first) without mutating the input", () => {
+    const input = [
+      job("c", "2026-07-13T03:00:00Z", "2026-07-13T00:00:00Z"),
+      job("a", "2026-07-13T01:00:00Z", "2026-07-13T00:00:00Z"),
+      job("b", "2026-07-13T02:00:00Z", "2026-07-13T00:00:00Z"),
+    ];
+    const ordered = orderDueByUrgency(input);
+    expect(ordered.map((j) => j.id)).toEqual(["a", "b", "c"]);
+    // Input is untouched.
+    expect(input.map((j) => j.id)).toEqual(["c", "a", "b"]);
+  });
+
+  it("breaks resetAt ties by createdAt, then by id", () => {
+    const reset = "2026-07-13T01:00:00Z";
+    const input = [
+      job("z", reset, "2026-07-13T00:00:02Z"),
+      job("m", reset, "2026-07-13T00:00:01Z"),
+      job("y", reset, "2026-07-13T00:00:01Z"), // same createdAt as "m" → id tiebreak
+    ];
+    const ordered = orderDueByUrgency(input);
+    expect(ordered.map((j) => j.id)).toEqual(["m", "y", "z"]);
+  });
+
+  it("sorts jobs with a null or unparseable resetAt to the end", () => {
+    const input = [
+      job("null", null, "2026-07-13T00:00:00Z"),
+      job("real", "2026-07-13T01:00:00Z", "2026-07-13T00:00:00Z"),
+      job("bad", "not-a-date", "2026-07-13T00:00:00Z"),
+    ];
+    const ordered = orderDueByUrgency(input);
+    expect(ordered[0].id).toBe("real");
+    expect(
+      ordered
+        .slice(1)
+        .map((j) => j.id)
+        .sort()
+    ).toEqual(["bad", "null"]);
+  });
+});
+
+describe("maxResumesPerTickFromEnv", () => {
+  it("defaults to 0 (unlimited) when unset or blank", () => {
+    expect(maxResumesPerTickFromEnv({})).toBe(0);
+    expect(maxResumesPerTickFromEnv({ AGENTRELAY_MAX_RESUMES_PER_TICK: "" })).toBe(0);
+    expect(maxResumesPerTickFromEnv({ AGENTRELAY_MAX_RESUMES_PER_TICK: "   " })).toBe(0);
+  });
+
+  it("reads a positive integer cap", () => {
+    expect(maxResumesPerTickFromEnv({ AGENTRELAY_MAX_RESUMES_PER_TICK: "3" })).toBe(3);
+  });
+
+  it("floors fractional values", () => {
+    expect(maxResumesPerTickFromEnv({ AGENTRELAY_MAX_RESUMES_PER_TICK: "2.9" })).toBe(2);
+  });
+
+  it("treats zero, negative, or non-numeric values as unlimited (0)", () => {
+    expect(maxResumesPerTickFromEnv({ AGENTRELAY_MAX_RESUMES_PER_TICK: "0" })).toBe(0);
+    expect(maxResumesPerTickFromEnv({ AGENTRELAY_MAX_RESUMES_PER_TICK: "-5" })).toBe(0);
+    expect(maxResumesPerTickFromEnv({ AGENTRELAY_MAX_RESUMES_PER_TICK: "abc" })).toBe(0);
   });
 });

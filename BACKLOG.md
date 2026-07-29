@@ -593,6 +593,21 @@
       cli health 10 신규 테스트, 실제 빌드 CLI e2e로 idle→0/strict→1/대기 잡+무루프→unhealthy 1/JSON/help
       검증. branch `claude/wizardly-pascal-health`)
 
+- [x] 👷 tick당 재개 수 상한(`AGENTRELAY_MAX_RESUMES_PER_TICK`) — rate-limit 창이 리셋되면 같은
+      provider의 여러 잡이 한꺼번에 due가 되는데, 한 tick에서 전부 재개하면 곧바로 같은 한도에
+      다시 걸리는 "thundering herd"가 발생한다. 재개를 tick별로 분산해 이를 완화.
+      (완료 — `@agentrelay/core/scheduler.ts`에 순수 `orderDueByUrgency(jobs)`(resetAt 오름차순=
+      가장 오래 대기한 잡 먼저, createdAt→id 안정 tiebreak, null/파싱불가 resetAt은 뒤로, 입력
+      불변·새 배열) + `maxResumesPerTickFromEnv(env)`(`AGENTRELAY_MAX_RESUMES_PER_TICK` 양의 정수;
+      미설정·0·음수·비수치는 0=무제한 → 기존 "전부 재개" 동작 유지, 소수 floor) 신설.
+      `SchedulerOptions.maxResumesPerTick` 추가, `tick()`이 due 잡을 `orderDueByUrgency`로 정렬한 뒤
+      cap>0이면 가장 오래 대기한 N개만 이번 tick에 재개(나머지는 waiting_for_reset 유지→다음 tick).
+      정렬은 무제한일 때도 무해(어차피 전부 재개). CLI `commands.ts`의 daemon·tick 두 진입점이
+      `maxResumesPerTickFromEnv()`를 배선, 데몬 배너에 "(max N resume(s)/tick)". 형제 스케줄러 knob인
+      poll interval처럼 config 파일이 아닌 env/CLI 전용. core scheduler 8 신규 테스트(cap 2개 tick 분산·
+      무제한·orderDueByUrgency 3·env 4), 실제 빌드 CLI e2e로 3-job 스토어에서 cap=2 tick이 가장
+      오래 대기한 2개만 재개→다음 tick이 나머지 재개·배너 검증. branch `claude/wizardly-pascal-mz1l08`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -1539,3 +1539,34 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 48 — tick당 재개 수 상한(thundering-herd 완화) + stale 중복 #158 대체] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-mz1l08`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료 상태, 열린 PR 30+개(파서 개선·`upcoming`·`eta`·
+  `verify`·`overdue`·`stats --watch` 등 대부분 점유). CLAUDE.md 지침대로 코드를 읽어 신규 개선
+  항목을 발굴했다 — 스케줄러 `tick()`이 due 잡을 **전부** 순차 재개하는데, rate-limit 창이 리셋되면
+  같은 provider 잡이 한꺼번에 due가 돼 폭주 재개→즉시 재충돌하는 "thundering herd" 갭을 확인.
+- **한 일:** **tick당 재개 수 상한(`AGENTRELAY_MAX_RESUMES_PER_TICK`)**.
+  1. `@agentrelay/core/scheduler.ts`에 순수 `orderDueByUrgency(jobs)`(resetAt 오름차순=가장 오래
+     대기한 잡 먼저, createdAt→id 안정 tiebreak, null/파싱불가 resetAt은 뒤로, 입력 불변) +
+     `maxResumesPerTickFromEnv(env)`(양의 정수만 cap, 미설정·0·음수·비수치는 0=무제한, 소수 floor).
+  2. `SchedulerOptions.maxResumesPerTick` 추가 → `tick()`이 due를 urgency 정렬 후 cap>0이면 가장
+     오래 대기한 N개만 이번 tick에 재개(나머지는 waiting_for_reset 유지→다음 tick, poll 간격만큼
+     자연 분산). 정렬은 무제한일 때도 무해(어차피 전부 재개). CLI daemon/tick 두 진입점 배선,
+     데몬 배너에 "(max N resume(s)/tick)". poll interval처럼 config 파일이 아닌 env/CLI 전용.
+  - **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고**,
+    `pnpm test` **전 패키지 통과**(core 525 + cli 245/1skip + dashboard 7 — scheduler 18→26,
+    orderDueByUrgency 3 + env 4 + cap 통합 2 신규). **실제 빌드된 CLI e2e**(mock 아님): 3-job 스토어
+    (oldest/middle/newest, distinct resetAt)에서 `AGENTRELAY_MAX_RESUMES_PER_TICK=2 tick`이 가장 오래
+    대기한 oldest·middle만 completed로 재개하고 newest는 waiting 유지 → 다음 tick이 newest 재개,
+    데몬 배너 cap 표기/미표기 확인.
+- **중복 발견·대응:** 구현 후 열린 PR을 조사하니 **#158**이 정확히 동일한 기능
+  (`AGENTRELAY_MAX_RESUMES_PER_TICK` + most-overdue-first 배치 + 배너)을 세션 42에 이미 구현해
+  열려 있었다(미병합). 그러나 #158은 base가 6일 전(e0caa77)이라 현재 main과 config.ts·scheduler.ts·
+  commands.ts·테스트에서 **텍스트 충돌**(`git merge-tree` 확인) — 직접 병합 불가. 세션 45·47의
+  방침("최신 main 위 clean 구현으로 stale 중복 대체")에 따라, 이 세션의 브랜치를 통합 PR로 열고
+  #158을 대체·정리 권고. (#161/#162는 다른 접근인 랜덤 시각 stagger `AGENTRELAY_RESUME_STAGGER`로
+  별개 항목 — 향후 둘 중 하나로 수렴.) 본 구현은 #158과 달리 config 파일 계층을 의도적으로 생략해
+  형제 knob(poll interval) 선례와 표면을 일치시킴.
+- **다음 할 일:** #158 close(이 PR로 대체됨) 및 #161/#162 stagger 중복 하나로 수렴. 남은 distinct
+  열린 PR 통합 계속(#168 backoff·#170 clean·#171 verify·#182 report·#222 projects 등).
+  README/ARCHITECTURE(🧭 코워크).
