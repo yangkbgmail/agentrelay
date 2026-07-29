@@ -11,6 +11,7 @@ import {
   renderGroupedStatsJson,
   renderStats,
   renderStatsJson,
+  renderStatsWatchFrame,
   renderTrend,
 } from "../src/stats.js";
 
@@ -314,5 +315,32 @@ describe("renderStatsJson trend field", () => {
     const trend: DailyActivity[] = [{ date: "2026-07-20", count: 1 }];
     const withTrend = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", trend }));
     expect(withTrend.trend).toEqual(trend);
+  });
+});
+
+describe("renderStatsWatchFrame", () => {
+  it("wraps a stats body with the live title, store path and timestamp", () => {
+    const stats = computeStats([job({ status: "completed" }), job({ status: "failed" })]);
+    const body = renderStats(stats, { now: NOW });
+    const frame = renderStatsWatchFrame(body, "/tmp/store.json", 2000, NOW);
+    expect(frame).toContain("agentrelay stats");
+    expect(frame).toContain("every 2s");
+    expect(frame).toContain("/tmp/store.json");
+    expect(frame).toContain("2026-07-13 00:00:00");
+    // The body is embedded verbatim.
+    expect(frame).toContain("2 job(s) tracked");
+    expect(frame.endsWith(body)).toBe(true);
+  });
+
+  it("rounds a sub-second / fractional interval to whole seconds in the header", () => {
+    const frame = renderStatsWatchFrame("body", "/tmp/s.json", 5000, NOW);
+    expect(frame).toContain("every 5s");
+  });
+
+  it("is body-agnostic — a grouped or trend body embeds unchanged", () => {
+    const groupBody = renderGroupedStats(groupStats([job({ tool: "codex-cli" })], "tool"), "tool");
+    const frame = renderStatsWatchFrame(groupBody, "/tmp/s.json", 2000, NOW);
+    expect(frame).toContain("across 1 tool(s)");
+    expect(frame.endsWith(groupBody)).toBe(true);
   });
 });

@@ -575,6 +575,22 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay stats --watch [seconds]` — 집계 지표(성공률·활성/종료·다음 리셋 카운트다운·
+      resolution time·그룹/트렌드)를 화면을 지우고 N초마다 재렌더하는 라이브 TUI. `status`에는 이미
+      `--watch`가 있었지만 `stats`엔 없어, 긴 릴레이 세션 동안 큐 요약을 실시간으로 지켜볼 방법이 없었다.
+      (완료 — CLI `stats.ts`에 순수 `renderStatsWatchFrame(body, storePath, intervalMs, now)` 신설:
+      이미 렌더된 stats 본문을 받아 라이브 타이틀/타임스탬프/스토어 경로 헤더로 감싸는 view-agnostic
+      래퍼(status의 `renderWatchFrame`와 형식 일치, color 항상 on). 본문은 워치 루프가 플래그가 고르는
+      뷰(표준 요약/`--group-by`/`--trend`)를 one-shot 경로와 동일하게 조립해 전달하므로 프레임 렌더러는
+      순수·테스트 가능. cli.ts에 `runStatsWatch`(status의 `runWatch` 미러: 매 tick 스토어 재오픈 →
+      데몬 쓰기 자동 반영, 동일 스코프 재적용, `--since`/`--until` 경계는 명령 시작 시 고정된 절대 epoch-ms)
+      + `-w/--watch [seconds]` 옵션(기본 2초). `--json`이 이김(one-shot 기계 스냅샷) — status와 동일하게
+      `!opts.json` 가드로 json 요청 시 워치 미진입. 잘못된 status/tool/기간 검증은 워치 진입 전 실행돼
+      여전히 exit 1. 새 core 코드 0줄 — 전부 기존 검증된 `computeStats`/`renderStats`/`renderGroupedStats`/
+      `renderTrend`/`scopeJobs` 재사용. cli stats.test에 renderStatsWatchFrame 3케이스 추가(래핑·간격 반올림·
+      본문 무관성), 실제 빌드 CLI e2e로 라이브 프레임·그룹/트렌드 조합·json-wins·검증 exit 검증.
+      branch `claude/stats-watch`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

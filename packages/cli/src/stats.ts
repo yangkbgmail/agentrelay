@@ -120,6 +120,29 @@ export function renderStats(
   return lines.join("\n");
 }
 
+/**
+ * One frame of the live `agentrelay stats --watch` view: a title/meta header
+ * block (matching `status`'s watch frame) followed by an already-rendered stats
+ * body. The body is passed in pre-rendered so this stays pure and view-agnostic
+ * — the watch loop builds whichever body the flags select (standard summary,
+ * `--group-by` breakdown, optional `--trend` histogram) exactly like the
+ * one-shot path, and this only wraps it with the live header. Color is always
+ * on (the watch view is a TTY).
+ */
+export function renderStatsWatchFrame(
+  body: string,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now()
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay stats${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", body].join("\n");
+}
+
 /** Shown by `stats --group-by` when the store (or scoped subset) has no jobs. */
 export const NO_GROUP_MESSAGE = "No jobs to group.";
 
