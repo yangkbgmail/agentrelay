@@ -32,6 +32,37 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/**
+ * Resolves a bare clock time (hour, optional minutes, optional meridiem) to the
+ * matching instant *tomorrow* — used by the two day-qualified patterns below.
+ * Returns null for structurally impossible clock values so a benign match falls
+ * through instead of producing a bogus reset time.
+ */
+function resolveClockTomorrow(
+  m: RegExpMatchArray,
+  now: Date,
+  hourIdx: number,
+  minuteIdx: number,
+  meridiemIdx: number
+): Date | null {
+  const rawMinute = m[minuteIdx];
+  const meridiem = m[meridiemIdx]?.toLowerCase();
+  // A bare hour with no minutes and no meridiem ("at 5 tomorrow") is too
+  // ambiguous (5am? 5pm? 5th?) — reject so it falls through, mirroring the
+  // bare "reset at 5" decision made for the clock-time patterns.
+  if (!rawMinute && !meridiem) return null;
+  let hour = parseInt(m[hourIdx], 10);
+  const minute = rawMinute ? parseInt(rawMinute, 10) : 0;
+  if (meridiem && hour > 12) return null; // "13pm" is not a valid 12-hour clock time
+  if (meridiem === "pm" && hour < 12) hour += 12;
+  if (meridiem === "am" && hour === 12) hour = 0;
+  if (hour > 23 || minute > 59) return null;
+  const candidate = new Date(now);
+  candidate.setDate(candidate.getDate() + 1);
+  candidate.setHours(hour, minute, 0, 0);
+  return candidate;
+}
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
@@ -41,6 +72,32 @@ const PATTERNS: RateLimitPattern[] = [
       const d = new Date(m[1]);
       return Number.isNaN(d.getTime()) ? null : d;
     },
+  },
+  {
+    // "reset at 5pm tomorrow" / "resets at 9:30 tomorrow" / "resets at 15:00 tomorrow"
+    // — a clock time explicitly qualified with the word "tomorrow" AFTER it.
+    // Claude Code prints day-qualified wording for daily/weekly usage windows
+    // ("Your limit will reset at 9am tomorrow."). Without this the bare-clock
+    // patterns below would grab "reset at 9am" and drop the "tomorrow", landing
+    // the reset a whole day early (or, if 9am is still ahead today, silently
+    // resuming into the same exhausted window). Must be tried BEFORE the bare
+    // clock-time patterns for that reason. A minute (`:MM`) or a meridiem
+    // (`am`/`pm`) is required so a bare "reset at 5 tomorrow" stays ambiguous —
+    // consistent with clock-time-meridiem. The named timezone (if any) is
+    // interpreted in local time, same known limitation as the other clock
+    // patterns.
+    name: "clock-time-tomorrow",
+    regex: /reset[s]?\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+tomorrow\b/i,
+    resolve: (m, now) => resolveClockTomorrow(m, now, 1, 2, 3),
+  },
+  {
+    // "resets tomorrow at 9am" / "reset tomorrow at 5:30pm" / "resets tomorrow at 15:00"
+    // — the same day-qualified reset with "tomorrow" BEFORE the clock time. This
+    // wording the bare clock-time patterns miss entirely, because their
+    // `reset ... at` adjacency is broken by the interposed "tomorrow".
+    name: "tomorrow-clock-time",
+    regex: /reset[s]?\s+tomorrow\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i,
+    resolve: (m, now) => resolveClockTomorrow(m, now, 1, 2, 3),
   },
   {
     // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
@@ -136,7 +193,7 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in|tomorrow)|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);

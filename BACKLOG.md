@@ -593,6 +593,22 @@
       cli health 10 신규 테스트, 실제 빌드 CLI e2e로 idle→0/strict→1/대기 잡+무루프→unhealthy 1/JSON/help
       검증. branch `claude/wizardly-pascal-health`)
 
+- [x] 👷 파서: day-qualified 리셋 시각(`tomorrow`) 인식 — `reset at 9am tomorrow` / `resets tomorrow at 5pm`
+      같이 명시적 "내일" 한정이 붙은 일간/주간 사용량 창 리셋 문구를 정확히 큐잉.
+      (완료 — Claude Code가 일간/주간 한도에서 실제로 출력하는 `"Your limit will reset at 9am tomorrow."`
+      류 문구가 기존 파서에서 조용히 유실되던 실사용 갭. 두 하위 형식 모두 문제였다: (a) `resets tomorrow
+      at 9am`은 기존 clock 패턴의 `reset … at` 인접성을 "tomorrow"가 끊어 **아예 안 잡혀** 잡이 큐잉되지
+      않았고, (b) `reset at 9am tomorrow`는 `clock-time-meridiem`이 "reset at 9am"만 낚아채고 명시적
+      "tomorrow"를 버려, 지금이 9am 전이면 **오늘 9am**(이미 소진된 같은 창)으로 리셋을 하루 일찍 잡았다.
+      `parser.ts`에 순수 헬퍼 `resolveClockTomorrow`(hour/optional min/optional meridiem→내일 그 시각,
+      `setDate(+1)` 후 `setHours`; 분·meridiem 둘 다 없는 bare hour는 ambiguous로 null=fallthrough,
+      13pm·hour>23·min>59 무효) + 두 패턴 신설: `clock-time-tomorrow`(시각 뒤 tomorrow)·
+      `tomorrow-clock-time`(tomorrow 뒤 시각). 둘 다 bare clock 패턴보다 **먼저** 배치해 "reset at 5pm
+      tomorrow"가 하루 일찍 잡히지 않게 함. 사전필터에 `resets?\s+tomorrow` 추가(인접 `reset at`이 없는
+      form (a)도 게이트 통과). 24h(`15:00 tomorrow`)·분+meridiem(`9:30am`) 조합 지원, 명명 타임존은
+      로컬 해석(기존 clock 패턴과 동일 한계). parser.test +6 회귀(form a/b·24h·분+meridiem·bare hour
+      거부·13pm 거부), 실제 빌드 CLI `parse`로 두 형식 e2e 확인. branch `claude/wizardly-pascal-jpyugz`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

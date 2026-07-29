@@ -69,6 +69,61 @@ describe("parseRateLimitMessage", () => {
     expect(parseRateLimitMessage("Rate limit hit, reset at 5.")).toBeNull();
   });
 
+  // --- day-qualified reset times ("tomorrow") ---
+
+  it("parses 'reset at 9am tomorrow' as tomorrow, not today", () => {
+    // now is 08:00 local, so a bare 'reset at 9am' would land 9am TODAY (still
+    // ahead) — the explicit 'tomorrow' must push it a full day forward.
+    const now = new Date("2026-07-12T08:00:00");
+    const result = parseRateLimitMessage("Your limit will reset at 9am tomorrow.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time-tomorrow");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(9);
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getDate()).toBe(13); // one calendar day later
+  });
+
+  it("parses 'resets tomorrow at 5pm' (tomorrow before the clock time)", () => {
+    const now = new Date("2026-07-12T08:00:00");
+    const result = parseRateLimitMessage("Usage limit reached. Resets tomorrow at 5pm.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("tomorrow-clock-time");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(17);
+    expect(resetDate.getDate()).toBe(13);
+  });
+
+  it("parses 'reset at 15:00 tomorrow' (24-hour clock, day-qualified)", () => {
+    const now = new Date("2026-07-12T08:00:00");
+    const result = parseRateLimitMessage("Rate limit hit — reset at 15:00 tomorrow.", { now });
+    expect(result?.pattern).toBe("clock-time-tomorrow");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(15);
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getDate()).toBe(13);
+  });
+
+  it("parses 'resets tomorrow at 9:30am' (minutes + meridiem + day qualifier)", () => {
+    const now = new Date("2026-07-12T08:00:00");
+    const result = parseRateLimitMessage("Usage limit reached. Resets tomorrow at 9:30am.", { now });
+    expect(result?.pattern).toBe("tomorrow-clock-time");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(9);
+    expect(resetDate.getMinutes()).toBe(30);
+    expect(resetDate.getDate()).toBe(13);
+  });
+
+  it("does not treat a bare 'reset at 5 tomorrow' (no minutes, no meridiem) as a clock time", () => {
+    // Consistent with the bare 'reset at 5' rule — ambiguous, so it must fall
+    // through rather than guess am/pm.
+    expect(parseRateLimitMessage("Rate limit hit, reset at 5 tomorrow.")).toBeNull();
+  });
+
+  it("does not misfire on an invalid meridiem hour like '13pm tomorrow'", () => {
+    expect(parseRateLimitMessage("usage limit — reset at 13pm tomorrow")).toBeNull();
+  });
+
   it("parses a relative duration like '4h32m'", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Rate limit exceeded, try again in 4h32m.", { now });
