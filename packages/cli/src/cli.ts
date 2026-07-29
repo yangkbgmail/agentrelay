@@ -17,6 +17,7 @@ import {
   COMPLETION_SHELLS,
   computeDailyTrend,
   computeErrorBreakdown,
+  computeQueueEta,
   computeStats,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
@@ -70,6 +71,7 @@ import {
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
+import { renderEta, renderEtaJson } from "./eta.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
@@ -551,6 +553,33 @@ export function buildCli(): Command {
         if (next === null) process.exitCode = 4;
         else if (!next.due) process.exitCode = 3;
         // due-now → exit 0 (default).
+      }
+    });
+
+  program
+    .command("eta")
+    .description("Forecast when the relay will have caught up on every waiting job (the whole backlog's 'all clear')")
+    .option("--json", "Print as JSON (machine-readable, for scripts/jq)")
+    .option(
+      "--exit-code",
+      "Reflect state in the exit code (0 = all waiting jobs due now, 3 = some still pending, 4 = nothing waiting)"
+    )
+    .action((opts: { json?: boolean; exitCode?: boolean }) => {
+      const { store } = program.opts();
+      const eta = computeQueueEta(listStatus(store));
+
+      if (opts.json) {
+        console.log(renderEtaJson(eta, store));
+      } else {
+        console.log(renderEta(eta, { color: Boolean(process.stdout.isTTY) }));
+      }
+
+      // Opt-in exit codes mirror `next`: a script can block on the whole
+      // backlog draining (`until agentrelay eta --exit-code; do sleep 60; done`).
+      if (opts.exitCode) {
+        if (eta === null) process.exitCode = 4;
+        else if (!eta.allDue) process.exitCode = 3;
+        // all-due → exit 0 (default).
       }
     });
 
