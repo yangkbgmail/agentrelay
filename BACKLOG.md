@@ -574,6 +574,19 @@
       color 게이트)·`renderLocationsJson`. `agentrelay paths [--json]` 커맨드 배선. core 12 + cli 7 신규
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
+- [x] 👷 `agentrelay resets` — 리셋 시각의 하루 중 시간대(hour-of-day) 분포 히스토그램(한도가 언제
+      풀리는지 눈으로 보고 작업 시간 계획). `stats`(총계)·`patterns`(메시지 포맷)·`trend`(일별 볼륨)이
+      모두 시계(clock)를 뭉개는 것과 달리 리셋 인스턴트의 시(時)를 노출.
+      (완료 — `@agentrelay/core/clock.ts` 신설(순수·파일시스템/앰비언트 클록 미접촉): `computeResetClock
+      (jobs, {local?})` → `ResetClockSummary`(total·withReset·withoutReset·timeZone·24버킷 항상 채움·
+      peakHour[동률은 이른 시각]). 버킷 대상 인스턴트는 `jobResetInstant(job)`으로 해소 — 지속되는
+      `lastRateLimit.resetAt`(잡이 종료 상태로 넘어가도 남음) 우선, 없으면 라이브 `job.resetAt`, 둘 다
+      파싱 불가면 `withoutReset`. 시(時)는 UTC(기본, `computeDailyTrend`과 일관) 또는 `--local`이면 로컬.
+      CLI `packages/cli/src/resets.ts`에 순수 `renderResetClock`(24행 히스토그램·비례 막대·빈 시각은
+      dim `·`·peak 푸터·color 게이트)·`renderResetClockJson`. `agentrelay resets [--local] [--json]` +
+      공용 `--status/--tool/--project/--since/--until` 스코프(`buildScope`+`scopeJobs` 재사용, patterns와
+      동일 배선). core 10 + cli 6 신규 테스트, 실제 빌드 CLI로 히스토그램·`--json`·스코프 필터·completion
+      반영 e2e 검증. branch `claude/wizardly-pascal-008bea`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
