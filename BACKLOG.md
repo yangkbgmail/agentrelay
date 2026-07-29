@@ -180,6 +180,16 @@
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
 
+- [x] 👷 `agentrelay verify` — 잡 스토어(`jobs.json`) 무결성 린터. 잘못된 레코드·중복 id·재개 불가
+      잡을 한 번에 진단하는 read-only 진단 커맨드(구조 검증 + 중복 id[에러] + resetAt 없는
+      waiting_for_reset[경고]).
+      (완료 — core `verify.ts`(순수) `verifyStore(records)`가 큐의 post-cast 뷰가 아닌 원시 파싱 배열을
+      받아 두 층으로 검사: `import.ts`의 `validateJobRecord` 재사용(구조 에러) + 중복 id(에러)·resetAt 없는
+      waiting_for_reset·파싱 불가/스큐 타임스탬프(경고), `StoreVerification` 반환. CLI `runVerify`(파일시스템
+      엣지: 없음=first-run·비배열=corrupt·빈 파일=빈 스토어, throw 안 함)·`renderVerify`/`renderVerifyJson`,
+      `agentrelay verify [--json]`(에러/corrupt면 exit 1). #171 발원, 세션 48에서 최신 main 위로 통합
+      (코드 무충돌 auto-merge, 문서만 충돌). core 14 + cli 8 신규 테스트, 실제 빌드 CLI e2e로 first-run→0·
+      corrupt→1·중복 id 에러+waiting 무 resetAt 경고→1·clean→0 검증. branch `claude/wizardly-pascal-i8qyu2`)
 - [x] 👷 `agentrelay stats` 해결 시간 백분위수(median/p90) — avg/min/max만으론 안 보이는
       전형 케이스와 꼬리 지연 노출.
       (완료 — `@agentrelay/core/stats.ts`의 `TimingStats`에 `medianResolutionMs`(p50)·

@@ -1539,3 +1539,27 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 48 — distinct 기능 `agentrelay verify`(스토어 무결성 린터) 최신 main 통합 PR] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-i8qyu2`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료이고, 열린 PR이 **100건 이상** 적체(심각한 중복:
+  `config get` 6개[#128/#160/#166/#183/#234/#238]·`stats --watch` 4개·`upcoming`·`tools`·파서 reset-at 계열
+  다수). 무기억 세션들이 매번 같은 기능을 재구현해 중복 PR을 쌓는 **머지 병목 루프**가 근본 문제. 신규 기능을
+  더 쌓으면 100% 중복이 되므로, 세션 44~47의 판단(신규 추가보다 **CI-초록·distinct PR을 최신 main 위로 통합**)을
+  이어감. 처음엔 `config get`을 구현했으나 이미 6중복임을 발견하고 폐기, 어느 중복 무리와도 겹치지 않는 격리도
+  높은 **`verify`(스토어 무결성 린터)**를 통합 대상으로 선정.
+- **한 일:** 열린 PR **#276(=#171 verify)의 단일 커밋을 현재 main(7646ad5) 위로 cherry-pick 통합**.
+  코드 파일(`cli.ts`·`commands.ts`·`core/index.ts`)과 신규 모듈(`verify.ts`×2 + 테스트×2)은 **무충돌
+  auto-merge**, 충돌은 문서(BACKLOG/PROGRESS)뿐이라 main 버전 유지 후 세션 로그만 추가. #276은 base가 stale
+  (4abefa1)이라 현재 main과 문서 충돌로 그대로는 mergeable하지 않았음 → 이 PR은 **현재 main 기반의 머지-레디
+  버전**으로 #171/#224/#276을 대체(수렴). 기능 요약: read-only `agentrelay verify [--json]` — 원시 파싱 배열을
+  받아 구조 검증(`validateJobRecord`) + 중복 id(에러, 큐 Map이 앞 잡을 조용히 덮어 유실하는 실사용 갭) +
+  resetAt 없는 waiting_for_reset(경고, 스케줄러가 영원히 재개 못 함) 진단. `doctor`(전체 파싱·활성 수만)가
+  못 잡던 관측성 갭을 메움.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome, 92파일) **0 경고/0 에러**·
+  `pnpm test` **전 패키지 통과**(core 530[verify 14 신규] + cli 253/1skip[verify 8 신규] + dashboard 7 = 790).
+  실제 빌드된 CLI e2e(mock 아님): missing store→"created on first run" **exit 0**, corrupt(비배열)→**exit 1**,
+  중복 id[에러]+waiting_for_reset 무 resetAt[경고]→**exit 1**(에러 먼저 렌더), clean 스토어→"healthy" **exit 0**.
+- **다음 할 일(중요):** 🚨 **머지 병목이 근본 블로커** — 열린 PR 100건+가 중복으로 쌓여 무기억 세션이 계속
+  같은 걸 재구현 중. 소유자 조치 필요(브랜치 보호 완화/auto-merge 활성화/중복 대량 정리 승인). 그전까지는
+  세션 44~48처럼 distinct CI-초록 PR을 하나씩 통합(#168 backoff·#182 report·#222 projects 등). 중복 무리는
+  각 1개로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
