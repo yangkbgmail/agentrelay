@@ -1489,3 +1489,23 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서 상대시간 연결어(and/쉼표) 인식 + 사전필터 retry-in 보강] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-l65mfn`)
+- **배경:** 명시된 👷 BACKLOG 항목이 전부 완료 상태라 CLAUDE.md 지침(SPEC §8 무한 개선 백로그를
+  스스로 발굴)에 따라, 핵심 가치인 rate-limit 파서에서 실사용 갭을 발굴. `relative-duration` 패턴이
+  day/hour/minute 구성요소를 `\s*`(공백)로만 이어붙여, "try again in 2 hours **and** 30 minutes"나
+  "1 hour**,** 30 minutes"처럼 연결어가 낀 실제 문구에서 **뒤 단위를 통째로 놓치는** 것을 확인
+  (node 재현: "2 hours and 30 minutes"→120분으로만 해석). 결과는 **실제 리셋보다 일찍 재개** →
+  같은 rate limit 재유발이라 조용한 정확성 버그.
+- **한 일:** ① `relative-duration` 정규식의 구성요소 구분자를 `\s*`에서 `[\s,]*(?:and\s+)?`로 확장
+  → 공백/쉼표/"and" 및 조합 허용("1 day, 4 hours and 30 minutes"까지). 기존 포맷("1d 4h"/"45m"/
+  "2 days"/"4h32m"/"3 minutes") 전부 회귀 없음(재검증). ② 부수 갭: 사전필터 `LOOKS_LIKE_RATE_LIMIT`가
+  `retry\s+in`을 빠뜨려, 다른 rate-limit 키워드 없는 단독 "Retry in 1 hour, 30 minutes." 라인이
+  패턴에 도달조차 못 하던 것을 `(?:resets?|retry)\s+(at|in)`로 보강(패턴 prefix는 이미 "retry"를
+  받는데 필터만 누락돼 있었음). 새 CLI 코드 0줄 — `parse` 커맨드가 자동 노출.
+- **검증:** `pnpm build` 클린, `pnpm test` 전 패키지 통과(core 511 — parser.test +5 회귀: and 연결/
+  쉼표/day+hour and/혼합 체인/bare retry-in), `pnpm ci:lint`(Biome) 0경고. 실제 빌드된 CLI
+  `parse "... 2 hours and 30 minutes" --json`→relative-duration/150분, bare "Retry in 1 hour,
+  30 minutes."→90분 e2e 확인.
+- **다음 할 일:** 파서 추가 실사용 포맷(named IANA tz 실제 변환·weekday 창 "resets Monday")은 코워크
+  리서치(🧭)와 조율. 남은 distinct 열린 PR 통합 계속. README/ARCHITECTURE(🧭 코워크).

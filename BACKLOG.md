@@ -575,6 +575,18 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 상대 시간 구성요소 연결어(`and`/쉼표) 인식 + 사전필터 `retry in` 보강 —
+      "try again in 2 hours **and** 30 minutes" / "1 hour**,** 30 minutes" 같은 실사용 문구에서
+      뒤 단위를 놓쳐 **실제 리셋보다 일찍 재개** → 같은 rate limit 재유발하던 정확성 버그 수정.
+      (완료 — `relative-duration` 정규식의 day/hour/minute 구성요소 사이 구분자를 `\s*`에서
+      `[\s,]*(?:and\s+)?`로 확장 → 공백/쉼표/"and" 및 조합 허용(예: "1 day, 4 hours and 30 minutes").
+      기존 포맷("1d 4h"/"45m"/"2 days"/"4h32m"/"3 minutes") 전부 회귀 없음. 부수: 사전필터
+      `LOOKS_LIKE_RATE_LIMIT`가 `retry\s+in`을 빠뜨려 다른 rate-limit 키워드 없는 단독
+      "Retry in 1 hour, 30 minutes." 라인이 패턴에 도달 못 하던 갭도 `(?:resets?|retry)\s+(at|in)`로
+      보강(패턴 prefix가 이미 "retry"를 받는데 필터만 누락). parser.test +5 회귀(and/쉼표/day+hour and/
+      혼합 체인/bare retry-in), 실제 빌드 CLI `parse`로 e2e 검증. 새 CLI 코드 0줄. branch
+      `claude/wizardly-pascal-l65mfn`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
