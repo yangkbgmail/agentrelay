@@ -593,6 +593,22 @@
       cli health 10 신규 테스트, 실제 빌드 CLI e2e로 idle→0/strict→1/대기 잡+무루프→unhealthy 1/JSON/help
       검증. branch `claude/wizardly-pascal-health`)
 
+- [x] 👷 알림 이벤트 필터(`AGENTRELAY_NOTIFY_EVENTS`) — 큐 라이프사이클 이벤트(queued/resumed/
+      completed/failed) 중 원하는 것만 알림받기(예: 실패만). 기존엔 모든 이벤트가 무조건 발송돼
+      바쁜 큐에서 Slack/웹훅이 소음이 됐다. (자율 세션 자체 발굴 항목 — 명시 👷 백로그가 전부 완료 상태여서
+      CLAUDE.md "무한 개선 백로그를 스스로 발굴" 지침에 따라 신규 발굴.)
+      (완료 — `@agentrelay/core/notify.ts`에 순수 `NotifyEvent`/`NOTIFY_EVENTS`(라이프사이클 순서)·
+      `isNotifyEvent`(타입가드)·`parseNotifyEvents(input)`(콤마 분리·trim·소문자·중복제거·정규 순서 +
+      `invalid` 토큰 분리)·`notifyEventsFromEnv`(`AGENTRELAY_NOTIFY_EVENTS` 읽어 Set 반환, 미설정/공백/
+      인식 이벤트 0개는 null=**전부 발송** → 오타가 조용히 모든 알림을 끄지 않음)·`filterNotifier(notifier,
+      events)`(허용 이벤트만 통과, null=필터 없음이면 원본 그대로 반환 zero-overhead) 신설. `notifiersFromEnv`가
+      조립한 통합 notifier를 `filterNotifier`로 감싸 라이브 릴레이 루프(run/daemon/tick)에 자동 적용. 단
+      `sendTestNotification`(`notify test`)은 수동 검증이므로 필터 미적용(항상 발송). config 전 계층 배선:
+      `notify.events` 필드·sampleConfig·CONFIG_FIELDS·parseConfig·configToEnv·CONFIG_ENV_KEYS(드리프트 sync
+      테스트 통과)·validateConfig(미지 이벤트=error[토큰 표기]·인식 0개=warning). 새 스케줄러/파서 코드 0줄.
+      core notify +15 / config +3 신규 테스트, 실제 빌드 CLI e2e로 `config show`(env 출처)·`config validate`
+      (미지→exit1/정상→exit0)·`config set notify.events` 라운드트립 검증. branch `claude/wizardly-pascal-wu2cyl`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

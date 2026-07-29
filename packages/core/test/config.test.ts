@@ -234,6 +234,23 @@ describe("validateConfig", () => {
     expect(hasConfigErrors(issues)).toBe(false);
   });
 
+  it("accepts a valid notify.events allowlist without complaint", () => {
+    expect(validateConfig({ notify: { events: "failed, completed" } })).toEqual([]);
+    expect(validateConfig({ notify: { events: "" } })).toEqual([]); // blank = deliver all
+  });
+
+  it("errors on unknown events in notify.events", () => {
+    const issues = validateConfig({ notify: { events: "failed, bogus" } });
+    expect(issues).toEqual([expect.objectContaining({ level: "error", path: "notify.events" })]);
+    expect(issues[0].message).toContain("bogus");
+  });
+
+  it("warns when notify.events lists no known events (would deliver all)", () => {
+    const issues = validateConfig({ notify: { events: " , " } });
+    expect(issues).toEqual([expect.objectContaining({ level: "warning", path: "notify.events" })]);
+    expect(hasConfigErrors(issues)).toBe(false);
+  });
+
   it("warns on an empty store path", () => {
     const issues = validateConfig({ store: "   " });
     expect(issues).toEqual([expect.objectContaining({ level: "warning", path: "store" })]);
