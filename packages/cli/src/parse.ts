@@ -47,6 +47,64 @@ export function buildParseReport(text: string, options: { tool?: AgentTool; now?
   };
 }
 
+/** One line of a multi-line log that the parser would treat as a rate limit. */
+export interface ScanLineMatch {
+  /** 1-based line number within the scanned text. */
+  line: number;
+  /** The source line (trailing CR stripped), so the user can see what matched. */
+  text: string;
+  resetAt: string;
+  rawMatch: string;
+  pattern: string;
+}
+
+/**
+ * The outcome of scanning a multi-line log line-by-line. Unlike `buildParseReport`
+ * (which runs the parser once over the whole blob and returns only the first hit),
+ * this reports *every* line that would trip a detection, with its line number —
+ * the diagnostic for "which line of my captured session, if any, would have queued
+ * a resume?". In real operation AgentRelay acts on the first matching line, exposed
+ * here as `actsOnLine`.
+ */
+export interface ScanReport {
+  tool: AgentTool;
+  /** Total number of lines scanned. */
+  totalLines: number;
+  matches: ScanLineMatch[];
+  /** Line number AgentRelay would act on (the first match), or null if none. */
+  actsOnLine: number | null;
+}
+
+/**
+ * Scan `text` line-by-line with the given tool's adapter, collecting every line
+ * that the rate-limit parser matches. Pure: a single `now` is resolved once and
+ * reused for all lines so relative durations ("try again in 1h") resolve
+ * consistently and the result is deterministic under an injected clock.
+ */
+export function buildScanReport(text: string, options: { tool?: AgentTool; now?: Date } = {}): ScanReport {
+  const adapter = resolveAdapter({ tool: options.tool });
+  const now = options.now ?? new Date();
+  const lines = text.split("\n");
+  // Drop a trailing empty element produced by a final newline so an N-line log
+  // that ends in "\n" reports N lines, not N+1.
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+
+  const matches: ScanLineMatch[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].replace(/\r$/, "");
+    const info = adapter.detectRateLimit(line, { now });
+    if (info) {
+      matches.push({ line: i + 1, text: line, resetAt: info.resetAt, rawMatch: info.rawMatch, pattern: info.pattern });
+    }
+  }
+  return {
+    tool: adapter.tool,
+    totalLines: lines.length,
+    matches,
+    actsOnLine: matches.length > 0 ? matches[0].line : null,
+  };
+}
+
 function paint(code: string, cell: string, color: boolean): string {
   return color ? `${code}${cell}${RESET}` : cell;
 }
@@ -75,6 +133,49 @@ export function renderParseReport(report: ParseReport, options: { now?: number; 
     `  ${paint(BOLD, "resets:", color)}   ${report.resetAt} ${paint(DIM, `(in ${countdown})`, color)}`,
   ];
   return lines.join("\n");
+}
+
+/**
+ * Render a scan report as a human-readable block. Pure aside from `now`
+ * defaulting (used only for the per-line countdown). `color` gates ANSI codes.
+ */
+export function renderScanReport(report: ScanReport, options: { now?: number; color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const now = options.now ?? Date.now();
+  const lineWord = report.totalLines === 1 ? "line" : "lines";
+
+  if (report.matches.length === 0) {
+    return [
+      paint(YELLOW, `No rate-limit lines detected across ${report.totalLines} ${lineWord}.`, color),
+      paint(DIM, `AgentRelay would let this output exit normally (adapter: ${report.tool}).`, color),
+    ].join("\n");
+  }
+
+  const header = `${paint(GREEN, `Detected ${report.matches.length} rate-limit ${report.matches.length === 1 ? "line" : "lines"}`, color)} ${paint(DIM, `of ${report.totalLines} scanned (adapter: ${report.tool})`, color)}`;
+  const lines = [header];
+  for (const m of report.matches) {
+    const countdown = formatCountdown(m.resetAt, now);
+    const marker = m.line === report.actsOnLine ? paint(GREEN, "→", color) : " ";
+    lines.push(
+      `${marker} ${paint(BOLD, `line ${m.line}`, color)} ${paint(DIM, `[${m.pattern}]`, color)} resets ${m.resetAt} ${paint(DIM, `(in ${countdown})`, color)}`
+    );
+    lines.push(`    ${paint(DIM, m.text.trim(), color)}`);
+  }
+  lines.push(paint(DIM, `AgentRelay would act on the first match (line ${report.actsOnLine}).`, color));
+  return lines.join("\n");
+}
+
+/**
+ * Render a scan report as JSON (machine-readable). Each match carries `resetInMs`
+ * (ms until its reset time) so callers don't re-parse the ISO string.
+ */
+export function renderScanReportJson(report: ScanReport, options: { now?: number } = {}): string {
+  const now = options.now ?? Date.now();
+  const matches = report.matches.map((m) => {
+    const target = new Date(m.resetAt).getTime();
+    return { ...m, resetInMs: Number.isNaN(target) ? null : target - now };
+  });
+  return JSON.stringify({ ...report, matches }, null, 2);
 }
 
 /**

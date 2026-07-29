@@ -1539,3 +1539,28 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 48 — `agentrelay parse --scan` 여러 줄 로그 스캔 신규 구현] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-7hd097`)
+- **배경:** 세션 시작 시 designated 브랜치가 최신 main(7646ad5)과 완전 동기(0/0, 직전 PR 병합 완료),
+  👷 명시 BACKLOG 항목은 전부 완료. CLAUDE.md 지침대로 **신규 개선 항목을 발굴**했다 — `parse` 커맨드는
+  입력 전체를 하나의 메시지로 파싱해 첫 매치만 보고하므로, 사용자가 에이전트 세션을 파일로 캡처한 뒤
+  "이 로그의 어느 줄이(있다면) AgentRelay의 재개 큐잉을 트리거했을까"를 줄 단위로 조사할 방법이 없었다.
+  이는 파서 진단(`parse`)의 자연스러운 짝이자, 실제 rate-limit 메시지 샘플 수집→파서 검증(🧭 백로그) 워크플로
+  지원 도구다.
+- **한 일 (branch `claude/wizardly-pascal-7hd097`):** **`agentrelay parse --scan`** —
+  1. CLI `packages/cli/src/parse.ts`에 순수 `buildScanReport(text,{tool?,now?})` 신설: 입력을 줄 단위로
+     쪼개(`\n` split, 후행 개행이 만드는 빈 마지막 원소는 pop해 N줄 로그가 N줄로 집계), 각 줄의 CRLF `\r`을
+     제거한 뒤 `resolveAdapter({tool}).detectRateLimit(line,{now})`로 검사. `now`를 **1회 해소해 전 줄에 재사용**
+     →상대 시간("try again in 1h")이 일관되게 해소되고 주입 시계 하에 결정적. 매치 줄만 `ScanLineMatch`
+     (line[1-based]·text·resetAt·rawMatch·pattern)로 수집, `actsOnLine`=첫 매치 줄(실제 운영 시 첫 매치에 동작).
+  2. `renderScanReport`(줄별 매치 목록 — 동작 줄에 `→` 마커, no-match면 스캔 줄 수+어댑터 요약, color 게이트)·
+     `renderScanReportJson`(매치별 `resetInMs`+totalLines/actsOnLine). `cli.ts` parse에 `--scan` 플래그 배선 —
+     기존 단일-메시지 경로와 공존하고 `--json`/`--tool`/stdin 파이프와 조합. 새 core 코드 0줄 — 기존 어댑터의
+     `detectRateLimit`를 줄마다 재사용.
+  - **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+    **전 패키지 통과**(cli parse.test 10→20, 신규 10: 줄번호·actsOnLine·clean 로그·후행 개행 미부풀림·
+    CRLF strip·codex 어댑터 초 패턴·렌더 마커/요약/ANSI·JSON resetInMs). **실제 빌드된 CLI e2e**(mock 아님):
+    6줄 로그를 파이프 → ISO(line3)+relative(line5) 2매치 스캔+동작 줄 화살표, `--json`이 matches/totals/
+    actsOnLine 출력, clean 로그는 no-match 요약, `--tool codex-cli`가 "try again in 20s" 줄을 초 단위로 감지 확인.
+- **다음 할 일:** README/ARCHITECTURE(🧭 코워크), 남은 distinct 열린 PR 통합(세션 47 목록), `parse --scan`을
+  `run`의 실감지 경로와 통합해 "여러 매치 중 어느 것을 골랐나" 노출하는 후속(👷 후보).
