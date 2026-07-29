@@ -592,6 +592,18 @@
       healthy/idle, 1 unhealthy). 새 파서/스케줄러 코드 0줄 — 세션 31 하트비트 인프라 재사용. core health 10 +
       cli health 10 신규 테스트, 실제 빌드 CLI e2e로 idle→0/strict→1/대기 잡+무루프→unhealthy 1/JSON/help
       검증. branch `claude/wizardly-pascal-health`)
+- [x] 👷 `agentrelay eta` — 큐 소진 예보(전체 대기 백로그가 언제 다 풀리나). `next`는 "다음에 재개될
+      단 하나의 잡"을 답하는 반면, `eta`는 그 보완 질문 "내 백로그가 통째로 언제 unblock되나?"에
+      답한다 — 대기 중 잡 전체의 **마지막** 리셋 시각("all clear") + 첫 리셋(soonest)·대기 수·이미
+      due인 수. 상태바("all clear in 3h")나 전체 rate-limit 창을 통째로 기다리는 스크립트에 유용.
+      (완료 — `@agentrelay/core/eta.ts` 신설(순수·시계/파일시스템 미접촉): `computeQueueEta(jobs, now)`가
+      스케줄러가 재개하는 바로 그 집합(`waiting_for_reset` + 파싱 가능한 `resetAt`)만 대상으로 first/last
+      리셋 window·`firstDueInMs`/`lastDueInMs`·`dueNow`·`allDue`를 계산, 대기 없음이면 null(`selectNextResume`
+      계약과 동일). 원본 `resetAt` 문자열 보존(타임존 오프셋 미정규화, `next`와 일관). `packages/cli/src/eta.ts`
+      순수 `renderEta`(`formatCountdown` 재사용 → "all clear in 2d 4h"/"all clear"가 status 테이블과 일치, dueNow
+      노트, 단복수)·`renderEtaJson`. `agentrelay eta [--json] [--exit-code]` 배선(exit code는 `next` 대칭:
+      0=전부 due, 3=일부 대기, 4=대기 없음). core eta 8 + cli eta 9 신규 테스트, 실제 빌드 CLI e2e로
+      idle→No jobs/2-job 예보/JSON/exit 3 검증. branch `claude/wizardly-pascal-rgdugw`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

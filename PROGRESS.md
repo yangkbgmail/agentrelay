@@ -1539,3 +1539,24 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 48 — `agentrelay eta` 큐 소진 예보 신규 구현] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-rgdugw`)
+- **맥락:** BACKLOG의 👷(클로드 코드) 소유 항목이 모두 `[완료]` 상태여서, CLAUDE.md "작업 방식 —
+  멈추지 않고 최대치로" 지침대로 새 개선 항목을 자체 발굴해 구현. `next`(다음 재개될 단일 잡)의 자연스러운
+  보완으로, "내 대기 백로그가 통째로 언제 다 풀리나"를 답하는 `eta`를 선택.
+- **한 일:** **`agentrelay eta` — 큐 소진(drain) 예보 커맨드 신규 구현.** 대기 중 잡 전체의 마지막 리셋
+  시각("all clear")을 카운트다운으로, 첫 리셋(soonest)·대기 수·이미 due인 수와 함께 한 줄로 보여준다.
+  상태바("all clear in 3h")나 rate-limit 창을 통째로 기다리는 스크립트(`until agentrelay eta --exit-code`)에 유용.
+  - core `eta.ts`(순수·시계/파일시스템 미접촉) `computeQueueEta(jobs, now)`: 스케줄러가 실제 재개하는 집합
+    (`waiting_for_reset` + 파싱 가능한 `resetAt`)만 대상으로 first/last 리셋 window·`firstDueInMs`/`lastDueInMs`·
+    `dueNow`·`allDue` 계산, 대기 없음이면 null(`selectNextResume` 계약과 동일). 원본 `resetAt` 문자열 보존
+    (타임존 오프셋 미정규화 → `next`와 일관). index.ts 재수출.
+  - CLI `eta.ts`(순수) `renderEta`(`status`의 `formatCountdown` 재사용 → "all clear in 2d 4h"/"all clear"가
+    status 테이블과 일치, dueNow 노트·단복수)·`renderEtaJson`. `agentrelay eta [--json] [--exit-code]` 배선
+    (exit code는 `next` 대칭: 0=전부 due, 3=일부 대기, 4=대기 없음). 새 파서/스케줄러/저장소 코드 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 524 + cli 254/1skip + dashboard 7, core eta 8 + cli eta 9 신규 포함). 빌드된 실제
+  CLI e2e(mock 아님): 빈 스토어→`No jobs waiting for a reset.`, 2-job 스토어→`all clear in ... 2 jobs waiting`,
+  `--json`이 first/last window·dueNow·allDue 형태로 출력, `--exit-code`(대기 잡 있음)→**exit 3** 확인.
+- **다음 할 일:** main 대상 PR 오픈(CI 초록 확인). 이후 남은 개선 항목 자체 발굴 계속(파서 신규 포맷은
+  🧭 리서치 의존). README/ARCHITECTURE(🧭 코워크 소유).
