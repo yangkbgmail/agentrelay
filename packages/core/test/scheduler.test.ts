@@ -154,6 +154,37 @@ describe("RelayScheduler", () => {
     expect(result.resetAt).toBe(new Date(now.getTime() + 90_000).toISOString());
   });
 
+  it("staggers the resume time on rate-limit re-queue, keeping the true parsed time in provenance", async () => {
+    dueJob();
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({ "claude -p continue": "Usage limit reached again. Resets in 2h." }),
+      resumeStaggerMs: 60_000,
+      rng: () => 1, // deterministic: full window offset
+    });
+
+    const [result] = await scheduler.tick();
+    expect(result.status).toBe("waiting_for_reset");
+    const parsed = result.lastRateLimit?.resetAt;
+    expect(parsed).toBeTruthy();
+    // The effective resume time is pushed forward by the full window, while the
+    // provenance keeps the untouched parsed reset time.
+    expect(new Date(result.resetAt as string).getTime()).toBe(new Date(parsed as string).getTime() + 60_000);
+  });
+
+  it("leaves the resume time unchanged when stagger is disabled (default), even with an rng", async () => {
+    dueJob();
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({ "claude -p continue": "Usage limit reached again. Resets in 2h." }),
+      rng: () => 1, // would move it if stagger were on
+    });
+
+    const [result] = await scheduler.tick();
+    expect(result.status).toBe("waiting_for_reset");
+    expect(result.resetAt).toBe(result.lastRateLimit?.resetAt);
+  });
+
   it("retries a spawn/child error rather than dropping the job", async () => {
     dueJob();
     const scheduler = new RelayScheduler({

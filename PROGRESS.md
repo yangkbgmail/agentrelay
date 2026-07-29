@@ -1361,6 +1361,30 @@
   README/ARCHITECTURE(🧭 코워크). 신규 👷 후보: rate-limit 재개 시각 자체의 stagger(동일 resetAt 다수 잡을
   분산 재개)도 별개 개선 여지.
 
+### [세션 42 — 재개-시각 stagger(`AGENTRELAY_RESUME_STAGGER`) 신규 기능] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-8irapk`)
+- **배경:** 👷 명시 백로그가 전부 완료 상태. 세션 41이 "다음 할 일"에서 신규 👷 후보로 명시한
+  **동일 resetAt 다수 잡의 재개 stagger**를 구현. #153(retry jitter)은 *전환 실패 백오프* 재시도만
+  분산하지, rate-limit 리셋 시각 자체는 분산하지 않는다 → 한 계정에서 여러 잡이 같은 창에 걸리면
+  전부 같은 순간 재개→API에 몰림→다시 rate-limit→같은 새 resetAt로 재큐→영원히 lockstep. 이 갭을 메움.
+- **한 일:**
+  1. **`@agentrelay/core/stagger.ts` 신설**(순수): `staggerResetAt(resetAt, staggerMs, rng?)`가
+     resetAt을 `[0, staggerMs]` 무작위 오프셋만큼 **뒤로만** 밀어(리셋 전 재개 방지) 분산. `staggerMs<=0`·
+     `rng` 부재·파싱 불가 resetAt·offset 0은 원본 그대로(하위호환·결정적). `resumeStaggerMsFromEnv`가
+     `AGENTRELAY_RESUME_STAGGER` duration→ms(미설정·비파싱·비양수=0=off, throw 없음).
+  2. **스케줄러 배선:** `RelayScheduler.resumeStaggerMs` 옵션 + 주입 `rng` 재사용. rate-limit 재큐 시
+     `job.resetAt`만 stagger하고 provenance `lastRateLimit.resetAt`은 **참 파싱값 유지**(show/대시보드가
+     감지 근거를 정직하게 보고). CLI run 최초 감지·daemon·tick 세 경로 배선, 데몬 배너에 "(resume stagger Ns)".
+  3. **config 신규 `schedule` 그룹:** type·sampleConfig(`resumeStagger:"0s"`)·CONFIG_FIELDS·cloneConfig·
+     parseConfig·validateConfig(비파싱 duration=error)·configToEnv·ConfigGroup·CONFIG_ENV_KEYS·CLI
+     GROUP_LABELS/ORDER 전부 배선 → `config set/validate/show` 자동 지원, 드리프트 sync 테스트 통과.
+- **검증:** `pnpm build` 클린(Next 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test` **721 통과 + 1 skip**
+  (core 498 + cli 216/1skip + dashboard 7; +20 신규: stagger 12·config 7·scheduler 2 등). 실제 빌드 CLI로
+  `config set schedule.resumeStagger 90s`→파일 기록·`config validate` good/bad·bad-duration exit 1·
+  데몬 배너 "(resume stagger 30s)" e2e 확인.
+- **다음 할 일:** 열린 PR 큐 적체(32건)는 여전 — distinct CI-초록 PR을 main에 계속 통합(COLLAB 병합 정책).
+  이 PR 자체도 CI 초록 확인 후 병합 대상. README/ARCHITECTURE(🧭 코워크). 추가 👷 후보: 동일 resetAt
+  잡이 아주 많을 때 stagger를 균등 슬롯(결정적 분산)으로 배치하는 옵션.
+
 ### [세션 41 — distinct CI-초록 PR 2건 통합(#153 retry jitter + #155 patterns), 큐 34→32] (2026-07-23, 무인 자율 세션, branch `claude/wizardly-pascal-b3sdw5`)
 - **배경:** 👷 명시 백로그가 전부 완료 상태이고 열린 PR이 34개까지 쌓여 있어(세션 34~40이 반복
   경고한 큐 적체), 새 기능을 더하기보다 **CI 초록·최신 main 기반·서로 겹치지 않는 distinct PR을
