@@ -1514,3 +1514,28 @@
   노출 검증.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과). 이후 남은 distinct 열린 PR 통합 계속
   (#125/#168/#170/#171 등), 중복 무리 수렴. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 47 — distinct CI-초록 PR #211(`agentrelay health`) 최신 main 통합] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-2pb9i4`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료 상태이고 열린 PR이 100건 이상 적체(다수 중복:
+  config get·stats --watch·upcoming·재개 stagger·파서 reset-at 계열 등). 세션 42~46의 판단(신규 기능을
+  더 쌓기보다 **CI 초록·서로 겹치지 않는 distinct PR을 최신 main 위로 통합**하는 것이 압도적 고가치)을
+  이어, 어느 열린 PR과도 겹치지 않는 격리도 높은 **#211(`agentrelay health`)**을 통합 대상으로 선정.
+- **한 일:** **#211(`agentrelay health` — 재개 루프[daemon/tick] 생존 프로브. `doctor`가 전체 셋업을
+  점검하는 상호작용용 진단이라면, `health`는 "재개 루프가 필요할 때 실제로 돌고 있나?" 단일 질문을 빠르게
+  exit code로 답하는 스크립트/모니터용 liveness 프로브 — systemd `ExecStartPre`·k8s liveness·cron·Nagios가
+  출력 파싱 없이 분기 가능)을 최신 main(4abefa1)에 통합.** PR head(59065f3)가 이미 최신 main HEAD를 base로
+  올라가 있어(`mergeable_state: clean`, 충돌·리베이스 불필요), 로컬 검증 후 그대로 병합(새 main HEAD c4e7427).
+  - 구현 요약(PR 원저자): core `health.ts`(순수) `evaluateHealth(status,{strict?})`가 세션 31의
+    `evaluateHeartbeat` 결과를 `HealthLevel`(healthy/idle/unhealthy)·`HealthReport`(level·exitCode·reason·
+    heartbeat)로 증류 — `state`·`concerning`(`!alive && waitingJobs>0`)만 사용해 doctor·대시보드와 불일치 불가.
+    `--strict`는 idle(루프 비생존+대기 0)도 실패로 승격. CLI `readHealthReport`(fs+clock, throw 안 함)·
+    `renderHealth`/`renderHealthJson`·`health [--json] [--strict]` 배선(exitCode 반영). 새 파서/스케줄러/저장소
+    코드 0줄.
+- **검증:** 병합 전 health 브랜치를 로컬 체크아웃해 `pnpm install`→`pnpm build` 클린(Next.js 포함)·
+  `pnpm ci:lint`(Biome) **0 경고**·`pnpm test` **전 패키지 통과**(core 516 + cli 245/1skip + dashboard 7,
+  core health 10 + cli health 10 신규 포함). 빌드된 실제 CLI e2e(mock 아님): no-store→`IDLE` **exit 0**,
+  `--strict`→`UNHEALTHY` **exit 1**, `--json`이 level/exitCode/heartbeat 형태로 출력 확인. CI(GitHub Actions
+  `build-and-test`)도 success. COLLAB 병합 정책(CI 초록이면 클로드 코드 병합 가능)에 근거해 통합.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
+  #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
+  파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
