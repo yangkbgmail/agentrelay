@@ -33,6 +33,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
   selectNextResume,
+  selectUpcomingResumes,
   sendTestNotification,
   summarizeRateLimitPatterns,
 } from "@agentrelay/core";
@@ -88,6 +89,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { renderUpcoming, renderUpcomingJson } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -551,6 +553,41 @@ export function buildCli(): Command {
         if (next === null) process.exitCode = 4;
         else if (!next.due) process.exitCode = 3;
         // due-now → exit 0 (default).
+      }
+    });
+
+  program
+    .command("upcoming")
+    .description("Show the resume timeline: every job waiting for a reset, in resume order, with countdowns")
+    .option("-n, --limit <n>", "Show at most N upcoming resumes (the summary still counts all waiting)")
+    .option("--json", "Print the timeline as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # the next handful of resumes at a glance\n" +
+        "  agentrelay upcoming --limit 5\n" +
+        "  # feed the schedule to jq\n" +
+        "  agentrelay upcoming --json | jq '.entries[].dueInMs'"
+    )
+    .action((opts: { limit?: string; json?: boolean }) => {
+      const { store } = program.opts();
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      const result = selectUpcomingResumes(listStatus(store), { limit });
+      if (opts.json) {
+        console.log(renderUpcomingJson(result, store));
+      } else {
+        console.log(renderUpcoming(result, { color: Boolean(process.stdout.isTTY) }));
       }
     });
 
