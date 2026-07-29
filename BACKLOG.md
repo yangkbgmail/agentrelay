@@ -17,6 +17,11 @@
       12am·12pm/타임존 오프셋 ISO/잘못된 ISO fallthrough/시간단위만/JSON `retry_after`/멀티라인.
       파서도 `"retry_after": N` JSON 형식 인식하도록 개선. branch `claude/keen-allen-u5qt1l`)
 - [ ] 👷🧭 최종 QA + 재현 가능한 데모 스크립트.
+      (👷 재현 가능한 데모 스크립트 완료 — `scripts/demo.sh` + `pnpm demo`. 실제 claude/codex나
+      네트워크 없이 격리 스토어에서 rate-limit 감지 → 큐잉 → 관찰(status/next/patterns/health) →
+      리셋 경과 후 tick 자동 재개 → completed 전 과정을 결정론적으로 재현하고 각 단계를 assert
+      (self-verifying: 통과=exit 0). CI/오프라인 스모크 테스트 겸용. branch `claude/demo-script-reproducible`.
+      🧭 최종 QA 체크리스트/릴리스 검수는 코워크 몫으로 남김.)
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 

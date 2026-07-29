@@ -10,6 +10,7 @@
     "lint:fix": "biome check --write",
     "format": "biome format --write",
     "ci:lint": "biome ci",
+    "demo": "pnpm build && bash scripts/demo.sh",
     "dev:dashboard": "pnpm --filter @agentrelay/dashboard dev"
   },
   "devDependencies": {
