@@ -1539,3 +1539,21 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 48 — 재현 가능한 엔드투엔드 데모 스크립트 `scripts/demo.sh`] (2026-07-29, 무인 자율 세션, branch `claude/demo-script-reproducible`)
+- **배경:** 👷 명시 BACKLOG 항목이 대부분 완료 상태였고, 남은 것 중 손댈 수 있는 유일한 👷 항목이
+  `👷🧭 최종 QA + 재현 가능한 데모 스크립트`. 100+ 적체 PR과 겹치지 않는 distinct·자기완결 산출물로
+  **재현 가능한 데모**를 선택(QA 체크리스트/릴리스 검수는 🧭 코워크 몫으로 남김).
+- **한 일:** `scripts/demo.sh`(+ 루트 `pnpm demo`) 신설. 실제 claude/codex 호출이나 네트워크 없이
+  **가짜 codex 툴**(첫 실행 `try again in 2s` rate-limit → exit 1, 재개 시 성공 → exit 0)로 전 수명주기를
+  결정론적으로 재현: (1) `run`→rate-limit 감지·`waiting_for_reset` 큐잉, (2) `status`/`next`/`patterns`/
+  `health` 관찰, (3) 리셋 경과 후 `tick` 자동 재개→`completed`, (4) `stats`/`metrics` 집계. 격리
+  `AGENTRELAY_STORE`(임시 디렉터리)+ 종료 트랩 정리로 실제 `~/.agentrelay` 를 건드리지 않음. 각 단계를
+  assert 하는 **self-verifying** 구조라 통과=exit 0, 어긋나면 exit 1 → CI/오프라인 스모크 테스트 겸용.
+  시도 카운터 파일로 "재개가 실제로 2번째 실행을 일으켰음"(최초 rate-limit + 재개 성공)을 증명.
+  `NO_COLOR`/비-TTY 시 색상 자동 비활성.
+- **검증:** `pnpm build` 클린, `pnpm ci:lint`(Biome) **0 경고**(88 files), `pnpm test` 전 패키지 통과
+  (core 516 + cli 245/1skip + dashboard 7). `NO_COLOR=1 bash scripts/demo.sh` 실제 실행 → 전 단계
+  assert 통과·exit 0(가짜 툴 2회 실행·completed 1건 확인). 신규 파서/스케줄러/저장소 코드 0줄.
+- **다음 할 일:** main 대상 PR open(테스트 통과). 🧭 코워크: README 5분 튜토리얼이 이 데모를 인용하면
+  좋음. 남은 distinct 열린 PR 통합 계속.
