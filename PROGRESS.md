@@ -1539,3 +1539,26 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 48 — 파서 day-qualified 리셋 시각("tomorrow") 인식 신규 구현] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-jpyugz`)
+- **배경:** 세션 시작 시 designated 브랜치가 이미 병합돼 origin에서 삭제된 상태 → 지침대로 최신 main(7646ad5)에서
+  같은 이름으로 재기점. 👷 명시 BACKLOG 항목은 전부 완료라 CLAUDE.md·SPEC §8("실제 rate-limit 메시지 포맷 조사해
+  파서 보강")에 근거해 스스로 신규 항목 발굴. 열린 PR 중복 클러스터(bare `reset at 5pm` clock)와 **명확히 구별되는**
+  day-offset("tomorrow") 축을 선정.
+- **한 일:** **파서가 명시적 "내일" 한정 리셋 시각을 인식하도록 확장.** Claude Code가 일간/주간 한도에서 실제 출력하는
+  `"Your limit will reset at 9am tomorrow."` 류가 기존 파서에서 조용히 유실되던 실사용 갭 해소. 두 하위 형식 모두
+  버그였다: (a) `resets tomorrow at 9am`은 기존 clock 패턴의 `reset … at` 인접성을 "tomorrow"가 끊어 아예 안 잡혀
+  잡 큐잉 실패, (b) `reset at 9am tomorrow`는 `clock-time-meridiem`이 "reset at 9am"만 낚아채고 "tomorrow"를 버려
+  지금이 9am 전이면 오늘 9am(이미 소진된 같은 창)으로 리셋을 **하루 일찍** 잡음.
+  - core `parser.ts`: 순수 헬퍼 `resolveClockTomorrow`(hour/optional min/optional meridiem→내일 그 시각, `setDate(+1)`
+    후 `setHours`; 분·meridiem 둘 다 없는 bare hour는 ambiguous→null=fallthrough, 13pm·hour>23·min>59 무효) +
+    두 패턴 신설 `clock-time-tomorrow`(시각 뒤 tomorrow)·`tomorrow-clock-time`(tomorrow 뒤 시각). 둘 다 bare clock
+    패턴보다 **먼저** 배치해 우선권 확보. 사전필터 `LOOKS_LIKE_RATE_LIMIT`에 `resets?\s+tomorrow` 추가(인접 `reset at`
+    없는 form (a)도 게이트 통과). 24h(`15:00 tomorrow`)·분+meridiem(`9:30am`) 조합 지원, 명명 타임존은 로컬 해석
+    (기존 clock 패턴과 동일 한계). 새 CLI 코드 0줄 — 기존 `parse`/스케줄러/run 경로가 자동 노출.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 522[parser 39, +6 신규] + cli 245/1skip + dashboard 7). 실제 빌드 CLI `parse` e2e(mock 아님):
+  `reset at 9am tomorrow`→`clock-time-tomorrow`·내일 09:00, `Resets tomorrow at 5pm`→`tomorrow-clock-time`·내일 17:00,
+  bare `reset at 5 tomorrow`→미검출(ambiguous 거부) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과). 이후 남은 distinct 열린 PR 통합·중복 무리 수렴 계속.
+  README/ARCHITECTURE(🧭 코워크).
