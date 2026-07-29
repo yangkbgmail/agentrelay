@@ -1539,3 +1539,29 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 48 — `agentrelay metrics`에 재개-루프 하트비트 게이지 노출] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-iges00`)
+- **배경:** 👷 명시 BACKLOG 항목이 전부 완료 상태. 세션 31이 재개-루프 하트비트를 **대시보드**에,
+  세션 46이 **`agentrelay health`** liveness 프로브에 노출했지만, **Prometheus `metrics`** 출력은 여전히
+  job 스토어만 반영해 스크레이프/알림 표면에서는 재개 루프가 죽어도 알 수 없었다. AgentRelay가 막으려는
+  바로 그 조용한 실패("대기 job이 있는데 재개 루프가 죽음")를 Alertmanager로 잡을 수 없다는 갭.
+- **한 일:** `metrics`가 재개-루프 생존을 게이지로 뿜도록 확장. 기존 `evaluateHeartbeat` 판정을 재사용해
+  doctor·health·대시보드와 alive/stale/absent 규칙을 강제로 일치시킴(중복 로직 0).
+  - core `metrics.ts`: `PrometheusOptions`에 `heartbeat?: HeartbeatStatus | null` 추가 + 순수
+    `heartbeatMetricLines(status, name)` 신설. `<prefix>_resume_loop_up{mode}`(alive=1/else 0, absent는
+    mode="none"로 안정 시리즈 유지)·`<prefix>_resume_loop_concerning`(대기 job 있는데 루프 비생존이면 1 —
+    `agentrelay_resume_loop_concerning == 1` 하나로 알림)·`<prefix>_resume_loop_last_tick_age_seconds{mode}`
+    (파싱 가능한 lastTickAt 있을 때만, 초 단위 — absent는 오도하는 0 대신 생략). heartbeat 미제공/`null`이면
+    아무것도 안 뿜어 하위 호환(기존 스크레이프 무변). prefix는 job 게이지와 동일하게 sanitize/적용.
+  - CLI: `readHealthReport`의 하트비트 읽기 로직을 순수 재사용 가능하게 `readHeartbeatStatus(storePath,nowMs)`로
+    추출(never throw, 미존재/깨짐=absent, 대기 job은 스토어 전체 `countActiveJobs`). `metrics` 액션이 스코프
+    필터(`--status/--tool/...`)와 **무관하게**(루프 생존은 특정 부분집합이 아니라 스토어 전체 대기 job 기준)
+    하트비트를 실어 렌더. `--no-heartbeat`로 job 스토어 게이지만 뽑는 opt-out + PromQL 알림 예시를 help에 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린 · `pnpm lint`(Biome) **0 경고** · `pnpm test`
+  **전 패키지 통과**(core 522 + cli 245/1skip + dashboard 7, core metrics 12→18 신규 6 포함). 빌드된 실제 CLI
+  e2e(mock 아님): 하트비트 파일 없음+대기 job 0→`resume_loop_up{mode="none"} 0`·`concerning 0`, 대기 job
+  1개 seed→`concerning 1`로 전이, 신선한 daemon `daemon.json`→`up{mode="daemon"} 1`·`concerning 0`·age 게이지
+  present, `--prefix myrel`→`myrel_resume_loop_*`, `--no-heartbeat`→resume_loop 게이지 0개 확인. 관련
+  BACKLOG 항목: "👷 `agentrelay metrics`에 재개-루프(하트비트) 생존 게이지 노출".
+- **다음 할 일:** 남은 관측성 갭 — 대시보드에 리셋 카운트다운/ETA를 metrics로도(`resume_eta_seconds`) 노출,
+  또는 스케줄러가 실제 재개 성공/실패를 카운터로 집계(현재 게이지만). distinct 열린 PR 통합도 병행 가능.

@@ -1,3 +1,4 @@
+import type { HeartbeatStatus } from "./heartbeat.js";
 import type { RelayStats } from "./stats.js";
 import { ALL_TOOLS } from "./stats.js";
 import { ALL_STATUSES } from "./summary.js";
@@ -20,6 +21,14 @@ export interface PrometheusOptions {
    * prefixed with `_` so the emitted names always parse.
    */
   prefix?: string;
+  /**
+   * The resume-loop liveness judgment (from `evaluateHeartbeat`). When provided,
+   * a few extra gauges are emitted so a scraper can alert on the exact failure
+   * mode AgentRelay exists to prevent: jobs waiting to resume while no resume
+   * loop is actually running. Omit (or pass `null`) to emit only job-store
+   * metrics — backward compatible.
+   */
+  heartbeat?: HeartbeatStatus | null;
 }
 
 const DEFAULT_PREFIX = "agentrelay";
@@ -59,6 +68,54 @@ function label(name: string, value: string): string {
 /** Build one metric family: HELP + TYPE header, then its samples. */
 function metricFamily(name: string, help: string, samples: string[]): string[] {
   return [`# HELP ${name} ${help}`, `# TYPE ${name} gauge`, ...samples];
+}
+
+/**
+ * Resume-loop liveness gauges derived from a {@link HeartbeatStatus}. Kept in a
+ * dedicated helper so the job-store metrics and the loop-liveness metrics stay
+ * independently testable.
+ *
+ * - `<prefix>_resume_loop_up{mode}` — 1 when the loop is alive, else 0. The
+ *   `mode` label is the writer's mode (`daemon`/`tick`) or `none` when no
+ *   heartbeat exists, so a stable series is always emitted for alerting.
+ * - `<prefix>_resume_loop_concerning` — 1 when jobs are waiting to resume but
+ *   the loop isn't alive (the exact silent-failure AgentRelay guards against),
+ *   else 0. Alert on `== 1`.
+ * - `<prefix>_resume_loop_last_tick_age_seconds{mode}` — seconds since the last
+ *   tick, emitted only when a parseable timestamp exists (absent loop → omitted
+ *   rather than a misleading 0).
+ */
+function heartbeatMetricLines(status: HeartbeatStatus, name: (suffix: string) => string): string[] {
+  const lines: string[] = [];
+  const mode = status.mode ?? "none";
+
+  lines.push(
+    ...metricFamily(name("resume_loop_up"), "Whether the resume loop is alive (1) or not (0).", [
+      `${name("resume_loop_up")}{${label("mode", mode)}} ${formatValue(status.state === "alive" ? 1 : 0)}`,
+    ])
+  );
+
+  lines.push(
+    ...metricFamily(
+      name("resume_loop_concerning"),
+      "1 when jobs are waiting to resume but the loop is not alive (they will not resume on their own), else 0.",
+      [`${name("resume_loop_concerning")} ${formatValue(status.concerning ? 1 : 0)}`]
+    )
+  );
+
+  // Only emit an age when the last-tick timestamp actually parsed; an absent or
+  // unparseable heartbeat has no honest age to report.
+  if (typeof status.ageMs === "number" && Number.isFinite(status.ageMs)) {
+    lines.push(
+      ...metricFamily(
+        name("resume_loop_last_tick_age_seconds"),
+        "Seconds since the resume loop's last tick (now - lastTickAt).",
+        [`${name("resume_loop_last_tick_age_seconds")}{${label("mode", mode)}} ${formatValue(status.ageMs / 1000)}`]
+      )
+    );
+  }
+
+  return lines;
 }
 
 /**
@@ -150,6 +207,12 @@ export function renderPrometheusMetrics(stats: RelayStats, options: PrometheusOp
         `${metric}{${label("stat", "max")}} ${formatValue(t.maxResolutionMs / 1000)}`,
       ])
     );
+  }
+
+  // Resume-loop liveness gauges (independent of the job-store scope filter) —
+  // only when the caller supplied a heartbeat judgment.
+  if (options.heartbeat) {
+    lines.push(...heartbeatMetricLines(options.heartbeat, name));
   }
 
   return `${lines.join("\n")}\n`;

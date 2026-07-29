@@ -360,6 +360,22 @@
       대시보드 `next start`+임시 스토어 `/api/jobs` curl로 alive/absent-concerning e2e 검증.
       branch `claude/wizardly-pascal-2ksc89`)
 
+- [x] 👷 `agentrelay metrics`에 재개-루프(하트비트) 생존 게이지 노출 — Prometheus 스크레이프로
+      "대기 job이 있는데 재개 루프가 죽음"(AgentRelay가 막으려는 바로 그 조용한 실패)을
+      Alertmanager로 감지. 세션 31의 대시보드 하트비트 노출을 모니터링 표면까지 확장.
+      (완료 — 기존 `metrics`는 job 스토어만 반영해, 재개 루프가 죽어도 스크레이프로는 알 수 없었다.
+      `@agentrelay/core/metrics.ts`의 `PrometheusOptions`에 `heartbeat?: HeartbeatStatus | null` 추가 +
+      순수 `heartbeatMetricLines(status, name)` 신설: `<prefix>_resume_loop_up{mode}`(alive=1/else 0,
+      absent는 mode="none"로 안정 시리즈 유지)·`<prefix>_resume_loop_concerning`(대기 job 있는데 루프
+      비생존이면 1 — `agentrelay_resume_loop_concerning == 1`로 알림)·`<prefix>_resume_loop_last_tick_age_seconds{mode}`
+      (파싱 가능한 lastTickAt 있을 때만, 초 단위). heartbeat 미제공/`null`이면 아무것도 안 뿜어 하위 호환.
+      기존 `evaluateHeartbeat` 판정을 재사용해 doctor/health/대시보드와 alive/stale/absent 규칙 일치.
+      CLI: `commands.ts`에서 `readHealthReport`의 하트비트 읽기 로직을 순수 재사용 가능하게 `readHeartbeatStatus(storePath,nowMs)`로
+      추출(never throw, 미존재=absent), `metrics` 액션이 스코프 필터와 무관하게(루프 생존은 스토어 전체
+      대기 job 기준) 하트비트를 실어 렌더. `--no-heartbeat`로 job 스토어 게이지만 뽑는 opt-out.
+      core metrics 6 신규(alive/stale-concerning/absent-none/prefix/omit/null), 실제 빌드 CLI e2e로
+      absent→concerning 전이·alive age·prefix·`--no-heartbeat` 검증. branch `claude/wizardly-pascal-iges00`)
+
 - [x] 👷 `agentrelay stats --group-by <tool|project|status>` — 큐 전체가 아니라 툴/프로젝트/상태
       부분집합별로 릴레이 효과(성공률·해결 시간 등)를 나눠 비교.
       (완료 — core `stats.ts`에 순수 `groupStats`/`GROUP_DIMENSIONS`/`GroupDimension`, CLI `stats.ts`에

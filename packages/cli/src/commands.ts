@@ -21,6 +21,7 @@ import type {
   HealthReport,
   HeartbeatFacts,
   HeartbeatMode,
+  HeartbeatStatus,
   JobStatus,
   Notifier,
   PruneOptions,
@@ -293,7 +294,19 @@ export interface HealthOptions {
 export function readHealthReport(options: HealthOptions = {}): HealthReport {
   const storePath = options.storePath ?? defaultStorePath();
   const nowMs = options.nowMs ?? Date.now();
+  const status = readHeartbeatStatus(storePath, nowMs);
+  return evaluateHealth(status, { strict: options.strict });
+}
 
+/**
+ * Read and judge the resume-loop heartbeat for a store into a plain
+ * {@link HeartbeatStatus} — the structured liveness data that `health`, the
+ * dashboard, and (now) `metrics` all share. This is the filesystem + clock half;
+ * the alive/stale/absent rule lives in `@agentrelay/core`'s
+ * {@link evaluateHeartbeat}. Never throws — a missing or unreadable heartbeat
+ * reads as an absent loop, judged against how many jobs are actually waiting.
+ */
+export function readHeartbeatStatus(storePath: string, nowMs: number = Date.now()): HeartbeatStatus {
   const waitingJobs = countActiveJobs(listStatus(storePath));
 
   let heartbeat = null;
@@ -304,8 +317,7 @@ export function readHealthReport(options: HealthOptions = {}): HealthReport {
     // Missing/unreadable heartbeat → absent loop, judged below.
   }
 
-  const status = evaluateHeartbeat(heartbeat, { nowMs, waitingJobs });
-  return evaluateHealth(status, { strict: options.strict });
+  return evaluateHeartbeat(heartbeat, { nowMs, waitingJobs });
 }
 
 /**
