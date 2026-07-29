@@ -1489,3 +1489,21 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 기능 발굴·구현: `agentrelay stats --watch` 라이브 TUI] (2026-07-29, 무인 자율 세션, branch `claude/stats-watch`)
+- **맥락:** BACKLOG의 순수 👷 항목이 전부 [x] 완료 상태 → CLAUDE.md 지침대로 스스로 새 개선 항목을
+  발굴. `status`에는 `--watch` 라이브 TUI가 있지만 `stats`엔 없어, 긴 릴레이 세션 동안 성공률·활성/종료·
+  다음 리셋 카운트다운을 실시간으로 지켜볼 방법이 없던 명확한 대칭 갭을 선정.
+- **한 일:** `agentrelay stats --watch [seconds]` 구현. CLI `stats.ts`에 순수
+  `renderStatsWatchFrame(body, storePath, intervalMs, now)` 신설(이미 렌더된 stats 본문을 라이브
+  헤더로 감싸는 view-agnostic 래퍼, status `renderWatchFrame`와 형식 일치). cli.ts에 `runStatsWatch`
+  루프(status `runWatch` 미러: 매 tick 스토어 재오픈→데몬 쓰기 반영, 동일 스코프 재적용, 표준/
+  `--group-by`/`--trend` 본문을 one-shot 경로와 동일 조립) + `-w/--watch [seconds]` 옵션(기본 2초).
+  `--json`이 이김(one-shot) — `!opts.json` 가드. 검증(status/tool/기간)은 워치 진입 전 실행돼 exit 1 유지.
+  새 core 코드 0줄 — `computeStats`/`renderStats`/`renderGroupedStats`/`renderTrend`/`scopeJobs` 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린·`pnpm ci:lint`(Biome, 84파일 무경고)·
+  `pnpm test` 전 패키지 통과(cli stats.test 27케이스, renderStatsWatchFrame 3 신규 포함). 실제 빌드
+  CLI e2e로 라이브 프레임(clear-screen+헤더+요약)·`--group-by`/`--trend` 조합·`--watch --json` json-wins·
+  잘못된 `--status` exit 1 검증.
+- **다음 할 일:** 형제 커맨드 대칭 계속 발굴(예: `errors`/`patterns`에도 `--watch`?). 또는 열린 PR 통합
+  재개. README/ARCHITECTURE는 🧭 코워크 소유라 미착수.
