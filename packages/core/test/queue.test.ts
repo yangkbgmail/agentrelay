@@ -118,6 +118,33 @@ describe("RelayQueue", () => {
     expect(queue.listDue(new Date(Date.now() + 120_000))).toHaveLength(0);
   });
 
+  it("removes a single job by id and returns the removed record", () => {
+    const a = queue.enqueue({ project: "a", tool: "claude-code", command: ["x"], cwd: "/tmp" });
+    const b = queue.enqueue({ project: "b", tool: "claude-code", command: ["y"], cwd: "/tmp" });
+    const removed = queue.remove(a.id);
+    expect(removed?.id).toBe(a.id);
+    expect(queue.getById(a.id)).toBeUndefined();
+    // Only the targeted job is gone; the other survives.
+    expect(queue.listAll().map((j) => j.id)).toEqual([b.id]);
+  });
+
+  it("remove is a no-op for an unknown id (does not rewrite the store)", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["z"], cwd: "/tmp" });
+    expect(queue.remove("does-not-exist")).toBeUndefined();
+    expect(queue.listAll().map((j) => j.id)).toEqual([job.id]);
+  });
+
+  it("removal persists across a reopen of the store", () => {
+    const storePath = join(dir, "reopen-remove.db");
+    const q1 = new RelayQueue(storePath);
+    const job = q1.enqueue({ project: "demo", tool: "claude-code", command: ["z"], cwd: "/tmp" });
+    q1.remove(job.id);
+    q1.close();
+    const q2 = new RelayQueue(storePath);
+    expect(q2.listAll()).toHaveLength(0);
+    q2.close();
+  });
+
   describe("corrupt store recovery", () => {
     it("preserves a corrupt store file instead of clobbering it, and starts fresh", () => {
       const storePath = join(dir, "corrupt.db");

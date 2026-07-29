@@ -593,6 +593,20 @@
       cli health 10 신규 테스트, 실제 빌드 CLI e2e로 idle→0/strict→1/대기 잡+무루프→unhealthy 1/JSON/help
       검증. branch `claude/wizardly-pascal-health`)
 
+- [x] 👷 `agentrelay rm <id>` — 단일 잡을 스토어에서 영구 삭제(`prune`의 대량 정리에 대한 표적 짝).
+      (완료 — 지금까지 잡을 없애는 수단은 `cancel`(레코드는 남기고 terminal `cancelled`로 전환)과
+      `prune`(나이·상태 규칙으로 종료 잡 대량 삭제)뿐이라, "이 잘못 큐잉된 잡 하나만 지우고 싶다"를
+      할 방법이 없었다. `@agentrelay/core/control.ts`에 순수 가드 `canRemove(job)` 추가 — 여전히 재개
+      대기 중(`CANCELLABLE_STATUSES`: queued/waiting_for_reset/resuming)이면 거부(삭제 시 큐된 작업이
+      조용히 유실되므로 "먼저 cancel하거나 --force"), 종료 잡(completed/failed/cancelled)은 항상 안전.
+      `RelayQueue.remove(id)`는 full id로 한 레코드만 삭제 후 삭제된 잡 반환(미지 id는 flush 없는 no-op →
+      오타가 스토어를 재기록하지 않음). CLI `commands.ts` `removeJob(idOrPrefix,{storePath,force})` —
+      `resolveJobId` 재사용(짧은 prefix·모호/미존재는 cancel/retry와 동일), 기본은 `canRemove` 가드,
+      `--force`로 우회. `cli.ts` `agentrelay rm <id> [-f/--force]`(alias `remove`), 실패 시 exit 1. 새
+      파서/스케줄러 코드 0줄. core control +2·queue +3, cli commands +5 신규 테스트, 실제 빌드 CLI e2e로
+      completed 삭제→exit 0 / waiting 무-force 거부→exit 1 / --force 삭제→exit 0 / 미지 id→exit 1 검증.
+      branch `claude/wizardly-pascal-gmgp9u`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

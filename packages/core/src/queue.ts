@@ -243,6 +243,24 @@ export class RelayQueue {
     this.update(id, { status: "waiting_for_reset", resetAt: at, attempts: 0, lastError: null });
   }
 
+  /**
+   * Permanently delete a single job from the store by full id and return the
+   * removed job (or `undefined` when the id is unknown). This is the targeted
+   * counterpart to {@link prune}'s bulk cleanup: `prune` drops finished jobs by
+   * age/status rules, whereas this removes exactly one record regardless of its
+   * status. Callers guard which jobs are safe to delete via `canRemove`; the
+   * queue itself removes whatever id it is handed. A no-op (no flush) when the
+   * id is unknown, so a mistyped id never rewrites the store.
+   */
+  remove(id: string): RelayJob | undefined {
+    this.load();
+    const existing = this.jobs.get(id);
+    if (!existing) return undefined;
+    this.jobs.delete(id);
+    this.flush();
+    return existing;
+  }
+
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {
     this.load();
     const existing = this.jobs.get(id);

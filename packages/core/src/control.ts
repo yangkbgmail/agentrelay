@@ -41,6 +41,26 @@ export function canRequeue(job: RelayJob): ControlResult {
   return { ok: true };
 }
 
+/**
+ * Whether `job` may be permanently deleted from the store. Unlike `cancel`
+ * (which keeps the record in a terminal `cancelled` state), removal drops the
+ * record entirely, so a job that is still pending resume
+ * ({@link CANCELLABLE_STATUSES}: queued / waiting_for_reset / resuming) is
+ * rejected by default — deleting it would silently throw away queued work the
+ * relay is meant to resume. Terminal jobs (completed / failed / cancelled) are
+ * always safe to remove. Callers can override the guard with a `--force` flag;
+ * this keeps that guard pure so both surfaces produce the same reasons.
+ */
+export function canRemove(job: RelayJob): ControlResult {
+  if (CANCELLABLE_STATUSES.includes(job.status)) {
+    return {
+      ok: false,
+      reason: `job is ${job.status} (still pending resume) — cancel it first, or pass --force to remove it anyway`,
+    };
+  }
+  return { ok: true };
+}
+
 /** One job that a bulk-control guard rejected, paired with the reason why. */
 export interface IneligibleJob {
   job: RelayJob;

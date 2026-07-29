@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canCancel, canRequeue, partitionForControl, resolveJobId } from "../src/control.js";
+import { canCancel, canRemove, canRequeue, partitionForControl, resolveJobId } from "../src/control.js";
 import type { JobStatus, RelayJob } from "../src/types.js";
 
 function job(id: string, status: JobStatus): RelayJob {
@@ -47,6 +47,23 @@ describe("canRequeue", () => {
     const result = canRequeue(job("a", "resuming"));
     expect(result.ok).toBe(false);
     expect(result.reason).toContain("resuming");
+  });
+});
+
+describe("canRemove", () => {
+  it("allows removing terminal jobs", () => {
+    for (const status of ["completed", "failed", "cancelled"] as JobStatus[]) {
+      expect(canRemove(job("a", status)).ok).toBe(true);
+    }
+  });
+
+  it("rejects removing a job that is still pending resume (needs --force)", () => {
+    for (const status of ["queued", "waiting_for_reset", "resuming"] as JobStatus[]) {
+      const result = canRemove(job("a", status));
+      expect(result.ok).toBe(false);
+      expect(result.reason).toContain(status);
+      expect(result.reason).toContain("--force");
+    }
   });
 });
 
