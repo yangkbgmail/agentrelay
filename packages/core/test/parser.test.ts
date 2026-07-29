@@ -236,6 +236,42 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  it("parses a JSON reset_at ISO field (structured payload, no prose 'reset at')", () => {
+    const result = parseRateLimitMessage('{"error":{"type":"rate_limit_error","reset_at":"2026-07-13T05:00:00Z"}}');
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("reset-at-field");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses a camelCase resetAt field", () => {
+    const result = parseRateLimitMessage('rate_limit_error resetAt="2026-07-13T05:00:00Z"');
+    expect(result?.pattern).toBe("reset-at-field");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses a reset_time field carrying a unix epoch", () => {
+    const result = parseRateLimitMessage('{"rate_limit":true,"reset_time":1752382800}');
+    expect(result?.pattern).toBe("reset-at-field");
+    expect(result?.resetAt).toBe(new Date(1752382800 * 1000).toISOString());
+  });
+
+  it("parses a hyphenated reset-time field with an offset ISO timestamp", () => {
+    const result = parseRateLimitMessage("usage limit; reset-time = 2026-07-13T05:00:00+09:00");
+    expect(result?.pattern).toBe("reset-at-field");
+    expect(result?.resetAt).toBe("2026-07-12T20:00:00.000Z");
+  });
+
+  it("does not treat the prose 'reset at <iso>' as the structured field pattern", () => {
+    // Whitespace between the words means iso-timestamp owns this, not reset-at-field.
+    const result = parseRateLimitMessage("It resets at 2026-07-13T05:00:00Z.");
+    expect(result?.pattern).toBe("iso-timestamp");
+  });
+
+  it("falls through a reset_at field with a malformed timestamp", () => {
+    const result = parseRateLimitMessage('{"rate_limit":true,"reset_at":"not-a-timestamp"}');
+    expect(result).toBeNull();
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [

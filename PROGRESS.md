@@ -1489,3 +1489,27 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+## 세션 45 (2026-07-29) — 파서: 구조화 페이로드 `reset_at`/`resetAt`/`reset_time` 필드 인식
+
+- **맥락:** BACKLOG의 👷(클로드 코드) 소유 항목은 전부 `[x]` 완료 상태 — CLAUDE.md "멈추지 말고
+  §8 무한 개선 백로그 소진, 비면 스스로 발굴" 지침대로 새 개선 항목을 발굴. 브랜치는 이미 머지된
+  히스토리(#206)만 갖고 있어 최신 `origin/main`(4abefa1) 기준으로 `claude/wizardly-pascal-vxl83l`
+  재설정 후 작업.
+- **한 일:** **파서가 구조화된 에러 페이로드의 리셋 시각 필드를 인식하도록 개선.** 기존 파서는
+  `iso-timestamp`(산문 "reset at " — 단어 사이 공백 필수)와 `unix-epoch`(`retry_after` 필드 전용)만
+  있어, API가 429에서 흔히 반환하는 `{"reset_at":"2026-…Z"}` / `resetAt` / `reset_time` 같은
+  **필드형 리셋 시각**이 두 패턴 모두를 빠져나가 잡이 큐잉되지 않던 실사용 갭이 있었다.
+  - 구현: `parser.ts`에 순수 `reset-at-field` 패턴 추가. 필드명 `reset[_-]?(at|time)`은
+    언더스코어/하이픈/camelCase 이음새를 요구(공백 없음)해 산문 "reset at"과 disjoint,
+    `[=:]`로 이어지는 값 두 형태를 인식 — ISO-8601 문자열(`Z`/오프셋 포함)과 10자리 unix epoch
+    (`\b` 경계 고정으로 더 긴 숫자 오독 방지). 사전필터 `LOOKS_LIKE_RATE_LIMIT`에
+    `reset[_-]?(at|time)\s*[=:]`를 추가해 `rate_limit` 토큰이 없는 순수 필드 페이로드도 통과.
+    잘못된 타임스탬프는 매치 실패로 안전하게 fallthrough(null), 산문 "resets at <iso>"는 그대로
+    `iso-timestamp` 소유(우선순위 무손상). 새 CLI 코드 0줄 — `parse` 커맨드가 자동 노출.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함 클린)·`pnpm ci:lint`(Biome, 0 경고)·
+  `pnpm test` 전 패키지 통과(core 512 / cli 235+1skip). parser.test +6 회귀(JSON reset_at ISO·
+  camelCase resetAt·reset_time epoch·하이픈 reset-time+오프셋 ISO·산문 비오검출·malformed
+  fallthrough). 실제 빌드된 CLI `parse`로 reset-at-field 매치·epoch·camelCase·산문 unchanged e2e 확인.
+- **다음 할 일:** 남은 파서 실사용 포맷 발굴(주간 한도 "resets Monday"/"tomorrow at 9am" 등 —
+  단, 실제 메시지 샘플은 🧭 코워크 소유이므로 확인된 포맷만). 열린 distinct PR 통합 계속.
