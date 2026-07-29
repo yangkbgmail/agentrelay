@@ -1539,3 +1539,24 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 48 — 파서: 주간 한도 요일 리셋(`reset on Monday`) 인식] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-5u3oz3`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료 상태. CLAUDE.md의 "백로그가 비면 스스로 새
+  개선 항목을 발굴" 방침에 따라, 열린 PR 무리(config get·stats --watch·재개 stagger·파서 reset-**at**
+  계열)와 겹치지 않는 격리도 높은 실사용 갭을 선정 — Claude Code의 **주간(weekly) 사용 한도**가 리셋될 때
+  출력하는 요일 기반 절대 리셋("Your limit will reset on Monday")을 기존 파서가 못 잡던 문제. 세션 34의
+  "일(day) 단위 상대 시간" 추가의 자연스러운 후속(상대 → 절대 요일).
+- **한 일:** `packages/core/src/parser.ts`에 순수 `weekday-reset` 패턴 추가. `reset[s]? on <weekday>`
+  (+선택적 `at <time>`: 12/24h·`:MM`·am/pm)를 인식해 **다음 해당 요일**로 롤(이번 주 시각이 아직 미래면
+  이번 주, 이미 지났으면 다음 주 → 과거 재개 방지). 시각 미지정은 자정(00:00). 요일은 3글자 약어/전체
+  이름 모두(`Fri`/`Friday`), `hour>23` 방어. 기존 "reset **at**" 3패턴(iso/clock/clock-meridiem)과
+  동사가 disjoint(`at` vs `on`)라 충돌 없음. pre-filter(`LOOKS_LIKE_RATE_LIMIT`)에 `resets? on <weekday>`
+  절 추가하되 **요일 한정**이라 "git reset on branch" 류 false positive 없음(명명 타임존은 로컬 해석 —
+  clock-time과 동일 기존 한계). 새 CLI 코드 0줄 — 기존 `agentrelay parse`가 자동 노출.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 521 + cli 245/1skip + dashboard 7, parser.test 38개[+5 신규: no-time midnight/
+  약어+시각/전체명+분정밀 meridiem/같은 요일 시각 경과→다음 주 롤/negative "git reset on branch"]). 빌드된
+  실제 CLI e2e(mock 아님): `reset on Monday`→다음 월요일 자정, `Resets on Fri at 9am`→다음 금 09:00,
+  `git reset on the feature branch`→감지 안 됨(exit 정상) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과). 이후 남은 distinct 열린 PR 통합·중복 무리
+  수렴 계속. README/ARCHITECTURE(🧭 코워크).

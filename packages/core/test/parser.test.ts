@@ -236,6 +236,58 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  it("parses the weekly-limit wording 'reset on Monday' (no time -> midnight of that weekday)", () => {
+    // 2026-07-12 is a Sunday; next Monday is 2026-07-13.
+    const now = new Date("2026-07-12T20:00:00Z");
+    const result = parseRateLimitMessage("You've reached your weekly usage limit. Your limit will reset on Monday.", {
+      now,
+    });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("weekday-reset");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getDay()).toBe(1); // Monday
+    expect(resetDate.getHours()).toBe(0);
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses an abbreviated weekday with a trailing time: 'reset on Fri at 9am'", () => {
+    const now = new Date("2026-07-13T12:00:00"); // Monday, local
+    const result = parseRateLimitMessage("Usage limit reached. Resets on Fri at 9am.", { now });
+    expect(result?.pattern).toBe("weekday-reset");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getDay()).toBe(5); // Friday
+    expect(resetDate.getHours()).toBe(9);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses a minute-precise meridiem time on a full weekday name", () => {
+    const now = new Date("2026-07-13T12:00:00"); // Monday, local
+    const result = parseRateLimitMessage("Usage limit reached. Resets on Wednesday at 5:30pm.", { now });
+    expect(result?.pattern).toBe("weekday-reset");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getDay()).toBe(3); // Wednesday
+    expect(resetDate.getHours()).toBe(17);
+    expect(resetDate.getMinutes()).toBe(30);
+  });
+
+  it("rolls the same weekday forward a full week when its time has already passed today", () => {
+    // now is a Monday 20:00 local; "reset on Monday at 9am" is earlier today, so
+    // the next real reset is next Monday.
+    const now = new Date("2026-07-13T20:00:00");
+    const result = parseRateLimitMessage("Resets on Monday at 9am. Usage limit reached.", { now });
+    expect(result?.pattern).toBe("weekday-reset");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getDay()).toBe(1); // Monday
+    expect(resetDate.getHours()).toBe(9);
+    // ~7 days out, definitely more than 6 days from now.
+    expect(resetDate.getTime() - now.getTime()).toBeGreaterThan(6 * 24 * 60 * 60_000);
+  });
+
+  it("does not misread 'git reset on Monday's branch' as a rate limit (no usage-limit context)", () => {
+    expect(parseRateLimitMessage("Ran git reset on the feature branch.")).toBeNull();
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [

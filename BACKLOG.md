@@ -593,6 +593,16 @@
       cli health 10 신규 테스트, 실제 빌드 CLI e2e로 idle→0/strict→1/대기 잡+무루프→unhealthy 1/JSON/help
       검증. branch `claude/wizardly-pascal-health`)
 
+- [x] 👷 파서: 주간 한도 요일 기반 절대 리셋(`reset on Monday` / `reset on Fri at 9am`) 인식 —
+      Claude Code가 주간(weekly) 사용 한도 리셋 시 출력하는 요일 문구를 기존 파서가 못 잡던 실사용 갭.
+      (완료 — `parser.ts`에 순수 `weekday-reset` 패턴 추가: `reset[s]? on <weekday>`[+선택 `at <time>`]를
+      **다음 해당 요일**로 롤[이번 주 시각 미래면 이번 주·지났으면 다음 주 → 과거 재개 방지], 시각 미지정은
+      자정, 3글자 약어/전체명 모두, `hour>23` 방어. 기존 "reset **at**" 3패턴과 동사 disjoint(`at`↔`on`)라
+      충돌 없음. pre-filter에 요일 한정 절 추가(false positive 방지). 세션 34 "일 단위 상대 시간"의 절대
+      요일 후속. parser.test +5 회귀(midnight/약어+시각/전체명 분정밀/같은 요일 경과→다음 주/negative
+      "git reset on branch"), 실제 빌드 CLI `parse` e2e 검증. 새 CLI 코드 0줄. branch
+      `claude/wizardly-pascal-5u3oz3`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

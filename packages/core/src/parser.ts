@@ -86,6 +86,41 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // "resets on Monday" / "reset on Fri at 9am" / "resets on Wednesday at 5:30pm"
+    // — the weekday-based absolute reset that Claude Code prints for *weekly*
+    // usage windows ("You've reached your weekly usage limit. Your limit will
+    // reset on Monday."). The three prior "reset at ..." patterns only handle a
+    // clock time on the same/next day; a named weekday can be up to a week out,
+    // so it needs its own matcher. The optional trailing time reuses the same
+    // 12/24-hour + meridiem shape as clock-time; with no time we assume midnight
+    // (00:00) at the start of that weekday. The reset instant is rolled to the
+    // *next* occurrence of that weekday (this week if the time is still ahead,
+    // otherwise next week) so we never schedule a resume in the past. Named
+    // timezones in the message are interpreted in local time — same known
+    // limitation as clock-time.
+    name: "weekday-reset",
+    regex: /reset[s]?\s+on\s+(sun|mon|tue|wed|thu|fri|sat)[a-z]*(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/i,
+    resolve: (m, now) => {
+      const WEEKDAYS: Record<string, number> = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+      const target = WEEKDAYS[m[1].slice(0, 3).toLowerCase()];
+      if (target === undefined) return null;
+      let hour = m[2] ? parseInt(m[2], 10) : 0;
+      const minute = m[3] ? parseInt(m[3], 10) : 0;
+      if (hour > 23) return null; // guards a bogus "at 25" from a false match
+      const meridiem = m[4]?.toLowerCase();
+      if (meridiem === "pm" && hour < 12) hour += 12;
+      if (meridiem === "am" && hour === 12) hour = 0;
+      const candidate = new Date(now);
+      candidate.setHours(hour, minute, 0, 0);
+      const dayDiff = (target - candidate.getDay() + 7) % 7;
+      candidate.setDate(candidate.getDate() + dayDiff);
+      if (candidate.getTime() <= now.getTime()) {
+        candidate.setDate(candidate.getDate() + 7);
+      }
+      return candidate;
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
@@ -136,7 +171,8 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|try again|resets?\s+(at|in)|resets?\s+on\s+(sun|mon|tue|wed|thu|fri|sat)|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);
