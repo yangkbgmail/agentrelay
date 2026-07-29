@@ -1539,3 +1539,29 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+---
+
+## 세션 48 — `agentrelay upcoming` (재개 타임라인)
+
+- **시각:** 2026-07-29
+- **맥락:** 최신 main(7646ad5)에서 시작. BACKLOG의 👷(클로드 코드) 항목이 사실상 소진되어(남은 미완료는
+  🧭 코워크 소유 문서/리서치뿐), CLAUDE.md "멈추지 않고 최대치로" 지침에 따라 새 개선 항목을 스스로 발굴.
+  기존 `next`(다음 잡 1개)·`status`(큐 전체, 시간 순서·간격 정보 없음)가 못 답하는 "앞으로의 재개 일정
+  전체"를 채우는 커맨드를 선정.
+- **한 일:** **`agentrelay upcoming` — 재개 타임라인 커맨드 신설.** 대기 중(`waiting_for_reset`) 잡을 스케줄러가
+  실제로 재개할 순서대로 나열하고, 연속 재개 사이 간격(gap)과 전체 span을 노출.
+  - core `upcoming.ts`(순수·시계/큐/파일시스템 미접촉): `selectUpcomingResumes(jobs,{now,limit})` +
+    `UpcomingResume`(job·resetAtMs·dueInMs·due·gapFromPreviousMs)·`UpcomingResumes`(entries·totalWaiting·
+    shown·spanMs). 정렬은 `next`와 **공유**(`compareResumeOrder`를 next.ts에서 export해 재사용) → 첫 엔트리는
+    `next`의 픽과 항상 일치(불변식 테스트로 고정). limit는 양의 정수만 캡(0/음수/소수는 무캡, 방어적),
+    totalWaiting은 캡 전 전체. 입력 배열 불변.
+  - CLI `upcoming.ts` 순수 `renderUpcoming`(short id·project·카운트다운[`formatCountdown` 재사용]·절대 reset·
+    "+gap"[`formatDurationMs`, 첫 행/0 gap 생략]+요약 푸터)·`renderUpcomingJson`. `upcoming [-n/--limit] [--json]`
+    배선, 잘못된 limit exit 1.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린, `pnpm ci:lint`(Biome) **0 경고**(자동 포맷 적용),
+  `pnpm test` **전 패키지 통과**(core 527 + cli 254/1skip + dashboard 7, core upcoming 11 + cli upcoming 9 신규).
+  빌드된 실제 CLI e2e(mock 아님): 3-잡 임시 스토어에서 due-now 우선 정렬·gap(+30m/+1h)·span 1h30m·`--limit 2`
+  푸터("2 of 3 waiting jobs shown")·`--json`(totalWaiting/shown/spanMs/entries)·`--limit 0` exit 1 확인.
+- **다음 할 일:** 대시보드에 upcoming 타임라인 위젯 노출 검토(재개 스케줄 시각화). 남은 distinct 열린 PR 통합
+  계속. README/ARCHITECTURE(🧭 코워크).

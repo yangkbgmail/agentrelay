@@ -593,6 +593,24 @@
       cli health 10 신규 테스트, 실제 빌드 CLI e2e로 idle→0/strict→1/대기 잡+무루프→unhealthy 1/JSON/help
       검증. branch `claude/wizardly-pascal-health`)
 
+- [x] 👷 `agentrelay upcoming` — 재개 타임라인. `next`는 다음 잡 하나만, `status`는 큐 전체를 시간
+      순서 없이 보여주는데, 이 커맨드는 대기 중인 잡을 스케줄러가 실제로 재개할 순서대로 나열하고
+      연속 재개 사이의 간격(gap)과 전체 타임라인 span을 노출해 "앞으로 몇 시간 동안 언제 무엇이
+      깨어나나"를 한눈에 보여준다(capacity planning).
+      (완료 — `@agentrelay/core/upcoming.ts` 신설(순수·시계/큐/파일시스템 미접촉): `selectUpcomingResumes(jobs,
+      {now,limit})` + `UpcomingResume`(job·resetAtMs·dueInMs·due·gapFromPreviousMs)·`UpcomingResumes`
+      (entries·totalWaiting·shown·spanMs). `waiting_for_reset`+파싱 가능한 resetAt 잡만 필터해 `next`와
+      **공유하는** 정렬(`compareResumeOrder` — reset asc→createdAt asc→id, next.ts에서 export해 재사용)로
+      랭킹 → 첫 엔트리는 `next`의 픽과 항상 일치(불변식 테스트). gapFromPreviousMs는 직전 엔트리와의 reset
+      차(첫 엔트리 0), spanMs는 shown ≥2일 때 처음~마지막 span(아니면 null). limit는 양의 정수만 캡
+      적용(0·음수·소수는 무캡, 방어적), totalWaiting은 캡 전 전체 카운트. 입력 배열 불변(정렬은 복사본).
+      CLI `packages/cli/src/upcoming.ts` 순수 `renderUpcoming`(잡당 1행: short id·project·카운트다운
+      [`formatCountdown` 재사용, "due now"/1h 30m 일치]·절대 reset·"+gap"[`formatDurationMs`, 첫 행·0 gap은
+      생략]+요약 푸터[전체 대기 수·limited 뷰 구분·span])·`renderUpcomingJson`. `agentrelay upcoming [-n/--limit]
+      [--json]` 배선, 잘못된 limit는 exit 1. 새 스케줄러/파서 코드 0줄 — next의 정렬 인프라 재사용. core
+      upcoming 11 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 due-now 우선·순서·gap·span·limit 푸터·
+      JSON·에러 exit 검증. branch `claude/wizardly-pascal-rbpncq`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
