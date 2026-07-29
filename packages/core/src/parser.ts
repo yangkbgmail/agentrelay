@@ -43,6 +43,29 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Structured error payloads (JSON / key=value) that carry an explicit reset
+    // instant in a field named like `reset_at`, `resetAt`, `reset-time`, or
+    // `reset_time`. Two value forms are accepted:
+    //   - ISO-8601 string:  "reset_at": "2026-07-13T05:00:00Z"
+    //   - Unix epoch secs:  "reset_at": 1752345600
+    // This complements the two existing structured patterns: `iso-timestamp`
+    // only matches the *prose* "reset at <iso>" (whitespace between the words),
+    // and `unix-epoch` only matches the `retry_after` field — so a bare
+    // `reset_at`/`resetAt` field (no space, underscore/camelCase) fell through
+    // both. The field name requires an underscore/hyphen/camelCase seam (not a
+    // space), which keeps it disjoint from the prose "reset at" patterns.
+    name: "reset-at-field",
+    regex:
+      /reset[_-]?(?:at|time)"?\s*[=:]\s*"?(?:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)|(\d{10})\b)/i,
+    resolve: (m) => {
+      if (m[1] !== undefined) {
+        const d = new Date(m[1]);
+        return Number.isNaN(d.getTime()) ? null : d;
+      }
+      return new Date(parseInt(m[2], 10) * 1000);
+    },
+  },
+  {
     // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
     name: "clock-time",
     regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
@@ -136,7 +159,8 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|try again|resets?\s+(at|in)|reset[_-]?(at|time)\s*[=:]|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);

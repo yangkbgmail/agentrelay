@@ -575,6 +575,18 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 구조화된 에러 페이로드의 `reset_at`/`resetAt`/`reset_time`/`reset-time` 필드 인식
+      (JSON/key-value). 기존 `iso-timestamp`는 산문 "reset at "(단어 사이 공백)만, `unix-epoch`는
+      `retry_after` 필드만 잡아, `{"reset_at":"…"}` 같은 필드형 리셋 시각이 두 패턴 모두를 빠져나갔다.
+      (완료 — `parser.ts`에 순수 `reset-at-field` 패턴 추가: 필드명 `reset[_-]?(at|time)`(언더스코어/
+      하이픈/camelCase 이음새 필수 → 산문 "reset at"과 disjoint)에 `[=:]`로 이어지는 값 두 형태 인식 —
+      ISO-8601 문자열(`"2026-…Z"`/오프셋)과 10자리 unix epoch(`\b`로 경계 고정). 사전필터
+      `LOOKS_LIKE_RATE_LIMIT`에 `reset[_-]?(at|time)\s*[=:]` 추가해 `rate_limit` 없이 필드만 있는
+      페이로드도 통과. 잘못된 타임스탬프는 매치 실패로 fallthrough(null), 산문 "resets at <iso>"는
+      그대로 `iso-timestamp` 소유. 새 CLI 코드 0줄 — `parse` 커맨드가 자동 노출. parser.test +6 회귀
+      (JSON reset_at/camelCase resetAt/reset_time epoch/하이픈+오프셋 ISO/산문 비오검출/malformed
+      fallthrough), 실제 빌드 CLI `parse`로 e2e 검증. branch `claude/wizardly-pascal-vxl83l`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
