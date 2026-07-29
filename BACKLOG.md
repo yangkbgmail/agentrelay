@@ -575,6 +575,21 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 `agentrelay upcoming` — 파킹된 잡의 재개 시점을 시간 버킷(연체/1시간 내/오늘/이후)으로 묶은
+      전방(forward) 어젠다. `next`(단일 다음 재개)·`status`(평면 테이블)와 달리 "이 도구의 핵심 약속인
+      리셋 시점 자동 재개가 앞으로 어떤 일정으로 펼쳐지나"를 한눈에 스캔.
+      (완료 — `@agentrelay/core/upcoming.ts` 신설(순수·파일시스템/시계 미접촉): `buildResumeAgenda(jobs,
+      now)` + `ResumeAgenda`(buckets[항상 4개 고정순서]·totalWaiting·nextResetAt)·`ResumeAgendaBucket`·
+      `ResumeAgendaEntry`(jobId·project·tool·resetAt·dueInMs·due) + `RESUME_BUCKETS`. `waiting_for_reset`
+      이며 파싱 가능한 `resetAt`을 가진 잡만 대상(스케줄러 due 로직과 동일 집합, null/비파싱 resetAt은
+      타임라인에 놓을 수 없어 제외), dueInMs로 버킷 배정(≤0=overdue·≤1h·≤24h·그 외), 전 잡을 resetAt asc
+      →createdAt→id로 결정론 정렬(next.ts와 동일 순서 규약). CLI `packages/cli/src/upcoming.ts`에 순수
+      `renderUpcoming`(비어있지 않은 버킷만 헤더+행[짧은 id·project·tool·카운트다운·절대 reset]+요약 푸터,
+      `formatCountdown` 재사용으로 status/next와 문구 일치, scope note·color 게이트)·`renderUpcomingJson`.
+      `agentrelay upcoming [--json]` + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용.
+      core upcoming 6 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 버킷 배정·스코프 필터·완료 잡 제외·
+      JSON 검증. branch `claude/wizardly-pascal-ut7zvu`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
