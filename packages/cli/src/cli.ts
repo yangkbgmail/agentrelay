@@ -34,9 +34,11 @@ import {
   scopeJobs,
   selectNextResume,
   sendTestNotification,
+  summarizeAdapters,
   summarizeRateLimitPatterns,
 } from "@agentrelay/core";
 import { Command } from "commander";
+import { renderAdapters, renderAdaptersJson } from "./adapters.js";
 import {
   ALL_JOB_STATUSES,
   type BulkControlAction,
@@ -873,6 +875,27 @@ export function buildCli(): Command {
           scopeNote: built.active ? built.note : undefined,
         })
       );
+    });
+
+  program
+    .command("adapters")
+    .description("List the agent adapters AgentRelay knows about (binaries that auto-select each, per-tool patterns)")
+    .option("--json", "Print the registry as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # what tools can AgentRelay wrap, and how does it detect their limits?\n" +
+        "  agentrelay adapters\n" +
+        "  # which argv[0] names auto-select an adapter?\n" +
+        "  agentrelay adapters --json | jq '.summary.adapters[].binaries'"
+    )
+    .action((opts: { json?: boolean }) => {
+      const summary = summarizeAdapters();
+      if (opts.json) {
+        console.log(renderAdaptersJson({ generatedAt: new Date().toISOString(), summary }));
+      } else {
+        console.log(renderAdapters(summary, { color: Boolean(process.stdout.isTTY) }));
+      }
     });
 
   program

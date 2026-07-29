@@ -593,6 +593,20 @@
       cli health 10 신규 테스트, 실제 빌드 CLI e2e로 idle→0/strict→1/대기 잡+무루프→unhealthy 1/JSON/help
       검증. branch `claude/wizardly-pascal-health`)
 
+- [x] 👷 `agentrelay adapters` — 등록된 에이전트 어댑터 레지스트리 정적 introspection(어떤 툴을
+      래핑할 수 있는지, 어떤 argv[0] 바이너리가 각 어댑터를 자동 선택하는지, 툴별 rate-limit 패턴이
+      무엇인지). `patterns`(큐에서 실제로 발화한 패턴을 집계하는 동적 뷰)의 정적 대응물 — 잡을 한 번도
+      돌리지 않고도 "AgentRelay가 내가 쓰는 CLI를 아는가, 그 툴의 한도 메시지를 어떻게 감지하나"에 답함.
+      (완료 — core `parser.ts`에 `GENERIC_PATTERN_NAMES`(내장 패턴명 우선순위 순) export, `adapters.ts`에
+      순수 `AdapterInfo`/`AdapterRegistrySummary` + `describeAdapter`/`describeAdapters`/`summarizeAdapters`
+      추가 — `ADAPTERS` 레지스트리를 직렬화 가능한 plain data로 투영(binaries/extraPatterns 배열은 복사본이라
+      결과 변형이 레지스트리를 안 건드림, generic은 `isDefault:true`). CLI `packages/cli/src/adapters.ts`에
+      순수 `renderAdapters`(어댑터별 스탠자: 표시명·tool id·자동선택 바이너리·툴별 패턴 + 공유 generic 패턴
+      섹션, color 게이트)·`renderAdaptersJson`. `agentrelay adapters [--json]` 배선(스토어/시계 미접촉).
+      새 파서/스케줄러 로직 0줄 — 기존 어댑터·패턴 레지스트리만 읽음. core adapters 9 + cli adapters 8 신규
+      테스트, 실제 빌드 CLI e2e로 3어댑터 렌더·바이너리·generic default·JSON·help 노출·exit 0 검증.
+      branch `claude/wizardly-pascal-adapters`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

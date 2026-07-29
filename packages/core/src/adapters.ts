@@ -1,4 +1,4 @@
-import { type ParseOptions, parseRateLimitMessage, type RateLimitPattern } from "./parser.js";
+import { GENERIC_PATTERN_NAMES, type ParseOptions, parseRateLimitMessage, type RateLimitPattern } from "./parser.js";
 import type { AgentTool, RateLimitInfo } from "./types.js";
 
 /**
@@ -126,4 +126,57 @@ export function resolveAdapter(options: ResolveAdapterOptions = {}): AgentAdapte
     if (inferred) return ADAPTERS[inferred];
   }
   return GENERIC_ADAPTER;
+}
+
+/**
+ * A serializable, read-only description of one registered adapter — the static
+ * facts a user needs to answer "does AgentRelay know how to wrap this tool, and
+ * how does it detect that tool's rate-limit messages?" without running a job.
+ */
+export interface AdapterInfo {
+  /** Stable tool id stored on each job. */
+  tool: AgentTool;
+  /** Human-readable label. */
+  displayName: string;
+  /** argv[0] basenames that auto-select this adapter (empty for the generic fallback). */
+  binaries: string[];
+  /** Names of the tool-specific patterns this adapter injects ahead of the generic ones. */
+  extraPatterns: string[];
+  /** True for the generic adapter, used as the default when nothing else matches. */
+  isDefault: boolean;
+}
+
+/**
+ * The whole adapter registry as plain data: every adapter plus the shared
+ * generic patterns each one falls back to. Pure — no I/O, no clock — so the
+ * `agentrelay adapters` command and its tests can render it deterministically.
+ */
+export interface AdapterRegistrySummary {
+  adapters: AdapterInfo[];
+  /** Generic parser pattern names shared by all adapters, in priority order. */
+  genericPatterns: string[];
+}
+
+/** Describe a single adapter as serializable {@link AdapterInfo}. */
+export function describeAdapter(adapter: AgentAdapter): AdapterInfo {
+  return {
+    tool: adapter.tool,
+    displayName: adapter.displayName,
+    binaries: [...adapter.binaries],
+    extraPatterns: adapter.patterns.map((p) => p.name),
+    isDefault: adapter.tool === GENERIC_ADAPTER.tool,
+  };
+}
+
+/** Describe every registered adapter, in registry order. */
+export function describeAdapters(): AdapterInfo[] {
+  return Object.values(ADAPTERS).map(describeAdapter);
+}
+
+/** Full registry summary: all adapters plus the shared generic pattern names. */
+export function summarizeAdapters(): AdapterRegistrySummary {
+  return {
+    adapters: describeAdapters(),
+    genericPatterns: [...GENERIC_PATTERN_NAMES],
+  };
 }
