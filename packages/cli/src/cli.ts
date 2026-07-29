@@ -13,6 +13,7 @@ import type {
 } from "@agentrelay/core";
 import {
   ALL_TOOLS,
+  buildResumeAgenda,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
   computeDailyTrend,
@@ -86,6 +87,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { renderUpcoming, renderUpcomingJson } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -550,6 +552,54 @@ export function buildCli(): Command {
         else if (!next.due) process.exitCode = 3;
         // due-now → exit 0 (default).
       }
+    });
+
+  program
+    .command("upcoming")
+    .description("Show a forward agenda of when parked jobs will resume, grouped into time buckets")
+    .option("--json", "Print the agenda as JSON (machine-readable, for scripts/jq)")
+    .option("-s, --status <statuses>", "Only include jobs with these comma-separated statuses")
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # what's my resume schedule for the coming day?\n" +
+        "  agentrelay upcoming\n" +
+        "  # just the jobs due in the next hour or already overdue\n" +
+        '  agentrelay upcoming --json | jq \'.agenda.buckets[] | select(.key=="hour" or .key=="overdue")\''
+    )
+    .action((opts: ScopeOpts & { json?: boolean }) => {
+      const { store } = program.opts();
+      const built = buildScope(opts, Date.now());
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const agenda = buildResumeAgenda(jobs);
+
+      if (opts.json) {
+        console.log(
+          renderUpcomingJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            agenda,
+          })
+        );
+        return;
+      }
+      console.log(
+        renderUpcoming(agenda, {
+          color: Boolean(process.stdout.isTTY),
+          scopeNote: built.active ? built.note : undefined,
+        })
+      );
     });
 
   program

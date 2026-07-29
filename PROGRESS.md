@@ -1489,3 +1489,21 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 신규 기능 `agentrelay upcoming`(재개 전방 어젠다)] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-ut7zvu`)
+- **배경:** 지정 브랜치의 이전 PR이 병합돼 origin에서 삭제된 상태 → 최신 main(4abefa1)에서 브랜치 재시작.
+  BACKLOG의 👷 항목이 전부 `[x]` 완료라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. 관찰: `next`는 단일
+  "다음 재개"를, `status`는 큐 전체를 평면 테이블로 보여주지만, 이 도구의 핵심 약속(리셋 시점 자동 재개)이
+  **앞으로 어떤 일정으로 펼쳐지는지**를 시간축으로 묶어 보여주는 전방 뷰가 없었다.
+- **한 일:** `agentrelay upcoming` 신규 커맨드 — 파킹된(`waiting_for_reset`) 잡을 재개 시점 기준 시간
+  버킷(연체/1시간 내/오늘/이후)으로 묶은 어젠다. 순수 core `buildResumeAgenda(jobs, now)`(스케줄러 due
+  집합과 동일하게 파싱 가능 resetAt만 대상, dueInMs로 버킷 배정, resetAt→createdAt→id 결정론 정렬 —
+  next.ts와 동일 규약) + CLI `renderUpcoming`/`renderUpcomingJson`(비어있지 않은 버킷만 렌더, status/next와
+  `formatCountdown` 공유, scope note·color 게이트). 공용 `buildScope`(--status/--tool/--project/--since/
+  --until) 재사용해 스코프 필터 제공. 새 파일: core `upcoming.ts`·`upcoming.test.ts`, cli `upcoming.ts`·
+  `test/upcoming.test.ts`. index.ts export + cli.ts 커맨드 배선.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린·`pnpm ci:lint`(Biome) 0경고·`pnpm test` 전
+  패키지 통과(core upcoming 6 + cli upcoming 9 신규 포함, 총 512+244 통과). 실제 빌드된 CLI e2e로 4개
+  버킷 배정·`--project` 스코프·완료 잡 제외·`--json`(totalWaiting/nextResetAt/버킷별 카운트) 검증.
+- **다음 할 일:** `upcoming`에 `--watch` 라이브 카운트다운 추가(status --watch 패턴 재사용) 또는 대시보드에
+  어젠다 카드 노출 검토. 남은 distinct 열린 PR 통합도 계속 가능. README/ARCHITECTURE(🧭 코워크).
