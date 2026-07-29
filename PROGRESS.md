@@ -1539,3 +1539,31 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 48 — `agentrelay notify channels` 알림 채널 열거 커맨드 신규 구현] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-notify-channels`)
+- **배경:** 세션 시작 시 지정 브랜치(`claude/wizardly-pascal-4451m5`)는 origin에서 이미 삭제(직전 PR 병합
+  완료)돼 최신 main(7646ad5)에서 새 브랜치로 재시작. 👷 명시 BACKLOG 항목은 전부 완료 상태, 열린 PR
+  100건 이상 적체(다수 중복). CLAUDE.md 지침대로 **어떤 열린 PR과도 겹치지 않는 새 개선 항목을 발굴** —
+  `notify` 영역에 진짜 빈틈 발견: core `listNotifyChannels(env)`(설정된 채널을 발송 없이 열거하는 순수
+  함수)는 있으나 이를 노출하는 CLI 커맨드가 없어, `notify test`(실제 전송)만이 유일한 채널 확인 수단이었다.
+- **한 일:** **`agentrelay notify channels` — 설정된 알림 채널을 발송 없이 열거하는 읽기 전용 진단 커맨드
+  신규 구현.** `notify test`(실제 발송)와 `config show`(원시 env/설정값, 공백 포함)의 사이 빈틈을 메워,
+  릴레이 루프가 실제로 쓸 **활성 채널**(공백 env var 필터링·마스킹된 목적지 URL·웹훅 Authorization 헤더
+  전송 여부)을 이벤트가 발생하기 전에 네트워크 요청 없이 미리 확인.
+  - CLI `notify.ts`에 순수 `renderNotifyChannels(view,{color,showSecrets})`(마스킹 기본·`--show-secrets`로
+    원문 노출·웹훅에 "auth ✓"/"no auth" 힌트·Slack엔 auth 주석 없음·빈 셋은 `NO_CHANNELS_MESSAGE`)·
+    `renderNotifyChannelsJson`(URL은 **항상** 마스킹만 emit, showSecrets 무관 — 스크립트 캡처로 시크릿
+    유출 방지, authConfigured는 웹훅 채널에만) + `NotifyChannelsView` 타입. 기존 `maskSecret`(config.ts)·
+    `NO_CHANNELS_MESSAGE`(notify.ts)·core `listNotifyChannels` 전부 재사용.
+  - CLI `cli.ts`에 `notify channels [--json] [--show-secrets]` 서브커맨드 배선 — 읽기 전용이라 채널
+    0개여도 exit 0(빈 케이스는 정보성이지 에러 아님, `notify test`가 채널 0개를 exit 1로 gate하는 것과 대비).
+  - **새 core 코드 0줄** — 세션 6/12의 notify 인프라(`listNotifyChannels`) 위에만 구축.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·
+  `pnpm test` **전 패키지 통과**(core 516 + cli 253/1skip + dashboard 7, cli notify.test에 11케이스 신규:
+  마스킹/showSecrets/auth 상태/Slack 무주석/color/JSON envelope/시크릿 미유출). 실제 빌드 CLI e2e(mock 아님):
+  무채널→`No notification channels…` **exit 0**, Slack+웹훅→마스킹 목적지+`[ENV_VAR]`+"no auth", 웹훅 auth
+  설정 시 "auth ✓", `--json`이 마스킹 URL+웹훅에만 authConfigured, `--show-secrets`가 원문 URL 노출,
+  공백뿐인 env var는 채널로 안 잡힘 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과). 이후 남은 distinct 열린 PR 통합 계속
+  (#125 --no-color·#168 backoff·#170 clean·#171 verify·#182 report·#222 projects 등), 중복 무리 수렴.
+  README/ARCHITECTURE(🧭 코워크).
