@@ -135,6 +135,13 @@ const PATTERNS: RateLimitPattern[] = [
   },
 ];
 
+/**
+ * Names of the built-in generic patterns, in the order they are tried (highest
+ * priority first). Exposed so diagnostics like `agentrelay adapters` can show
+ * which formats the shared parser understands without reaching into `PATTERNS`.
+ */
+export const GENERIC_PATTERN_NAMES: readonly string[] = PATTERNS.map((p) => p.name);
+
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
 const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
 

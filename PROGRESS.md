@@ -1539,3 +1539,29 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 48 — `agentrelay adapters` 어댑터 레지스트리 정적 introspection] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-adapters`)
+- **배경:** 세션 시작 시 BACKLOG의 👷 명시 항목이 전부 완료 상태(남은 미완료는 🧭 코워크 소유
+  README/ARCHITECTURE/경쟁조사/샘플수집/성능분석 또는 공동소유 QA). CLAUDE.md 지침("백로그가 비면
+  스스로 새 개선 항목을 발굴")에 따라 신규 진단 커맨드를 발굴·구현.
+- **발굴한 갭:** `agentrelay patterns`(세션 39)는 큐에서 **실제로 발화한** rate-limit 파서 패턴을
+  집계하는 동적 뷰인데, 그 정적 대응물 — "AgentRelay가 애초에 어떤 툴을 래핑할 수 있고, 각 툴의
+  한도 메시지를 어떻게 감지하나"를 잡 없이 introspect하는 수단 — 이 없었다. 어댑터 레지스트리
+  (`ADAPTERS`: Claude Code / Codex CLI / Generic)는 코드에만 있고 CLI로 볼 방법이 없어, "내가 쓰는
+  CLI가 어떤 어댑터로 자동 선택되나(argv[0])", "Codex는 초 단위 대기를 잡는데 generic은 못 잡는다"
+  같은 사실이 불투명했다.
+- **한 일:**
+  - core `parser.ts`에 `GENERIC_PATTERN_NAMES`(내장 패턴명, 우선순위 순) export.
+  - core `adapters.ts`에 순수 `AdapterInfo`/`AdapterRegistrySummary` + `describeAdapter`/
+    `describeAdapters`/`summarizeAdapters` 추가 — `ADAPTERS`를 직렬화 가능한 plain data로 투영.
+    binaries/extraPatterns는 복사본이라 결과 변형이 레지스트리를 안 건드림, generic은 `isDefault:true`.
+    새 파서/스케줄러/저장소 로직 0줄 — 기존 어댑터·패턴 레지스트리만 읽음.
+  - CLI `packages/cli/src/adapters.ts`에 순수 `renderAdapters`(어댑터별 스탠자: 표시명·tool id·
+    자동선택 바이너리·툴별 패턴 + 공유 generic 패턴 섹션, color 게이트)·`renderAdaptersJson`.
+    `cli.ts`에 `agentrelay adapters [--json]` 배선(스토어/시계 미접촉, `patterns` 다음에 배치).
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome, 0 경고)·
+  `pnpm test` 전 패키지 통과(core 524 = adapters 9 신규 포함, cli 253/1skip = adapters 8 신규 포함,
+  dashboard 7). 빌드된 실제 CLI e2e: `adapters`가 3어댑터를 바이너리·패턴과 함께 렌더, generic이
+  `(default)`·fallback 표기, `--json`이 generatedAt+summary 형태로 exit 0, `--help`에 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과). 이후 남은 🧭 코워크 문서 항목
+  (README/ARCHITECTURE) 또는 추가 진단/파서 개선 발굴 계속.
