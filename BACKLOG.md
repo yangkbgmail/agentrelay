@@ -575,6 +575,19 @@
       테스트, 실제 빌드 CLI e2e로 부재→"created on first run"/존재→✓/`.backup-*` 카운트/`--json`/`--config`
       해소 검증. branch `claude/wizardly-pascal-tcasvv`)
 
+- [x] 👷 파서: 표준 `RateLimit-Reset` / `X-RateLimit-Reset` 응답 헤더 인식 — GitHub·Twitter·
+      IETF `RateLimit` draft에서 널리 쓰이는 헤더를 에이전트 CLI가 429에서 콘솔로 덤프하는데,
+      기존 파서는 `retry_after`/`Retry-After`만 잡고 이 헤더는 놓쳐 잡이 큐잉되지 않던 실사용 갭.
+      (완료 — `parser.ts`에 순수 `ratelimit-reset-header` 패턴 추가(`http-retry-after` 뒤·fallback 앞).
+      단일 스펙이 단위를 합의하지 않으므로 값의 **크기**로 해석: `>= 1_000_000_000`(2001년 이후 Unix
+      epoch=실제 리셋 시각)은 절대 epoch 초로, 그보다 작으면 now 기준 delta-seconds(IETF draft 의미).
+      `\d{1,10}` 캡으로 13자리 **밀리초** epoch은 매치 안 됨(10번째 뒤에 word boundary가 없어 오독 대신
+      스킵) — 캡처가 헤더 구분자(`:`/`=`) 직후에 고정돼 있어 큰 수의 뒤쪽 10자리를 주워 담지 않음.
+      하이픈 `-reset` 헤더명으로 JSON `retry_after`(underscore·epoch)·`Retry-After`(delay/date)와 disjoint.
+      새 CLI 코드 0줄 — 기존 `agentrelay parse` 커맨드가 자동 노출. parser.test +4 회귀(epoch/delta/`=`
+      구분자/13자리 ms epoch 미매치), 실제 빌드 CLI `parse`로 epoch→절대시각·delta→now+Ns·ms epoch→미검출
+      e2e 검증. branch `claude/wizardly-pascal-dr2ehd`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
