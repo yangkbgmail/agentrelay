@@ -1,11 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
+import type { NotifyEvent } from "../src/notify.js";
 import {
   combineNotifiers,
   createSlackNotifier,
   createWebhookNotifier,
+  filterNotifier,
   formatSlackText,
+  isNotifyEvent,
   listNotifyChannels,
+  NOTIFY_EVENTS,
   notifiersFromEnv,
+  notifyEventsFromEnv,
+  parseNotifyEvents,
   sendTestNotification,
   slackNotifierFromEnv,
   testNotifyPayload,
@@ -336,5 +342,128 @@ describe("sendTestNotification", () => {
     });
     const [, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer t0ken");
+  });
+
+  it("is not muted by AGENTRELAY_NOTIFY_EVENTS (a manual test always delivers)", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    // The synthetic payload's event is "completed"; even an allowlist that
+    // excludes it must not suppress the deliberate `notify test` delivery.
+    const results = await sendTestNotification({
+      env: { AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay", AGENTRELAY_NOTIFY_EVENTS: "failed" },
+      fetchFn,
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(results[0].ok).toBe(true);
+  });
+});
+
+describe("NOTIFY_EVENTS / isNotifyEvent", () => {
+  it("lists every event in lifecycle order", () => {
+    expect(NOTIFY_EVENTS).toEqual(["queued", "resumed", "completed", "failed"]);
+  });
+
+  it("recognizes known events and rejects anything else", () => {
+    for (const event of NOTIFY_EVENTS) expect(isNotifyEvent(event)).toBe(true);
+    expect(isNotifyEvent("cancelled")).toBe(false);
+    expect(isNotifyEvent("Completed")).toBe(false); // case-sensitive guard
+    expect(isNotifyEvent("")).toBe(false);
+  });
+});
+
+describe("parseNotifyEvents", () => {
+  it("parses a comma list, trimming and lowercasing", () => {
+    expect(parseNotifyEvents("completed, FAILED")).toEqual({ events: ["completed", "failed"], invalid: [] });
+  });
+
+  it("canonicalizes to NOTIFY_EVENTS order and de-duplicates", () => {
+    expect(parseNotifyEvents("failed,queued,failed,completed")).toEqual({
+      events: ["queued", "completed", "failed"],
+      invalid: [],
+    });
+  });
+
+  it("ignores blank tokens and collects unknown ones as invalid (input order preserved)", () => {
+    expect(parseNotifyEvents(" , resumed, nope , completd")).toEqual({
+      events: ["resumed"],
+      invalid: ["nope", "completd"],
+    });
+  });
+
+  it("returns no events for an empty string", () => {
+    expect(parseNotifyEvents("")).toEqual({ events: [], invalid: [] });
+  });
+});
+
+describe("notifyEventsFromEnv", () => {
+  it("returns null when unset or blank (deliver every event)", () => {
+    expect(notifyEventsFromEnv({})).toBeNull();
+    expect(notifyEventsFromEnv({ AGENTRELAY_NOTIFY_EVENTS: "   " })).toBeNull();
+  });
+
+  it("returns the recognized set when valid events are listed", () => {
+    const set = notifyEventsFromEnv({ AGENTRELAY_NOTIFY_EVENTS: "failed, completed" });
+    expect(set).not.toBeNull();
+    expect([...(set as Set<NotifyEvent>)].sort()).toEqual(["completed", "failed"]);
+  });
+
+  it("returns null (never silently mutes all) when every token is a typo", () => {
+    expect(notifyEventsFromEnv({ AGENTRELAY_NOTIFY_EVENTS: "faild, complete" })).toBeNull();
+  });
+
+  it("keeps the valid subset when only some tokens are typos", () => {
+    const set = notifyEventsFromEnv({ AGENTRELAY_NOTIFY_EVENTS: "failed, complete" });
+    expect([...(set as Set<NotifyEvent>)]).toEqual(["failed"]);
+  });
+});
+
+describe("filterNotifier", () => {
+  const events = (e: NotifyPayload["event"]): NotifyPayload => ({ ...payload, event: e });
+
+  it("returns the notifier unchanged when the set is null/undefined (zero overhead)", () => {
+    const inner = vi.fn();
+    expect(filterNotifier(inner, null)).toBe(inner);
+    expect(filterNotifier(inner, undefined)).toBe(inner);
+  });
+
+  it("only forwards payloads whose event is in the allowlist", async () => {
+    const inner = vi.fn();
+    const notify = filterNotifier(inner, new Set<NotifyEvent>(["failed"]));
+
+    await notify(events("queued"));
+    await notify(events("failed"));
+    await notify(events("completed"));
+
+    expect(inner).toHaveBeenCalledTimes(1);
+    expect(inner.mock.calls[0][0].event).toBe("failed");
+  });
+});
+
+describe("notifiersFromEnv event filtering", () => {
+  it("delivers only allowlisted events across all channels", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const notify = notifiersFromEnv(
+      {
+        AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/abc",
+        AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+        AGENTRELAY_NOTIFY_EVENTS: "failed",
+      },
+      { fetchFn }
+    );
+    expect(notify).not.toBeNull();
+
+    await notify!({ ...payload, event: "queued" });
+    expect(fetchFn).not.toHaveBeenCalled(); // muted
+
+    await notify!({ ...payload, event: "failed" });
+    expect(fetchFn).toHaveBeenCalledTimes(2); // both channels fired
+  });
+
+  it("delivers every event when the allowlist is absent (backward compatible)", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const notify = notifiersFromEnv({ AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay" }, { fetchFn });
+
+    await notify!({ ...payload, event: "queued" });
+    await notify!({ ...payload, event: "completed" });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 });

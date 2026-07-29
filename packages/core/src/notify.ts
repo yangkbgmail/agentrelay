@@ -12,6 +12,72 @@ export function formatSlackText(payload: NotifyPayload): string {
   return `${EVENT_EMOJI[payload.event]} *AgentRelay — ${payload.project}* (${payload.event})\n${payload.message}\n_job ${payload.jobId}_`;
 }
 
+/** One queue lifecycle event a notification can be sent for. */
+export type NotifyEvent = NotifyPayload["event"];
+
+/** Every notification event, in natural lifecycle order (also the display order). */
+export const NOTIFY_EVENTS: readonly NotifyEvent[] = ["queued", "resumed", "completed", "failed"];
+
+/** Type guard: is `value` one of the known {@link NOTIFY_EVENTS}? */
+export function isNotifyEvent(value: string): value is NotifyEvent {
+  return (NOTIFY_EVENTS as readonly string[]).includes(value);
+}
+
+/** Result of {@link parseNotifyEvents}: recognized events plus any unknown tokens. */
+export interface ParsedNotifyEvents {
+  /** Recognized events, de-duplicated and ordered by {@link NOTIFY_EVENTS}. */
+  events: NotifyEvent[];
+  /** Tokens that were not a known event, preserved in input order. */
+  invalid: string[];
+}
+
+/**
+ * Parses a comma-separated event allowlist (e.g. `"failed"` or
+ * `"completed, failed"`) into recognized events plus any invalid tokens. Blank
+ * tokens are ignored and matching is case-insensitive; the returned events are
+ * de-duplicated and canonicalized to {@link NOTIFY_EVENTS} order. Pure.
+ */
+export function parseNotifyEvents(input: string): ParsedNotifyEvents {
+  const seen = new Set<NotifyEvent>();
+  const invalid: string[] = [];
+  for (const raw of input.split(",")) {
+    const token = raw.trim();
+    if (token === "") continue;
+    const lower = token.toLowerCase();
+    if (isNotifyEvent(lower)) seen.add(lower);
+    else invalid.push(token);
+  }
+  return { events: NOTIFY_EVENTS.filter((event) => seen.has(event)), invalid };
+}
+
+/**
+ * Reads the `AGENTRELAY_NOTIFY_EVENTS` allowlist into the set of events that
+ * should be delivered, or `null` when the variable is unset/blank or lists no
+ * *recognized* events. `null` means "deliver every event" (the backward-
+ * compatible default), so an all-typo value can never silently mute every
+ * notification — unknown tokens are ignored here and flagged loudly by
+ * `config validate` instead.
+ */
+export function notifyEventsFromEnv(env: Record<string, string | undefined> = process.env): Set<NotifyEvent> | null {
+  const raw = env.AGENTRELAY_NOTIFY_EVENTS?.trim();
+  if (!raw) return null;
+  const { events } = parseNotifyEvents(raw);
+  if (events.length === 0) return null;
+  return new Set(events);
+}
+
+/**
+ * Wraps a notifier so it only forwards payloads whose event is in `events`. A
+ * `null`/`undefined` set means "no filter" and returns the notifier unchanged,
+ * so the common unconfigured path adds zero overhead. Pure.
+ */
+export function filterNotifier(notifier: Notifier, events: Set<NotifyEvent> | null | undefined): Notifier {
+  if (!events) return notifier;
+  return async (payload: NotifyPayload) => {
+    if (events.has(payload.event)) await notifier(payload);
+  };
+}
+
 export interface SlackNotifierOptions {
   webhookUrl: string;
   /** Injected for tests; defaults to global fetch (Node >= 18). */
@@ -156,7 +222,10 @@ export function notifiersFromEnv(
     (n): n is Notifier => typeof n === "function"
   );
   if (configured.length === 0) return null;
-  return combineNotifiers(...configured);
+  // Apply the optional event allowlist (`AGENTRELAY_NOTIFY_EVENTS`) so users can
+  // mute noisy events (e.g. only get pinged on failures). `notify test` builds
+  // its own notifiers and is deliberately never filtered.
+  return filterNotifier(combineNotifiers(...configured), notifyEventsFromEnv(env));
 }
 
 export type NotifyChannelKind = "slack" | "webhook";

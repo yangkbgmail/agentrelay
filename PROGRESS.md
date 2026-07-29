@@ -1539,3 +1539,25 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 48 — 알림 이벤트 필터 `AGENTRELAY_NOTIFY_EVENTS` 신규 발굴·구현] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-wu2cyl`)
+- **배경:** 이전 세션 브랜치의 PR이 이미 병합돼(origin 브랜치 삭제됨) 최신 main(7646ad5)에서 브랜치를
+  재생성. BACKLOG의 명시 👷 항목이 전부 `[x]` 완료 상태여서 CLAUDE.md "무한 개선 백로그를 스스로 발굴"
+  지침에 따라 **신규 개선 항목을 자체 발굴**. 조사 결과 `notifiersFromEnv`가 조립한 notifier가 큐
+  라이프사이클의 **모든** 이벤트(queued/resumed/completed/failed)를 무조건 발송해, 바쁜 큐에서 Slack/웹훅이
+  소음이 되는 실사용 갭을 확인.
+- **한 일:** **알림 이벤트 필터(`AGENTRELAY_NOTIFY_EVENTS`)** 구현 — 사용자가 원하는 이벤트만 발송(예: 실패만).
+  - core `notify.ts`(순수): `NotifyEvent`/`NOTIFY_EVENTS`·`isNotifyEvent`·`parseNotifyEvents`(콤마 분리·trim·
+    소문자·중복제거·정규 순서 + `invalid` 토큰 분리)·`notifyEventsFromEnv`(미설정/공백/인식 0개는 null=전부
+    발송 → 오타가 조용히 알림 전체를 끄지 않음)·`filterNotifier`(허용 이벤트만 통과, null이면 원본 반환
+    zero-overhead). `notifiersFromEnv`가 통합 notifier를 `filterNotifier`로 감싸 라이브 릴레이 루프에 자동
+    적용. `notify test`는 수동 검증이라 필터 미적용(항상 발송).
+  - config 전 계층 배선: `notify.events` 필드·sampleConfig·CONFIG_FIELDS·parseConfig·configToEnv·
+    CONFIG_ENV_KEYS(드리프트 sync 테스트 통과)·validateConfig(미지 이벤트=error·인식 0개=warning). 새
+    스케줄러/파서 코드 0줄.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test` **전 패키지 통과**
+  (core 534[notify 40·config 60, +18 신규] + cli 245/1skip + dashboard 7). 실제 빌드 CLI e2e: `config show`가
+  `AGENTRELAY_NOTIFY_EVENTS`를 [env] 출처로 표시, `config validate`가 미지 이벤트→exit 1·정상→exit 0,
+  `config set notify.events "completed,failed"`가 파일에 라운드트립.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open. 이후 남은 distinct 열린 PR 통합/중복 무리 수렴 계속.
+  README/ARCHITECTURE(🧭 코워크). 모든 👷 항목 소진 시 계속 자체 발굴.
