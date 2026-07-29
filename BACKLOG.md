@@ -593,6 +593,26 @@
       cli health 10 신규 테스트, 실제 빌드 CLI e2e로 idle→0/strict→1/대기 잡+무루프→unhealthy 1/JSON/help
       검증. branch `claude/wizardly-pascal-health`)
 
+- [x] 👷 파서: 리셋 시각에 붙은 명시 IANA 타임존 인식(`reset at 5pm (America/New_York)`) — 벽시계
+      시각을 호스트 로컬이 아닌 **메시지가 지정한 계정 타임존**에서 해석. 에이전트 CLI는 계정 타임존으로
+      리셋 시각을 출력하는데, agentrelay를 다른 타임존 머신에서 돌리면 `clock-time`/`clock-time-meridiem`이
+      그 시각을 로컬로 오해석해 절대 순간이 오프셋만큼 어긋난다 — 리셋이 실제보다 이르면 재개→재충돌(잡
+      재실패), 늦으면 사용 창을 낭비. 두 패턴 모두 이 한계를 코드 주석에 "타임존 무시"로 명시하고 있던
+      실질 정확성 결함.
+      (완료 — 의존성 0 규칙 준수로 Node 내장 `Intl.DateTimeFormat`(full-ICU)만 사용하는 순수 core
+      `@agentrelay/core/timezone.ts` 신설: `tzOffsetMsAt(utcMs, tz)`(해당 순간의 IANA 존 오프셋을
+      formatToParts로 역산 — DST 자동 반영, 미지 존은 null), `zonedWallClockToUtc(y,mo,d,h,mi,tz)`(존
+      벽시계→절대 UTC epoch, 오프셋-순간 순환을 1-pass 보정으로 해소해 DST 경계 밖 전역 수렴),
+      `nextZonedInstant(now,h,mi,tz)`(존 기준 다음 미래 순간, 로컬 패턴과 동일하게 지났으면 익일로 롤 —
+      월/년 경계 정규화). parser.ts: 두 clock 패턴 정규식 끝에 선택적 `TZ_SUFFIX`(괄호 선택, `UTC`/`GMT`
+      또는 `Region/City[/City]` IANA 형만 — PST/EST 등 다의적 약어는 로컬 폴백보다 더 틀릴 수 있어 의도적
+      제외) 캡처 추가, 공용 `resolveWallClock(now,h,mi,tz?)`가 존이 있고 인식되면 그 존에서, 없거나
+      미인식이면 기존 로컬 시간으로 폴백(오탈자·이색 존이 유효 감지를 절대 드롭하지 않게 — best-effort,
+      throw 없음). 스케줄러·저장소·CLI 코드 0줄 변경(기존 `parse` 커맨드가 자동 노출). 세션 15의
+      "타임존 무시" 한계를 encode한 기존 parser 테스트 1건을 새 올바른 동작(절대 순간 assert, 머신 TZ
+      무관)으로 갱신. core timezone 14 + parser +5 신규 테스트, 실제 빌드 CLI `parse` e2e로 존 존중
+      (5pm NY→21:00Z)·무존 로컬 폴백·미지 존 폴백 검증. branch `claude/wizardly-pascal-2wn85i`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
