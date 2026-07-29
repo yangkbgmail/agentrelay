@@ -88,11 +88,16 @@ const PATTERNS: RateLimitPattern[] = [
   {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
-    // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
-    // are OpenAI/Codex-style wording that the Codex adapter contributes).
+    // windows. Components may be joined by a bare space ("1d 4h"), a comma
+    // ("1 hour, 30 minutes"), and/or the word "and" ("2 hours and 30 minutes"),
+    // all of which appear in real agent/API wording. Dropping a trailing
+    // component would resume *early* and re-trip the same limit, so the
+    // connectors between day/hour/minute must be tolerated. Seconds are
+    // deliberately *not* handled here (see adapters.ts: they are OpenAI/Codex-
+    // style wording that the Codex adapter contributes).
     name: "relative-duration",
     regex:
-      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
+      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?)?[\s,]*(?:and\s+)?(?:(\d+)\s*h(?:ours?)?)?[\s,]*(?:and\s+)?(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
     resolve: (m, now) => {
       const days = m[1] ? parseInt(m[1], 10) : 0;
       const hours = m[2] ? parseInt(m[2], 10) : 0;
@@ -135,8 +140,14 @@ const PATTERNS: RateLimitPattern[] = [
   },
 ];
 
-/** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+/**
+ * Quick pre-filter so we don't run every regex on every line of noisy CLI
+ * output. Kept in sync with the prefixes the patterns above accept — notably
+ * `retry\s+in`, which the `relative-duration` pattern matches ("retry in 2h")
+ * but which was previously absent here, so a bare "retry in …" line (no other
+ * rate-limit keyword) never reached the patterns.
+ */
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|(?:resets?|retry)\s+(at|in)|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);

@@ -102,6 +102,51 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(expected);
   });
 
+  it("parses hours and minutes joined by 'and' ('2 hours and 30 minutes')", () => {
+    // Regression: without tolerating the "and" connector the minutes were
+    // dropped and the job resumed 30 minutes early, re-tripping the limit.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in 2 hours and 30 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    const expected = new Date(now.getTime() + (2 * 60 + 30) * 60_000).toISOString();
+    expect(result?.resetAt).toBe(expected);
+  });
+
+  it("parses components joined by a comma ('1 hour, 30 minutes')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Retry in 1 hour, 30 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    const expected = new Date(now.getTime() + (60 + 30) * 60_000).toISOString();
+    expect(result?.resetAt).toBe(expected);
+  });
+
+  it("parses day + hour joined by 'and' ('1 day and 4 hours')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly usage limit reached, resets in 1 day and 4 hours.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    const expected = new Date(now.getTime() + (24 + 4) * 60 * 60_000).toISOString();
+    expect(result?.resetAt).toBe(expected);
+  });
+
+  it("parses a full day + hour + minute chain with mixed connectors", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Try again in 1 day, 4 hours and 30 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    const expected = new Date(now.getTime() + ((24 + 4) * 60 + 30) * 60_000).toISOString();
+    expect(result?.resetAt).toBe(expected);
+  });
+
+  it("parses a bare 'retry in …' line with no other rate-limit keyword", () => {
+    // Regression: the pre-filter previously lacked `retry in`, so a message
+    // whose only signal was "Retry in 1 hour, 30 minutes." never reached the
+    // patterns even though relative-duration accepts the "retry" prefix.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Retry in 1 hour, 30 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    const expected = new Date(now.getTime() + (60 + 30) * 60_000).toISOString();
+    expect(result?.resetAt).toBe(expected);
+  });
+
   it("parses the singular 'in 1 day' form", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Usage limit reached. Try again in 1 day.", { now });
