@@ -593,6 +593,18 @@
       cli health 10 신규 테스트, 실제 빌드 CLI e2e로 idle→0/strict→1/대기 잡+무루프→unhealthy 1/JSON/help
       검증. branch `claude/wizardly-pascal-health`)
 
+- [x] 👷 파서: 표준 `RateLimit-Reset` / `X-RateLimit-Reset` 응답 헤더 인식 — 거의 모든 rate-limited
+      HTTP API(GitHub·Anthropic·OpenAI·IETF draft-ietf-httpapi-ratelimit-headers)가 429/403에서 내보내는
+      리셋 헤더를 에이전트 CLI가 콘솔에 덤프할 때 릴레이가 리셋 시각을 읽어 큐잉하도록.
+      (완료 — `@agentrelay/core/parser.ts`에 순수 `ratelimit-reset-header` 패턴 신설. 두 실사용 값 형식:
+      (1) Unix epoch 초 `x-ratelimit-reset: 1752345600`(GitHub·Twitter)→`epoch*1000`, (2) RFC 3339
+      `anthropic-ratelimit-unified-reset: 2026-07-13T05:00:00Z`(Anthropic)→절대 시각. 키의 중간 세그먼트는
+      허용하되 `reset`이 `:`/`=` 바로 앞에 오도록 앵커링 → OpenAI의 duration 값 헤더 `-reset-requests`/
+      `-reset-tokens`(예 `6m0s`)와 disjoint(epoch 오독 방지). epoch는 10자리 캡, 사전필터에
+      `ratelimit[a-z0-9_-]*reset` 추가. 새 CLI 코드 0줄 — `parse`·스케줄러·run 자동 노출. parser.test +5
+      회귀(epoch/IETF bare/Anthropic ISO/duration 헤더 미검출/malformed 타임스탬프 fallthrough), 실제 빌드
+      CLI `parse` e2e 검증. branch `claude/wizardly-pascal-cbbwol`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

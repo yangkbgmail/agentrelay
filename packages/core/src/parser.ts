@@ -127,6 +127,29 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // The `RateLimit-Reset` / `X-RateLimit-Reset` response header, emitted by
+    // most rate-limited HTTP APIs (GitHub, Anthropic, OpenAI, the IETF
+    // draft-ietf-httpapi-ratelimit-headers spec, …) and often dumped verbatim
+    // by an agent CLI when it surfaces a 429/403. Two real-world value forms:
+    //   - Unix epoch seconds:  `x-ratelimit-reset: 1752345600`  (GitHub, Twitter)
+    //   - RFC 3339 timestamp:  `anthropic-ratelimit-unified-reset: 2026-07-13T05:00:00Z`
+    // Intermediate segments are allowed (`anthropic-ratelimit-unified-reset`,
+    // `anthropic-ratelimit-tokens-reset`, …) but `reset` must sit directly before
+    // the `:`/`=` — that keeps this disjoint from OpenAI's *duration*-valued
+    // `x-ratelimit-reset-requests` / `-reset-tokens` headers (e.g. `6m0s`), which
+    // are not absolute times and must not be misread as an epoch. The epoch group
+    // is capped at 10 digits (valid through year 2286) so a longer number isn't
+    // half-consumed.
+    name: "ratelimit-reset-header",
+    regex:
+      /ratelimit[a-z0-9_-]*?reset"?\s*[=:]\s*(?:(\d{10})\b|"?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?))/i,
+    resolve: (m) => {
+      if (m[1] !== undefined) return new Date(parseInt(m[1], 10) * 1000);
+      const d = new Date(m[2]);
+      return Number.isNaN(d.getTime()) ? null : d;
+    },
+  },
+  {
     // Generic "5-hour limit" mention with no explicit time -> assume a full 5h window from now.
     // Kept last and treated as a low-confidence fallback.
     name: "five-hour-window-fallback",
@@ -136,7 +159,8 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after|ratelimit[a-z0-9_-]*reset)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);
