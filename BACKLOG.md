@@ -16,7 +16,14 @@
       (완료 — `parser.test.ts`에 12케이스 회귀 추가: 빈 문자열/시간없는 rate-limit/24h 시계/
       12am·12pm/타임존 오프셋 ISO/잘못된 ISO fallthrough/시간단위만/JSON `retry_after`/멀티라인.
       파서도 `"retry_after": N` JSON 형식 인식하도록 개선. branch `claude/keen-allen-u5qt1l`)
-- [ ] 👷🧭 최종 QA + 재현 가능한 데모 스크립트.
+- [x] 👷 재현 가능한 데모 스크립트 (👷 몫 완료 — 🧭 최종 QA/데모 영상·문서화는 별개).
+      (완료 — `scripts/demo.mjs` 신설: 진짜 5시간 창을 기다리지 않고 릴레이 전체 수명주기를
+      몇 초 만에 재현하는 end-to-end 데모 겸 스모크 테스트. rate-limit에 걸렸다가 리셋 후
+      성공하는 "가짜 에이전트"를 임시 디렉터리에 생성 → `agentrelay run`(감지·큐잉) →
+      `status`(park 확인) → 리셋 대기(기본 3s) → `tick`(재개) → `status`/`stats`(completed·성공률).
+      완전 격리(전용 `AGENTRELAY_STORE`, 사용자 실제 스토어 불변, 끝나면 정리), QA 겸용
+      (job이 `completed` 아니면 exit 1), dist 없으면 CLI 자동 빌드, `NO_COLOR`/non-TTY 존중.
+      루트 `pnpm demo` 스크립트 + `scripts/README.md` 추가. branch `claude/wizardly-pascal-tvxgpx`)
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 

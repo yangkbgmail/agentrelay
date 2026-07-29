@@ -1489,3 +1489,22 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+---
+
+### 2026-07-29 · 재현 가능한 데모 스크립트(`scripts/demo.mjs`)
+
+- **한 일:** BACKLOG "재현 가능한 데모 스크립트"(👷 몫) 구현. 진짜 5시간 rate-limit 창을
+  기다리지 않고 릴레이 전체 수명주기(감지→큐잉→리셋 대기→자동 재개→완료)를 **몇 초 만에**
+  처음부터 끝까지 재현하는 end-to-end 데모 겸 스모크 테스트. rate-limit에 걸렸다가 리셋 후
+  성공하는 "가짜 에이전트"를 임시 디렉터리에 생성 → `agentrelay run`(iso-timestamp 패턴 감지·
+  큐잉) → `status`(waiting_for_reset park 확인) → 리셋 대기(기본 3s, `Atomics.wait` blocking
+  sleep) → `tick`(재개) → `status`/`stats`(completed·성공률 100%·해결 시간). 완전 격리(전용
+  `AGENTRELAY_STORE` 임시 스토어, 사용자 실제 `~/.agentrelay/jobs.json` 불변, 끝나면 정리),
+  QA 겸용(job이 `completed` 아니면 exit 1), dist 없으면 CLI 자동 빌드, `NO_COLOR`/non-TTY 시
+  색상 off. 루트 `pnpm demo` 스크립트 + `scripts/README.md` 추가.
+- **검증:** `node scripts/demo.mjs` 실제 실행 → 6단계 전 과정 통과, job `completed`, exit 0.
+  파이프(non-TTY) 실행 시 ANSI 미출력 확인. `pnpm ci:lint`(Biome, 84파일) 클린·`pnpm build`
+  (Next.js 포함) 클린·`pnpm test` 전 패키지 통과(236 테스트). branch `claude/wizardly-pascal-tvxgpx`.
+- **다음 할 일:** 남은 🧭 코워크 몫(README 5분 튜토리얼·ARCHITECTURE/ROADMAP·경쟁도구 조사)과
+  최종 QA 문서화. 👷 무한 개선 백로그 소진 계속.
