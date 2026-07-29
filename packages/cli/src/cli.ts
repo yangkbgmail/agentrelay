@@ -52,6 +52,7 @@ import {
   listStoreBackups,
   previewRestoreStore,
   pruneJobs,
+  readHealthReport,
   readLocationReport,
   restoreStore,
   retryJob,
@@ -69,6 +70,7 @@ import {
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
+import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
@@ -616,6 +618,29 @@ export function buildCli(): Command {
       } else {
         console.log(renderLocations(report, { color: Boolean(process.stdout.isTTY) }));
       }
+    });
+
+  program
+    .command("health")
+    .description(
+      "Probe whether the resume loop is alive (exit 0 healthy/idle, 1 unhealthy) — for monitors, systemd, cron"
+    )
+    .option("--json", "Print as JSON (machine-readable, for scripts/jq)")
+    .option(
+      "--strict",
+      "Also fail (exit 1) when the loop isn't running even with nothing waiting (expect an always-up daemon)"
+    )
+    .action((opts: { json?: boolean; strict?: boolean }) => {
+      const { store } = program.opts();
+      const report = readHealthReport({ storePath: store, strict: opts.strict });
+      if (opts.json) {
+        console.log(renderHealthJson(report, store));
+      } else {
+        console.log(renderHealth(report, { color: Boolean(process.stdout.isTTY) }));
+      }
+      // The exit code is the whole point: a monitor can branch on it without
+      // parsing output. 0 = healthy/idle, 1 = unhealthy.
+      process.exitCode = report.exitCode;
     });
 
   program

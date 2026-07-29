@@ -18,6 +18,7 @@ import type {
   BackupResult,
   ConfigIssue,
   DiagnosticReport,
+  HealthReport,
   HeartbeatFacts,
   HeartbeatMode,
   JobStatus,
@@ -40,6 +41,8 @@ import {
   distinctActiveBinaries,
   type EffectiveConfigEntry,
   type ExportFormat,
+  evaluateHealth,
+  evaluateHeartbeat,
   evaluateWait,
   exportJobs,
   findConfigField,
@@ -269,6 +272,40 @@ export function readHeartbeatFacts(storePath: string, nowMs: number = Date.now()
     ageMs: Math.max(0, nowMs - lastTick),
     staleAfterMs: heartbeatStaleAfterMs(hb.mode, hb.pollIntervalMs),
   };
+}
+
+export interface HealthOptions {
+  storePath?: string;
+  /** Injected for tests; defaults to the real wall clock. */
+  nowMs?: number;
+  /** Treat an idle (loop-down, nothing waiting) state as a failure too. */
+  strict?: boolean;
+}
+
+/**
+ * Gather the facts for `agentrelay health` and judge them into a
+ * {@link HealthReport}. This is the filesystem + clock half; the liveness rule
+ * ({@link evaluateHeartbeat}) and the probe verdict ({@link evaluateHealth})
+ * live in `@agentrelay/core`, so `health`, `doctor`, and the dashboard all agree
+ * on whether the resume loop is alive. Never throws — an unreadable/absent
+ * heartbeat reads as "no live loop", exactly what the probe should report.
+ */
+export function readHealthReport(options: HealthOptions = {}): HealthReport {
+  const storePath = options.storePath ?? defaultStorePath();
+  const nowMs = options.nowMs ?? Date.now();
+
+  const waitingJobs = countActiveJobs(listStatus(storePath));
+
+  let heartbeat = null;
+  try {
+    const raw = readFileSync(daemonHeartbeatPath(storePath), "utf8");
+    heartbeat = parseDaemonHeartbeat(raw);
+  } catch {
+    // Missing/unreadable heartbeat → absent loop, judged below.
+  }
+
+  const status = evaluateHeartbeat(heartbeat, { nowMs, waitingJobs });
+  return evaluateHealth(status, { strict: options.strict });
 }
 
 /**
