@@ -53,6 +53,7 @@ import {
   previewRestoreStore,
   pruneJobs,
   readHealthReport,
+  readHeartbeatStatus,
   readLocationReport,
   restoreStore,
   retryJob,
@@ -806,17 +807,24 @@ export function buildCli(): Command {
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("--prefix <prefix>", "Metric name prefix (default agentrelay); sanitized to a valid Prometheus name")
+    .option(
+      "--no-heartbeat",
+      "Omit the resume_loop_* gauges (job-store metrics only); by default the loop liveness is included"
+    )
     .addHelpText(
       "after",
       "\nExamples:\n" +
         "  # scrape via the node_exporter textfile collector\n" +
         "  agentrelay metrics > /var/lib/node_exporter/textfile_collector/agentrelay.prom\n" +
         "  # only failed jobs from the last day\n" +
-        "  agentrelay metrics --status failed --since 1d"
+        "  agentrelay metrics --status failed --since 1d\n" +
+        "  # alert on the silent-failure case: waiting jobs but no live resume loop\n" +
+        "  # PromQL:  agentrelay_resume_loop_concerning == 1"
     )
-    .action((opts: ScopeOpts & { prefix?: string }) => {
+    .action((opts: ScopeOpts & { prefix?: string; heartbeat?: boolean }) => {
       const { store } = program.opts();
-      const built = buildScope(opts, Date.now());
+      const now = Date.now();
+      const built = buildScope(opts, now);
       if ("error" in built) {
         console.error(built.error);
         process.exitCode = 1;
@@ -825,7 +833,10 @@ export function buildCli(): Command {
       const allJobs = listStatus(store);
       const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
       const stats = computeStats(jobs);
-      process.stdout.write(renderPrometheusMetrics(stats, { prefix: opts.prefix }));
+      // Resume-loop liveness is independent of the job-store scope filter — it
+      // reflects the whole store's waiting jobs vs. the actual heartbeat.
+      const heartbeat = opts.heartbeat === false ? null : readHeartbeatStatus(store, now);
+      process.stdout.write(renderPrometheusMetrics(stats, { prefix: opts.prefix, heartbeat }));
     });
 
   program

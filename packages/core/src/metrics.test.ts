@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { HeartbeatStatus } from "./heartbeat.js";
 import { escapePrometheusLabel, renderPrometheusMetrics, sanitizeMetricPrefix } from "./metrics.js";
 import { computeStats } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
@@ -124,5 +125,69 @@ describe("renderPrometheusMetrics", () => {
     const text = renderPrometheusMetrics(computeStats([job()]), { prefix: "my-relay" });
     expect(text).toContain("my_relay_jobs ");
     expect(text).not.toContain("agentrelay_jobs ");
+  });
+
+  it("omits resume_loop_* gauges when no heartbeat is provided", () => {
+    const text = renderPrometheusMetrics(computeStats([job()]));
+    expect(text).not.toContain("resume_loop_up");
+    expect(text).not.toContain("resume_loop_concerning");
+    expect(text).not.toContain("resume_loop_last_tick_age_seconds");
+  });
+
+  it("emits resume_loop gauges for an alive loop", () => {
+    const status: HeartbeatStatus = {
+      state: "alive",
+      mode: "daemon",
+      pid: 42,
+      lastTickAt: "2026-07-13T00:00:00.000Z",
+      ageMs: 30_000,
+      staleAfterMs: 60_000,
+      waitingJobs: 2,
+      concerning: false,
+    };
+    const s = parseSamples(renderPrometheusMetrics(computeStats([job()]), { heartbeat: status }));
+    expect(s.get('agentrelay_resume_loop_up{mode="daemon"}')).toBe(1);
+    expect(s.get("agentrelay_resume_loop_concerning")).toBe(0);
+    // 30_000 ms → 30 seconds.
+    expect(s.get('agentrelay_resume_loop_last_tick_age_seconds{mode="daemon"}')).toBe(30);
+  });
+
+  it("flags concerning=1 and up=0 for a stale loop with jobs waiting", () => {
+    const status: HeartbeatStatus = {
+      state: "stale",
+      mode: "tick",
+      pid: 7,
+      lastTickAt: "2026-07-13T00:00:00.000Z",
+      ageMs: 3_600_000,
+      staleAfterMs: 900_000,
+      waitingJobs: 3,
+      concerning: true,
+    };
+    const s = parseSamples(renderPrometheusMetrics(computeStats([]), { heartbeat: status }));
+    expect(s.get('agentrelay_resume_loop_up{mode="tick"}')).toBe(0);
+    expect(s.get("agentrelay_resume_loop_concerning")).toBe(1);
+    expect(s.get('agentrelay_resume_loop_last_tick_age_seconds{mode="tick"}')).toBe(3600);
+  });
+
+  it("emits an absent loop with mode=none and no age sample", () => {
+    const status: HeartbeatStatus = { state: "absent", waitingJobs: 0, concerning: false };
+    const text = renderPrometheusMetrics(computeStats([]), { heartbeat: status });
+    const s = parseSamples(text);
+    expect(s.get('agentrelay_resume_loop_up{mode="none"}')).toBe(0);
+    expect(s.get("agentrelay_resume_loop_concerning")).toBe(0);
+    // No parseable last-tick timestamp → no misleading age gauge.
+    expect(text).not.toContain("resume_loop_last_tick_age_seconds");
+  });
+
+  it("applies the custom prefix to resume_loop gauges too", () => {
+    const status: HeartbeatStatus = { state: "absent", waitingJobs: 1, concerning: true };
+    const text = renderPrometheusMetrics(computeStats([]), { prefix: "rel", heartbeat: status });
+    expect(text).toContain("rel_resume_loop_concerning 1");
+    expect(text).not.toContain("agentrelay_resume_loop");
+  });
+
+  it("treats a null heartbeat as omitted (backward compatible)", () => {
+    const text = renderPrometheusMetrics(computeStats([job()]), { heartbeat: null });
+    expect(text).not.toContain("resume_loop_up");
   });
 });
