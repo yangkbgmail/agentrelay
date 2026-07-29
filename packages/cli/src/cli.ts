@@ -27,6 +27,7 @@ import {
   isCompletionShell,
   isJobScopeActive,
   JOB_CSV_COLUMNS,
+  listNotifyChannels,
   parseCsvColumns,
   parseDuration,
   renderPrometheusMetrics,
@@ -72,7 +73,12 @@ import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
-import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
+import {
+  renderNotifyChannels,
+  renderNotifyChannelsJson,
+  renderTestNotifyResults,
+  renderTestNotifyResultsJson,
+} from "./notify.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
@@ -953,6 +959,27 @@ export function buildCli(): Command {
       // Exit non-zero when nothing was configured (nothing to test) or any
       // channel failed, so scripts/CI can gate on working notifications.
       if (results.length === 0 || results.some((r) => !r.ok)) process.exitCode = 1;
+    });
+
+  notify
+    .command("channels")
+    .description("List the notification channels configured via env/config, masked, without sending anything")
+    .option("--json", "Print the channels as JSON (machine-readable, for scripts/CI)")
+    .option("--show-secrets", "Reveal masked destination URLs in the human-readable output")
+    .action((opts: { json?: boolean; showSecrets?: boolean }) => {
+      const view = {
+        channels: listNotifyChannels(process.env),
+        webhookAuthConfigured: Boolean(process.env.AGENTRELAY_WEBHOOK_AUTH?.trim()),
+      };
+      if (opts.json) {
+        console.log(renderNotifyChannelsJson(view));
+      } else {
+        console.log(
+          renderNotifyChannels(view, { color: Boolean(process.stdout.isTTY), showSecrets: opts.showSecrets })
+        );
+      }
+      // Read-only diagnostic: exit 0 even with zero channels (the empty case is
+      // informational, not an error — that's what `notify test` gates on).
     });
 
   program

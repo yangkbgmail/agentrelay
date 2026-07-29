@@ -1,6 +1,13 @@
-import type { TestNotifyResult } from "@agentrelay/core";
+import type { NotifyChannel, TestNotifyResult } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_CHANNELS_MESSAGE, renderTestNotifyResults, renderTestNotifyResultsJson } from "../src/notify.js";
+import {
+  NO_CHANNELS_MESSAGE,
+  type NotifyChannelsView,
+  renderNotifyChannels,
+  renderNotifyChannelsJson,
+  renderTestNotifyResults,
+  renderTestNotifyResultsJson,
+} from "../src/notify.js";
 
 function result(overrides: Partial<TestNotifyResult> = {}): TestNotifyResult {
   return {
@@ -96,5 +103,96 @@ describe("renderTestNotifyResultsJson", () => {
   it("does not leak secret URLs into JSON output", () => {
     const json = renderTestNotifyResultsJson([result()]);
     expect(json).not.toContain("relay-secret");
+  });
+});
+
+const SLACK_CHANNEL: NotifyChannel = {
+  kind: "slack",
+  label: "Slack",
+  url: "https://hooks.slack.test/abc123def",
+  envVar: "AGENTRELAY_SLACK_WEBHOOK",
+};
+const WEBHOOK_CHANNEL: NotifyChannel = {
+  kind: "webhook",
+  label: "Webhook",
+  url: "https://hooks.example.test/relay-secret",
+  envVar: "AGENTRELAY_WEBHOOK_URL",
+};
+
+function view(overrides: Partial<NotifyChannelsView> = {}): NotifyChannelsView {
+  return { channels: [SLACK_CHANNEL, WEBHOOK_CHANNEL], webhookAuthConfigured: false, ...overrides };
+}
+
+describe("renderNotifyChannels", () => {
+  it("shows the no-channels hint for an empty channel set", () => {
+    expect(renderNotifyChannels({ channels: [], webhookAuthConfigured: false })).toBe(NO_CHANNELS_MESSAGE);
+  });
+
+  it("masks destination URLs by default, keeping the last 4 chars", () => {
+    const out = renderNotifyChannels(view());
+    expect(out).toContain("•");
+    expect(out).toContain("cret"); // last 4 of "...relay-secret"
+    expect(out).toContain("3def"); // last 4 of the slack URL
+    expect(out).not.toContain("hooks.example.test");
+    expect(out).toContain("[AGENTRELAY_WEBHOOK_URL]");
+    expect(out).toContain("2 channel(s) configured");
+  });
+
+  it("reveals full URLs when showSecrets is set", () => {
+    const out = renderNotifyChannels(view(), { showSecrets: true });
+    expect(out).toContain("https://hooks.example.test/relay-secret");
+    expect(out).not.toContain("•");
+  });
+
+  it("shows the webhook auth state and never labels Slack with auth", () => {
+    const withAuth = renderNotifyChannels(view({ webhookAuthConfigured: true }));
+    expect(withAuth).toContain("auth ✓");
+    expect(withAuth).not.toContain("no auth");
+
+    const withoutAuth = renderNotifyChannels(view({ webhookAuthConfigured: false }));
+    expect(withoutAuth).toContain("no auth");
+    expect(withoutAuth).not.toContain("auth ✓");
+
+    // Slack line carries no auth annotation at all.
+    const slackOnly = renderNotifyChannels({ channels: [SLACK_CHANNEL], webhookAuthConfigured: true });
+    expect(slackOnly).not.toContain("auth");
+  });
+
+  it("emits ANSI codes only when color is enabled", () => {
+    expect(renderNotifyChannels(view(), { color: true })).toContain("\x1b[");
+    expect(renderNotifyChannels(view(), { color: false })).not.toContain("\x1b[");
+  });
+});
+
+describe("renderNotifyChannelsJson", () => {
+  it("reports configured=0 with an empty channel list", () => {
+    const json = JSON.parse(renderNotifyChannelsJson({ channels: [], webhookAuthConfigured: false }));
+    expect(json).toEqual({ channels: [], configured: 0 });
+  });
+
+  it("emits masked URLs and authConfigured only for the webhook channel", () => {
+    const json = JSON.parse(renderNotifyChannelsJson(view({ webhookAuthConfigured: true })));
+    expect(json.configured).toBe(2);
+    expect(json.channels[0]).toEqual({
+      kind: "slack",
+      label: "Slack",
+      envVar: "AGENTRELAY_SLACK_WEBHOOK",
+      url: expect.stringContaining("3def"),
+    });
+    expect(json.channels[0].authConfigured).toBeUndefined();
+    expect(json.channels[1]).toEqual({
+      kind: "webhook",
+      label: "Webhook",
+      envVar: "AGENTRELAY_WEBHOOK_URL",
+      url: expect.stringContaining("cret"),
+      authConfigured: true,
+    });
+  });
+
+  it("never leaks full secret URLs, even though it echoes masked ones", () => {
+    const json = renderNotifyChannelsJson(view());
+    expect(json).not.toContain("relay-secret");
+    expect(json).not.toContain("abc123def");
+    expect(json).toContain("•");
   });
 });

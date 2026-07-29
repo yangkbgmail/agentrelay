@@ -593,6 +593,21 @@
       cli health 10 신규 테스트, 실제 빌드 CLI e2e로 idle→0/strict→1/대기 잡+무루프→unhealthy 1/JSON/help
       검증. branch `claude/wizardly-pascal-health`)
 
+- [x] 👷 `agentrelay notify channels` — 설정된 알림 채널(Slack/웹훅)을 **발송 없이** 열거하는 읽기 전용
+      진단. `notify test`(실제 전송)와 `config show`(원시 env/설정값, 공백 포함)의 사이 빈틈을 메워,
+      릴레이 루프가 실제로 쓸 **활성 채널**(공백 env var 필터링·마스킹된 목적지 URL·웹훅 Authorization
+      헤더 전송 여부)을 이벤트가 발생하기 전에 네트워크 요청 없이 미리 확인.
+      (완료 — 새 core 코드 0줄: 기존 순수 `listNotifyChannels(env)`(설정된 채널의 유일 진실源, blank
+      스킵)를 그대로 재사용. CLI `notify.ts`에 순수 `renderNotifyChannels(view,{color,showSecrets})`
+      (마스킹 기본·`--show-secrets`로 원문 노출·웹훅에 auth ✓/no auth 힌트·Slack엔 auth 주석 없음·
+      빈 셋은 `NO_CHANNELS_MESSAGE`)·`renderNotifyChannelsJson`(URL은 **항상** 마스킹만, showSecrets
+      무관 — 스크립트 캡처로 시크릿 유출 방지, authConfigured는 웹훅에만) + `NotifyChannelsView` 타입.
+      `maskSecret`(config.ts)·`NO_CHANNELS_MESSAGE` 재사용. `agentrelay notify channels [--json]
+      [--show-secrets]` 배선 — 읽기 전용이라 채널 0개여도 exit 0(빈 케이스는 정보성, `notify test`가
+      그걸로 gate). cli notify.test에 11케이스(마스킹/showSecrets/auth 상태/Slack 무주석/color/JSON
+      envelope/시크릿 미유출) 추가, 실제 빌드 CLI e2e로 무채널→exit0·Slack+웹훅 마스킹·auth ✓/no auth·
+      JSON·show-secrets·공백 env 필터 검증. branch `claude/wizardly-pascal-notify-channels`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
