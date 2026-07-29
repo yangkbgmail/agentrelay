@@ -1539,3 +1539,23 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 48 — `agentrelay rm <id>` 단일 잡 하드 삭제 커맨드 신규] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-gmgp9u`)
+- **배경:** 세션 시작 시 명시된 👷 BACKLOG 항목이 전부 완료 상태(무한 개선 백로그 소진). 열린 PR 160건을
+  훑어(파서·분석·스케줄러·커맨드 대부분 선점) 어느 것과도 겹치지 않는 distinct 갭을 탐색 —
+  `remove`/`delete`/`forget` 관련 PR **0건**을 확인하고, 실제로 빠져 있던 "특정 잡 하나만 스토어에서
+  영구 삭제" 기능을 신규 발굴(CLAUDE.md "무한 개선 백로그가 비면 스스로 발굴" 지침).
+- **한 일:** `agentrelay rm <id>`(alias `remove`) 구현. 기존엔 `cancel`(레코드 유지·terminal 전환)과
+  `prune`(대량 종료 정리)뿐이라 표적 단일 삭제가 불가능했다.
+  - core `control.ts` 순수 가드 `canRemove(job)`: 재개 대기 상태(queued/waiting_for_reset/resuming)는
+    거부(큐 작업 유실 방지, "--force로 우회"), 종료 잡은 항상 허용.
+  - core `queue.ts` `RelayQueue.remove(id)`: full id로 한 레코드 삭제 후 삭제된 잡 반환, 미지 id는 flush
+    없는 no-op(오타가 스토어 재기록 안 함).
+  - CLI `commands.ts` `removeJob(idOrPrefix,{storePath,force})`: `resolveJobId`(짧은 prefix·모호/미존재)
+    재사용, 기본 가드+`--force` 우회. `cli.ts` `rm <id> [-f/--force]` 배선, 실패 시 exit 1. 새 파서/스케줄러 코드 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린, `pnpm ci:lint`(Biome) **0 경고**,
+  `pnpm test` 전 패키지 통과(core 521[+control 2·queue 3] + cli 249/1skip[+commands 5] + dashboard 7).
+  실제 빌드된 CLI e2e(mock 아님): completed 삭제→**exit 0**, waiting 무-force 거부→**exit 1**,
+  waiting `--force` 삭제→**exit 0**, 미지 id→**exit 1**, `remove` alias·help 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과). 이후 남은 distinct CI-초록 PR 통합/신규
+  발굴 계속. README/ARCHITECTURE(🧭 코워크).

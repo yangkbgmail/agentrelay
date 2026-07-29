@@ -54,6 +54,7 @@ import {
   pruneJobs,
   readHealthReport,
   readLocationReport,
+  removeJob,
   restoreStore,
   retryJob,
   runCommand,
@@ -1205,6 +1206,19 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("rm")
+    .alias("remove")
+    .description("Permanently delete one job from the store by id (targeted counterpart to `prune`)")
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .option("-f, --force", "Remove even a job that's still pending resume (queued/waiting/resuming)")
+    .action((id: string, opts: { force?: boolean }) => {
+      const { store } = program.opts();
+      const result = removeJob(id, { storePath: store, force: opts.force });
+      console.log(`[agentrelay] ${result.message}`);
+      if (!result.ok) process.exitCode = 1;
     });
 
   program

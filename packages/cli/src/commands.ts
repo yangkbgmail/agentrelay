@@ -34,6 +34,7 @@ import {
   buildLocationReport,
   CONFIG_FILENAME,
   canCancel,
+  canRemove,
   canRequeue,
   configToJson,
   countActiveJobs,
@@ -498,6 +499,34 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
       job: updated,
       message: `job ${shortId(job.id)} (${job.project}) queued to resume now — run "agentrelay tick" or the daemon to pick it up`,
     };
+  } finally {
+    queue.close();
+  }
+}
+
+/**
+ * Permanently delete a job from the store by full id or short prefix — the
+ * targeted counterpart to `prune` (which bulk-removes finished jobs by
+ * age/status). Jobs still pending resume (queued/waiting_for_reset/resuming)
+ * are rejected unless `force` is set, since removing one silently drops queued
+ * work; terminal jobs delete freely. The returned `job` is the record as it was
+ * just before deletion, so the CLI can report what it removed.
+ */
+export function removeJob(idOrPrefix: string, options: { storePath?: string; force?: boolean } = {}): JobControlResult {
+  const queue = openQueue(options.storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { ok: false, job: null, message: resolved.error ?? "job not found" };
+
+    const job = jobs.find((j) => j.id === resolved.id) as RelayJob;
+    if (!options.force) {
+      const guard = canRemove(job);
+      if (!guard.ok) return { ok: false, job, message: `cannot remove ${shortId(job.id)}: ${guard.reason}` };
+    }
+
+    queue.remove(job.id);
+    return { ok: true, job, message: `removed job ${shortId(job.id)} (${job.project}, was ${job.status})` };
   } finally {
     queue.close();
   }

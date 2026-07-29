@@ -15,6 +15,7 @@ import {
   listStoreBackups,
   previewRestoreStore,
   pruneJobs,
+  removeJob,
   restoreStore,
   retryJob,
   runCommand,
@@ -217,6 +218,39 @@ describe("cancelJob / retryJob", () => {
     expect(result.job?.status).toBe("waiting_for_reset");
     expect(result.job?.attempts).toBe(0);
     expect(result.job?.lastError).toBeNull();
+  });
+
+  it("removes a terminal job by short id prefix", () => {
+    const id = seed("completed");
+    const result = removeJob(id.slice(0, 8), { storePath });
+    expect(result.ok).toBe(true);
+    expect(result.job?.id).toBe(id);
+    expect(result.message).toContain("removed job");
+    expect(listStatus(storePath)).toHaveLength(0);
+  });
+
+  it("refuses to remove a job still pending resume without --force", () => {
+    const id = seed("waiting_for_reset");
+    const result = removeJob(id, { storePath });
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("cannot remove");
+    // The job is left untouched in the store.
+    expect(listStatus(storePath)[0].id).toBe(id);
+  });
+
+  it("removes a pending job when --force is given", () => {
+    const id = seed("waiting_for_reset");
+    const result = removeJob(id, { storePath, force: true });
+    expect(result.ok).toBe(true);
+    expect(listStatus(storePath)).toHaveLength(0);
+  });
+
+  it("reports an unknown id without mutating the store", () => {
+    seed("completed");
+    const result = removeJob("deadbeef", { storePath });
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("no job matches");
+    expect(listStatus(storePath)).toHaveLength(1);
   });
 });
 
