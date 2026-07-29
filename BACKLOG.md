@@ -593,6 +593,18 @@
       cli health 10 신규 테스트, 실제 빌드 CLI e2e로 idle→0/strict→1/대기 잡+무루프→unhealthy 1/JSON/help
       검증. branch `claude/wizardly-pascal-health`)
 
+- [x] 👷 `agentrelay parse --scan` — 캡처한 여러 줄 로그를 줄 단위로 스캔해, 재개를 트리거할 줄을
+      전부(줄번호·매치 패턴·리셋 시각과 함께) 리포트. 기존 `parse`는 입력 전체를 하나의 메시지로 보고
+      첫 매치만 반환해, 실제 세션 로그에서 "어느 줄이(있다면) 재개를 큐잉했을까"를 조사할 수 없었다.
+      (완료 — CLI `parse.ts`에 순수 `buildScanReport(text,{tool?,now?})`(단일 `now` 1회 해소 후 전 줄에
+      재사용→결정적, 후행 개행이 줄 수를 부풀리지 않게 pop, CRLF의 `\r` 제거, `--tool` 어댑터 존중,
+      `actsOnLine`=첫 매치 줄=실제 동작 대상) + `renderScanReport`(줄별 매치 목록+동작 줄 화살표 마커+
+      no-match 요약, color 게이트)·`renderScanReportJson`(매치별 `resetInMs`+totals). `cli.ts` parse에
+      `--scan` 플래그 배선(기존 단일-메시지 경로와 공존, `--json`/`--tool`/stdin 파이프와 조합). 새 core
+      코드 0줄 — 기존 `resolveAdapter().detectRateLimit`를 줄마다 재사용. cli parse.test +10케이스(줄번호·
+      actsOnLine·clean 로그·후행 개행·CRLF·codex 어댑터·렌더·JSON), 실제 빌드 CLI e2e로 6줄 로그 2매치
+      스캔·JSON·no-match·codex 초 패턴 검증. branch `claude/wizardly-pascal-7hd097`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
