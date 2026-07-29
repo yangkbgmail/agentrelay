@@ -1489,3 +1489,19 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — `agentrelay resets` 리셋 시각 시간대 분포] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-008bea`)
+- **한 일:** BACKLOG 👷 항목이 대부분 소진돼 CLAUDE.md 지침대로 신규 개선 항목을 발굴·구현.
+  `agentrelay resets` — 큐의 리셋 인스턴트를 하루 24시간대(hour-of-day) 히스토그램으로 보여줘
+  "내 한도가 하루 중 언제 풀리는가"를 한눈에(작업 시작 시각 계획용). `stats`(총계)·`patterns`(포맷)·
+  `trend`(일별 볼륨)이 모두 시계를 뭉개는 것과 달리 리셋 시(時)를 노출한다.
+- **구현:** `@agentrelay/core/clock.ts`(순수) `computeResetClock(jobs,{local?})`→`ResetClockSummary`
+  (24버킷 항상 채움·peakHour 동률은 이른 시각·withReset/withoutReset 분리), `jobResetInstant`은
+  지속되는 `lastRateLimit.resetAt` 우선·라이브 `job.resetAt` fallback. UTC 기본(`--local`로 로컬).
+  CLI `resets.ts`(순수) `renderResetClock`(비례 막대·빈 시각 dim `·`·peak 푸터)·`renderResetClockJson`,
+  `agentrelay resets [--local] [--json]` + 공용 스코프 필터(patterns와 동일 배선). 진행 중 열린
+  PR(`stats --by-hour`=잡 생성 분포)과 축이 달라 중복 아님.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린·`pnpm ci:lint`(biome, 88파일 0경고)·
+  `pnpm test` 전 패키지 통과(core 516, cli 241; clock 10 + resets 6 신규). 실제 빌드 CLI e2e로
+  히스토그램·`--json`·`--tool` 스코프·completion 반영·`--help` 확인.
+- **다음 할 일:** 남은 distinct CI-초록 PR 통합 계속, README/ARCHITECTURE(🧭 코워크).
