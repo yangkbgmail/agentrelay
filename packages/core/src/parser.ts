@@ -127,6 +127,28 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // The standard `RateLimit-Reset` / `X-RateLimit-Reset` response header used
+    // by many HTTP APIs (GitHub, Twitter, and the IETF `RateLimit` draft), which
+    // agent CLIs proxying such an API dump verbatim on a 429. The value is
+    // interpreted by magnitude — no single spec agrees on the unit, so we go by
+    // what the number *is*:
+    //   - epoch seconds:  `X-RateLimit-Reset: 1752345600` (GitHub) -> absolute
+    //   - delta-seconds:  `RateLimit-Reset: 30` (IETF draft)        -> from now
+    // A value >= 1_000_000_000 (a Unix epoch dated after 2001, i.e. any real
+    // reset time) is treated as absolute; anything smaller is a delay in seconds.
+    // The `\d{1,10}` cap means a 13-digit *millisecond* epoch never matches
+    // (no word boundary lands mid-run), so we skip it rather than misread it.
+    // The hyphenated `-reset` header name keeps this disjoint from both the JSON
+    // `retry_after` (underscore, epoch) and `Retry-After` (delay/date) patterns.
+    name: "ratelimit-reset-header",
+    regex: /(?:x-)?ratelimit-reset\s*[:=]\s*(\d{1,10})\b/i,
+    resolve: (m, now) => {
+      const value = parseInt(m[1], 10);
+      if (value >= 1_000_000_000) return new Date(value * 1000);
+      return new Date(now.getTime() + value * 1000);
+    },
+  },
+  {
     // Generic "5-hour limit" mention with no explicit time -> assume a full 5h window from now.
     // Kept last and treated as a low-confidence fallback.
     name: "five-hour-window-fallback",

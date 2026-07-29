@@ -1489,3 +1489,23 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify 등).
   중복 무리(파서 reset-at·config get·stats --by-hour·재개 stagger)는 각각 하나로 수렴 후 나머지 닫기 권장.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 46 — 파서: 표준 `RateLimit-Reset` / `X-RateLimit-Reset` 헤더 인식] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-dr2ehd`)
+- **배경:** 명시된 👷 BACKLOG 항목이 전부 완료 상태(🧭 코워크 소유 문서/리서치만 열림). CLAUDE.md
+  "새 개선 항목을 스스로 발굴" 지침에 따라 제품 핵심(rate-limit 감지)에서 실사용 갭을 발굴. 파서는
+  `retry_after`(JSON epoch)·`Retry-After`(HTTP delay/date)는 잡지만, GitHub·Twitter·IETF `RateLimit`
+  draft에서 널리 쓰이는 `X-RateLimit-Reset`/`RateLimit-Reset` 헤더는 놓쳐, 에이전트 CLI가 이 헤더를
+  콘솔에 덤프하는 429에서 잡이 큐잉되지 않았다.
+- **한 일:** `packages/core/src/parser.ts`에 순수 `ratelimit-reset-header` 패턴 추가(`http-retry-after`
+  뒤·`five-hour-window-fallback` 앞). 단일 스펙이 값 단위를 합의하지 않으므로 **크기 휴리스틱**으로 해석:
+  `>= 1_000_000_000`(2001년 이후 Unix epoch=실제 리셋 시각)은 절대 epoch 초, 그보다 작으면 now 기준
+  delta-seconds(IETF draft 의미). 정규식 `(?:x-)?ratelimit-reset\s*[:=]\s*(\d{1,10})\b` — `\d{1,10}`
+  캡으로 13자리 밀리초 epoch은 매치 안 함(10번째 자리 뒤 word boundary 없음), 캡처가 헤더 구분자 직후에
+  고정돼 큰 수의 뒤쪽 10자리를 주워 담지 않음. 하이픈 `-reset` 헤더명으로 `retry_after`(underscore)·
+  `Retry-After`와 disjoint. 프리필터 `rate.?limit`가 "ratelimit"을 이미 통과시켜 별도 수정 불필요.
+  새 CLI 코드 0줄 — 기존 `agentrelay parse`가 자동 노출.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린·`pnpm ci:lint`(Biome, 84파일 0경고)·
+  `pnpm test` 전 패키지 통과(core 510, parser 37=기존 33+4 신규: epoch/delta/`=` 구분자/13자리 ms epoch
+  미매치). 실제 빌드된 CLI `parse`로 epoch→절대시각(2025-07-12)·delta→now+45s·13자리 ms epoch→미검출 e2e 확인.
+- **다음 할 일:** 남은 열린 distinct PR 통합 계속 또는 새 파서/커맨드 갭 발굴. 다른 표준 rate-limit
+  헤더(예: `RateLimit: limit=…, reset=NN` 결합형)나 벤더별 포맷 추가 검토. README/ARCHITECTURE(🧭 코워크).

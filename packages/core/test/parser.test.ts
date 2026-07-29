@@ -236,6 +236,34 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  it("parses X-RateLimit-Reset as an absolute Unix epoch (GitHub style)", () => {
+    const result = parseRateLimitMessage("HTTP 429\nX-RateLimit-Reset: 1752345600");
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("parses RateLimit-Reset as delta-seconds from now (IETF draft style)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("429 Too Many Requests\nRateLimit-Reset: 30", { now });
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30_000).toISOString());
+  });
+
+  it("accepts an '=' separator on the RateLimit-Reset header", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("ratelimit-reset=120", { now });
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 120_000).toISOString());
+  });
+
+  it("does not misread a millisecond epoch in RateLimit-Reset (13 digits)", () => {
+    // A 13-digit ms epoch has no word boundary after the 10th digit, so the
+    // \d{1,10}\b regex never matches it — we skip rather than misinterpret.
+    const result = parseRateLimitMessage("X-RateLimit-Reset: 1752345600000");
+    expect(result).toBeNull();
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [
