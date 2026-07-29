@@ -25,19 +25,19 @@ describe("parseRateLimitMessage", () => {
     expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
   });
 
-  it("parses the real Claude Code wording: 'reset at 5pm' (hour + meridiem, no minutes)", () => {
+  it("parses the real Claude Code wording: 'reset at 5pm (America/New_York)' honoring the zone", () => {
     // Actual message: "Claude usage limit reached. Your limit will reset at 5pm (America/New_York)."
-    const now = new Date("2026-07-12T08:00:00Z"); // 08:00 UTC
+    // The named IANA zone is now honored: 5pm EDT (UTC-4 in July) == 21:00 UTC — an
+    // absolute instant, independent of the host machine's own timezone.
+    const now = new Date("2026-07-12T08:00:00Z"); // 08:00 UTC == 04:00 EDT
     const result = parseRateLimitMessage(
       "Claude usage limit reached. Your limit will reset at 5pm (America/New_York).",
       { now }
     );
     expect(result).not.toBeNull();
     expect(result?.pattern).toBe("clock-time-meridiem");
-    const resetDate = new Date(result!.resetAt);
-    expect(resetDate.getHours()).toBe(17); // 5pm local
-    expect(resetDate.getMinutes()).toBe(0);
-    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+    expect(result?.resetAt).toBe("2026-07-12T21:00:00.000Z");
+    expect(new Date(result!.resetAt).getTime()).toBeGreaterThan(now.getTime());
   });
 
   it("parses 'resets at 10 AM' with a space before the meridiem, rolling to tomorrow if past", () => {
@@ -234,6 +234,50 @@ describe("parseRateLimitMessage", () => {
   it("falls through a malformed HTTP-date Retry-After instead of an invalid date", () => {
     const result = parseRateLimitMessage("Retry-After: Not, 99 Xxx 0000 99:99:99 GMT");
     expect(result).toBeNull();
+  });
+
+  // --- timezone-aware clock resolution (BACKLOG: 파서 명시 타임존 인식) ---
+
+  it("honors an IANA zone on a minute-precise clock-time ('at 15:00 (Asia/Seoul)')", () => {
+    // 15:00 KST (UTC+9, no DST) == 06:00 UTC — an absolute instant regardless of host TZ.
+    const now = new Date("2026-07-12T00:00:00Z"); // 09:00 KST, before 15:00 KST
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 15:00 (Asia/Seoul).", { now });
+    expect(result?.pattern).toBe("clock-time");
+    expect(result?.resetAt).toBe("2026-07-12T06:00:00.000Z");
+  });
+
+  it("honors a zone without parentheses ('resets at 9am America/Los_Angeles')", () => {
+    // 9am PDT (UTC-7 in July) == 16:00 UTC. now is before that instant.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Resets at 9am America/Los_Angeles.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-07-12T16:00:00.000Z");
+  });
+
+  it("rolls the zoned reset to tomorrow when today's instant is already past", () => {
+    // 9am America/New_York (EDT, UTC-4) == 13:00 UTC. now is 20:00 UTC, already past
+    // today's 13:00 UTC, so the reset must be tomorrow's 13:00 UTC.
+    const now = new Date("2026-07-12T20:00:00Z");
+    const result = parseRateLimitMessage("Resets at 9am (America/New_York).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-07-13T13:00:00.000Z");
+  });
+
+  it("accepts UTC as an explicit zone", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Resets at 5pm (UTC).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-07-12T17:00:00.000Z");
+  });
+
+  it("falls back to local time for an unrecognized zone instead of dropping the match", () => {
+    // "Mars/Olympus" is not a real IANA zone; the detection must still succeed
+    // (local-time interpretation), never return null just because the zone is bad.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Resets at 5pm (Mars/Olympus).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(new Date(result!.resetAt).getHours()).toBe(17); // interpreted in local time
+    expect(new Date(result!.resetAt).getTime()).toBeGreaterThan(now.getTime());
   });
 
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {

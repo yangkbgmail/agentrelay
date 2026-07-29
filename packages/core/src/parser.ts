@@ -1,4 +1,38 @@
+import { nextZonedInstant } from "./timezone.js";
 import type { RateLimitInfo } from "./types.js";
+
+/**
+ * Trailing timezone hint attached to a wall-clock reset, e.g. the
+ * "(America/New_York)" in Claude Code's "reset at 5pm (America/New_York)".
+ * Only unambiguous IANA zone identifiers are recognized — either the special
+ * `UTC`/`GMT`, or a `Region/City` form (optionally three-part like
+ * `America/Argentina/Buenos_Aires`). Ambiguous abbreviations (PST, EST, …) are
+ * intentionally *not* matched: several map to more than one offset, so honoring
+ * them could be more wrong than the local-time fallback. Parentheses are
+ * optional; the leading `\s*` lets it sit right after the hour/meridiem.
+ */
+const TZ_SUFFIX = /\s*\(?\s*(UTC|GMT|[A-Za-z]+(?:\/[A-Za-z_]+){1,2})\s*\)?/;
+
+/**
+ * Resolve an hour/minute wall clock to the next future instant, honoring an
+ * optional IANA `timeZone` captured from the message. When the zone is present
+ * and recognized, the reset is computed *in that zone*; otherwise (absent or
+ * unrecognized) we fall back to interpreting the wall clock in the host's local
+ * time — the historical behavior — so a typo'd or exotic zone never drops an
+ * otherwise-valid detection.
+ */
+function resolveWallClock(now: Date, hour: number, minute: number, timeZone: string | undefined): Date {
+  if (timeZone) {
+    const zoned = nextZonedInstant(now, hour, minute, timeZone);
+    if (zoned) return zoned;
+  }
+  const candidate = new Date(now);
+  candidate.setHours(hour, minute, 0, 0);
+  if (candidate.getTime() <= now.getTime()) {
+    candidate.setDate(candidate.getDate() + 1);
+  }
+  return candidate;
+}
 
 /**
  * Parses CLI output from AI coding agents (Claude Code, etc.) looking for
@@ -43,21 +77,19 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
-    // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
+    // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already
+    // past). An optional trailing IANA zone — "resets at 15:00 (America/New_York)"
+    // — is honored when present so the reset instant is correct even when the host
+    // machine runs in a different timezone than the account's.
     name: "clock-time",
-    regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
+    regex: new RegExp(`${/reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/.source}(?:${TZ_SUFFIX.source})?`, "i"),
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       const minute = parseInt(m[2], 10);
       const meridiem = m[3]?.toLowerCase();
       if (meridiem === "pm" && hour < 12) hour += 12;
       if (meridiem === "am" && hour === 12) hour = 0;
-      const candidate = new Date(now);
-      candidate.setHours(hour, minute, 0, 0);
-      if (candidate.getTime() <= now.getTime()) {
-        candidate.setDate(candidate.getDate() + 1);
-      }
-      return candidate;
+      return resolveWallClock(now, hour, minute, m[4]);
     },
   },
   {
@@ -66,23 +98,20 @@ const PATTERNS: RateLimitPattern[] = [
     // at 5pm (America/New_York)."), which the minute-requiring clock-time
     // pattern above misses. Meridiem is required: a bare "reset at 5" (no
     // colon, no am/pm) is too ambiguous to treat as a clock time. The named
-    // timezone in the message is ignored — the hour is interpreted in local
-    // time, same known limitation as clock-time (a real reset is a future
-    // instant, so rolling to tomorrow when already past keeps us safe).
+    // timezone in the message — when it is a recognized IANA zone (as in Claude
+    // Code's real wording) — is now honored, so the hour is interpreted in *that*
+    // zone rather than the host's local time. An unrecognized/absent zone falls
+    // back to local time (a real reset is a future instant, so rolling to tomorrow
+    // when already past keeps us safe either way).
     name: "clock-time-meridiem",
-    regex: /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b/i,
+    regex: new RegExp(`${/reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b/.source}(?:${TZ_SUFFIX.source})?`, "i"),
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       if (hour > 12) return null; // 13pm etc. is not a valid 12-hour clock time
       const meridiem = m[2].toLowerCase();
       if (meridiem === "pm" && hour < 12) hour += 12;
       if (meridiem === "am" && hour === 12) hour = 0;
-      const candidate = new Date(now);
-      candidate.setHours(hour, 0, 0, 0);
-      if (candidate.getTime() <= now.getTime()) {
-        candidate.setDate(candidate.getDate() + 1);
-      }
-      return candidate;
+      return resolveWallClock(now, hour, 0, m[3]);
     },
   },
   {

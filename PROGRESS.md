@@ -1539,3 +1539,23 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 48 — 파서 명시 IANA 타임존 인식(정확성 결함 수정)] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-2wn85i`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료 상태. CLAUDE.md "비면 스스로 새 개선 항목
+  발굴" 지침에 따라, 코드 주석에 이미 "타임존 무시"로 명시돼 있던 실질 정확성 결함을 발굴 대상으로 선정.
+- **한 일:** 파서의 `clock-time`/`clock-time-meridiem`이 `reset at 5pm (America/New_York)`의 명시 IANA
+  타임존을 무시하고 벽시계 시각을 호스트 로컬로 해석하던 문제를 수정. 에이전트 CLI는 계정 타임존으로
+  리셋 시각을 출력하므로, agentrelay가 다른 타임존 머신에서 돌면 절대 순간이 오프셋만큼 어긋나 재개가
+  너무 이르거나(재충돌) 늦었음. 의존성 0 규칙 준수로 Node 내장 `Intl.DateTimeFormat`(full-ICU)만 사용.
+  - 구현: 순수 core `timezone.ts` 신설 — `tzOffsetMsAt`(순간별 존 오프셋, DST 자동 반영, 미지 존 null)·
+    `zonedWallClockToUtc`(존 벽시계→UTC, 오프셋-순간 순환을 1-pass 보정)·`nextZonedInstant`(존 기준 다음
+    미래 순간, 지났으면 익일 롤+월/년 경계 정규화). parser.ts: 두 clock 패턴에 선택적 `TZ_SUFFIX`
+    (괄호 선택, `UTC`/`GMT`/`Region/City[/City]` IANA 형만; PST/EST 등 다의적 약어 제외) 캡처 추가,
+    공용 `resolveWallClock`가 인식 존이면 그 존에서·없거나 미인식이면 로컬로 폴백(감지를 절대 드롭 안 함).
+    스케줄러/저장소/CLI 코드 0줄 변경 — 기존 `parse` 커맨드가 자동 노출.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm test` 전 패키지 통과(core 535[신규
+  timezone 14 + parser 5 포함] + cli 245/1skip + dashboard 7). 세션 15의 "타임존 무시" 한계를 assert하던
+  기존 parser 테스트 1건을 새 올바른 동작(절대 순간, 머신 TZ 무관)으로 갱신. 실제 빌드 CLI `parse` e2e:
+  `5pm (America/New_York)`→`21:00Z`(EDT), 무존→로컬 폴백, 미지 존(`Mars/Olympus`)→로컬 폴백(드롭 안 함) 확인.
+- **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean 등) 또는 새 파서/
+  CLI 개선 발굴. 중복 무리 수렴 권장. README/ARCHITECTURE(🧭 코워크).
