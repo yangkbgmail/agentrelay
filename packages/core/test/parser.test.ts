@@ -236,6 +236,36 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  it("parses the X-RateLimit-Reset header with a unix-epoch value (GitHub/OpenAI style)", () => {
+    const result = parseRateLimitMessage("HTTP 403\nX-RateLimit-Reset: 1752345600");
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("parses the bare RateLimit-Reset header (IETF draft) with an epoch value", () => {
+    const result = parseRateLimitMessage("ratelimit-reset: 1752345600");
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("parses an Anthropic-style ratelimit-reset header carrying an RFC 3339 timestamp", () => {
+    const result = parseRateLimitMessage("anthropic-ratelimit-unified-reset: 2026-07-13T05:00:00Z");
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("does not treat OpenAI's duration-valued x-ratelimit-reset-requests header as an epoch", () => {
+    // `-reset-requests` / `-reset-tokens` values are relative durations ("6m0s"),
+    // not absolute times: the `reset` key must sit directly before the delimiter.
+    const result = parseRateLimitMessage("x-ratelimit-reset-requests: 6m0s");
+    expect(result).toBeNull();
+  });
+
+  it("falls through a malformed timestamp on a ratelimit-reset header instead of an invalid date", () => {
+    const result = parseRateLimitMessage("x-ratelimit-reset: 2026-99-99T99:99:99Z");
+    expect(result).toBeNull();
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [

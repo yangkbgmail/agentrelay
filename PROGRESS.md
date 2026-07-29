@@ -1539,3 +1539,25 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 48 — 파서: `X-RateLimit-Reset` 응답 헤더 인식(epoch + RFC3339)] (2026-07-29, 무인 자율 세션, branch `claude/wizardly-pascal-cbbwol`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목이 전부 완료 상태. CLAUDE.md의 "비면 스스로 새 개선
+  항목을 발굴" 지침에 따라 **핵심 미션(rate-limit 감지)**을 직접 전진시키는 실사용 파서 갭을 발굴.
+  기존 파서는 `retry_after`(언더스코어 epoch)·`Retry-After`(하이픈, delay-seconds/HTTP-date)는 잡았지만,
+  거의 모든 rate-limited HTTP API(GitHub·Anthropic·OpenAI·IETF `draft-ietf-httpapi-ratelimit-headers`)가
+  내보내는 표준 **`RateLimit-Reset`/`X-RateLimit-Reset`** 헤더는 놓쳤다. 에이전트 CLI가 429/403에서 응답
+  헤더를 콘솔에 덤프하면 릴레이가 리셋 시각을 못 읽어 큐잉에 실패하던 갭.
+- **한 일:** `@agentrelay/core/parser.ts`에 순수 `ratelimit-reset-header` 패턴 신설. 두 실사용 값 형식을
+  모두 인식: (1) Unix epoch 초 `x-ratelimit-reset: 1752345600`(GitHub·Twitter) → `epoch*1000`, (2) RFC 3339
+  타임스탬프 `anthropic-ratelimit-unified-reset: 2026-07-13T05:00:00Z`(Anthropic) → 절대 시각. 키의 중간
+  세그먼트(`-unified-`/`-tokens-` 등)는 허용하되 `reset`이 `:`/`=` **바로 앞**에 오도록 앵커링해, OpenAI의
+  **duration 값** 헤더 `x-ratelimit-reset-requests`/`-reset-tokens`(예: `6m0s`, 절대 시각 아님)와 disjoint
+  유지 → epoch 오독 방지. epoch 그룹은 10자리(서기 2286년까지 유효)로 캡. 사전필터(`LOOKS_LIKE_RATE_LIMIT`)에
+  `ratelimit[a-z0-9_-]*reset` 대안 추가. 파서 우선순위상 fallback(five-hour) 바로 앞에 배치. 새 CLI 코드
+  0줄 — 기존 `parse` 커맨드·스케줄러·run 경로가 자동 노출.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 521[parser 38, 신규 5 회귀 포함]·cli 245/1skip·dashboard 7). 실제 빌드 CLI `parse`
+  e2e(mock 아님): epoch 헤더→`ratelimit-reset-header` 매치·Anthropic RFC3339 헤더→절대 시각 매치·
+  duration 값 `-reset-requests` 헤더→미검출(exit 0) 검증.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과). 이후 파서 실사용 포맷 추가 발굴(예: 위크데이
+  기반 리셋 `resets Monday at 12am`) 또는 남은 distinct 열린 PR 통합 계속. README/ARCHITECTURE(🧭 코워크).
