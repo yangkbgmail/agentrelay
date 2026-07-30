@@ -1539,3 +1539,29 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 48 — distinct CI-초록 PR #222(`agentrelay projects`) 최신 main 통합] (2026-07-30, 무인 자율 세션, branch `claude/wizardly-pascal-h1l3c3`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료 상태이고 열린 PR이 100건 적체(다수 중복:
+  config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223, 파서 reset-at 계열, 재개 stagger
+  #158/#161/#162, wait --all 등). 세션 42~47의 판단(신규 기능을 더 쌓기보다 **CI 초록·서로 겹치지 않는
+  distinct PR을 최신 main 위로 통합**하는 것이 압도적 고가치)을 이어, 어느 열린 PR과도 겹치지 않고 base가
+  현재 main(7646ad5)에 가장 가까운(4abefa1) 격리도 높은 **#222(`agentrelay projects`)**를 통합 대상으로 선정.
+- **한 일:** **#222(`agentrelay projects` — 큐에 존재하는 프로젝트 라벨을 프로젝트별 잡 집계·타이밍과 함께
+  조회하는 인덱스 커맨드. `--project` 필터는 status/stats/export/cancel/retry/metrics/patterns/errors가 전부
+  키로 쓰지만 정작 어떤 라벨이 있는지·어디에 대기가 몰렸는지 발견할 수단이 없던 갭을 메움)를 최신 main에 통합.**
+  PR head(c82523f)가 오래된 base(4abefa1) 기반이라 지정 브랜치를 최신 main(7646ad5)에서 만들고 head 커밋을
+  cherry-pick → 충돌 2개(BACKLOG.md·PROGRESS.md 문서만; 코드 cli.ts·index.ts는 자동 병합) 해소: HEAD(main)
+  문서 히스토리를 유지하고 이 항목/로그를 새로 기록. 새 모듈(core `projects.ts`·`projects.test.ts`, cli
+  `projects.ts`·`projects.test.ts`)은 무충돌 자동 병합.
+  - 구현 요약(PR 원저자): 순수 core `summarizeProjects(jobs)`가 프로젝트별 total/active/terminal/waiting
+    집계 + `nextResetAt`(대기 잡 사전식 min)·`lastActivityAt`(max updatedAt), 랭킹 active desc→total desc→
+    이름 asc(대기 몰린 프로젝트 상단). CLI `renderProjects`(표·카운트다운·`(idle)`·scope note·no-match)·
+    `renderProjectsJson`, `agentrelay projects [--json]` + 공용 `buildScope` 재사용. 새 파서/시계 로직 0줄.
+- **검증:** 통합 후 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·
+  `pnpm test` **전 패키지 통과**(core 523 + cli 253/1skip + dashboard 7, core projects 7 + cli projects 8
+  신규 포함). 빌드된 실제 CLI e2e(mock 아님): 3-잡 임시 스토어로 `projects`(랭킹·카운트다운·`(idle)`),
+  `projects --tool codex-cli`(스코프 부분집합), `projects --json`(전체 envelope), `projects --status bogus`
+  (exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과 → CI 초록 시 병합). 이후 남은 distinct 열린 PR
+  통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·#182 report 등). 중복 무리는 각각 하나로
+  수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
