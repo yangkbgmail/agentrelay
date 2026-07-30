@@ -607,6 +607,22 @@
       projects 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·카운트다운·idle·스코프 부분집합·--json·에러 exit
       검증. PR #222 발원 → 세션 48에서 최신 main 위로 cherry-pick 통합. branch `claude/wizardly-pascal-h1l3c3`)
 
+- [x] 👷 `agentrelay completion fish` — fish 셸 탭 완성 스크립트 생성(기존 bash/zsh에 이어 세 번째 셸).
+      (완료 — `completion`은 bash·zsh만 지원해 fish 사용자는 탭 완성을 못 받았다. core `completion.ts`의
+      `CompletionShell`에 `"fish"` 추가, `COMPLETION_SHELLS`를 `["bash","zsh","fish"]`로 확장(→
+      `isCompletionShell("fish")` true), `generateCompletion` 디스패치에 fish 분기 + 순수 `generateFish(spec)`
+      신설. bash/zsh의 명령형 dispatch 함수와 달리 fish는 선언형 `complete -c <prog> -f -n '<조건>' …` 나열:
+      `__fish_use_subcommand`(아직 서브커맨드 없음)가 top-level 커맨드·글로벌 옵션을, `__fish_seen_subcommand_from
+      <cmd>`가 그 커맨드의 플래그를 노출. 부모 커맨드(`config`)는 `and not __fish_seen_subcommand_from <subs>`로
+      서브커맨드 이름을, 각 서브커맨드 플래그는 부모 AND 서브 조건으로 가드(동명 서브커맨드 누수 방지).
+      순수 `fishFlagArgs`가 플래그 토큰을 fish 관례(`--json`→`-l json`, `-r`→`-s r`, 구식 단일-대시 롱옵션→`-o`)로
+      변환하며 stripped 이름을 `assertSafeToken`으로 검증(bash/zsh와 동일 안전성 — 셸 메타문자 주입 시 throw).
+      `-f`로 fish 기본 파일 완성 억제. CLI는 기존 `buildCompletionSpec`가 라이브 commander 프로그램에서 스펙을
+      파생하므로 자동 배선(설명·help 예시에 fish 추가). 새 파서/스토어 코드 0줄. core completion.test에 fish
+      9케이스(헤더·top-level·글로벌옵션·-l/-s 렌더·부모 서브커맨드·부모+서브 가드·dedup) + fish 안전성 1 +
+      COMPLETION_SHELLS/isCompletionShell 갱신 추가(총 21케이스). 실제 빌드 CLI e2e로 fish 출력·config
+      서브커맨드 가드·잘못된 셸 exit 1 검증. branch `claude/wizardly-pascal-fishcomp`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

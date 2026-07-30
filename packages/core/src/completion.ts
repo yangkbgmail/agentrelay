@@ -11,10 +11,10 @@
 // and deterministic.
 
 /** Shells we can emit a completion script for. */
-export type CompletionShell = "bash" | "zsh";
+export type CompletionShell = "bash" | "zsh" | "fish";
 
 /** Every shell `agentrelay completion` accepts, in a stable order. */
-export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh"] as const;
+export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh", "fish"] as const;
 
 /** Type guard: is `value` one of the shells we support? */
 export function isCompletionShell(value: string): value is CompletionShell {
@@ -86,6 +86,7 @@ export function generateCompletion(shell: CompletionShell, spec: CompletionSpec)
     for (const sub of cmd.subcommands ?? []) assertSafeToken(sub.name, "subcommand name");
   }
   if (shell === "bash") return generateBash(spec);
+  if (shell === "fish") return generateFish(spec);
   return generateZsh(spec);
 }
 
@@ -267,4 +268,92 @@ ${caseArms.join("\n")}
 }
 ${fn} "$@"
 `;
+}
+
+/**
+ * Render a flag token (`--json`, `-r`) as the argument fragment fish's `complete`
+ * expects: `-l <name>` for a long option, `-s <char>` for a single-char short
+ * option, `-o <name>` for an old-style single-dash long option. Returns null for
+ * anything that isn't flag-shaped (should never happen for our CLI's flags, but
+ * we skip rather than emit garbage). The stripped name is validated so an unsafe
+ * token can never slip into a sourced script.
+ */
+function fishFlagArgs(token: string): string | null {
+  if (token.startsWith("--")) {
+    const name = token.slice(2);
+    if (name.length === 0) return null;
+    assertSafeToken(name, "option");
+    return `-l ${name}`;
+  }
+  if (token.startsWith("-") && token.length >= 2) {
+    const name = token.slice(1);
+    assertSafeToken(name, "option");
+    return name.length === 1 ? `-s ${name}` : `-o ${name}`;
+  }
+  return null;
+}
+
+/**
+ * Fish: a flat list of declarative `complete -c <program>` directives rather than
+ * a hand-rolled dispatch function. Each line registers one candidate guarded by a
+ * condition — `__fish_use_subcommand` (true until a command word appears) offers
+ * the top-level commands and global options, and `__fish_seen_subcommand_from`
+ * offers a command's flags once it's on the line. Parent commands (e.g. `config`)
+ * offer their subcommand names until one is chosen, then that subcommand's flags.
+ * `-f` disables fish's default file completion so we only offer real candidates.
+ * Kept deliberately simple/robust, mirroring the bash/zsh generators.
+ */
+function generateFish(spec: CompletionSpec): string {
+  const prog = spec.program;
+  const complete = (condition: string, tail: string): string => `complete -c ${prog} -f -n '${condition}' ${tail}`;
+
+  const lines: string[] = [
+    `# fish completion for ${prog}`,
+    `# Install: save this file as ~/.config/fish/completions/${prog}.fish`,
+    "",
+  ];
+
+  // Top-level commands and global options are only valid before a subcommand.
+  for (const cmd of spec.commands) {
+    lines.push(complete("__fish_use_subcommand", `-a ${cmd.name}`));
+  }
+  for (const opt of uniq([...spec.options, "--help", "--version"].filter((o) => o.length > 0))) {
+    const args = fishFlagArgs(opt);
+    if (args) lines.push(complete("__fish_use_subcommand", args));
+  }
+
+  for (const cmd of spec.commands) {
+    const subs = cmd.subcommands ?? [];
+    if (subs.length > 0) {
+      const subNames = subs.map((s) => s.name).join(" ");
+      // Offer subcommand names once the parent is seen but none of its subs are.
+      for (const sub of subs) {
+        lines.push(
+          complete(
+            `__fish_seen_subcommand_from ${cmd.name}; and not __fish_seen_subcommand_from ${subNames}`,
+            `-a ${sub.name}`
+          )
+        );
+      }
+      // Each subcommand's flags, guarded by both the parent and the subcommand so
+      // a same-named subcommand elsewhere can't leak these in.
+      for (const sub of subs) {
+        for (const opt of uniq([...sub.options, "--help"].filter((o) => o.length > 0))) {
+          const args = fishFlagArgs(opt);
+          if (args) {
+            lines.push(
+              complete(`__fish_seen_subcommand_from ${cmd.name}; and __fish_seen_subcommand_from ${sub.name}`, args)
+            );
+          }
+        }
+      }
+    } else {
+      for (const opt of uniq([...cmd.options, "--help"].filter((o) => o.length > 0))) {
+        const args = fishFlagArgs(opt);
+        if (args) lines.push(complete(`__fish_seen_subcommand_from ${cmd.name}`, args));
+      }
+    }
+  }
+
+  return `${lines.join("\n")}\n`;
 }
