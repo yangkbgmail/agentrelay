@@ -1583,3 +1583,24 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 멈춘-릴레이 진단 신규 구현] (2026-07-30, 무인 자율 세션, branch `claude/wizardly-pascal-yhuyb9`)
+- **한 일:** 세션 49가 다음 할 일로 지목한 `overdue`(지연 재개 진단)를 CLAUDE.md 지침대로 신규 구현.
+  `upcoming`은 앞을 보고("무엇이 언제 재개되나"), `overdue`는 **리셋 시각이 이미 지났는데도 아직
+  `waiting_for_reset`인 잡** — 즉 릴레이가 재개했어야 하는데 못 한 것 — 을 가장 지연된 순으로 드러낸다.
+  지연 꼬리가 길면 대개 데몬이 죽었거나·크래시했거나·안 켜진 것으로, "잡은 큐에 있는데 아무것도 재개 안 됨"
+  무음 실패를 사람이 눈으로 잡는 진단 뷰다. core `overdue.ts` 신설(순수): `buildOverdueReport(jobs, now,
+  {graceMs?, limit?})` — `resetAt <= now-graceMs`인 대기 잡만 worst-first(upcoming을 뒤집음, tie-break 동일)
+  정렬, 각 행 `overdueByMs`(≥0)·`position` + `totalOverdue`/`hidden`/`maxOverdueByMs`/`graceMs`. `graceMs`는
+  방금 due된 잡을 용서(데몬 주기 폴링 → 몇 초 지연은 멈춘 게 아님). CLI `overdue.ts`에 순수 `renderOverdue`
+  (표 + `formatOverdueAge`[분 미만은 초 fallback → `0m` 붕괴 방지] + age 노란색 강조 + scope/grace note +
+  "worst Xm late" 푸터)·`renderOverdueJson`. `agentrelay overdue [--limit/-n][--grace][--tool][--project]
+  [--since][--until][--json]` — 공용 `buildScope` 재사용, completion 자동 포함. 새 파서/시계 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 546 + cli 273/1skip + dashboard 7; core overdue 13 + cli overdue 12 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 4-잡 임시 스토어로 `overdue`(worst-first 정렬·5h/1h/11s age),
+  `--grace 5m`(방금 due 잡 제외), `--limit 1`("2 more not shown"), `--project api-svc`(스코프 부분집합),
+  `--json`(envelope·totalOverdue·maxOverdueByMs), `--limit 0`·`--grace bogus`(exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch` 라이브 갱신·
+  overdue 잡 일괄 재개(`retry --overdue`)·데몬 하트비트와 교차(doctor에 overdue 요약) 등 인접 항목 검토.
+  README/ARCHITECTURE(🧭 코워크).
