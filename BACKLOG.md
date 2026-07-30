@@ -607,6 +607,23 @@
       projects 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·카운트다운·idle·스코프 부분집합·--json·에러 exit
       검증. PR #222 발원 → 세션 48에서 최신 main 위로 cherry-pick 통합. branch `claude/wizardly-pascal-h1l3c3`)
 
+- [x] 👷 `agentrelay adapters` — 등록된 에이전트 어댑터 조회(발견용): 어떤 `--tool` id가 유효한지,
+      어떤 바이너리가 각 툴로 자동 추론되는지, 각 어댑터가 제네릭 위에 어떤 rate-limit 패턴을 더하는지.
+      (완료 — `run --tool`·`parse --tool` 및 status/stats/export/cancel/retry/metrics/patterns/errors/
+      projects의 `--project`처럼 `--tool`은 도처에서 받지만, **유효한 tool 값이 무엇인지·어떤 바이너리가
+      어느 툴로 추론되는지 발견할 수단이 없던** 갭. `@agentrelay/core/parser.ts`에 순수
+      `GENERIC_PATTERN_NAMES`(private `PATTERNS`에서 파생 — 드리프트 없음) export, `adapters.ts`에
+      순수 `describeAdapters()`→`AdapterDescription[]`(tool·displayName·binaries·extraPatterns·isDefault,
+      전부 JSON 무손실 plain data — RegExp/함수 없음) + `DEFAULT_ADAPTER_TOOL` 추가. `ADAPTERS` 레지스트리
+      삽입 순서 보존, `extraPatterns`는 어댑터 고유 패턴만(공유 제네릭은 `GENERIC_PATTERN_NAMES`로 별도
+      노출해 어댑터마다 중복 안 함), 반환 배열은 fresh copy(레지스트리 오염 불가). CLI
+      `packages/cli/src/adapters.ts`에 순수 `renderAdapters`(어댑터별 stanza: tool·displayName·binaries·
+      patterns + 하단에 공유 제네릭 vocab, `(default)`·`(inferred from --tool only)`·`(generic patterns
+      only)` 안내, color 게이트)·`renderAdaptersJson`(generatedAt·adapters·genericPatterns envelope).
+      `agentrelay adapters [--json]` 커맨드(스토어 미접촉 — 정적 config만 읽음). 새 파서/스케줄러 로직 0줄.
+      core adapters 8 + cli adapters 9 신규 테스트, 실제 빌드 CLI e2e로 3어댑터 리스팅·codex 고유 패턴·
+      제네릭 7패턴·`--json` tool id 추출 검증. branch `claude/wizardly-pascal-wv0ufy`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

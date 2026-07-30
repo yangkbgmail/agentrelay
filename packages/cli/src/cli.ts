@@ -1,4 +1,5 @@
 import type {
+  AdapterDescription,
   AgentTool,
   CompletionCommandSpec,
   CompletionShell,
@@ -18,7 +19,9 @@ import {
   computeDailyTrend,
   computeErrorBreakdown,
   computeStats,
+  describeAdapters,
   EXPORT_FORMATS,
+  GENERIC_PATTERN_NAMES,
   GROUP_DIMENSIONS,
   generateCompletion,
   groupStats,
@@ -38,6 +41,7 @@ import {
   summarizeRateLimitPatterns,
 } from "@agentrelay/core";
 import { Command } from "commander";
+import { renderAdapters, renderAdaptersJson } from "./adapters.js";
 import {
   ALL_JOB_STATUSES,
   type BulkControlAction,
@@ -1288,6 +1292,35 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderParseReport(report, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("adapters")
+    .description(
+      "List the registered agent adapters: which --tool ids are valid, which binaries auto-infer each, and the rate-limit patterns they add"
+    )
+    .option("--json", "Print the listing as JSON (machine-readable, for scripts/CI)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # which --tool values can I pass?\n" +
+        "  agentrelay adapters\n" +
+        "  # feed the tool ids to a script\n" +
+        "  agentrelay adapters --json | jq -r '.adapters[].tool'"
+    )
+    .action((opts: { json?: boolean }) => {
+      const adapters: AdapterDescription[] = describeAdapters();
+      if (opts.json) {
+        console.log(
+          renderAdaptersJson({
+            generatedAt: new Date().toISOString(),
+            adapters,
+            genericPatterns: GENERIC_PATTERN_NAMES,
+          })
+        );
+        return;
+      }
+      console.log(renderAdapters(adapters, GENERIC_PATTERN_NAMES, { color: Boolean(process.stdout.isTTY) }));
     });
 
   const config = program.command("config").description("Manage the agentrelay.config.json defaults file");
