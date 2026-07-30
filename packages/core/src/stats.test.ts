@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { computeDailyTrend, computeStats, GROUP_DIMENSIONS, groupStats, isJobScopeActive, scopeJobs } from "./stats.js";
+import {
+  computeDailyTrend,
+  computeHourlyDistribution,
+  computeStats,
+  GROUP_DIMENSIONS,
+  groupStats,
+  isJobScopeActive,
+  scopeJobs,
+} from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
 let seq = 0;
@@ -475,5 +483,47 @@ describe("computeDailyTrend", () => {
     expect(computeDailyTrend([], { nowMs: now, days: 0 }).map((d) => d.date)).toEqual(["2026-07-20"]);
     expect(computeDailyTrend([], { nowMs: now, days: -5 })).toHaveLength(1);
     expect(computeDailyTrend([], { nowMs: now, days: 2.9 })).toHaveLength(2);
+  });
+});
+
+describe("computeHourlyDistribution", () => {
+  it("returns exactly 24 slots, hour 0 first, zero-filled for an empty list", () => {
+    const hourly = computeHourlyDistribution([]);
+    expect(hourly).toHaveLength(24);
+    expect(hourly.map((h) => h.hour)).toEqual(Array.from({ length: 24 }, (_, i) => i));
+    expect(hourly.every((h) => h.count === 0)).toBe(true);
+  });
+
+  it("buckets jobs by their UTC hour of day, summed across days", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-13T09:15:00.000Z" }),
+      job({ createdAt: "2026-07-20T09:59:59.000Z" }), // same hour, different day
+      job({ createdAt: "2026-07-13T17:00:00.000Z" }),
+    ];
+    const hourly = computeHourlyDistribution(jobs);
+    expect(hourly[9]).toEqual({ hour: 9, count: 2 });
+    expect(hourly[17]).toEqual({ hour: 17, count: 1 });
+    expect(hourly.reduce((sum, h) => sum + h.count, 0)).toBe(3);
+  });
+
+  it("uses UTC, not local time, for the hour boundary", () => {
+    // A timezone offset that lands in UTC hour 0 the next day.
+    const hourly = computeHourlyDistribution([job({ createdAt: "2026-07-13T23:30:00.000-01:00" })]);
+    expect(hourly[0].count).toBe(1);
+    expect(hourly.reduce((sum, h) => sum + h.count, 0)).toBe(1);
+  });
+
+  it("skips jobs with a missing/unparseable createdAt", () => {
+    const jobs = [job({ createdAt: "not-a-date" }), job({ createdAt: "2026-07-13T03:00:00.000Z" })];
+    const hourly = computeHourlyDistribution(jobs);
+    expect(hourly[3].count).toBe(1);
+    expect(hourly.reduce((sum, h) => sum + h.count, 0)).toBe(1);
+  });
+
+  it("does not mutate the input list", () => {
+    const jobs = [job({ createdAt: "2026-07-13T05:00:00.000Z" })];
+    const snapshot = [...jobs];
+    computeHourlyDistribution(jobs);
+    expect(jobs).toEqual(snapshot);
   });
 });

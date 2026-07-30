@@ -197,6 +197,39 @@ export function computeDailyTrend(jobs: RelayJob[], options: { nowMs: number; da
   return trend;
 }
 
+/** Hours in a day — the fixed number of buckets in an hour-of-day histogram. */
+const HOURS_PER_DAY = 24;
+
+/** One hour-of-day slot in a {@link computeHourlyDistribution} histogram. */
+export interface HourlyActivity {
+  /** UTC hour of day, 0–23. */
+  hour: number;
+  /** Jobs created during this UTC hour, summed across every day. */
+  count: number;
+}
+
+/**
+ * Buckets jobs by the UTC hour of day they were created (0–23), summed across
+ * every day, so `agentrelay stats --by-hour` can show *when during the day*
+ * rate-limits typically hit — the daily-rhythm complement to
+ * {@link computeDailyTrend}'s day-by-day view. Pure and non-mutating: the hour
+ * comes straight from each job's `createdAt`, never an ambient clock.
+ *
+ * The result is always exactly 24 entries, hour 0 first, zero-filled for quiet
+ * hours so the histogram has a stable shape. Jobs with a missing or unparseable
+ * `createdAt` are skipped — they can't be placed on the clock. Callers that want
+ * a time window (e.g. `--since 7d`) should {@link scopeJobs} first.
+ */
+export function computeHourlyDistribution(jobs: RelayJob[]): HourlyActivity[] {
+  const counts = new Array<number>(HOURS_PER_DAY).fill(0);
+  for (const job of jobs) {
+    const created = Date.parse(job.createdAt);
+    if (Number.isNaN(created)) continue;
+    counts[new Date(created).getUTCHours()] += 1;
+  }
+  return counts.map((count, hour) => ({ hour, count }));
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 

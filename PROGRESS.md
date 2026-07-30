@@ -1565,3 +1565,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과 → CI 초록 시 병합). 이후 남은 distinct 열린 PR
   통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·#182 report 등). 중복 무리는 각각 하나로
   수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+---
+
+### 2026-07-30 — 세션 49 (주력 빌더 / 자동)
+
+- **컨텍스트:** 최신 `main`(8afc615) 동기화 후 BACKLOG의 열린 항목 확인 — 남은 열린 항목은 전부 🧭
+  코워크 소유(README·ARCHITECTURE·경쟁조사·샘플수집·성능분석)뿐, 👷 항목은 전부 완료 상태. CLAUDE.md
+  지침대로 스스로 신규 개선 항목을 발굴해 구현.
+- **한 일:** **`agentrelay stats --by-hour`** — 하루 중 시간대(UTC 0–23)별 활동 히스토그램 신설.
+  `--trend`(일 단위)이 "며칠에 걸쳐 언제 바빴나"를 보여주는 반면, "하루 중 몇 시에 레이트리밋이 주로
+  터지나"라는 일과 리듬을 볼 수단이 없던 갭을 메움.
+  - core `stats.ts`: 순수 `computeHourlyDistribution(jobs)` + `HourlyActivity`(hour·count). 각 잡
+    `createdAt`을 `getUTCHours`로 버킷팅해 전 기간 합산, 항상 24슬롯·zero-fill, 파싱 불가 `createdAt`
+    스킵, 시계 미사용(스코프는 호출 전 `scopeJobs`).
+  - cli `stats.ts`: `renderHourly`(`renderTrend`과 동일 바 스케일링·`HH:00` 라벨) + `renderStatsJson`에
+    optional `hourly` 필드(요청 시에만 방출 → 기존 JSON 형태 불변).
+  - cli `cli.ts`: `--by-hour` 플래그 배선. 기존 스코프·`--trend`과 공존, `--group-by`와는 `--trend`처럼 무시.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린 · `pnpm ci:lint`(Biome) **0 경고** ·
+  `pnpm test` **전 패키지 통과**(cli stats 28·core stats 포함). core 5 + cli 5 신규 테스트. 실제 빌드
+  CLI로 3-잡 임시 스토어 e2e: 09시(2)·17시(1) 버킷·바 스케일·`--by-hour --json` hourly(24슬롯) 방출·
+  기본 `--json`엔 hourly 부재 확인.
+- **다음 할 일:** 이 브랜치(`claude/wizardly-pascal-d6jcbr`)로 main 대상 PR open(CI 초록 시 병합).
+  이후 `stats --by-weekday`(요일별) 등 리듬 지표 확장, 남은 distinct 열린 PR 통합, README/ARCHITECTURE(🧭).

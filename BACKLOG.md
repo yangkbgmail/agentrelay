@@ -607,6 +607,21 @@
       projects 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·카운트다운·idle·스코프 부분집합·--json·에러 exit
       검증. PR #222 발원 → 세션 48에서 최신 main 위로 cherry-pick 통합. branch `claude/wizardly-pascal-h1l3c3`)
 
+- [x] 👷 `agentrelay stats --by-hour` — 하루 중 시간대(UTC 0–23)별 활동 히스토그램(레이트리밋이 하루 중
+      언제 몰리는지 파악). `--trend`(일 단위)의 시간대 리듬 짝.
+      (완료 — `--trend`은 "며칠에 걸쳐 언제 바빴나"를 일 단위로 보여주지만, "하루 중 몇 시에 레이트리밋이
+      주로 터지나"라는 일과 리듬 질문에 답할 수단이 없었다. `@agentrelay/core/stats.ts`에 순수
+      `computeHourlyDistribution(jobs)` + `HourlyActivity`(hour 0–23·count) 신설: 각 잡 `createdAt`의
+      **UTC 시(getUTCHours)로 버킷팅**해 모든 날짜를 합산, 항상 정확히 24슬롯(hour 0 먼저)·조용한 시간
+      zero-fill, 파싱 불가/누락 `createdAt`은 스킵(시계에 놓을 수 없음). 시계/`nowMs` 미사용 — 순수·비변경
+      (스코프 필터는 호출 전 `scopeJobs`가 담당). CLI `stats.ts`에 순수 `renderHourly`(`renderTrend`과 동일
+      바 스케일링·busiest 대비·zero 시간은 dim 베이스라인 점, `HH:00` UTC 시 라벨) + `renderStatsJson`에
+      optional `hourly` 필드(요청 시에만 방출 → 기존 JSON 형태 불변, `trend`와 동일 관례). `cli.ts` stats에
+      `--by-hour` 플래그 배선 — 기존 스코프(--status/--tool/--project/--since/--until)·`--trend`과 공존,
+      `--group-by`와 함께면 `--trend`처럼 무시. 새 core 직렬화/시계 로직 최소 — `computeDailyTrend`·
+      `renderTrend` 패턴 재사용. core stats 5 + cli stats 5 신규 테스트, 실제 빌드 CLI e2e로 시간대 버킷·
+      바 스케일·`--json` hourly 방출·기본값 미방출 검증. branch `claude/wizardly-pascal-d6jcbr`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
