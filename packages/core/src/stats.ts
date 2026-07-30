@@ -197,14 +197,21 @@ export function computeDailyTrend(jobs: RelayJob[], options: { nowMs: number; da
   return trend;
 }
 
-/** Statuses whose lifecycle span counts as a relay-driven resolution. */
-const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
+/**
+ * Statuses whose lifecycle span counts as a relay-driven resolution. Exported so
+ * other surfaces (e.g. `agentrelay slowest`) rank the exact same set of jobs the
+ * aggregate timing metrics summarize, instead of re-deciding what "resolved" means.
+ */
+export const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 
 /**
  * Lifecycle span of a job in ms (`updatedAt - createdAt`), or null when either
  * timestamp is missing/unparseable or the span is negative (clock skew).
+ * Exported as the single source of truth for "how long the relay looked after
+ * this job" — `computeStats` (aggregate percentiles) and `computeSlowest`
+ * (per-job ranking) both go through it so the two surfaces can never disagree.
  */
-function resolutionMs(job: RelayJob): number | null {
+export function jobResolutionMs(job: RelayJob): number | null {
   const created = Date.parse(job.createdAt);
   const updated = Date.parse(job.updatedAt);
   if (Number.isNaN(created) || Number.isNaN(updated)) return null;
@@ -250,7 +257,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     if (job.attempts > 1) retriedJobs += 1;
     projectCounts.set(job.project, (projectCounts.get(job.project) ?? 0) + 1);
     if (RESOLVED_STATUSES.includes(job.status)) {
-      const span = resolutionMs(job);
+      const span = jobResolutionMs(job);
       if (span !== null) resolutionDurations.push(span);
     }
   }

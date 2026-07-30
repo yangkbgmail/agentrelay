@@ -620,6 +620,23 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay slowest` — 해결에 가장 오래 걸린 잡을 느린 순으로 랭킹(`stats`의 타이밍 꼬리 뒤에 있는
+      실제 아웃라이어 잡을 지목). `stats`는 avg/median/p90 같은 **집계** 해결 시간만 보여줘 "그 꼬리를 만든
+      게 어떤 잡인가"를 알 수 없었다 — `errors`가 집계 실패 수 뒤의 개별 잡을 지목하듯, `slowest`가 타이밍
+      아웃라이어를 지목해 `agentrelay show <id>`로 바로 열 수 있게 한다.
+      (완료 — `@agentrelay/core/slowest.ts` 신설(순수·파일시스템/시계 미접촉): `computeSlowest(jobs, limit?)`가
+      resolved(completed/failed) 잡만 골라 라이프사이클 span 내림차순으로 랭킹, 각 행에 `resolutionMs`·`rank`
+      (1-based) 부여 + `totalResolved`/`hidden`(limit로 잘라도 totals는 정직). tie-break은 span→최신 updatedAt
+      →id로 결정론적. **드리프트 방지**: stats.ts의 private였던 `resolutionMs`/`RESOLVED_STATUSES`를
+      `jobResolutionMs`/`RESOLVED_STATUSES`로 export해 `computeStats`(집계 백분위수)와 `computeSlowest`
+      (개별 랭킹)이 동일 규칙(updatedAt−createdAt, ≥0, 파싱가능; completed+failed만, cancelled 제외)을 공유 —
+      두 표면이 절대 불일치 안 함. CLI `packages/cli/src/slowest.ts`에 순수 `renderSlowest`(표·`formatDurationMs`
+      재사용·scope note·no-match 문구)·`renderSlowestJson`(upcoming/projects와 동일 envelope). `agentrelay
+      slowest [-n/--limit(기본 10)] [--status] [--tool] [--project] [--since] [--until] [--json]` — 공용
+      `buildScope` 재사용, completion 자동 포함. 새 파서/시계 로직 0줄. core slowest 9 + cli slowest 9 신규
+      테스트, 실제 빌드 CLI e2e로 느린순 랭킹·--limit 부분표시·--status/--project 스코프·--json·--limit 0/
+      잘못된 status 에러(exit 1)·waiting 잡 제외 검증. branch `claude/wizardly-pascal-m22doc`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

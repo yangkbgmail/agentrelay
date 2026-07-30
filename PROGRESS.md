@@ -1583,3 +1583,28 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay slowest` 해결 시간 아웃라이어 랭킹] (2026-07-30, 무인 자율 세션, branch `claude/wizardly-pascal-m22doc`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료 상태이고 열린 PR이 ~90건 적체(overdue·forecast·
+  eta·report·tools·verify·tail·diff·calendar·stats --by-hour/weekday·completion fish/pwsh 등 대부분의 인접
+  아이디어가 이미 점유). 어느 열린 PR과도 겹치지 않는 **진짜 갭**을 찾아 CLAUDE.md 지침대로 신규 개선 항목을
+  발굴·구현: `stats`는 avg/median/p90 같은 **집계** 해결 시간만 보여줘, 그 타이밍 꼬리를 만든 게 **어떤 잡인지**
+  볼 수단이 없었다(`show <id>`는 잡 하나만, 전체 랭킹 없음).
+- **한 일:** **`agentrelay slowest` — 해결에 가장 오래 걸린 잡을 느린 순으로 랭킹.** `errors`가 집계 실패 수
+  뒤의 개별 잡을 지목하듯, `slowest`가 타이밍 아웃라이어를 지목해 `agentrelay show <id>`로 바로 열 수 있게 한다.
+  - core `slowest.ts`(순수·파일시스템/시계 미접촉): `computeSlowest(jobs, limit?)`가 resolved(completed/failed)
+    잡만 골라 라이프사이클 span(`updatedAt−createdAt`) 내림차순 랭킹, 각 행 `resolutionMs`·`rank`(1-based) +
+    `totalResolved`/`hidden`(limit로 잘라도 totals 정직). tie-break span→최신 updatedAt→id로 결정론적.
+  - **드리프트 방지:** stats.ts의 private였던 `resolutionMs`/`RESOLVED_STATUSES`를 `jobResolutionMs`/
+    `RESOLVED_STATUSES`로 export → `computeStats`(집계 백분위수)와 `computeSlowest`(개별 랭킹)이 동일 규칙
+    (span≥0, 파싱가능, completed+failed만·cancelled 제외)을 단일 출처로 공유해 두 표면이 절대 불일치 안 함.
+  - CLI `slowest.ts`에 순수 `renderSlowest`(표·`formatDurationMs` 재사용·scope note·no-match)·`renderSlowestJson`.
+    `agentrelay slowest [-n/--limit(기본 10)][--status][--tool][--project][--since][--until][--json]` — 공용
+    `buildScope` 재사용, completion 자동 포함. index.ts 재노출. 새 파서/시계 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 542 + cli 271/1skip + dashboard 7; core slowest 9 + cli slowest 9 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 4-잡 임시 스토어(completed 4h/failed 1h30m/completed 20m + waiting 1개)로
+  `slowest`(느린순 랭킹·waiting 제외), `--limit 1`(부분표시 + "2 more not shown"), `--status failed`(스코프
+  부분집합), `--project web --json`(envelope·resolutionMs 정확), `--limit 0`·`--status bogus`(exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `slowest`를 `stats` 타이밍 블록에
+  링크하거나 대시보드에 아웃라이어 패널 노출 검토. README/ARCHITECTURE(🧭 코워크).
