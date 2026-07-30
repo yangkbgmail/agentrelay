@@ -1565,3 +1565,21 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과 → CI 초록 시 병합). 이후 남은 distinct 열린 PR
   통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·#182 report 등). 중복 무리는 각각 하나로
   수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 49 — `agentrelay upcoming` 재개 타임라인 신규 구현] (2026-07-30, 무인 자율 세션, branch `claude/wizardly-pascal-tw6lzf`)
+- **한 일:** BACKLOG의 👷 미완료 항목이 사실상 소진돼(§3 남은 것은 🧭 문서/공동 QA뿐) CLAUDE.md 지침대로
+  스스로 신규 개선 항목을 발굴·구현. `agentrelay upcoming` — 재개 대기 잡들의 활주로(runway) 뷰. `next`는
+  단 하나만, `status`는 큐 전체를 생성순으로 덤프하는데, "다음 것 뒤로 무엇이 언제 재개되나"를 보는 수단이
+  없었다. core `upcoming.ts` 신설(순수): `buildUpcomingTimeline(jobs, now, limit?)`가 `waiting_for_reset`+
+  파싱 가능 `resetAt` 잡을 `next`와 동일 tie-break(resetAt→createdAt→id)로 정렬, 각 행 `dueInMs`/`due`/
+  `position` + `totalWaiting`/`hidden`/`dueNow`(limit로 잘라도 totals는 정직). CLI `upcoming.ts`에 순수
+  `renderUpcoming`(표·공용 `formatCountdown` 재사용·scope note·"N more not shown" 푸터)·`renderUpcomingJson`.
+  `agentrelay upcoming [--limit/-n][--tool][--project][--since][--until][--json]` — 공용 `buildScope` 재사용,
+  completion 자동 포함. index.ts 재노출. 새 파서/시계 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 533 + cli 262/1skip + dashboard 7; core upcoming 10 + cli upcoming 9 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 4-잡 임시 스토어로 `upcoming`(정렬·`due now`·카운트다운), `--limit 2`
+  (부분표시 + "1 more not shown"), `--project api-svc`(스코프 부분집합), `--json`(envelope), `--limit 0`
+  (exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
+  `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
