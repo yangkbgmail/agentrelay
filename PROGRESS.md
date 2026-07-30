@@ -1565,3 +1565,25 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과 → CI 초록 시 병합). 이후 남은 distinct 열린 PR
   통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·#182 report 등). 중복 무리는 각각 하나로
   수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 49 — distinct CI-초록 PR #168(`agentrelay backoff`) 최신 main 통합] (2026-07-30, 무인 자율 세션, branch `claude/wizardly-pascal-v64oyd`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료 상태이고 열린 PR이 100건 적체(다수 중복).
+  세션 42~48의 판단(신규 기능을 더 쌓기보다 **CI 초록·서로 겹치지 않는 distinct PR을 최신 main 위로
+  통합**하는 것이 고가치)을 이어, "다음 할 일"이 추천한 후보(#125·#168·#170·#171·#182) 중 자기완결적이고
+  다른 열린 PR과 겹치지 않는 **#168(`agentrelay backoff` — 재시도 백오프 스케줄 미리보기)**를 선정.
+- **한 일:** **#168을 최신 main(8afc615)에 통합.** PR head(613a9c9)가 오래된 base(f37d2f9) 기반이라
+  지정 브랜치를 최신 main에서 만들고 head 커밋을 cherry-pick → 충돌 2개(BACKLOG.md·PROGRESS.md 문서만;
+  코드 cli.ts는 자동 병합) 해소: HEAD(main) 문서 히스토리를 유지하고 이 항목/로그를 새로 기록. 새 코드
+  (core `retry.ts`의 `computeBackoffSchedule`, cli `backoff.ts`·`backoff.test.ts`)는 무충돌 병합.
+  - 구현 요약(PR 원저자): `config show`/`validate`는 재시도 정책의 raw 값(base/factor/cap/jitter/
+    maxAttempts)만 보여줄 뿐 실제 대기 시퀀스를 볼 수 없던 갭을 메움. core 순수 `computeBackoffSchedule
+    (policy,{steps?})`가 스케줄러와 동일하게 attempt `1..maxAttempts-1`의 between-attempt 대기 산출,
+    무제한(`maxAttempts<=0`)은 기본 5개 미리보기, jitter는 `computeBackoffMs`가 퍼뜨릴 `[min,max]`
+    경계로 리포트·각 step 캡 적중 플래그. CLI `renderBackoff`/`renderBackoffJson`, `agentrelay backoff
+    [-n/--attempts <n>] [--json]`가 `retryPolicyFromEnv()`로 정책 해소. 새 파서/스케줄러 로직 0줄.
+- **검증:** 통합 후 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·
+  `pnpm test` **전 패키지 통과**(core retry +7 / cli backoff +10 신규 포함). 빌드된 실제 CLI e2e(mock
+  아님): 기본 5시도 스케줄·`--attempts N` 무제한·`--json` 전체 스케줄·잘못된 `--attempts`→exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과 → CI 초록 시 병합). 이후 남은 distinct 열린
+  PR 통합 계속(#125 --no-color·#170 clean·#171 verify·#182 report 등). 중복 무리는 각각 하나로 수렴
+  후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
