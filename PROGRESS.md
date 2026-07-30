@@ -1565,3 +1565,24 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과 → CI 초록 시 병합). 이후 남은 distinct 열린 PR
   통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·#182 report 등). 중복 무리는 각각 하나로
   수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+## 세션 49 (2026-07-30) — 최종 QA + 재현 가능한 데모 스크립트 `scripts/demo.sh`
+
+- **배경:** 지정 브랜치 `claude/wizardly-pascal-04tmpq`가 origin에서 삭제됨(직전 세션 #310 병합 완료).
+  최신 main(8afc615)으로 리셋 후 시작. BACKLOG의 👷 명시 항목은 전부 `[x]`이고, 남은 미완료는 🧭(코워크
+  소유: README·ARCHITECTURE·경쟁조사·샘플수집·성능분석) + **유일한 👷 소유 공유 항목 line 19 "최종 QA +
+  재현 가능한 데모 스크립트"** 뿐. 이 실행 대상으로 선정. (origin에 stale `claude/demo-script-reproducible`
+  브랜치가 있었으나 `projects` 병합 전 base라 그대로 재사용 불가 → 최신 main 위에서 새로 작성.)
+- **한 일:** `scripts/demo.sh` 신설 — 실제 AI 에이전트/네트워크 없이 AgentRelay 전 수명주기를 **결정론적으로
+  재현하는 self-verifying 스모크 데모**. 격리된 임시 `AGENTRELAY_STORE`+임시 디렉터리(종료 시 trap 정리,
+  `~/.agentrelay` 절대 미접촉)에서 가짜 codex 툴(첫 실행=`please try again in 2s` rate-limit exit 1 → 재개
+  시 성공 exit 0, 시도 횟수를 파일로 카운트)로: (1) `run`→rate-limit 감지·`waiting_for_reset` 큐잉,
+  (2) 관찰 커맨드 `status`/`next`/`projects`/`patterns`/`health` 일관성, (3) 리셋(약 2초) 경과 후 `tick`
+  자동 재개→`completed`(가짜 툴 **정확히 2회** 실행 검증으로 재개가 실제로 두 번째 실행을 일으켰음을 증명),
+  (4) `stats`/`metrics` 집계까지 각 단계를 assert. 어긋나면 exit 1이라 CI 스모크로도 사용 가능. 세션 48에
+  병합된 `projects` 커맨드를 관찰 단계에 포함. 루트 `package.json`에 `pnpm demo` 스크립트 배선.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린 · `pnpm ci:lint`(Biome 92파일) **0 경고** ·
+  `pnpm test` 전 패키지 통과(core 523 + cli 253/1skip + dashboard 7) · 빌드된 실제 CLI로 `bash scripts/demo.sh`
+  **exit 0**(4단계 전부 통과, 가짜 툴 2회 실행 확인).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과 → CI 초록 시 병합). 이후 남은 🧭 문서 항목
+  (README/ARCHITECTURE/ROADMAP)은 코워크 소유. 모든 작업 완수 판단 시 SPEC 범위 내 vercel 무료 배포 검토.

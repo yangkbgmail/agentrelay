@@ -16,7 +16,17 @@
       (완료 — `parser.test.ts`에 12케이스 회귀 추가: 빈 문자열/시간없는 rate-limit/24h 시계/
       12am·12pm/타임존 오프셋 ISO/잘못된 ISO fallthrough/시간단위만/JSON `retry_after`/멀티라인.
       파서도 `"retry_after": N` JSON 형식 인식하도록 개선. branch `claude/keen-allen-u5qt1l`)
-- [ ] 👷🧭 최종 QA + 재현 가능한 데모 스크립트.
+- [x] 👷 최종 QA + 재현 가능한 데모 스크립트.
+      (완료 — `scripts/demo.sh` 신설: 실제 에이전트/네트워크 없이 AgentRelay 전 수명주기를
+      결정론적으로 재현하는 self-verifying 스모크 데모. 격리된 임시 `AGENTRELAY_STORE`에서
+      가짜 codex 툴(첫 실행=`try again in 2s` rate-limit exit 1 → 재개 시 성공 exit 0, 시도
+      횟수를 파일로 카운트)로 (1) `run`→`waiting_for_reset` 큐잉, (2) 관찰 커맨드
+      `status`/`next`/`projects`/`patterns`/`health` 일관성, (3) 리셋 경과 후 `tick` 자동
+      재개→`completed`(가짜 툴 정확히 2회 실행 검증), (4) `stats`/`metrics` 집계까지 각 단계를
+      assert. 어긋나면 exit 1이라 CI 스모크 겸용, `~/.agentrelay`는 절대 미접촉(임시 스토어+
+      trap 정리). 루트 `pnpm demo` 스크립트 배선. 최종 QA로 `pnpm ci:lint`(Biome 92파일 0경고)·
+      `pnpm test`(core 523 + cli 253/1skip + dashboard 7 전체 통과)·데모 exit 0 확인.
+      branch `claude/wizardly-pascal-04tmpq`)
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
