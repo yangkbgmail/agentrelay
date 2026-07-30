@@ -593,6 +593,18 @@
       cli health 10 신규 테스트, 실제 빌드 CLI e2e로 idle→0/strict→1/대기 잡+무루프→unhealthy 1/JSON/help
       검증. branch `claude/wizardly-pascal-health`)
 
+- [x] 👷 파서: `retry-after-ms` HTTP 헤더 인식(밀리초 지연) — OpenAI 등 AI 공급자 SDK가 표준
+      `Retry-After`와 함께 내보내는 밀리초 단위 재시도 힌트. 초/날짜 `Retry-After`(`http-retry-after`)와
+      unix-epoch `retry_after`(`unix-epoch`)는 이미 인식하지만 이 밀리초 형식은 놓치고 있었다.
+      (완료 — `parser.ts`에 순수 `retry-after-ms` 패턴 추가 — `retry-after-ms[=:]<ms>`를 now+ms로 해석.
+      `http-retry-after`보다 **앞**에 두고, 필수 `-ms` 접미사가 `retry-after\s*:` 형태를 깨 두 패턴이
+      절대 교차 매칭 안 됨(disjoint). 자릿수는 10자리로 캡 → 13자리 epoch-in-ms(1.75e12)를 수 세기짜리
+      말도 안 되는 지연으로 오독하지 않고 fall-through(http-retry-after의 `\d{1,7}\b` 가드와 동일 방식).
+      대소문자 무관·`=`/`:` 구분자 허용. 프리필터(`retry.?after`)가 이미 커버해 수정 0줄, `patterns`/`parse`
+      커맨드는 패턴명을 자동 노출. parser.test +4 회귀(ms 해석/`=`+대소문자/초 오독 안 함/epoch-in-ms
+      fall-through), 실제 빌드 CLI `parse` e2e로 `retry-after-ms: 20000`→20초 감지·13자리 fall-through 검증.
+      branch `claude/wizardly-pascal-5etbg1`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

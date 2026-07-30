@@ -1539,3 +1539,24 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 48 — 파서 `retry-after-ms` 밀리초 헤더 인식 신규 구현] (2026-07-30, 무인 자율 세션, branch `claude/wizardly-pascal-5etbg1`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료 상태. CLAUDE.md "무한 개선" 지침(백로그가 비면
+  스스로 새 개선 항목 발굴)에 따라, 코어 미션(rate-limit 감지)에 직결되면서도 열린 PR 중복 클러스터
+  (config get·stats --watch·파서 reset-at 시계 계열·재개 stagger 등)와 겹치지 않는 파서 커버리지 갭을 발굴.
+- **한 일:** **파서에 `retry-after-ms` HTTP 헤더(밀리초 지연) 인식 추가.** OpenAI 등 AI 공급자 SDK가 429에서
+  표준 `Retry-After`와 함께 내보내는 밀리초 단위 재시도 힌트(`retry-after-ms: 20000` → 20초)를 그동안 놓치고
+  있었다. 초/날짜 `Retry-After`(`http-retry-after`)·unix-epoch `retry_after`(`unix-epoch`)는 이미 인식.
+  - 구현: `parser.ts` PATTERNS에 순수 `retry-after-ms` 패턴 신설(`/retry-after-ms\s*[=:]\s*(\d{1,10})\b/i`,
+    resolve=now+ms). `http-retry-after`보다 앞에 배치하되, 필수 `-ms` 접미사가 `retry-after\s*:` 형태를 깨
+    두 패턴이 절대 교차 매칭 안 됨(disjoint). 자릿수 10자리 캡+word boundary로 13자리 epoch-in-ms(1.75e12)를
+    수 세기짜리 지연으로 오독하지 않고 fall-through(http-retry-after의 `\d{1,7}\b` 가드와 동일 철학).
+    대소문자 무관·`=`/`:` 구분자 허용. 프리필터(`retry.?after`)가 이미 커버해 프리필터 수정 0줄,
+    `patterns`/`parse` 커맨드는 패턴명을 자동 노출(새 CLI 코드 0줄).
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 520/parser 37[+4] + cli 245/1skip + dashboard 7). 빌드된 실제 CLI e2e(mock 아님):
+  `parse "HTTP 429 retry-after-ms: 20000"`→pattern `retry-after-ms`·resets in 20s, `parse "retry-after-ms:
+  1752345600000"`(13자리 epoch-in-ms)→`No rate-limit detected`(안전 fall-through) 확인.
+- **다음 할 일:** 남은 파서 실사용 형식 갠 계속 발굴(space-separated ISO datetime·날짜 수식 reset 등,
+  단 코워크의 "실제 샘플 수집" 리서치 항목과 조율). 남은 distinct 열린 PR 통합(#125 --no-color·#168 backoff
+  등). README/ARCHITECTURE(🧭 코워크).

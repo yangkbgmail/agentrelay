@@ -110,6 +110,20 @@ const PATTERNS: RateLimitPattern[] = [
     resolve: (m) => new Date(parseInt(m[1], 10) * 1000),
   },
   {
+    // The `retry-after-ms` HTTP response header emitted by some AI provider SDKs
+    // (notably the OpenAI client) alongside the standard `Retry-After`. Unlike the
+    // seconds/date `Retry-After` header (see `http-retry-after`), the value here is
+    // a **millisecond** delay from now, e.g. `retry-after-ms: 20000` -> 20s. Kept
+    // before `http-retry-after`; the required `-ms` keeps the two disjoint (the
+    // `-ms` breaks the `retry-after\s*:` shape the other pattern needs, so they can
+    // never cross-match). Digits are capped at 10 so a 13-digit epoch-in-ms value
+    // can't be misread as a (nonsensical, multi-century) delay — per spec this
+    // header is a relative delay, never an absolute timestamp.
+    name: "retry-after-ms",
+    regex: /retry-after-ms\s*[=:]\s*(\d{1,10})\b/i,
+    resolve: (m, now) => new Date(now.getTime() + parseInt(m[1], 10)),
+  },
+  {
     // The standard HTTP `Retry-After` response header (RFC 9110 §10.2.3), which
     // agent CLIs proxying an HTTP API often dump verbatim on a 429. Two forms:
     //   - delay-seconds:  `Retry-After: 3600`   -> that many seconds from now
