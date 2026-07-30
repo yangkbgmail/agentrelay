@@ -41,12 +41,17 @@ const MAX_SIGNATURE_LENGTH = 200;
  * the length. Returns `null` when the error is missing or only whitespace — such
  * a job carries no actionable failure reason and is excluded from the breakdown.
  *
+ * Accepts `undefined` as well as `null`: the {@link RelayJob} type declares
+ * `lastError: string | null`, but a store loaded from disk (an imported dump, a
+ * hand-edited file, or an older schema) can omit the field entirely, and this
+ * function must not throw on such a job — a missing reason is simply no reason.
+ *
  * Pure: no I/O, no ambient state. The first line is used because agent failures
  * are typically a headline reason followed by a stack/context tail that varies
  * per run; grouping on the headline keeps like failures together.
  */
-export function errorSignature(raw: string | null): string | null {
-  if (raw === null) return null;
+export function errorSignature(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
   // First non-empty line (handles CRLF and leading blank lines).
   let firstLine = "";
   for (const line of raw.split(/\r?\n/)) {

@@ -25,6 +25,10 @@ describe("errorSignature", () => {
     expect(errorSignature(null)).toBeNull();
   });
 
+  it("returns null for an undefined error (field absent from an on-disk record)", () => {
+    expect(errorSignature(undefined)).toBeNull();
+  });
+
   it("returns null for whitespace-only errors", () => {
     expect(errorSignature("")).toBeNull();
     expect(errorSignature("   \n\t  ")).toBeNull();
@@ -71,6 +75,19 @@ describe("computeErrorBreakdown", () => {
     expect(result.totalWithErrors).toBe(1);
     expect(result.groups).toHaveLength(1);
     expect(result.groups[0].jobIds).toEqual(["c"]);
+  });
+
+  it("does not throw when a job record omits lastError entirely", () => {
+    // An on-disk store (imported dump / hand-edited / older schema) can carry a
+    // job with no `lastError` field at all — `job.lastError` is then `undefined`,
+    // not `null`. This must be treated as "no error", not crash the breakdown.
+    const withoutField = job({ id: "a" });
+    // Simulate the absent field the way a loaded record would present it.
+    delete (withoutField as { lastError?: string | null }).lastError;
+    const result = computeErrorBreakdown([withoutField, job({ id: "b", lastError: "real failure" })]);
+    expect(result.totalWithErrors).toBe(1);
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].jobIds).toEqual(["b"]);
   });
 
   it("groups jobs that share a normalized signature", () => {
