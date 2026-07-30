@@ -607,6 +607,21 @@
       projects 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·카운트다운·idle·스코프 부분집합·--json·에러 exit
       검증. PR #222 발원 → 세션 48에서 최신 main 위로 cherry-pick 통합. branch `claude/wizardly-pascal-h1l3c3`)
 
+- [x] 👷 `agentrelay report` — 한 커맨드로 릴레이 상태 종합 스냅샷(통계 + 상위 실패 사유 +
+      상위 rate-limit 패턴 + 다음 재개)을 사람용/JSON으로 출력(이슈·스탠드업에 붙여넣기용).
+      (완료 — `stats`/`errors`/`patterns`/`next`는 각각 한 질문에 답하지만, "내 릴레이 지금 어때?"를
+      한 화면·한 문서로 답할 방법이 없어 네 커맨드를 돌려 눈으로 합쳐야 했다. `@agentrelay/core/report.ts`
+      신설(순수·시계는 주입된 `nowMs`만): `buildRelayReport(jobs, {nowMs, topErrors?, topPatterns?})` →
+      `RelayReport`가 이미 검증된 `computeStats`/`computeErrorBreakdown`/`summarizeRateLimitPatterns`/
+      `selectNextResume`를 조합. errorTotals/patternTotals는 항상 전체 잡 수를 반영(작은 top-N이 실제
+      실패 규모를 왜곡 안 함), topErrors/topPatterns만 기본 5개로 절단(≤0=무제한). 새 파싱/집계 로직 0줄 —
+      순수 조합 + top-N 절단만. CLI `packages/cli/src/report.ts`에 순수 `renderReport`(4개 섹션 사람용
+      블록, 색상 게이팅, scopeNote·no-match 처리)·`renderReportJson`(리포트 verbatim). `agentrelay report`
+      커맨드는 stats/errors와 동일한 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용 +
+      `-n/--top`·`--json`, 잘못된 top/status/tool·빈 범위는 exit 1. core report 7 + cli report 8 신규
+      테스트, 실제 빌드 CLI e2e로 4섹션·성공률·스코프 부분집합·no-match·top 절단·JSON·에러 exit 검증.
+      PR #182 발원 → 세션 49에서 최신 main 위로 cherry-pick 통합. branch `claude/wizardly-pascal-bw2lah`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

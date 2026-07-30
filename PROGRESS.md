@@ -1565,3 +1565,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과 → CI 초록 시 병합). 이후 남은 distinct 열린 PR
   통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·#182 report 등). 중복 무리는 각각 하나로
   수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 49 — distinct CI-초록 PR #182(`agentrelay report`) 최신 main 통합] (2026-07-30, 무인 자율 세션, branch `claude/wizardly-pascal-bw2lah`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료 상태이고 열린 PR이 100건 적체(다수 중복).
+  세션 42~48의 판단(신규 기능을 더 쌓기보다 **CI 초록·서로 겹치지 않는 distinct PR을 최신 main 위로
+  통합**하는 것이 고가치)을 이어, 세션 48 "다음 할 일"이 명시한 잔여 distinct 후보(#125 --no-color·#182
+  report 등) 중 **#182(`agentrelay report`)**를 선정. 이유: 이미 병합된 순수 함수(`computeStats`/
+  `computeErrorBreakdown`/`summarizeRateLimitPatterns`/`selectNextResume`)를 조합만 하는 **새 파싱/집계
+  로직 0줄**의 저위험·고가치 항목이고, 열린 PR 중 이 조합 스냅샷을 만드는 다른 항목이 없다.
+- **한 일:** **#182(`agentrelay report` — `stats`/`errors`/`patterns`/`next`가 각각 한 질문에만 답해
+  "내 릴레이 지금 어때?"를 한 화면으로 답할 방법이 없던 갭을, 통계 + 상위 실패 사유 + 상위 rate-limit
+  패턴 + 다음 재개를 한 커맨드로 사람용/JSON 스냅샷 출력해 메움)를 최신 main에 통합.**
+  PR head(3214c10)가 오래된 base(f37d2f9) 기반이라 지정 브랜치를 최신 main(8afc615)에서 만들고 head
+  커밋을 cherry-pick → 충돌 3개(BACKLOG.md·PROGRESS.md 문서 + cli.ts는 import 한 줄만; 코드 report.ts·
+  index.ts·report.test.ts는 무충돌 자동 병합) 해소: 문서는 HEAD(main) 히스토리를 유지하고 이 항목/로그를
+  새로 기록, cli.ts는 `renderProjects`/`renderReport` import 양쪽 다 유지.
+  - 구현 요약(PR 원저자): 순수 core `buildRelayReport(jobs, {nowMs, topErrors?, topPatterns?})`가
+    `RelayReport`로 네 집계를 조합, errorTotals/patternTotals는 항상 전체 잡 수 반영(작은 top-N이 실제
+    실패 규모 왜곡 안 함), topErrors/topPatterns만 기본 5개 절단(≤0=무제한). CLI `renderReport`(4섹션
+    블록·색상 게이팅·scopeNote·no-match)·`renderReportJson`, `agentrelay report` + 공용 `buildScope`
+    (--status/--tool/--project/--since/--until) 재사용 + `-n/--top`·`--json`. 새 파서/시계 로직 0줄.
+- **검증:** 통합 후 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·
+  `pnpm test` **전 패키지 통과**(core report 7 + cli report 8 신규 포함). 빌드된 실제 CLI e2e(mock 아님):
+  3-잡 임시 스토어로 `report`(4섹션·성공률·다음 재개 카운트다운), `report --project <label>`(스코프 부분집합),
+  `report --top 1`(절단), `report --json`(전체 envelope), `report --status bogus`(exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과 → CI 초록 시 병합). 이후 남은 distinct 열린 PR
+  통합 계속(#125 --no-color·#259 waited·#267 summary·#294 rm·#245 diff 등). 중복 무리(config get·stats
+  --watch/--by-hour·파서 reset-header 계열·tools/adapters·upcoming/eta/forecast 등)는 각각 하나로 수렴 후
+  나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
