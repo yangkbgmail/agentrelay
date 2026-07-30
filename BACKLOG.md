@@ -620,6 +620,21 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay overdue` — 리셋 시각이 이미 지났는데도 여전히 대기 중인 잡을 가장 오래 지연된 순으로
+      조회. `upcoming`의 진단용 거울: `upcoming`은 미래 재개 활주로를 보여주지만, `resetAt`이 과거인데
+      `waiting_for_reset`에 머문 잡은 데몬/tick이 안 도는(재개 루프가 멈춘) 잡 단위 신호다.
+      (완료 — `@agentrelay/core/overdue.ts` 신설(순수·파일시스템/시계 미접촉): `buildOverdueReport(jobs, now, limit?)`가
+      `waiting_for_reset` + 파싱 가능한 `resetAt`이 `now` 이하인 잡만 골라 가장 오래 지연된 순(earliest resetAt →
+      createdAt → id, `upcoming`과 동일 tie-break)으로 정렬, 각 행에 `overdueByMs`/`position`(1-based) 부여 +
+      `totalOverdue`/`hidden`/`maxOverdueByMs` 집계(limit로 잘라도 totals는 정직하게 전체 반영). CLI
+      `packages/cli/src/overdue.ts`에 순수 `renderOverdue`(표 + `formatDurationMs` 재사용으로 "OVERDUE BY" 열 +
+      scope note + "N more not shown" 푸터 + "resume loop may be down — check `agentrelay health`" 힌트)·
+      `renderOverdueJson`(upcoming/next와 동일 envelope). `agentrelay overdue [--limit/-n] [--tool] [--project]
+      [--since] [--until] [--json]` — 공용 `buildScope` 재사용, completion 자동 포함. 새 파서/시계 로직 0줄 —
+      `upcoming`의 필터·정렬 관례와 `stats`의 `formatDurationMs` 재사용. core overdue 10 + cli overdue 8 신규
+      테스트, 실제 빌드 CLI e2e로 정렬·지연 시간·--limit 부분표시·--project 스코프·--json·빈 스토어(healthy)·
+      --limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-ovnap2`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
