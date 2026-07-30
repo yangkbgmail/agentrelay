@@ -110,6 +110,20 @@ const PATTERNS: RateLimitPattern[] = [
     resolve: (m) => new Date(parseInt(m[1], 10) * 1000),
   },
   {
+    // Claude Code's own pipe-delimited 5-hour-limit format, printed verbatim on
+    // stdout when the usage limit is hit, e.g. `Claude AI usage limit reached|1752345600`.
+    // The trailing value is a Unix epoch (seconds) for when the limit resets —
+    // the exact instant, not a heuristic. This is the literal wording the CLI
+    // emits and the format the community auto-retry tools key off, so it is the
+    // single highest-value real-world signal we can catch. Placed before the
+    // low-confidence five-hour fallback so the precise epoch always wins over a
+    // guessed "5h from now" window. The unix-epoch pattern above only matches the
+    // `retry_after` field form, so this pipe form would otherwise be missed.
+    name: "usage-limit-epoch",
+    regex: /usage\s+limit\s+reached\s*\|\s*(\d{10})/i,
+    resolve: (m) => new Date(parseInt(m[1], 10) * 1000),
+  },
+  {
     // The standard HTTP `Retry-After` response header (RFC 9110 §10.2.3), which
     // agent CLIs proxying an HTTP API often dump verbatim on a 429. Two forms:
     //   - delay-seconds:  `Retry-After: 3600`   -> that many seconds from now

@@ -125,6 +125,35 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
   });
 
+  it("parses Claude Code's pipe-delimited usage-limit epoch format", () => {
+    // The literal wording the CLI prints on stdout when the 5-hour limit is hit.
+    const result = parseRateLimitMessage("Claude AI usage limit reached|1752345600");
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("usage-limit-epoch");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("tolerates whitespace around the pipe in the usage-limit epoch format", () => {
+    const result = parseRateLimitMessage("usage limit reached | 1752345600");
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("usage-limit-epoch");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("prefers the precise pipe epoch over the low-confidence 5-hour fallback", () => {
+    // Message trips both patterns; the exact epoch must win over the guessed window.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("5-hour usage limit reached|1752345600", { now });
+    expect(result?.pattern).toBe("usage-limit-epoch");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("does not match the usage-limit pipe form without a following epoch", () => {
+    // No pipe/epoch -> this pattern must not fire (falls through to others/null).
+    const result = parseRateLimitMessage("Claude AI usage limit reached. Please wait.");
+    expect(result?.pattern).not.toBe("usage-limit-epoch");
+  });
+
   it("falls back to a 5-hour window when no explicit time is present", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("You have reached your 5-hour usage limit.", { now });
