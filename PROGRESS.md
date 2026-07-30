@@ -1583,3 +1583,20 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay reschedule` 리셋 시각 수동 교정 신규 구현] (2026-07-30, 무인 자율 세션, branch `claude/wizardly-pascal-j97cvf`)
+- **한 일:** 파서가 rate-limit 메시지에서 추정한 리셋 시각이 틀렸거나(모호한 "resets at 3pm",
+  타임존 스큐 등) 재개를 미루고 싶을 때, cancel+재실행(캡처된 command·output 손실)이나
+  `retry`(즉시 due + attempt budget 리셋) 없이 **대기 시각만 고쳐 쓰는** `agentrelay reschedule
+  <id> <when>`(alias `snooze`) 신규. `@agentrelay/core`에 `reschedule.ts` 신설 —
+  `resolveRescheduleAt(when, now)`는 `now`·`+30m`류 상대 오프셋(`parseDuration` 재사용)·ISO 8601
+  절대 시각을 절대 ISO로 해석(파싱 실패 시 `error`), `canReschedule`는 queued/waiting_for_reset만
+  허용하고 resuming·terminal은 사유와 함께 거부. `RelayQueue.reschedule`는 `requeueNow`와 달리
+  attempts/lastError를 보존(재시도가 아닌 스케줄 교정). CLI는 `rescheduleJob` 핸들러 + commander
+  커맨드로 연결. BACKLOG §8에 항목 추가.
+- **테스트:** core `reschedule.test.ts`(가드 3케이스·해석 8케이스)·`queue.test.ts`(reschedule 2케이스,
+  attempts 보존·queued→waiting 이동) 신규, cli `commands.test.ts`에 `rescheduleJob` 5케이스 신규.
+  **전 패키지 통과**(core 545 + cli 267/1skip + dashboard 7). 빌드된 실제 CLI e2e(mock 아님):
+  임시 스토어 대기 잡에 `reschedule +30m`·`snooze <ISO>`·잘못된 입력(exit 1) 확인, `next`가 새 시각 반영.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `reschedule --all`(스코프 일괄 연기)·
+  `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).

@@ -56,6 +56,7 @@ import {
   pruneJobs,
   readHealthReport,
   readLocationReport,
+  rescheduleJob,
   restoreStore,
   retryJob,
   runCommand,
@@ -1457,6 +1458,19 @@ export function buildCli(): Command {
     describe: "Requeue a job to resume immediately (by id), or every matching job with --all",
     allHelp: "Requeue every matching job to resume now (narrow with the scope filters below)",
   });
+
+  program
+    .command("reschedule")
+    .alias("snooze")
+    .description("Manually correct or defer when a waiting job resumes (when the parser guessed the reset wrong)")
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .argument("<when>", "New reset time: `now`, a `+<duration>` offset (e.g. +30m, +2h), or an ISO 8601 timestamp")
+    .action((id: string, when: string) => {
+      const { store } = program.opts();
+      const result = rescheduleJob(id, when, store);
+      console.log(`[agentrelay] ${result.message}`);
+      if (!result.ok) process.exitCode = 1;
+    });
 
   program
     .command("backup")

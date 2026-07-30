@@ -243,6 +243,19 @@ export class RelayQueue {
     this.update(id, { status: "waiting_for_reset", resetAt: at, attempts: 0, lastError: null });
   }
 
+  /**
+   * Manually correct or defer a job's rate-limit reset (`agentrelay
+   * reschedule`). Unlike {@link requeueNow}, the attempt count and last error
+   * are *preserved*: this is a schedule correction for a job that is still
+   * legitimately waiting — not a fresh, user-initiated retry — so it must not
+   * hand the job a new attempt budget. A `queued` job is moved into
+   * `waiting_for_reset` with the given reset so the scheduler honours the new
+   * time.
+   */
+  reschedule(id: string, resetAt: string) {
+    this.update(id, { status: "waiting_for_reset", resetAt });
+  }
+
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {
     this.load();
     const existing = this.jobs.get(id);
