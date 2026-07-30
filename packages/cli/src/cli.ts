@@ -13,6 +13,7 @@ import type {
 } from "@agentrelay/core";
 import {
   ALL_TOOLS,
+  buildRetriesReport,
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
@@ -79,6 +80,7 @@ import { buildParseReport, renderParseReport, renderParseReportJson } from "./pa
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson } from "./projects.js";
+import { renderRetries, renderRetriesJson } from "./retries.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson, renderTrend } from "./stats.js";
 import {
@@ -616,6 +618,78 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderUpcoming(timeline, { color: Boolean(process.stdout.isTTY), now, scopeNote }));
+    });
+
+  program
+    .command("retries")
+    .description("Rank the jobs the relay has re-run the most (attempt count) — spot jobs burning the retry budget")
+    .option("--min <n>", "Only list jobs with at least N attempts (default 2)", "2")
+    .option("-n, --limit <n>", "Show at most N rows (the totals still count all qualifying jobs)")
+    .option(
+      "-s, --status <statuses>",
+      `Only include jobs with these comma-separated statuses: ${ALL_JOB_STATUSES.join(", ")}`
+    )
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # which jobs has the relay retried the most?\n" +
+        "  agentrelay retries\n" +
+        "  # only jobs retried 5+ times, top 10\n" +
+        "  agentrelay retries --min 5 --limit 10\n" +
+        "  # feed the ranking to jq\n" +
+        "  agentrelay retries --json | jq '.report.entries[].job.id'"
+    )
+    .action((opts: ScopeOpts & { min?: string; limit?: string; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      const minAttempts = Number.parseInt(opts.min ?? "2", 10);
+      if (!Number.isInteger(minAttempts) || minAttempts < 1) {
+        console.error(`Invalid --min value "${opts.min}". Use a positive integer.`);
+        process.exitCode = 1;
+        return;
+      }
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const scopeNote = built.active ? built.note : undefined;
+      const report = buildRetriesReport(jobs, { minAttempts, limit });
+
+      if (opts.json) {
+        console.log(
+          renderRetriesJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            report,
+          })
+        );
+      } else {
+        console.log(renderRetries(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
+      }
     });
 
   program
