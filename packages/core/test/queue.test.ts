@@ -194,6 +194,40 @@ describe("RelayQueue", () => {
     expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(1);
   });
 
+  it("reschedules a job's reset while preserving its attempt budget", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    // Simulate a job that has already burned an attempt and is parked waiting.
+    queue.markResuming(job.id);
+    queue.markWaitingForReset(job.id, new Date(Date.now() + 60_000).toISOString());
+    expect(queue.getById(job.id)?.attempts).toBe(1);
+
+    const later = new Date(Date.now() + 3_600_000).toISOString();
+    queue.reschedule(job.id, later);
+
+    const moved = queue.getById(job.id);
+    expect(moved?.status).toBe("waiting_for_reset");
+    expect(moved?.resetAt).toBe(later);
+    // Unlike requeueNow, the attempt count is untouched — this is a correction,
+    // not a fresh retry.
+    expect(moved?.attempts).toBe(1);
+    // The new reset is an hour out, so the job is not yet due.
+    expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(0);
+    expect(queue.listDue(new Date(Date.now() + 3_600_001))).toHaveLength(1);
+  });
+
+  it("reschedules a still-queued job into waiting_for_reset", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    expect(queue.getById(job.id)?.status).toBe("queued");
+
+    const at = new Date(Date.now() + 120_000).toISOString();
+    queue.reschedule(job.id, at);
+
+    const moved = queue.getById(job.id);
+    expect(moved?.status).toBe("waiting_for_reset");
+    expect(moved?.resetAt).toBe(at);
+    expect(moved?.attempts).toBe(0);
+  });
+
   describe("importJobs", () => {
     const historyJob = (id: string, project = "imported"): RelayJob => ({
       id,
