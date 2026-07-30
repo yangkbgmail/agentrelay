@@ -1,4 +1,4 @@
-import { type ParseOptions, parseRateLimitMessage, type RateLimitPattern } from "./parser.js";
+import { GENERIC_PATTERN_NAMES, type ParseOptions, parseRateLimitMessage, type RateLimitPattern } from "./parser.js";
 import type { AgentTool, RateLimitInfo } from "./types.js";
 
 /**
@@ -88,6 +88,47 @@ export const ADAPTERS: Record<AgentTool, AgentAdapter> = {
   "codex-cli": CODEX_CLI_ADAPTER,
   generic: GENERIC_ADAPTER,
 };
+
+/**
+ * A read-only, JSON-friendly description of a single registered adapter — the
+ * static facts a user needs to discover which `--tool` values are valid, which
+ * binaries auto-infer to which tool, and what extra rate-limit patterns (beyond
+ * the shared generic vocabulary) that tool contributes. Pure data: no functions,
+ * no `RegExp` objects, so it round-trips through JSON losslessly.
+ */
+export interface AdapterDescription {
+  /** Stable tool id — a valid value for `--tool` everywhere it is accepted. */
+  tool: AgentTool;
+  /** Human-readable label. */
+  displayName: string;
+  /** argv[0] basenames that auto-infer this tool from a `run` command. */
+  binaries: string[];
+  /** Names of this adapter's own patterns, tried before the generic ones. */
+  extraPatterns: string[];
+  /** True for the fallback adapter used when nothing else matches (`generic`). */
+  isDefault: boolean;
+}
+
+/** The tool id `resolveAdapter` falls back to when no tool is given or inferred. */
+export const DEFAULT_ADAPTER_TOOL: AgentTool = GENERIC_ADAPTER.tool;
+
+/**
+ * Describe every registered adapter as plain data for discovery surfaces (e.g.
+ * `agentrelay adapters`). Pure: reads only the static `ADAPTERS` registry and
+ * the generic parser vocabulary — no I/O, no clock. Registry insertion order is
+ * preserved so the listing is stable across runs. `extraPatterns` lists only the
+ * adapter-specific patterns; the shared generic patterns are exposed separately
+ * as {@link GENERIC_PATTERN_NAMES} so they are not duplicated per adapter.
+ */
+export function describeAdapters(): AdapterDescription[] {
+  return Object.values(ADAPTERS).map((adapter) => ({
+    tool: adapter.tool,
+    displayName: adapter.displayName,
+    binaries: [...adapter.binaries],
+    extraPatterns: adapter.patterns.map((p) => p.name),
+    isDefault: adapter.tool === DEFAULT_ADAPTER_TOOL,
+  }));
+}
 
 /** Strip any directory / .exe suffix from an argv[0] to get the bare binary name. */
 function baseName(bin: string): string {

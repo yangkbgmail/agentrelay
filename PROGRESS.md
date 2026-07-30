@@ -1565,3 +1565,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과 → CI 초록 시 병합). 이후 남은 distinct 열린 PR
   통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·#182 report 등). 중복 무리는 각각 하나로
   수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+---
+
+## 세션 49 — 2026-07-30 09:xx UTC (`agentrelay adapters` 발견 커맨드)
+- **맥락:** BACKLOG의 👷(클로드 코드) 소유 항목이 사실상 전부 `[x]` — CLAUDE.md 지침대로 새 개선
+  항목을 스스로 발굴. `run --tool`·`parse --tool`과 status/stats/export/cancel/retry/metrics/patterns/
+  errors/projects의 `--project` 필터가 도처에서 `--tool` 값을 받지만, **어떤 tool id가 유효한지·어떤
+  바이너리가 어느 툴로 자동 추론되는지·각 어댑터가 어떤 rate-limit 패턴을 더하는지 발견할 수단이 없던**
+  실사용 discoverability 갭을 선정.
+- **한 일:** **`agentrelay adapters [--json]` — 등록된 에이전트 어댑터 조회 커맨드** 구현. core
+  `parser.ts`에 순수 `GENERIC_PATTERN_NAMES`(private `PATTERNS`에서 파생, 손수 유지 안 함) export,
+  `adapters.ts`에 순수 `describeAdapters()`→`AdapterDescription[]`(tool·displayName·binaries·
+  extraPatterns·isDefault, JSON 무손실 plain data) + `DEFAULT_ADAPTER_TOOL`. 레지스트리 삽입 순서
+  보존, 어댑터 고유 패턴만 `extraPatterns`로(공유 제네릭은 별도 노출해 중복 제거), 반환은 fresh copy.
+  CLI `adapters.ts`에 순수 `renderAdapters`(어댑터별 stanza + 하단 공유 제네릭 vocab, 안내 문구, color
+  게이트)·`renderAdaptersJson`(generatedAt·adapters·genericPatterns envelope), `cli.ts`에 스토어
+  미접촉 `adapters` 커맨드 배선(정적 config만 읽음). 새 파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·
+  `pnpm test` **전 패키지 통과**(core 531 + cli 262/1skip + dashboard 7, core adapters 8 + cli
+  adapters 9 신규 포함). 빌드된 실제 CLI e2e(mock 아님): `adapters`(3어댑터·codex 고유 `codex-relative-
+  seconds` 패턴·제네릭 7패턴 vocab), `adapters --json | jq`(tool id 3개 추출·genericPatterns 개수) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 이후 남은 distinct 열린 PR 통합/
+  새 개선 항목 발굴 계속. README/ARCHITECTURE(🧭 코워크).
