@@ -607,6 +607,23 @@
       projects 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·카운트다운·idle·스코프 부분집합·--json·에러 exit
       검증. PR #222 발원 → 세션 48에서 최신 main 위로 cherry-pick 통합. branch `claude/wizardly-pascal-h1l3c3`)
 
+- [x] 👷 `agentrelay why <id>` — 잡 하나의 현재 상태와 "다음에 무슨 일이 일어나는가"를 평이한 문장으로
+      설명·안내(대기 이유·재개 시각·재시도 예산·감지 출처를 종합해 headline·근거·다음 동작으로 증류).
+      (완료 — `show`가 원시 필드(command·cwd·타임스탬프·에러·출력 tail)를 덤프하는 반면, `why`는 그
+      필드들을 **추론**해 "왜 아직 안 돌았나/언제 돌 것인가/내가 뭘 할 수 있나"에 답한다. 순수 core
+      `@agentrelay/core/why.ts` 신설: `explainJob(job,{now?,retryPolicy?})`→`JobExplanation`
+      (disposition·headline·reasons[]·nextAction·resumesInMs·attempt·maxAttempts·retryExhausted).
+      핵심은 `waiting_for_reset`를 **waiting(미래 리셋)과 due(리셋 시각 경과, 스케줄러 차례)로 분해**하는
+      `JobDisposition` — `why`가 존재하는 이유인 바로 그 모호성을 해소. queued/resuming/completed/failed/
+      cancelled 각 상태별로 근거(감지 출처 pattern+rawMatch, 재시도 예산 소진 여부, 실패 시 첫 에러 줄)와
+      복붙 가능한 다음 명령(`agentrelay retry/wait/health/daemon`, 짧은 id prefix)을 생성. 시계/스토어/
+      프로세스 미접촉 순수 함수라 `now` 주입으로 결정적. CLI `packages/cli/src/why.ts` `renderExplanation`
+      (색상 disposition tint + headline + resumes 카운트다운 + 근거 불릿 + → 다음 동작)·`renderExplanationJson`.
+      `agentrelay why <id> [--json]` 배선(`showJob`로 id 해소 재사용, `retryPolicyFromEnv()`로 예산 반영,
+      미존재/모호 id는 exit 1). 새 파서/스케줄러 코드 0줄 — `isRetryExhausted`·show의 `resolveJobId` 재사용.
+      core why 10 + cli why 6 신규 테스트, 실제 빌드 CLI e2e로 waiting/due/failed-exhausted/--json/미존재
+      exit 1 검증. branch `claude/wizardly-pascal-9m69zq`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -19,6 +19,7 @@ import {
   computeErrorBreakdown,
   computeStats,
   EXPORT_FORMATS,
+  explainJob,
   GROUP_DIMENSIONS,
   generateCompletion,
   groupStats,
@@ -30,6 +31,7 @@ import {
   parseCsvColumns,
   parseDuration,
   renderPrometheusMetrics,
+  retryPolicyFromEnv,
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
   selectNextResume,
@@ -91,6 +93,7 @@ import {
   selectJobs,
 } from "./status.js";
 import { renderWaitJson } from "./wait.js";
+import { renderExplanation, renderExplanationJson } from "./why.js";
 
 /**
  * Split a comma-separated CLI option (e.g. `--status completed,failed`) into
@@ -1256,6 +1259,29 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("why")
+    .description(
+      "Explain a job's current state and what happens next: why it's waiting, when it resumes, and what you can do"
+    )
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .option("--json", "Print the explanation as JSON (machine-readable, for scripts/jq)")
+    .action((id: string, opts: { json?: boolean }) => {
+      const { store } = program.opts();
+      const result = showJob(id, store);
+      if (!result.ok || !result.job) {
+        console.error(`[agentrelay] ${result.error ?? "job not found"}`);
+        process.exitCode = 1;
+        return;
+      }
+      const explanation = explainJob(result.job, { retryPolicy: retryPolicyFromEnv() });
+      if (opts.json) {
+        console.log(renderExplanationJson(explanation, store));
+        return;
+      }
+      console.log(renderExplanation(explanation, { color: Boolean(process.stdout.isTTY) }));
     });
 
   program

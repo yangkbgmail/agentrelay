@@ -1565,3 +1565,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과 → CI 초록 시 병합). 이후 남은 distinct 열린 PR
   통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·#182 report 등). 중복 무리는 각각 하나로
   수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 49 — 신규 커맨드 `agentrelay why <id>`] (2026-07-30, 무인 자율 세션, branch `claude/wizardly-pascal-9m69zq`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료 상태, main HEAD `8afc615`(세션 48까지 반영),
+  열린 PR 100건+ 적체(대부분 파서 변형·stats --watch·upcoming·tools·config get 등 중복 무리). 어느 열린
+  PR과도 겹치지 않는 신규 항목을 발굴하기 위해 열린 PR 제목 전수 + 커맨드 키워드(why/explain/top/peek 등)를
+  대조 → **`why`가 어떤 열린 PR과도 겹치지 않음**을 확인하고 신규 진단 커맨드로 선정.
+- **한 일:** **`agentrelay why <id>`** — `show`가 잡의 원시 필드를 덤프하는 반면, `why`는 그 필드들을
+  추론해 "왜 아직 안 돌았나 / 언제 돌 것인가 / 내가 뭘 할 수 있나"를 평이한 문장으로 답한다.
+  - 순수 core `@agentrelay/core/why.ts`: `explainJob(job,{now?,retryPolicy?})`→`JobExplanation`
+    (disposition·headline·reasons[]·nextAction·resumesInMs·attempt·maxAttempts·retryExhausted). 핵심은
+    `waiting_for_reset`를 **waiting(미래 리셋) vs due(리셋 경과, 스케줄러 차례)로 분해**하는 `JobDisposition`
+    — `why`가 존재하는 이유인 바로 그 모호성 해소. 상태별로 감지 출처(pattern+rawMatch)·재시도 예산 소진·
+    실패 첫 에러 줄을 근거로 붙이고, 복붙 가능한 다음 명령(`retry`/`wait`/`health`/`daemon`, 짧은 id) 안내.
+    시계/스토어/프로세스 미접촉 순수 함수(`now` 주입 결정적). 새 파서/스케줄러 코드 0줄 — `isRetryExhausted`
+    재사용.
+  - CLI `packages/cli/src/why.ts`: `renderExplanation`(색상 disposition tint+headline+resumes 카운트다운+
+    근거 불릿+→ 다음 동작)·`renderExplanationJson`. cli.ts `why <id> [--json]` 배선 — `showJob`로 id 해소
+    재사용(미존재/모호 id exit 1), `retryPolicyFromEnv()`로 예산 반영.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·
+  `pnpm test` **전 패키지 통과**(core 533 + cli 259/1skip + dashboard 7, core why 10 + cli why 6 신규 포함).
+  실제 빌드 CLI e2e(mock 아님): waiting(미래 리셋→카운트다운+출처), failed-exhausted(예산 소진+첫 에러 줄),
+  due(과거 리셋→"Due now"+daemon 안내), `--json`(전체 envelope), 미존재 id→exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과 → CI 초록 시 병합). 이후 남은 distinct 열린 PR
+  통합 계속. README/ARCHITECTURE(🧭 코워크).
