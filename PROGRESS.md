@@ -1565,3 +1565,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과 → CI 초록 시 병합). 이후 남은 distinct 열린 PR
   통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·#182 report 등). 중복 무리는 각각 하나로
   수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+---
+
+## 2026-07-30 (세션 49) — 👷 클로드 코드
+
+- **한 일:** **`agentrelay completion fish` — fish 셸 탭 완성 스크립트 생성 지원 추가.** `completion`
+  커맨드는 지금까지 bash·zsh만 지원해 fish 사용자는 `agentrelay <TAB>` 완성을 전혀 받지 못했다.
+  core `completion.ts`의 `CompletionShell` 유니온에 `"fish"`를 추가하고 `COMPLETION_SHELLS`를
+  `["bash","zsh","fish"]`로 확장(→ `isCompletionShell("fish")` true), `generateCompletion` 디스패치에
+  fish 분기 + 순수 `generateFish(spec)` 신설. bash/zsh가 명령형 dispatch 함수를 짜는 것과 달리 fish는
+  선언형 `complete -c <prog> -f -n '<조건>' …` 나열로 구현 — `__fish_use_subcommand`(서브커맨드 전)가
+  top-level 커맨드·글로벌 옵션을, `__fish_seen_subcommand_from <cmd>`가 그 커맨드 플래그를 노출.
+  부모 커맨드(`config`)는 `and not __fish_seen_subcommand_from <subs>`로 서브커맨드 이름을 제안하고,
+  각 서브커맨드 플래그는 부모 AND 서브 조건으로 가드(동명 서브커맨드 누수 방지). 순수 `fishFlagArgs`가
+  플래그 토큰을 fish 관례(`--json`→`-l json`, `-r`→`-s r`)로 변환하며 stripped 이름을 `assertSafeToken`으로
+  검증 → 기존 bash/zsh와 동일한 셸 메타문자 주입 방어. CLI는 `buildCompletionSpec`가 라이브 commander
+  프로그램에서 스펙을 파생하므로 자동 배선(설명·help 예시에 fish 추가). 새 파서/스토어 코드 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·
+  `pnpm test` **전 패키지 통과**(core 531 + cli 253/1skip + dashboard 7; completion.test는 21케이스로
+  fish 9 + 안전성 1 + shell-list 갱신 포함). 빌드된 실제 CLI e2e(mock 아님): `completion fish` 출력이
+  top-level 커맨드/글로벌 옵션/`config` 서브커맨드 가드(`and not __fish_seen_subcommand_from …`)를 올바로
+  렌더, 잘못된 셸(`completion pwsh`)은 `Valid: bash, zsh, fish` 안내와 exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 이후 셸 완성 후속으로 PowerShell/
+  Nushell 완성 검토 가능. 남은 distinct 열린 PR 통합 계속. README/ARCHITECTURE(🧭 코워크).

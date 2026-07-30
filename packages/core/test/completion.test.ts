@@ -20,16 +20,17 @@ const SPEC: CompletionSpec = {
 };
 
 describe("completion shell helpers", () => {
-  it("COMPLETION_SHELLS lists bash and zsh", () => {
-    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh"]);
+  it("COMPLETION_SHELLS lists bash, zsh and fish", () => {
+    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh", "fish"]);
   });
 
   it("isCompletionShell accepts known shells and rejects others", () => {
     expect(isCompletionShell("bash")).toBe(true);
     expect(isCompletionShell("zsh")).toBe(true);
-    expect(isCompletionShell("fish")).toBe(false);
+    expect(isCompletionShell("fish")).toBe(true);
     expect(isCompletionShell("")).toBe(false);
     expect(isCompletionShell("BASH")).toBe(false);
+    expect(isCompletionShell("pwsh")).toBe(false);
   });
 });
 
@@ -100,6 +101,62 @@ describe("generateCompletion — zsh", () => {
   });
 });
 
+describe("generateCompletion — fish", () => {
+  const script = generateCompletion("fish", SPEC);
+
+  it("starts with the fish header comment", () => {
+    expect(script.startsWith("# fish completion for agentrelay")).toBe(true);
+  });
+
+  it("offers top-level commands guarded by __fish_use_subcommand", () => {
+    expect(script).toContain("complete -c agentrelay -f -n '__fish_use_subcommand' -a run");
+    expect(script).toContain("complete -c agentrelay -f -n '__fish_use_subcommand' -a status");
+    expect(script).toContain("complete -c agentrelay -f -n '__fish_use_subcommand' -a config");
+  });
+
+  it("offers global options (long + auto --help/--version) before any subcommand", () => {
+    expect(script).toContain("complete -c agentrelay -f -n '__fish_use_subcommand' -l store");
+    expect(script).toContain("complete -c agentrelay -f -n '__fish_use_subcommand' -l config");
+    expect(script).toContain("complete -c agentrelay -f -n '__fish_use_subcommand' -l help");
+    expect(script).toContain("complete -c agentrelay -f -n '__fish_use_subcommand' -l version");
+  });
+
+  it("renders long flags as -l and short flags as -s once a command is seen", () => {
+    expect(script).toContain("complete -c agentrelay -f -n '__fish_seen_subcommand_from run' -l tool");
+    expect(script).toContain("complete -c agentrelay -f -n '__fish_seen_subcommand_from status' -l watch");
+    expect(script).toContain("complete -c agentrelay -f -n '__fish_seen_subcommand_from status' -s r");
+  });
+
+  it("offers a parent command's subcommand names until one is chosen", () => {
+    expect(script).toContain(
+      "complete -c agentrelay -f -n '__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from init validate show' -a init"
+    );
+  });
+
+  it("guards a subcommand's flags by both parent and subcommand", () => {
+    expect(script).toContain(
+      "complete -c agentrelay -f -n '__fish_seen_subcommand_from config; and __fish_seen_subcommand_from init' -l force"
+    );
+    expect(script).toContain(
+      "complete -c agentrelay -f -n '__fish_seen_subcommand_from config; and __fish_seen_subcommand_from init' -s f"
+    );
+    expect(script).toContain(
+      "complete -c agentrelay -f -n '__fish_seen_subcommand_from config; and __fish_seen_subcommand_from show' -l show-secrets"
+    );
+  });
+
+  it("dedupes repeated flags while keeping first-seen order", () => {
+    const dup = generateCompletion("fish", {
+      program: "x",
+      options: [],
+      commands: [{ name: "c", options: ["--json", "--json", "-j"] }],
+    });
+    const jsonLines = dup.split("\n").filter((l) => l.includes("-l json"));
+    expect(jsonLines).toHaveLength(1);
+    expect(dup).toContain("complete -c x -f -n '__fish_seen_subcommand_from c' -s j");
+  });
+});
+
 describe("generateCompletion — safety", () => {
   it("throws on an unsafe command name rather than emitting it", () => {
     expect(() =>
@@ -114,6 +171,16 @@ describe("generateCompletion — safety", () => {
   it("throws on an unsafe flag token", () => {
     expect(() =>
       generateCompletion("bash", {
+        program: "agentrelay",
+        options: [],
+        commands: [{ name: "run", options: ["--x$(whoami)"] }],
+      })
+    ).toThrow(/unsafe/);
+  });
+
+  it("throws on an unsafe flag token in the fish generator too", () => {
+    expect(() =>
+      generateCompletion("fish", {
         program: "agentrelay",
         options: [],
         commands: [{ name: "run", options: ["--x$(whoami)"] }],
