@@ -1565,3 +1565,24 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과 → CI 초록 시 병합). 이후 남은 distinct 열린 PR
   통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·#182 report 등). 중복 무리는 각각 하나로
   수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 49 — 파서: "at" 없는 컴팩트 상태줄 시각(`resets 8pm`/`resets 3:30am`) 인식] (2026-07-30, 무인 자율 세션, branch `claude/wizardly-pascal-y92wv8`)
+- **맥락:** BACKLOG의 👷 항목이 전부 완료라, CLAUDE.md 지침대로 새 개선 항목을 발굴. 릴레이의 핵심은
+  rate-limit 리셋 시각 감지이고, 놓치면 잡이 큐잉조차 안 돼 릴레이 전체가 조용히 실패한다. 파서를 훑어
+  **실사용 갭**을 발견: Claude Code의 컴팩트 상태줄은 `"5-hour limit reached ∙ resets 8pm"`처럼 **"at" 없이**
+  `resets <시각>`을 쓰는데, 기존 시각 패턴(`clock-time`·`clock-time-meridiem`)과 사전필터가 전부 `reset[s]? at`을
+  요구해 이 형식을 놓쳤다.
+- **한 일:** `packages/core/src/parser.ts`에서 (1) `clock-time`(`(\d{1,2}):(\d{2})`)과
+  `clock-time-meridiem`(`(\d{1,2})\s*(am|pm)`) 두 패턴의 `at`을 `(?:at\s+)?`로 **선택화** — 콜론(:MM) 또는
+  meridiem(am/pm)이 여전히 필수라 특이성은 유지(bare `reset at 5`는 계속 null). (2) 사전필터
+  `LOOKS_LIKE_RATE_LIMIT`의 `resets?\s+(at|in)`을 `resets?\s+(?:at|in|\d)`로 확장해 `resets 8pm`이 패턴
+  시도 단계까지 도달하게 함(사전필터는 시도 여부만 결정 → 더 통과시켜도 false reset 안 만듦). 새 파서 로직
+  0줄 — 기존 resolve 그대로 재사용, `at` 있는 기존 문구도 전부 그대로 매치.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 528 + cli 253/1skip + dashboard 7). parser.test.ts에 회귀 5케이스 추가:
+  `resets 8pm`→clock-time-meridiem(20시)·`resets 3:30am`→clock-time(3:30)·`resets 15:00`→clock-time(24h)·
+  `resets in 45m`은 여전히 relative-duration(clock이 삼키지 않음)·`reset 3 databases`는 완화된 사전필터를
+  통과해도 null(무관한 "reset N" 오검출 방지). 빌드된 실제 CLI e2e:
+  `agentrelay parse "5-hour limit reached ∙ resets 8pm"` → pattern `clock-time-meridiem`, matched `"resets 8pm"`.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 이후 다른 파서 실사용 포맷 계속 수집·보강,
+  남은 distinct 열린 PR 통합 검토. README/ARCHITECTURE(🧭 코워크 소유).

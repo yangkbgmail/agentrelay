@@ -458,6 +458,16 @@
       익일 롤 등 clock-time 규약 준수, 명명 타임존은 로컬 해석(기존 한계). parser.test +6 회귀,
       실제 빌드 CLI `parse`로 `clock-time-meridiem` 매치 e2e 확인. branch
       `claude/wizardly-pascal-m46r3y`)
+- [x] 👷 파서: "at" 없는 컴팩트 상태줄 시각(`resets 8pm` / `resets 3:30am`) 인식.
+      (완료 — Claude Code의 컴팩트 상태줄 `"5-hour limit reached ∙ resets 8pm"`는 "at" 없이
+      `resets <시각>`을 쓰는데, 기존 `clock-time`·`clock-time-meridiem` 두 패턴과 사전필터
+      `LOOKS_LIKE_RATE_LIMIT`가 전부 `reset[s]? at`을 요구해 놓치던 실사용 갭 — 놓치면 잡이 큐잉조차
+      안 돼 릴레이가 조용히 실패. 두 패턴의 `at`을 `(?:at\s+)?`로 선택화(콜론 `:MM` 또는 meridiem
+      `am/pm`은 여전히 필수 → 특이성 유지, bare `reset at 5`는 계속 null), 사전필터를
+      `resets?\s+(?:at|in|\d)`로 확장(시도 여부만 결정 → false reset 안 만듦). 새 파서 로직 0줄 —
+      기존 resolve/at 있는 문구 전부 그대로. parser.test +5 회귀(`resets 8pm`·`resets 3:30am`·
+      `resets 15:00`·`resets in 45m`은 여전히 relative·`reset 3 databases`는 null), 실제 빌드 CLI
+      `parse`로 e2e 확인. branch `claude/wizardly-pascal-y92wv8`)
 
 - [x] 👷 `agentrelay wait <id>` — 특정 잡이 종료 상태에 도달할 때까지 블록 후 결과를 exit code로 반환.
       (완료 — `@agentrelay/core/wait.ts` 신설(순수·시계/스토어 미접촉): `isTerminalStatus`(stats의
