@@ -224,6 +224,37 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(now.toISOString());
   });
 
+  it("parses the retry-after-ms header as a millisecond delay", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("HTTP 429\nretry-after-ms: 20000", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("retry-after-ms");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 20_000).toISOString());
+  });
+
+  it("parses retry-after-ms with an equals sign and mixed casing", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Retry-After-Ms=1500", { now });
+    expect(result?.pattern).toBe("retry-after-ms");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 1500).toISOString());
+  });
+
+  it("does not misread retry-after-ms as the seconds Retry-After header", () => {
+    // The `-ms` suffix breaks the `retry-after:` shape the seconds/date pattern
+    // needs, so 20000 stays 20s (ms), not 20000s.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("retry-after-ms: 20000", { now });
+    expect(result?.pattern).toBe("retry-after-ms");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 20_000).toISOString());
+  });
+
+  it("falls through a retry-after-ms epoch-in-ms value instead of a multi-century delay", () => {
+    // A 13-digit epoch-in-ms (1.75e12) must not be treated as a relative delay;
+    // the 10-digit cap + word boundary rejects it so it falls through.
+    const result = parseRateLimitMessage("retry-after-ms: 1752345600000");
+    expect(result?.pattern).not.toBe("retry-after-ms");
+  });
+
   it("does not confuse the JSON retry_after epoch field with the HTTP header", () => {
     // Underscore form stays an absolute epoch (unix-epoch); hyphen form is a
     // relative HTTP header — the two must not cross-match.
