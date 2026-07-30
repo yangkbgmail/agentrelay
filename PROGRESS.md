@@ -1583,3 +1583,25 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 지연 재개 진단 신규 구현] (2026-07-30, 무인 자율 세션, branch `claude/wizardly-pascal-53rxon`)
+- **한 일:** BACKLOG의 👷 미완료 항목이 소진돼(§3 남은 것은 🧭 문서/공동 QA뿐) CLAUDE.md 지침대로 신규
+  개선 항목을 스스로 발굴·구현(세션 49 upcoming의 후속으로 예고했던 `overdue`). `agentrelay overdue` —
+  재개 예정 시각(resetAt)이 지났는데도 재개되지 않은 잡을 "얼마나 늦었는지" 기준으로 되돌아보는 진단 뷰.
+  `upcoming`은 앞으로의 활주로를, `next`는 가장 임박한 하나를 보여주지만 "이미 재개됐어야 하는데 안 된 것"을
+  보는 수단이 없었다 — 건강한 데몬은 due 잡을 poll 간격 안에 비우므로, 늦은 대기 잡이 쌓이면 데몬 다운/멈춤의
+  가장 명확한 신호(세션 30 하트비트·doctor 인프라의 사용자 표면 보완). core `overdue.ts` 신설(순수):
+  `buildOverdueReport(jobs, now, {limit?, graceMs?})`가 `waiting_for_reset`+파싱 가능 resetAt 중
+  `now-resetMs > graceMs`인 잡을 most-overdue first(가장 이른 resetAt, tie-break createdAt→id)로 정렬,
+  각 행 `overdueByMs`/`position` + `totalOverdue`/`hidden`/`worstOverdueByMs`/`graceMs`(limit로 잘라도
+  totals 정직). graceMs(기본 0, 음수·비유한은 0 clamp)로 "막 due된" 노이즈 억제. CLI `overdue.ts`에 순수
+  `renderOverdue`(공용 `formatDurationMs` 재사용·노랑 강조·doctor 안내)·`renderOverdueJson`. `agentrelay
+  overdue [--limit/-n][--grace][--tool][--project][--since][--until][--json]` — 공용 `buildScope`·
+  `parseDuration` 재사용, completion 자동 포함. 새 파서/시계 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 544 + cli 270/1skip + dashboard 7; core overdue 11 + cli overdue 8 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 5-잡 임시 스토어로 `overdue`(most-overdue 정렬·3h/1h/2m), `--grace 5m`
+  (2m 잡 필터), `--limit 1`("2 more not shown"), `--project`(스코프 부분집합), `--json`(envelope),
+  `--limit 0`·`--grace bogus`(exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch` 라이브 갱신·
+  대시보드에 overdue 카드 노출 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).

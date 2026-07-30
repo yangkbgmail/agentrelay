@@ -620,6 +620,25 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay overdue` — 재개 예정 시각(resetAt)이 지났는데도 재개되지 않은 잡을 "얼마나 늦었는지"
+      기준으로 진단(재개 루프가 죽었거나 멈춘 신호).
+      (완료 — `upcoming`은 **앞으로** 무엇이 재개되나(runway)를, `next`는 가장 임박한 하나를 보여주지만,
+      "이미 재개됐어야 하는데 안 된 것"을 되돌아보는 진단 뷰가 없었다. 건강한 데몬은 due 잡을 poll 간격
+      안에 비우므로, resetAt이 한참 지난 대기 잡이 쌓여 있으면 = 데몬 다운/멈춤의 가장 명확한 신호다.
+      세션 30의 하트비트·`doctor` 인프라를 사용자 표면에서 보완. `@agentrelay/core/overdue.ts` 신설(순수·
+      파일시스템/시계 미접촉): `buildOverdueReport(jobs, now, {limit?, graceMs?})`가 `waiting_for_reset` +
+      파싱 가능 `resetAt` 중 `now-resetMs > graceMs`인 잡만 골라 **most-overdue first**(가장 오래 지난
+      순 = 가장 이른 resetAt, tie-break createdAt→id)로 정렬, 각 행 `overdueByMs`/`position` +
+      `totalOverdue`/`hidden`/`worstOverdueByMs`/`graceMs`(limit로 잘라도 totals는 정직). `graceMs`(기본 0,
+      음수·비유한은 0으로 clamp)로 "막 due된" 일시적 노이즈 억제 — 건강한 루프도 poll 간격만큼은 늦을 수
+      있으므로. CLI `packages/cli/src/overdue.ts`에 순수 `renderOverdue`(표 + 공용 `formatDurationMs` 재사용·
+      노랑 강조 + scope note + worst/grace/hidden 푸터 + `doctor` 안내)·`renderOverdueJson`(upcoming과 동일
+      envelope). `agentrelay overdue [--limit/-n] [--grace <기간>] [--tool] [--project] [--since] [--until]
+      [--json]` — 공용 `buildScope`·`parseDuration` 재사용, completion 자동 포함. 새 파서/시계 로직 0줄.
+      core overdue 11 + cli overdue 8 신규 테스트, 실제 빌드 CLI e2e로 most-overdue 정렬·--grace 필터·
+      --limit 부분표시·--project 스코프·--json·--limit 0/--grace bogus 에러(exit 1) 검증. branch
+      `claude/wizardly-pascal-53rxon`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
