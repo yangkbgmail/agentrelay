@@ -1583,3 +1583,27 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 재개-루프 스톨 프로브 신규 구현] (2026-07-30, 무인 자율 세션, branch `claude/wizardly-pascal-lfm8h7`)
+- **맥락:** BACKLOG의 👷 미완료 항목은 사실상 소진(§3 남은 것은 🧭 문서/공동 QA뿐). CLAUDE.md 지침대로
+  스스로 신규 개선 항목을 발굴·구현. 세션 49가 "다음 할 일"로 제안한 `overdue`를 선정.
+- **한 일:** `agentrelay overdue` — 리셋 시각이 지났는데도 재개되지 않은 잡을 지연(overdue) 순으로 보여주는
+  잡별 재개-루프 스톨 프로브. `next`는 단 하나(다음 재개)·`upcoming`은 미래 활주로 전체·`status`는 생성순
+  덤프인데, "리셋이 지났는데 왜 아직 큐에 있나"를 잡별로 드러내는 뷰가 없었다. `health`/`doctor`는 루프
+  레벨 판정만 주는데, `overdue`는 그걸 "어떤 잡이 얼마나 늦었나"로 분해한다(= `upcoming`의 과거-지연 거울상).
+  core `overdue.ts` 신설(순수): `buildOverdueReport(jobs, now, {limit?, minOverdueMs?})`가 `waiting_for_reset`+
+  파싱 가능 `resetAt`이 `now`를 지난 잡만 골라 most-overdue first(earliest resetAt, tie-break createdAt→id;
+  upcoming과 동일)로 정렬, 각 행 `overdueByMs`/`position` + `totalOverdue`/`hidden`/`maxOverdueByMs`(limit로
+  잘라도 totals 정직). `minOverdueMs`는 틱과 재개 사이 transient lag를 무시하는 유예(모니터가 poll interval로
+  설정). CLI `overdue.ts`에 순수 `renderOverdue`(표·`formatDurationMs` 재사용·워스트 오프렌더 푸터·scope note·
+  "N more not shown")·`renderOverdueJson`. `agentrelay overdue [--limit/-n][--min <기간>][--tool][--project]
+  [--since][--until][--json][--exit-code]` — 공용 `buildScope` 재사용, `--exit-code`는 지연 잡 있으면 exit 1
+  (모니터/liveness 어설션), completion 자동 포함. index.ts 재노출. 새 파서/스케줄러 코드 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core overdue 12 + cli overdue 8 신규 포함). 빌드된 실제 CLI e2e(mock 아님): 4-잡 임시
+  스토어(지연 4h/20m·미래·완료)로 `overdue`(지연순 정렬·워스트 푸터), `--min 30m`(20m 유예 제외),
+  `--limit 1`("1 more not shown"·totals 정직), `--project api-svc`(스코프), `--json`(envelope·firstId·maxMs),
+  `--exit-code`(지연 잡 있음→1 / `--min 100h`로 없음→0), `--limit 0`·`--min nope`(exit 1), 미래/완료 잡 제외·
+  healthy 메시지 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch` 라이브 갱신·
+  대시보드에 overdue 카드 노출·`upcoming --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
