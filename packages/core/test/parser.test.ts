@@ -69,6 +69,49 @@ describe("parseRateLimitMessage", () => {
     expect(parseRateLimitMessage("Rate limit hit, reset at 5.")).toBeNull();
   });
 
+  it("parses the compact Claude status line 'resets 8pm' (meridiem, no 'at')", () => {
+    // Real wording from the Claude Code status line: "5-hour limit reached ∙ resets 8pm".
+    // The "at" is dropped there, so the pattern must not require it.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("5-hour limit reached ∙ resets 8pm", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(20); // 8pm local
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses a minute-precise clock time with no 'at' ('resets 3:30am')", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached ∙ resets 3:30am", { now });
+    expect(result?.pattern).toBe("clock-time");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(3);
+    expect(resetDate.getMinutes()).toBe(30);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses a 24-hour clock time with no 'at' ('resets 15:00')", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("usage limit — resets 15:00", { now });
+    expect(result?.pattern).toBe("clock-time");
+    expect(new Date(result!.resetAt).getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("still routes 'resets in <duration>' to relative-duration, not clock-time", () => {
+    // Making "at" optional must not let the clock patterns swallow the "in" form.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit — resets in 45m", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 45 * 60_000).toISOString());
+  });
+
+  it("does not invent a reset time from an unrelated 'reset N' phrase", () => {
+    // "reset 3 databases" trips the relaxed pre-filter but matches no time pattern.
+    expect(parseRateLimitMessage("Migration will reset 3 databases before continuing.")).toBeNull();
+  });
+
   it("parses a relative duration like '4h32m'", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Rate limit exceeded, try again in 4h32m.", { now });

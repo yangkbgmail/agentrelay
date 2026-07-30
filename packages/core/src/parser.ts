@@ -43,9 +43,13 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
-    // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
+    // "resets at 3:00pm" / "resets at 15:00" / "resets 3:00pm" (assume today, or
+    // tomorrow if already past). The "at" is optional: Claude Code's compact
+    // status line drops it ("5-hour limit reached ∙ resets 3:00am"), so requiring
+    // it would miss that real-world wording. A ":MM" is still required, which
+    // keeps the match specific enough to avoid false positives.
     name: "clock-time",
-    regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
+    regex: /reset[s]?\s+(?:at\s+)?(\d{1,2}):(\d{2})\s*(am|pm)?/i,
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       const minute = parseInt(m[2], 10);
@@ -61,16 +65,18 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
-    // "resets at 5pm" / "reset at 10 AM" — hour + meridiem with NO minutes.
-    // This is the wording Claude Code actually prints ("Your limit will reset
-    // at 5pm (America/New_York)."), which the minute-requiring clock-time
-    // pattern above misses. Meridiem is required: a bare "reset at 5" (no
-    // colon, no am/pm) is too ambiguous to treat as a clock time. The named
-    // timezone in the message is ignored — the hour is interpreted in local
-    // time, same known limitation as clock-time (a real reset is a future
-    // instant, so rolling to tomorrow when already past keeps us safe).
+    // "resets at 5pm" / "reset at 10 AM" / "resets 8pm" — hour + meridiem with
+    // NO minutes. This is the wording Claude Code actually prints ("Your limit
+    // will reset at 5pm (America/New_York).") including the compact status-line
+    // form that drops the "at" ("5-hour limit reached ∙ resets 8pm"), both of
+    // which the minute-requiring clock-time pattern above misses. The "at" is
+    // optional but the meridiem is required: a bare "reset at 5" (no colon, no
+    // am/pm) is too ambiguous to treat as a clock time. The named timezone in
+    // the message is ignored — the hour is interpreted in local time, same known
+    // limitation as clock-time (a real reset is a future instant, so rolling to
+    // tomorrow when already past keeps us safe).
     name: "clock-time-meridiem",
-    regex: /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b/i,
+    regex: /reset[s]?\s+(?:at\s+)?(\d{1,2})\s*(am|pm)\b/i,
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       if (hour > 12) return null; // 13pm etc. is not a valid 12-hour clock time
@@ -135,8 +141,14 @@ const PATTERNS: RateLimitPattern[] = [
   },
 ];
 
-/** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+/**
+ * Quick pre-filter so we don't run every regex on every line of noisy CLI output.
+ * "resets? <digit>" (no "at"/"in") is admitted so the compact Claude Code status
+ * line — "5-hour limit reached ∙ resets 8pm" — reaches the clock-time patterns.
+ * This gate only decides whether to *try* the specific patterns; letting a bit
+ * more through costs a few regex tries but never yields a false reset time.
+ */
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(?:at|in|\d)|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);
