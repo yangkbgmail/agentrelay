@@ -17,6 +17,7 @@ import {
   COMPLETION_SHELLS,
   computeDailyTrend,
   computeErrorBreakdown,
+  computeResumeForecast,
   computeStats,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
@@ -71,6 +72,7 @@ import {
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
+import { renderForecast, renderForecastJson } from "./forecast.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
@@ -922,6 +924,56 @@ export function buildCli(): Command {
           color: Boolean(process.stdout.isTTY),
           scopeNote: built.active ? built.note : undefined,
           now,
+        })
+      );
+    });
+
+  program
+    .command("forecast")
+    .description("Timeline of upcoming resumes bucketed by time-until-reset (when will the queue drain?)")
+    .option("--json", "Print the forecast as JSON (machine-readable, for scripts/CI)")
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # when does each waiting job come due, and when does the queue drain?\n" +
+        "  agentrelay forecast\n" +
+        "  # how many resumes are overdue right now?\n" +
+        "  agentrelay forecast --json | jq '.forecast.overdue'"
+    )
+    .action((opts: ScopeOpts & { json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const forecast = computeResumeForecast(jobs, { now });
+      if (opts.json) {
+        console.log(
+          renderForecastJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            forecast,
+          })
+        );
+        return;
+      }
+      console.log(
+        renderForecast(forecast, {
+          color: Boolean(process.stdout.isTTY),
+          scopeNote: built.active ? built.note : undefined,
+          now,
+          total: jobs.length,
         })
       );
     });
