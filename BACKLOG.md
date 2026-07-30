@@ -593,6 +593,19 @@
       cli health 10 신규 테스트, 실제 빌드 CLI e2e로 idle→0/strict→1/대기 잡+무루프→unhealthy 1/JSON/help
       검증. branch `claude/wizardly-pascal-health`)
 
+- [x] 👷 파서: Claude Code의 파이프 구분 사용량-한도 epoch 포맷 인식 (`Claude AI usage limit reached|<unix-epoch>`).
+      (완료 — 이 자율 세션이 백로그의 남은 👷 항목이 모두 소진된 것을 확인하고 스스로 발굴한 실사용 감지 갭.
+      Claude Code CLI가 5시간 사용량 한도에 도달하면 stdout에 리터럴로 찍는 형식이 `Claude AI usage limit
+      reached|1752345600`(파이프 뒤 리셋 시각 Unix epoch 초)인데, 기존 `unix-epoch` 패턴은 `retry_after=`
+      필드형만 매칭해 이 파이프형을 통째로 놓치고 있었다. 커뮤니티 auto-retry 도구들이 실제로 key off 하는
+      바로 그 포맷 — 추정 창이 아니라 정확한 리셋 순간이라 잡을 수 있는 최고가치 신호. `parser.ts`에 순수
+      `usage-limit-epoch` 패턴(`/usage\s+limit\s+reached\s*\|\s*(\d{10})/i`, 파이프 주변 공백 허용) 추가,
+      저신뢰 `five-hour-window-fallback` **앞**에 배치해 정확한 epoch가 추정 "5h from now" 창을 항상 이김.
+      프리필터 `LOOKS_LIKE_RATE_LIMIT`는 이미 "usage limit"을 포함해 별도 수정 불필요. parser.test +4 회귀
+      (기본형/파이프 주변 공백/5h 문구+epoch 공존 시 epoch 우선/epoch 없으면 미발화), 실제 빌드 CLI `parse`로
+      `usage-limit-epoch` 매치 e2e 확인. 새 CLI 코드 0줄 — `parse` 커맨드가 자동 노출.
+      branch `claude/wizardly-pascal-ppbcyl`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

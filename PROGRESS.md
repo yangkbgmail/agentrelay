@@ -1539,3 +1539,19 @@
 - **다음 할 일:** 남은 distinct 열린 PR 통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·
   #182 report·#222 projects 등). 중복 무리(config get #128/#160/#166/#183, stats --watch #135/#145/#184/#223,
   파서 reset-at, 재개 stagger #158/#161/#162)는 각각 하나로 수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 48 — 파서: Claude Code 파이프 구분 사용량-한도 epoch 포맷 인식] (2026-07-30, 무인 자율 세션, branch `claude/wizardly-pascal-ppbcyl`)
+- **한 일:** 브랜치를 최신 main으로 리셋 후 BACKLOG의 남은 👷 항목이 전부 `[x]`인 것을 확인 → CLAUDE.md
+  지침(백로그 소진 시 스스로 개선 항목 발굴)에 따라 실사용 감지 갭을 발굴·구현. Claude Code CLI가 5시간
+  사용량 한도 도달 시 stdout에 리터럴로 찍는 `Claude AI usage limit reached|<unix-epoch>`(파이프 뒤 리셋
+  시각 epoch 초) 포맷을 기존 `unix-epoch` 패턴(`retry_after=` 필드형만 매칭)이 통째로 놓치고 있었다.
+  `parser.ts`에 순수 `usage-limit-epoch` 패턴(`/usage\s+limit\s+reached\s*\|\s*(\d{10})/i`, 파이프 주변
+  공백 허용) 추가, 저신뢰 `five-hour-window-fallback` 앞에 배치해 정확한 epoch가 추정 5h 창을 항상 이김.
+  프리필터는 이미 "usage limit"을 포함해 수정 불필요. 커뮤니티 auto-retry 도구들이 실제로 key off 하는
+  바로 그 포맷 — 추정 창이 아닌 정확한 리셋 순간이라 최고가치 신호.
+- **검증:** `pnpm build` 클린·`pnpm test` 전 패키지 통과(core 520 = 기존 516 + parser 신규 4, cli 245/1skip,
+  dashboard 7)·`pnpm ci:lint`(Biome) 0 경고. parser.test에 회귀 4케이스(기본형/파이프 주변 공백/5h 문구+
+  epoch 공존 시 epoch 우선/epoch 없으면 미발화). 실제 빌드 CLI e2e(mock 아님)로 `parse "Claude AI usage
+  limit reached|1752345600"` → `pattern: usage-limit-epoch` 매치 확인. 새 CLI 코드 0줄(`parse`가 자동 노출).
+- **다음 할 일:** 남은 distinct 열린 PR 통합(#125 --no-color·#168 backoff 등)과 중복 PR 무리 수렴 계속.
+  README/ARCHITECTURE(🧭 코워크). 파서 실사용 샘플 추가 수집 시 더 많은 실포맷 패턴 발굴 가능.
