@@ -607,6 +607,19 @@
       projects 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·카운트다운·idle·스코프 부분집합·--json·에러 exit
       검증. PR #222 발원 → 세션 48에서 최신 main 위로 cherry-pick 통합. branch `claude/wizardly-pascal-h1l3c3`)
 
+- [x] 👷 `agentrelay upcoming` — 재개 대기 중인 잡들의 타임라인을 가장 임박한 순으로 카운트다운과 함께 조회.
+      (완료 — `next`는 **단 하나**(가장 임박한 재개)만, `status`는 큐 전체를 생성순으로 덤프한다. 그 사이
+      "앞으로 무엇이 언제 재개되나 — 다음 것 뒤로 무엇이 줄 서 있나"를 보는 활주로(runway) 뷰가 없었다.
+      `@agentrelay/core/upcoming.ts` 신설(순수·파일시스템/시계 미접촉): `buildUpcomingTimeline(jobs, now, limit?)`가
+      `waiting_for_reset` + 파싱 가능한 `resetAt` 잡만 골라 `next`와 **동일한 tie-break**(resetAt→createdAt→id)로
+      정렬, 각 행에 `dueInMs`/`due`/`position`(1-based) 부여 + `totalWaiting`/`hidden`/`dueNow` 집계(limit로
+      잘라도 totals는 정직하게 전체 반영). CLI `packages/cli/src/upcoming.ts`에 순수 `renderUpcoming`(표 +
+      공용 `formatCountdown` 재사용으로 `due now`/`30m`/`3h 0m` 일관 + scope note + "N more not shown" 푸터)·
+      `renderUpcomingJson`(next/projects와 동일 envelope). `agentrelay upcoming [--limit/-n] [--tool] [--project]
+      [--since] [--until] [--json]` — 공용 `buildScope` 재사용, completion 자동 포함. 새 파서/시계 로직 0줄.
+      core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
+      부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
