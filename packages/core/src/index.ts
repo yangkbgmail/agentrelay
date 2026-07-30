@@ -13,6 +13,7 @@ export * from "./locations.js";
 export * from "./metrics.js";
 export * from "./next.js";
 export * from "./notify.js";
+export * from "./overdue.js";
 export * from "./parser.js";
 export * from "./paths.js";
 export * from "./patterns.js";
