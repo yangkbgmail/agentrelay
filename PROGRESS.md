@@ -1565,3 +1565,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과 → CI 초록 시 병합). 이후 남은 distinct 열린 PR
   통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·#182 report 등). 중복 무리는 각각 하나로
   수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 49 — `agentrelay tools` 툴별 큐 인덱스 신규 구현] (2026-07-30, 무인 자율 세션, branch `claude/wizardly-pascal-kz80jv`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료 상태(남은 `[ ]`는 전부 🧭 코워크 소유 문서/리서치).
+  CLAUDE.md "작업 방식 — 멈추지 않고 최대치로" 지침대로 스스로 신규 개선 항목을 발굴. 파서 패턴 보강은
+  🧭 소유(항목 180: 실제 rate-limit 샘플 수집→패턴 제안)라 건드리지 않고, 세션 48의 `projects`(프로젝트 라벨
+  discovery)와 **정확히 대칭인 툴 라벨 discovery 갭**을 선정.
+- **한 일:** **`agentrelay tools` 신규 구현.** `--tool` 필터는 status/stats/export/cancel/retry/metrics/
+  patterns/errors가 전부 키로 쓰지만, 세션 48 이전의 `projects`와 똑같이 어떤 툴/어댑터 라벨이 스토어에
+  있는지·어느 어댑터에 대기 작업이 몰렸는지 발견할 수단이 없었다("지금 Claude Code를 릴레이하나 Codex를
+  릴레이하나, 어느 쪽이 리셋 대기로 막혔나?").
+  - 순수 core `@agentrelay/core/tools.ts` — `summarizeTools(jobs)`가 `job.tool`별 total/active(queued+
+    waiting_for_reset+resuming)/terminal(completed+failed+cancelled)/waiting 집계 + `nextResetAt`(대기 잡의
+    사전식 min resetAt, 비대기 잡 무시)·`lastActivityAt`(max updatedAt), 랭킹 active desc→total desc→이름
+    asc(대기 몰린 툴 상단). `stats.byTool`의 고정 zero-fill과 달리 **실제 존재하는 툴만 행 생성**(discovery 뷰).
+  - CLI `packages/cli/src/tools.ts` — 순수 `renderTools`(표·`formatCountdown` 카운트다운·`(idle)`·scope
+    note·no-match)·`renderToolsJson`(projects/stats와 동일 envelope). `agentrelay tools [--json]` + 공용
+    `buildScope`(--status/--tool/--project/--since/--until) 재사용. index.ts에 `export * from "./tools.js"`.
+    새 파서/시계 로직 0줄 — `summarizeProjects`의 ISO 사전식 비교 관례 그대로 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 533 + cli 261/1skip + dashboard 7, core tools 10 + cli tools 8 신규 포함). 빌드된
+  실제 CLI e2e(mock 아님): 3-잡 임시 스토어로 `tools`(랭킹·카운트다운·`(idle)`), `tools --tool codex-cli`·
+  `tools --status waiting_for_reset`(스코프 부분집합), `tools --json`(전체 envelope), `tools --tool bogus`
+  (exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과 → CI 초록 시 병합). 이후 남은 👷 개선 항목이
+  없으면 계속 신규 발굴(대시보드 툴 인덱스 노출 등) 또는 distinct 열린 PR 통합. README/ARCHITECTURE(🧭 코워크).

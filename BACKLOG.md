@@ -593,6 +593,22 @@
       cli health 10 신규 테스트, 실제 빌드 CLI e2e로 idle→0/strict→1/대기 잡+무루프→unhealthy 1/JSON/help
       검증. branch `claude/wizardly-pascal-health`)
 
+- [x] 👷 `agentrelay tools` — 큐에 존재하는 에이전트 툴(어댑터) 라벨을 툴별 잡 집계·타이밍과 함께 조회
+      (`projects`의 툴 키 형제).
+      (완료 — `--tool` 필터는 status/stats/export/cancel/retry/metrics/patterns/errors가 전부 키로
+      쓰지만, 세션 48 이전의 `projects`와 똑같이 **어떤 툴 라벨이 스토어에 있는지·어느 어댑터에 대기
+      작업이 몰렸는지 발견하는 수단**이 없었다("지금 Claude Code를 릴레이하나 Codex를 릴레이하나,
+      어느 쪽이 리셋 대기로 막혔나?"). `@agentrelay/core/tools.ts` 신설(순수·파일시스템/시계 미접촉):
+      `summarizeTools(jobs)`가 `job.tool`별 total/active(queued+waiting_for_reset+resuming)/terminal
+      (completed+failed+cancelled)/waiting 집계 + `nextResetAt`(대기 잡의 사전식 min resetAt, 비대기 잡
+      무시) + `lastActivityAt`(max updatedAt), 랭킹은 active desc→total desc→이름 asc(**대기 작업이 몰린
+      툴이 맨 위**). `stats.byTool`의 고정 zero-fill과 달리 실제 존재하는 툴만 행 생성(discovery 뷰).
+      CLI `packages/cli/src/tools.ts`에 순수 `renderTools`(표+대기 시 `formatCountdown` 카운트다운·전부
+      종료면 `(idle)`·scope note·no-match 문구)·`renderToolsJson`(projects/stats와 동일 envelope).
+      `agentrelay tools [--json]` + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용.
+      새 파서/시계 로직 0줄 — `summarizeProjects`의 ISO 사전식 비교 관례 그대로 재사용. core tools 10 +
+      cli tools 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·카운트다운·idle·스코프 부분집합·--json·에러 exit
+      검증. branch `claude/wizardly-pascal-kz80jv`)
 - [x] 👷 `agentrelay projects` — 큐에 존재하는 프로젝트 라벨을 프로젝트별 잡 집계·타이밍과 함께 조회.
       (완료 — `--project` 필터는 status/stats/export/cancel/retry/metrics/patterns/errors가 전부 키로
       쓰지만, 정작 **어떤 프로젝트 라벨이 스토어에 있는지·어디에 대기 작업이 몰렸는지 발견하는 수단**이
