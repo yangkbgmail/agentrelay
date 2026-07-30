@@ -1583,3 +1583,25 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay retries` 재시도 랭킹 신규 구현 (overdue 중복 회피 후 전환)] (2026-07-30, 무인 자율 세션, branch `claude/wizardly-pascal-retries`)
+- **한 일:** BACKLOG의 👷 미완료 항목이 소진돼(§3 남은 것은 🧭 문서/공동 QA뿐) 세션 49가 후속 제안한
+  `agentrelay overdue`를 신규 구현·검증까지 완료했으나, **열린 PR 목록 확인 결과 이미 6개의 동시 자율 세션이
+  overdue 중복 PR(#327/#325/#324/#323/#322/#282, 여러 개가 동일 최신 main 기반)을 열어둔 상태**여서 7번째
+  중복을 피하고자, 열린 PR 어디에도 없는 미점유 항목으로 전환. `slowest`(#326, 해결시간 아웃라이어 랭킹)의
+  형제인 **재시도 횟수 랭킹**이 비어 있어 `agentrelay retries`를 구현 — 릴레이가 가장 많이 재실행한 잡을
+  attempts순으로 지목(반복 rate-limit/전환 실패로 재시도 예산을 태우는 문제 잡 발견). core `retries.ts` 신설
+  (순수): `buildRetriesReport(jobs, {minAttempts?, limit?})`가 `attempts>=minAttempts` 잡을 재시도 많은 순
+  (attempts→createdAt→id tie-break)으로 랭킹, `attempts`/`position` + `minAttempts`/`totalAttempts`/
+  `maxAttempts`/`totalRetried`/`hidden`(limit 잘라도 totals 정직). `DEFAULT_RETRIES_MIN_ATTEMPTS`=2
+  (stats의 retried 정의 일치, 1 미만·비정수는 기본값 가드). CLI `retries.ts`에 순수 `renderRetries`(표+status
+  컬럼·scope note·"N more not shown")·`renderRetriesJson`. `agentrelay retries [--min][--limit/-n][--status]
+  [--tool][--project][--since][--until][--json]` — 공용 `buildScope` 재사용. index.ts 재노출, completion 자동 포함.
+- **검증:** 로컬 `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test` **전 패키지 통과**
+  (core 543 + cli 270/1skip + dashboard 7; core retries 10 + cli retries 8 신규 포함). 빌드된 실제 CLI e2e
+  (mock 아님): 4-잡 임시 스토어로 `retries`(default min 2: 단일-실행 dddd 제외, attempts desc 랭킹, totals
+  12/max 7), `--min 3`(2건), `--limit 1`(부분표시 + "2 more not shown", totals 정직), `--project web --json`
+  (스코프 + honest totals), `--min 0`/`--tool bogus`(exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). overdue 중복 무리(#327 등)는 코워크가
+  하나로 수렴 후 나머지 정리 권장. 후속: `retries --min`을 retryPolicy maxAttempts와 교차해 "cap 임박" 경고·
+  대시보드 재시도 패널 등 검토. README/ARCHITECTURE(🧭 코워크).

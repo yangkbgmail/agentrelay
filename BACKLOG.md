@@ -620,6 +620,24 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay retries` — 릴레이가 가장 많이 재실행한 잡을 재시도 횟수순으로 랭킹(재시도 예산을 태우는
+      문제 잡 발견). `errors`가 실패를 메시지별로 묶고 `stats`가 총 재시도 수만 집계하는 반면, 이 커맨드는
+      반복적으로 rate-limit/전환 실패를 겪는 **구체적 잡**을 이름으로 지목해 `show`로 파고들 대상을 준다.
+      (완료 — `agentrelay overdue`를 신규 구현하려다 이미 6개의 동시 자율 세션이 중복 PR(#327/#325/#324/
+      #323/#322/#282)을 열어둔 것을 발견, 열린 PR 어디에도 없는 미점유 항목으로 전환. `slowest`(#326,
+      해결시간 아웃라이어 랭킹)의 형제 격으로 **재시도 횟수 랭킹**은 비어 있었다. `@agentrelay/core/retries.ts`
+      신설(순수·파일시스템/시계 미접촉): `buildRetriesReport(jobs, {minAttempts?, limit?})`가 `attempts >=
+      minAttempts` 잡을 재시도 많은 순(attempts desc → createdAt asc → id asc tie-break)으로 랭킹, 각 행
+      `attempts`/`position`(1-based) + `minAttempts`(적용 하한)·`totalAttempts`(예산 합)·`maxAttempts`·
+      `totalRetried`/`hidden`(limit 잘라도 totals 정직). `DEFAULT_RETRIES_MIN_ATTEMPTS`=2(`stats`의
+      "retried=attempts>1" 관례 일치), 하한은 1 미만·비정수면 기본값으로 가드(단일-실행 잡 오포함 방지).
+      CLI `packages/cli/src/retries.ts`에 순수 `renderRetries`(랭킹 표 + status 컬럼, scope note,
+      "N more not shown" 푸터)·`renderRetriesJson`(next/upcoming과 동일 envelope). `agentrelay retries
+      [--min <n>] [--limit/-n] [--status] [--tool] [--project] [--since] [--until] [--json]` — 공용
+      `buildScope` 재사용, completion 자동 포함. core retries 10 + cli retries 8 신규 테스트, 실제 빌드
+      CLI e2e로 default min 2(단일-실행 제외)·--min 필터·--limit 부분표시·--project --json·--min 0(exit 1)·
+      --tool bogus(exit 1) 검증. branch `claude/wizardly-pascal-retries`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
