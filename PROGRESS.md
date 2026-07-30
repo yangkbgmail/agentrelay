@@ -1565,3 +1565,24 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(테스트 통과 → CI 초록 시 병합). 이후 남은 distinct 열린 PR
   통합 계속(#125 --no-color·#168 backoff·#170 clean·#171 verify·#182 report 등). 중복 무리는 각각 하나로
   수렴 후 나머지 닫기 권장. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 49 — `agentrelay forecast` 재개 타임라인] (2026-07-30, 무인 자율 세션)
+- **맥락:** BACKLOG의 👷(클로드 코드) 항목이 사실상 전부 `[x]`(남은 미완료는 `👷🧭 최종 QA`뿐 — 코워크
+  공동소유). CLAUDE.md "무한 개선 백로그가 비면 스스로 새 개선 항목을 발굴" 지침에 따라, 기존 커맨드 생태계의
+  갭을 스캔해 신규 항목 발굴.
+- **발굴 근거:** `next`는 다음 재개 잡 **하나**만, `status --sort reset`은 정렬된 **목록**만 보여줄 뿐,
+  "대기 작업이 시간대별로 어떻게 분포하나 / 큐가 언제 완전히 빠지나"에 답하는 뷰가 없었다.
+- **한 일 (branch `claude/wizardly-pascal-forecast`):** `agentrelay forecast` 구현.
+  - core `forecast.ts`: 순수 `computeResumeForecast(jobs,{now,buckets?})` — `waiting_for_reset`+파싱가능
+    `resetAt` 잡을 `ResumeEvent`로 변환, soonest-first 정렬 후 시간 호라이즌(overdue/1h/6h/24h/later)으로
+    버킷팅. `ResumeForecast`에 waiting·overdue·nextResetAt·**lastResetAt(큐 드레인 시각)**·buckets·events.
+    커스텀 버킷 스펙 주입 가능, inclusive upper bound.
+  - cli `forecast.ts`: 순수 `renderForecast`(호라이즌 섹션·카운트다운·버킷당 상위 5개+elision·
+    next/drain 푸터·3분기 빈/무매치/무대기 메시지)·`renderForecastJson`. `agentrelay forecast [--json]` +
+    공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용. 새 파서/스케줄러 코드 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 531 + cli 262/1skip + dashboard 7, core forecast 8 + cli forecast 9 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 5-잡 임시 스토어로 forecast(5개 버킷 분포·drain 푸터)·`--json`(overdue/
+  drain 값)·`--project api`(스코프)·빈 스토어(온보딩)·무대기(전부 terminal)·`--tool nope`(exit 1)·`--help` 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 이후 남은 개선 항목 발굴 계속 —
+  예: 대시보드에 forecast 타임라인 노출, `forecast --watch` 라이브 카운트다운. README/ARCHITECTURE(🧭 코워크).

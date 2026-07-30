@@ -607,6 +607,23 @@
       projects 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·카운트다운·idle·스코프 부분집합·--json·에러 exit
       검증. PR #222 발원 → 세션 48에서 최신 main 위로 cherry-pick 통합. branch `claude/wizardly-pascal-h1l3c3`)
 
+- [x] 👷 `agentrelay forecast` — 대기 중인 잡들이 언제 재개될지 시간대(due now/1h/6h/24h/later)별로
+      묶어 보여주는 재개 타임라인("큐가 언제 다 빠지나?"). `next`(단일 최근접)·`status --sort reset`
+      (목록)과 상보적이지만, 둘 다 없던 **시간 호라이즌 버킷팅**과 **큐 완전 소진 시각(마지막 리셋)**을
+      제공.
+      (완료 — `@agentrelay/core/forecast.ts` 신설(순수·파일시스템/시계 미접촉): `computeResumeForecast(jobs,
+      {now,buckets?})`가 `waiting_for_reset`+파싱가능 `resetAt` 잡만 `ResumeEvent`(jobId·project·tool·
+      resetAt·dueInMs·due)로 변환, soonest-first 정렬(dueInMs asc→id 타이브레이크, `selectNextResume`
+      관례 일치) 후 `DEFAULT_FORECAST_BUCKETS`(overdue[upperMs 0]/1h/6h/24h/later[unbounded])로 버킷팅.
+      이벤트는 bound를 만족하는 **첫** 버킷에 배치(inclusive upper). `ResumeForecast`에 waiting·overdue·
+      nextResetAt·lastResetAt(큐 드레인 시각)·buckets·events. 커스텀 버킷 스펙 주입 가능. CLI
+      `packages/cli/src/forecast.ts`에 순수 `renderForecast`(호라이즌별 섹션·잡당 카운트다운·버킷당 상위 5개
+      +`… N more` elision·next reset/queue drains 푸터·scope note·빈스토어/스코프무매치/무대기 3분기 메시지)·
+      `renderForecastJson`(projects/stats와 동일 envelope). `agentrelay forecast [--json]` + 공용 `buildScope`
+      (--status/--tool/--project/--since/--until) 재사용. 새 파서/스케줄러 코드 0줄. core forecast 8 + cli
+      forecast 9 신규 테스트, 실제 빌드 CLI e2e로 버킷팅·카운트다운·drain 푸터·스코프·빈/무대기/에러 exit
+      검증. branch `claude/wizardly-pascal-forecast`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
