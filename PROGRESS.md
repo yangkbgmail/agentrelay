@@ -1583,3 +1583,24 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay tools` 툴 인덱스 신규 구현] (2026-07-31, 무인 자율 세션, branch `claude/wizardly-pascal-tools`)
+- **한 일:** BACKLOG의 👷 미완료 항목이 소진돼(남은 것은 🧭 문서/공동 QA뿐) CLAUDE.md 지침대로 스스로 신규
+  개선 항목을 발굴·구현. `agentrelay tools` — 세션 48 `projects`(프로젝트-축)의 **툴-축 자매 커맨드**.
+  `--tool` 필터는 status/stats/export/cancel/retry/metrics/patterns/errors/projects/upcoming가 전부
+  `job.tool`을 키로 쓰지만, "어떤 에이전트 툴이 스토어에 있고 어디에 대기 작업이 몰렸나"를 발견하는 수단이
+  없었다. core `tools.ts` 신설(순수): `summarizeTools(jobs)`가 툴별 total/active/terminal/waiting 집계 +
+  `nextResetAt`(대기 잡 사전식 min)·`lastActivityAt`(max updatedAt), 랭킹 active desc→total desc→이름 asc.
+  툴셋이 작은 고정 enum이라 `stats --group-by tool`이 못 보여주는 것 — 각 툴 아래 실제 spawn된 distinct
+  바이너리(`command[0]`, first-seen 순서·빈 command 무시)를 노출(특히 `generic`이 감싸는 실행 파일 =
+  doctor PATH 검사가 프로브하는 바이너리). 존재하는 툴만 행 생성(zero-fill 없음). CLI `tools.ts`에 순수
+  `renderTools`(표·툴별 `binaries:` 라인·`formatCountdown`·`(idle)`·scope note·no-match)·`renderToolsJson`.
+  `agentrelay tools [--json]` + 공용 `buildScope` 재사용, completion 자동 포함. index.ts 재노출. 새 파서/
+  시계 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 543 + cli 271/1skip + dashboard 7; core tools 10 + cli tools 9 신규 포함). 빌드된
+  실제 CLI e2e(mock 아님): 4-잡 임시 스토어로 `tools`(랭킹·툴별 바이너리·카운트다운), `--tool generic`
+  (스코프 부분집합), `--json`(envelope), `--tool bogus`(exit 1), 빈 스토어 온보딩 문구 확인. 완성 스크립트·
+  `--help`에 `tools` 자동 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools --watch` 라이브 갱신·툴별
+  성공률/해결시간(현 rollup은 count 중심) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
