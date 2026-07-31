@@ -13,6 +13,7 @@ import type {
 } from "@agentrelay/core";
 import {
   ALL_TOOLS,
+  buildOverdueReport,
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
@@ -75,6 +76,7 @@ import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
+import { renderOverdue, renderOverdueJson } from "./overdue.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
@@ -616,6 +618,81 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderUpcoming(timeline, { color: Boolean(process.stdout.isTTY), now, scopeNote }));
+    });
+
+  program
+    .command("overdue")
+    .description("List jobs whose reset time has passed but which are still waiting to resume (a stalled relay)")
+    .option("-n, --limit <n>", "Show at most N rows (the totals still count all overdue jobs)")
+    .option(
+      "--grace <duration>",
+      "How long a job may be overdue before it counts as concerning (e.g. 60s, 5m); default 60s",
+      "60s"
+    )
+    .option("--exit-code", "Exit 1 when any job is overdue beyond the grace window (for monitoring/cron)")
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # what should already be running but isn't?\n" +
+        "  agentrelay overdue\n" +
+        "  # fail a health check when anything is stuck past 5 minutes\n" +
+        "  agentrelay overdue --grace 5m --exit-code\n" +
+        "  # feed the report to jq\n" +
+        "  agentrelay overdue --json | jq '.report.concerningCount'"
+    )
+    .action((opts: ScopeOpts & { limit?: string; grace?: string; exitCode?: boolean; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      const graceMs = parseDuration(opts.grace ?? "60s");
+      if (graceMs === null) {
+        console.error(`Invalid --grace value "${opts.grace}". Use a duration like 60s, 5m, or 1h.`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const scopeNote = built.active ? built.note : undefined;
+      const report = buildOverdueReport(jobs, now, { graceMs, limit });
+
+      if (opts.json) {
+        console.log(
+          renderOverdueJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            report,
+          })
+        );
+      } else {
+        console.log(renderOverdue(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
+      }
+
+      if (opts.exitCode && report.concerningCount > 0) process.exitCode = 1;
     });
 
   program

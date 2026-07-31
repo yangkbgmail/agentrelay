@@ -1583,3 +1583,26 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 지연 재개 진단 신규 구현] (2026-07-31, 무인 자율 세션, branch `claude/wizardly-pascal-b857fx`)
+- **한 일:** BACKLOG의 👷 미완료 항목이 사실상 소진돼(§3 남은 것은 🧭 문서/공동 QA뿐) CLAUDE.md 지침대로
+  스스로 신규 개선 항목을 발굴·구현(세션 49가 "다음 할 일"로 지목한 인접 항목). `agentrelay overdue` —
+  릴레이가 **막으려는 실패 그 자체**를 뒤에서 보는 진단 뷰. `next`/`upcoming`은 앞을 보는("무엇이 언제
+  재개되나") 뷰인데, 정작 "리셋 시각이 지났는데도 재개 안 됨"(재개 루프 죽음·wedge·다른 스토어)을 한눈에
+  보는 수단이 없었다. core `overdue.ts` 신설(순수): `buildOverdueReport(jobs, now, {graceMs?, limit?})`가
+  `waiting_for_reset`+파싱 가능 `resetAt`이 now 이하인 잡을 **가장 오래 지연된 순**(tie-break next/upcoming과
+  동일 createdAt→id)으로 정렬, 각 행 `overdueByMs`/`concerning`/`position` + `totalWaiting`/`overdueCount`/
+  `concerningCount`/`hidden`/`worstOverdueMs`(limit로 잘라도 totals 정직). **grace 창**(기본 60s, 음수/비유한은
+  0)으로 방금 due된 잡(정상, 데몬 tick 대기)과 grace 넘긴 잡(진짜 문제)을 구분. CLI `overdue.ts`에 순수
+  `renderOverdue`(표·grace 초과 행 `!`+노란색·resume-loop 힌트·`formatDurationMs` 재사용·scope note·"N more
+  not shown" 푸터)·`renderOverdueJson`. `agentrelay overdue [--limit/-n][--grace][--exit-code][--tool]
+  [--project][--since][--until][--json]` — 공용 `buildScope`+`parseDuration` 재사용, `--exit-code`는
+  concerning>0일 때 exit 1(모니터링/cron 게이트), completion 자동 포함. index.ts 재노출. 새 파서/스케줄러
+  로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core overdue 13 + cli overdue 8 신규 포함). 빌드된 실제 CLI e2e(mock 아님): 4-잡 임시
+  스토어로 `overdue`(가장 오래 지연 순 랭킹·grace 초과 `!` 강조·resume-loop 힌트), `--grace 5m --exit-code`
+  (exit 1), `--limit 1`(부분표시 + "1 more not shown"), `--project api-svc --json`(스코프 부분집합·envelope),
+  `--grace bogus`(exit 1), 빈 스토어("No overdue jobs…"), `completion bash`/`--help`에 overdue 자동 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch` 라이브 갱신·
+  대시보드에 overdue 카드 노출·`upcoming --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
