@@ -1583,3 +1583,19 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay upcoming --watch` 라이브 카운트다운] (2026-07-31, 무인 자율 세션, branch `claude/wizardly-pascal-5wxbqs`)
+- **한 일:** BACKLOG의 👷 항목이 전부 완료 상태라(§3 남은 것은 🧭 문서/공동 QA뿐) CLAUDE.md 지침대로 스스로
+  신규 개선 항목을 발굴. 세션 49가 "다음 할 일"로 명시한 `upcoming --watch`를 구현. upcoming 타임라인은
+  본질적으로 시간 기반이라 status보다 오히려 더 자연스러운 라이브 갱신 대상인데, 지금까지는 매번 재실행하지
+  않고는 카운트다운이 흐르는 걸 볼 수 없었다. CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame`(status.ts의
+  `renderWatchFrame` 미러 — 타이틀[주기+Ctrl-C]·메타[타임스탬프+스토어] 블록을 기존 `renderUpcoming` 위에 얹음,
+  `now` 주입 가능) 신설, cli.ts에 `runUpcomingWatch`(status `runWatch`와 동일 클리어+재드로, 매 프레임 스코프
+  재적용·타임라인 재빌드로 카운트다운·크로스-프로세스 쓰기 반영), `-w, --watch [seconds]` 배선(기본 2s,
+  `--json`이 우선하면 스킵). 새 core 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli upcoming 13 = 기존 9 + watch-frame 4 신규). 빌드된 실제 CLI e2e(mock 아님): 임시
+  스토어로 `upcoming --help`에 `--watch` 노출, `upcoming --watch 5` 한 프레임에 타이틀·메타·헤더·`1h 30m`
+  카운트다운 렌더 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목: `overdue`(지연 재개 진단)·
+  `next --watch`·대시보드 upcoming 카드 등 검토. README/ARCHITECTURE(🧭 코워크).

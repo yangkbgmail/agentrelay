@@ -17,6 +17,29 @@ const RESET = "\x1b[0m";
 export const NO_UPCOMING_MESSAGE = "No jobs waiting for a reset.";
 
 /**
+ * One frame of the live `--watch` runway view: a title/meta block (refresh
+ * interval, timestamp, store path) above the normal timeline table. The
+ * timeline is inherently time-based, so a live countdown is its most natural
+ * mode — this mirrors `renderWatchFrame` in `status.ts` so the watch loop in
+ * cli.ts only has to clear the screen and print this. Always colored (a live
+ * TTY view). Pure: `now` is injectable for tests.
+ */
+export function renderUpcomingWatchFrame(
+  timeline: UpcomingTimeline,
+  storePath: string,
+  intervalMs: number,
+  options: { now?: number; scopeNote?: string } = {}
+): string {
+  const now = options.now ?? Date.now();
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay upcoming${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderUpcoming(timeline, { now, color: true, scopeNote: options.scopeNote })].join("\n");
+}
+
+/**
  * Human-friendly multi-line table for the upcoming timeline: one row per
  * waiting job (position, short id, project, countdown, absolute reset time),
  * a header, and a footer summarizing totals and how many are hidden by a
