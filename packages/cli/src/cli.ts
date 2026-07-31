@@ -20,6 +20,7 @@ import {
   computeErrorBreakdown,
   computeStats,
   EXPORT_FORMATS,
+  findConfigField,
   GROUP_DIMENSIONS,
   generateCompletion,
   groupStats,
@@ -47,6 +48,7 @@ import {
   bulkControlJobs,
   cancelJob,
   exportStore,
+  getConfigValue,
   importStore,
   initConfig,
   type JobControlResult,
@@ -69,7 +71,13 @@ import {
   validateConfigFile,
   waitForJob,
 } from "./commands.js";
-import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
+import {
+  defaultStorePath,
+  renderConfigValue,
+  renderConfigValueJson,
+  renderEffectiveConfig,
+  renderEffectiveConfigJson,
+} from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderHealth, renderHealthJson } from "./health.js";
@@ -1411,6 +1419,32 @@ export function buildCli(): Command {
       // A broken config file is a real problem worth a non-zero exit, but we
       // still printed the env/default resolution above to aid debugging.
       if (result.loadError) process.exitCode = 1;
+    });
+  config
+    .command("get")
+    .description("Print one effective config value (env > file > default), for scripts")
+    .argument("<key>", `Dotted config key, one of: ${SETTABLE_CONFIG_KEYS.join(", ")}`)
+    .option("--json", "Print the resolved value with its source as JSON (machine-readable)")
+    .option("--show-secrets", "Reveal masked webhook URLs/tokens in the plain output")
+    .action((key: string, opts: { json?: boolean; showSecrets?: boolean }) => {
+      if (!findConfigField(key)) {
+        console.error(`[agentrelay] Unknown config key "${key}". Valid keys: ${SETTABLE_CONFIG_KEYS.join(", ")}.`);
+        process.exitCode = 1;
+        return;
+      }
+      const { config: configPath } = program.opts();
+      const result = getConfigValue({ key, path: configPath });
+      if (opts.json) {
+        console.log(renderConfigValueJson(result));
+      } else {
+        console.log(renderConfigValue(result, { showSecrets: opts.showSecrets }));
+      }
+      // A broken config file is still worth flagging, though we resolved the
+      // env/default value above so scripts capturing stdout keep working.
+      if (result.loadError) {
+        console.error(`[agentrelay] warning: config file could not be loaded — ${result.loadError}`);
+        process.exitCode = 1;
+      }
     });
   config
     .command("set")

@@ -7,6 +7,7 @@ import {
   applyConfigToEnv,
   CONFIG_ENV_KEYS,
   CONFIG_FIELDS,
+  configEnvKey,
   configToEnv,
   configToJson,
   findConfigField,
@@ -14,6 +15,7 @@ import {
   loadConfigFile,
   parseConfig,
   resolveConfigPath,
+  resolveConfigValue,
   resolveConfigWritePath,
   resolveEffectiveConfig,
   SETTABLE_CONFIG_KEYS,
@@ -288,6 +290,80 @@ describe("resolveEffectiveConfig", () => {
     for (const key of emitted) expect(known.has(key)).toBe(true);
     // ...and no known key is dead (each maps to something configToEnv can emit).
     for (const { key } of CONFIG_ENV_KEYS) expect(emitted).toContain(key);
+  });
+});
+
+describe("configEnvKey", () => {
+  it("maps a top-level dotted key to its env var", () => {
+    expect(configEnvKey("store")).toBe("AGENTRELAY_STORE");
+  });
+
+  it("maps nested keys of every field type", () => {
+    expect(configEnvKey("retry.maxAttempts")).toBe("AGENTRELAY_MAX_ATTEMPTS"); // number
+    expect(configEnvKey("autoPrune.after")).toBe("AGENTRELAY_AUTOPRUNE_AFTER"); // duration
+    expect(configEnvKey("autoPrune.enabled")).toBe("AGENTRELAY_AUTOPRUNE"); // boolean
+    expect(configEnvKey("notify.webhookUrl")).toBe("AGENTRELAY_WEBHOOK_URL"); // secret string
+  });
+
+  it("resolves an env key for every settable field", () => {
+    const known = new Set(CONFIG_ENV_KEYS.map((k) => k.key));
+    for (const key of SETTABLE_CONFIG_KEYS) {
+      expect(known.has(configEnvKey(key))).toBe(true);
+    }
+  });
+
+  it("is a bijection with the settable keys (no two share an env var)", () => {
+    const envKeys = SETTABLE_CONFIG_KEYS.map((k) => configEnvKey(k));
+    expect(new Set(envKeys).size).toBe(SETTABLE_CONFIG_KEYS.length);
+  });
+
+  it("throws on an unknown key", () => {
+    expect(() => configEnvKey("nope")).toThrow(/Unknown config key/);
+  });
+});
+
+describe("resolveConfigValue", () => {
+  it("reports a built-in default when nothing sets the key", () => {
+    const r = resolveConfigValue("store", null, {});
+    expect(r).toMatchObject({
+      key: "store",
+      envKey: "AGENTRELAY_STORE",
+      group: "store",
+      value: undefined,
+      source: "default",
+      secret: false,
+    });
+  });
+
+  it("attributes a value to the config file when env does not set it", () => {
+    const r = resolveConfigValue("store", { store: "/tmp/jobs.json" }, {});
+    expect(r).toMatchObject({ value: "/tmp/jobs.json", source: "config-file" });
+  });
+
+  it("lets an env var win over the config file (precedence)", () => {
+    const r = resolveConfigValue("store", { store: "/from/file.json" }, { AGENTRELAY_STORE: "/from/env.json" });
+    expect(r).toMatchObject({ value: "/from/env.json", source: "env" });
+  });
+
+  it("projects a nested boolean field through its 1/0 env form", () => {
+    const r = resolveConfigValue("autoPrune.enabled", { autoPrune: { enabled: true } }, {});
+    expect(r).toMatchObject({ envKey: "AGENTRELAY_AUTOPRUNE", value: "1", source: "config-file" });
+  });
+
+  it("flags a secret field", () => {
+    const r = resolveConfigValue("notify.webhookAuth", null, { AGENTRELAY_WEBHOOK_AUTH: "tok" });
+    expect(r).toMatchObject({ secret: true, value: "tok", source: "env" });
+  });
+
+  it("matches resolveEffectiveConfig for the same env key", () => {
+    const env = { AGENTRELAY_MAX_ATTEMPTS: "9" };
+    const one = resolveConfigValue("retry.maxAttempts", null, env);
+    const table = resolveEffectiveConfig(null, env).find((e) => e.key === "AGENTRELAY_MAX_ATTEMPTS");
+    expect({ value: one.value, source: one.source }).toEqual({ value: table?.value, source: table?.source });
+  });
+
+  it("throws on an unknown key", () => {
+    expect(() => resolveConfigValue("bogus", null, {})).toThrow(/Unknown config key/);
   });
 });
 

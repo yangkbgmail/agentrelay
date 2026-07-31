@@ -9,6 +9,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  getConfigValue,
   importStore,
   initConfig,
   listStatus,
@@ -25,7 +26,13 @@ import {
   validateConfigFile,
   waitForJob,
 } from "../src/commands.js";
-import { isConfigDiagnosticInvocation, renderEffectiveConfig, resolveProjectName } from "../src/config.js";
+import {
+  isConfigDiagnosticInvocation,
+  renderConfigValue,
+  renderConfigValueJson,
+  renderEffectiveConfig,
+  resolveProjectName,
+} from "../src/config.js";
 
 describe("resolveProjectName", () => {
   it("derives the label from the cwd's last path segment", () => {
@@ -801,12 +808,86 @@ describe("showConfig", () => {
   });
 });
 
+describe("getConfigValue / renderConfigValue", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-get-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("resolves a value from the config file", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ store: "/from/file.json" }));
+    const result = getConfigValue({ key: "store", path, env: {} });
+    expect(result.path).toBe(path);
+    expect(result.resolved).toMatchObject({ value: "/from/file.json", source: "config-file" });
+    expect(renderConfigValue(result)).toBe("/from/file.json");
+  });
+
+  it("lets env win over the file", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ retry: { maxAttempts: 9 } }));
+    const result = getConfigValue({ key: "retry.maxAttempts", path, env: { AGENTRELAY_MAX_ATTEMPTS: "3" } });
+    expect(result.resolved).toMatchObject({ value: "3", source: "env" });
+    expect(renderConfigValue(result)).toBe("3");
+  });
+
+  it("renders a built-in default as an empty string", () => {
+    const result = getConfigValue({ key: "store", cwd: dir, env: { HOME: dir } });
+    expect(result.resolved).toMatchObject({ value: undefined, source: "default" });
+    expect(renderConfigValue(result)).toBe("");
+  });
+
+  it("masks a secret value unless showSecrets is set", () => {
+    const result = getConfigValue({
+      key: "notify.webhookAuth",
+      cwd: dir,
+      env: { HOME: dir, AGENTRELAY_WEBHOOK_AUTH: "Bearer supersecrettoken" },
+    });
+    expect(renderConfigValue(result)).not.toContain("Bearer supersecrettoken");
+    expect(renderConfigValue(result)).toContain("oken"); // last 4 chars kept
+    expect(renderConfigValue(result, { showSecrets: true })).toBe("Bearer supersecrettoken");
+  });
+
+  it("does not throw on a broken config file — reports loadError, resolves env/default", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, "{ not json");
+    const result = getConfigValue({ key: "store", path, env: {} });
+    expect(result.loadError).toBeDefined();
+    expect(result.resolved).toMatchObject({ source: "default", value: undefined });
+  });
+
+  it("emits the resolved shape as JSON", () => {
+    const result = getConfigValue({
+      key: "retry.maxAttempts",
+      cwd: dir,
+      env: { HOME: dir, AGENTRELAY_MAX_ATTEMPTS: "7" },
+    });
+    const parsed = JSON.parse(renderConfigValueJson(result, "2026-01-01T00:00:00.000Z"));
+    expect(parsed.generatedAt).toBe("2026-01-01T00:00:00.000Z");
+    expect(parsed.resolved).toMatchObject({
+      key: "retry.maxAttempts",
+      envKey: "AGENTRELAY_MAX_ATTEMPTS",
+      value: "7",
+      source: "env",
+    });
+  });
+});
+
 describe("isConfigDiagnosticInvocation", () => {
   const argv = (...rest: string[]) => ["node", "bin.js", ...rest];
 
   it("recognizes plain config validate/show", () => {
     expect(isConfigDiagnosticInvocation(argv("config", "validate"))).toBe(true);
     expect(isConfigDiagnosticInvocation(argv("config", "show"))).toBe(true);
+  });
+
+  it("recognizes config get (must skip startup bootstrap for correct source attribution)", () => {
+    expect(isConfigDiagnosticInvocation(argv("config", "get", "store"))).toBe(true);
   });
 
   it("recognizes them past a global --config <path> (the value is not the command)", () => {

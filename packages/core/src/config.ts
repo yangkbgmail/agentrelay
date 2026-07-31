@@ -611,6 +611,65 @@ export function resolveEffectiveConfig(
 }
 
 /**
+ * Maps a dotted config key (`retry.maxAttempts`) onto the single `AGENTRELAY_*`
+ * env var it projects through (`AGENTRELAY_MAX_ATTEMPTS`). Derived purely from
+ * the existing {@link setConfigValue} + {@link configToEnv} pipeline — a
+ * type-appropriate placeholder is projected and the sole resulting env key is
+ * returned — so there's no second dotted→env mapping to keep in sync. Throws on
+ * an unknown key. Pure.
+ */
+export function configEnvKey(key: string): string {
+  const field = findConfigField(key);
+  if (!field) {
+    throw new Error(`Unknown config key "${key}". Valid keys: ${SETTABLE_CONFIG_KEYS.join(", ")}.`);
+  }
+  // Any valid value works; we only look at *which* env key it lands on.
+  const placeholder =
+    field.type === "boolean" ? "true" : field.type === "number" ? "0" : field.type === "duration" ? "1h" : "x";
+  const keys = Object.keys(configToEnv(setConfigValue({}, field.key, placeholder)));
+  return keys[0];
+}
+
+/** One resolved setting keyed by its dotted config key — see {@link resolveConfigValue}. */
+export interface ResolvedConfigValue {
+  /** Dotted config key as requested (e.g. `retry.maxAttempts`). */
+  key: string;
+  /** The `AGENTRELAY_*` env var this key resolves through. */
+  envKey: string;
+  group: ConfigGroup;
+  /** Effective value from env or the config file, or `undefined` when the built-in default applies. */
+  value: string | undefined;
+  source: ConfigValueSource;
+  secret: boolean;
+}
+
+/**
+ * Resolves a *single* config setting (addressed by its dotted key, exactly as
+ * `config set`/`unset` use) to its effective value and source, applying the same
+ * env > config-file > default precedence as {@link resolveEffectiveConfig}. This
+ * is the narrow, scriptable projection behind `agentrelay config get <key>`:
+ * where `config show` dumps the whole table, this answers one key so a value can
+ * be captured with `$(agentrelay config get store)`.
+ *
+ * Throws on an unknown key (with the list of valid keys). Pure — no filesystem,
+ * no ambient env unless `env` is omitted.
+ */
+export function resolveConfigValue(
+  key: string,
+  fileConfig: AgentRelayConfig | null,
+  env: Record<string, string | undefined> = process.env
+): ResolvedConfigValue {
+  const envKey = configEnvKey(key); // validates the key (throws when unknown)
+  const entry = resolveEffectiveConfig(fileConfig, env).find((e) => e.key === envKey);
+  // `entry` is always present: CONFIG_FIELDS and CONFIG_ENV_KEYS are kept in
+  // sync (asserted by a test), so every settable key maps to a resolved entry.
+  if (!entry) {
+    throw new Error(`No resolved config entry for env key "${envKey}" (config key "${key}")`);
+  }
+  return { key, envKey, group: entry.group, value: entry.value, source: entry.source, secret: entry.secret };
+}
+
+/**
  * Fills the derived config values into `targetEnv` (defaults to `process.env`)
  * *without overwriting anything already set*, so an explicit environment
  * variable always beats the file. Mutates `targetEnv` in place and returns the

@@ -620,6 +620,22 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay config get <key>` — 유효 설정값 하나를 출처(env>파일>기본값)와 함께 조회
+      (스크립트 친화). `config set`/`unset`은 있는데 대칭인 단일 값 읽기가 없어, `config show`
+      전체 표를 파싱해야만 값을 얻을 수 있었다.
+      (완료 — core `config.ts`에 순수 `configEnvKey(key)`(dotted 키→`AGENTRELAY_*` env 키 매핑,
+      기존 `setConfigValue`+`configToEnv` 파이프라인으로 파생해 별도 매핑 sync 불필요) +
+      `ResolvedConfigValue`/`resolveConfigValue(key, fileConfig, env)`(`resolveEffectiveConfig`와
+      동일 env>파일>기본값 우선순위로 단일 키 해소, 미지 키는 throw) 추가. CLI `commands.ts`
+      `getConfigValue`(malformed 파일은 non-fatal — env/기본값은 계속 해소, loadError 보고),
+      `config.ts` 순수 `renderConfigValue`(plain: 값만 출력→`$(agentrelay config get store)` 캡처
+      가능, 기본값은 빈 문자열, 시크릿은 `--show-secrets` 없으면 마스킹)·`renderConfigValueJson`.
+      `agentrelay config get <key> [--json] [--show-secrets]` 배선 — 미지 키는 exit 1, `show`처럼
+      정확한 출처 판정 위해 startup bootstrap 스킵(`BOOTSTRAP_SKIP_SUBCOMMANDS`에 `get` 추가).
+      core config +12 / cli commands +6 신규 테스트, 실제 빌드 CLI e2e로 파일값·env 우선·불리언
+      투영·기본값 빈줄·시크릿 마스킹/노출·JSON·미지키 exit1·명령치환 캡처 검증. branch
+      `claude/config-get`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
