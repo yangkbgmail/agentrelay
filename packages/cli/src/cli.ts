@@ -20,6 +20,7 @@ import {
   computeErrorBreakdown,
   computeStats,
   EXPORT_FORMATS,
+  findOverdueJobs,
   GROUP_DIMENSIONS,
   generateCompletion,
   groupStats,
@@ -75,6 +76,7 @@ import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
+import { renderOverdue, renderOverdueJson } from "./overdue.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
@@ -616,6 +618,86 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderUpcoming(timeline, { color: Boolean(process.stdout.isTTY), now, scopeNote }));
+    });
+
+  program
+    .command("overdue")
+    .description("Show jobs that should have resumed by now but haven't — the symptom of a stalled resume loop")
+    .option("--grace <duration>", "Ignore jobs due within the last <duration> (e.g. 90s, 5m); default 90s")
+    .option("-n, --limit <n>", "Show at most N rows (the totals still count all overdue jobs)")
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/jq)")
+    .option("--exit-code", "Exit 3 when any job is overdue (0 otherwise) — usable as a monitoring/cron probe")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # is anything stuck past its reset?\n" +
+        "  agentrelay overdue\n" +
+        "  # only flag jobs more than 10 minutes late\n" +
+        "  agentrelay overdue --grace 10m\n" +
+        "  # cron/systemd probe: alert only when the relay falls behind\n" +
+        "  agentrelay overdue --exit-code || notify-send 'agentrelay is behind'"
+    )
+    .action((opts: ScopeOpts & { grace?: string; limit?: string; json?: boolean; exitCode?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let graceMs: number | undefined;
+      if (opts.grace !== undefined) {
+        const ms = parseDuration(opts.grace);
+        if (ms === null || ms < 0) {
+          console.error(`Invalid --grace value "${opts.grace}". Use forms like 90s, 5m, 1h.`);
+          process.exitCode = 1;
+          return;
+        }
+        graceMs = ms;
+      }
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const scopeNote = built.active ? built.note : undefined;
+      const report = findOverdueJobs(jobs, now, { graceMs, limit });
+
+      if (opts.json) {
+        console.log(
+          renderOverdueJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            report,
+          })
+        );
+      } else {
+        console.log(renderOverdue(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
+      }
+
+      // Opt-in probe exit code: 3 (distinct from the input-error 1) when the
+      // relay has fallen behind, so a cron/systemd/nagios check can alert
+      // without parsing output. 0 when everything is on time.
+      if (opts.exitCode && report.totalOverdue > 0) {
+        process.exitCode = 3;
+      }
     });
 
   program
