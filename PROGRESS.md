@@ -1583,3 +1583,24 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 멈춘-루프 진단 렌즈 신규 구현] (2026-07-31, 무인 자율 세션, branch `claude/wizardly-pascal-rtxjh1`)
+- **한 일:** BACKLOG의 👷 미완료 항목이 소진(§3 남은 것은 🧭 문서/공동 QA뿐)돼 CLAUDE.md 지침대로 신규 개선
+  항목 발굴·구현(세션 49가 후속 후보로 제안한 `overdue`). `agentrelay overdue` — 재개됐어야 하는데 아직 큐에
+  남은 잡을 보여주는 헬스 렌즈. `upcoming`/`next`는 **앞으로** 재개될 것을 보여주지만, 리셋 시각이 이미 지났는데도
+  재개 안 된(=재개 루프가 멈춘) 잡을 골라 보는 수단이 없었다 — `doctor` 하트비트 경고의 잡-측 짝. core
+  `overdue.ts` 신설(순수): `buildOverdueReport(jobs, now, {limit?, minOverdueMs?})`가 `waiting_for_reset` +
+  파싱 가능 `resetAt` 중 `resetAt<=now`만 골라 가장 오래 밀린 순(next/upcoming과 동일 tie-break)으로 정렬,
+  `overdueByMs`/`position` + `totalOverdue`/`hidden`/`worstOverdueByMs`, `minOverdueMs`로 막 due된 일시적 잡 제외.
+  CLI `overdue.ts`에 순수 `renderOverdue`(공용 `formatDurationMs` 재사용·밀린 시간 빨강·scope note·"N more not
+  shown")·`renderOverdueJson`. `agentrelay overdue [--older-than][--limit][--tool][--project][--since][--until]
+  [--json][--exit-code]` — 공용 `buildScope` 재사용, `--exit-code`는 밀린 잡 있으면 exit 5(CI/cron 게이트),
+  completion 자동 포함. index.ts 재노출. 새 파서/시계 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 544 + cli 270/1skip + dashboard 7; core overdue 11 + cli overdue 8 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 5-잡 임시 스토어로 `overdue`(가장 오래 밀린 순·worst 집계), `--older-than 5m`
+  (일시 잡 제외), `--older-than 5m --exit-code`(exit 5), `--limit 1`("2 more not shown"), `--tool codex-cli`
+  (스코프 부분집합), `--json`(envelope·jq), 빈 스토어("keeping up"·exit 0), `--older-than nope`/`--limit 0`/
+  `--tool bogus`(exit 1), completion에 overdue 포함 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch` 라이브 갱신·
+  대시보드에 overdue 카운트 노출(세션 30/31 하트비트 인프라 연계) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
