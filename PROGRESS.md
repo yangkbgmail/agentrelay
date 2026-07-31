@@ -1583,3 +1583,25 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 지연 재개 진단(재개 루프 알람) 신규 구현] (2026-07-31, 무인 자율 세션, branch `claude/wizardly-pascal-3po2ef`)
+- **한 일:** 세션 49가 후속으로 지목한 `overdue`(지연 재개 진단)를 구현. `upcoming`은 **미래 지향**(가장
+  임박한 재개 순)인 반면, `overdue`는 **이미 리셋 시각이 지났는데도 재개 안 된** `waiting_for_reset` 잡을
+  **가장 오래 밀린 순**으로 보여주는 알람 뷰다. 데몬이 돌고 있어야 하는데 이 목록이 비어있지 않다면 재개
+  루프가 죽었거나 막힌 것 — 릴레이가 막으려는 바로 그 무음 실패의 가장 큰 신호다. core `overdue.ts` 신설
+  (순수·시계/파일시스템 미접촉): `buildOverdueReport(jobs, now, {limit?, graceMs?})`가 `resetAt`이
+  `now-graceMs`보다 과거인 잡만 골라 `upcoming`의 미러 tie-break(resetAt→createdAt→id, 단 오래된 것 먼저)로
+  정렬, 각 행 `overdueMs`/`position` + `totalOverdue`/`hidden`/`maxOverdueMs`(limit로 잘라도 totals 정직).
+  `graceMs`(기본 0)는 "방금 due돼 데몬이 곧 집을 잡"과 "오래 전에 재개됐어야 하는 잡"을 구분 — 모니터가
+  poll 간격의 몇 배로 설정하면 건강한 릴레이가 알람을 안 울린다. CLI `overdue.ts`에 순수 `renderOverdue`
+  (표·`stats`의 `formatDurationMs` 재사용·grace note·scope note·"N more not shown" 푸터, 알람 톤 노랑)·
+  `renderOverdueJson`. `agentrelay overdue [--limit/-n][--grace][--tool][--project][--since][--until][--json]`
+  — 공용 `buildScope` 재사용, completion 자동 포함. index.ts 재노출. 새 파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 544 + cli 271/1skip + dashboard 7; core overdue 11 + cli overdue 9 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 4-잡 임시 스토어(3h/1h/2m 지연 + 미래 1개)로 `overdue`(most-overdue-first
+  랭킹·`OVERDUE BY` 카운트·미래 잡 제외), `--grace 5m`(2m 잡 제외), `--limit 1`(부분표시 + "2 more not
+  shown"·worst 정직), `--project`(스코프 부분집합), `--json`(totalOverdue/maxOverdueMs/ids), 빈 스토어
+  healthy 메시지, `--limit 0`·`--grace bogus`(exit 1), completion에 `overdue` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --exit-code`(모니터 게이팅)·
+  `upcoming --watch` 라이브 갱신 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).

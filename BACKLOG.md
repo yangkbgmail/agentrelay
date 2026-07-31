@@ -620,6 +620,22 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay overdue` — 리셋 시각이 지났는데도 재개 안 된 잡을 가장 오래 밀린 순으로 조회(재개 루프 알람).
+      (완료 — `upcoming`은 미래 지향(가장 임박한 재개 순)이라 "이미 재개됐어야 하는데 안 된" 잡을 골라내지
+      못했다. 데몬이 죽거나 막히면 잡은 큐에 due 상태로 쌓이는데 이를 한눈에 진단할 수단이 없었다.
+      `@agentrelay/core/overdue.ts` 신설(순수·파일시스템/시계 미접촉): `buildOverdueReport(jobs, now,
+      {limit?, graceMs?})`가 `resetAt`이 `now-graceMs`보다 과거인 `waiting_for_reset` 잡만 골라 `upcoming`의
+      **미러 tie-break**(resetAt→createdAt→id, 단 오래된 것 먼저=가장 밀린 것 상단)로 정렬, 각 행에
+      `overdueMs`/`position` + `totalOverdue`/`hidden`/`maxOverdueMs`(limit로 잘라도 totals 정직). `graceMs`
+      (기본 0)는 "방금 due돼 곧 집힐 잡"과 "오래 밀린 잡"을 구분 — 모니터가 poll 간격의 몇 배로 두면
+      건강한 릴레이가 오탐 안 함. CLI `packages/cli/src/overdue.ts`에 순수 `renderOverdue`(표 + `stats`의
+      `formatDurationMs` 재사용으로 `3h 0m`/`2m 1s` 일관 + grace note + scope note + "N more not shown" 푸터,
+      알람 톤 노랑)·`renderOverdueJson`(upcoming/projects와 동일 envelope). `agentrelay overdue [--limit/-n]
+      [--grace] [--tool] [--project] [--since] [--until] [--json]` — 공용 `buildScope` 재사용, completion
+      자동 포함. 새 파서/스케줄러 로직 0줄. core overdue 11 + cli overdue 9 신규 테스트, 실제 빌드 CLI e2e로
+      랭킹·`OVERDUE BY`·미래 잡 제외·`--grace` 필터·--limit 부분표시·--project 스코프·--json·healthy 메시지·
+      --limit 0/--grace bogus 에러(exit 1) 검증. branch `claude/wizardly-pascal-3po2ef`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
