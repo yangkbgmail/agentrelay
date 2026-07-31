@@ -1583,3 +1583,24 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay upcoming --watch` 라이브 런웨이 뷰 신규 구현] (2026-07-31, 무인 자율 세션, branch `claude/wizardly-pascal-kh3bi4`)
+- **한 일:** BACKLOG의 👷 미완료 항목이 사실상 소진돼(§3 남은 것은 🧭 문서/공동 QA뿐) CLAUDE.md 지침대로
+  스스로 신규 개선 항목을 발굴·구현. 세션 49가 후속 후보로 명시한 `upcoming --watch`를 채택 — 열린 PR
+  어디에도 없는 distinct 항목(열린 PR 목록의 `overdue`/`tools`/`report` 등은 이미 중복 포화라 회피).
+  `status --watch`가 있는데 `upcoming`엔 라이브 뷰가 없어, 재개 대기 잡들의 카운트다운을 제자리에서
+  틱다운하며 보는 수단이 부재했다. CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame(timeline, store,
+  intervalMs, now, scopeNote?)` 신설(`status`의 `renderWatchFrame` 미러 — 타이틀+인터벌 라벨+UTC 스탬프
+  메타 라인+컬러 테이블, scope note 스레딩). `cli.ts`에 `runUpcomingWatch` 루프(화면 클리어→스토어
+  재읽기→scope 재적용→timeline 재빌드→재렌더, SIGINT/SIGTERM에 정리; `runWatch` 패턴 재사용)와
+  `upcoming` 커맨드에 `-w, --watch [seconds]` 옵션 배선. 인터벌 파싱은 status와 동일(양수면 초→ms,
+  아니면 기본 2000ms). **검증(--limit/--tool/scope)은 watch 진입 전에 수행**해 잘못된 입력은 라이브
+  모드에서도 exit 1. 새 core 로직 0줄 — 기존 `buildUpcomingTimeline`(core)·`renderUpcoming`·`scopeJobs`
+  전부 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli 266/1skip; upcoming 13 = 기존 9 + `renderUpcomingWatchFrame` 4 신규). 빌드된 실제
+  CLI e2e(mock 아님): 3-잡 임시 스토어로 `upcoming --watch 5`(인터벌 라벨·메타·컬러 2행 프레임 확인),
+  `--watch --project soon-app`(scope note 프레임 스레딩), `--watch --limit 0`→exit 1, `--watch --tool bogus`
+  →exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue`(지연 재개 진단)는 열린 PR
+  다수가 이미 다룸 → 코워크가 하나로 수렴·병합 권장. README/ARCHITECTURE(🧭 코워크).
