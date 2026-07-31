@@ -1,6 +1,6 @@
 import { buildUpcomingTimeline, type RelayJob, type UpcomingTimeline } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson } from "../src/upcoming.js";
+import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "../src/upcoming.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -83,6 +83,48 @@ describe("renderUpcoming", () => {
     const out = renderUpcoming(timeline([job()]), { now: NOW, color: false });
     // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting no escapes.
     expect(out).not.toMatch(/\x1b\[/);
+  });
+});
+
+describe("renderUpcomingWatchFrame", () => {
+  it("shows a title with the interval, a meta line with store + stamp, and the table", () => {
+    const out = renderUpcomingWatchFrame(
+      timeline([job({ id: "soon0000", project: "soon-app", resetAt: at(60 * 60_000) })]),
+      "/tmp/jobs.json",
+      2000,
+      NOW
+    );
+    expect(out).toContain("agentrelay upcoming");
+    expect(out).toContain("every 2s");
+    expect(out).toContain("Ctrl-C to exit");
+    // Meta line: UTC stamp (no fractional seconds) + store path.
+    expect(out).toContain("2026-07-30 10:00:00Z");
+    expect(out).toContain("/tmp/jobs.json");
+    // The timeline table itself is embedded.
+    expect(out).toContain("soon-app");
+    expect(out).toContain("RESUMES IN");
+  });
+
+  it("rounds the interval to whole seconds in the title", () => {
+    const out = renderUpcomingWatchFrame(timeline([job()]), "/tmp/jobs.json", 5000, NOW);
+    expect(out).toContain("every 5s");
+  });
+
+  it("threads the scope note into the frame", () => {
+    const out = renderUpcomingWatchFrame(
+      timeline([job({ project: "demo" })]),
+      "/tmp/jobs.json",
+      2000,
+      NOW,
+      "project=demo"
+    );
+    expect(out).toContain("scope: project=demo");
+  });
+
+  it("renders the empty message inside the frame when nothing is waiting", () => {
+    const out = renderUpcomingWatchFrame(timeline([]), "/tmp/jobs.json", 2000, NOW);
+    expect(out).toContain("agentrelay upcoming");
+    expect(out).toContain(NO_UPCOMING_MESSAGE);
   });
 });
 
