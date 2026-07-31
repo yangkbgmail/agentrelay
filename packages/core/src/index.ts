@@ -26,3 +26,4 @@ export * from "./summary.js";
 export * from "./types.js";
 export * from "./upcoming.js";
 export * from "./wait.js";
+export * from "./waves.js";
