@@ -620,6 +620,24 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay tools` — 큐에 존재하는 에이전트 툴을 툴별 잡 집계·spawn 바이너리·소요 리셋과 함께 조회
+      (세션 48 `projects`의 툴-축 자매 커맨드).
+      (완료 — `--tool` 필터는 status/stats/export/cancel/retry/metrics/patterns/errors/projects/upcoming가
+      전부 `job.tool`을 키로 쓰지만, 정작 **어떤 에이전트 툴이 스토어에 있는지·어디에 대기 작업이 몰렸는지
+      발견하는 수단**이 없었다(projects의 프로젝트-축을 툴-축으로). `@agentrelay/core/tools.ts` 신설
+      (순수·파일시스템/시계 미접촉): `summarizeTools(jobs)`가 툴별 total/active(queued+waiting_for_reset+
+      resuming)/terminal(completed+failed+cancelled)/waiting 집계 + `nextResetAt`(대기 잡 사전식 min)·
+      `lastActivityAt`(max updatedAt), 랭킹 active desc→total desc→이름 asc(대기 몰린 툴 상단). 툴셋이
+      작은 고정 enum이라 `stats --group-by tool`이 못 보여주는 것 — 각 툴 아래 실제 spawn된 distinct
+      바이너리(`command[0]`, first-seen 순서, 빈 command 무시)를 함께 노출(특히 `generic`이 어떤 실행
+      파일을 감싸는지 = doctor PATH 검사가 프로브하는 그 바이너리). 존재하는 툴만 행 생성(zero-fill 없음).
+      CLI `packages/cli/src/tools.ts`에 순수 `renderTools`(표+툴별 `binaries:` 라인·`formatCountdown`
+      카운트다운·`(idle)`·scope note·no-match)·`renderToolsJson`(projects/stats와 동일 envelope).
+      `agentrelay tools [--json]` + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용,
+      completion 자동 포함. index.ts 재노출. 새 파서/시계 로직 0줄. core tools 10 + cli tools 9 신규 테스트,
+      실제 빌드 CLI e2e로 랭킹·바이너리·카운트다운·스코프 부분집합·--json·에러 exit 검증.
+      branch `claude/wizardly-pascal-tools`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
