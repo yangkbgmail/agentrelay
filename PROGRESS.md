@@ -1583,3 +1583,28 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 지연 재개 진단 신규 구현] (2026-07-31, 무인 자율 세션, branch `claude/wizardly-pascal-kgluj8`)
+- **한 일:** BACKLOG의 👷 미완료 항목이 소진돼(남은 것은 🧭 문서/공동 QA뿐) CLAUDE.md 지침대로 스스로
+  신규 개선 항목을 발굴·구현. 세션 49가 다음 후보로 남긴 `overdue`를 실현. `agentrelay overdue` —
+  재개돼야 할 시점(`resetAt`)이 유예 시간을 넘겨 지났는데도 `waiting_for_reset`에 머무는 잡을 잡아내는
+  **잡 중심 "재개 조용히 실패" 진단**. `upcoming`이 앞을 보는 활주로(무엇이 언제 재개되나)라면
+  `overdue`는 뒤를 본다(재개됐어야 하는데 안 된 것). doctor의 하트비트 체크와 상보적 — 큐가 살아있는데
+  아무것도 재개 안 되는 최다 무음 실패를 잡별로 노출. core `overdue.ts` 신설(순수): `buildOverdueReport(
+  jobs, now, {graceMs, limit})` — `waiting_for_reset`+파싱 가능 `resetAt`이 `now - graceMs` 이전인 잡만
+  worst-first(resetAt→createdAt→id) 정렬, 각 행 `overdueByMs`/`position` + `totalOverdue`/`hidden`/
+  `graceMs`. 기본 유예 `DEFAULT_OVERDUE_GRACE_MS`(2m)로 폴 주기·비순간 재개를 정상 취급, 음수 유예는 0으로
+  floor, limit로 잘라도 totals는 정직. CLI `overdue.ts`에 순수 `renderOverdue`(표·`formatDurationMs`
+  재사용·overdue amount 빨강·scope note·all-clear 메시지·"N more not shown" 푸터)·`renderOverdueJson`.
+  `agentrelay overdue [--grace <기간>][--limit/-n][--tool][--project][--since][--until][--exit-code][--json]`
+  — 공용 `buildScope` 재사용, completion 자동 포함. `--exit-code`는 지연 잡이 있으면 exit 5(cron/모니터
+  분기용, jq 불필요). index.ts 재노출. 새 파서/시계 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 546 + cli 271/1skip + dashboard 7; core overdue 13 + cli overdue 9 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 4-잡 임시 스토어로 `overdue`(기본 2m 유예로 최근·미래 잡 제외·worst-first),
+  `--grace 10s`(최근 잡 포함), `--limit 1`(부분표시 + "1 more not shown"), `--project api-svc`(스코프
+  부분집합), `--json`(envelope), `--exit-code`(지연 잡 있음→exit 5·all-clear→exit 0), `--grace nope`
+  (exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch` 라이브 갱신·
+  대시보드에 overdue 카드 노출(세션 30 하트비트 인프라와 결합)·`upcoming --watch` 등 인접 항목 검토.
+  README/ARCHITECTURE(🧭 코워크).
