@@ -620,6 +620,25 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay waves` — 재개 부하 히스토그램. 대기 잡을 (지금 기준) 상대 시간 창(window)별로 묶어
+      "언제 몇 개가 한꺼번에 재개되나(thundering herd)"를 한눈에.
+      (완료 — `next`는 단 하나, `upcoming`은 잡을 하나씩 나열하지만, "여러 잡이 같은 창에서 동시에 재개돼
+      곧바로 다시 rate-limit에 걸릴 위험"을 보는 집계 뷰가 없었다. `@agentrelay/core/waves.ts` 신설
+      (순수·파일시스템/시계 미접촉): `buildResumeWaves(jobs, now, {windowMs, maxWindows})`가
+      `waiting_for_reset`+파싱 가능 `resetAt` 잡만 골라 now 기준 고정폭 상대 창으로 버킷팅 — 창 사이 빈
+      버킷도 보존해 히스토그램의 실제 모양(간격·스파이크)을 드러냄, 이미 지난 reset은 window 0으로 접고
+      `dueNow`에도 집계, `maxWindows` 지평선 밖은 버킷을 왜곡하지 않고 `beyondHorizon`으로 분리,
+      `peakCount`/`peakIndex`(가장 바쁜 창, 동점은 이른 창) 산출. 기본 1h 창·24 window 상한. CLI
+      `packages/cli/src/waves.ts`에 순수 `renderWaves`(창별 ASCII 막대·피크 볼드·빈 창 baseline dot·공용
+      `formatDurationMs` 재사용 라벨·totals/dueNow/peak/beyond 푸터)·`renderWavesJson`(upcoming과 동일
+      envelope). `agentrelay waves [--window 30m] [--max-windows N] [--tool] [--project] [--since] [--until]
+      [--json]` — 공용 `buildScope` 재사용, completion 자동 포함. index.ts 재노출. 새 파서/시계 로직 0줄.
+      **명명 주의:** 원래 `forecast`로 만들었으나 동명 커맨드를 다른 설계(시간대별/큐 드레인)로 구현한
+      선행 오픈 PR #319와 충돌해, 상대 카운트다운 부하 뷰라는 별개 성격을 살려 `waves`로 개칭(#319의
+      절대시각 타임라인과 상호보완). core waves 10 + cli waves 11 신규 테스트, 실제 빌드 CLI e2e로
+      버킷팅·30m 창·--max-windows 지평선·--project 스코프·--json·잘못된 --window(exit 1) 검증.
+      branch `claude/wizardly-pascal-waves`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

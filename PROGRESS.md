@@ -1583,3 +1583,27 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay waves` 재개 부하 히스토그램 신규 구현] (2026-07-31, 무인 자율 세션, branch `claude/wizardly-pascal-waves`)
+- **한 일:** 👷 미완료 항목이 소진돼(§3 남은 것은 🧭 문서/공동 QA뿐) CLAUDE.md 지침대로 스스로 신규 개선
+  항목을 발굴·구현. `agentrelay waves` — 대기 잡을 now 기준 상대 시간 창별로 묶어 보여주는 재개 부하
+  히스토그램. `next`는 단 하나, `upcoming`은 잡을 하나씩 나열하지만 "여러 잡이 같은 창에서 동시에 재개돼
+  곧바로 다시 rate-limit에 걸리는 thundering herd"를 보는 집계 뷰가 없었다. core `waves.ts` 신설(순수):
+  `buildResumeWaves(jobs, now, {windowMs, maxWindows})`가 `waiting_for_reset`+파싱 가능 `resetAt` 잡을
+  고정폭 상대 창으로 버킷팅 — 창 사이 빈 버킷 보존(히스토그램 모양), 지난 reset은 window 0으로 접고
+  `dueNow` 집계, `maxWindows` 밖은 `beyondHorizon`으로 분리(버킷 왜곡 방지), `peakCount`/`peakIndex`(동점은
+  이른 창). 기본 1h·24 window. CLI `waves.ts`에 순수 `renderWaves`(창별 ASCII 막대·피크 볼드·빈 창 dot·공용
+  `formatDurationMs` 라벨·totals/dueNow/peak/beyond 푸터)·`renderWavesJson`. `agentrelay waves [--window 30m]
+  [--max-windows N][--tool][--project][--since][--until][--json]` — 공용 `buildScope` 재사용, completion 자동
+  포함. index.ts 재노출. 새 파서/시계 로직 0줄.
+- **명명/충돌 회피:** 처음엔 `forecast`로 구현했으나, 선행 오픈 PR #319가 동명 `agentrelay forecast`를 다른
+  설계(시간대별 버킷 + 큐 드레인 시각)로 이미 열어둬 커맨드명·파일명·심볼(`ResumeForecast` 등)이 정면 충돌.
+  선행 작업을 덮지 않도록 fresh 브랜치에서 상대 카운트다운 부하 뷰라는 별개 성격을 살려 `waves`로 개칭
+  (#319의 절대시각 타임라인과 상호보완). 기존 `forecast` 브랜치는 push하지 않음.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 543 + cli 273/1skip + dashboard 7; core waves 10 + cli waves 11 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 4-잡 임시 스토어로 기본 waves(버킷팅·due now 접기·피크), `--window 30m`
+  (세분화 창), `--max-windows 2`(지평선 밖 "1 beyond horizon"), `--project` 스코프, `--json`(envelope) 확인,
+  잘못된 `--window`은 exit 1, completion에 `waves` 포함.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `waves --watch` 라이브 갱신·히트맵/
+  스파크라인 표현 등 인접 항목 검토. #319와 병합 순서 조율(코워크). README/ARCHITECTURE(🧭 코워크).

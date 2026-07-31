@@ -13,6 +13,7 @@ import type {
 } from "@agentrelay/core";
 import {
   ALL_TOOLS,
+  buildResumeWaves,
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
@@ -93,6 +94,7 @@ import {
 } from "./status.js";
 import { renderUpcoming, renderUpcomingJson } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
+import { renderWaves, renderWavesJson } from "./waves.js";
 
 /**
  * Split a comma-separated CLI option (e.g. `--status completed,failed`) into
@@ -616,6 +618,78 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderUpcoming(timeline, { color: Boolean(process.stdout.isTTY), now, scopeNote }));
+    });
+
+  program
+    .command("waves")
+    .description("Show a histogram of resume load — how many waiting jobs come due per time window (spot resume waves)")
+    .option("-w, --window <duration>", "Window width for each histogram bar (e.g. 30m, 1h, 6h)", "1h")
+    .option(
+      "-n, --max-windows <n>",
+      "Cap the number of windows shown; jobs past the horizon are counted separately",
+      "24"
+    )
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--json", "Print the histogram as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # will many jobs resume at once (a thundering herd)?\n" +
+        "  agentrelay waves\n" +
+        "  # finer resolution: 30-minute windows\n" +
+        "  agentrelay waves --window 30m\n" +
+        "  # feed the histogram to jq\n" +
+        "  agentrelay waves --json | jq '.waves.peakCount'"
+    )
+    .action((opts: ScopeOpts & { window?: string; maxWindows?: string; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      const windowMs = parseDuration(opts.window ?? "1h");
+      if (windowMs === null || windowMs <= 0) {
+        console.error(`Invalid --window value "${opts.window}". Use forms like 30m, 1h, 6h.`);
+        process.exitCode = 1;
+        return;
+      }
+
+      let maxWindows = 24;
+      if (opts.maxWindows !== undefined) {
+        const n = Number.parseInt(opts.maxWindows, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --max-windows value "${opts.maxWindows}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        maxWindows = n;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const scopeNote = built.active ? built.note : undefined;
+      const waves = buildResumeWaves(jobs, now, { windowMs, maxWindows });
+
+      if (opts.json) {
+        console.log(
+          renderWavesJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            waves,
+          })
+        );
+        return;
+      }
+      console.log(renderWaves(waves, { color: Boolean(process.stdout.isTTY), scopeNote }));
     });
 
   program
