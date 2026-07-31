@@ -1583,3 +1583,25 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 지연 재개 진단 신규 구현] (2026-07-31, 무인 자율 세션, branch `claude/wizardly-pascal-dp12g1`)
+- **한 일:** BACKLOG의 👷 미완료 항목이 소진돼(남은 것은 🧭 문서/공동 QA) CLAUDE.md 지침대로 스스로 신규
+  개선 항목을 발굴·구현(세션 49의 "다음 할 일"에서 예고한 후보). `agentrelay overdue` — 리셋 시각이 이미
+  지났는데 아직 `waiting_for_reset`에 남은 잡을 지연 정도순으로 조회. 이건 재개 루프(daemon/tick)가 멈췄거나
+  죽었을 때 가장 명확한 증상으로, `health`가 하트비트로 답하는 것을 **잡 관점에서 교차 확인**한다. `upcoming`이
+  앞으로 재개될 활주로(soonest-due first)를 보는 반면 `overdue`는 슬립된 것(most-overdue first, 정렬 방향 반대)을
+  본다. core `overdue.ts` 신설(순수): `buildOverdueReport(jobs, now, {thresholdMs?,limit?})`가 과거 `resetAt`이
+  `now`보다 threshold 이상 지난 잡만 골라 oldest-resetAt→createdAt→id로 정렬, 각 행 `overdueMs`/`position` +
+  `total`/`hidden`/`maxOverdueMs`/`thresholdMs`(limit로 잘라도 정직). CLI `overdue.ts`에 순수 `renderOverdue`
+  (표·공용 `formatDurationMs` 재사용·scope/threshold note·"N more not shown")·`renderOverdueJson`.
+  `agentrelay overdue [--older-than][--limit/-n][--tool][--project][--since][--until][--json][--exit-code]` —
+  공용 `buildScope` 재사용, `--exit-code`는 오버듀 잡 있으면 exit 1(모니터/cron 게이트, `next` 관례). index.ts
+  재노출. 새 파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 546 + cli 270/1skip + dashboard 7; core overdue 15 + cli overdue 8 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 4-잡 임시 스토어로 `overdue`(most-overdue 정렬·`OVERDUE BY` 표), `--older-than
+  30m`(20m 오버듀 드롭), `--project web-app`(스코프 부분집합), `--limit 1`("1 more not shown"), `--json`(envelope·
+  maxOverdueMs), `--exit-code`(오버듀 있음→1/높은 threshold로 없음→0), 빈 스토어→healthy 메시지+exit 0,
+  잘못된 `--older-than`·`--limit 0`→exit 1, help·completion 자동 포함 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue`/`upcoming --watch` 라이브
+  갱신·재개 실패 근본원인(하트비트+오버듀 상관) 리포트 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
