@@ -1583,3 +1583,22 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay tools` 툴/어댑터 인덱스 신규 구현] (2026-07-31, 무인 자율 세션, branch `claude/wizardly-pascal-xmr3tx`)
+- **한 일:** BACKLOG의 👷 항목이 소진돼(§3 남은 것은 🧭 문서/공동 QA뿐) CLAUDE.md 지침대로 스스로 신규 개선
+  항목을 발굴·구현. `agentrelay tools` — `projects`(프로젝트 축)의 툴 축 쌍둥이. `--tool` 필터 생태계
+  (status/stats/export/cancel/retry/metrics/patterns/errors)가 전부 키로 쓰는 `job.tool`을 정작 **발견**하는
+  수단이 없었다. core `tools.ts` 신설(순수): `summarizeTools(jobs)`→`ToolsSummary`(total·toolCount·
+  registeredCount·tools[]). `job.tool`로 버킷팅하되 **등록 어댑터는 잡 0개여도 항상 행**(레지스트리 리스팅
+  겸용), `ADAPTERS`에서 displayName·binaries 주입, 미등록 툴 문자열은 `registered:false` 플래그. 랭킹은
+  active desc→total desc→등록 우선→id asc. `nextResetAt`은 ISO 사전식 min(summarizeProjects 관례),
+  `lastActivityAt`은 max updatedAt. CLI `tools.ts`에 순수 `renderTools`(표+툴별 어댑터 신원 줄·카운트다운·
+  idle/no-jobs·scope note)·`renderToolsJson`. `agentrelay tools [--json]` + 공용 `buildScope` 재사용,
+  completion 자동 포함. index.ts 재노출. 새 파서/시계 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 에러**(사전존재
+  3 경고만)·`pnpm test` **전 패키지 통과**(core 541 + cli 270/1skip + dashboard 7; core tools 8 + cli tools 8
+  신규 포함). 빌드된 실제 CLI e2e(mock 아님): 임시 스토어로 `tools`(등록 어댑터 리스팅·binaries·waiting
+  카운트다운·idle·no-jobs), `--json`(registeredCount 3·툴별 active/total), `--tool codex-cli`(스코프 부분집합),
+  잘못된 `--tool`(exit 1), `--help` 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools --watch` 라이브 갱신·어댑터
+  detail(패턴 목록) 뷰 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).

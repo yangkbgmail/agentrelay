@@ -620,6 +620,25 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay tools` — 에이전트 툴(어댑터)별 잡 인덱스. `projects`(프로젝트 축)의 툴 축 쌍둥이로,
+      `--tool` 필터 생태계(status/stats/export/cancel/retry/metrics/patterns/errors)가 전부 키로 쓰는
+      `job.tool`을 **발견**하는 수단이 없었다. 어떤 어댑터가 실제 큐에 있는지·그 어댑터가 spawn하는
+      바이너리가 뭔지·어디에 대기 작업이 몰렸는지 한눈에 보여준다.
+      (완료 — `@agentrelay/core/tools.ts` 신설(순수·파일시스템/시계 미접촉): `summarizeTools(jobs)` +
+      `ToolsSummary`(total·toolCount[잡 있는 distinct 툴 수]·registeredCount·tools[]) +
+      `ToolBreakdown`(tool·displayName·binaries·registered·total·active·terminal·waiting·nextResetAt·
+      lastActivityAt). `job.tool`로 버킷팅하되 **등록된 어댑터는 잡 0개여도 항상 행으로 표시**(레지스트리
+      리스팅 겸용 — AgentRelay가 무엇을 구동할 수 있나 발견), `ADAPTERS`에서 displayName·binaries 주입.
+      레지스트리에 없는 툴 문자열(구/타 스토어 import 잔재)도 행을 만들되 `registered:false`로 플래그.
+      랭킹은 active desc→total desc→등록 어댑터 우선→툴 id asc(대기 작업 몰린 툴이 위로). `nextResetAt`은
+      `summarizeJobs`/`summarizeProjects`와 동일한 ISO 사전식 min, `lastActivityAt`은 max updatedAt. CLI
+      `packages/cli/src/tools.ts`에 순수 `renderTools`(표 + 툴별 dimmed 어댑터 신원 줄[binaries/unregistered]·
+      대기 시 `formatCountdown` 카운트다운·idle·no-jobs·scope note·no-match 문구)·`renderToolsJson`(projects/
+      stats와 동일 envelope). `agentrelay tools [--json]` + 공용 `buildScope`(--status/--tool/--project/
+      --since/--until) 재사용, completion 자동 포함. 새 파서/시계 로직 0줄. core tools 8 + cli tools 8 신규
+      테스트, 실제 빌드 CLI e2e로 어댑터 리스팅·binaries·카운트다운·idle/no-jobs·--tool 스코프·--json·잘못된
+      tool exit 1·help 검증. branch `claude/wizardly-pascal-xmr3tx`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
