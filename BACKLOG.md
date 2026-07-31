@@ -620,6 +620,25 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay overdue` — 리셋 시각이 지났는데도 재개되지 않은 잡을 진단(막힌 재개 루프의 증상 노출).
+      (완료 — `upcoming`(세션 49)이 앞으로의 활주로를 보여준다면, `overdue`는 그 반대 — 릴레이가 이미
+      재개했어야 하는데 못 한 잡을 드러낸다. 데몬이 하트비트는 신선해서 `health`/`doctor`는 정상으로 보이는데,
+      정작 특정 잡의 어댑터 바이너리가 PATH에 없거나 스토어가 쓰기 불가라 그 잡만 재개 실패하는 **무음 실패**를
+      잡아낸다(하트비트 생존 ≠ 잡이 실제로 진행됨). `@agentrelay/core/overdue.ts` 신설(순수·파일시스템/시계
+      미접촉): `findOverdueJobs(jobs, now, {graceMs?, limit?})`가 `waiting_for_reset` + 파싱 가능한 `resetAt`이
+      `now-graceMs`보다 과거인 잡만 골라 **worst-first**(가장 오래 지연된 것 먼저, tie-break createdAt→id)로
+      정렬. `graceMs`(기본 `DEFAULT_OVERDUE_GRACE_MS`=90s≈3 poll 간격)로 "방금 due된 잡"(곧 tick이 집어감)을
+      노이즈에서 제외 — 음수 grace는 기본값으로 클램프해 전부-플래그 footgun 방지, 0은 허용. 각 행 `overdueByMs`/
+      `position` + `totalOverdue`/`hidden`/`maxOverdueByMs`/`graceMs`(limit로 잘라도 totals·worst는 정직). CLI
+      `packages/cli/src/overdue.ts`에 순수 `renderOverdue`(worst-first 표 + 공용 `formatDurationMs` 재사용으로
+      "2h 4m"/"3d 1h" 일관, 지연 span은 빨강, scope note + "N more not shown" + grace 푸터)·`renderOverdueJson`
+      (upcoming과 동일 envelope). `agentrelay overdue [--grace <기간>] [--limit/-n] [--tool] [--project] [--since]
+      [--until] [--json] [--exit-code]` — 공용 `buildScope` 재사용, completion 자동 포함. `--exit-code`는 지연
+      잡이 있으면 **exit 3**(입력 오류 1과 구분)로 cron/systemd/nagios 프로브에 사용, 없으면 0. 새 파서/시계/저장소
+      로직 0줄. core overdue 15 + cli overdue 9 신규 테스트, 실제 빌드 CLI e2e(mock 아님)로 worst-first 정렬·
+      grace 필터(30s fresh·미래 잡 제외)·--grace 2h·--project 스코프·--json·--exit-code 3/0·--limit 0·--grace
+      nonsense 에러(exit 1) 검증. branch `claude/wizardly-pascal-lhhtpu`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

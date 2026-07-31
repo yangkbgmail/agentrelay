@@ -1583,3 +1583,25 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 지연 재개 진단 신규 구현] (2026-07-31, 무인 자율 세션, branch `claude/wizardly-pascal-lhhtpu`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료 상태(§3 남은 것은 🧭 문서/공동 QA뿐). CLAUDE.md
+  지침대로 스스로 신규 개선 항목을 발굴 — 세션 49가 후속으로 지목한 `overdue`(지연 재개 진단)를 구현.
+- **한 일:** `agentrelay overdue` — `upcoming`(세션 49)의 반대편. `upcoming`은 앞으로의 활주로를 보여주고,
+  `overdue`는 릴레이가 **이미 재개했어야 하는데 못 한** 잡을 드러낸다. 데몬 하트비트는 신선해 `health`/`doctor`가
+  정상으로 보이는데 특정 잡의 어댑터 바이너리 부재·스토어 쓰기 불가로 그 잡만 재개 실패하는 무음 실패를 잡는다
+  (하트비트 생존 ≠ 잡이 실제 진행됨). core `overdue.ts` 신설(순수): `findOverdueJobs(jobs, now, {graceMs?, limit?})`가
+  `waiting_for_reset` + `resetAt < now-graceMs` 잡만 골라 worst-first(가장 오래 지연 먼저, tie-break createdAt→id)로
+  정렬 + `overdueByMs`/`position`/`totalOverdue`/`hidden`/`maxOverdueByMs`/`graceMs`. `graceMs` 기본 90s(≈3 poll
+  간격)로 "방금 due된 잡"을 노이즈에서 제외, 음수는 기본값 클램프, 0 허용. CLI `overdue.ts`에 순수 `renderOverdue`
+  (worst-first 표·공용 `formatDurationMs` 재사용·지연 span 빨강·scope note·"N more not shown"·grace 푸터)·
+  `renderOverdueJson`. `agentrelay overdue [--grace][--limit/-n][--tool][--project][--since][--until][--json][--exit-code]` —
+  공용 `buildScope` 재사용, completion 자동 포함. `--exit-code`는 지연 잡 있으면 exit 3(입력 오류 1과 구분)로
+  cron/systemd 프로브에 사용. 새 파서/시계/저장소 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 548 + cli 271/1skip + dashboard 7; core overdue 15 + cli overdue 9 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 4-잡 임시 스토어로 `overdue`(worst-first·30s fresh/미래 잡 제외),
+  `--exit-code`(지연 있음→exit 3, 빈 스토어→exit 0), `--grace 2h`(3h짜리만), `--project api-svc --json`(스코프),
+  `--limit 0`/`--grace nonsense`(exit 1), completion·--help 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch` 라이브 갱신·
+  `upcoming --watch`·대시보드에 overdue 배지 노출 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
