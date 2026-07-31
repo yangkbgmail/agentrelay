@@ -1583,3 +1583,22 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay config get <key>` 단일 설정값 조회] (2026-07-31, 무인 자율 세션, branch `claude/config-get`)
+- **한 일:** BACKLOG의 👷 항목이 소진돼(§3 남은 것은 🧭 문서/공동 QA뿐, 열린 PR 무리는 overdue·tools·
+  waves·slowest·report·forecast 등이 이미 점유) 겹치지 않는 신규 항목을 발굴. `config set`/`unset`은
+  있지만 대칭인 **단일 값 읽기**가 없어 값 하나를 얻으려면 `config show` 전체 표를 파싱해야 했다.
+  core `config.ts`에 순수 `configEnvKey(key)`(dotted 키→`AGENTRELAY_*` env 키 — 기존 `setConfigValue`+
+  `configToEnv`로 파생, 별도 매핑 sync 불필요) + `ResolvedConfigValue`/`resolveConfigValue(key,fileConfig,
+  env)`(`resolveEffectiveConfig`와 동일 env>파일>기본값 우선순위로 단일 키 해소, 미지 키 throw) 추가.
+  CLI `commands.ts` `getConfigValue`(malformed 파일 non-fatal, loadError 보고), `config.ts` 순수
+  `renderConfigValue`(plain=값만→`$(...)` 캡처 가능, 기본값=빈 문자열, 시크릿 마스킹)·`renderConfigValueJson`.
+  `agentrelay config get <key> [--json] [--show-secrets]` 배선 — 미지 키 exit 1, `show`처럼 정확한 출처
+  판정 위해 `BOOTSTRAP_SKIP_SUBCOMMANDS`에 `get` 추가. 새 파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 545 + cli 269/1skip + dashboard 7; core config +12·cli commands +6 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 파일값 조회·env 우선(env=3이 파일 9를 이김)·불리언 1/0 투영·미설정 기본값
+  빈줄(exit 0)·시크릿 마스킹/`--show-secrets` 노출·`--json` 전체 shape·미지 키 exit 1·`V=$(... config get store)`
+  명령치환 캡처 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `config get --all-sources`(한 키의
+  각 레이어 값 나열) 검토, 열린 PR 무리 수렴 정리. README/ARCHITECTURE(🧭 코워크).

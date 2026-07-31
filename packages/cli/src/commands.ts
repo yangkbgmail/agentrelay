@@ -66,11 +66,13 @@ import {
   planImport,
   RelayQueue,
   RelayScheduler,
+  type ResolvedConfigValue,
   type RestorePreview,
   type RestoreResult,
   resolveAdapter,
   resolveBackup,
   resolveConfigPath,
+  resolveConfigValue,
   resolveConfigWritePath,
   resolveEffectiveConfig,
   resolveJobId,
@@ -1139,6 +1141,46 @@ export function showConfig(options: ConfigShowOptions = {}): ConfigShowResult {
   }
   const entries = resolveEffectiveConfig(fileConfig, env);
   return { path, entries, loadError };
+}
+
+export interface ConfigGetOptions extends ConfigShowOptions {
+  /** Dotted config key to resolve (e.g. `retry.maxAttempts`). */
+  key: string;
+}
+
+export interface ConfigGetResult {
+  /** The config file that fed the resolution, or null when none was found. */
+  path: string | null;
+  /** The single resolved setting (effective value + source). */
+  resolved: ResolvedConfigValue;
+  /** Set when a config file was found but couldn't be loaded/parsed (non-fatal). */
+  loadError?: string;
+}
+
+/**
+ * Resolves a *single* config setting to its effective value and source — the
+ * scriptable, one-key projection of {@link showConfig} behind `agentrelay config
+ * get <key>`. Like `show`, a malformed config file is non-fatal: the env/default
+ * resolution is still returned with the load error alongside. Throws only on an
+ * unknown key, which the caller validates first.
+ */
+export function getConfigValue(options: ConfigGetOptions): ConfigGetResult {
+  const env = options.env ?? process.env;
+  let fileConfig: AgentRelayConfig | null = null;
+  let path: string | null = null;
+  let loadError: string | undefined;
+  try {
+    const loaded = loadConfigFile({ path: options.path, cwd: options.cwd, env });
+    if (loaded) {
+      fileConfig = loaded.config;
+      path = loaded.path;
+    }
+  } catch (error) {
+    path = resolveConfigPath({ path: options.path, cwd: options.cwd, env });
+    loadError = String(error);
+  }
+  const resolved = resolveConfigValue(options.key, fileConfig, env);
+  return { path, resolved, loadError };
 }
 
 export interface DoctorOptions {

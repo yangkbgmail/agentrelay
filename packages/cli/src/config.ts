@@ -2,7 +2,7 @@
 // resolves the same store file.
 import type { ConfigGroup, EffectiveConfigEntry } from "@agentrelay/core";
 import { applyConfigToEnv, loadConfigFile } from "@agentrelay/core";
-import type { ConfigShowResult } from "./commands.js";
+import type { ConfigGetResult, ConfigShowResult } from "./commands.js";
 
 export { defaultStorePath } from "@agentrelay/core";
 
@@ -37,7 +37,7 @@ export function configPathFromArgv(argv: string[]): string | undefined {
 }
 
 /** `config` subcommands that must run without the startup {@link bootstrapConfig}. */
-const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "set", "unset"]);
+const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "get", "set", "unset"]);
 
 /**
  * True when argv invokes a `config` subcommand that must run *without* the
@@ -45,10 +45,10 @@ const BOOTSTRAP_SKIP_SUBCOMMANDS = new Set(["validate", "show", "set", "unset"])
  *
  * - `validate` diagnoses a possibly-malformed file; bootstrap throws on one,
  *   which would abort before validate can report the problem.
- * - `show` reports the env > file > default precedence; bootstrap would fold
- *   the config file's values into `process.env` first, making them all look
+ * - `show`/`get` report the env > file > default precedence; bootstrap would
+ *   fold the config file's values into `process.env` first, making them all look
  *   like they came from the environment. Skipping it keeps the layers distinct
- *   (`show` loads the file itself to attribute each value).
+ *   (they load the file themselves to attribute each value).
  * - `set`/`unset` edit the file directly; bootstrap would abort on a malformed
  *   existing file before the command can report its own clear error, and its
  *   env-folding is irrelevant since these commands never read env-driven options.
@@ -170,6 +170,25 @@ function renderValue(entry: EffectiveConfigEntry, showSecrets: boolean): string 
   if (entry.value === undefined) return "(default)";
   if (entry.secret && !showSecrets) return maskSecret(entry.value);
   return entry.value;
+}
+
+/**
+ * Renders a single resolved setting for `config get <key>` as plain text — just
+ * the value, so it can be captured with `$(agentrelay config get store)`. A
+ * built-in default (nothing set in env or file) prints as an empty string;
+ * secret values (webhook URLs/tokens) are masked unless `showSecrets` is set.
+ * Pure: no I/O.
+ */
+export function renderConfigValue(result: ConfigGetResult, options: { showSecrets?: boolean } = {}): string {
+  const { resolved } = result;
+  if (resolved.value === undefined) return "";
+  if (resolved.secret && !options.showSecrets) return maskSecret(resolved.value);
+  return resolved.value;
+}
+
+/** Machine-readable snapshot for `config get <key> --json` (scripts, jq, tooling). */
+export function renderConfigValueJson(result: ConfigGetResult, generatedAt: string = new Date().toISOString()): string {
+  return JSON.stringify({ generatedAt, ...result }, null, 2);
 }
 
 /** Machine-readable snapshot for `config show --json` (scripts, jq, tooling). */
