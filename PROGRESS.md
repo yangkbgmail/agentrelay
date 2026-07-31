@@ -1583,3 +1583,24 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 지연 재개 진단 뷰 신규 구현] (2026-07-31, 무인 자율 세션, branch `claude/wizardly-pascal-pwtkgr`)
+- **한 일:** 지정 브랜치의 직전 PR이 병합되어(원격 브랜치 삭제 확인) 최신 main(ce32f6e)에서 브랜치를 새로 파고,
+  BACKLOG의 👷 미완료 항목이 사실상 소진돼(§3 남은 것은 🧭 문서/공동 QA뿐) 세션 49의 후속 제안대로 신규 개선
+  항목을 발굴·구현. `agentrelay overdue` — 릴레이 데몬이 이미 처리했어야 하는데 안 한 잡(지연 재개) 진단.
+  `next`/`upcoming`은 **앞으로**를 보지만, 데몬이 멈추거나 정체됐는지 알려면 **이미 늦은 것**을 봐야 한다.
+  core `overdue.ts` 신설(순수): `buildOverdueReport(jobs, now, {graceMs?, staleMs?})`가 두 실패 모드를 포착 —
+  ① `waiting_for_reset`인데 `resetAt`이 grace(기본 1분) 넘게 지난 잡(데몬 미실행/정체), ② `resuming`에
+  stale(기본 5분) 넘게 갇힌 잡(재개 중 죽은 데몬이 남긴 좌초 잡). `overdueByMs` 내림차순(worst-first,
+  tie-break createdAt→id) 정렬 + `waitingCount`/`resumingCount`/`total`/threshold 집계. 큐/완료/취소/실패는
+  정의상 overdue 아님. CLI `overdue.ts`에 순수 `renderOverdue`(표·경과시간 `formatElapsed`·scope note·
+  카운트/threshold 푸터·데몬 힌트)·`renderOverdueJson`. `agentrelay overdue [--grace][--stale][--tool]
+  [--project][--since][--until][--exit-code][--json]` — 공용 `buildScope` 재사용, `--exit-code`는 overdue
+  존재 시 exit 1(모니터링/cron용). 새 파서/시계 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 544 + cli 269/1skip + dashboard 7; core overdue 12 + cli overdue 7 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 3-잡 임시 스토어로 `overdue`(worst-first 1h30m→20m), `--json`(envelope·
+  total 2), `--project api`(스코프 부분집합), `--exit-code`(overdue 있으면 1), `--grace 2h --stale 30m`
+  (완화 시 healthy·exit 0), `--grace bogus`(exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch` 라이브 갱신·
+  데몬이 매 tick overdue를 감지해 알림(notify)으로 self-heal 경보 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).

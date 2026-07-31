@@ -620,6 +620,23 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay overdue` — 데몬이 이미 처리했어야 하는데 안 한 잡(지연 재개) 진단 뷰.
+      (완료 — `next`/`upcoming`은 **앞으로**를 보지만("무엇이 언제 재개되나"), 릴레이 루프가 멈추거나
+      정체됐는지를 알려면 **이미 늦은 것**을 봐야 한다. 두 실패 모드를 포착: ① `waiting_for_reset`인데
+      `resetAt`이 grace(기본 1분)보다 오래전에 지난 잡 — 살아있는 데몬이라면 벌써 `resuming`으로 옮겼어야
+      함(=데몬 미실행/정체), ② `resuming`에 stale(기본 5분)보다 오래 갇힌 잡 — 재개 시작 후 끝내지 못한
+      데몬(park↔finish 사이 죽음)이 남긴 좌초 잡으로 `next`/`upcoming` 어디에도 다시 안 뜸.
+      `@agentrelay/core/overdue.ts` 신설(순수·시계/파일시스템 미접촉): `buildOverdueReport(jobs, now,
+      {graceMs?, staleMs?})`가 파싱 가능한 `resetAt`/`updatedAt`만 대상으로 두 판정 후 `overdueByMs` 내림차순
+      (worst-first, tie-break createdAt→id)으로 정렬 + `waitingCount`/`resumingCount`/`total`/threshold 집계.
+      큐/완료/취소/실패 잡은 정의상 절대 overdue 아님. CLI `packages/cli/src/overdue.ts`에 순수 `renderOverdue`
+      (표 + 경과시간 `formatElapsed`[45s/7m/4h 12m/2d 3h] + scope note + 카운트/threshold 푸터 + 데몬 힌트)·
+      `renderOverdueJson`(next/upcoming과 동일 envelope). `agentrelay overdue [--grace][--stale][--tool]
+      [--project][--since][--until][--exit-code][--json]` — 공용 `buildScope` 재사용, `--exit-code`는 overdue
+      존재 시 exit 1(모니터링/cron용). 새 파서/시계 로직 0줄. core overdue 12 + cli overdue 7 신규 테스트,
+      실제 빌드 CLI e2e로 worst-first 정렬·`--json` envelope·`--project` 스코프·`--exit-code`(1/0)·`--grace`/
+      `--stale` 완화·`--grace bogus` 에러(exit 1) 검증. branch `claude/wizardly-pascal-pwtkgr`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
