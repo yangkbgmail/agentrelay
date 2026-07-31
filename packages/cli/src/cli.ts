@@ -20,6 +20,7 @@ import {
   computeErrorBreakdown,
   computeStats,
   EXPORT_FORMATS,
+  findOverdueJobs,
   GROUP_DIMENSIONS,
   generateCompletion,
   groupStats,
@@ -75,6 +76,7 @@ import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
+import { renderOverdue, renderOverdueJson } from "./overdue.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
@@ -616,6 +618,86 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderUpcoming(timeline, { color: Boolean(process.stdout.isTTY), now, scopeNote }));
+    });
+
+  program
+    .command("overdue")
+    .description("Show jobs the relay should already have acted on — past-due resets and stuck resumes (health check)")
+    .option(
+      "--grace <duration>",
+      "Only flag waiting jobs past due by more than this (absorbs poll lag; e.g. 1m, 30s)",
+      "1m"
+    )
+    .option(
+      "--stuck <duration>",
+      "Also flag jobs frozen in 'resuming' longer than this (e.g. 5m); omit/none to skip the check",
+      "5m"
+    )
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # is the daemon keeping up? (past-due resets + stuck resumes)\n" +
+        "  agentrelay overdue\n" +
+        "  # stricter: only flag jobs more than 10m late, ignore stuck resumes\n" +
+        "  agentrelay overdue --grace 10m --stuck none\n" +
+        "  # gate a health alert in a script\n" +
+        "  test \"$(agentrelay overdue --json | jq '.report.total')\" = 0 || echo 'relay behind!'"
+    )
+    .action((opts: ScopeOpts & { grace?: string; stuck?: string; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let graceMs = 0;
+      if (opts.grace !== undefined) {
+        const ms = parseDuration(opts.grace);
+        if (ms === null || ms < 0) {
+          console.error(`Invalid --grace duration: "${opts.grace}". Use e.g. 1m, 30s, 0s.`);
+          process.exitCode = 1;
+          return;
+        }
+        graceMs = ms;
+      }
+
+      let stuckResumingMs: number | null = null;
+      if (opts.stuck !== undefined && !["none", "off", "0"].includes(opts.stuck.trim().toLowerCase())) {
+        const ms = parseDuration(opts.stuck);
+        if (ms === null || ms < 0) {
+          console.error(`Invalid --stuck duration: "${opts.stuck}". Use e.g. 5m, 90s, or "none" to skip.`);
+          process.exitCode = 1;
+          return;
+        }
+        stuckResumingMs = ms;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const scopeNote = built.active ? built.note : undefined;
+      const report = findOverdueJobs(jobs, now, { graceMs, stuckResumingMs });
+
+      if (opts.json) {
+        console.log(
+          renderOverdueJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            report,
+          })
+        );
+        return;
+      }
+      console.log(renderOverdue(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
     });
 
   program

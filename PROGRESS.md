@@ -1583,3 +1583,24 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 지연 재개 진단 신규 구현] (2026-07-31, 무인 자율 세션, branch `claude/wizardly-pascal-2tj4pg`)
+- **한 일:** BACKLOG의 👷 미완료 항목이 소진돼(§3 남은 것은 🧭 문서/공동 QA뿐) CLAUDE.md 지침대로 스스로
+  신규 개선 항목을 발굴·구현. 세션 49가 "다음 할 일"로 지목한 `overdue`(지연 재개 진단)를 착수. `next`/
+  `upcoming`은 **앞을 보는**("무엇이 언제 재개되나") 뷰인데, 데몬이 죽었거나 재개가 멈췄을 때 **뒤를 보고**
+  ("무엇이 이미 재개됐어야 하는데 안 됐나") 알아챌 수단이 없었다. core `overdue.ts` 신설(순수):
+  `findOverdueJobs(jobs, now, {graceMs, stuckResumingMs})`가 두 지연을 통합 `lateByMs`로 리포트 — ①
+  `reset-passed`(`waiting_for_reset`인데 `resetAt`이 grace 넘게 지남 = 데몬이 tick 안 하는 신호) ②
+  `stuck-resuming`(`resuming`에 얼어붙어 `updatedAt` 이후 stuck 임계값 넘게 갱신 없음 = 재개 스폰 걸림).
+  most-overdue 우선 정렬(동률 createdAt→id) + `total`/`worstLateByMs`/`byReason`. CLI `overdue.ts`에 순수
+  `renderOverdue`(표·REASON/LATE BY/SINCE·지연 빨강 강조·"on track" 정상 메시지)·`formatLateBy`(경과시간
+  `59s`/`1h 3m`/`2d 2h`)·`renderOverdueJson`. `agentrelay overdue [--grace 1m][--stuck 5m|none][--tool]
+  [--project][--since][--until][--json]` — 공용 `buildScope` 재사용, completion 자동 포함. 새 파서/시계 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 545 + cli 271/1skip + dashboard 7; core overdue 12 + cli overdue 9 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 5-잡 임시 스토어로 `overdue`(3행 most-overdue 정렬), `--stuck none`
+  (past-due 2행만), `--grace 1h`(30m 지연 숨김), `--project worker`(스코프 부분집합), `--json`(envelope
+  집계), 잘못된 `--grace`(exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch` 라이브 갱신·
+  `overdue` 결과를 알림자(notify)로 fan-out(데몬이 지연 감지 시 Slack/webhook 경보) 등 인접 항목 검토.
+  README/ARCHITECTURE(🧭 코워크).
