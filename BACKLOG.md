@@ -620,6 +620,20 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay upcoming --watch [seconds]` — 재개 타임라인을 라이브 카운트다운으로 새로고침(status의
+      --watch를 시간 축 뷰인 upcoming에도 제공). 세션 49의 upcoming 후속.
+      (완료 — `upcoming` 타임라인은 본질적으로 시간 기반이라 status보다 오히려 더 자연스러운 라이브 갱신
+      대상인데도, 매번 다시 실행하지 않고는 카운트다운이 흐르는 걸 볼 수 없었다. CLI `packages/cli/src/upcoming.ts`에
+      순수 `renderUpcomingWatchFrame(timeline, storePath, intervalMs, {now?, scopeNote?})` 신설 — status.ts의
+      `renderWatchFrame`을 미러링해 타이틀(갱신 주기+Ctrl-C)·메타(타임스탬프+스토어 경로) 블록을 기존
+      `renderUpcoming` 표 위에 얹음(항상 색상, `now` 주입 가능해 테스트 가능). cli.ts에 `runUpcomingWatch`
+      (status의 `runWatch`와 동일한 화면 클리어+재드로 패턴, 매 프레임 스코프 재적용·타임라인 재빌드해
+      카운트다운이 흐르고 크로스-프로세스 쓰기[데몬 큐잉]도 반영, 창/스코프 경계는 시작 시 고정 절대 epoch-ms).
+      `upcoming`에 `-w, --watch [seconds]` 배선(기본 2s, `--watch 5`=5초) — `--json`이 우선하면 watch 스킵.
+      새 core 로직 0줄 — 기존 `buildUpcomingTimeline`/`buildScope`/`scopeJobs` 재사용. cli upcoming.test에
+      watch-frame 4케이스(타이틀·메타·간격 반올림·빈 메시지·scope note) 추가, 실제 빌드 CLI e2e로 help 노출·
+      한 프레임 렌더(타이틀/메타/카운트다운) 확인. branch `claude/wizardly-pascal-5wxbqs`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
