@@ -1583,3 +1583,20 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay drain` 큐-전체 드레인 게이트 신규 구현] (2026-07-31, 무인 자율 세션, branch `claude/wizardly-pascal-4c6czq`)
+- **한 일:** BACKLOG의 👷 항목이 계속 소진 상태(남은 미완료는 🧭 문서/공동 QA뿐)라 CLAUDE.md 지침대로 인접
+  개선 항목을 발굴·구현. `agentrelay drain` — `wait <id>`가 잡 하나를 종료까지 따라가는 것의 **큐 전체** 버전.
+  스크립트가 "릴레이가 재개할 걸 전부 끝냈나"를 게이팅할 수단이 없었다(`agentrelay daemon & agentrelay drain
+  --timeout 12h && ./publish.sh`). core `drain.ts` 신설(순수): `evaluateDrain`(active/terminal/failed/total 집계 +
+  done=active0 stop 신호)·`drainOutcome`(empty/drained/drained_with_failures/timeout, 마감 정각에 비면 timeout 아닌
+  drained)·`DRAIN_EXIT_CODES`(0/0/1/124, wait와 정렬)·`drainExitCode`·`isActiveStatus`. CLI `commands.ts`
+  `drainQueue`(스토어 매 폴링 재오픈으로 별도 daemon/tick 쓰기 관측, clock/sleeper/reader 주입 가능) + `cli.ts`
+  `agentrelay drain [--timeout][--interval][--json][--quiet]` + `drain.ts` `renderDrainJson`(wait/next와 동일 envelope).
+  index.ts 재노출. 새 파서/시계 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 544 + cli 268/1skip + dashboard 7; core drain 20 + cli drainQueue 5 + renderDrainJson 1
+  신규 포함). 빌드된 실제 CLI e2e(mock 아님): 빈 스토어→`empty`(exit 0), 완료+실패 혼합 스토어→
+  `drained_with_failures`(exit 1, "1 failed job of 2 settled"), 활성 잡 존재 시 `--timeout 300ms`→timeout(exit 124) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `drain --project/--tool` 스코프 드레인·
+  `drain`의 라이브 진행 표시(onPoll 활용) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).

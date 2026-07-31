@@ -620,6 +620,22 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay drain` — 큐 전체가 settle(활성 잡 0)될 때까지 블록 후 결과를 exit code로 반환.
+      `wait <id>`의 큐 전체 버전(스크립트/CI 게이팅용).
+      (완료 — `wait <id>`는 잡 하나만 따라가 종료 상태를 exit code로 돌려주지만, "릴레이가 큐에 남은
+      걸 전부 다 재개해 끝냈나"를 게이팅할 큐 전체 수단이 없었다. `@agentrelay/core/drain.ts` 신설(순수·
+      파일시스템/시계 미접촉): `evaluateDrain(jobs)`가 활성(queued/waiting/resuming)·terminal·failed·total
+      집계 + `done`(active===0=stop 신호), `drainOutcome(state,{timedOut})`가 `empty`/`drained`/
+      `drained_with_failures`/`timeout`으로 매핑(마감 정각에 딱 비면 timeout 아닌 drained), `DRAIN_EXIT_CODES`
+      (drained 0·failures 1·timeout 124=coreutils `timeout(1)` 관례, wait와 정렬)·`drainExitCode`·`isActiveStatus`.
+      CLI `commands.ts` `drainQueue`(스토어를 매 폴링 재오픈해 **별도** daemon/tick 프로세스의 쓰기를 관측,
+      clock/sleeper/reader 주입 가능·첫 체크 즉시·마감은 sleep 전 체크로 1인터벌 초과 방지) + `cli.ts`
+      `agentrelay drain [--timeout][--interval][--json][--quiet]`(블로킹 안내는 stderr로 --json stdout 청정).
+      `packages/cli/src/drain.ts` `renderDrainJson`(wait/next와 동일 envelope). index.ts 재노출. 새 파서/시계
+      로직 0줄. core drain 20 + cli drainQueue 5 + renderDrainJson 1 신규 테스트, 실제 빌드 CLI e2e로 빈 큐→
+      empty(exit 0)·완료+실패 혼합→drained_with_failures(exit 1)·활성 잡 타임아웃(exit 124) 검증.
+      branch `claude/wizardly-pascal-4c6czq`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

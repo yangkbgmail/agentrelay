@@ -9,6 +9,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  drainQueue,
   importStore,
   initConfig,
   listStatus,
@@ -998,5 +999,101 @@ describe("waitForJob", () => {
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
     expect(result.message).toMatch(/no job matches/);
+  });
+});
+
+describe("drainQueue", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-drain-cli-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("returns 'empty' (exit 0) for a store with no jobs, without sleeping", async () => {
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await drainQueue({ storePath, sleep });
+    expect(result.outcome).toBe("empty");
+    expect(result.exitCode).toBe(0);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("returns immediately when only terminal jobs remain", async () => {
+    const queue = new RelayQueue(storePath);
+    const a = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    const b = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markCompleted(a.id, "ok");
+    queue.markCompleted(b.id, "ok");
+    queue.close();
+
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await drainQueue({ storePath, sleep });
+    expect(result.outcome).toBe("drained");
+    expect(result.exitCode).toBe(0);
+    expect(result.state).toMatchObject({ active: 0, terminal: 2, failed: 0 });
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("reports failures with exit 1 when any settled job failed", async () => {
+    const queue = new RelayQueue(storePath);
+    const a = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    const b = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markCompleted(a.id, "ok");
+    queue.markFailed(b.id, "boom");
+    queue.close();
+
+    const result = await drainQueue({ storePath, sleep: vi.fn() });
+    expect(result.outcome).toBe("drained_with_failures");
+    expect(result.exitCode).toBe(1);
+    expect(result.state.failed).toBe(1);
+    expect(result.message).toMatch(/1 failed job/);
+  });
+
+  it("polls until the last active job settles", async () => {
+    const active: RelayJob = {
+      id: "aaaaaaaa",
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude"],
+      cwd: dir,
+      status: "waiting_for_reset",
+      resetAt: null,
+      createdAt: "2026-07-20T00:00:00.000Z",
+      updatedAt: "2026-07-20T00:00:00.000Z",
+      attempts: 1,
+      lastError: null,
+      lastOutputTail: null,
+    };
+    const done: RelayJob = { ...active, status: "completed" };
+    // pending twice, then drained.
+    const snapshots: RelayJob[][] = [[active], [active], [done]];
+    let i = 0;
+    const readJobs = () => snapshots[Math.min(i++, snapshots.length - 1)];
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    const result = await drainQueue({ storePath, readJobs, sleep, now: () => 0 });
+    expect(result.outcome).toBe("drained");
+    expect(sleep).toHaveBeenCalledTimes(2);
+  });
+
+  it("times out while a job is still active (exit 124)", async () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.close();
+
+    let clock = 0;
+    const now = () => clock;
+    const sleep = vi.fn().mockImplementation(async (ms: number) => {
+      clock += ms;
+    });
+    const result = await drainQueue({ storePath, intervalMs: 1000, timeoutMs: 2500, now, sleep });
+    expect(result.outcome).toBe("timeout");
+    expect(result.exitCode).toBe(124);
+    expect(result.message).toMatch(/still active/);
   });
 });

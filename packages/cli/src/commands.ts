@@ -37,10 +37,15 @@ import {
   canRequeue,
   configToJson,
   countActiveJobs,
+  type DrainOutcome,
+  type DrainState,
   daemonHeartbeatPath,
   distinctActiveBinaries,
+  drainExitCode,
+  drainOutcome,
   type EffectiveConfigEntry,
   type ExportFormat,
+  evaluateDrain,
   evaluateHealth,
   evaluateHeartbeat,
   evaluateWait,
@@ -1442,6 +1447,94 @@ export async function waitForJob(idOrPrefix: string, options: WaitJobOptions = {
       };
     }
     if (job) options.onPoll?.(job, elapsed);
+    await sleep(intervalMs);
+  }
+}
+
+export interface DrainQueueOptions {
+  storePath?: string;
+  /** How often to re-read the store while polling, in ms. Default 2000. */
+  intervalMs?: number;
+  /** Give up after this many ms. `null`/omitted = wait forever. */
+  timeoutMs?: number | null;
+  /** Injected clock (ms since epoch). Defaults to `Date.now`. */
+  now?: () => number;
+  /** Injected sleeper. Defaults to a `setTimeout`-based delay. */
+  sleep?: (ms: number) => Promise<void>;
+  /**
+   * Injected store reader (returns every job). Defaults to opening the store
+   * fresh on each poll so a *separate* daemon/tick process's writes are
+   * observed. Overridable for tests.
+   */
+  readJobs?: () => RelayJob[];
+  /** Called once per poll while the queue is still draining (for progress). */
+  onPoll?: (state: DrainState, elapsedMs: number) => void;
+}
+
+export interface DrainQueueResult {
+  outcome: DrainOutcome;
+  /** The last queue snapshot seen. */
+  state: DrainState;
+  /** Human-readable line for the CLI to print. */
+  message: string;
+  exitCode: number;
+}
+
+function drainMessage(outcome: DrainOutcome, state: DrainState): string {
+  switch (outcome) {
+    case "empty":
+      return "queue is empty; nothing to drain";
+    case "drained":
+      return `queue drained: ${state.terminal} job${state.terminal === 1 ? "" : "s"} settled, no failures`;
+    case "drained_with_failures":
+      return `queue drained with ${state.failed} failed job${state.failed === 1 ? "" : "s"} (of ${state.terminal} settled)`;
+    case "timeout":
+      return `timed out draining; ${state.active} job${state.active === 1 ? "" : "s"} still active`;
+  }
+}
+
+/**
+ * Block until the whole queue settles (no active jobs remain), polling the
+ * store as a separate daemon/tick process advances jobs. Returns the outcome
+ * plus an exit code so a script chaining on `agentrelay drain` can branch on
+ * whether the relay finished everything cleanly. Pure decision logic lives in
+ * core's {@link evaluateDrain}/{@link drainOutcome}; this owns only the I/O
+ * loop, with the clock/sleeper/reader injectable for tests.
+ */
+export async function drainQueue(options: DrainQueueOptions = {}): Promise<DrainQueueResult> {
+  const storePath = options.storePath ?? defaultStorePath();
+  const intervalMs = options.intervalMs ?? 2000;
+  const timeoutMs = options.timeoutMs ?? null;
+  const now = options.now ?? (() => Date.now());
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  const readJobs =
+    options.readJobs ??
+    ((): RelayJob[] => {
+      const q = openQueue(storePath);
+      try {
+        return q.listAll();
+      } finally {
+        q.close();
+      }
+    });
+
+  const start = now();
+  // First check is immediate so an already-settled queue returns without a
+  // sleep. The deadline is checked before each sleep so `--timeout` can't be
+  // overshot by more than one interval.
+  while (true) {
+    const state = evaluateDrain(readJobs());
+    if (state.done) {
+      const outcome = drainOutcome(state);
+      return { outcome, state, message: drainMessage(outcome, state), exitCode: drainExitCode(outcome) };
+    }
+    const elapsed = now() - start;
+    if (timeoutMs !== null && elapsed >= timeoutMs) {
+      const outcome = drainOutcome(state, { timedOut: true });
+      return { outcome, state, message: drainMessage(outcome, state), exitCode: drainExitCode(outcome) };
+    }
+    options.onPoll?.(state, elapsed);
     await sleep(intervalMs);
   }
 }
