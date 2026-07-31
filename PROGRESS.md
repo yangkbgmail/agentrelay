@@ -1583,3 +1583,26 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 지연-재개 진단 커맨드 신규 구현] (2026-07-31, 무인 자율 세션, branch `claude/wizardly-pascal-y98fs9`)
+- **한 일:** BACKLOG의 👷 미완료 항목이 전부 소진(§3 남은 것은 🧭 문서/공동 QA뿐)돼 CLAUDE.md 지침대로
+  스스로 신규 개선 항목을 발굴·구현(세션 49가 제안한 후속 `overdue`). `agentrelay overdue` — 재개됐어야
+  하는데 아직 큐에 남은 잡(리셋 시각이 유예 창보다 더 지난 past-due)을 뒤돌아보는 진단 뷰. `next`(단 하나)·
+  `upcoming`(앞으로 재개될 활주로)와 달리 **이미 지났는데 재개 안 된** 잡을 잡아, 죽은 데몬/누락 cron의
+  직접적·스토어만으로의 증거를 준다(`doctor`/`health`의 하트비트 파일 없이도). core `overdue.ts` 신설(순수):
+  `buildOverdueReport(jobs, now, {graceMs?, limit?})`가 `waiting_for_reset`+파싱가능 `resetAt`+`resetAt<=
+  now-graceMs` 잡을 가장 오래 지연 순(resetAt asc→createdAt→id, next/upcoming와 동일 tie-break)으로 정렬,
+  각 행 `overdueByMs`/`position` + `totalOverdue`/`hidden`/`longestOverdueMs`/`graceMs`(limit로 잘라도
+  totals 정직). grace 기본 60s(`DEFAULT_OVERDUE_GRACE_MS`, poll 30s 건강 루프가 이미 처리했을 창), 음수·
+  비유한 폴백, `0`은 due 전부. CLI `overdue.ts`에 `renderOverdue`(표·`formatDurationMs` 재사용·grace/scope
+  note·overdue 값 빨강)·`renderOverdueJson`, `agentrelay overdue [--limit][--grace][--tool][--project]
+  [--since][--until][--json][--exit-code]` — 공용 `buildScope` 재사용, `--exit-code`는 overdue 있으면 exit 1
+  (모니터/CI 게이트). index.ts 재노출, completion 자동 포함. 새 파서/스케줄러 코드 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core overdue 13 + cli overdue 9 신규 포함). 빌드된 실제 CLI e2e(mock 아님): 5-잡 임시
+  스토어(overdue 2·fresh-due 20s·future·completed)로 `overdue`(기본 grace 60s가 fresh-due 제외·2건 표시·
+  가장 오래 지연 순), `--grace 0s`(fresh-due 추가), `--limit 1`(부분표시+"1 more not shown"·totals 정직),
+  `--json`(total/longestMs/ids), `--exit-code`(overdue 있으면 exit 1·grace 10h면 exit 0), `--limit 0`(exit 1),
+  `--grace nope`(exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목: `overdue --watch` 라이브
+  갱신·`overdue`를 `doctor`/대시보드 카드에 통합(지연 잡 수 노출) 등 검토. README/ARCHITECTURE(🧭 코워크).
