@@ -620,6 +620,24 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay overdue` — 리셋 시각이 이미 지났는데도 재개되지 않고 대기 중인 잡을 진단(멈춘 릴레이).
+      (완료 — `next`/`upcoming`은 **앞을 보는**("무엇이 언제 재개되나") 뷰인데, 정작 릴레이가 막으려는 실패
+      그 자체 — "리셋 시각이 지났는데 아무것도 재개 안 됨"(재개 루프가 죽음·wedge·다른 스토어를 봄) — 를
+      **뒤에서 보는** 뷰가 없었다. `@agentrelay/core/overdue.ts` 신설(순수·파일시스템/시계 미접촉):
+      `buildOverdueReport(jobs, now, {graceMs?, limit?})`가 `waiting_for_reset` + 파싱 가능한 `resetAt`이
+      `now` 이하인 잡만 골라 **가장 오래 지연된 순**(resetAt asc; tie-break은 next/upcoming과 동일하게
+      createdAt→id)으로 정렬, 각 행에 `overdueByMs`/`concerning`/`position`(1-based) 부여 +
+      `totalWaiting`/`overdueCount`/`concerningCount`/`hidden`/`worstOverdueMs` 집계(limit로 잘라도 totals는
+      전체 반영). **grace 창**(기본 `DEFAULT_OVERDUE_GRACE_MS`=60s, 음수/비유한은 0으로 클램프)으로 방금 막
+      due된 잡(정상, 데몬이 아직 tick 안 함)과 grace 넘긴 잡(진짜 문제)을 구분 — `concerning`만 경보 가치.
+      CLI `packages/cli/src/overdue.ts`에 순수 `renderOverdue`(표·grace 초과 행 `!`+노란색 강조·resume-loop
+      힌트·`formatDurationMs` 재사용·scope note·"N more not shown" 푸터)·`renderOverdueJson`(next/upcoming과
+      동일 envelope). `agentrelay overdue [--limit/-n] [--grace <기간>] [--exit-code] [--tool] [--project]
+      [--since] [--until] [--json]` — 공용 `buildScope`+`parseDuration` 재사용, `--exit-code`는 concerning>0일
+      때 exit 1(모니터링/cron 게이트), completion 자동 포함. 새 파서/스케줄러 로직 0줄. core overdue 13 +
+      cli overdue 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·grace 강조·--exit-code→1·--limit 부분표시·--project
+      스코프·--json·잘못된 grace 에러(exit 1)·빈 스토어 검증. branch `claude/wizardly-pascal-b857fx`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
