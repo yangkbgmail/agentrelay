@@ -620,6 +620,24 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay overdue` — 리셋 시각이 이미 지났는데 아직 재개 안 된 잡의 backlog를 지연 순으로 조회
+      (릴레이가 막으려는 바로 그 조용한 실패의 한눈 진단).
+      (완료 — `upcoming`이 앞으로의 활주로(무엇이 언제 재개되나)를 보여준다면, `overdue`는 **이미 지났어야
+      할** 재개들 — 정상 재개 루프라면 벌써 처리했을 잡 — 만 격리한다. 비어 있으면 정상, 비어 있지 않으면
+      대개 데몬/tick이 안 돌고 있다는 신호(`health`/`doctor`로 연결). `@agentrelay/core/overdue.ts` 신설
+      (순수·파일시스템/시계 미접촉): `buildOverdueReport(jobs, now, {graceMs?, limit?})`가 `waiting_for_reset`
+      + 파싱 가능한 `resetAt`이 `now`보다 `graceMs` 넘게 과거인 잡만 골라 **가장 오래 지연된 것(가장 이른
+      resetAt)부터** 랭킹 — `upcoming`과 정확히 같은 resetAt 정렬선을 `now`에서 반대 방향으로 자른 것. tie-break
+      resetAt→createdAt→id로 결정론. 각 행에 `overdueMs`(지연 시간)·`position`(1-based) + `totalOverdue`/
+      `hidden`/`graceMs`/`worstOverdueMs` 집계(limit로 잘라도 totals·worst는 정직). `graceMs`(기본 0)는
+      막 지난 잡(tick 아직 안 뜸)을 걸러 진짜 stuck만 표시. CLI `packages/cli/src/overdue.ts`에 순수
+      `renderOverdue`(표 + 공용 `formatDurationMs` 재사용 "3h 12m"/"2d 4h" + scope/grace note + worst-late 푸터
+      + "health 확인" 힌트)·`renderOverdueJson`(upcoming/projects와 동일 envelope). `agentrelay overdue
+      [--limit/-n] [--grace] [--tool] [--project] [--since] [--until] [--json]` — 공용 `buildScope` 재사용,
+      completion 자동 포함. 새 파서/스케줄러 로직 0줄. core overdue 13 + cli overdue 9 신규 테스트, 실제 빌드
+      CLI e2e로 지연 랭킹·--grace 필터·--project 스코프·--limit 부분표시·--json·정상(빈) 케이스 exit 0·
+      --limit 0/--grace bogus 에러(exit 1) 검증. branch `claude/wizardly-pascal-sr2juf`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
