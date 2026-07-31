@@ -620,6 +620,22 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay tools` — 큐에 존재하는 에이전트 툴(어댑터)을 툴별 잡 집계·성공률·다음 리셋과 함께 조회.
+      (완료 — `projects`(프로젝트 라벨별 인덱스)의 대칭. `--tool` 필터는 status/stats/export/cancel/retry/
+      metrics/patterns/errors가 전부 키로 쓰지만, 정작 **어떤 툴이 스토어에 있는지·어디에 대기가 몰렸는지·
+      각 툴이 얼마나 안정적으로 재개되는지 발견하는 수단**이 없었다. `@agentrelay/core/tools.ts` 신설
+      (순수·파일시스템/시계 미접촉): `summarizeTools(jobs)`가 `job.tool`별 total/active(queued+
+      waiting_for_reset+resuming)/terminal/waiting/completed/failed 집계 + `successRate`
+      (completed/(completed+failed), cancelled 제외 — `computeStats`와 동일 정책, 미해결 시 null) +
+      `nextResetAt`(대기 잡의 사전식 min resetAt) + `lastActivityAt`(max updatedAt), 랭킹은 active desc→
+      total desc→이름 asc(**대기 작업이 몰린 툴이 맨 위**, projects 관례 일치). projects처럼 discovery
+      커맨드라 존재하는 툴만 행 생성(zero-fill 안 함). CLI `packages/cli/src/tools.ts`에 순수 `renderTools`
+      (표 + OK%[`formatSuccessRate` 재사용] + 대기 시 `formatCountdown` 카운트다운·전부 종료면 `(idle)`·
+      scope note·no-match 문구)·`renderToolsJson`(projects와 동일 envelope). `agentrelay tools [--json]` +
+      공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용, completion 자동 포함. 새 파서/
+      시계 로직 0줄. core tools 9 + cli tools 10 신규 테스트, 실제 빌드 CLI e2e로 랭킹·성공률(50%/n/a/100%)·
+      카운트다운·idle·스코프 부분집합·--json·잘못된 툴 exit 1 검증. branch `claude/wizardly-pascal-xgnsp2`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
