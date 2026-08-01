@@ -1583,3 +1583,26 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 재개-지연 진단 커맨드 신규 구현] (2026-08-01, 무인 자율 세션, branch `claude/wizardly-pascal-atyubu`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 사실상 전부 완료(§3 남은 것은 🧭 문서/공동 QA뿐)이고,
+  세션 49가 "다음 할 일"로 `overdue`(지연 재개 진단)를 인접 후속으로 지목해 뒀다. CLAUDE.md 지침대로
+  스스로 신규 개선 항목을 발굴·구현.
+- **한 일:** `agentrelay overdue` — **뒤를 보는** 진단 뷰. `upcoming`/`next`는 앞으로 무엇이 재개되나를
+  보여주지만, 정작 릴레이의 가장 흔한 무음 실패("잡이 due인데 아무것도 재개 안 함" — 데몬/tick 부재·멈춤)를
+  한눈에 잡을 수단이 없었다. core `overdue.ts` 신설(순수): `findOverdueJobs(jobs, now, {graceMs?, limit?})`가
+  `waiting_for_reset` + 파싱 가능 `resetAt` 중 `now - resetAt > graceMs`인 잡만 가장 오래 밀린 순
+  (resetAt asc→createdAt→id)으로 정렬, 각 행 `overdueByMs`/`position` + `totalOverdue`/`hidden`/
+  `worstOverdueMs`/`graceMs`. 기본 grace 60s(데몬 30s 폴 2사이클 — 정상 지연 오탐 방지), 음수→0 클램프,
+  경계 배타적. CLI `overdue.ts`에 순수 `renderOverdue`(worst-first 표·`formatDurationMs` 재사용·푸터·
+  비어있지 않으면 daemon 힌트·정상이면 `NO_OVERDUE_MESSAGE`)·`renderOverdueJson`. `agentrelay overdue
+  [-g/--grace][-n/--limit][--tool][--project][--since][--until][--exit-code][--json]` — 공용 `buildScope`
+  재사용, `--exit-code`는 하나라도 밀렸으면 exit 5(cron/헬스체크 게이트). index.ts 재노출. 새 파서/시계 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 547 + cli 271/1skip + dashboard 7; core overdue 14 + cli overdue 9 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 3-잡 임시 스토어로 `overdue`(worst-first 2h→15m 정렬·daemon 힌트),
+  `--grace 30m`(30분 이내 제외), `--tool codex-cli`(스코프 부분집합), `--limit 1`(부분표시 + "1 more not
+  shown"), 정상 스토어(`NO_OVERDUE_MESSAGE`·exit 0), `--exit-code`(밀림→exit 5·정상→exit 0), `--json`
+  (envelope: totalOverdue/graceMs/worstOverdueMs/entries), grace/limit/tool 에러(exit 1), `--help` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch` 라이브 갱신·
+  대시보드에 overdue 카드 노출·doctor에 overdue 교차 판정 편입 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).

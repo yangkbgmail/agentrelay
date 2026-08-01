@@ -620,6 +620,23 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay overdue` — 재개 예정 시각이 지났는데 아직 안 돌아온 잡 진단(재개 루프 부재/멈춤 감지).
+      (완료 — `upcoming`은 앞을 보는 활주로("무엇이 다음에 재개되나")인데, 정작 가장 흔한 무음 실패
+      "잡이 due인데 아무것도 재개 안 함"(데몬/tick 부재·멈춤)을 한눈에 잡는 **뒤를 보는** 뷰가 없었다.
+      `@agentrelay/core/overdue.ts` 신설(순수·파일시스템/시계 미접촉): `findOverdueJobs(jobs, now, {graceMs?, limit?})`가
+      `waiting_for_reset` + 파싱 가능 `resetAt` 잡 중 `now - resetAt > graceMs`인 것만 골라 **가장 오래 밀린
+      순**(resetAt asc→createdAt→id, upcoming과 동일 tie-break)으로 정렬, 각 행 `overdueByMs`/`position` +
+      `totalOverdue`/`hidden`/`worstOverdueMs`/`graceMs` 집계. `graceMs` 기본 `DEFAULT_OVERDUE_GRACE_MS`(60s
+      =데몬 기본 30s 폴 2사이클 — 살아있는 데몬이 한두 tick 안에 재개하는 정상 지연을 오탐하지 않음),
+      음수는 0으로 클램프, 경계는 배타적(정확히 graceMs 경과=아직 아님). CLI `packages/cli/src/overdue.ts`에
+      순수 `renderOverdue`(worst-first 표 + `formatDurationMs` 재사용 + "N jobs overdue · worst … · N more not
+      shown" 푸터 + 비어있지 않으면 `agentrelay daemon` 힌트, 정상이면 `NO_OVERDUE_MESSAGE`)·`renderOverdueJson`.
+      `agentrelay overdue [-g/--grace] [-n/--limit] [--tool] [--project] [--since] [--until] [--exit-code] [--json]` —
+      공용 `buildScope` 재사용, `--exit-code`는 하나라도 밀렸으면 exit 5(cron/헬스체크 게이트). 새 파서/시계
+      로직 0줄. core overdue 14 + cli overdue 9 신규 테스트, 실제 빌드 CLI e2e로 worst-first 정렬·grace
+      필터·tool 스코프·--limit 부분표시·정상(exit 0)·--exit-code(exit 5)·--json envelope·grace/limit/tool
+      에러(exit 1) 검증. branch `claude/wizardly-pascal-atyubu`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
