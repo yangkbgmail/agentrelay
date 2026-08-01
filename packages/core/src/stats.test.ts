@@ -35,7 +35,7 @@ describe("computeStats", () => {
     expect(stats.projects).toEqual([]);
     // Every status and tool key is present and zero.
     expect(Object.values(stats.byStatus).every((n) => n === 0)).toBe(true);
-    expect(stats.byTool).toEqual({ "claude-code": 0, "codex-cli": 0, generic: 0 });
+    expect(stats.byTool).toEqual({ "claude-code": 0, "codex-cli": 0, "gemini-cli": 0, generic: 0 });
     expect(stats.timing).toEqual({
       resolvedCount: 0,
       avgResolutionMs: null,
@@ -97,12 +97,12 @@ describe("computeStats", () => {
       job({ tool: "codex-cli" }),
       job({ tool: "generic" }),
     ]);
-    expect(stats.byTool).toEqual({ "claude-code": 1, "codex-cli": 2, generic: 1 });
+    expect(stats.byTool).toEqual({ "claude-code": 1, "codex-cli": 2, "gemini-cli": 0, generic: 1 });
   });
 
   it("ignores an unknown tool rather than inventing a key", () => {
     const stats = computeStats([job({ tool: "mystery-tool" as AgentTool })]);
-    expect(stats.byTool).toEqual({ "claude-code": 0, "codex-cli": 0, generic: 0 });
+    expect(stats.byTool).toEqual({ "claude-code": 0, "codex-cli": 0, "gemini-cli": 0, generic: 0 });
     expect(stats.total).toBe(1); // still counted in the total
   });
 

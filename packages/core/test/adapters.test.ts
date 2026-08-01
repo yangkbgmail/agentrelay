@@ -3,6 +3,7 @@ import {
   ADAPTERS,
   CLAUDE_CODE_ADAPTER,
   CODEX_CLI_ADAPTER,
+  GEMINI_CLI_ADAPTER,
   GENERIC_ADAPTER,
   inferToolFromCommand,
   resolveAdapter,
@@ -17,9 +18,15 @@ describe("inferToolFromCommand", () => {
     expect(inferToolFromCommand(["codex", "exec", "fix the bug"])).toBe("codex-cli");
   });
 
+  it("recognizes the gemini binary", () => {
+    expect(inferToolFromCommand(["gemini", "-p", "keep going"])).toBe("gemini-cli");
+    expect(inferToolFromCommand(["gemini-cli"])).toBe("gemini-cli");
+  });
+
   it("strips a directory prefix and .exe suffix before matching", () => {
     expect(inferToolFromCommand(["/usr/local/bin/codex"])).toBe("codex-cli");
     expect(inferToolFromCommand(["C:\\tools\\claude.exe"])).toBe("claude-code");
+    expect(inferToolFromCommand(["/opt/homebrew/bin/gemini"])).toBe("gemini-cli");
   });
 
   it("returns undefined for an unknown binary", () => {
@@ -37,6 +44,7 @@ describe("resolveAdapter", () => {
   it("infers from the command when no tool is given", () => {
     expect(resolveAdapter({ command: ["codex"] })).toBe(CODEX_CLI_ADAPTER);
     expect(resolveAdapter({ command: ["claude"] })).toBe(CLAUDE_CODE_ADAPTER);
+    expect(resolveAdapter({ command: ["gemini"] })).toBe(GEMINI_CLI_ADAPTER);
   });
 
   it("falls back to the generic adapter when nothing matches", () => {
@@ -45,7 +53,7 @@ describe("resolveAdapter", () => {
   });
 
   it("exposes every AgentTool in the registry", () => {
-    expect(Object.keys(ADAPTERS).sort()).toEqual(["claude-code", "codex-cli", "generic"]);
+    expect(Object.keys(ADAPTERS).sort()).toEqual(["claude-code", "codex-cli", "gemini-cli", "generic"]);
   });
 });
 
@@ -84,5 +92,41 @@ describe("adapter rate-limit detection", () => {
   it("the Claude Code adapter behaves like the generic parser", () => {
     const text = "usage limit reached, resets at 2026-07-13T05:00:00Z";
     expect(CLAUDE_CODE_ADAPTER.detectRateLimit(text, { now })?.pattern).toBe("iso-timestamp");
+  });
+
+  it("Gemini adapter parses the retryDelay field from a RESOURCE_EXHAUSTED error", () => {
+    const text = '429 RESOURCE_EXHAUSTED { "error": { "code": 429, "details": [ { "retryDelay": "56s" } ] } }';
+    const result = GEMINI_CLI_ADAPTER.detectRateLimit(text, { now });
+    expect(result?.pattern).toBe("gemini-retry-delay");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 56_000).toISOString());
+  });
+
+  it("Gemini adapter accepts the unquoted retryDelay form and rounds fractional seconds up", () => {
+    // `retryDelay: 12.3s` (no quotes) -> 12300ms.
+    expect(GEMINI_CLI_ADAPTER.detectRateLimit("retryDelay: 12.3s", { now })?.resetAt).toBe(
+      new Date(now.getTime() + 12_300).toISOString()
+    );
+    // snake_case variant, fractional ms rounded up so we never resume early.
+    expect(GEMINI_CLI_ADAPTER.detectRateLimit('"retry_delay": "0.4001s"', { now })?.resetAt).toBe(
+      new Date(now.getTime() + 401).toISOString()
+    );
+  });
+
+  it("Gemini adapter parses a human-phrased seconds wait", () => {
+    const result = GEMINI_CLI_ADAPTER.detectRateLimit("Quota exceeded. Please retry in 34s.", { now });
+    expect(result?.pattern).toBe("gemini-relative-seconds");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 34_000).toISOString());
+  });
+
+  it("Gemini adapter still falls back to the generic patterns", () => {
+    const result = GEMINI_CLI_ADAPTER.detectRateLimit("Usage limit reached. Resets in 45m.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 45 * 60_000).toISOString());
+  });
+
+  it("the generic adapter does NOT understand the retryDelay field", () => {
+    // The whole point of the Gemini adapter: the generic parser has no seconds
+    // pattern and no retryDelay field awareness.
+    expect(GENERIC_ADAPTER.detectRateLimit('"retryDelay": "56s"', { now })).toBeNull();
   });
 });

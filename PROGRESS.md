@@ -1610,3 +1610,33 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+## 세션 49 (2026-08-01) — Gemini CLI 어댑터 추가 (`gemini-cli`)
+
+- **배경:** 이전 세션(#361 `overdue`)이 병합되어 designated 브랜치가 origin에서 삭제된 상태.
+  BACKLOG의 👷 명시 항목이 전부 완료라 CLAUDE.md 지침대로 신규 개선 항목을 발굴. 이 도구의
+  어댑터 레지스트리는 지금까지 Claude Code / Codex CLI / generic 셋뿐이라, 실제로 널리 쓰이는
+  Google **Gemini CLI**를 물면 항상 `generic` 어댑터로 떨어져 초 단위 대기·`retryDelay` 힌트를
+  놓쳤다. Gemini API의 429 `RESOURCE_EXHAUSTED` 응답은 에러 details에 기계 판독 가능한
+  `"retryDelay": "56s"`를 담는데(서버가 정확한 백오프를 알려줌), generic 파서에도 Codex 초 패턴
+  (동사 "try again/retry" 필요)에도 안 걸려 잡이 큐잉되지 않는 실사용 갭이었다.
+- **한 일:**
+  1. `types.ts` `AgentTool` 유니온에 `gemini-cli` 추가(중앙 정의 1곳).
+  2. `adapters.ts`: 공용 `resolveSecondsDelay(secondsText, now)` 헬퍼로 초→미래 리셋 Date 변환
+     (올림해 조기 재개 방지)을 추출해 Codex/Gemini가 공유. `GEMINI_RETRY_DELAY_PATTERN`
+     (`"?retry[_-]?delay"?\s*[:=]\s*"?(\d+(?:\.\d+)?)\s*s"?` — 쌍따옴표/언더스코어/스네이크 변형
+     허용, 초 단위)과 `GEMINI_SECONDS_PATTERN`(사람 표현 "retry in 34s")을 우선순위 순으로 물린
+     `GEMINI_CLI_ADAPTER`(binaries `["gemini","gemini-cli"]`) 신설·`ADAPTERS` 레지스트리 등록.
+  3. 팬아웃 상수 동기화: `stats.ts` `ALL_TOOLS`·`import.ts` `VALID_TOOLS`에 `gemini-cli` 추가
+     → `byTool` zero-fill·metrics `jobs_by_tool`·모든 `--tool` 필터·import 검증이 자동 인식.
+     CLI `run --tool` 헬프 문구도 갱신. 새 파서 로직 0줄 — 기존 `extraPatterns` 훅·parser 재사용.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  전 패키지 통과(core 551 + cli 271/1skip + dashboard 7; adapters.test +9 신규: gemini 바이너리
+  추론·resolveAdapter·registry 키셋·retryDelay 필드[quoted/unquoted/snake_case]·사람 표현 초·
+  generic fallback·generic 비매치, stats byTool 3케이스 gemini-cli 반영). 실제 빌드된 CLI e2e:
+  `parse --tool gemini-cli '{ "retryDelay": "56s" }'`→gemini-retry-delay/now+56s,
+  `parse --tool gemini-cli 'Please retry in 34s.'`→gemini-relative-seconds,
+  generic은 retryDelay 비매치(no-detect exit 0), `stats --tool gemini-cli` 정상,
+  `--tool bogus-cli`는 "Valid: …, gemini-cli, generic" 에러.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 어댑터 후보(Cursor CLI·
+  aider 등)·Gemini의 named-tz/HTTP-date 변환은 코워크 리서치(🧭)와 조율. README/ARCHITECTURE(🧭).
