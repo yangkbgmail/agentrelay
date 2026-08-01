@@ -1583,3 +1583,28 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 지연 재개 진단 신규 구현] (2026-08-01, 무인 자율 세션, branch `claude/wizardly-pascal-a15ovs`)
+- **한 일:** BACKLOG의 👷 미완료 항목이 사실상 소진돼(§3 남은 것은 🧭 문서/공동 QA뿐) CLAUDE.md 지침대로
+  스스로 신규 개선 항목을 발굴·구현. 세션 49가 후속 후보로 남긴 `overdue`(지연 재개 진단)를 채택 —
+  이 프로젝트의 핵심 주제인 "재개 조용히 실패"를 큐 레벨에서 직접 겨냥. `agentrelay overdue`는 리셋
+  시각이 이미 지났는데도 여전히 `waiting_for_reset`인 잡(=재개됐어야 하는데 안 된 잡)을 가장 지연된
+  순으로 보여준다. `next`/`upcoming`(미래 활주로)의 과거 대칭 — 건강한 데몬은 리셋 직후 잡을 빼가므로,
+  비어있지 않고 자라나는 목록은 재개 루프가 죽었/막혔다는 가장 명확한 신호. core `overdue.ts` 신설(순수):
+  `buildOverdueReport(jobs, now, {limit?, thresholdMs?})`가 `waiting_for_reset`+파싱가능 `resetAt`+
+  `now-resetAt > thresholdMs` 잡을 most-overdue first(resetAt asc → createdAt → id, upcoming의 시간 역대칭)로
+  정렬, 각 행 `overdueMs`/`position` + `totalOverdue`/`hidden`/`maxOverdueMs`/`thresholdMs`(limit로 잘라도
+  totals 정직). `thresholdMs` 유예창(기본 0=지난 것 전부, 양수면 poll-interval 노이즈 억제), 정확히 now인
+  리셋은 지연 아님(strict `>`). CLI `overdue.ts`에 순수 `renderOverdue`(표·공용 `formatDurationMs` 재사용·
+  grace/scope note·"worst"/"N more not shown" 푸터·지연 강조 노랑)·`renderOverdueJson`(upcoming과 동일
+  envelope). `agentrelay overdue [--limit/-n][--threshold][--tool][--project][--since][--until][--json]` —
+  공용 `buildScope` 재사용, completion 자동 포함. index.ts 재노출. 새 파서/시계 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core overdue 13 + cli overdue 8 신규 포함, dashboard 7). 빌드된 실제 CLI e2e(mock 아님):
+  3-잡 임시 스토어로 `overdue`(most-overdue first·`formatDurationMs`), `--threshold 1h`(유예창 필터),
+  `--limit 1`(부분표시 + "1 more not shown" + 정직한 worst), `--project web-app`(스코프 부분집합),
+  빈 스토어(healthy 문구·exit 0), `--limit 0`/`--threshold bogus`(exit 1), `--json`(envelope), completion에
+  `overdue` 포함 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch`/`overdue --watch`
+  라이브 갱신·`overdue`를 `doctor`/`health` 판정에 연동(대기 잡이 지연 임계 넘으면 warning) 등 인접 항목
+  검토. README/ARCHITECTURE(🧭 코워크).
