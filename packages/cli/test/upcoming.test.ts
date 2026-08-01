@@ -1,6 +1,6 @@
 import { buildUpcomingTimeline, type RelayJob, type UpcomingTimeline } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson } from "../src/upcoming.js";
+import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "../src/upcoming.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -83,6 +83,38 @@ describe("renderUpcoming", () => {
     const out = renderUpcoming(timeline([job()]), { now: NOW, color: false });
     // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting no escapes.
     expect(out).not.toMatch(/\x1b\[/);
+  });
+});
+
+describe("renderUpcomingWatchFrame", () => {
+  it("wraps the timeline table with a live banner, timestamp, and store path", () => {
+    const out = renderUpcomingWatchFrame(
+      timeline([job({ project: "demo", resetAt: at(90 * 60_000) })]),
+      "/s/jobs.json",
+      5000,
+      {
+        now: NOW,
+      }
+    );
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("agentrelay upcoming");
+    expect(lines[0]).toContain("every 5s");
+    expect(lines[0]).toContain("Ctrl-C to exit");
+    // Timestamp line carries the injected now and the store path.
+    expect(lines[1]).toContain("2026-07-30 10:00:00");
+    expect(lines[1]).toContain("/s/jobs.json");
+    // The table body is still present (with its live countdown).
+    expect(out).toContain("demo");
+    expect(out).toContain("1h 30m");
+  });
+
+  it("passes the scope note through into the frame", () => {
+    const out = renderUpcomingWatchFrame(timeline([]), "/s/jobs.json", 2000, {
+      now: NOW,
+      scopeNote: "project=ghost",
+    });
+    expect(out).toContain("scope: project=ghost");
+    expect(out).toContain(NO_UPCOMING_MESSAGE);
   });
 });
 
