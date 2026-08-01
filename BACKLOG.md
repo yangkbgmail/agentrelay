@@ -634,6 +634,18 @@
       13 + cli overdue 10 신규 테스트, 실제 빌드 CLI e2e로 grace 유예·정렬·스코프·JSON·에러 exit·빈 스토어
       검증. branch `claude/wizardly-pascal-pvjg81`)
 
+- [x] 👷 `agentrelay tools` — 큐에 존재하는 에이전트 툴(claude-code/codex-cli/generic)을 툴별 잡 집계·타이밍과
+      함께 조회(`projects`의 툴 축 형제). `--tool` 필터는 여러 커맨드가 키로 쓰지만 어떤 툴이 스토어에 있고
+      어디에 대기가 몰렸는지 발견할 수단이 없던 대칭 갭.
+      (완료 — core `tools.ts` 신설(순수): `summarizeTools(jobs)` + `ToolsSummary`·`ToolBreakdown`(tool·
+      total·active·terminal·waiting·nextResetAt·lastActivityAt). `job.tool` 버킷팅, active/terminal 분리,
+      대기 잡 사전식 min resetAt·max updatedAt, **present한 툴만** 행으로(zero-fill 아님 → 스코프 정직),
+      랭킹 active desc→total desc→tool asc. `summarizeProjects` 관례 미러. CLI `tools.ts` 순수 `renderTools`
+      (표+공용 `formatCountdown`·`(idle)`·scope note)·`renderToolsJson`. `agentrelay tools [--status][--tool]
+      [--project][--since][--until][--json]` 공용 `buildScope` 재사용. 새 파서/스케줄러 로직 0줄. core 9 +
+      cli 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·카운트다운·스코프·JSON·에러 exit 검증.
+      branch `claude/wizardly-pascal-tools`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

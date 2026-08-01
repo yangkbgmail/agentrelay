@@ -38,6 +38,7 @@ import {
   sendTestNotification,
   summarizeProjects,
   summarizeRateLimitPatterns,
+  summarizeTools,
 } from "@agentrelay/core";
 import { Command } from "commander";
 import {
@@ -93,6 +94,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { renderTools, renderToolsJson } from "./tools.js";
 import { renderUpcoming, renderUpcomingJson } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
 
@@ -1061,6 +1063,55 @@ export function buildCli(): Command {
       }
       console.log(
         renderProjects(summary, {
+          color: Boolean(process.stdout.isTTY),
+          scopeNote: built.active ? built.note : undefined,
+          now,
+        })
+      );
+    });
+
+  program
+    .command("tools")
+    .description("List the agent tools present in the queue with per-tool job counts and the soonest reset")
+    .option("--json", "Print the summary as JSON (machine-readable, for scripts/CI)")
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # which agent tools are in use, and where is work pending?\n" +
+        "  agentrelay tools\n" +
+        "  # feed the per-tool rollup to jq\n" +
+        "  agentrelay tools --json | jq '.summary.tools'"
+    )
+    .action((opts: ScopeOpts & { json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const summary = summarizeTools(jobs);
+      if (opts.json) {
+        console.log(
+          renderToolsJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            summary,
+          })
+        );
+        return;
+      }
+      console.log(
+        renderTools(summary, {
           color: Boolean(process.stdout.isTTY),
           scopeNote: built.active ? built.note : undefined,
           now,
