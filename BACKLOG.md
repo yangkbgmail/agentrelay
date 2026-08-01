@@ -634,6 +634,21 @@
       13 + cli overdue 10 신규 테스트, 실제 빌드 CLI e2e로 grace 유예·정렬·스코프·JSON·에러 exit·빈 스토어
       검증. branch `claude/wizardly-pascal-pvjg81`)
 
+- [x] 👷 `agentrelay upcoming --watch [초]` / `overdue --watch [초]` — 두 타임라인/진단 뷰에 `status --watch`와
+      동일한 라이브 카운트다운 갱신 제공(재개 대기 활주로·지연 잡을 화면 지우며 N초마다 재렌더).
+      (완료 — `status`엔 이미 `--watch`가 있지만, 시간이 흐르며 값이 변하는 나머지 두 뷰(`upcoming`의
+      `RESUMES IN` 카운트다운·`overdue`의 `OVERDUE BY` 지연 span)에는 없어, 재개 루프가 죽었는지
+      지켜보려면 수동으로 반복 실행해야 했다. cli `upcoming.ts`에 순수 `renderUpcomingWatchFrame`,
+      `overdue.ts`에 순수 `renderOverdueWatchFrame` 추가(둘 다 `status`의 `renderWatchFrame`을 미러 —
+      타이틀/타임스탬프/스토어 배너 + color-on 테이블, scope note 전달). cli.ts의 status 전용 watch
+      루프를 제네릭 `runWatchLoop(intervalMs, draw)`로 추출(화면 클리어+setInterval+SIGINT/SIGTERM
+      정리 공유)하고 `parseWatchIntervalMs`(bare `--watch`→2s 기본)로 인터벌 파싱 통일. `upcoming`·
+      `overdue` 액션에 `-w, --watch [seconds]` 배선 — 매 프레임 스토어 재읽기(데몬 쓰기 반영)+fresh
+      `now`로 timeline/report 재계산, 스코프 창(--since/--until) 경계는 시작 시 고정된 절대 epoch-ms라
+      라이브 쓰기는 계속 반영. `--json`이 `--watch`보다 우선(루프 없이 즉시 반환). 새 core 코드 0줄.
+      cli upcoming/overdue 각 +2 watch-frame 테스트, 실제 빌드 CLI e2e로 화면 클리어·프레임 타임스탬프
+      전진·scope note·json 우선·status watch 회귀 검증. branch `claude/wizardly-pascal-p8z3kc`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

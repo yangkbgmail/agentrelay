@@ -1,6 +1,6 @@
 import { buildOverdueReport, type OverdueReport, type RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_OVERDUE_MESSAGE, renderOverdue, renderOverdueJson } from "../src/overdue.js";
+import { NO_OVERDUE_MESSAGE, renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "../src/overdue.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -81,6 +81,35 @@ describe("renderOverdue", () => {
     const out = renderOverdue(report([job()]), { color: false });
     // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting no escapes.
     expect(out).not.toMatch(/\x1b\[/);
+  });
+});
+
+describe("renderOverdueWatchFrame", () => {
+  it("wraps the overdue table with a live banner, timestamp, and store path", () => {
+    const out = renderOverdueWatchFrame(
+      report([job({ project: "demo", resetAt: at(-2 * 3_600_000) })]),
+      "/s/jobs.json",
+      5000,
+      { now: NOW }
+    );
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("agentrelay overdue");
+    expect(lines[0]).toContain("every 5s");
+    expect(lines[0]).toContain("Ctrl-C to exit");
+    expect(lines[1]).toContain("2026-07-30 10:00:00");
+    expect(lines[1]).toContain("/s/jobs.json");
+    // The table body is still present (with its overdue span).
+    expect(out).toContain("demo");
+    expect(out).toContain("2h 0m");
+  });
+
+  it("passes the scope note through into the keeping-up frame", () => {
+    const out = renderOverdueWatchFrame(report([]), "/s/jobs.json", 2000, {
+      now: NOW,
+      scopeNote: "project=ghost",
+    });
+    expect(out).toContain("scope: project=ghost");
+    expect(out).toContain(NO_OVERDUE_MESSAGE);
   });
 });
 

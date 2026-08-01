@@ -1610,3 +1610,30 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — `upcoming`/`overdue`에 `--watch` 라이브 갱신 추가] (2026-08-01, 무인 자율 세션, branch `claude/wizardly-pascal-p8z3kc`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료(§3 남은 것은 🧭 문서/공동 QA뿐), 지정 브랜치가
+  최신 main(24a8b3e, #361 overdue 병합)과 정확히 일치. 세션 50이 "다음 할 일"로 남긴 인접 후보
+  `upcoming --watch`/`overdue --watch`를 스스로 발굴·구현.
+- **한 일:** **`agentrelay upcoming --watch [초]` / `overdue --watch [초]`.** `status`엔 이미 라이브
+  `--watch`가 있지만, 시간이 흐르며 값이 변하는 나머지 두 뷰(`upcoming`의 `RESUMES IN` 카운트다운·
+  `overdue`의 `OVERDUE BY` 지연 span)에는 없어, 재개 루프가 죽었는지 지켜보려면 수동으로 명령을
+  반복 실행해야 했다.
+  - cli `upcoming.ts`에 순수 `renderUpcomingWatchFrame`, `overdue.ts`에 순수 `renderOverdueWatchFrame`
+    추가 — 둘 다 `status`의 `renderWatchFrame`을 미러(타이틀 배너 + `now` 타임스탬프 + 스토어 경로 +
+    color-on 테이블, scope note 전달). 프레임마다 `now`가 주입돼 카운트다운/지연 span이 제자리에서 갱신.
+  - cli.ts의 status 전용 watch 루프를 제네릭 `runWatchLoop(intervalMs, draw)`로 추출(화면 클리어 +
+    setInterval + SIGINT/SIGTERM 정리 공유, status 기존 동작 불변)하고, bare `--watch`→2s 기본 인터벌을
+    파싱하는 `parseWatchIntervalMs`로 통일(status도 이 헬퍼로 전환).
+  - `upcoming`·`overdue` 액션에 `-w, --watch [seconds]` 배선 — 매 프레임 스토어 재읽기(별도 데몬/tick
+    쓰기 반영) + fresh `now`로 timeline/report 재계산. 스코프 창(`--since`/`--until`) 경계는 시작 시
+    고정된 절대 epoch-ms라 라이브 쓰기는 계속 반영되되 경계는 고정(status watch와 동일 의미).
+    `--json`이 `--watch`보다 우선(루프 없이 즉시 반환). 새 core 코드 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·
+  `pnpm test` **전 패키지 통과**(core 545 + cli 275/1skip + dashboard 7; cli upcoming/overdue 각 +2
+  watch-frame 테스트 신규). 빌드된 실제 CLI e2e(mock 아님): 2-잡 임시 스토어(90m 미래/2h 지연)로
+  `upcoming --watch 1`·`overdue --watch 1`(화면 클리어 `\x1b[2J\x1b[H`·라이브 배너·프레임 간 타임스탬프
+  전진 확인), `overdue --watch --project`(scope note 프레임 전달), `--json --watch`(json 우선·루프 없음),
+  `status --watch`(리팩터 후 회귀), `upcoming/overdue --help`(`--watch` 노출) 검증.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 대시보드 `upcoming`/`overdue`
+  카드·`stats --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
