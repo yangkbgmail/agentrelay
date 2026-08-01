@@ -634,6 +634,20 @@
       13 + cli overdue 10 신규 테스트, 실제 빌드 CLI e2e로 grace 유예·정렬·스코프·JSON·에러 exit·빈 스토어
       검증. branch `claude/wizardly-pascal-pvjg81`)
 
+- [x] 👷 Gemini CLI 어댑터(`gemini-cli`) — Google Gemini CLI의 rate-limit/quota 메시지를 인식해
+      generic 폴백 없이 정확히 재개 큐잉(어댑터 레지스트리 확장).
+      (완료 — 지금까지 어댑터는 Claude Code/Codex/generic 셋뿐이라 Gemini CLI를 물면 항상 generic으로
+      떨어져 초 단위 대기·서버 제공 `retryDelay` 힌트를 놓쳤다. `types.ts` `AgentTool`에 `gemini-cli`
+      추가. `adapters.ts`에 공용 `resolveSecondsDelay`(초→미래 Date, 올림해 조기 재개 방지)를 추출해
+      Codex/Gemini 공유 + `GEMINI_RETRY_DELAY_PATTERN`(Gemini API 429 `RESOURCE_EXHAUSTED`의 기계
+      판독 `"retryDelay": "56s"`/`retry_delay: 12.3s` 필드, quoted/unquoted/스네이크 허용, generic·
+      Codex 초 패턴 모두 놓치는 형식)·`GEMINI_SECONDS_PATTERN`(사람 표현 "retry in 34s")을 우선순위
+      순으로 물린 `GEMINI_CLI_ADAPTER`(binaries `gemini`/`gemini-cli`) 신설·`ADAPTERS` 등록. 팬아웃
+      상수 `ALL_TOOLS`(stats)·`VALID_TOOLS`(import) 동기화 → byTool zero-fill·metrics·모든 `--tool`
+      필터·import 검증 자동 인식, CLI `run --tool` 헬프 갱신. 새 파서 로직 0줄(기존 `extraPatterns`
+      훅 재사용). adapters.test +9 + stats byTool 3케이스 갱신, 실제 빌드 CLI e2e로 retryDelay/사람
+      표현 초/generic 비매치/`--tool` 필터·검증 확인. branch `claude/wizardly-pascal-fvs248`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
