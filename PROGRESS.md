@@ -1583,3 +1583,24 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 지연-재개 진단 신규 구현] (2026-08-01, 무인 자율 세션, branch `claude/wizardly-pascal-pblmh1`)
+- **한 일:** BACKLOG의 👷 미완료 항목이 소진돼(남은 것은 🧭 문서/공동 QA) CLAUDE.md 지침대로 스스로 신규
+  개선 항목을 발굴·구현. `agentrelay overdue` — 리셋 시각이 이미 지났는데도 재개 안 된 잡을 가장 오래
+  밀린 순으로 지목하는 진단 커맨드. 프로젝트 핵심 테마("잡은 큐에 있는데 재개 안 됨")의 가장 직접적
+  진단인데, `upcoming`(앞으로의 타임라인)·`next`(다음 하나)·`health`/`doctor`(루프 생존 요약)는 있어도
+  "루프가 못 옮기고 있는 **구체적 잡**"을 지목하는 수단이 없었다. core `overdue.ts` 신설(순수):
+  `buildOverdueReport(jobs, now, {minOverdueMs?, limit?})`가 `waiting_for_reset`+파싱 가능 `resetAt` 중
+  `resetAt <= now-grace`인 잡을 most-overdue-first(resetAt asc→createdAt→id, upcoming의 역urgency 미러)로
+  정렬, 각 행 `overdueByMs`/`position` + `totalOverdue`/`hidden`/`minOverdueMs`(limit로 잘라도 totals 정직).
+  grace(`--min`)는 스케줄러가 곧 픽업할 momentary due를 걸러냄(음수·비유한 0 클램프). CLI `overdue.ts`에
+  순수 `renderOverdue`(표·`stats`의 `formatDurationMs` 재사용·grace/scope note·"N more not shown" 푸터)·
+  `renderOverdueJson`. `agentrelay overdue [--min][--limit/-n][--tool][--project][--since][--until][--json]`
+  — 공용 `buildScope` 재사용, completion·index 재노출 자동 포함.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 547 + cli 271/1skip + dashboard 7; core overdue 14 + cli overdue 9 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 4-잡 임시 스토어로 `overdue`(most-overdue 정렬 5h>2m), `--min 10m`(grace로
+  2m-late 제외), `--project api-svc`(스코프 부분집합), `--limit 1`(부분표시 + "1 more not shown"), `--json`
+  (envelope), `--limit 0`·`--min bogus`(exit 1) 확인. completion·`--help` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch` 라이브 갱신·
+  대시보드에 overdue 카드 노출 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
