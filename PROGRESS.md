@@ -1583,3 +1583,30 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 지연 재개 진단 신규 구현] (2026-08-01, 무인 자율 세션, branch `claude/wizardly-pascal-pvjg81`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료(§3 남은 것은 🧭 문서/공동 QA뿐), 지정 브랜치가
+  최신 main(ce32f6e, #321 upcoming 병합)과 정확히 일치(ahead/behind 0). CLAUDE.md 지침대로 세션 49가
+  "다음 할 일"로 남긴 인접 후보 중 하나(`overdue` — 지연 재개 진단)를 스스로 발굴·구현.
+- **한 일:** **`agentrelay overdue` — `upcoming`의 진단용 거울.** `upcoming`은 미래 활주로(재개 대기 잡)를,
+  `next`는 가장 임박한 하나를 보여주는데, "리셋 시각이 **이미 지났는데도** 아직 재개 안 된 잡"을 보는 수단이
+  없었다. 이건 재개 루프(daemon/tick)가 죽었거나 에이전트 바이너리가 spawn 안 되는 가장 흔한 무음 실패의
+  직접 신호다.
+  - core `overdue.ts` 신설(순수·시계/파일시스템 미접촉): `buildOverdueReport(jobs, now, {graceMs?, limit?})` +
+    `OverdueEntry`(job·overdueByMs)·`OverdueReport`(entries·totalOverdue·hidden·graceMs·maxOverdueByMs)·
+    `OverdueOptions`. `waiting_for_reset`+파싱 가능 `resetAt` 잡 중 `now - resetMs > graceMs`인 것만 골라
+    **가장 오래 지연된 순**으로 정렬(tie-break: 오래된 resetAt→createdAt→id, `next`/`upcoming`과 대칭).
+    `graceMs`(기본 0, 음수·비유한은 0 클램프)로 방금 due된 잡을 오탐하지 않게 유예. `limit`로 잘라도
+    totals/maxOverdueByMs는 정직하게 전체 반영. 입력 배열 불변.
+  - CLI `overdue.ts`에 순수 `renderOverdue`(표: id·project·`OVERDUE BY`[공용 `formatDurationMs` 재사용]·reset,
+    푸터에 totals·worst·grace·hidden + "재개 루프 점검(`agentrelay health`/`doctor`)" 힌트, 빈 목록은
+    "relay is keeping up")·`renderOverdueJson`(next/upcoming과 동일 envelope). `agentrelay overdue
+    [--limit/-n][--grace][--tool][--project][--since][--until][--json]` — 공용 `buildScope` 재사용, `--grace`
+    기본 `60s`(막 due된 잡 한두 폴 사이클 유예), completion 자동 포함. index.ts 재노출. 새 파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 545 + cli 271/1skip + dashboard 7; core overdue 13 + cli overdue 10 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 3-잡 임시 스토어(2h 지연/30s 지연/미래)로 `overdue`(기본 grace 60s → 2h
+  잡만·30s 제외), `--grace 0s`(둘 다), `--json`(total·ids·maxMs·grace), `--project`(스코프 부분집합),
+  `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
+  `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
