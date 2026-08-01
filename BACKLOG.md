@@ -620,6 +620,24 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay overdue` — 재개 시각(`resetAt`)이 이미 지났는데도 아직 재개되지 않은(`waiting_for_reset`)
+      잡을 "얼마나 지연됐나" 순으로 보여주는 진단 커맨드. `--exit-code`로 모니터가 재개 루프 지연을 감지.
+      (완료 — `upcoming`(세션 49)은 **미래**만("무엇이 언제 재개되나"), `health`(세션 47)는 하트비트로 루프
+      **전체**의 생존만 본다. 그 사이 "리셋 시각이 지났는데 왜 아직 재개 안 됐나 — 어느 잡이, 얼마나 오래
+      막혀 있나"를 per-job으로 보는 진단이 없었다. `@agentrelay/core/overdue.ts` 신설(순수·파일시스템/시계
+      미접촉): `buildOverdueReport(jobs, now, {graceMs?, limit?})`가 `waiting_for_reset` + 파싱 가능 `resetAt`
+      중 `resetAt <= now-graceMs`인 잡만 골라 `next`/`upcoming`과 **동일한 tie-break**(resetAt→createdAt→id,
+      단 여기선 earliest-first=가장 오래 지연)로 정렬, 각 행 `overdueMs`/`position`(1-based) + `totalOverdue`/
+      `hidden`/`graceMs`/`worstOverdueMs`(limit로 잘라도 totals·worst는 정직하게 전체 반영). `graceMs`(기본 0)로
+      방금 due된 잡(정상·일시적)과 오래 막힌 잡(스톨된 루프)을 구분, 비양수 grace는 0으로 취급. CLI
+      `packages/cli/src/overdue.ts`에 순수 `renderOverdue`(표 + 공용 `formatDurationMs` 재사용 `4h 12m`/`45m 30s`
+      + grace/scope note + "N more not shown" 푸터, 비어있으면 healthy 문구)·`renderOverdueJson`(upcoming/projects와
+      동일 envelope). `agentrelay overdue [--grace <기간>] [--limit/-n] [--tool] [--project] [--since] [--until]
+      [--json] [--exit-code]` — 공용 `buildScope` 재사용, `--exit-code`는 grace 초과 지연 잡이 하나라도 있으면
+      exit 1(모니터/알림용, `health`의 per-job 보완), completion 자동 포함. core overdue 12 + cli overdue 8 신규
+      테스트, 실제 빌드 CLI e2e로 랭킹·`--grace` 필터·스코프·`--limit` 부분표시·`--json`·`--exit-code` 0/1·잘못된
+      grace/limit exit 1 검증. branch `claude/wizardly-pascal-cns8ep`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

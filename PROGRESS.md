@@ -1583,3 +1583,25 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 지연 재개 진단 신규 구현] (2026-08-01, 무인 자율 세션, branch `claude/wizardly-pascal-cns8ep`)
+- **한 일:** BACKLOG의 👷 미완료 항목이 사실상 소진돼(§3 남은 것은 🧭 문서/공동 QA뿐) CLAUDE.md 지침대로
+  스스로 신규 개선 항목을 발굴·구현. `agentrelay overdue` — 리셋 시각(`resetAt`)이 이미 지났는데도 아직
+  재개되지 않은(`waiting_for_reset`) 잡을 "얼마나 지연됐나" 순으로 보여주는 진단 커맨드. `upcoming`(세션 49)은
+  **미래**만("무엇이 언제 재개되나"), `health`(세션 47)는 하트비트로 루프 **전체**의 생존만 본다. 그 사이
+  "리셋이 지났는데 왜 아직 재개 안 됐나 — 어느 잡이 얼마나 오래 막혀 있나"를 per-job으로 보는 진단이 없었다.
+  core `overdue.ts` 신설(순수): `buildOverdueReport(jobs, now, {graceMs?, limit?})`가 `resetAt <= now-graceMs`
+  잡을 `next`/`upcoming`과 동일 tie-break(resetAt→createdAt→id, 여기선 earliest-first=가장 오래 지연)로 정렬,
+  각 행 `overdueMs`/`position` + `totalOverdue`/`hidden`/`graceMs`/`worstOverdueMs`(limit로 잘라도 totals·worst는
+  정직). `graceMs`(기본 0)로 방금 due된 잡(정상)과 오래 막힌 잡(스톨) 구분. CLI `overdue.ts`에 순수
+  `renderOverdue`(표·공용 `formatDurationMs` 재사용·grace/scope note·"N more not shown"·healthy 문구)·
+  `renderOverdueJson`. `agentrelay overdue [--grace][--limit/-n][--tool][--project][--since][--until][--json]
+  [--exit-code]` — 공용 `buildScope` 재사용, `--exit-code`는 grace 초과 지연 잡이 하나라도 있으면 exit 1
+  (모니터/알림용, `health`의 per-job 보완), completion 자동 포함. index.ts 재노출. 새 파서/시계 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 545 + cli 270/1skip + dashboard 7; core overdue 12 + cli overdue 8 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 4-잡 임시 스토어로 `overdue`(랭킹·overdue by), `--grace 5m`(방금 due 잡
+  제외), `--project api-svc`(스코프 부분집합), `--limit 1`("1 more not shown"), `--json`(envelope),
+  `--grace 10m --exit-code`(exit 1)·`--grace 999d --exit-code`(exit 0), 잘못된 grace/limit(exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch` 라이브 갱신·
+  daemon이 overdue 감지 시 알림 발송 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
