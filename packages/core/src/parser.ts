@@ -43,6 +43,33 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // The Anthropic API's own rate-limit reset response headers, which Claude
+    // Code (and other CLIs proxying the API) dump verbatim on a 429:
+    //   anthropic-ratelimit-requests-reset: 2026-07-13T05:00:00Z
+    //   anthropic-ratelimit-tokens-reset: 2026-07-13T05:00:00Z
+    //   anthropic-ratelimit-input-tokens-reset / -output-tokens-reset / -unified-reset
+    // The documented value is an RFC 3339 timestamp; some tooling emits Unix
+    // epoch seconds instead, so both forms are accepted (ISO tried first). This
+    // is disjoint from:
+    //   - iso-timestamp, which requires the literal "reset at <ISO>" (these
+    //     headers are "…-reset: <ISO>", no "at");
+    //   - unix-epoch / http-retry-after, which key off "retry_after" /
+    //     "retry-after", names this header never contains.
+    // The named-window prefix (requests/tokens/…) is matched loosely so a new
+    // window name doesn't silently stop being recognized. The header value is
+    // an absolute instant, so no local-time / roll-to-tomorrow guessing.
+    name: "anthropic-ratelimit-reset",
+    regex:
+      /anthropic-ratelimit-[a-z-]*reset["']?\s*[:=]\s*["']?(?:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)|(\d{10})\b)/i,
+    resolve: (m) => {
+      if (m[1] !== undefined) {
+        const d = new Date(m[1]);
+        return Number.isNaN(d.getTime()) ? null : d;
+      }
+      return new Date(parseInt(m[2], 10) * 1000);
+    },
+  },
+  {
     // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
     name: "clock-time",
     regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
