@@ -620,6 +620,23 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay overdue` — 리셋 시각이 이미 지났는데도 재개되지 않은 잡을 진단(재개 루프가
+      막힌 정확한 잡을 지목). `upcoming`(앞으로 재개될 타임라인)·`next`(다음 하나)의 짝으로, `health`/
+      `doctor`는 "루프가 살아있나?"만 요약하는 반면 `overdue`는 "루프가 못 옮기고 있는 **구체적 잡이
+      무엇인가**"에 답한다.
+      (완료 — 프로젝트 핵심 테마인 "잡은 큐에 있는데 재개 안 됨"의 가장 직접적 진단 커맨드가 없었다.
+      `@agentrelay/core/overdue.ts` 신설(순수·파일시스템/시계 미접촉): `buildOverdueReport(jobs, now,
+      {minOverdueMs?, limit?})`가 `waiting_for_reset` + 파싱 가능한 `resetAt` 중 `resetAt <= now-grace`인
+      잡만 골라 **가장 오래 밀린 순**(resetAt asc → createdAt → id, upcoming과 동일 tie-break의 역urgency
+      미러)으로 정렬, 각 행에 `overdueByMs`/`position` + `totalOverdue`/`hidden`/`minOverdueMs` 집계(limit로
+      잘라도 totals는 정직). `minOverdueMs`(grace)는 스케줄러가 곧 픽업할 momentary due 잡을 걸러내는
+      유예값(음수·비유한은 0 클램프). CLI `packages/cli/src/overdue.ts`에 순수 `renderOverdue`(표 + `stats`의
+      `formatDurationMs` 재사용으로 "overdue by" 열 일관 + grace note + scope note + "N more not shown" 푸터)·
+      `renderOverdueJson`(upcoming/next와 동일 envelope). `agentrelay overdue [--min] [--limit/-n] [--tool]
+      [--project] [--since] [--until] [--json]` — 공용 `buildScope` 재사용, completion 자동 포함. core overdue
+      14 + cli overdue 9 신규 테스트, 실제 빌드 CLI e2e로 most-overdue 정렬·grace 필터·--project 스코프·
+      --limit 부분표시·--json·--limit 0·--min bogus 에러(exit 1) 검증. branch `claude/wizardly-pascal-pblmh1`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
