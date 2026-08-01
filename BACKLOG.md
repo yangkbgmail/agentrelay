@@ -634,6 +634,22 @@
       13 + cli overdue 10 신규 테스트, 실제 빌드 CLI e2e로 grace 유예·정렬·스코프·JSON·에러 exit·빈 스토어
       검증. branch `claude/wizardly-pascal-pvjg81`)
 
+- [x] 👷 `agentrelay tools` — 큐에 존재하는 에이전트 툴(agent-tool) 라벨을 툴별 잡 집계·타이밍과 함께 조회
+      (`agentrelay projects`의 툴 차원 미러).
+      (완료 — `--tool` 필터는 status/stats/export/cancel/retry/metrics/patterns/errors/upcoming/overdue가
+      전부 키로 쓰지만, **어떤 툴 라벨이 스토어에 있고 어디에 작업이 몰렸는지 발견하는 수단**이 없었다
+      (projects가 프로젝트 차원에서 메운 것과 같은 갭; `stats --group-by tool`은 지표 비교용이라 전용
+      발견 커맨드가 필요). `@agentrelay/core/tools.ts` 신설(순수·파일시스템/시계 미접촉):
+      `summarizeTools(jobs)`가 `job.tool`별 total/active(queued+waiting_for_reset+resuming)/terminal/
+      waiting 집계 + `nextResetAt`(대기 잡의 사전식 min resetAt) + `lastActivityAt`(max updatedAt), 랭킹은
+      active desc→total desc→이름 asc(**작업 몰린 툴이 맨 위**, projects 관례 일치). 툴은 원시 문자열로
+      버킷팅(import된 미지 라벨도 정확히 집계, `scopeJobs` raw 매칭과 일관). CLI `packages/cli/src/tools.ts`에
+      순수 `renderTools`(표+대기 시 `formatCountdown` 카운트다운·전부 종료면 `(idle)`·scope note·no-match
+      문구)·`renderToolsJson`(projects/stats와 동일 envelope). `agentrelay tools [--json]` + 공용
+      `buildScope`(--status/--tool/--project/--since/--until) 재사용, completion 자동 포함. 새 파서/시계 로직
+      0줄. core tools 8 + cli tools 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·카운트다운·idle·스코프 부분집합·
+      --json·에러 exit·빈 스토어 검증. branch `claude/wizardly-pascal-i1j4jm`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
