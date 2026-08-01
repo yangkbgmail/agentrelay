@@ -14,6 +14,7 @@ import type {
 import {
   ALL_TOOLS,
   buildOverdueReport,
+  buildStuckReport,
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
@@ -93,6 +94,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { renderStuck, renderStuckJson } from "./stuck.js";
 import { renderUpcoming, renderUpcomingJson } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
 
@@ -696,6 +698,87 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderOverdue(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
+    });
+
+  program
+    .command("stuck")
+    .description(
+      "Show jobs stranded mid-resume (frozen in `resuming`) — the sign a daemon died between spawning a command and recording its result"
+    )
+    .option("-n, --limit <n>", "Show at most N rows (the totals still count all stuck jobs)")
+    .option(
+      "--grace <duration>",
+      "Only flag jobs resuming for longer than <duration>, so runs still in progress aren't flagged (default 15m)",
+      "15m"
+    )
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # which jobs are frozen mid-resume?\n" +
+        "  agentrelay stuck\n" +
+        "  # flag only jobs resuming for more than an hour (long agent runs)\n" +
+        "  agentrelay stuck --grace 1h\n" +
+        "  # use as a CI/monitor gate\n" +
+        "  test -z \"$(agentrelay stuck --json | jq '.report.entries[]')\"\n" +
+        "\nA resuming job can't be re-queued and won't be re-picked by the loop, so if\n" +
+        "one is genuinely orphaned (confirm with `agentrelay health`), recover it with\n" +
+        "`agentrelay cancel <id>` then `agentrelay retry <id>`."
+    )
+    .action((opts: ScopeOpts & { limit?: string; grace?: string; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      let graceMs = 0;
+      if (opts.grace !== undefined) {
+        const ms = parseDuration(opts.grace);
+        if (ms === null || ms < 0) {
+          console.error(`Invalid --grace value "${opts.grace}". Use a duration like 60s, 5m, or 1h.`);
+          process.exitCode = 1;
+          return;
+        }
+        graceMs = ms;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const scopeNote = built.active ? built.note : undefined;
+      const report = buildStuckReport(jobs, now, { graceMs, limit });
+
+      if (opts.json) {
+        console.log(
+          renderStuckJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            report,
+          })
+        );
+        return;
+      }
+      console.log(renderStuck(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
     });
 
   program

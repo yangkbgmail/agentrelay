@@ -634,6 +634,26 @@
       13 + cli overdue 10 신규 테스트, 실제 빌드 CLI e2e로 grace 유예·정렬·스코프·JSON·에러 exit·빈 스토어
       검증. branch `claude/wizardly-pascal-pvjg81`)
 
+- [x] 👷 `agentrelay stuck` — `resuming` 상태에 갇힌(orphaned) 잡을 가장 오래 갇힌 순으로 조회
+      (`overdue`의 in-flight 거울). 스케줄러가 due 잡을 `resuming`으로 뒤집고 커맨드를 spawn한 뒤 데몬이
+      **도중에 죽으면**(SIGKILL/OOM/크래시/전원) 잡이 `resuming`에 영구히 얼어붙는다 — `listDue`는
+      `waiting_for_reset`만 재선택하고 `upcoming`/`overdue`/`next`도 전부 `waiting_for_reset`만 보므로 모든
+      타임라인 뷰에서 안 보이고, `canRequeue`가 `resuming`을 거부해 `retry`로도 못 살린다. 즉 무음·불가시·
+      복구불가의 3중 실패 모드였다.
+      (완료 — `@agentrelay/core/stuck.ts` 신설(순수·시계/파일시스템 미접촉): `buildStuckReport(jobs, now,
+      {graceMs?, limit?})` + `StuckEntry`(job·stuckForMs)·`StuckReport`(entries·totalStuck·hidden·graceMs·
+      maxStuckForMs)·`StuckOptions`. `status==="resuming"`+파싱 가능 `updatedAt`(= `resuming` 진입 시각)이면서
+      `now - updatedMs > graceMs`인 잡만 골라 가장 오래 갇힌 순(오래된 updatedAt→createdAt→id tie-break,
+      overdue/upcoming/next와 대칭) 정렬, `graceMs`(기본 0, 음수·비유한 0 클램프)로 아직 진행 중인 resume
+      오탐 방지, `limit`로 잘라도 totals/maxStuckForMs는 전체 반영, 입력 불변. CLI `stuck.ts` 순수
+      `renderStuck`(표 + 공용 `formatDurationMs` 재사용 + **정확한 복구 힌트**: 진짜 orphan이면
+      `agentrelay cancel <id>`→`agentrelay retry <id>`로 `waiting_for_reset` 재큐 + `agentrelay health` 교차확인
+      안내 + "nothing stranded" 빈 메시지)·`renderStuckJson`. `agentrelay stuck [--limit/-n][--grace][--tool]
+      [--project][--since][--until][--json]` — 공용 `buildScope` 재사용, `--grace` 기본 15m(진짜 긴 agent 런은
+      상향 안내), completion 자동 포함. 새 파서/스케줄러 로직 0줄. core stuck 10 + cli stuck 9 신규 테스트,
+      실제 빌드 CLI e2e로 정렬·grace 유예(15m/1h)·스코프·limit·JSON·에러 exit + **cancel→retry 복구 왕복**
+      (resuming→cancelled→waiting_for_reset)까지 검증. branch `claude/wizardly-pascal-stuck`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

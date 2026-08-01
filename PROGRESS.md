@@ -1610,3 +1610,36 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — `agentrelay stuck` orphaned-resume 진단 신규 구현] (2026-08-01, 무인 자율 세션, branch `claude/wizardly-pascal-stuck`)
+- **배경:** 세션 시작 시 지정 브랜치 `claude/wizardly-pascal-o90in2`가 원격에서 삭제됨(#361 병합 완료 표식) →
+  지침대로 최신 main(24a8b3e)에서 재시작. 👷 명시 BACKLOG 항목이 전부 완료 상태라 CLAUDE.md 지침대로 코드를
+  읽으며 **새 개선 항목을 발굴**했다. 스케줄러·큐·control을 정독하던 중 **실제 무음 실패 모드**를 발견:
+  스케줄러가 due 잡을 `markResuming`으로 `resuming`(attempts++)으로 뒤집고 커맨드를 spawn한 뒤, 데몬이 그 사이
+  죽으면(SIGKILL/OOM/크래시/전원) 잡이 `resuming`에 영구히 얼어붙는다. `listDue`는 `waiting_for_reset`만
+  재선택, `upcoming`/`overdue`/`next`도 전부 `waiting_for_reset`만 봄, `canRequeue`는 `resuming`을 거부(retry 불가)
+  — 무음·불가시·복구불가의 3중 실패인데 이를 드러내는 커맨드가 없었다.
+- **한 일:** **`agentrelay stuck` — `overdue`의 in-flight 거울.** `overdue`가 재개 루프가 *시작했어야 할*
+  `waiting_for_reset` 잡을 잡는다면, `stuck`은 루프가 *시작은 했지만* 끝내지 못한 `resuming` 잡을 잡는다.
+  - core `stuck.ts` 신설(순수·시계/파일시스템 미접촉): `buildStuckReport(jobs, now, {graceMs?, limit?})` +
+    `StuckEntry`(job·stuckForMs)·`StuckReport`(entries·totalStuck·hidden·graceMs·maxStuckForMs)·`StuckOptions`.
+    `status==="resuming"`+파싱 가능 `updatedAt`(= `resuming` 진입 시각) 잡 중 `now - updatedMs > graceMs`인 것만
+    골라 **가장 오래 갇힌 순**으로 정렬(tie-break: 오래된 updatedAt→createdAt→id, overdue/upcoming/next와 대칭).
+    `graceMs`(기본 0, 음수·비유한은 0 클램프)로 아직 진행 중인 resume 오탐 방지, `limit`로 잘라도
+    totals/maxStuckForMs는 전체 반영, 입력 불변. index.ts 재노출.
+  - CLI `stuck.ts`에 순수 `renderStuck`(표: id·project·`STUCK FOR`[공용 `formatDurationMs` 재사용]·since,
+    푸터에 totals·worst·grace·hidden + **정확한 복구 힌트**: 진짜 orphan이면 `agentrelay cancel <id>`→
+    `agentrelay retry <id>`로 `waiting_for_reset` 재큐 + `agentrelay health` 교차확인, 빈 목록은 "nothing
+    stranded")·`renderStuckJson`(overdue와 동일 envelope). `agentrelay stuck [--limit/-n][--grace][--tool]
+    [--project][--since][--until][--json]` — 공용 `buildScope` 재사용, `--grace` 기본 `15m`(진짜 긴 agent 런은
+    상향 안내 — resume이 실제로 진행 중일 수 있으므로 overdue보다 넉넉), completion 자동 포함. 새 파서/스케줄러
+    로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core stuck 10 + cli stuck 9 신규 포함, cli 280/1skip). 빌드된 실제 CLI e2e(mock 아님):
+  resuming(3h/20m)·waiting/completed 혼합 스토어로 `stuck`(기본 15m → resuming 2개, 오래된 순, waiting/completed
+  제외), `--grace 1h`(3h짜리만), `--project`(스코프), `--limit 1`("1 more not shown"), `--limit 0`(exit 1) 확인.
+  **복구 왕복 검증:** stuck 잡을 `cancel`(canCancel이 resuming 허용)→`retry`(requeueNow) → 잡이 `resuming`을
+  떠나 `waiting_for_reset`로 복귀(listDue가 재선택)·이후 stuck 목록 비어짐 확인 → 푸터 복구 안내가 실제로 동작함.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 후보: 데몬 시작 시 orphaned `resuming`
+  잡 자동 회수(재큐), `doctor`/대시보드에 stuck 카운트 노출, `upcoming/overdue/stuck --watch` 라이브 갱신.
+  README/ARCHITECTURE(🧭 코워크).
