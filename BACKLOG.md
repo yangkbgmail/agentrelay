@@ -620,6 +620,24 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay tools` — 큐에 존재하는 에이전트 툴을 툴별 잡 집계·성공률·타이밍과 함께 조회
+      (`projects`의 툴 축 버전).
+      (완료 — `--tool` 필터는 status/stats/export/cancel/retry/metrics/patterns/errors가 전부 키로 쓰지만,
+      정작 **어떤 에이전트 툴이 스토어에 있고 각 툴이 얼마나 신뢰성 있게 재개되나**를 발견·비교하는 수단이
+      없었다. 툴 축은 고정 소집합(claude-code/codex-cli/generic)이라 프로젝트(임의 라벨)와 달리 툴별
+      신뢰성 읽기(completed/failed + 파생 successRate)를 함께 실어 단순 rename을 넘어선 가치를 담았다.
+      `@agentrelay/core/tools.ts` 신설(순수·파일시스템/시계 미접촉): `summarizeTools(jobs)`가 툴별
+      total/active(queued+waiting+resuming)/terminal(completed+failed+cancelled)/waiting/completed/failed/
+      cancelled 집계 + `successRate`(completed/(completed+failed), cancelled 제외 — computeStats와 동일 정책,
+      미해결 시 null) + `nextResetAt`(대기 잡의 사전식 min resetAt) + `lastActivityAt`(max updatedAt). 실제
+      등장한 툴만 rows(고정 집합 zero-fill 안 함=발견 의도), 랭킹은 active desc→total desc→이름 asc(대기 몰린
+      툴 top). CLI `packages/cli/src/tools.ts`에 순수 `renderTools`(표+공용 `formatSuccessRate`·`formatCountdown`
+      재사용·idle/no-match 문구·scope note)·`renderToolsJson`(projects/stats와 동일 envelope). `agentrelay
+      tools [--json]` + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용, completion 자동
+      포함. 새 파서/시계 로직 0줄. core tools 10 + cli tools 10 신규 테스트, 실제 빌드 CLI e2e로 랭킹·
+      successRate(50%/n·a/100%)·카운트다운·스코프 부분집합·--json·잘못된 tool(exit 1) 검증. branch
+      `claude/wizardly-pascal-vap2q4`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -1583,3 +1583,26 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay tools` 툴별 신뢰성 인덱스 신규 구현] (2026-08-01, 무인 자율 세션, branch `claude/wizardly-pascal-vap2q4`)
+- **한 일:** BACKLOG의 👷 미완료 항목이 소진돼(§3 남은 것은 🧭 문서/공동 QA뿐) CLAUDE.md 지침대로 신규 개선
+  항목을 스스로 발굴·구현. `agentrelay tools` — `projects`의 툴 축(axis) 버전. `--tool` 필터는
+  status/stats/export/cancel/retry/metrics/patterns/errors 전반에 배선돼 있지만, 정작 **큐에 어떤 에이전트
+  툴이 있고 각 툴이 얼마나 신뢰성 있게 재개되나**를 발견·비교하는 수단이 없었다. 툴 축은 고정 소집합
+  (claude-code/codex-cli/generic)이라 프로젝트(임의 라벨)와 달리 툴별 신뢰성 읽기(completed/failed +
+  파생 successRate)를 함께 실어 단순 rename을 넘어선 가치를 담음. core `tools.ts` 신설(순수·파일시스템/시계
+  미접촉): `summarizeTools(jobs)` + `ToolsSummary`(total·toolCount·tools[]) + `ToolBreakdown`(tool·total·
+  active·terminal·waiting·completed·failed·cancelled·successRate·nextResetAt·lastActivityAt). 실제 등장한
+  툴만 rows(고정 집합 zero-fill 안 함=발견 의도), successRate는 completed/(completed+failed)로 cancelled
+  제외(computeStats와 동일 정책), 랭킹은 active desc→total desc→이름 asc(대기 몰린 툴 top). CLI
+  `tools.ts`에 순수 `renderTools`(표+`formatSuccessRate`·`formatCountdown` 재사용·scope note·idle/no-match
+  문구)·`renderToolsJson`(projects/stats와 동일 envelope). `agentrelay tools [--json]` + 공용 `buildScope`
+  (--status/--tool/--project/--since/--until) 재사용, completion 자동 포함. index.ts 재노출. 새 파서/시계
+  로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 543 + cli 272/1skip + dashboard 7; core tools 10 + cli tools 10 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 5-잡 임시 스토어로 `tools`(랭킹·successRate 50%/n·a/100%·카운트다운),
+  `--json`(툴별 rollup), `--tool claude-code`(스코프 부분집합), `--tool bogus`(exit 1) 확인. help·completion
+  노출도 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools --sort`(신뢰성순 정렬)·
+  툴별 평균 해결 시간 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
