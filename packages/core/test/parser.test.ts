@@ -246,9 +246,7 @@ describe("parseRateLimitMessage", () => {
   });
 
   it("parses the anthropic-ratelimit-tokens-reset header with a timezone offset", () => {
-    const result = parseRateLimitMessage(
-      "anthropic-ratelimit-tokens-reset: 2026-07-13T05:00:00+02:00"
-    );
+    const result = parseRateLimitMessage("anthropic-ratelimit-tokens-reset: 2026-07-13T05:00:00+02:00");
     expect(result?.pattern).toBe("anthropic-ratelimit-reset");
     expect(result?.resetAt).toBe("2026-07-13T03:00:00.000Z");
   });
