@@ -1610,3 +1610,27 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — `agentrelay tools` 툴별 발견 커맨드 신규 구현] (2026-08-01, 무인 자율 세션, branch `claude/wizardly-pascal-tepmqt`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료(§3 남은 것은 🧭 문서/공동 QA뿐, 데모 스크립트는 이미
+  원격 브랜치 진행 중), 지정 브랜치가 최신 main(24a8b3e, #361 overdue 병합)과 정확히 일치(ahead/behind 0).
+  CLAUDE.md 지침대로 새 개선 항목을 스스로 발굴·구현.
+- **한 일:** **`agentrelay tools` — `projects`의 툴 차원 형제.** `--tool` 필터는 status/stats/export/cancel/
+  retry/metrics/patterns/errors/projects가 전부 키로 쓰지만, 정작 "어떤 툴이 스토어에 있고 어디에 대기 작업이
+  몰렸는지 발견하는 수단"이 없었다. `stats.byTool`은 고정 3종을 zero-fill한 원시 카운트만 줄 뿐 툴별 active/
+  waiting/다음리셋 카운트다운/마지막 활동을 안 보여준다.
+  - core `tools.ts` 신설(순수·파일시스템/시계 미접촉): `summarizeTools(jobs)`가 툴별 total/active(queued+
+    waiting_for_reset+resuming)/terminal(completed+failed+cancelled)/waiting 집계 + `nextResetAt`(대기 잡의
+    사전식 min resetAt, 비대기 잡 무시) + `lastActivityAt`(max updatedAt). 랭킹은 active desc→total desc→이름
+    asc(**대기 작업이 몰린 툴이 맨 위**), 실제 존재하는 툴만(zero-fill 없음), 입력 불변. `summarizeProjects`
+    미러링.
+  - CLI `tools.ts`에 순수 `renderTools`(표: TOOL·TOTAL·ACTIVE·DONE·NEXT RESET[대기 시 공용 `formatCountdown`
+    카운트다운·전부 종료면 `(idle)`]·scope note·no-match 문구)·`renderToolsJson`(projects/stats와 동일
+    envelope). `agentrelay tools [--json]` — 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용,
+    completion 자동 포함. index.ts 재노출. 새 파서/시계 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 553 + cli 279/1skip + dashboard 7; core tools 8 + cli tools 8 신규 포함). 빌드된 실제
+  CLI e2e(mock 아님): 3-잡 임시 스토어(claude-code 대기+완료, codex-cli 실패)로 `tools`(랭킹·카운트다운·idle),
+  `--json`(집계 필드), `--status failed`(스코프 부분집합), `--tool nope`(exit 1), help·completion 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `projects`/`tools`에 `--watch` 라이브
+  갱신, `errors --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
