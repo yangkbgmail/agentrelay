@@ -620,6 +620,26 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay overdue` — 리셋 시각이 이미 지났는데 아직 재개되지 않은 "지연된" 잡을 가장
+      오래 밀린 순으로 진단(재개 루프가 밀리거나 멈췄는지 잡별로 드러냄). 세션 49 `upcoming`의 후속.
+      (완료 — `upcoming`은 앞으로 무엇이 언제 재개되나를 보는 forward 뷰인 반면, `overdue`는 "이미
+      재개됐어야 하는데 안 된 것"을 backward로 본다. 건강한 셋업이면 잡은 resetAt 후 한 폴링 안에
+      재개되므로 이 목록은 보통 비어 있고, 행이 쌓이면 재개 루프가 밀렸거나 멈췄다는 신호(`health`/
+      `doctor`와 짝지어 데몬 생존 여부까지 확인). `@agentrelay/core/overdue.ts` 신설(순수·시계/파일시스템
+      미접촉): `buildOverdueReport(jobs, now, {limit?, minOverdueMs?})` + `OverdueEntry`(job·overdueByMs·
+      rank)·`OverdueReport`(entries·totalOverdue·hidden·maxOverdueByMs). `waiting_for_reset`+파싱 가능
+      `resetAt`이 `now`를 지난 잡만 골라 **가장 오래 밀린 순**(earliest resetAt first, next/upcoming과
+      동일 tie-break: resetAt→createdAt→id)으로 랭킹, resetAt==now는 due(재개 대상)이지 overdue 아님.
+      `minOverdueMs`(CLI `--older-than`)로 리셋 직후 잠깐의 overshoot를 무시하고 진짜 밀린 것만 집계.
+      limit로 잘라도 totalOverdue/maxOverdueByMs는 전체 반영. CLI `packages/cli/src/overdue.ts`에 순수
+      `renderOverdue`(표+공용 `formatDurationMs` 재사용으로 "3h 0m"/"2d 1h" 일관·scope note·threshold
+      note·"N more not shown" 푸터·전부 정상이면 "keeping up" 메시지)·`renderOverdueJson`(upcoming과 동일
+      envelope). `agentrelay overdue [--limit/-n] [--older-than] [--tool] [--project] [--since] [--until]
+      [--json]` — 공용 `buildScope` 재사용, completion 자동 포함, `--limit 0`·잘못된 `--older-than`/스코프는
+      exit 1. 새 파서/스케줄러 코드 0줄. core overdue 12 + cli overdue 8 신규 테스트, 실제 빌드 CLI e2e로
+      랭킹·`--older-than` 필터·`--limit` 부분표시+정직한 totals·`--project` 스코프·`--json`·에러 exit 검증.
+      branch `claude/wizardly-pascal-697y90`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

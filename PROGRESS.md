@@ -1583,3 +1583,27 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 지연 재개 진단 신규 구현] (2026-08-01, 무인 자율 세션, branch `claude/wizardly-pascal-697y90`)
+- **한 일:** BACKLOG의 👷 미완료 항목이 사실상 소진돼(§3 남은 것은 🧭 문서/공동 QA뿐) CLAUDE.md 지침대로
+  세션 49가 "다음 할 일"로 남긴 `overdue`를 스스로 발굴·구현. `upcoming`은 앞으로 무엇이 언제 재개되나를
+  보는 forward 뷰인 반면, `overdue`는 **이미 재개됐어야 하는데 안 된 것**을 backward로 보는 진단이다.
+  건강한 셋업이면 잡은 resetAt 후 한 폴링 안에 재개되므로 이 목록은 보통 비어 있고, 행이 쌓이면 재개
+  루프가 밀렸거나 멈췄다는 신호(`health`/`doctor`와 짝지어 데몬 생존 여부까지 확인). core `overdue.ts`
+  신설(순수·시계/파일시스템 미접촉): `buildOverdueReport(jobs, now, {limit?, minOverdueMs?})` +
+  `OverdueEntry`(job·overdueByMs·rank)·`OverdueReport`(entries·totalOverdue·hidden·maxOverdueByMs).
+  `waiting_for_reset`+파싱 가능 `resetAt`이 `now`를 지난 잡만 골라 가장 오래 밀린 순(earliest resetAt
+  first, next/upcoming과 동일 tie-break resetAt→createdAt→id)으로 랭킹, resetAt==now는 due이지 overdue
+  아님. `minOverdueMs`(CLI `--older-than`)로 리셋 직후 잠깐의 overshoot 무시. limit로 잘라도 totals는
+  전체 반영. CLI `overdue.ts`에 순수 `renderOverdue`(표·공용 `formatDurationMs` 재사용·scope/threshold
+  note·"N more not shown"·정상이면 "keeping up" 메시지)·`renderOverdueJson`. `agentrelay overdue
+  [--limit/-n][--older-than][--tool][--project][--since][--until][--json]` — 공용 `buildScope` 재사용,
+  completion 자동 포함. index.ts 재노출. 새 파서/스케줄러 코드 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 545 + cli 270/1skip + dashboard 7; core overdue 12 + cli overdue 8 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 5-잡 임시 스토어로 `overdue`(랭킹·worst 3h behind), `--older-than 5m`
+  (1m 밀린 잡 제외), `--limit 1`(부분표시 + "2 more not shown" 정직한 totals), `--project api-svc --json`
+  (스코프 부분집합), `--limit 0`·`--older-than bogus`(exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch` 라이브 갱신·
+  `upcoming --watch`·overdue를 `doctor`/`health` 판정에 반영(대기 잡이 오래 밀리면 warning) 등 검토.
+  README/ARCHITECTURE(🧭 코워크).
