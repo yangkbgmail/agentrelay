@@ -236,6 +236,57 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  it("parses the Anthropic anthropic-ratelimit-requests-reset header (RFC 3339 value)", () => {
+    const result = parseRateLimitMessage(
+      "HTTP 429 rate_limit_error\nanthropic-ratelimit-requests-reset: 2026-07-13T05:00:00Z"
+    );
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("anthropic-ratelimit-reset");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses the anthropic-ratelimit-tokens-reset header with a timezone offset", () => {
+    const result = parseRateLimitMessage(
+      "anthropic-ratelimit-tokens-reset: 2026-07-13T05:00:00+02:00"
+    );
+    expect(result?.pattern).toBe("anthropic-ratelimit-reset");
+    expect(result?.resetAt).toBe("2026-07-13T03:00:00.000Z");
+  });
+
+  it("recognizes the unified/input/output reset window variants", () => {
+    for (const header of [
+      "anthropic-ratelimit-unified-reset",
+      "anthropic-ratelimit-input-tokens-reset",
+      "anthropic-ratelimit-output-tokens-reset",
+    ]) {
+      const result = parseRateLimitMessage(`${header}: 2026-07-13T05:00:00Z`);
+      expect(result?.pattern).toBe("anthropic-ratelimit-reset");
+      expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+    }
+  });
+
+  it("accepts the JSON-ish quoted form of the reset header", () => {
+    const result = parseRateLimitMessage('{"anthropic-ratelimit-requests-reset": "2026-07-13T05:00:00Z"}');
+    expect(result?.pattern).toBe("anthropic-ratelimit-reset");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("accepts a Unix-epoch value on the reset header as a fallback form", () => {
+    const result = parseRateLimitMessage("anthropic-ratelimit-tokens-reset=1752382800");
+    expect(result?.pattern).toBe("anthropic-ratelimit-reset");
+    expect(result?.resetAt).toBe(new Date(1752382800 * 1000).toISOString());
+  });
+
+  it("prefers the explicit reset header over the generic five-hour fallback", () => {
+    // The message trips the 5-hour fallback pre-filter but also carries the
+    // precise header — the header (an absolute instant) must win.
+    const result = parseRateLimitMessage(
+      "You have hit your 5-hour usage limit.\nanthropic-ratelimit-unified-reset: 2026-07-13T05:00:00Z"
+    );
+    expect(result?.pattern).toBe("anthropic-ratelimit-reset");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [

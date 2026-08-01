@@ -1583,3 +1583,23 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+---
+
+### 2026-08-01 — 👷 파서: Anthropic API 자체 rate-limit 리셋 응답 헤더 인식
+
+- **한 일:** `parseRateLimitMessage`에 `anthropic-ratelimit-reset` 패턴 신설. Claude Code(및 API를
+  프록시하는 CLI)가 429에서 그대로 덤프하는 Anthropic 자체 응답 헤더 —
+  `anthropic-ratelimit-requests-reset` / `-tokens-reset` / `-input-tokens-reset` / `-output-tokens-reset` /
+  `-unified-reset` — 를 인식한다. 값은 문서상 RFC 3339 타임스탬프(오프셋/`Z`/소수초 허용), 일부 툴링이
+  내보내는 Unix epoch 초(10자리)도 폴백으로 수용(ISO 우선 시도). 헤더 값은 절대 시각이라 로컬시간
+  추정·익일 롤오버 없음. 윈도우 접두어(requests/tokens/…)는 느슨히 매칭해 새 윈도우명이 조용히
+  누락되지 않게 함. 기존 패턴과 disjoint: `iso-timestamp`는 리터럴 "reset at <ISO>"를, `unix-epoch`/
+  `http-retry-after`는 "retry_after"/"retry-after"를 요구하는데 이 헤더명엔 둘 다 없음. 스케줄러/큐
+  코드 변경 0줄 — 순수 파서 1개 패턴 추가.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm test` 전 패키지 통과(core 539 = parser
+  39, cli 262/1skip, dashboard 7). 파서 신규 6케이스(RFC 3339·TZ 오프셋·unified/input/output 변형·JSON 인용
+  형태·epoch 폴백·5시간 폴백보다 우선). 빌드된 실제 CLI e2e: `echo '…unified-reset: 2026-07-13T05:00:00Z' |
+  agentrelay parse --json` → `pattern: anthropic-ratelimit-reset`, `resetAt: 2026-07-13T05:00:00.000Z` 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 다른 실 rate-limit 포맷 샘플 조사해
+  파서 추가 보강(SPEC §8), 인접 진단 커맨드 검토.
