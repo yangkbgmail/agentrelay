@@ -1583,3 +1583,23 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay tools` 툴별 인덱스 신규 구현] (2026-08-01, 무인 자율 세션, branch `claude/wizardly-pascal-6ebhb9`)
+- **한 일:** BACKLOG의 순수 👷 항목이 소진돼(§3 남은 것은 🧭 문서/공동 QA뿐) CLAUDE.md 지침대로 스스로 신규
+  개선 항목을 발굴·구현. `agentrelay tools` — 세션 48 `projects`의 **툴 축(tool-axis) 대칭 명령**. `--tool`
+  필터는 status/stats/export/cancel/retry/metrics/patterns/errors/upcoming 전반이 키로 쓰지만, 정작 어떤
+  에이전트 툴(claude-code/codex-cli/generic)이 스토어에 잡을 갖고 있는지·어디에 대기 작업이 몰렸는지 발견하는
+  수단이 없었다. core `tools.ts` 신설(순수·파일시스템/시계 미접촉): `summarizeTools(jobs)`가 `job.tool`별
+  total/active(queued+waiting+resuming)/terminal(completed+failed+cancelled)/waiting 집계 + `nextResetAt`
+  (대기 잡의 사전식 min resetAt) + `lastActivityAt`(max updatedAt), 랭킹 active desc→total desc→이름 asc
+  (대기 작업 몰린 툴이 맨 위). `stats.byTool`의 고정 zero-fill과 달리 **실제 등장한 툴만** 행 생성(진짜
+  discovery). CLI `tools.ts`에 순수 `renderTools`(표+대기 시 `formatCountdown` 카운트다운·전부 종료면
+  `(idle)`·scope note·no-match 문구)·`renderToolsJson`(projects/stats와 동일 envelope). `agentrelay tools
+  [--json]` + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용, completion 자동 포함.
+  index.ts 재노출. 새 파서/시계 로직 0줄 — `summarizeProjects`의 ISO 사전식 비교 관례 미러.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core tools 8 + cli tools 8 신규 포함). 빌드된 실제 CLI e2e(mock 아님): 4-잡 임시
+  스토어로 `tools`(랭킹·카운트다운·idle), `--tool claude-code`(스코프 부분집합), `--json`(envelope),
+  `--tool bogus`(exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools --watch`·툴별 성공률 컬럼
+  등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
