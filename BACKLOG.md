@@ -620,6 +620,26 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay overdue` — 재개됐어야 하는데 안 된 잡(리셋 시각이 지났는데도 여전히 `waiting_for_reset`)을
+      지연 시간순으로 보여주는 진단 커맨드. `upcoming`(미래 활주로)의 과거 대칭. 건강한 데몬은 리셋 직후
+      잡을 재개 큐에서 빼가므로, 비어있지 않고(특히 자라나는) 이 목록은 재개 루프가 죽었거나 막혔다는
+      가장 명확한 큐 레벨 신호 — 이 도구가 막으려는 바로 그 "조용한 실패".
+      (완료 — `next`/`upcoming`이 앞으로 무엇이 언제 재개될지 보여주는 반면, 리셋이 이미 지났는데도
+      재개 안 된 잡을 발견할 수단이 없었다(`upcoming`의 due-now는 미래 행과 뒤섞이고 지연 정도를 강조 안 함).
+      `@agentrelay/core/overdue.ts` 신설(순수·파일시스템/시계 미접촉): `buildOverdueReport(jobs, now, {limit?,
+      thresholdMs?})`가 `waiting_for_reset` + 파싱 가능 `resetAt` 잡 중 `now - resetAt > thresholdMs`인
+      것만 골라 **가장 지연된 순**(resetAt asc → createdAt → id, `upcoming`의 시간 역대칭)으로 정렬, 각 행에
+      `overdueMs`/`position`(1-based) 부여 + `totalOverdue`/`hidden`/`maxOverdueMs`/`thresholdMs` 집계(limit로
+      잘라도 totals는 정직). `thresholdMs`는 유예창(기본 0=지난 것 전부, 양수면 poll-interval 노이즈 억제),
+      정확히 now인 리셋은 지연 아님(strict `>`). CLI `packages/cli/src/overdue.ts`에 순수 `renderOverdue`
+      (표 + 공용 `formatDurationMs` 재사용으로 `3h 12m`/`2d 4h` 일관 + grace/scope note + "worst"/"N more not
+      shown" 푸터, 지연 강조 노랑)·`renderOverdueJson`(upcoming과 동일 envelope). `agentrelay overdue
+      [--limit/-n] [--threshold] [--tool] [--project] [--since] [--until] [--json]` — 공용 `buildScope` 재사용,
+      completion 자동 포함. 새 파서/시계 로직 0줄. core overdue 13 + cli overdue 8 신규 테스트, 실제 빌드
+      CLI e2e로 정렬(most-overdue first)·`formatDurationMs`·threshold 유예창·--limit 부분표시+정직한 totals·
+      --project 스코프·healthy(빈) 케이스·--limit 0/--threshold bogus 에러(exit 1)·--json 검증. branch
+      `claude/wizardly-pascal-a15ovs`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
