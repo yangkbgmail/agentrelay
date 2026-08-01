@@ -1,6 +1,12 @@
 import { buildUpcomingTimeline, type RelayJob, type UpcomingTimeline } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson } from "../src/upcoming.js";
+import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "../src/upcoming.js";
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching ANSI escape codes
+const ANSI = /\x1b\[[0-9;]*m/g;
+function stripAnsi(s: string): string {
+  return s.replace(ANSI, "");
+}
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -108,5 +114,48 @@ describe("renderUpcomingJson", () => {
       })
     );
     expect(parsed.scope).toEqual({ projects: ["demo"] });
+  });
+});
+
+describe("renderUpcomingWatchFrame", () => {
+  it("prepends a live title/meta header above the timeline table", () => {
+    const frame = stripAnsi(
+      renderUpcomingWatchFrame({
+        timeline: timeline([job({ id: "soon0000", project: "soon-app", resetAt: at(60 * 60_000) })]),
+        storePath: "/tmp/jobs.json",
+        intervalMs: 3000,
+        now: NOW,
+      })
+    );
+    const lines = frame.split("\n");
+    expect(lines[0]).toContain("agentrelay upcoming");
+    expect(lines[0]).toContain("every 3s");
+    expect(lines[0]).toContain("Ctrl-C");
+    // Meta line carries the timestamp and store path.
+    expect(lines[1]).toContain("2026-07-30 10:00:00Z");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+    // The table itself follows (header + the waiting job).
+    expect(frame).toContain("RESUMES IN");
+    expect(frame).toContain("soon-app");
+  });
+
+  it("rounds the interval to whole seconds in the header", () => {
+    const frame = stripAnsi(
+      renderUpcomingWatchFrame({ timeline: timeline([]), storePath: "/tmp/jobs.json", intervalMs: 1500, now: NOW })
+    );
+    expect(frame).toContain("every 2s");
+  });
+
+  it("carries the scope note into the frame", () => {
+    const frame = stripAnsi(
+      renderUpcomingWatchFrame({
+        timeline: timeline([]),
+        storePath: "/tmp/jobs.json",
+        intervalMs: 2000,
+        now: NOW,
+        scopeNote: "project=demo",
+      })
+    );
+    expect(frame).toContain("scope: project=demo");
   });
 });

@@ -1,6 +1,12 @@
 import { buildOverdueReport, type OverdueReport, type RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_OVERDUE_MESSAGE, renderOverdue, renderOverdueJson } from "../src/overdue.js";
+import { NO_OVERDUE_MESSAGE, renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "../src/overdue.js";
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching ANSI escape codes
+const ANSI = /\x1b\[[0-9;]*m/g;
+function stripAnsi(s: string): string {
+  return s.replace(ANSI, "");
+}
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -107,5 +113,47 @@ describe("renderOverdueJson", () => {
       })
     );
     expect(parsed.scope).toEqual({ projects: ["demo"] });
+  });
+});
+
+describe("renderOverdueWatchFrame", () => {
+  it("prepends a live title/meta header above the overdue table", () => {
+    const frame = stripAnsi(
+      renderOverdueWatchFrame({
+        report: report([job({ id: "stuck000", project: "stuck-app", resetAt: at(-60 * 60_000) })]),
+        storePath: "/tmp/jobs.json",
+        intervalMs: 5000,
+        now: NOW,
+      })
+    );
+    const lines = frame.split("\n");
+    expect(lines[0]).toContain("agentrelay overdue");
+    expect(lines[0]).toContain("every 5s");
+    expect(lines[0]).toContain("Ctrl-C");
+    expect(lines[1]).toContain("2026-07-30 10:00:00Z");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+    expect(frame).toContain("OVERDUE BY");
+    expect(frame).toContain("stuck-app");
+  });
+
+  it("shows the keeping-up message inside the frame when nothing is overdue", () => {
+    const frame = stripAnsi(
+      renderOverdueWatchFrame({ report: report([]), storePath: "/tmp/jobs.json", intervalMs: 2000, now: NOW })
+    );
+    expect(frame).toContain("agentrelay overdue");
+    expect(frame).toContain(NO_OVERDUE_MESSAGE);
+  });
+
+  it("carries the scope note into the frame", () => {
+    const frame = stripAnsi(
+      renderOverdueWatchFrame({
+        report: report([job({ id: "stuck000", project: "demo" })]),
+        storePath: "/tmp/jobs.json",
+        intervalMs: 2000,
+        now: NOW,
+        scopeNote: "project=demo",
+      })
+    );
+    expect(frame).toContain("scope: project=demo");
   });
 });

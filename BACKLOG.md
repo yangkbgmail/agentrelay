@@ -634,6 +634,24 @@
       13 + cli overdue 10 신규 테스트, 실제 빌드 CLI e2e로 grace 유예·정렬·스코프·JSON·에러 exit·빈 스토어
       검증. branch `claude/wizardly-pascal-pvjg81`)
 
+- [x] 👷 `agentrelay upcoming --watch` / `overdue --watch` — 재개 타임라인·지연 진단을 라이브로 갱신
+      (화면을 지우고 N초마다 재렌더, 카운트다운이 제자리에서 째깍). `status --watch`(세션 초기)에만 있던
+      라이브 뷰를 세션 49·50이 후속으로 지목한 두 인접 커맨드로 확장.
+      (완료 — 세 `--watch` 뷰가 공유하는 인프라를 CLI에 도입: 순수 `parseWatchInterval(value)`(commander의
+      `[seconds]` string|true|undefined를 ms로, 미지정·비양수·파싱불가는 2s 폴백 → 오타가 라이브 뷰를 조용히
+      끄지 않음)와 제네릭 `runWatchLoop(intervalMs, draw)`(화면 클리어 `\x1b[2J\x1b[H` + `draw()` 프레임을
+      setInterval로 반복, 매 패스 스토어 재읽기라 데몬 쓰기 자동 반영, SIGINT/SIGTERM에 정리 후 exit 0).
+      기존 `runWatch`(status)를 이 헬퍼 위로 리팩터해 로직 중복 제거. CLI `upcoming.ts`에 순수
+      `renderUpcomingWatchFrame`·`overdue.ts`에 `renderOverdueWatchFrame`(status의 `renderWatchFrame` 미러 —
+      title[커맨드명+every Ns+Ctrl-C] + meta[타임스탬프·스토어 경로] + 컬러 테이블, `now` 주입 가능해
+      결정론). `upcoming`·`overdue`에 `-w, --watch [seconds]` 배선: 스코프(--since/--until 시간 창 포함)는
+      명령 시작 시 절대 epoch-ms로 **한 번** 해소해 창 경계는 고정, 매 패스 스토어 재읽기+카운트다운/overdue
+      스팬 재계산(overdue는 stuck relay가 데몬 재시작 후 제자리에서 비는 걸 지켜보기 좋음). `--watch`+`--json`은
+      일회성 JSON으로 폴백(무한 루프 방지). 새 core 로직 0줄 — 전부 CLI 렌더/루프. cli upcoming +3 / overdue +3
+      신규 테스트(ANSI 스트립 후 프레임 헤더·메타·테이블·스코프 노트·초 반올림 단언), 실제 빌드 CLI e2e로
+      두 커맨드의 라이브 프레임(화면 클리어·title·카운트다운/overdue 스팬)·help 노출·--watch+--json 폴백·
+      에러 exit 검증. branch `claude/wizardly-pascal-cs1wvv`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
