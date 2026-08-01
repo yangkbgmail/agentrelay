@@ -1610,3 +1610,28 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — `upcoming --watch` / `overdue --watch` 라이브 갱신 TUI] (2026-08-01, 무인 자율 세션, branch `claude/wizardly-pascal-tpd1wl`)
+- **맥락:** 이전 designated 브랜치의 PR이 병합돼 origin에서 삭제된 상태 → 지침대로 최신 main(24a8b3e)에서
+  같은 이름 브랜치를 재시작. BACKLOG의 순수 👷 항목은 전부 완료라, 세션 50이 "다음 할 일"로 지목한 인접
+  후보(`upcoming --watch`/`overdue --watch`)를 스스로 발굴·구현.
+- **한 일:** **`agentrelay upcoming`·`overdue`에 `-w, --watch [seconds]` 라이브 뷰 추가.** `status --watch`가
+  이미 제공하던 "화면 클리어 + 매 N초 재렌더하는 카운트다운 TUI"를 두 형제 명령으로 확장.
+  - CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame(timeline, storePath, intervalMs, {now,scopeNote})`·
+    `overdue.ts`에 `renderOverdueWatchFrame(report, …)` 신설 — `status`의 `renderWatchFrame`과 동일한
+    title/meta(라이브 배너 `(live, every Ns — Ctrl-C to exit)` + ISO 스탬프 + 스토어 경로) 블록으로
+    기존 `renderUpcoming`/`renderOverdue` 표를 감쌈(항상 color).
+  - `cli.ts`의 `runWatch`(status 전용)를 제네릭 `runWatchLoop(frame, intervalMs)`(화면 클리어 + setInterval
+    재페인트 + SIGINT/SIGTERM 클린 종료)로 추출해 세 명령이 공유, `--watch [seconds]` 파싱을 공용
+    `watchIntervalMs`(bare `--watch`·비양수·NaN은 기본 2s)로 통일. status 액션도 이 헬퍼를 쓰도록 정리.
+  - `upcoming`/`overdue` 액션에 watch 분기 배선 — 매 패스마다 스토어를 재읽기하고, `--since`/`--until` 창
+    경계(명령 시작 시 고정된 절대 epoch-ms)로 스코프를 재적용한 뒤 **프레시 clock**으로 timeline/report를
+    재빌드 → 카운트다운·overdue 스팬이 제자리에서 갱신되고 데몬의 라이브 쓰기도 반영. 스코프 노트는 고정.
+  - 새 core 로직 0줄 — 전부 기존 검증된 순수 렌더러(`renderUpcoming`/`renderOverdue`) 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli 278/1skip + dashboard 7; cli upcoming +3 / overdue +4 신규 포함). 빌드된 실제 CLI
+  e2e(mock 아님): 2-잡 임시 스토어(미래/지연)로 `upcoming --watch 5`(배너 "every 5s"·타임라인·`due now`),
+  `overdue --watch --grace 0s`(기본 2s·overdue 표·resume-loop 힌트), `--project` 스코프 노트, 두 `--help`에
+  `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목: `next --watch`(단일 카운트다운
+  상태바용) 또는 파서 rate-limit 포맷 회귀 보강 등. README/ARCHITECTURE는 여전히 🧭 코워크 소유.

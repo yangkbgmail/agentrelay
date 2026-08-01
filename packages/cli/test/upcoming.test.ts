@@ -1,6 +1,6 @@
 import { buildUpcomingTimeline, type RelayJob, type UpcomingTimeline } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson } from "../src/upcoming.js";
+import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "../src/upcoming.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -83,6 +83,35 @@ describe("renderUpcoming", () => {
     const out = renderUpcoming(timeline([job()]), { now: NOW, color: false });
     // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting no escapes.
     expect(out).not.toMatch(/\x1b\[/);
+  });
+});
+
+describe("renderUpcomingWatchFrame", () => {
+  it("wraps the timeline with a live title/meta block and the store path", () => {
+    const out = renderUpcomingWatchFrame(timeline([job()]), "/tmp/jobs.json", 2000, { now: NOW });
+    expect(out).toContain("agentrelay upcoming");
+    expect(out).toContain("live, every 2s");
+    expect(out).toContain("Ctrl-C to exit");
+    // ISO stamp for NOW (2026-07-30 10:00:00) and the store path in the meta line.
+    expect(out).toContain("2026-07-30 10:00:00");
+    expect(out).toContain("/tmp/jobs.json");
+    // The wrapped table content (a countdown row) is present.
+    expect(out).toContain("RESUMES IN");
+  });
+
+  it("rounds the interval to whole seconds and always colors the frame", () => {
+    const out = renderUpcomingWatchFrame(timeline([job()]), "/tmp/jobs.json", 5000, { now: NOW });
+    expect(out).toContain("live, every 5s");
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting escapes present.
+    expect(out).toMatch(/\x1b\[/);
+  });
+
+  it("forwards the scope note into the wrapped table", () => {
+    const out = renderUpcomingWatchFrame(timeline([job()]), "/tmp/jobs.json", 2000, {
+      now: NOW,
+      scopeNote: "project=demo",
+    });
+    expect(out).toContain("scope: project=demo");
   });
 });
 
