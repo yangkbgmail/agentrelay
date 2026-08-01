@@ -58,6 +58,28 @@ export function renderUpcoming(
 }
 
 /**
+ * One frame of the live `--watch` view: a title/header block (with the store
+ * path, refresh interval, and a UTC timestamp) plus the timeline table. Mirrors
+ * `status`'s `renderWatchFrame` so the watch loop in cli.ts only has to clear
+ * the screen and print this. Pure: `now` drives both the countdowns and the
+ * stamp, so a fixed `now` renders deterministically in tests.
+ */
+export function renderUpcomingWatchFrame(
+  timeline: UpcomingTimeline,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now(),
+  scopeNote?: string
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay upcoming${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderUpcoming(timeline, { now, color: true, scopeNote })].join("\n");
+}
+
+/**
  * Machine-readable form for `--json` (scripts/jq). Carries the store path, a
  * generation timestamp, the optional active scope, and the full timeline —
  * entries plus the honest totals (`totalWaiting`/`hidden`/`dueNow`).

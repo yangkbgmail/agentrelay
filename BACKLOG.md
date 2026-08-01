@@ -634,6 +634,19 @@
       13 + cli overdue 10 신규 테스트, 실제 빌드 CLI e2e로 grace 유예·정렬·스코프·JSON·에러 exit·빈 스토어
       검증. branch `claude/wizardly-pascal-pvjg81`)
 
+- [x] 👷 `agentrelay upcoming --watch` / `overdue --watch` — 카운트다운·지연 뷰의 라이브 갱신(`status
+      --watch`와 동형). 세션 49/50이 "다음 할 일"로 남긴 인접 후보.
+      (완료 — `status`만 있던 `--watch` 라이브 뷰를 두 카운트다운 명령으로 확장. 화면을 지우고 N초마다
+      재렌더하는 루프를 `runFrameWatch(intervalMs, () => frame)` 제네릭 헬퍼로 추출(기존 `runWatch`도
+      이를 재사용, `parseWatchInterval`로 `-w [seconds]` 파싱[기본 2s] 공통화). CLI `upcoming.ts`에
+      순수 `renderUpcomingWatchFrame`·`overdue.ts`에 `renderOverdueWatchFrame` 신설: `status`의
+      `renderWatchFrame`과 동일한 제목/타임스탬프/스토어경로 헤더 + 기존 `renderUpcoming`/`renderOverdue`
+      테이블. 매 프레임 스토어를 다시 읽고 fresh clock으로 timeline/report를 재계산 → upcoming은
+      카운트다운이 줄고 overdue는 `OVERDUE BY`가 계속 늘어남. `--tool`/`--project`/`--since`/`--until`
+      스코프는 명령 시작 시 고정된 절대 경계로 매 프레임 재적용(라이브 쓰기는 계속 반영). 새 파서/
+      스케줄러 로직 0줄. cli upcoming +3 / overdue +3 신규 테스트, 실제 빌드 CLI e2e로 라이브 프레임·
+      스코프·기본/커스텀 간격 검증. branch `claude/wizardly-pascal-kr4cvx`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
