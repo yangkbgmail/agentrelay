@@ -1583,3 +1583,23 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 지연 재개 진단 신규 구현] (2026-08-01, 무인 자율 세션, branch `claude/wizardly-pascal-bvr3rw`)
+- **한 일:** 세션 49가 후속으로 지목한 `overdue`(지연 재개 진단)를 구현. `upcoming`은 **미래** 활주로(무엇이
+  언제 재개되나)를 보여주지만, "재개됐어야 할 시각이 이미 지났는데도 아직 `waiting_for_reset`인" 잡을 짚어낼
+  수단이 없었다. 살아있는 데몬에서 이 리스트가 비면 정상, 비어있지 않으면 재개 루프가 멈춘 것(데몬 사망·어댑터
+  바이너리 부재·스토어 쓰기 실패)이라는 **경보**다. core `overdue.ts` 신설(순수): `buildOverdueReport(jobs,
+  now, limit?)`가 `waiting_for_reset` + 파싱 가능 `resetAt`이면서 `resetAt < now`(정확히 now는 "due"이지
+  overdue 아님)인 잡만 **가장 오래 밀린 순**(reset 이른 순→createdAt→id)으로 정렬, 각 행 `overdueByMs`(항상
+  양수)·`position` + `totalOverdue`/`hidden`/`worstOverdueByMs`(limit로 잘라도 totals 정직). CLI `overdue.ts`에
+  순수 `renderOverdue`(worst-first 표·overdue 셀 빨강·`formatElapsed`로 `1m`/`3h 15m`/`2d 4h` 경과 포맷·scope
+  note·"N more not shown" 푸터)·`renderOverdueJson`. `agentrelay overdue [--limit/-n][--tool][--project][--since]
+  [--until][--exit-code][--json]` — 공용 `buildScope` 재사용, `--exit-code`는 overdue 존재 시 exit 1(cron/health
+  경보용). index.ts 재노출. 새 파서/시계 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/에러**·`pnpm test`
+  **전 패키지 통과**(core 544 + cli 276/1skip + dashboard 7; core overdue 11 + cli overdue 14 신규 포함). 빌드된
+  실제 CLI e2e(mock 아님): 4-잡 임시 스토어(5h·30m overdue + 미래 + completed)로 `overdue`(worst-first 정렬·
+  경과 포맷), `--limit 1`(부분표시 + "1 more not shown"), `--project web-app`(스코프 부분집합), `--exit-code`
+  (overdue 있음 exit 1 / 빈 큐 exit 0), `--json`(envelope·totals) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch`/`upcoming --watch`
+  라이브 갱신, doctor/health에 overdue 카운트 편입 검토. README/ARCHITECTURE(🧭 코워크).
