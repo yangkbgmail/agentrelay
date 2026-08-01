@@ -1583,3 +1583,27 @@
   (exit 1) 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue`(지연 재개 진단) 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 50 — `agentrelay overdue` 지연 재개 진단 커맨드 신규 구현] (2026-08-01, 무인 자율 세션, branch `claude/wizardly-pascal-isfmnz`)
+- **한 일:** 세션 49가 "다음 할 일"로 남긴 후속 항목을 CLAUDE.md 지침대로 발굴·구현. `agentrelay overdue` —
+  `upcoming`(미래 지향 활주로)의 **뒤를 보는 짝**. `resetAt`이 이미 지났는데도 여전히 `waiting_for_reset`에
+  묶여 있는 잡, 즉 건강한 스케줄러라면 벌써 재개했어야 할 잡을 **가장 많이 지연된 순**으로 보여준다. 비어
+  있지 않은 리포트 = 재개 루프가 멈췄거나·뒤처졌거나·잘못된 스토어를 보고 있다는 가장 명확한 신호(프로젝트
+  전반의 "재개가 조용히 실패" 테마와 직결). core `overdue.ts` 신설(순수·시계/파일시스템 미접촉):
+  `buildOverdueReport(jobs, now, {limit?, graceMs?})`가 `waiting_for_reset`+파싱 가능 `resetAt`+`now−reset >
+  graceMs` 잡만 골라 `upcoming`과 동일 tie-break(resetAt asc→createdAt→id, 의미만 반대)로 정렬, 각 행
+  `overdueByMs`/`position`(1=최다 지연) + `totalOverdue`/`hidden`/`maxOverdueByMs`(limit로 잘라도 totals는
+  정직). `graceMs`(기본 0)로 tick 지연 흡수 — 몇 초 늦어 곧 재개될 잡을 오탐하지 않음. reset==now는 "due지만
+  아직 지연 아님"으로 제외(upcoming의 `due`는 `<=`와 구분). CLI `overdue.ts`에 순수 `renderOverdue`(overdue
+  있으면 빨강 경고 푸터·없으면 초록 all-clear·`formatDurationMs` 재사용·scope note)·`renderOverdueJson`.
+  `agentrelay overdue [-n/--limit][--grace][-t/--tool][-p/--project][--since][--until][--exit-code][--json]` —
+  공용 `buildScope` 재사용, `--exit-code`로 모니터/cron 분기(overdue 있으면 exit 1), completion 자동 포함.
+  index.ts 재노출. 새 파서/스케줄러 코드 0줄.
+- **검증:** 로컬 `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test` **전 패키지 통과**
+  (core 544 + cli 271/1skip + dashboard 7; core overdue 11 + cli overdue 9 신규 포함). 빌드된 실제 CLI e2e(mock
+  아님): 5-잡 임시 스토어로 `overdue`(4h/1h/30s 지연 worst-first 랭킹·경고 푸터), `--grace 1m`(30s 잡 필터),
+  `--limit 1`("2 more not shown"+max 4h 정직), `--project api-svc`(스코프 부분집합), `--json`(totalOverdue=3),
+  `--exit-code`(overdue시 exit 1·빈 스토어 exit 0), `--limit 0`/`--grace nonsense`(exit 1), help·completion
+  노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch` 라이브 갱신·`doctor`가
+  overdue 잡을 경고로 교차 판정 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).

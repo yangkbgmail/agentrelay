@@ -13,6 +13,7 @@ import type {
 } from "@agentrelay/core";
 import {
   ALL_TOOLS,
+  buildOverdueReport,
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
@@ -75,6 +76,7 @@ import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
+import { renderOverdue, renderOverdueJson } from "./overdue.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
@@ -616,6 +618,81 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderUpcoming(timeline, { color: Boolean(process.stdout.isTTY), now, scopeNote }));
+    });
+
+  program
+    .command("overdue")
+    .description("List jobs whose reset has already passed but are still waiting — the resume loop is behind")
+    .option("-n, --limit <n>", "Show at most N rows (the totals still count all overdue jobs)")
+    .option("--grace <duration>", "Only flag jobs more than <duration> past due (e.g. 30s, 5m) — absorbs tick lag")
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--exit-code", "Exit 1 when any job is overdue (for monitors/cron: `agentrelay overdue --exit-code`)")
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/monitors)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # is the relay actually resuming? (empty = healthy)\n" +
+        "  agentrelay overdue\n" +
+        "  # ignore jobs only a little late, then fail a monitor if any remain\n" +
+        "  agentrelay overdue --grace 1m --exit-code\n" +
+        "  # feed the report to a monitor\n" +
+        "  agentrelay overdue --json | jq '.report.totalOverdue'"
+    )
+    .action((opts: ScopeOpts & { limit?: string; grace?: string; exitCode?: boolean; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      let graceMs: number | undefined;
+      if (opts.grace !== undefined) {
+        const ms = parseDuration(opts.grace);
+        if (ms === null || ms < 0) {
+          console.error(`Invalid --grace duration: "${opts.grace}". Use e.g. 30s, 5m, 1h.`);
+          process.exitCode = 1;
+          return;
+        }
+        graceMs = ms;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const scopeNote = built.active ? built.note : undefined;
+      const report = buildOverdueReport(jobs, now, { limit, graceMs });
+
+      if (opts.json) {
+        console.log(
+          renderOverdueJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            report,
+          })
+        );
+      } else {
+        console.log(renderOverdue(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
+      }
+
+      if (opts.exitCode && report.totalOverdue > 0) process.exitCode = 1;
     });
 
   program
