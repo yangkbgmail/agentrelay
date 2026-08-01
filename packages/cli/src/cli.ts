@@ -93,7 +93,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
-import { renderUpcoming, renderUpcomingJson } from "./upcoming.js";
+import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -317,6 +317,42 @@ function runWatch(store: string, intervalMs: number, selection: JobSelection, wi
     const selected = selectJobs(windowed, selection);
     const frame = renderWatchFrame(selected, store, intervalMs, Date.now(), limit);
     // Clear screen + move cursor home, then paint the frame.
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  };
+  draw();
+  const timer = setInterval(draw, intervalMs);
+  const stop = () => {
+    clearInterval(timer);
+    process.stdout.write("\n");
+    process.exit(0);
+  };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+}
+
+/**
+ * Live `agentrelay upcoming --watch`: clears the screen and re-renders the
+ * resume timeline on an interval so the countdowns tick down in place. Like
+ * `runWatch`, `listStatus` re-reads the JSON store each pass, so a running
+ * daemon's writes (a newly-waiting job, a job that just resumed) show up
+ * automatically. The optional scope (`--tool`/`--project`/`--since`/`--until`)
+ * and `--limit` are re-applied every pass; scope boundaries are absolute
+ * epoch-ms fixed when the command started, so live writes still show up while
+ * the window edges stay put. Runs until the process is interrupted (Ctrl-C).
+ */
+function runUpcomingWatch(
+  store: string,
+  intervalMs: number,
+  scope: JobScope | undefined,
+  scopeNote: string | undefined,
+  limit: number | undefined
+): void {
+  const draw = () => {
+    const now = Date.now();
+    const all = listStatus(store);
+    const jobs = scope && isJobScopeActive(scope) ? scopeJobs(all, scope) : all;
+    const timeline = buildUpcomingTimeline(jobs, now, limit);
+    const frame = renderUpcomingWatchFrame(timeline, store, intervalMs, { now, scopeNote });
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   };
   draw();
@@ -568,6 +604,7 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("-w, --watch [seconds]", "Continuously refresh the timeline with live countdowns (Ctrl-C to exit)")
     .option("--json", "Print the timeline as JSON (machine-readable, for scripts/jq)")
     .addHelpText(
       "after",
@@ -576,10 +613,12 @@ export function buildCli(): Command {
         "  agentrelay upcoming\n" +
         "  # just the next 5, for one project\n" +
         "  agentrelay upcoming --limit 5 --project my-app\n" +
+        "  # watch the runway count down live (every 2s by default)\n" +
+        "  agentrelay upcoming --watch\n" +
         "  # feed the timeline to jq\n" +
         "  agentrelay upcoming --json | jq '.timeline.entries[].job.id'"
     )
-    .action((opts: ScopeOpts & { limit?: string; json?: boolean }) => {
+    .action((opts: ScopeOpts & { limit?: string; json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
 
@@ -617,6 +656,20 @@ export function buildCli(): Command {
         );
         return;
       }
+
+      if (opts.watch !== undefined) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        runUpcomingWatch(
+          store ?? defaultStorePath(),
+          intervalMs,
+          built.active ? built.scope : undefined,
+          scopeNote,
+          limit
+        );
+        return; // setInterval keeps the process alive.
+      }
+
       console.log(renderUpcoming(timeline, { color: Boolean(process.stdout.isTTY), now, scopeNote }));
     });
 
