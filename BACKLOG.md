@@ -620,6 +620,20 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay overdue` — 리셋 시각이 이미 지났는데도 아직 재개 안 된 대기 잡을 가장 오래 지연된
+      순으로 조회(`upcoming`의 진단용 거울). 재개 루프가 죽었거나 바이너리 spawn 실패의 무음 실패 신호.
+      (완료 — `@agentrelay/core/overdue.ts` 신설(순수·시계/파일시스템 미접촉): `buildOverdueReport(jobs,
+      now, {graceMs?, limit?})` + `OverdueEntry`(job·overdueByMs)·`OverdueReport`(entries·totalOverdue·
+      hidden·graceMs·maxOverdueByMs)·`OverdueOptions`. `waiting_for_reset`+파싱 가능 `resetAt`이면서
+      `now - resetMs > graceMs`인 잡만 골라 가장 오래 지연된 순(오래된 resetAt→createdAt→id tie-break,
+      next/upcoming과 대칭) 정렬, `graceMs`(기본 0, 음수·비유한 0 클램프)로 방금 due된 잡 오탐 방지,
+      `limit`로 잘라도 totals/maxOverdueByMs는 전체 반영, 입력 불변. CLI `overdue.ts` 순수 `renderOverdue`
+      (표 + 공용 `formatDurationMs` 재사용 + 재개 루프 점검 힌트 + "keeping up" 빈 메시지)·`renderOverdueJson`.
+      `agentrelay overdue [--limit/-n][--grace][--tool][--project][--since][--until][--json]` — 공용
+      `buildScope` 재사용, `--grace` 기본 60s, completion 자동 포함. 새 파서/스케줄러 로직 0줄. core overdue
+      13 + cli overdue 10 신규 테스트, 실제 빌드 CLI e2e로 grace 유예·정렬·스코프·JSON·에러 exit·빈 스토어
+      검증. branch `claude/wizardly-pascal-pvjg81`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
