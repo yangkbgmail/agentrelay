@@ -1610,3 +1610,29 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — `agentrelay upcoming --watch` 라이브 카운트다운 뷰 신규 구현] (2026-08-01, 무인 자율 세션, branch `claude/wizardly-pascal-upcwatch`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료(§3 남은 것은 🧭 문서/공동 QA뿐), 지정 브랜치가
+  최신 main(24a8b3e, #361 overdue 병합)과 정확히 일치(ahead/behind 0). CLAUDE.md 지침대로 세션 50이
+  "다음 할 일"로 남긴 인접 후보 중 하나(`upcoming --watch` — 라이브 갱신)를 스스로 발굴·구현.
+- **한 일:** **`agentrelay upcoming --watch [초]` — 재개 활주로를 실시간으로 지켜보는 라이브 뷰.**
+  `upcoming`은 지금까지 일회성 스냅샷·`--json`만 제공해, 카운트다운이 줄어드는 것을 보려면 매번 재실행해야
+  했다. `status --watch`가 이미 clear-screen + `setInterval` 재렌더 인프라를 갖췄으므로 이를 타임라인에 이식.
+  - CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame(timeline, storePath, intervalMs, {now?, scopeNote?})`
+    신설 — `status`의 `renderWatchFrame`을 미러링해 두 라이브 뷰의 타이틀/메타 헤더가 동일(라이브 타이틀+
+    `every Ns`+Ctrl-C 안내, UTC 타임스탬프+스토어 경로, 그 아래 색상 타임라인 표). `renderUpcoming`을
+    그대로 감싸므로 표·카운트다운·빈 메시지·scope note 전부 일치.
+  - `cli.ts`에 `runUpcomingWatch` 루프 신설(`runWatch` 미러): 매 패스마다 `listStatus`로 스토어 재읽기
+    (데몬의 라이브 쓰기 자동 반영) → `scopeJobs`로 스코프 재적용 → `buildUpcomingTimeline` 재계산 →
+    clear-screen(`\x1b[2J\x1b[H`) 후 프레임 페인트, SIGINT/SIGTERM에 clearInterval+종료. 스코프 경계는
+    명령 시작 시 고정된 절대 epoch-ms(라이브 쓰기는 반영, 창 가장자리는 고정).
+  - `upcoming` 커맨드에 `-w, --watch [초]` 배선(미지정/비양수는 기본 2s, `status --watch`와 동일 규약),
+    `--json`이 `--watch`보다 우선(둘 다 주면 즉시 JSON 출력 후 종료 — 스크립트가 행업 안 함). 새 core 코드
+    0줄 — 기존 검증된 `buildUpcomingTimeline`·`scopeJobs`·`formatCountdown` 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli upcoming.test에 `renderUpcomingWatchFrame` 5케이스 신규 = upcoming 14). 빌드된
+  실제 CLI e2e(mock 아님): 2-잡 임시 스토어로 `upcoming --watch 3`(라이브 프레임: 타이틀·`every 3s`·UTC
+  스탬프·스토어 경로·카운트다운 표·푸터), `--watch --project late-app`(스코프 노트+필터·기본 2s), `--help`
+  (`-w, --watch` 노출), `--watch --json`(JSON 우선·즉시 종료 exit 0) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch`(동일 인프라로
+  대칭 구현)·`next --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).

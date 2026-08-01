@@ -1,6 +1,6 @@
 import { buildUpcomingTimeline, type RelayJob, type UpcomingTimeline } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson } from "../src/upcoming.js";
+import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "../src/upcoming.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -108,5 +108,41 @@ describe("renderUpcomingJson", () => {
       })
     );
     expect(parsed.scope).toEqual({ projects: ["demo"] });
+  });
+});
+
+describe("renderUpcomingWatchFrame", () => {
+  it("prints a live title, the store path, and the interval in seconds", () => {
+    const frame = renderUpcomingWatchFrame(timeline([job()]), "/tmp/jobs.json", 3000, { now: NOW });
+    expect(frame).toContain("agentrelay upcoming");
+    expect(frame).toContain("live, every 3s");
+    expect(frame).toContain("Ctrl-C to exit");
+    expect(frame).toContain("/tmp/jobs.json");
+  });
+
+  it("stamps the injected now (UTC) into the header", () => {
+    const frame = renderUpcomingWatchFrame(timeline([job()]), "/tmp/jobs.json", 2000, { now: NOW });
+    expect(frame).toContain("2026-07-30 10:00:00Z");
+  });
+
+  it("embeds the timeline table with live countdowns", () => {
+    const frame = renderUpcomingWatchFrame(timeline([job({ resetAt: at(90 * 60_000) })]), "/tmp/jobs.json", 2000, {
+      now: NOW,
+    });
+    expect(frame).toContain("PROJECT");
+    expect(frame).toContain("1h 30m");
+  });
+
+  it("shows the empty message inside the frame when nothing is waiting", () => {
+    const frame = renderUpcomingWatchFrame(timeline([]), "/tmp/jobs.json", 2000, { now: NOW });
+    expect(frame).toContain(NO_UPCOMING_MESSAGE);
+  });
+
+  it("carries the scope note through to the table", () => {
+    const frame = renderUpcomingWatchFrame(timeline([]), "/tmp/jobs.json", 2000, {
+      now: NOW,
+      scopeNote: "project=demo",
+    });
+    expect(frame).toContain("scope: project=demo");
   });
 });

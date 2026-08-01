@@ -634,6 +634,24 @@
       13 + cli overdue 10 신규 테스트, 실제 빌드 CLI e2e로 grace 유예·정렬·스코프·JSON·에러 exit·빈 스토어
       검증. branch `claude/wizardly-pascal-pvjg81`)
 
+- [x] 👷 `agentrelay upcoming --watch [초]` — 재개 대기 타임라인을 화면을 지우며 N초마다 재렌더하는
+      라이브 카운트다운 뷰(`status --watch`의 타임라인 버전). PROGRESS 세션 49에서 명시한 후속 항목.
+      (완료 — `upcoming`은 지금까지 일회성 스냅샷·`--json`만 제공해, 재개 활주로가 카운트다운으로 줄어드는
+      것을 실시간으로 지켜볼 방법이 없었다(매번 재실행해야 함). `status --watch`는 이미 clear-screen +
+      `setInterval` 재렌더 인프라를 갖췄으므로 이를 타임라인에 그대로 이식. CLI `upcoming.ts`에 순수
+      `renderUpcomingWatchFrame(timeline, storePath, intervalMs, {now?, scopeNote?})` 신설 — `status`의
+      `renderWatchFrame`을 미러링해 두 라이브 뷰의 타이틀/메타 헤더가 동일(라이브 타이틀+`every Ns`+
+      Ctrl-C 안내, UTC 타임스탬프+스토어 경로, 그 아래 색상 타임라인 표). `cli.ts`에 `runUpcomingWatch`
+      루프 신설(`runWatch` 미러): 매 패스마다 `listStatus`로 스토어 재읽기(데몬의 라이브 쓰기 자동 반영)
+      → `scopeJobs`로 스코프 재적용 → `buildUpcomingTimeline` 재계산 → clear-screen(`\x1b[2J\x1b[H`) 후
+      프레임 페인트, SIGINT/SIGTERM에 clearInterval+종료. 스코프 경계는 명령 시작 시 고정된 절대 epoch-ms.
+      `upcoming` 커맨드에 `-w, --watch [초]` 배선(미지정/비양수는 기본 2s, `status --watch`와 동일 규약),
+      `--json`이 `--watch`보다 우선(둘 다 주면 즉시 JSON 출력 후 종료, 행업 방지). 새 core 코드 0줄 —
+      기존 검증된 `buildUpcomingTimeline`·`scopeJobs`·`formatCountdown` 재사용. cli upcoming.test에
+      `renderUpcomingWatchFrame` 5케이스(타이틀/interval/스토어 경로·UTC 스탬프·타임라인 표·빈 메시지·
+      scope note) 추가, 실제 빌드 CLI e2e로 라이브 프레임 페인트·프로젝트 스코프 필터·기본 2s interval·
+      json 우선(즉시 종료) 검증. branch `claude/wizardly-pascal-upcwatch`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
