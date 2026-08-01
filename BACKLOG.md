@@ -634,6 +634,22 @@
       13 + cli overdue 10 신규 테스트, 실제 빌드 CLI e2e로 grace 유예·정렬·스코프·JSON·에러 exit·빈 스토어
       검증. branch `claude/wizardly-pascal-pvjg81`)
 
+- [x] 👷 `agentrelay upcoming --watch` / `overdue --watch` — 재개 대기 타임라인·지연 잡을
+      `status --watch`처럼 라이브 카운트다운 TUI로. PROGRESS 세션 49가 후속으로 지목한 인접 항목.
+      (완료 — `status --watch`(세션에서 이미 존재)의 라이브 뷰 패턴을 형제 명령 `upcoming`/`overdue`에
+      확장. `packages/cli/src/upcoming.ts`에 순수 `renderUpcomingWatchFrame(timeline, storePath,
+      intervalMs, {now,scopeNote})`·overdue.ts에 `renderOverdueWatchFrame(report, …)` 추가 —
+      `status`의 `renderWatchFrame`과 동일한 title/meta(라이브 배너 + ISO 스탬프 + 스토어 경로) 블록으로
+      기존 `renderUpcoming`/`renderOverdue` 표를 감쌈(항상 color). cli.ts의 `runWatch`를 제네릭
+      `runWatchLoop(frame, intervalMs)`(화면 클리어 + 매 tick 재페인트 + SIGINT/SIGTERM 클린 종료)로
+      추출해 세 명령이 공유, `--watch [seconds]` 파싱은 공용 `watchIntervalMs`(bare/비양수는 기본 2s)로
+      통일. `upcoming`/`overdue`에 `-w, --watch [seconds]` 옵션 배선 — 매 패스 스토어 재읽기 →
+      스코프(`--since`/`--until` 경계는 명령 시작 시 고정 절대 epoch-ms) 재적용 → 프레시 clock으로
+      timeline/report 재빌드해 카운트다운·overdue 스팬이 제자리에서 갱신, 데몬의 라이브 쓰기도 반영.
+      새 core 로직 0줄 — 전부 기존 검증된 순수 렌더러 재사용. cli upcoming +3 / overdue +4 신규 테스트,
+      실제 빌드 CLI e2e로 라이브 배너·간격 표기(2s/5s)·타임라인·overdue 표·`--project` 스코프 노트 검증.
+      branch `claude/wizardly-pascal-tpd1wl`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

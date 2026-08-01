@@ -1,6 +1,6 @@
 import { buildOverdueReport, type OverdueReport, type RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_OVERDUE_MESSAGE, renderOverdue, renderOverdueJson } from "../src/overdue.js";
+import { NO_OVERDUE_MESSAGE, renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "../src/overdue.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -81,6 +81,40 @@ describe("renderOverdue", () => {
     const out = renderOverdue(report([job()]), { color: false });
     // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting no escapes.
     expect(out).not.toMatch(/\x1b\[/);
+  });
+});
+
+describe("renderOverdueWatchFrame", () => {
+  it("wraps the report with a live title/meta block and the store path", () => {
+    const out = renderOverdueWatchFrame(report([job()]), "/tmp/jobs.json", 2000, { now: NOW });
+    expect(out).toContain("agentrelay overdue");
+    expect(out).toContain("live, every 2s");
+    expect(out).toContain("Ctrl-C to exit");
+    expect(out).toContain("2026-07-30 10:00:00");
+    expect(out).toContain("/tmp/jobs.json");
+    // The wrapped table content (the overdue column) is present.
+    expect(out).toContain("OVERDUE BY");
+  });
+
+  it("rounds the interval to whole seconds and always colors the frame", () => {
+    const out = renderOverdueWatchFrame(report([job()]), "/tmp/jobs.json", 3000, { now: NOW });
+    expect(out).toContain("live, every 3s");
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting escapes present.
+    expect(out).toMatch(/\x1b\[/);
+  });
+
+  it("forwards the scope note into the wrapped table", () => {
+    const out = renderOverdueWatchFrame(report([job()]), "/tmp/jobs.json", 2000, {
+      now: NOW,
+      scopeNote: "project=demo",
+    });
+    expect(out).toContain("scope: project=demo");
+  });
+
+  it("shows the keeping-up message inside the frame when nothing is overdue", () => {
+    const out = renderOverdueWatchFrame(report([]), "/tmp/jobs.json", 2000, { now: NOW });
+    expect(out).toContain("agentrelay overdue");
+    expect(out).toContain(NO_OVERDUE_MESSAGE);
   });
 });
 
