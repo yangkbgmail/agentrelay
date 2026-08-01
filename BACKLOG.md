@@ -620,6 +620,16 @@
       core upcoming 10 + cli upcoming 9 신규 테스트, 실제 빌드 CLI e2e로 정렬·카운트다운·due now·--limit
       부분표시·--project 스코프·--json·--limit 0 에러(exit 1) 검증. branch `claude/wizardly-pascal-tw6lzf`)
 
+- [x] 👷 `agentrelay tools` — 큐에 존재하는 에이전트 툴을 툴별 잡 집계·타이밍과 함께 조회(세션 48 `projects`의
+      툴 축 대칭). `--tool` 필터는 status/stats/export/cancel/retry/metrics/patterns/errors/upcoming가 전부
+      키로 쓰지만, 어떤 툴이 스토어에 있는지·어디에 대기 작업이 몰렸는지 발견하는 수단이 없었다.
+      (완료 — core `tools.ts` 신설(순수): `summarizeTools(jobs)`→`ToolsSummary`(total·toolCount·tools[]),
+      툴별 total/active/terminal/waiting + nextResetAt(대기 잡 사전식 min)·lastActivityAt(max updatedAt),
+      랭킹 active desc→total desc→이름 asc. `stats.byTool` 고정 zero-fill과 달리 **실제 등장 툴만** 행 생성.
+      CLI `tools.ts` 순수 `renderTools`(카운트다운·idle·scope note·no-match)·`renderToolsJson`(projects/stats와
+      동일 envelope), `agentrelay tools [--json]` + 공용 `buildScope` 재사용. core 8 + cli 8 신규 테스트, 실제
+      빌드 CLI e2e로 랭킹·카운트다운·스코프·--json·에러 exit 검증. branch `claude/wizardly-pascal-6ebhb9`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
