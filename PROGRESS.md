@@ -1610,3 +1610,29 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — `agentrelay upcoming/overdue --watch` 라이브 뷰 신규 구현] (2026-08-01, 무인 자율 세션, branch `claude/wizardly-pascal-kr4cvx`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료(§3 남은 것은 🧭 문서/공동 QA뿐), 지정 브랜치가
+  최신 main(24a8b3e, #361 overdue 병합)과 정확히 일치(ahead/behind 0). CLAUDE.md 지침대로 세션 49·50이
+  "다음 할 일"로 남긴 인접 후보(`upcoming --watch`·`overdue --watch` 라이브 갱신)를 스스로 발굴·구현.
+- **한 일:** **카운트다운/지연 뷰의 라이브 `--watch`.** 지금까지 `--watch`(화면 클리어 + N초 재렌더)는
+  `status`에만 있었다. `upcoming`(재개 활주로)·`overdue`(지연 진단)는 본질적으로 시간에 따라 변하는
+  카운트다운 뷰라 라이브 갱신이 가장 잘 맞는데도 일회성 출력뿐이었다.
+  - CLI `cli.ts`: `status`의 watch 루프를 제네릭 `runFrameWatch(intervalMs, () => frame)`으로 추출(기존
+    `runWatch`도 이를 재사용). `-w/--watch [seconds]` 파싱을 공용 `parseWatchInterval`(기본 2s)로 통일.
+    `upcoming`·`overdue` 액션에 `-w/--watch` 옵션 + watch 브랜치 추가 — 매 프레임 스토어를 다시 읽고
+    fresh clock으로 timeline/report를 재계산(upcoming은 카운트다운이 줄고, overdue는 `OVERDUE BY`가
+    계속 늘어남). `--tool/--project/--since/--until` 스코프는 명령 시작 시 고정된 절대 경계로 매 프레임
+    재적용(라이브 쓰기는 계속 반영, status --watch와 동일 관례).
+  - CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame`·`overdue.ts`에 `renderOverdueWatchFrame` 신설:
+    `status`의 `renderWatchFrame`과 동일한 제목("agentrelay upcoming/overdue (live, every Ns …)")·UTC
+    타임스탬프·스토어 경로 헤더 + 기존 `renderUpcoming`/`renderOverdue` 테이블(색상 on). 스코프 노트도
+    프레임 안으로 전달. 새 파서/스케줄러 로직 0줄 — 기존 렌더·집계 함수 전부 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·
+  `pnpm test` **전 패키지 통과**(core 545 + cli 277/1skip + dashboard 7; cli upcoming +3·overdue +3 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 2-잡 임시 스토어(2h 지연/45m 미래)로 `upcoming --watch 3`(제목·every 3s·
+  타임스탬프·"due now"/"45m" 카운트다운·totals 프레임), `overdue --watch`(기본 every 2s·grace 1m·overdue
+  테이블·힌트), `overdue --watch --project app-one`(스코프 노트 적용), `--help`에 `-w/--watch` 노출·일회성
+  경로 무변경 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `next --watch`(단일 행 라이브)·
+  `projects --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
