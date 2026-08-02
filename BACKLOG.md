@@ -647,6 +647,22 @@
       자동 포함. 새 파서/시계 로직 0줄. core tools 8 + cli tools 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·
       카운트다운·idle·스코프 부분집합·--json·에러 exit·completion 포함 검증. branch `claude/wizardly-pascal-tools`)
 
+- [x] 👷 `agentrelay upcoming --watch [seconds]` — 재개 타임라인을 화면 지우고 N초마다 재렌더하는 라이브
+      카운트다운 뷰. `status --watch`(세션 8)는 큐 전체를 생성순으로 덤프하는 반면, `upcoming`은 임박한 재개
+      순 활주로(runway)라 라이브로 볼 때 "다음 재개가 얼마 남았고 뒤에 뭐가 줄 서 있나"가 시시각각 갱신되는
+      것이 훨씬 유용한데, 세 형제 뷰(테이블/--json) 중 라이브 모드만 빠져 있었다(여러 세션의 "다음 할 일"에
+      반복 제안됨).
+      (완료 — CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame(timeline, storePath, intervalMs, now, scopeNote?)`
+      추가: `status`의 `renderWatchFrame`를 미러링(제목·간격·타임스탬프·스토어 경로 meta 블록 + 컬러 타임라인),
+      `now` 주입으로 카운트다운/타임스탬프 결정론 유지. `cli.ts`는 `runWatch`의 인터벌+SIGINT/SIGTERM 처리를
+      공용 `startWatchLoop(intervalMs, draw)` 헬퍼로 추출해 status/upcoming이 화면 클리어·페인트·정리 로직을
+      공유(중복 제거), `runUpcomingWatch`가 매 프레임 스토어 재읽기→`scopeJobs`(고정된 절대 epoch-ms 경계로
+      --tool/--project/--since/--until 재적용)→`buildUpcomingTimeline(now)`로 재빌드해 데몬 재개가 활주로에서
+      실시간으로 빠짐. `upcoming`에 `-w, --watch [seconds]`(기본 2s) 배선(--json과 상호배타, 라이브 모드 우선),
+      help 예시 추가. 새 core 로직 0줄 — 기존 `buildUpcomingTimeline`/`scopeJobs`/`buildScope`/`renderUpcoming`
+      재사용. cli upcoming +3 신규 테스트(프레임 메타·빈 메시지·scope note), 실제 빌드 CLI e2e로 라이브 프레임
+      렌더·1s 간격·help 노출 검증. branch `claude/wizardly-pascal-ptwcd3`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
