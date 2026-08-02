@@ -1635,3 +1635,28 @@
   `--tool nope`(exit 1), completion에 `tools` 포함 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools`/`projects`에 `--watch`
   라이브 갱신, `upcoming --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 52 — `agentrelay recent` 최근 해결 잡 피드] (2026-08-02, 무인 자율 세션)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다.
+  시간 축 뷰 패밀리 — `next`(가장 임박한 재개 하나)·`upcoming`(미래 대기 타임라인)·`overdue`(지연된
+  대기 잡) — 는 전부 **앞으로/막힌 것**만 보여줬고, 정작 "릴레이가 방금 무엇을 끝냈나"(rear-view)를
+  한눈에 보는 수단이 없어 `status --sort updated --reverse`로 우회해야 했다.
+- **한 일 (branch `claude/wizardly-pascal-l6jasa`):** `agentrelay recent` — 시간 축 뷰의 백미러.
+  - core `recent.ts` 신설(순수·파일시스템/시계 미접촉): `buildRecentActivity(jobs, now, {limit?})` +
+    `RecentReport`(entries·total·hidden)·`RecentEntry`(job·ageMs·resolutionMs). `TERMINAL_STATUSES`
+    (completed/failed/cancelled)만 골라 updatedAt desc→createdAt desc→id asc 결정적 정렬. `ageMs`는
+    now−updatedAt(clock-skew 미래값은 0 클램프, 파싱불가 null), `resolutionMs`는 updatedAt−createdAt
+    (음수·파싱불가는 null — TimingStats의 skip-don't-clamp 정책과 일치). limit로 잘라도 total 정직.
+    terminal-only라 upcoming/overdue(waiting 집합)와 절대 안 겹침(상보 관계).
+  - CLI `recent.ts`에 순수 `renderRecent`(표 ID·PROJECT·STATUS·WHEN·TOOK, `formatDurationMs` 재사용으로
+    "just now"/"2h 5m ago"·scope note·hidden 푸터, color 게이트)·`renderRecentJson`(overdue와 동일
+    envelope). `agentrelay recent [-n/--limit][--status][--tool][--project][--since][--until][--json]` +
+    공용 `buildScope` 재사용, completion 자동 포함. index.ts 재노출. 새 파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 564 + cli 289/1skip + dashboard 7; core recent 11 + cli recent 10 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 4-잡 임시 스토어(completed/failed/cancelled 3 + waiting 1)로 `recent`
+  (최신순·waiting 제외), `--status failed`·`--project web -n 1`(스코프+limit 푸터), `--json`(envelope),
+  빈 스토어 메시지, `-n 0`·`--status bogus`(exit 1), completion에 `recent` 포함 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `recent`/`upcoming`/`tools`/
+  `projects`에 `--watch` 라이브 갱신 검토. README/ARCHITECTURE(🧭 코워크).
