@@ -1610,3 +1610,27 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — `upcoming`/`overdue --watch` 라이브 갱신 + 공유 watch 루프 추출] (2026-08-02, 무인 자율 세션, branch `claude/wizardly-pascal-0au7em`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목 전부 완료(§3 남은 것은 🧭 문서/공동 QA뿐), 지정 브랜치가 최신
+  main(24a8b3e, #361 overdue 병합)과 정확히 일치(ahead/behind 0). 세션 50이 "다음 할 일"로 남긴 인접 후보를
+  스스로 발굴·구현: 라이브 `--watch`는 `status`만 지원했고, 재개 활주로를 보여주는 `upcoming`과 지연을
+  진단하는 `overdue`는 카운트다운을 보려면 매번 명령을 다시 쳐야 했다.
+- **한 일:** **`agentrelay upcoming --watch` / `overdue --watch` — 화면 지우고 N초마다 재렌더하는 라이브 뷰.**
+  - CLI `cli.ts`에 제네릭 `runWatchLoop(intervalMs, buildFrame)`(화면 클리어+매 tick `buildFrame()` 재페인트,
+    SIGINT/SIGTERM 정리 종료)와 `parseWatchInterval`(bare 플래그→2s 기본, 양수 초→ms)을 추출하고, 기존
+    `status`의 `runWatch`를 이 헬퍼에 위임하도록 리팩터(중복 제거·watch 인터벌 파싱 3곳 일원화).
+  - `upcoming.ts`·`overdue.ts`에 순수 `renderUpcomingWatchFrame`/`renderOverdueWatchFrame`(라이브 배너 +
+    타임스탬프 + 스토어 경로 + 기존 표, `status`의 `renderWatchFrame` 관례 미러) 신설. 매 프레임 스토어를
+    재오픈(별도 daemon/tick 쓰기 자동 반영)하고 `now`를 새로 잡아 `buildUpcomingTimeline`/`buildOverdueReport`
+    재계산 후 스코프 필터(--tool/--project/--since/--until)·limit·grace를 그대로 적용.
+  - `upcoming`·`overdue` 액션에 `-w, --watch [seconds]` 배선(help 예시 포함). 부수 견고화: watch 루프가 출력
+    파이프 닫힘(예: `| head`)에 EPIPE로 크래시하던 것을 `stdout` error 핸들러로 조용히 정리 종료 — 공유
+    헬퍼라 `status --watch`도 함께 개선. 새 core 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·
+  `pnpm test` **전 패키지 통과**(core 545 + cli 277/1skip + dashboard 7; cli upcoming 12[+3]·overdue 12[+3]
+  신규 watch-frame 테스트 포함). 빌드된 실제 CLI e2e(mock 아님): 2-잡 임시 스토어로 `upcoming --watch 1`·
+  `overdue --watch 1` 라이브 프레임(배너·타임스탬프·표·카운트다운), `| head` EPIPE 무크래시(정리 종료),
+  `--json` 공존, `--help` --watch 노출, `status --watch` 회귀 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `projects --watch`·`next --watch`
+  같은 인접 라이브 뷰, 또는 파서 실사용 포맷 보강 검토. README/ARCHITECTURE(🧭 코워크).
