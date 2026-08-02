@@ -425,4 +425,57 @@ describe("RelayScheduler", () => {
     expect(processed).toHaveLength(1);
     expect(queue.getById(job.id)?.status).toBe("completed");
   });
+
+  it("caps resumes per tick and spreads the rest across later ticks (most-overdue first)", async () => {
+    // Three jobs all become due, with distinct reset times so ordering is
+    // deterministic: j1 most overdue, j3 least.
+    const mk = (project: string, resetMsAgo: number) => {
+      const job = queue.enqueue({ project, tool: "claude-code", command: ["claude", "-p", project], cwd: dir });
+      queue.markWaitingForReset(job.id, new Date(Date.now() - resetMsAgo).toISOString());
+      return job;
+    };
+    const j1 = mk("oldest", 3000);
+    const j2 = mk("middle", 2000);
+    const j3 = mk("newest", 1000);
+
+    const scheduler = new RelayScheduler({
+      queue,
+      maxResumesPerTick: 1,
+      spawnFn: fakeSpawnFn({
+        "claude -p oldest": "done",
+        "claude -p middle": "done",
+        "claude -p newest": "done",
+      }),
+    });
+
+    // Tick 1: only the single most-overdue job runs; the others stay due.
+    const t1 = await scheduler.tick();
+    expect(t1.map((j) => j.project)).toEqual(["oldest"]);
+    expect(queue.getById(j1.id)?.status).toBe("completed");
+    expect(queue.getById(j2.id)?.status).toBe("waiting_for_reset");
+    expect(queue.getById(j3.id)?.status).toBe("waiting_for_reset");
+
+    // Tick 2: next most-overdue.
+    const t2 = await scheduler.tick();
+    expect(t2.map((j) => j.project)).toEqual(["middle"]);
+    expect(queue.getById(j3.id)?.status).toBe("waiting_for_reset");
+
+    // Tick 3: the last one drains.
+    const t3 = await scheduler.tick();
+    expect(t3.map((j) => j.project)).toEqual(["newest"]);
+    expect(queue.getById(j3.id)?.status).toBe("completed");
+  });
+
+  it("resumes every due job in one tick when no cap is set (default behavior)", async () => {
+    for (const project of ["a", "b", "c"]) {
+      const job = queue.enqueue({ project, tool: "claude-code", command: ["claude", "-p", project], cwd: dir });
+      queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+    }
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({ "claude -p a": "done", "claude -p b": "done", "claude -p c": "done" }),
+    });
+    const processed = await scheduler.tick();
+    expect(processed).toHaveLength(3);
+  });
 });
