@@ -1,0 +1,114 @@
+import { describe, expect, it } from "vitest";
+import { summarizeTools } from "./tools.js";
+import type { AgentTool, RelayJob } from "./types.js";
+
+let seq = 0;
+function job(overrides: Partial<RelayJob> = {}): RelayJob {
+  seq += 1;
+  return {
+    id: `job-${seq}`,
+    project: "alpha",
+    tool: "claude-code",
+    command: ["claude", "-p", "go"],
+    cwd: "/tmp",
+    status: "completed",
+    resetAt: null,
+    createdAt: "2026-07-13T00:00:00.000Z",
+    updatedAt: "2026-07-13T00:00:00.000Z",
+    attempts: 1,
+    lastError: null,
+    lastOutputTail: null,
+    ...overrides,
+  };
+}
+
+describe("summarizeTools", () => {
+  it("returns an empty shape for no jobs", () => {
+    expect(summarizeTools([])).toEqual({ total: 0, toolCount: 0, tools: [] });
+  });
+
+  it("only lists tools that actually appear (no zero-fill)", () => {
+    const summary = summarizeTools([job({ tool: "claude-code" }), job({ tool: "codex-cli" })]);
+    expect(summary.tools.map((t) => t.tool).sort()).toEqual(["claude-code", "codex-cli"]);
+    // "generic" is a known tool but absent → no row for it
+    expect(summary.tools.find((t) => t.tool === "generic")).toBeUndefined();
+  });
+
+  it("groups jobs by tool and counts active vs terminal", () => {
+    const summary = summarizeTools([
+      job({ tool: "claude-code", status: "completed" }),
+      job({ tool: "claude-code", status: "queued" }),
+      job({ tool: "codex-cli", status: "failed" }),
+    ]);
+    expect(summary.total).toBe(3);
+    expect(summary.toolCount).toBe(2);
+
+    const claude = summary.tools.find((t) => t.tool === "claude-code");
+    const codex = summary.tools.find((t) => t.tool === "codex-cli");
+    expect(claude).toMatchObject({ total: 2, active: 1, terminal: 1, waiting: 0 });
+    expect(codex).toMatchObject({ total: 1, active: 0, terminal: 1, waiting: 0 });
+  });
+
+  it("classifies each status as active or terminal correctly", () => {
+    const summary = summarizeTools([
+      job({ tool: "generic", status: "queued" }),
+      job({ tool: "generic", status: "waiting_for_reset" }),
+      job({ tool: "generic", status: "resuming" }),
+      job({ tool: "generic", status: "completed" }),
+      job({ tool: "generic", status: "failed" }),
+      job({ tool: "generic", status: "cancelled" }),
+    ]);
+    const g = summary.tools[0];
+    expect(g.total).toBe(6);
+    expect(g.active).toBe(3); // queued + waiting_for_reset + resuming
+    expect(g.terminal).toBe(3); // completed + failed + cancelled
+    expect(g.waiting).toBe(1); // only waiting_for_reset
+  });
+
+  it("picks the earliest resetAt among waiting jobs as nextResetAt", () => {
+    const summary = summarizeTools([
+      job({ tool: "claude-code", status: "waiting_for_reset", resetAt: "2026-07-13T18:00:00.000Z" }),
+      job({ tool: "claude-code", status: "waiting_for_reset", resetAt: "2026-07-13T15:00:00.000Z" }),
+      // a resetAt on a non-waiting job must not count
+      job({ tool: "claude-code", status: "resuming", resetAt: "2026-07-13T09:00:00.000Z" }),
+    ]);
+    expect(summary.tools[0].nextResetAt).toBe("2026-07-13T15:00:00.000Z");
+  });
+
+  it("leaves nextResetAt null when no job waits (or waiting jobs lack a resetAt)", () => {
+    const summary = summarizeTools([
+      job({ tool: "generic", status: "completed" }),
+      job({ tool: "generic", status: "waiting_for_reset", resetAt: null }),
+    ]);
+    expect(summary.tools[0].nextResetAt).toBeNull();
+    expect(summary.tools[0].waiting).toBe(1);
+  });
+
+  it("tracks the most recent updatedAt as lastActivityAt", () => {
+    const summary = summarizeTools([
+      job({ tool: "codex-cli", updatedAt: "2026-07-13T01:00:00.000Z" }),
+      job({ tool: "codex-cli", updatedAt: "2026-07-13T05:00:00.000Z" }),
+      job({ tool: "codex-cli", updatedAt: "2026-07-13T03:00:00.000Z" }),
+    ]);
+    expect(summary.tools[0].lastActivityAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("ranks by active desc, then total desc, then name asc", () => {
+    // Craft counts so the ranking rules are all exercised. Tool labels here use
+    // the known AgentTool set plus stand-in strings to test the name tiebreak.
+    const summary = summarizeTools([
+      // generic: 1 active, 3 total
+      job({ tool: "generic", status: "queued" }),
+      job({ tool: "generic", status: "completed" }),
+      job({ tool: "generic", status: "completed" }),
+      // claude-code: 2 active, 2 total → top
+      job({ tool: "claude-code", status: "queued" }),
+      job({ tool: "claude-code", status: "resuming" }),
+      // codex-cli: 1 active, 1 total (ties generic on active, loses on total)
+      job({ tool: "codex-cli", status: "queued" }),
+      // aaa-tool: 1 active, 1 total (ties codex-cli fully → name asc wins)
+      job({ tool: "aaa-tool" as AgentTool, status: "queued" }),
+    ]);
+    expect(summary.tools.map((t) => t.tool)).toEqual(["claude-code", "generic", "aaa-tool", "codex-cli"]);
+  });
+});
