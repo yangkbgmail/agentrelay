@@ -1610,3 +1610,28 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — `agentrelay tools` 툴별 큐 인덱스 신규 구현] (2026-08-02, 무인 자율 세션, branch `claude/wizardly-pascal-kcohae`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료(§3 남은 것은 🧭 문서/공동 QA뿐), 지정 브랜치가
+  최신 main(24a8b3e, #361 overdue 병합)과 정확히 일치(ahead/behind 0). CLAUDE.md "무한 개선 백로그" 지침대로
+  발견(discovery) 명령 계열의 gap을 스스로 발굴·구현.
+- **한 일:** **`agentrelay tools` — `projects`의 정확한 형제.** `--tool` 필터는 status/stats/export/cancel/
+  retry/metrics/patterns/errors/projects가 전부 키로 쓰는데(claude-code/codex-cli/generic 어댑터), 정작
+  **어떤 툴이 스토어에 있고 어느 어댑터에 대기가 몰렸는지 발견하는 수단**이 없었다. `projects`가 `job.project`로
+  하듯 `tools`는 `job.tool`로 그룹핑한다. 어댑터는 파서·백오프가 서로 달라 툴별 대기/재개 현황이 의미 있다.
+  - core `tools.ts` 신설(순수·시계/파일시스템 미접촉): `summarizeTools(jobs)` + `ToolsSummary`(total·toolCount·
+    tools)·`ToolBreakdown`(tool·total·active·terminal·waiting·nextResetAt·lastActivityAt). `summarizeProjects`와
+    동일 규칙 — active(queued+waiting_for_reset+resuming)/terminal 분리, waiting 잡의 사전식 min `resetAt`을
+    nextResetAt, max `updatedAt`을 lastActivityAt. **실제 등장한 툴만** 행 생성(zero-fill 아님=discovery 의미).
+    랭킹은 active desc→total desc→이름 asc(**대기 몰린 툴이 맨 위**). 입력 배열 불변.
+  - CLI `tools.ts`에 순수 `renderTools`(표: TOOL·TOTAL·ACTIVE·DONE·NEXT RESET[공용 `formatCountdown` 재사용,
+    idle/—], scope note, 빈 스토어 온보딩/no-match 문구)·`renderToolsJson`(projects/stats와 동일 envelope).
+    `agentrelay tools [--json][--status][--tool][--project][--since][--until]` — 공용 `buildScope` 재사용,
+    completion 자동 포함. index.ts 재노출. 새 파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 554 + cli 279/1skip + dashboard; core tools 9 + cli tools 8 신규 포함). 빌드된 실제
+  CLI e2e(mock 아님): 4-잡 임시 스토어(claude-code 대기 1+완료 1, codex-cli 실패, generic 완료)로 `tools`
+  (랭킹·카운트다운·idle), `--json`(toolCount·per-tool 집계), `--tool codex-cli`/`-s waiting_for_reset`(스코프
+  부분집합), 빈 스토어(온보딩), `--tool nope`(exit 1), completion 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools --watch`·`projects --watch`
+  라이브 갱신, `upcoming/overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
