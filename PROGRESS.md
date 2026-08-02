@@ -1635,3 +1635,29 @@
   `--tool nope`(exit 1), completion에 `tools` 포함 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools`/`projects`에 `--watch`
   라이브 갱신, `upcoming --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 52 — `agentrelay upcoming --watch` 라이브 타임라인] (2026-08-02, 무인 자율 세션, branch `claude/wizardly-pascal-plsxlw`)
+- **배경:** 세션 시작 시 BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)와 공동 소유(👷🧭) 최종 QA뿐. CLAUDE.md 지침대로
+  **새 개선 항목을 발굴**했다. 세션 51의 "다음 할 일"이 명시적으로 `upcoming --watch`를 후속으로 제안.
+  `upcoming`은 재개 활주로(runway)를 카운트다운과 함께 보여주지만 정적 스냅샷이라, 다음 재개가 임박하는
+  걸 지켜보려면 반복 실행해야 했다. `status`엔 이미 `--watch` 라이브 뷰가 있으나 `upcoming`엔 없던 갭.
+- **한 일 (branch `claude/wizardly-pascal-plsxlw`):** `agentrelay upcoming --watch [seconds]` —
+  `status --watch`의 활주로 뷰 버전.
+  - CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame(timeline, storePath, intervalMs, {now,scopeNote})`
+    추가 — `status`의 `renderWatchFrame`을 미러링해 두 라이브 뷰가 동일한 룩(제목 + `YYYY-MM-DD HH:MM:SSZ`
+    타임스탬프·스토어 경로 meta 라인 + 컬러 타임라인)을 공유. 기존 `renderUpcoming`을 color 켜고 재사용.
+  - cli.ts에 `runUpcomingWatch(store, intervalMs, scope, active, scopeNote, limit)` 신설: 매 tick
+    스토어 재읽기(`listStatus`) → 스코프 재적용(`scopeJobs`) → **fresh now로 타임라인 재빌드**
+    (`buildUpcomingTimeline`) → `\x1b[2J\x1b[H`로 화면 클리어 후 프레임 페인트, SIGINT/SIGTERM에 타이머
+    정리 후 종료. `upcoming`에 `-w, --watch [seconds]` 옵션 배선(미지정 초는 기본 2s, `status`와 동일
+    파싱: `Number.parseFloat`→`>0`이면 초 단위, 아니면 2000ms). `--watch`+`--json`은 JSON 우선(watch
+    루프 스킵), 기존 스코프 필터(`--tool`/`--project`/`--since`/`--until`/`--limit`)는 watch에서도 매
+    프레임 재적용. 새 core 로직 0줄 — 전부 기존 검증된 core 함수 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli upcoming 9→13, watch 프레임 4케이스 신규: 제목/meta·초 반올림·빈 상태 scope
+  note·컬러). 빌드된 실제 CLI e2e(mock 아님): 2-잡 임시 스토어(claude-code 대기/codex-cli 대기)로
+  `upcoming --watch 1`(라이브 프레임 캡처 — 제목·meta·정렬·카운트다운), `--watch 1 --project soon-app`
+  (스코프 노트+필터), `--watch --json`(JSON 우선·watch 스킵·즉시 종료) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch`,
+  `tools`/`projects --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
