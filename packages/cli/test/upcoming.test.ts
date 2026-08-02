@@ -1,6 +1,6 @@
 import { buildUpcomingTimeline, type RelayJob, type UpcomingTimeline } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson } from "../src/upcoming.js";
+import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "../src/upcoming.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -83,6 +83,38 @@ describe("renderUpcoming", () => {
     const out = renderUpcoming(timeline([job()]), { now: NOW, color: false });
     // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting no escapes.
     expect(out).not.toMatch(/\x1b\[/);
+  });
+});
+
+describe("renderUpcomingWatchFrame", () => {
+  it("prefixes a live banner with the interval, timestamp, and store path", () => {
+    const out = renderUpcomingWatchFrame(timeline([job({ resetAt: at(90 * 60_000) })]), "/tmp/jobs.json", 2000, {
+      now: NOW,
+    });
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("agentrelay upcoming");
+    expect(lines[0]).toContain("every 2s");
+    expect(lines[1]).toContain("2026-07-30 10:00:00Z");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+  });
+
+  it("embeds the countdown table (colored) below the banner", () => {
+    const out = renderUpcomingWatchFrame(timeline([job({ resetAt: at(90 * 60_000) })]), "/tmp/jobs.json", 5000, {
+      now: NOW,
+    });
+    expect(out).toContain("1h 30m");
+    // A live view is a TTY, so the frame is always colored.
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting escapes are present.
+    expect(out).toMatch(/\x1b\[/);
+  });
+
+  it("rounds the interval to whole seconds and passes the scope note through", () => {
+    const out = renderUpcomingWatchFrame(timeline([]), "/tmp/jobs.json", 1500, {
+      now: NOW,
+      scopeNote: "project=demo",
+    });
+    expect(out).toContain("every 2s");
+    expect(out).toContain("scope: project=demo");
   });
 });
 

@@ -58,6 +58,29 @@ export function renderUpcoming(
 }
 
 /**
+ * One frame of `agentrelay upcoming --watch`: a title banner (with the refresh
+ * interval), a timestamp + store line, then the same table {@link renderUpcoming}
+ * produces (always colored — a live view is a TTY). The caller re-reads the
+ * store and recomputes the timeline each pass with a fresh `now`, so countdowns
+ * tick down in place. Mirrors `status`'s `renderWatchFrame`. Pure: no ambient
+ * clock unless `now` is omitted.
+ */
+export function renderUpcomingWatchFrame(
+  timeline: UpcomingTimeline,
+  storePath: string,
+  intervalMs: number,
+  options: { now?: number; scopeNote?: string } = {}
+): string {
+  const now = options.now ?? Date.now();
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay upcoming${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderUpcoming(timeline, { now, color: true, scopeNote: options.scopeNote })].join("\n");
+}
+
+/**
  * Machine-readable form for `--json` (scripts/jq). Carries the store path, a
  * generation timestamp, the optional active scope, and the full timeline —
  * entries plus the honest totals (`totalWaiting`/`hidden`/`dueNow`).
