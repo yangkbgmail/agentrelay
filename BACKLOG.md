@@ -634,6 +634,20 @@
       13 + cli overdue 10 신규 테스트, 실제 빌드 CLI e2e로 grace 유예·정렬·스코프·JSON·에러 exit·빈 스토어
       검증. branch `claude/wizardly-pascal-pvjg81`)
 
+- [x] 👷 `agentrelay upcoming --watch` / `overdue --watch` — 라이브 갱신 뷰(`status --watch`와 동일한 UX).
+      (완료 — `status`에만 있던 라이브 카운트다운 TUI를 형제 진단 뷰인 `upcoming`(활주로)·`overdue`(지연)에도
+      제공. CLI `upcoming.ts`/`overdue.ts`에 각각 순수 `renderUpcomingWatchFrame`/`renderOverdueWatchFrame`
+      추가(`status`의 `renderWatchFrame` 미러 — 제목/메타 헤더 블록 + 컬러 표, `now` 주입 가능해 TTY·시계
+      없이 테스트). `cli.ts`의 status 전용 watch 루프를 공용 `runViewWatch(intervalMs, renderFrame)`로 추출
+      (화면 클리어+프레임 페인트+SIGINT/SIGTERM 정리) + `parseWatchIntervalMs`(bare 플래그·초 문자열→ms,
+      비양수/파싱불가는 2s 폴백) 공유 — status도 이 헬퍼를 재사용해 중복 제거. `upcoming`/`overdue` 액션에
+      `-w, --watch [seconds]` 배선: 매 프레임 스토어를 재읽어 스코프·리포트를 재계산(overdue 지연 시간이
+      실시간으로 늘어남, 데몬 쓰기가 자동 반영). `--json`은 여전히 watch보다 우선(일회성 출력), `--limit`/
+      `--grace`/스코프 검증은 watch 진입 전 그대로 exit 1. 새 core 로직 0줄 — 기존 `buildUpcomingTimeline`/
+      `buildOverdueReport` 재사용. cli upcoming/overdue 각 watch-frame 3케이스(제목·메타·바디·스코프노트·
+      초 반올림) 신규(cli 277 통과), 실제 빌드 CLI e2e로 두 커맨드 라이브 프레임·`--json --watch` 일회성·
+      `--grace bogus` exit 1·help의 watch 옵션 노출 검증. branch `claude/wizardly-pascal-3rctrk`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
