@@ -1610,3 +1610,26 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — `agentrelay reschedule` 대기 잡 due 시각 수동 교정 신규 구현] (2026-08-02, 무인 자율 세션, branch `claude/wizardly-pascal-mbkj8z`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료(§3 남은 것은 🧭 문서/공동 QA), 지정 브랜치를
+  최신 main(24a8b3e, #361 overdue 병합)으로 리셋. CLAUDE.md 지침대로 인접 개선 항목을 스스로 발굴·구현.
+- **한 일:** **`agentrelay reschedule <id> <when>` — 대기 잡의 due(resetAt) 시각 수동 교정/스누즈.**
+  파서가 리셋 시각을 잘못 추정했을 때(모호한 "try again later"·시계 오차·포맷 오독) 교정하거나,
+  대기 잡을 특정 시각으로 앞당기거나 미루는 수단이 없었다. `retry`는 목표가 *지금* 하나뿐이고 attempts를
+  0으로 리셋해버려 "리셋 budget 유지한 채 시각만 교정"이 불가능했다 — 그 중간 지대를 채운다.
+  - core `reschedule.ts` 신설(순수·시계/파일시스템 미접촉): `RESCHEDULABLE_STATUSES`(queued·waiting_for_reset)·
+    `canReschedule(job)`(resuming은 race 방지로 거부, 종말 상태는 "retry 쓰라" 힌트와 함께 거부)·
+    `parseRescheduleWhen(input, nowMs)`(순서: `now`→duration(`2h`/`90m`/`1d`/`500ms`, `parseDuration` 재사용)→
+    ISO/`Date.parse` 절대시각, 과거 시각 허용=즉시 due)·`isRescheduleTimeError` 내로잉 헬퍼.
+  - queue에 `rescheduleAt(id, at)` 추가: `requeueNow`와 달리 attempts·lastError 보존(시각 교정이지 재실행 아님),
+    상태만 `waiting_for_reset`+resetAt 갱신 → `listDue`가 실제 재개 시점 관장.
+  - CLI `commands.ts`에 `rescheduleJob(id, when, storePath)`(id 해석→guard→시각 파싱→`rescheduleAt`, `at` 포함
+    결과 반환). cli.ts에 `reschedule <id> <when> [--json]` 등록(retry 옆), 예제·"retry와 차이" 도움말 포함,
+    completion 자동 노출. index.ts 재노출. 새 파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 560 + cli 278/1skip + dashboard 7; core reschedule 15 + cli rescheduleJob 7 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): rate-limit 감지로 park된 잡에 `reschedule 2h`(상대)·`now --json`(attempts 보존
+  확인)·ISO 절대시각 적용, `soon`(불명 시각 exit 1)·unknown id(exit 1), `--help`·completion 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `reschedule --all`(스코프 대량 스누즈)·
+  `upcoming/overdue --watch` 라이브 갱신 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).

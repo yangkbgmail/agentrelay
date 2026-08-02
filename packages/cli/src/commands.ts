@@ -35,6 +35,7 @@ import {
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  canReschedule,
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
@@ -53,6 +54,7 @@ import {
   type ImportResult,
   type IneligibleJob,
   isJobScopeActive,
+  isRescheduleTimeError,
   type JobCsvColumn,
   type JobScope,
   type LocationReport,
@@ -62,6 +64,7 @@ import {
   parseConfig,
   parseDaemonHeartbeat,
   parseImportJobs,
+  parseRescheduleWhen,
   partitionForControl,
   planImport,
   RelayQueue,
@@ -497,6 +500,50 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
       ok: true,
       job: updated,
       message: `job ${shortId(job.id)} (${job.project}) queued to resume now — run "agentrelay tick" or the daemon to pick it up`,
+    };
+  } finally {
+    queue.close();
+  }
+}
+
+export interface RescheduleJobResult extends JobControlResult {
+  /** The ISO reset time the job was pointed at (only when `ok`). */
+  at: string | null;
+}
+
+/**
+ * Change when a pending job next becomes due, by full id or short prefix.
+ * `when` is parsed by {@link parseRescheduleWhen} (`now`, a duration like `2h`,
+ * or an ISO timestamp). In-flight and terminal jobs are rejected with a reason;
+ * unlike {@link retryJob} the attempt count is preserved (a time correction, not
+ * a fresh run).
+ */
+export function rescheduleJob(idOrPrefix: string, when: string, storePath?: string): RescheduleJobResult {
+  const queue = openQueue(storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) {
+      return { ok: false, job: null, at: null, message: resolved.error ?? "job not found" };
+    }
+
+    const job = jobs.find((j) => j.id === resolved.id) as RelayJob;
+    const guard = canReschedule(job);
+    if (!guard.ok)
+      return { ok: false, job, at: null, message: `cannot reschedule ${shortId(job.id)}: ${guard.reason}` };
+
+    const parsed = parseRescheduleWhen(when, Date.now());
+    if (isRescheduleTimeError(parsed)) {
+      return { ok: false, job, at: null, message: `cannot reschedule ${shortId(job.id)}: ${parsed.error}` };
+    }
+
+    queue.rescheduleAt(job.id, parsed.at);
+    const updated = queue.getById(job.id) ?? null;
+    return {
+      ok: true,
+      job: updated,
+      at: parsed.at,
+      message: `job ${shortId(job.id)} (${job.project}) rescheduled to ${parsed.at} — run "agentrelay tick" or the daemon to pick it up`,
     };
   } finally {
     queue.close();

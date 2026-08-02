@@ -57,6 +57,7 @@ import {
   pruneJobs,
   readHealthReport,
   readLocationReport,
+  rescheduleJob,
   restoreStore,
   retryJob,
   runCommand,
@@ -1537,6 +1538,50 @@ export function buildCli(): Command {
     describe: "Requeue a job to resume immediately (by id), or every matching job with --all",
     allHelp: "Requeue every matching job to resume now (narrow with the scope filters below)",
   });
+
+  program
+    .command("reschedule")
+    .description("Change when a pending job becomes due — correct a mis-parsed reset, or snooze/advance it")
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .argument("<when>", 'New due time: "now", a duration from now (e.g. 2h, 90m, 1d), or an ISO 8601 timestamp')
+    .option("--json", "Print the result as JSON (machine-readable, for scripts/CI)")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  agentrelay reschedule 1a2b3c4d 2h            # due 2 hours from now",
+        "  agentrelay reschedule 1a2b3c4d now           # due immediately (next tick resumes it)",
+        "  agentrelay reschedule 1a2b3c4d 2026-08-02T18:00:00Z",
+        "",
+        "Unlike `retry`, this preserves the attempt count — it corrects the reset",
+        "time, it doesn't refill the retry budget. Only queued / waiting_for_reset",
+        "jobs can be rescheduled; use `retry` to requeue a finished job.",
+      ].join("\n")
+    )
+    .action((id: string, when: string, opts: { json?: boolean }) => {
+      const { store } = program.opts();
+      const result = rescheduleJob(id, when, store);
+
+      if (opts.json) {
+        console.log(
+          JSON.stringify(
+            {
+              ok: result.ok,
+              at: result.at,
+              message: result.message,
+              job: result.job,
+            },
+            null,
+            2
+          )
+        );
+      } else {
+        console.log(`[agentrelay] ${result.message}`);
+      }
+
+      if (!result.ok) process.exitCode = 1;
+    });
 
   program
     .command("backup")
