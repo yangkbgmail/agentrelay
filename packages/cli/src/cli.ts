@@ -13,6 +13,7 @@ import type {
 } from "@agentrelay/core";
 import {
   ALL_TOOLS,
+  buildAttemptReport,
   buildOverdueReport,
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
@@ -32,6 +33,7 @@ import {
   parseCsvColumns,
   parseDuration,
   renderPrometheusMetrics,
+  retryPolicyFromEnv,
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
   selectNextResume,
@@ -41,6 +43,7 @@ import {
   summarizeTools,
 } from "@agentrelay/core";
 import { Command } from "commander";
+import { renderAttempts, renderAttemptsJson } from "./attempts.js";
 import {
   ALL_JOB_STATUSES,
   type BulkControlAction,
@@ -698,6 +701,98 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderOverdue(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
+    });
+
+  program
+    .command("attempts")
+    .description("Rank jobs by resume-attempt count and flag those about to exhaust their retry budget")
+    .option("-n, --limit <n>", "Show at most N rows (the totals still count all retried jobs)")
+    .option(
+      "--max-attempts <n>",
+      "Retry budget to measure against (default: the effective policy from config/env); 0 = unlimited"
+    )
+    .option("--risk <n>", "Flag a job at risk once this many attempts or fewer remain (default 1)", "1")
+    .option("-s, --status <statuses>", "Only include jobs with these comma-separated statuses")
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # which jobs is the relay working hardest to resume?\n" +
+        "  agentrelay attempts\n" +
+        "  # only jobs still in flight, with a stricter risk bar\n" +
+        "  agentrelay attempts --status queued,waiting_for_reset --risk 2\n" +
+        "  # gate a monitor on any job about to exhaust its budget\n" +
+        "  test \"$(agentrelay attempts --json | jq '.report.atRiskCount')\" = 0\n" +
+        "\nJobs marked ! are within --risk attempts of the budget and will be\n" +
+        "marked failed if they exhaust it — see `agentrelay show <id>`."
+    )
+    .action((opts: ScopeOpts & { limit?: string; maxAttempts?: string; risk?: string; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      let maxAttempts = retryPolicyFromEnv().maxAttempts;
+      if (opts.maxAttempts !== undefined) {
+        const n = Number.parseInt(opts.maxAttempts, 10);
+        if (!Number.isInteger(n) || n < 0) {
+          console.error(
+            `Invalid --max-attempts value "${opts.maxAttempts}". Use a non-negative integer (0 = unlimited).`
+          );
+          process.exitCode = 1;
+          return;
+        }
+        maxAttempts = n;
+      }
+
+      let riskThreshold = 1;
+      if (opts.risk !== undefined) {
+        const n = Number.parseInt(opts.risk, 10);
+        if (!Number.isInteger(n) || n < 0) {
+          console.error(`Invalid --risk value "${opts.risk}". Use a non-negative integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        riskThreshold = n;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const scopeNote = built.active ? built.note : undefined;
+      const report = buildAttemptReport(jobs, { maxAttempts, riskThreshold, limit });
+
+      if (opts.json) {
+        console.log(
+          renderAttemptsJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            report,
+          })
+        );
+        return;
+      }
+      console.log(renderAttempts(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
     });
 
   program

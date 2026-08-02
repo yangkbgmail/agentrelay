@@ -646,6 +646,22 @@
       `agentrelay tools [--json]` + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용, completion
       자동 포함. 새 파서/시계 로직 0줄. core tools 8 + cli tools 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·
       카운트다운·idle·스코프 부분집합·--json·에러 exit·completion 포함 검증. branch `claude/wizardly-pascal-tools`)
+- [x] 👷 `agentrelay attempts` — 잡을 재개 시도 횟수(`job.attempts`) 순으로 랭킹하고, 재시도 예산
+      (`maxAttempts`) 소진에 임박한(=곧 `failed` 처리될) 잡을 조기 경고. `errors`(이미 실패한 잡을 사유별로)·
+      `overdue`(죽은 재개 루프가 방치한 잡)와 달리, **아직 진행 중이지만 소진 직전**인 잡을 미리 잡는 축.
+      (완료 — core `attempts.ts` 신설(순수·파일시스템/시계 미접촉): `buildAttemptReport(jobs, {maxAttempts,
+      riskThreshold, limit})`가 attempts≥1 잡만 랭킹(most-attempted first, tie-break: at-risk→non-terminal→
+      oldest createdAt→id), 비종료(queued/waiting_for_reset/resuming) 잡에만 `remaining = max(0, maxAttempts-
+      attempts)`·`atRisk(remaining≤threshold)` 부여(종료 잡은 절대 at-risk 아님), 예산 0/무한이면 remaining
+      null·경고 없음. totals(`totalJobs`/`withAttempts`/`totalAttempts`/`atRiskCount`/`maxSingleAttempts`)는
+      limit 무관 전체 반영, 입력 불변. CLI `attempts.ts`에 순수 `renderAttempts`(표: `!`마커·ID·PROJECT·
+      TOOL·STATUS·TRIES·LEFT[∞=무한], at-risk 행 빨강+`!`, 푸터 totals·budget·worst·at-risk·hidden·행동 힌트,
+      scope note·빈/no-match 문구, color 게이트)·`renderAttemptsJson`(overdue/tools와 동일 envelope).
+      `agentrelay attempts [--limit/-n][--max-attempts][--risk][--status/--tool/--project/--since/--until][--json]`
+      — 예산 기본값은 실효 정책 `retryPolicyFromEnv().maxAttempts`, 공용 `buildScope` 재사용, completion 자동
+      포함. 새 파서/스케줄러 로직 0줄. core attempts 11 + cli attempts 10 신규 테스트, 실제 빌드 CLI e2e로
+      랭킹·at-risk 마커·∞·스코프 부분집합·--json·에러 exit·completion 포함 검증. branch
+      `claude/wizardly-pascal-3768mf`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
