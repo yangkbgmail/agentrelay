@@ -459,6 +459,20 @@
       실제 빌드 CLI `parse`로 `clock-time-meridiem` 매치 e2e 확인. branch
       `claude/wizardly-pascal-m46r3y`)
 
+- [x] 👷 파서: clock-time 메시지의 타임존을 존중해 정확한 리셋 시각 계산(로컬 오해석 버그 수정).
+      (완료 — 실사용 정확성 버그: `clock-time`/`clock-time-meridiem`이 메시지에 명시된 타임존을
+      무시하고 **호스트 로컬 시각**으로 해석 → UTC 서버에서 데몬을 돌리면 `"reset at 5pm
+      (America/New_York)"`를 5pm UTC로 계산해 실제 리셋보다 **너무 일찍 재개→rate-limit 재충돌→
+      시도 낭비**. 신규 순수 모듈 `@agentrelay/core/tz.ts`: `parseZoneToken`(Z/UTC/GMT→오프셋0,
+      `±HH:MM`/`±HHMM`/`±H` 고정 오프셋[−12..+14 범위검사], IANA 존명은 `Intl.DateTimeFormat`로
+      검증; `ET`/`PST` 등 모호 약어는 거부해 로컬 폴백) + `resolveZonedClockTime`(존 안의 벽시계
+      HH:MM을 now 주변 UTC ±1일 후보로 환산해 가장 이른 미래 인스턴트 선택, IANA는 2-pass 오프셋
+      계산으로 DST[EDT UTC-4 vs EST UTC-5] 정확 처리). 의존성 0개(Node full-ICU 내장 Intl만 사용).
+      파서는 두 clock 패턴 뒤에 옵셔널 `ZONE_SUFFIX` 캡처 그룹 추가 — 존이 있으면 `tz.ts`로,
+      없거나 파싱 불가면 **기존 로컬 동작 그대로**(하위호환). core에 tz.test 9케이스 + parser.test
+      타임존 8케이스, 실제 빌드 CLI `parse`로 ET/오프셋 e2e 확인(전체 563 core 테스트 통과).
+      branch `claude/wizardly-pascal-jxwtb2`)
+
 - [x] 👷 `agentrelay wait <id>` — 특정 잡이 종료 상태에 도달할 때까지 블록 후 결과를 exit code로 반환.
       (완료 — `@agentrelay/core/wait.ts` 신설(순수·시계/스토어 미접촉): `isTerminalStatus`(stats의
       `TERMINAL_STATUSES` 재사용) + `WaitOutcome`(completed/failed/cancelled + 루프 종료 timeout/missing) +

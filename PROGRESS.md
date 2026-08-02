@@ -1610,3 +1610,31 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — 파서: clock-time 메시지의 타임존 존중(로컬 오해석 정확성 버그 수정)] (2026-08-02, 무인 자율 세션, branch `claude/wizardly-pascal-jxwtb2`)
+- **배경:** 세션 시작 시 지정 브랜치를 최신 main(24a8b3e, #361 overdue 병합)에서 새로 판 뒤(ahead/behind 0),
+  👷 명시 BACKLOG 항목이 전부 완료(§3 남은 것은 🧭 문서/공동 QA뿐)임을 확인. `stats --group-by tool`이 이미
+  있어 `tools` 커맨드는 중복이라 판단하고, 대신 CLAUDE.md·SPEC §8("파서 보강")에 따라 **핵심 파서의 실사용
+  정확성 버그**를 스스로 발굴·수정.
+- **문제:** `clock-time`/`clock-time-meridiem` 패턴이 메시지에 명시된 타임존을 **무시하고 호스트 로컬 시각**으로
+  해석. Claude Code는 실제로 `"Your limit will reset at 5pm (America/New_York)."`처럼 존을 명시하는데, UTC
+  서버에서 데몬을 돌리면 5pm을 5pm UTC로 계산 → 실제 리셋(21:00/22:00 UTC)보다 **너무 일찍 재개 →
+  rate-limit 재충돌 → 시도 낭비**. 기존 테스트가 이 한계를 "로컬 17시" 기대값으로 박아뒀던 것을 올바른
+  인스턴트로 교정.
+- **한 일:** 신규 순수 모듈 `@agentrelay/core/tz.ts`(의존성 0, 시계/파일시스템 미접촉):
+  - `parseZoneToken(raw)`: `Z`/`UTC`/`GMT`→오프셋0, `±HH:MM`/`±HHMM`/`±H` 고정 오프셋(−12..+14 범위검사),
+    IANA 존명(`America/New_York` 등)은 `Intl.DateTimeFormat`로 검증(결과 캐시). `ET`/`PST` 등 모호 약어와
+    빈/비존 토큰은 거부 → 파서가 안전하게 로컬 폴백.
+  - `resolveZonedClockTime(hour,minute,zone,now)`: 존 안의 벽시계 HH:MM을 now 주변 UTC ±1일 후보로 환산해
+    가장 이른 미래 인스턴트 선택("다음에 그 시각을 칠 때" 의미론을 존 기준으로). IANA는 2-pass 오프셋
+    계산으로 DST(EDT UTC-4 ↔ EST UTC-5) 정확 처리. Node 내장 full-ICU Intl만 사용, tz DB 의존성 없음.
+  - `parser.ts`: 두 clock 패턴 뒤에 옵셔널 `ZONE_SUFFIX` 캡처 그룹 추가 + 공용 `resolveClockTime` 헬퍼.
+    존이 있으면 `tz.ts`로, 없거나 파싱 불가면 **기존 로컬 동작 그대로**(완전 하위호환). 패턴명 불변이라
+    provenance/`patterns` 집계 영향 없음. index.ts 재노출.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 563 + cli 271/1skip + dashboard 7). 신규 `tz.test` 9케이스 + `parser.test` 타임존
+  8케이스(UTC/오프셋/EDT/EST/GMT+Tokyo/비존토큰 로컬폴백/모호존 거부/존없음 로컬유지). 빌드된 실제 CLI
+  `parse` e2e(mock 아님): `5pm (America/New_York)`→오늘 21:00 UTC(EDT), `9:00am +09:00`→익일 00:00 UTC 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 상대 시간의 존 인식은 불필요(존 무관)
+  하나, `iso-timestamp`가 이미 오프셋 처리하므로 clock 계열만 대상이었음을 문서화. `upcoming/overdue --watch`
+  라이브 갱신 등 인접 항목 계속 검토. README/ARCHITECTURE(🧭 코워크).
