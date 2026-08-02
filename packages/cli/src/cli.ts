@@ -76,7 +76,7 @@ import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
-import { renderOverdue, renderOverdueJson } from "./overdue.js";
+import { renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "./overdue.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
@@ -93,7 +93,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
-import { renderUpcoming, renderUpcomingJson } from "./upcoming.js";
+import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -311,16 +311,30 @@ export function buildCompletionSpec(program: Command): CompletionSpec {
  * Runs until the process is interrupted (Ctrl-C).
  */
 function runWatch(store: string, intervalMs: number, selection: JobSelection, window?: JobScope, limit?: number): void {
-  const draw = () => {
+  startWatchLoop(intervalMs, () => {
     const all = listStatus(store);
     const windowed = window && isJobScopeActive(window) ? scopeJobs(all, window) : all;
     const selected = selectJobs(windowed, selection);
-    const frame = renderWatchFrame(selected, store, intervalMs, Date.now(), limit);
+    return renderWatchFrame(selected, store, intervalMs, Date.now(), limit);
+  });
+}
+
+/**
+ * Shared live-refresh loop for every `--watch` view (`status`/`upcoming`/
+ * `overdue`): clears the screen, calls `draw` to build one frame, prints it, and
+ * repeats every `intervalMs` until interrupted (Ctrl-C). Each command supplies a
+ * `draw` that re-reads the JSON store, so a running daemon's writes show up
+ * automatically. Owning the screen-clearing and signal handlers here keeps the
+ * per-command wiring to just "build the frame". Runs forever (the interval keeps
+ * the process alive).
+ */
+function startWatchLoop(intervalMs: number, draw: () => string): void {
+  const paint = () => {
     // Clear screen + move cursor home, then paint the frame.
-    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+    process.stdout.write(`\x1b[2J\x1b[H${draw()}\n`);
   };
-  draw();
-  const timer = setInterval(draw, intervalMs);
+  paint();
+  const timer = setInterval(paint, intervalMs);
   const stop = () => {
     clearInterval(timer);
     process.stdout.write("\n");
@@ -328,6 +342,16 @@ function runWatch(store: string, intervalMs: number, selection: JobSelection, wi
   };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
+}
+
+/**
+ * Parse a `--watch [seconds]` option value into a poll interval in ms. A bare
+ * flag (boolean `true`) or a non-positive/garbage number falls back to 2s, so
+ * `--watch` alone and `--watch 5` both work. Shared by every `--watch` view.
+ */
+function watchIntervalMs(opt: string | boolean): number {
+  const parsed = typeof opt === "string" ? Number.parseFloat(opt) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
 }
 
 export function buildCli(): Command {
@@ -514,9 +538,7 @@ export function buildCli(): Command {
         }
 
         if (opts.watch !== undefined) {
-          const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
-          const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
-          runWatch(store, intervalMs, selection, window, limit);
+          runWatch(store, watchIntervalMs(opts.watch), selection, window, limit);
           return; // setInterval keeps the process alive.
         }
 
@@ -568,6 +590,7 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("-w, --watch [seconds]", "Continuously refresh the timeline with live countdowns (Ctrl-C to exit)")
     .option("--json", "Print the timeline as JSON (machine-readable, for scripts/jq)")
     .addHelpText(
       "after",
@@ -576,10 +599,12 @@ export function buildCli(): Command {
         "  agentrelay upcoming\n" +
         "  # just the next 5, for one project\n" +
         "  agentrelay upcoming --limit 5 --project my-app\n" +
+        "  # watch the runway tick down, refreshing every 5s\n" +
+        "  agentrelay upcoming --watch 5\n" +
         "  # feed the timeline to jq\n" +
         "  agentrelay upcoming --json | jq '.timeline.entries[].job.id'"
     )
-    .action((opts: ScopeOpts & { limit?: string; json?: boolean }) => {
+    .action((opts: ScopeOpts & { limit?: string; json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
 
@@ -605,6 +630,21 @@ export function buildCli(): Command {
       const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
       const scopeNote = built.active ? built.note : undefined;
       const timeline = buildUpcomingTimeline(jobs, now, limit);
+
+      // Live view re-reads the store each pass so countdowns tick and daemon
+      // writes appear. The scope window edges stay fixed (computed at start),
+      // matching `status --watch`. `--json` wins if both are set.
+      if (opts.watch !== undefined && !opts.json) {
+        const intervalMs = watchIntervalMs(opts.watch);
+        const storePath = store ?? defaultStorePath();
+        startWatchLoop(intervalMs, () => {
+          const nowTick = Date.now();
+          const jobsTick = built.active ? scopeJobs(listStatus(store), built.scope) : listStatus(store);
+          const timelineTick = buildUpcomingTimeline(jobsTick, nowTick, limit);
+          return renderUpcomingWatchFrame(timelineTick, storePath, intervalMs, nowTick, scopeNote);
+        });
+        return; // setInterval keeps the process alive.
+      }
 
       if (opts.json) {
         console.log(
@@ -633,6 +673,10 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option(
+      "-w, --watch [seconds]",
+      "Continuously refresh the report so a stuck resume loop shows up live (Ctrl-C to exit)"
+    )
     .option("--json", "Print the report as JSON (machine-readable, for scripts/jq)")
     .addHelpText(
       "after",
@@ -641,12 +685,14 @@ export function buildCli(): Command {
         "  agentrelay overdue\n" +
         "  # flag only jobs stuck for more than 5 minutes\n" +
         "  agentrelay overdue --grace 5m\n" +
+        "  # keep an eye on a suspect relay, refreshing every 10s\n" +
+        "  agentrelay overdue --watch 10\n" +
         "  # use as a CI/monitor gate\n" +
         "  test -z \"$(agentrelay overdue --json | jq '.report.entries[]')\"\n" +
         "\nA non-empty list usually means the resume loop is down — check\n" +
         "`agentrelay health` and `agentrelay doctor`."
     )
-    .action((opts: ScopeOpts & { limit?: string; grace?: string; json?: boolean }) => {
+    .action((opts: ScopeOpts & { limit?: string; grace?: string; json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
 
@@ -683,6 +729,21 @@ export function buildCli(): Command {
       const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
       const scopeNote = built.active ? built.note : undefined;
       const report = buildOverdueReport(jobs, now, { graceMs, limit });
+
+      // Live view rebuilds the report each pass (against a fresh `now`) so the
+      // overdue spans grow and a resume loop that dies mid-watch shows up. The
+      // scope window edges stay fixed (computed at start). `--json` wins.
+      if (opts.watch !== undefined && !opts.json) {
+        const intervalMs = watchIntervalMs(opts.watch);
+        const storePath = store ?? defaultStorePath();
+        startWatchLoop(intervalMs, () => {
+          const nowTick = Date.now();
+          const jobsTick = built.active ? scopeJobs(listStatus(store), built.scope) : listStatus(store);
+          const reportTick = buildOverdueReport(jobsTick, nowTick, { graceMs, limit });
+          return renderOverdueWatchFrame(reportTick, storePath, intervalMs, nowTick, scopeNote);
+        });
+        return; // setInterval keeps the process alive.
+      }
 
       if (opts.json) {
         console.log(

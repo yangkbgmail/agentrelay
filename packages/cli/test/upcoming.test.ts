@@ -1,6 +1,6 @@
 import { buildUpcomingTimeline, type RelayJob, type UpcomingTimeline } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson } from "../src/upcoming.js";
+import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "../src/upcoming.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -108,5 +108,33 @@ describe("renderUpcomingJson", () => {
       })
     );
     expect(parsed.scope).toEqual({ projects: ["demo"] });
+  });
+});
+
+describe("renderUpcomingWatchFrame", () => {
+  it("includes the live title, store path, timestamp and the table", () => {
+    const frame = renderUpcomingWatchFrame(
+      timeline([job({ project: "watch-me", resetAt: at(90 * 60_000) })]),
+      "/tmp/store.json",
+      2000,
+      NOW
+    );
+    expect(frame).toContain("agentrelay upcoming");
+    expect(frame).toContain("every 2s");
+    expect(frame).toContain("/tmp/store.json");
+    expect(frame).toContain("2026-07-30 10:00:00");
+    expect(frame).toContain("watch-me");
+    // Countdown is computed against the frame's `now`.
+    expect(frame).toContain("1h 30m");
+  });
+
+  it("rounds the interval to whole seconds in the title", () => {
+    const frame = renderUpcomingWatchFrame(timeline([job()]), "/tmp/store.json", 5000, NOW);
+    expect(frame).toContain("every 5s");
+  });
+
+  it("carries the scope note into the frame", () => {
+    const frame = renderUpcomingWatchFrame(timeline([job()]), "/tmp/store.json", 2000, NOW, "project=demo");
+    expect(frame).toContain("scope: project=demo");
   });
 });

@@ -1610,3 +1610,26 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — `agentrelay upcoming --watch` / `overdue --watch` 라이브 갱신 뷰 신규 구현] (2026-08-02, 무인 자율 세션, branch `claude/wizardly-pascal-03mg05`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료(§3 남은 것은 🧭 문서/공동 QA뿐), 지정 브랜치를
+  최신 main(24a8b3e, #361 overdue 병합)으로 재설정(ahead/behind 0). CLAUDE.md 지침대로 세션 50이 "다음
+  할 일"로 남긴 인접 후보(`upcoming --watch`/`overdue --watch` 라이브 갱신)를 스스로 발굴·구현.
+- **한 일:** **`upcoming`/`overdue`에 `--watch` 라이브 뷰 추가 + 공용 watch 루프 리팩터.** `status`만
+  `--watch`가 있어 재개 활주로(upcoming)·지연 진단(overdue)은 정지 스냅샷만 볼 수 있었다.
+  - cli.ts: status 전용 `runWatch`를 순수 루프 헬퍼 `startWatchLoop(intervalMs, draw)`(화면 클리어 →
+    매 프레임 `draw()` 페인트 → SIGINT/SIGTERM 정리)로 리팩터해 세 뷰가 공유. `--watch [seconds]` 파싱도
+    공용 `watchIntervalMs`(bare 플래그·비양수·garbage → 2s 폴백)로 통일(status도 이를 재사용).
+  - `upcoming.ts`에 `renderUpcomingWatchFrame`·`overdue.ts`에 `renderOverdueWatchFrame` 신설: status의
+    `renderWatchFrame`을 미러(타이틀+타임스탬프+스토어 경로 헤더 + 기존 `renderUpcoming`/`renderOverdue`
+    테이블, 색상 on). 매 프레임 스토어를 재읽어 countdown이 흐르고 데몬 쓰기가 반영됨. 스코프 창 경계는
+    명령 시작 시 고정(status와 동일 의미), `--json`이 `--watch`보다 우선.
+  - 새 core/파서/스케줄러 로직 0줄 — 전부 기존 렌더러·`scopeJobs`/`buildScope`/`buildUpcomingTimeline`/
+    `buildOverdueReport` 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli 278/1skip + dashboard 7; cli upcoming +3·overdue +4 watch-frame 테스트 포함).
+  빌드된 실제 CLI e2e(mock 아님): 2-잡 임시 스토어(미래/과거 due)로 `upcoming --watch 1`·`overdue --watch 1`
+  (라이브 프레임 반복·countdown `1h 30m`·타이틀/타임스탬프), `--watch --json`(JSON 우선·1회 출력 후 종료),
+  `overdue --watch --project stuck-app`(스코프 노트+부분집합), `--help`(양쪽 `--watch` 노출) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `projects --watch`·`next --watch`
+  등 남은 라이브 뷰 후보 검토. README/ARCHITECTURE(🧭 코워크).
