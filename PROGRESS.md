@@ -1610,3 +1610,29 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — `upcoming --watch` / `overdue --watch` 라이브 갱신 뷰 신규 구현] (2026-08-02, 무인 자율 세션, branch `claude/wizardly-pascal-3rctrk`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료(§3 남은 것은 🧭 문서/공동 QA뿐), 지정 브랜치가
+  최신 main(24a8b3e, #361 overdue 병합)과 정확히 일치(ahead/behind 0). CLAUDE.md 지침대로 세션 50이
+  "다음 할 일"로 남긴 인접 후보(`upcoming --watch`·`overdue --watch` 라이브 갱신)를 스스로 발굴·구현.
+- **한 일:** **`status --watch`에만 있던 라이브 카운트다운 TUI를 형제 진단 뷰에 확장.** `status`는 큐
+  전체를 실시간으로 보여줬지만, 활주로 뷰(`upcoming`)와 지연 진단 뷰(`overdue`)는 일회성 스냅샷뿐이라
+  "재개 대기 잡이 실시간으로 어떻게 소진/지연되나"를 화면에 띄워두고 지켜볼 수 없었다.
+  - CLI `upcoming.ts`/`overdue.ts`에 순수 `renderUpcomingWatchFrame`/`renderOverdueWatchFrame` 추가 —
+    `status`의 `renderWatchFrame`를 미러링한 제목/메타(UTC 스탬프·스토어 경로) 헤더 + 컬러 표.
+    `now` 주입 가능해 TTY·실시계 없이 테스트. overdue 프레임은 스팬이 report에 precompute이므로 루프가
+    매 패스 fresh `now`로 report를 재빌드(지연 시간이 실시간으로 증가).
+  - `cli.ts`의 status 전용 watch 루프를 공용 `runViewWatch(intervalMs, renderFrame)`로 추출(화면
+    클리어+프레임 페인트+SIGINT/SIGTERM 정리) + `parseWatchIntervalMs`(bare 플래그·초 문자열→ms, 비양수/
+    파싱불가는 2s 폴백) 공유 — status도 이 두 헬퍼를 재사용해 중복 제거. `upcoming`/`overdue` 액션에
+    `-w, --watch [seconds]` 배선: 매 프레임 스토어 재읽기→스코프·리포트 재계산(데몬 쓰기 자동 반영).
+    `--json`은 watch보다 우선(일회성), `--limit`/`--grace`/스코프 검증은 watch 진입 전 그대로 exit 1.
+    새 core 로직 0줄 — 기존 `buildUpcomingTimeline`/`buildOverdueReport` 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 545 + cli 277/1skip + dashboard 7; cli upcoming/overdue watch-frame 각 3케이스
+  신규 포함). 빌드된 실제 CLI e2e(mock 아님): 2-잡 임시 스토어(2h 지연/미래 90분)로 `overdue --watch 1`
+  (grace 60s → 지연 잡만 라이브 표시)·`upcoming --watch 1`(둘 다·due now/1h 30m 카운트다운)·
+  `overdue --json --watch`(watch 무시하고 일회성 JSON, exit 0)·`overdue --watch --grace bogus`(exit 1)·
+  두 커맨드 `--help`에 `-w, --watch` + 예시 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `next --watch`(단일 라인 상태바
+  라이브)·대시보드 실시간 push 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
