@@ -1635,3 +1635,31 @@
   `--tool nope`(exit 1), completion에 `tools` 포함 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools`/`projects`에 `--watch`
   라이브 갱신, `upcoming --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 52 — `agentrelay attempts` 재개-노력/소진 임박 진단] (2026-08-02, 무인 자율 세션)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다.
+  진단 커맨드 계열엔 `errors`(이미 실패한 잡을 사유별로)·`overdue`(죽은 재개 루프가 방치한 잡)가 있지만,
+  **아직 진행 중인데 재시도 예산(`maxAttempts`, 기본 5)을 거의 다 써서 곧 `failed`로 처리될 잡**을
+  미리 경고하는 축이 없었다. `stats`는 총합만 보여줄 뿐 어느 잡이 예산 소진 직전인지 못 짚는다.
+- **한 일 (branch `claude/wizardly-pascal-3768mf`):** `agentrelay attempts` — 재개-노력/소진 임박 조기경보.
+  - core `attempts.ts` 신설(순수·파일시스템/시계 미접촉): `buildAttemptReport(jobs, {maxAttempts, riskThreshold,
+    limit})` + `AttemptReport`/`AttemptEntry`/`AttemptOptions`. attempts≥1 잡만 랭킹(most-attempted first,
+    tie-break: at-risk→비종료(live)→oldest createdAt→id), 비종료(queued/waiting_for_reset/resuming) 잡에만
+    `remaining = max(0, maxAttempts-attempts)`·`atRisk(remaining≤riskThreshold, 기본 1)` 부여(종료 잡은 절대
+    at-risk 아님), 예산 0/비유한이면 remaining null·경고 없음. totals(`totalJobs`/`withAttempts`/`totalAttempts`/
+    `atRiskCount`/`maxSingleAttempts`)는 limit 무관 전체 반영, 입력 배열 불변. riskThreshold 음수/NaN은 0 클램프.
+  - CLI `attempts.ts`에 순수 `renderAttempts`(표: `!`마커·ID·PROJECT·TOOL·STATUS·TRIES·LEFT[∞=무한], at-risk 행
+    빨강+`!`, 푸터 totals·budget[무한 시 "unlimited"]·worst·at-risk·hidden + "곧 failed" 행동 힌트, scope note·
+    빈/no-match 문구, color 게이트)·`renderAttemptsJson`(overdue/tools와 동일 envelope). `agentrelay attempts
+    [--limit/-n][--max-attempts][--risk][--status/--tool/--project/--since/--until][--json]` — 예산 기본값은 실효
+    정책 `retryPolicyFromEnv().maxAttempts`(config/env 반영), `--max-attempts`로 what-if 덮어쓰기, 공용
+    `buildScope` 재사용, completion 자동 포함. index.ts 재노출. 새 파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 564 + cli 289/1skip + dashboard 7; core attempts 11 + cli attempts 10 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 4-잡 임시 스토어(attempts 4[대기]/5[queued]/3[완료]/0[fresh])로 `attempts`
+  (예산 5 → 5·4 두 잡 `!` at-risk, 3 완료는 마커 없음, attempts 0 fresh는 제외), `--max-attempts 0`(전부 ∞·경고
+  없음), `--status completed`(스코프 부분집합·종료라 at-risk 아님), `--limit 0`(exit 1), 빈 스토어(안내 문구),
+  `--json`(withAttempts·atRiskCount·maxAttempts·totalAttempts), completion·help 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `attempts`에 임박도 정렬 옵션·
+  `--watch` 계열 라이브 갱신 검토. README/ARCHITECTURE(🧭 코워크).
