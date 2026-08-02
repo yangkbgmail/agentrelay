@@ -1,6 +1,6 @@
 import { buildUpcomingTimeline, type RelayJob, type UpcomingTimeline } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson } from "../src/upcoming.js";
+import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "../src/upcoming.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -108,5 +108,35 @@ describe("renderUpcomingJson", () => {
       })
     );
     expect(parsed.scope).toEqual({ projects: ["demo"] });
+  });
+});
+
+describe("renderUpcomingWatchFrame", () => {
+  it("renders a live title, timestamp/store meta, and the colored table", () => {
+    const t = timeline([job({ id: "soon0000", project: "soon-app", resetAt: at(60 * 60_000) })]);
+    const frame = renderUpcomingWatchFrame(t, "/tmp/jobs.json", 5000, NOW);
+    const lines = frame.split("\n");
+    // Title advertises the command, cadence, and how to exit.
+    expect(lines[0]).toContain("agentrelay upcoming");
+    expect(lines[0]).toContain("every 5s");
+    expect(lines[0]).toContain("Ctrl-C to exit");
+    // Meta line carries the (frozen) timestamp and the store path.
+    expect(lines[1]).toContain("2026-07-30 10:00:00Z");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+    // The actual timeline table follows.
+    expect(frame).toContain("soon-app");
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting color escapes are present.
+    expect(frame).toMatch(/\x1b\[/);
+  });
+
+  it("rounds the interval to whole seconds in the title", () => {
+    const frame = renderUpcomingWatchFrame(timeline([job()]), "/tmp/jobs.json", 2500, NOW);
+    expect(frame.split("\n")[0]).toContain("every 3s");
+  });
+
+  it("threads the scope note through to the empty message", () => {
+    const frame = renderUpcomingWatchFrame(timeline([]), "/tmp/jobs.json", 2000, NOW, "project=ghost");
+    expect(frame).toContain(NO_UPCOMING_MESSAGE);
+    expect(frame).toContain("scope: project=ghost");
   });
 });

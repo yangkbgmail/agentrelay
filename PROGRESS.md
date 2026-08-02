@@ -1610,3 +1610,26 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — `agentrelay upcoming --watch` 라이브 타임라인 신규 구현] (2026-08-02, 무인 자율 세션, branch `claude/wizardly-pascal-qw9wig`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료(§3 남은 것은 🧭 문서/공동 QA뿐), 지정 브랜치가
+  최신 main(24a8b3e, #361 overdue 병합)과 정확히 일치(ahead/behind 0). CLAUDE.md 지침대로 세션 49·50이
+  "다음 할 일"로 **연속 지목**한 후속 후보(`upcoming --watch` 라이브 갱신)를 스스로 발굴·구현.
+- **한 일:** **`agentrelay upcoming --watch [초]` — 재개 타임라인 라이브 뷰.** `status --watch`는 있었지만
+  `upcoming`엔 없어, "무엇이 언제 재개되나"를 한 번 찍고 마는 정적 스냅샷만 가능했다(대기 잡을 지켜보려면
+  반복 실행 필요). 이제 카운트다운이 화면에서 째깍째깍 줄어드는 라이브 활주로 뷰 제공.
+  - CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame(timeline, storePath, intervalMs, now?, scopeNote?)`
+    신설: `status --watch` 프레임과 동일한 타이틀(명령·주기·Ctrl-C 안내)+메타 라인(타임스탬프·스토어 경로)
+    위에 컬러 타임라인 표(`renderUpcoming` 재사용)를 얹음. 순수(주입 now면 시계 미접촉).
+  - `cli.ts`에 `runUpcomingWatch`(화면 클리어 후 매 인터벌 재렌더, `listStatus`로 스토어 재읽기 →
+    데몬 쓰기 자동 반영, `--tool`/`--project`/`--since`/`--until` 스코프·`--limit` 매 패스 재적용,
+    시간 창 경계는 명령 시작 시 고정된 절대 epoch-ms로 `status --watch`와 동일 의미)+SIGINT/SIGTERM 클린
+    종료. `upcoming`에 `-w, --watch [seconds]` 배선(미지정 시 2초, `status --watch`와 동일 파싱).
+  - 새 core 로직 0줄 — 기존 `buildUpcomingTimeline`·`scopeJobs`·`renderUpcoming` 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 545 + cli 274/1skip + dashboard 7; cli upcoming +3 신규 renderUpcomingWatchFrame
+  케이스 포함). 빌드된 실제 CLI e2e(mock 아님): 3-잡 임시 스토어로 `upcoming --watch 5`(클리어 스크린
+  이스케이프+타이틀+타임스탬프+컬러 표 프레임), `--watch --project soon-app`(late-app 제외+scope note+정직한
+  totals "1 job waiting"), help에 `-w, --watch` 노출, `--watch --limit 0`(exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue --watch`(지연 잡 라이브
+  모니터), `projects --watch` 등 인접 라이브 뷰 검토. README/ARCHITECTURE(🧭 코워크).
