@@ -1610,3 +1610,28 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — `agentrelay tools` 툴별 인덱스] (2026-08-02, 무인 자율 세션)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다.
+  `--tool` 필터는 status/stats/export/cancel/retry/metrics/patterns/errors/projects가 전부 키로 쓰는데,
+  정작 **어떤 에이전트 툴(claude-code/codex-cli/generic)이 스토어에 있고 어느 툴에 대기 작업이 몰렸는지
+  발견하는 수단**이 없었다(세션 47의 `projects`가 프로젝트 축에 준 것을 툴 축엔 아직 안 줌). `stats`의
+  `byTool`은 카운트만 보여줄 뿐 대기/다음 리셋/마지막 활동을 못 보여준다.
+- **한 일 (branch `claude/wizardly-pascal-tools`):** `agentrelay tools` — `projects`의 툴 축 거울.
+  - core `tools.ts` 신설(순수·파일시스템/시계 미접촉): `summarizeTools(jobs)` + `ToolsSummary`
+    (total·toolCount·tools[])·`ToolBreakdown`(tool·total·active·terminal·waiting·nextResetAt·lastActivityAt).
+    `job.tool`별 버킷팅, active(queued+waiting_for_reset+resuming)/terminal 분리, 대기 잡의 사전식 min
+    resetAt·max updatedAt 집계. 랭킹은 active desc→total desc→이름 asc(**대기 몰린 툴이 맨 위**,
+    `summarizeProjects`와 동일 관례). ISO 사전식 비교 재사용, 입력 불변.
+  - CLI `tools.ts`에 순수 `renderTools`(표: TOOL·TOTAL·ACTIVE·DONE·NEXT RESET, 대기 시 `formatCountdown`
+    카운트다운·전부 종료면 `(idle)`·scope note·no-match 문구, color 게이트)·`renderToolsJson`(stats/projects와
+    동일 envelope). `agentrelay tools [--json]` + 공용 `buildScope`(--status/--tool/--project/--since/--until)
+    재사용, completion 자동 포함. index.ts 재노출. 새 파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 553 + cli 279/1skip + dashboard 7; core tools 8 + cli tools 8 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 4-잡 임시 스토어(claude-code 2[1 대기]/codex-cli 1/generic 1)로 `tools`
+  (랭킹·카운트다운·idle), `--tool claude-code`(스코프 부분집합), `--json`(envelope·nextResetAt·lastActivityAt),
+  `--tool nope`(exit 1), completion에 `tools` 포함 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools`/`projects`에 `--watch`
+  라이브 갱신, `upcoming --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
