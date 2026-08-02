@@ -1610,3 +1610,31 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — `upcoming --watch` / `overdue --watch` 라이브 갱신 뷰 신규 구현] (2026-08-02, 무인 자율 세션, branch `claude/wizardly-pascal-7u81w9`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료(§3 남은 것은 🧭 문서/공동 QA뿐), 지정 브랜치가
+  최신 main(24a8b3e, #361 overdue 병합)과 정확히 일치(ahead/behind 0). CLAUDE.md 지침대로 세션 49·50이
+  "다음 할 일"로 남긴 인접 후보(`upcoming --watch`·`overdue --watch` 라이브 갱신)를 스스로 발굴·구현.
+- **한 일:** **카운트다운 중심 두 명령에 `--watch` 라이브 뷰 추가.** 지금까지 화면 지우기+재렌더 라이브
+  TUI는 `status`에만 있었는데, 정작 카운트다운이 핵심인 `upcoming`(재개 활주로)·`overdue`(지연 재개
+  진단)에는 없어 매번 명령을 다시 쳐야 카운트다운이 갱신됐다.
+  - `cli.ts`에서 `runWatch` 몸통을 재사용 가능한 두 헬퍼로 추출: `startWatchLoop(intervalMs, draw)`
+    (첫 프레임 즉시 그리기 + 매 interval 재렌더 + SIGINT/SIGTERM 클린 종료) + `parseWatchInterval`
+    (`--watch [seconds]`→ms, 비양수·미지정은 기본 2s). `status`/`upcoming`/`overdue`가 한 루프·한
+    종료 경로·한 인터벌 파싱을 공유(status --watch는 회귀 없이 동작 유지).
+  - `packages/cli/src/upcoming.ts`에 순수 `renderUpcomingWatchFrame`, `overdue.ts`에
+    `renderOverdueWatchFrame` 추가 — 제목("agentrelay upcoming/overdue (live, every Ns …)")·타임스탬프·
+    스토어 경로 메타 블록 + 컬러 표, `status`의 `renderWatchFrame` 관례와 정확히 일치.
+  - 각 명령 액션에 `-w, --watch [seconds]` 옵션 배선. 매 draw가 스토어를 재-read하고 `Date.now()`로
+    timeline/report를 재구성 → 데몬의 라이브 쓰기·카운트다운이 제자리에서 갱신(upcoming은 "due now"로,
+    overdue는 지연 span이 커짐). `--since`/`--until` 창 경계와 `--grace`는 명령 시작 시 고정(status와 동일
+    의미). `--json`이 `--watch`보다 우선(루프 대신 1회 출력). completion은 라이브 commander program에서
+    파생되므로 `-w`/`--watch` 자동 노출. 새 core 코드 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**(포맷 1건
+  자동 정규화)·`pnpm test` **전 패키지 통과**(core + cli 275/1skip + dashboard 7; cli upcoming/overdue 각
+  +2 watch-frame 테스트 신규). 빌드된 실제 CLI e2e(mock 아님): 지연 1잡(reset 2h 전)+미래 1잡(reset 1h 후)
+  임시 스토어로 `upcoming --watch 1`(첫 프레임에 `due now`/`1h 0m` 카운트다운·제목 "every 1s"),
+  `overdue --watch 1 --grace 0s`(지연 잡 `2h 0m`+resume-loop 힌트), `status --watch 3` 회귀,
+  `overdue --watch --json`(json 우선→루프 없이 1회 출력), `upcoming/overdue --help`에 `-w, --watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `projects --watch`·대시보드 라이브
+  카운트다운 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
