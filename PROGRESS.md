@@ -1635,3 +1635,29 @@
   `--tool nope`(exit 1), completion에 `tools` 포함 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools`/`projects`에 `--watch`
   라이브 갱신, `upcoming --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 52 — `agentrelay upcoming --watch` 라이브 카운트다운] (2026-08-02, 무인 자율 세션, branch `claude/wizardly-pascal-bntjba`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유뿐.
+  세션 51의 "다음 할 일"이 직접 지목한 인접 후속 항목을 골라 구현했다. `upcoming`은 각 잡의 재개까지
+  남은 시간을 카운트다운으로 보여주는 타임라인 뷰인데, 정작 그 카운트다운이 **줄어드는 것을 라이브로**
+  볼 방법이 없어 매번 재실행해야 했다. `status`에는 이미 `--watch` 라이브 TUI가 있지만 `upcoming`엔 없었다.
+- **한 일 (branch `claude/wizardly-pascal-bntjba`):** `agentrelay upcoming --watch [seconds]` — 재개
+  타임라인 라이브 갱신.
+  - CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame({timeline,storePath,intervalMs,now?,scopeNote?})`
+    추가 — `status`의 `renderWatchFrame`과 동일 관례(굵은 타이틀 + 갱신 주기 + `YYYY-MM-DD HH:MM:SSZ`
+    타임스탬프 + 스토어 경로 meta 라인 + 컬러 타임라인 본문). 기존 `renderUpcoming`을 color:true로
+    재사용해 본문은 한 곳에서만 렌더(드리프트 없음). 주입 `now`로 테스트 결정성 확보.
+  - `cli.ts`에 `runUpcomingWatch(store,intervalMs,scope,scopeNote,limit)` 루프 추가(`runWatch` 미러):
+    매 프레임 `listStatus`로 스토어 재읽기 → 스코프 재적용 → `buildUpcomingTimeline` 재계산 →
+    화면 지우고(`\x1b[2J\x1b[H`) 프레임 페인트. 스코프(`--tool`/`--project`/`--since`/`--until`)는
+    시작 시 절대 epoch-ms로 고정, 라이브 쓰기(데몬 재개로 잡이 타임라인에서 빠지는 것 포함)는 매 프레임 반영.
+    SIGINT/SIGTERM에 clearInterval 후 정상 종료. `upcoming` 커맨드에 `-w, --watch [seconds]` 옵션 배선
+    (미지정 기본 2초, `status --watch`와 동일 파싱), `--json`과 병용 시엔 watch 무시(one-shot JSON 우선).
+    help 예시에 `--watch` 추가. 새 core 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli upcoming 9→12, `renderUpcomingWatchFrame` 3케이스 신규: 타이틀/주기/타임스탬프/
+  본문 포함·초 반올림·scopeNote 전달). 빌드된 실제 CLI e2e(mock 아님): 대기 1잡 임시 스토어로 one-shot
+  baseline → `upcoming --watch 1` 1프레임 캡처(clear-screen·라이브 타이틀·타임스탬프·컬러 카운트다운
+  확인)·`--help`에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue`/`tools`/`projects`에도
+  동일 `--watch` 확장, `next --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).

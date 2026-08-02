@@ -647,6 +647,16 @@
       자동 포함. 새 파서/시계 로직 0줄. core tools 8 + cli tools 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·
       카운트다운·idle·스코프 부분집합·--json·에러 exit·completion 포함 검증. branch `claude/wizardly-pascal-tools`)
 
+- [x] 👷 `agentrelay upcoming --watch [seconds]` — 재개 타임라인을 라이브로 갱신해 각 잡의 카운트다운이
+      줄어드는 것을 그 자리에서 보기(`status --watch`의 upcoming 축 거울).
+      (완료 — CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame`(status의 `renderWatchFrame` 관례:
+      굵은 타이틀+갱신 주기+타임스탬프+스토어 경로 meta+컬러 타임라인 본문, 본문은 `renderUpcoming`
+      color:true 재사용). `cli.ts`에 `runUpcomingWatch` 루프(`runWatch` 미러: 매 프레임 스토어 재읽기→
+      스코프 재적용→`buildUpcomingTimeline` 재계산→clear-screen 페인트, 스코프는 시작 시 절대 epoch-ms로
+      고정, SIGINT/SIGTERM 정상 종료). `upcoming`에 `-w, --watch [seconds]`(기본 2초) 배선, `--json` 병용 시
+      one-shot 우선. 새 core 로직 0줄. cli upcoming +3 테스트, 실제 빌드 CLI e2e로 1프레임 캡처 검증.
+      branch `claude/wizardly-pascal-bntjba`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

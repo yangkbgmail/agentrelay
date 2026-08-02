@@ -80,6 +80,29 @@ export function renderUpcomingJson(input: {
   );
 }
 
+/**
+ * One frame of the live `upcoming --watch` view: a title/timestamp header
+ * block plus the colored timeline. Separated out (like `status`'s
+ * `renderWatchFrame`) so the watch loop in cli.ts only has to clear the screen
+ * and print this. Pure: no ambient clock unless `now` is omitted.
+ */
+export function renderUpcomingWatchFrame(input: {
+  timeline: UpcomingTimeline;
+  storePath: string;
+  intervalMs: number;
+  now?: number;
+  scopeNote?: string;
+}): string {
+  const now = input.now ?? Date.now();
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay upcoming${RESET} ${DIM}(live, every ${Math.round(
+    input.intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${input.storePath}${RESET}`;
+  const body = renderUpcoming(input.timeline, { now, color: true, scopeNote: input.scopeNote });
+  return [title, meta, "", body].join("\n");
+}
+
 function footer(timeline: UpcomingTimeline): string {
   const jobWord = timeline.totalWaiting === 1 ? "job" : "jobs";
   const parts = [`${timeline.totalWaiting} ${jobWord} waiting`];
