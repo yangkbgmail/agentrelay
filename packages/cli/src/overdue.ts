@@ -54,6 +54,30 @@ export function renderOverdue(report: OverdueReport, options: { color?: boolean;
 }
 
 /**
+ * One frame of `agentrelay overdue --watch`: a title banner (with the refresh
+ * interval), a timestamp + store line, then the same table {@link renderOverdue}
+ * produces (always colored — a live view is a TTY). The caller re-reads the
+ * store and rebuilds the report each pass with a fresh `now`, so the overdue
+ * spans grow in place and a resume that finally fires drops off the list.
+ * Mirrors `status`'s `renderWatchFrame`. Pure: no ambient clock unless `now`
+ * is omitted (used only for the timestamp line).
+ */
+export function renderOverdueWatchFrame(
+  report: OverdueReport,
+  storePath: string,
+  intervalMs: number,
+  options: { now?: number; scopeNote?: string } = {}
+): string {
+  const now = options.now ?? Date.now();
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay overdue${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderOverdue(report, { color: true, scopeNote: options.scopeNote })].join("\n");
+}
+
+/**
  * Machine-readable form for `--json` (scripts/jq). Carries the store path, a
  * generation timestamp, the optional active scope, and the full report —
  * entries plus the honest totals (`totalOverdue`/`hidden`/`maxOverdueByMs`) and

@@ -634,6 +634,23 @@
       13 + cli overdue 10 신규 테스트, 실제 빌드 CLI e2e로 grace 유예·정렬·스코프·JSON·에러 exit·빈 스토어
       검증. branch `claude/wizardly-pascal-pvjg81`)
 
+- [x] 👷 `agentrelay upcoming --watch` / `overdue --watch` — 재개 활주로(upcoming)와 지연 진단
+      (overdue) 뷰를 `status --watch`처럼 화면을 지우고 N초마다 재렌더하는 라이브 카운트다운 TUI로.
+      (완료 — 세 형제 타임라인 뷰 중 `status`만 `--watch`가 있었고, `upcoming`(앞으로 무엇이 언제
+      재개되나)·`overdue`(무엇이 이미 지났는데 멈춰있나)는 한 번 찍고 끝이라 카운트다운/지연 스팬이
+      멈춰 있었다. CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame(timeline, storePath, intervalMs,
+      {now?, scopeNote?})`·`overdue.ts`에 `renderOverdueWatchFrame(report, ...)` 추가 — status의
+      `renderWatchFrame` 미러(제목 배너+타임스탬프+스토어 라인, 라이브 뷰는 TTY라 항상 컬러). cli.ts에
+      공용 `runFrameWatch(intervalMs, render)`(clear-screen `\x1b[2J\x1b[H`+setInterval+SIGINT/SIGTERM,
+      `runWatch`와 동일 플럼빙) 신설, 두 커맨드에 `-w, --watch [seconds]`(기본 2s, 소수 초 허용) 배선.
+      매 프레임 스토어를 재읽어 timeline/report를 **fresh now**로 재계산하므로 카운트다운이 제자리에서
+      틱다운하고 재개된 잡이 목록에서 빠짐. `--since`/`--until` 시간 창 경계는 명령 시작 시 고정된
+      절대 epoch-ms(status --watch와 동일 의미), 라이브 쓰기는 계속 반영. `--watch`+`--json`은
+      exit 1(라이브 휴먼 뷰). 새 core 코드 0줄 — 기존 검증된 `buildUpcomingTimeline`/`buildOverdueReport`/
+      `renderUpcoming`/`renderOverdue` 재사용. cli upcoming +3 / overdue +3 신규 테스트, 실제 빌드
+      CLI e2e로 2-잡 임시 스토어(지연 1/미래 1)의 라이브 프레임·due now·grace·health 힌트·`--watch --json`
+      exit 1 검증. branch `claude/wizardly-pascal-g3e2da`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -1610,3 +1610,31 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — `agentrelay upcoming --watch` / `overdue --watch` 라이브 카운트다운] (2026-08-02, 무인 자율 세션, branch `claude/wizardly-pascal-g3e2da`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료(§3 남은 것은 🧭 문서/공동 QA뿐), 지정 브랜치가
+  최신 main(24a8b3e, #361 overdue 병합)과 정확히 일치(ahead/behind 0). CLAUDE.md 지침대로 세션 50이
+  "다음 할 일"로 남긴 인접 후보(`upcoming --watch`/`overdue --watch` 라이브 갱신)를 발굴·구현.
+- **한 일:** **세 형제 타임라인 뷰의 `--watch` 정합.** `status`만 `--watch`(화면 지우고 N초마다 재렌더하는
+  라이브 카운트다운)가 있었고, `upcoming`(앞으로 무엇이 언제 재개되나)·`overdue`(무엇이 이미 지났는데
+  멈춰있나)는 한 번 찍고 끝이라 카운트다운/지연 스팬이 정지 화면이었다. 릴레이가 리셋을 기다리는 동안
+  터미널에 띄워 두고 지켜보는 실사용 시나리오에서 가장 아쉬운 갭.
+  - CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame(timeline, storePath, intervalMs, {now?, scopeNote?})`,
+    `overdue.ts`에 `renderOverdueWatchFrame(report, storePath, intervalMs, {now?, scopeNote?})` 추가 —
+    status의 `renderWatchFrame` 미러(제목 배너 + `HH:MM:SSZ` 타임스탬프 + 스토어 경로 라인 + 기존 테이블,
+    라이브 뷰는 TTY라 항상 컬러). 새 core 코드 0줄 — 기존 검증된 `renderUpcoming`/`renderOverdue` 재사용.
+  - CLI `cli.ts`에 공용 `runFrameWatch(intervalMs, render)` 신설(clear-screen `\x1b[2J\x1b[H` + setInterval +
+    SIGINT/SIGTERM 정리, `runWatch`와 동일 플럼빙을 두 커맨드가 공유). `upcoming`·`overdue`에
+    `-w, --watch [seconds]`(기본 2s, 소수 초 허용) 옵션 배선. 매 프레임 스토어를 재읽어 timeline/report를
+    **fresh now**로 재계산 → 카운트다운이 제자리에서 틱다운하고, 재개돼 상태가 바뀐 잡은 목록에서 빠진다.
+    `--since`/`--until` 시간 창 경계는 명령 시작 시 고정된 절대 epoch-ms(`status --watch`와 동일 의미)라
+    라이브 쓰기는 계속 반영. `--watch`+`--json` 조합은 exit 1(라이브 휴먼 뷰이므로 명시 거부).
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 545 + cli 277/1skip + dashboard 7; cli upcoming +3 · overdue +3 watch-frame 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 2-잡 임시 스토어(2h 지연 waiting/90m 미래 waiting)로 `upcoming --watch 1`
+  (배너·타임스탬프·스토어·`due now`·`1h 30m` 카운트다운 프레임), `overdue --watch 0.5`(overdue 테이블·
+  `2h 0m`·grace 라인·health 힌트 프레임), `upcoming/overdue --watch --json`(둘 다 exit 1) 확인. (파이프를
+  `head`로 끊을 때 나오는 EPIPE는 setInterval 특성상 `status --watch`와 동일한 테스트 아티팩트 — 실제 TTY
+  사용에는 무관.)
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `next --watch`(단일 잡 라이브 한 줄)·
+  대시보드 카운트다운 자동 새로고침 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
