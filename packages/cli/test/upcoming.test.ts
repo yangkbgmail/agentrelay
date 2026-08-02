@@ -1,6 +1,6 @@
 import { buildUpcomingTimeline, type RelayJob, type UpcomingTimeline } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson } from "../src/upcoming.js";
+import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "../src/upcoming.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -83,6 +83,39 @@ describe("renderUpcoming", () => {
     const out = renderUpcoming(timeline([job()]), { now: NOW, color: false });
     // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting no escapes.
     expect(out).not.toMatch(/\x1b\[/);
+  });
+});
+
+describe("renderUpcomingWatchFrame", () => {
+  it("prepends a live title/meta block above the timeline table", () => {
+    const t = timeline([job({ resetAt: at(90 * 60_000) })]);
+    const out = renderUpcomingWatchFrame(t, "/tmp/jobs.json", 2000, NOW);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("agentrelay upcoming");
+    expect(lines[0]).toContain("every 2s");
+    expect(lines[0]).toContain("Ctrl-C to exit");
+    // Meta line carries the timestamp and the store path.
+    expect(lines[1]).toContain("2026-07-30 10:00:00Z");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+    // The countdown table still renders below.
+    expect(out).toContain("1h 30m");
+    expect(out).toContain("RESET AT");
+  });
+
+  it("rounds the interval to whole seconds in the title", () => {
+    const out = renderUpcomingWatchFrame(timeline([job()]), "/tmp/jobs.json", 2500, NOW);
+    expect(out).toContain("every 3s");
+  });
+
+  it("passes the scope note through to the framed table", () => {
+    const out = renderUpcomingWatchFrame(timeline([job()]), "/tmp/jobs.json", 2000, NOW, "project=demo");
+    expect(out).toContain("scope: project=demo");
+  });
+
+  it("shows the empty message inside the frame when nothing is waiting", () => {
+    const out = renderUpcomingWatchFrame(timeline([]), "/tmp/jobs.json", 2000, NOW);
+    expect(out).toContain("agentrelay upcoming");
+    expect(out).toContain(NO_UPCOMING_MESSAGE);
   });
 });
 

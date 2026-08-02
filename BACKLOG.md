@@ -647,6 +647,21 @@
       자동 포함. 새 파서/시계 로직 0줄. core tools 8 + cli tools 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·
       카운트다운·idle·스코프 부분집합·--json·에러 exit·completion 포함 검증. branch `claude/wizardly-pascal-tools`)
 
+- [x] 👷 `agentrelay upcoming --watch` — 재개 대기 타임라인을 화면을 지우고 N초마다 재렌더하는 라이브
+      카운트다운 TUI(`status --watch`의 타임라인 축 거울). 지금까지 라이브 갱신은 `status`에만 있어,
+      "앞으로 무엇이 언제 재개되나"의 활주로(runway) 뷰인 `upcoming`은 매번 다시 실행해야 카운트다운이
+      갱신됐다.
+      (완료 — CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame(timeline, storePath, intervalMs, now?,
+      scopeNote?)` 추가: `status`의 `renderWatchFrame`을 미러링해 제목(라이브·간격·Ctrl-C 힌트)+메타
+      (타임스탬프·스토어 경로) 블록 위에 기존 `renderUpcoming`(color:true)을 얹음. cli.ts에 `runUpcomingWatch`
+      (매 tick 스토어 재읽기→scope 재적용→`buildUpcomingTimeline` 재빌드→화면 clear `\x1b[2J\x1b[H`+프레임,
+      `setInterval`, SIGINT/SIGTERM에 정리 후 종료) + upcoming 커맨드에 `-w,--watch [seconds]`(기본 2s,
+      `status`와 동일 파싱) 배선. 데몬이 스토어에 쓰면 다음 tick에 자동 반영, `--tool`/`--project`/`--since`/
+      `--until`/`--limit` 스코프는 시작 시 고정된 절대 경계로 매 프레임 재적용. 새 core 로직 0줄 — 기존
+      `buildUpcomingTimeline`·`scopeJobs`·`formatCountdown` 재사용. cli upcoming.test에 renderUpcomingWatchFrame
+      4케이스(제목/메타·간격 반올림·scope note·빈 스토어) 추가, 실제 빌드 CLI e2e로 라이브 프레임 렌더·
+      clear-screen·카운트다운·`--watch` help 노출 검증. branch `claude/wizardly-pascal-0hi4j4`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
