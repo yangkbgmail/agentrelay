@@ -1,6 +1,6 @@
 import { buildUpcomingTimeline, type RelayJob, type UpcomingTimeline } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson } from "../src/upcoming.js";
+import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "../src/upcoming.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -83,6 +83,43 @@ describe("renderUpcoming", () => {
     const out = renderUpcoming(timeline([job()]), { now: NOW, color: false });
     // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting no escapes.
     expect(out).not.toMatch(/\x1b\[/);
+  });
+});
+
+describe("renderUpcomingWatchFrame", () => {
+  it("adds a live title/meta header above the timeline table", () => {
+    const out = renderUpcomingWatchFrame(timeline([job({ resetAt: at(90 * 60_000) })]), "/tmp/jobs.json", 2000, {
+      now: NOW,
+    });
+    expect(out).toContain("agentrelay upcoming");
+    expect(out).toContain("live, every 2s");
+    expect(out).toContain("Ctrl-C to exit");
+    // Meta line carries the timestamp and store path.
+    expect(out).toContain("2026-07-30 10:00:00Z");
+    expect(out).toContain("/tmp/jobs.json");
+    // The timeline body is still there.
+    expect(out).toContain("RESUMES IN");
+    expect(out).toContain("1h 30m");
+  });
+
+  it("rounds the interval to whole seconds in the title", () => {
+    const out = renderUpcomingWatchFrame(timeline([]), "/tmp/jobs.json", 5000, { now: NOW });
+    expect(out).toContain("live, every 5s");
+  });
+
+  it("passes the scope note through to the empty-state body", () => {
+    const out = renderUpcomingWatchFrame(timeline([]), "/tmp/jobs.json", 2000, {
+      now: NOW,
+      scopeNote: "project=demo",
+    });
+    expect(out).toContain(NO_UPCOMING_MESSAGE);
+    expect(out).toContain("scope: project=demo");
+  });
+
+  it("emits ANSI escapes (the watch view is always colored)", () => {
+    const out = renderUpcomingWatchFrame(timeline([job()]), "/tmp/jobs.json", 2000, { now: NOW });
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting escapes are present.
+    expect(out).toMatch(/\x1b\[/);
   });
 });
 

@@ -647,6 +647,21 @@
       자동 포함. 새 파서/시계 로직 0줄. core tools 8 + cli tools 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·
       카운트다운·idle·스코프 부분집합·--json·에러 exit·completion 포함 검증. branch `claude/wizardly-pascal-tools`)
 
+- [x] 👷 `agentrelay upcoming --watch [seconds]` — 재개 대기 타임라인을 라이브로 갱신(카운트다운이
+      제자리에서 흘러내림). `status --watch`가 큐 전체에 준 라이브 뷰를 재개 활주로(runway) 뷰에도 제공.
+      (완료 — `upcoming`은 각 잡의 카운트다운을 보여주지만 정적 스냅샷이라, 다음 재개가 임박하는 걸
+      지켜보려면 반복 실행해야 했다. `status`엔 이미 `--watch`가 있으나 `upcoming`엔 없던 갭. CLI
+      `upcoming.ts`에 순수 `renderUpcomingWatchFrame(timeline, storePath, intervalMs, {now,scopeNote})`
+      추가 — `status`의 `renderWatchFrame`을 미러링해 두 라이브 뷰가 동일한 룩(제목/타임스탬프·스토어
+      경로 meta 라인 + 컬러 타임라인)을 공유. cli.ts에 `runUpcomingWatch`(매 tick 스토어 재읽기 →
+      스코프 재적용 → **fresh now로 타임라인 재빌드** → 화면 클리어+프레임 페인트, SIGINT/SIGTERM에
+      정리 후 종료) 신설, `upcoming`에 `-w, --watch [seconds]` 배선(미지정 초는 기본 2s, `status`와 동일
+      파싱). `--watch`+`--json`은 JSON 우선(watch 루프 스킵), 기존 스코프 필터(`--tool`/`--project`/
+      `--since`/`--until`/`--limit`)는 watch에서도 매 프레임 재적용. 새 core 로직 0줄 — 기존 검증된
+      `buildUpcomingTimeline`/`scopeJobs`/`renderUpcoming` 재사용. cli upcoming.test에 watch 프레임 4케이스
+      (제목/meta·초 반올림·빈 상태 scope note·컬러) 추가, 실제 빌드 CLI e2e로 라이브 프레임 캡처·
+      `--project` 스코프·`--json` 우선 검증. branch `claude/wizardly-pascal-plsxlw`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
