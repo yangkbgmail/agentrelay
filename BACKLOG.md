@@ -647,6 +647,23 @@
       자동 포함. 새 파서/시계 로직 0줄. core tools 8 + cli tools 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·
       카운트다운·idle·스코프 부분집합·--json·에러 exit·completion 포함 검증. branch `claude/wizardly-pascal-tools`)
 
+- [x] 👷 `agentrelay recent` — 최근 해결된(completed/failed/cancelled) 잡을 최신순으로, "얼마 전"·
+      "얼마나 걸렸는지"와 함께 조회(시간 축 뷰 패밀리의 백미러). `next`(최임박)·`upcoming`(미래 대기)·
+      `overdue`(지연)는 전부 **앞으로/막힌 것**을 보는데, 정작 "릴레이가 방금 무엇을 끝냈나"를
+      한눈에 보는 수단이 없어 `status --sort updated --reverse`로 우회해야 했다.
+      (완료 — core `recent.ts` 신설(순수·파일시스템/시계 미접촉): `buildRecentActivity(jobs, now, {limit?})`
+      + `RecentReport`(entries·total·hidden)·`RecentEntry`(job·ageMs·resolutionMs). terminal 잡만 골라
+      updatedAt desc→createdAt desc→id asc 결정적 정렬, 각 행에 `ageMs`(now−updatedAt, clock-skew는 0
+      클램프, 파싱불가 null)·`resolutionMs`(updatedAt−createdAt, 음수·파싱불가는 null=TimingStats의
+      skip-don't-clamp 정책과 일치). limit로 잘라도 total은 정직. `TERMINAL_STATUSES` 재사용이라
+      waiting/queued/resuming과 절대 안 겹침(upcoming/overdue와 상보). CLI `recent.ts` 순수
+      `renderRecent`(표 ID·PROJECT·STATUS·WHEN·TOOK, `formatDurationMs` 재사용으로 "just now"/"2h 5m ago"·
+      scope note·hidden 푸터)·`renderRecentJson`(overdue와 동일 envelope). `agentrelay recent
+      [-n/--limit][--status][--tool][--project][--since][--until][--json]` — 공용 `buildScope` 재사용,
+      completion 자동 포함. 새 파서/스케줄러 로직 0줄. core recent 11 + cli recent 10 신규 테스트, 실제
+      빌드 CLI e2e로 최신순·terminal-only·스코프·limit 푸터·JSON·빈 스토어·에러 exit·completion 포함 검증.
+      branch `claude/wizardly-pascal-l6jasa`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
