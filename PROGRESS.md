@@ -1610,3 +1610,30 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — tick당 최대 재개 개수 제한(thundering herd 방지) 신규 구현] (2026-08-02, 무인 자율 세션, branch `claude/wizardly-pascal-thpjbe`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료(남은 것은 🧭 문서/리서치·공동 QA뿐), 지정
+  브랜치가 최신 main(24a8b3e, #361 overdue 병합)과 정확히 일치(ahead/behind 0). CLAUDE.md "멈추지 않고
+  최대치로" 지침대로 코드베이스를 훑어 릴레이 루프 자체의 실제 갭을 스스로 발굴·구현.
+- **발굴한 갭:** `RelayScheduler.tick`이 due된 잡을 **전부** 무제한 재개 → rate-limit 창이 리셋되는
+  순간 같은 시각에 대기하던 수십 개 잡이 한 tick에 한꺼번에 재개돼, 공유 계정이면 방금 풀린 limit을
+  즉시 다시 트리거(thundering herd)하는 구조적 문제.
+- **한 일:** **tick당 최대 재개 개수 제한.**
+  - `@agentrelay/core/batch.ts` 신설(순수·시계/파일시스템 미접촉): `compareResumeOrder`(가장 오래 지연된
+    순 = 이른 resetAt 우선, createdAt[FIFO]→id tie-break; null/파싱불가 resetAt은 "무한 지연"으로 맨 앞·
+    throw 안 함), `selectResumeBatch(due, limit?)`(limit undefined/null/0/음수·비유한 = 무제한, 양수면
+    가장 지연된 N개만 slice, 소수 floor, 입력 불변), `maxResumesPerTickFromEnv`(`AGENTRELAY_MAX_RESUMES_PER_TICK`
+    양의 정수만; 그 외 undefined=무제한 → 오타가 relay를 1잡/tick로 조용히 조이지 않게 *무제한* 쪽으로 안전 실패).
+  - `RelayScheduler`에 `maxResumesPerTick` 옵션 → 매 tick `listDue`를 `selectResumeBatch`로 캡. 초과분은
+    여전히 `waiting_for_reset`(과거 resetAt)이라 다음 tick이 이어받아 버스트를 여러 tick에 자연 분산.
+  - 설정파일 지원: `AgentRelayConfig.scheduler.maxResumesPerTick` — schema·sampleConfig·CONFIG_FIELDS·
+    parseConfig·validateConfig(음수·비정수 error)·configToEnv·CONFIG_ENV_KEYS·`config show` 그룹 라벨/순서
+    전부 배선(기존 retry/autoPrune와 동일 패턴, CONFIG_FIELDS↔CONFIG_ENV_KEYS 동기화 테스트 통과).
+  - CLI daemon/tick이 env로 배선, daemon 배너에 "(max N resume(s)/tick)". 새 파서 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 559 + cli 271/1skip + dashboard 7; core batch 12 + scheduler 캡 분산/무캡 기본 2 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): `config init`→`config show`(scheduler 그룹 노출)→`config set
+  scheduler.maxResumesPerTick 2`→`config validate`(valid), 음수 값은 validate가 "0 or greater" error로
+  거부, `AGENTRELAY_MAX_RESUMES_PER_TICK=2 daemon` 배너에 "(max 2 resume(s)/tick)" 표기 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목: 재개 간 스태거(jitter)
+  지연·프로젝트/툴별 동시성 상한 등 thundering-herd 완화 심화. README/ARCHITECTURE(🧭 코워크).

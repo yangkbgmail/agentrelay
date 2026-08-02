@@ -1,5 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { resolveAdapter } from "./adapters.js";
+import { selectResumeBatch } from "./batch.js";
 import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
 import type { RelayQueue } from "./queue.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
@@ -53,6 +54,16 @@ export interface SchedulerOptions {
    * time throttle, only meaningful for the long-running scheduler.
    */
   autoPruneEveryTicks?: number;
+  /**
+   * Cap how many due jobs are resumed in a single {@link tick}. When a rate-limit
+   * window resets, every job waiting on it becomes due at once; resuming them all
+   * in one tick tends to re-trip the shared limit (a "thundering herd"). With a
+   * positive cap, only the most-overdue N are resumed each tick and the rest —
+   * still `waiting_for_reset` with a past `resetAt` — are picked up on following
+   * ticks, spreading the burst out. `undefined`/`0`/negative means no cap (resume
+   * everything that's due, the historical behavior).
+   */
+  maxResumesPerTick?: number;
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
   /**
@@ -82,6 +93,7 @@ export class RelayScheduler {
   private autoPrune: PruneOptions | null;
   private autoPruneEveryMs: number;
   private autoPruneEveryTicks: number;
+  private maxResumesPerTick: number;
   private lastPruneAtMs: number | null = null;
   private pruneTickCounter = 0;
   private onPrune?: (pruned: RelayJob[]) => void;
@@ -99,6 +111,7 @@ export class RelayScheduler {
     this.autoPrune = options.autoPrune ?? null;
     this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
+    this.maxResumesPerTick = options.maxResumesPerTick ?? 0;
     this.onPrune = options.onPrune;
     this.onTick = options.onTick;
   }
@@ -118,8 +131,12 @@ export class RelayScheduler {
   /** Runs one polling cycle immediately. Exposed for tests and manual `agentrelay tick`. */
   async tick(referenceTime: Date = new Date()): Promise<RelayJob[]> {
     const due = this.queue.listDue(referenceTime);
+    // Resume the most-overdue jobs first, capped per tick so a reset-time burst
+    // doesn't stampede the shared rate limit. Anything left over stays due and
+    // is picked up on the next tick.
+    const batch = selectResumeBatch(due, this.maxResumesPerTick);
     const processed: RelayJob[] = [];
-    for (const job of due) {
+    for (const job of batch) {
       processed.push(await this.resume(job, referenceTime));
     }
     this.runAutoPrune(referenceTime);

@@ -634,6 +634,22 @@
       13 + cli overdue 10 신규 테스트, 실제 빌드 CLI e2e로 grace 유예·정렬·스코프·JSON·에러 exit·빈 스토어
       검증. branch `claude/wizardly-pascal-pvjg81`)
 
+- [x] 👷 tick당 최대 재개 개수 제한(thundering herd 방지) — rate-limit 창이 리셋되는 순간 같은 시각에
+      대기하던 수십 개 잡이 한 tick에 한꺼번에 재개돼 공유 계정의 limit을 즉시 다시 트리거하는 문제 완화.
+      (완료 — `@agentrelay/core/batch.ts` 신설(순수·시계/파일시스템 미접촉): `compareResumeOrder`
+      (가장 오래 지연된 순 = 이른 resetAt 우선, createdAt[FIFO]→id tie-break, null/파싱불가 resetAt은
+      "무한 지연"으로 맨 앞·throw 안 함) + `selectResumeBatch(due, limit?)`(limit undefined/null/0/음수·
+      비유한 = 무제한, 양수면 가장 지연된 N개만 slice, 소수 floor, 입력 불변) + `maxResumesPerTickFromEnv`
+      (`AGENTRELAY_MAX_RESUMES_PER_TICK` 양의 정수만, 그 외 undefined=무제한 → 오타가 relay를 1잡/tick로
+      조용히 조이지 않음). `RelayScheduler`에 `maxResumesPerTick` 옵션 → 매 tick `listDue`를
+      `selectResumeBatch`로 캡, 초과분은 여전히 `waiting_for_reset`(과거 resetAt)이라 다음 tick이 이어받아
+      버스트를 여러 tick에 분산. 설정파일 지원: `AgentRelayConfig.scheduler.maxResumesPerTick`(schema·
+      sampleConfig·CONFIG_FIELDS·parseConfig·validateConfig[음수·비정수 error]·configToEnv·CONFIG_ENV_KEYS·
+      config show 그룹 라벨/순서 전부 배선). CLI daemon/tick이 env로 배선, daemon 배너에
+      "(max N resume(s)/tick)". core batch 12 + scheduler 2(캡 분산·무캡 기본) 신규 테스트, 실제 빌드 CLI로
+      config init/show/set/validate·음수 거부·daemon 배너 e2e 검증. 새 파서 로직 0줄.
+      branch `claude/wizardly-pascal-thpjbe`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
