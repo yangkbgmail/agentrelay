@@ -1,6 +1,6 @@
 import { buildUpcomingTimeline, type RelayJob, type UpcomingTimeline } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson } from "../src/upcoming.js";
+import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "../src/upcoming.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -108,5 +108,28 @@ describe("renderUpcomingJson", () => {
       })
     );
     expect(parsed.scope).toEqual({ projects: ["demo"] });
+  });
+});
+
+describe("renderUpcomingWatchFrame", () => {
+  it("renders a title/meta header above the colored timeline table", () => {
+    const t = timeline([job({ id: "j1" })]);
+    const frame = renderUpcomingWatchFrame(t, "/tmp/jobs.json", 5000, { now: NOW });
+    expect(frame).toContain("agentrelay upcoming");
+    expect(frame).toContain("live, every 5s");
+    expect(frame).toContain("/tmp/jobs.json");
+    // The frame stamps the injected `now` (not the wall clock) into the header.
+    expect(frame).toContain("2026-07-30 10:00:00");
+    // …and embeds the table body (short id shown).
+    expect(frame).toContain("j1");
+  });
+
+  it("shows the empty-state message and passes the scope note through", () => {
+    const frame = renderUpcomingWatchFrame(timeline([]), "/tmp/jobs.json", 2000, {
+      now: NOW,
+      scopeNote: "project=ghost",
+    });
+    expect(frame).toContain(NO_UPCOMING_MESSAGE);
+    expect(frame).toContain("scope: project=ghost");
   });
 });
