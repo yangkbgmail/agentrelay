@@ -647,6 +647,24 @@
       자동 포함. 새 파서/시계 로직 0줄. core tools 8 + cli tools 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·
       카운트다운·idle·스코프 부분집합·--json·에러 exit·completion 포함 검증. branch `claude/wizardly-pascal-tools`)
 
+- [x] 👷 `agentrelay attempts` — 잡별 재개 시도 횟수 분포(히스토그램)를 보여주고, 설정된 재시도
+      상한(maxAttempts)에 도달/초과한 잡을 경고. `errors`(왜 실패하나)의 자매 뷰로 "릴레이가 얼마나
+      갈아넣고 있나 / 어떤 잡이 상한에 눌려 곧 포기되나"를 답함.
+      (완료 — `errors`는 실패 이유를 그룹핑하지만, 스케줄러가 매 재개마다 올리는 `job.attempts` 축은
+      `stats`의 totalAttempts/retriedJobs 집계 외에 분포로 볼 수단이 없었다. `@agentrelay/core/attempts.ts`
+      신설(순수·파일시스템/시계 미접촉): `summarizeAttempts(jobs, {maxAttempts?})` + `AttemptBucket`
+      (attempts·count·jobIds[첫 등장 순서])·`AttemptsSummary`(total·totalAttempts·retried[attempts≥2]·
+      neverAttempted[==0]·maxAttempts·ceiling·atCeiling·buckets). `job.attempts`별 정수 버킷을 오름차순
+      정렬해 분포로 반환(랭킹 아님), 손상 스토어의 음수·비정수·NaN attempts는 `Math.max(0,floor)`로 클램프.
+      유한·양수 `maxAttempts`가 오면 `attempts >= ceiling`(스케줄러 `isRetryExhausted`와 **동일 경계**)로
+      atCeiling 집계, `<=0`(무제한)·미지정은 ceiling=null로 무효화. CLI `attempts.ts`에 순수 `renderAttempts`
+      (헤더 총계 + 시도값별 비례 막대 히스토그램 + 상한 도달 행 `⚠ at ceiling` 경고 + 요약 경고 라인,
+      color 게이트)·`renderAttemptsJson`(stats/tools와 동일 envelope). `agentrelay attempts [--json]` +
+      공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용, 상한은 `retryPolicyFromEnv().maxAttempts`로
+      스케줄러와 동일 해소, completion 자동 포함. core attempts 9 + cli attempts 8 신규 테스트, 실제 빌드
+      CLI e2e로 분포·상한 경고·--tool 스코프·--json envelope·잘못된 status exit 1 검증.
+      branch `claude/wizardly-pascal-yddxy8`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

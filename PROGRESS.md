@@ -1635,3 +1635,31 @@
   `--tool nope`(exit 1), completion에 `tools` 포함 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools`/`projects`에 `--watch`
   라이브 갱신, `upcoming --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+## 세션 49 — 2026-08-02 · `agentrelay attempts`(재개 시도 분포 히스토그램)
+
+- **맥락:** BACKLOG의 모든 👷 항목이 완료 상태(남은 미완은 전부 🧭 코워크 소유: README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석). CLAUDE.md 지침대로 스스로 개선 항목을 발굴 → 조회형 명령 계열
+  (status/stats/errors/patterns/projects/tools/upcoming/overdue)에서 빠진 축을 찾음: 스케줄러가 매 재개마다
+  올리는 `job.attempts`는 `stats`의 totalAttempts/retriedJobs 집계로만 노출될 뿐, **분포로 보거나 설정된
+  재시도 상한(maxAttempts)에 눌린 잡을 발견하는 수단**이 없었다. `errors`(왜 실패)의 자매 뷰가 비어 있었음.
+- **한 일 (branch `claude/wizardly-pascal-yddxy8`):** `agentrelay attempts` — 재개 시도 횟수 히스토그램.
+  - core `attempts.ts` 신설(순수·파일시스템/시계 미접촉): `summarizeAttempts(jobs, {maxAttempts?})` +
+    `AttemptBucket`(attempts·count·jobIds)·`AttemptsSummary`(total·totalAttempts·retried[≥2]·
+    neverAttempted[==0]·maxAttempts·ceiling·atCeiling·buckets). `job.attempts`별 정수 버킷을 오름차순
+    정렬(분포, 랭킹 아님), 손상 attempts(음수/비정수/NaN)는 `Math.max(0,floor)` 클램프. 유한·양수
+    ceiling이면 `attempts >= ceiling`(스케줄러 `isRetryExhausted`와 동일 경계)로 atCeiling 집계,
+    `<=0`(무제한)·미지정은 null로 무효화. 입력 불변, index.ts 재노출.
+  - CLI `attempts.ts`에 순수 `renderAttempts`(헤더 총계[total·totalAttempts·avg·retried·neverAttempted]
+    + 시도값별 비례 막대 히스토그램 + 상한 도달 행 `⚠ at ceiling` + 요약 경고/미달 안내 라인, color 게이트)·
+    `renderAttemptsJson`(stats/tools와 동일 envelope). `agentrelay attempts [--json]` + 공용 `buildScope`
+    (--status/--tool/--project/--since/--until) 재사용, 상한은 `retryPolicyFromEnv().maxAttempts`로 스케줄러와
+    동일 해소, completion 자동 포함. 새 파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 562 + cli 287/1skip + dashboard; core attempts 9 + cli attempts 8 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 5-잡 임시 스토어(attempts 0/1/3/5/6, maxAttempts 기본 5)로 `attempts`
+  (분포·avg 3.0·retried 3·`⚠ at ceiling` 2행·요약 경고), `--tool claude-code`(스코프 부분집합·1행 상한),
+  `--json`(ceiling 5·atCeiling 2·buckets), `--status nonsense`(exit 1), completion에 `attempts` 포함 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목: `attempts`에 최다 시도
+  잡 top-N 나열/`--limit`, `errors`↔`attempts` 교차 링크, `stats`에 attempts 백분위 노출 검토. README/
+  ARCHITECTURE(🧭 코워크).
