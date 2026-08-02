@@ -1635,3 +1635,31 @@
   `--tool nope`(exit 1), completion에 `tools` 포함 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools`/`projects`에 `--watch`
   라이브 갱신, `upcoming --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 52 — `upcoming`/`overdue`/`tools`/`projects` 라이브 `--watch` 모드] (2026-08-02, 무인 자율 세션, branch `claude/wizardly-pascal-3aszde`)
+- **배경:** 세션 시작 시 지정 브랜치(`claude/wizardly-pascal-3aszde`)가 이전 세션에서 병합되어 원격에서
+  삭제된 상태 → 지침대로 최신 main(0afae05, #385 tools 병합) 위로 브랜치를 재생성. BACKLOG의 명시적 👷
+  항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유뿐. 여러 세션(49/50/51)이 "다음 할 일"로 반복 지목한
+  **카운트다운 계열 명령의 `--watch` 라이브 갱신**을 발굴·구현. `status`만 `--watch`가 있고, 정작 상대
+  countdown을 렌더하는 인접 4개 명령(`upcoming`/`overdue`/`tools`/`projects`)엔 없어 리셋 카운트다운을
+  실시간으로 지켜볼 방법이 없었다.
+- **한 일:** **`upcoming`/`overdue`/`tools`/`projects`에 `-w, --watch [seconds]` 라이브 모드 추가** —
+  `status --watch`와 동일하게 화면을 지우고 주기 재렌더해 숫자가 제자리에서 tick down.
+  - CLI `packages/cli/src/watch.ts` 신설(공용 plumbing): 순수·시계 미접촉 `parseWatchInterval(watch,
+    defaultSec=2)`(status와 동일 규약 — 양수 초만 인정[ms 반올림], bare flag(true)/비숫자/0/음수는 기본값
+    2s) + `renderWatchHeader(command, storePath, intervalMs, now, color=true)`(2줄 배너: 굵은 제목 +
+    "(live, every Ns — Ctrl-C to exit)" + dim 타임스탬프·스토어 경로, `now` 주입이라 순수·테스트 가능) +
+    부수효과 격리된 `runWatchLoop(intervalMs, draw)`(매 프레임 `\x1b[2J\x1b[H`로 clear+home 후
+    `draw(Date.now())`, `setInterval`이 프로세스 유지, SIGINT/SIGTERM에 clearInterval+exit 0 클린 종료).
+  - `cli.ts`의 네 명령 action에 `--watch` 배선: 스코프 창 경계(`--since`/`--until`)는 명령 시작 시 절대
+    epoch-ms로 **고정**하고 `now`(카운트다운)만 프레임마다 전진(status와 동일 의미), 매 프레임 `listStatus`로
+    스토어 재읽기 → 데몬 쓰기·ticking 둘 다 반영. `--json`은 `--watch`보다 **우선**(one-shot, watch 무시).
+    공용 `scoped()` 클로저로 스코프 적용 일원화. 새 core/파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 553 + cli 287/1skip + dashboard 7; cli `watch.test.ts` 8 신규[parseWatchInterval 5 +
+  renderWatchHeader 3] 포함). 빌드된 실제 CLI e2e(mock 아님): 2-잡 임시 스토어(미래 리셋 1 + 이미 지난
+  리셋 1)로 `upcoming`/`overdue`/`tools`/`projects` 각각 `--watch`가 라이브 프레임(clear+home·배너·표)을
+  주기 재렌더, SIGINT 클린 종료(exit 0), `--watch --json` 조합이 one-shot JSON으로 폴백(watch 미진입) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `status`의 `runWatch`를 공용
+  `runWatchLoop`로 통합(중복 제거)·`metrics`/`patterns`/`errors`엔 카운트다운이 없어 `--watch` 부적합 검토,
+  대시보드 자동 새로고침 간격 노출 등 인접 항목. README/ARCHITECTURE(🧭 코워크).
