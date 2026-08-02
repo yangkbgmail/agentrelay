@@ -1,6 +1,6 @@
 import { buildOverdueReport, type OverdueReport, type RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_OVERDUE_MESSAGE, renderOverdue, renderOverdueJson } from "../src/overdue.js";
+import { NO_OVERDUE_MESSAGE, renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "../src/overdue.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -107,5 +107,30 @@ describe("renderOverdueJson", () => {
       })
     );
     expect(parsed.scope).toEqual({ projects: ["demo"] });
+  });
+});
+
+describe("renderOverdueWatchFrame", () => {
+  it("includes the live title, store path, timestamp and the report", () => {
+    const frame = renderOverdueWatchFrame(
+      report([job({ id: "abcdef1234567890", project: "demo" })]),
+      "/tmp/store.json",
+      2000,
+      { now: NOW }
+    );
+    expect(frame).toContain("agentrelay overdue");
+    expect(frame).toContain("every 2s");
+    expect(frame).toContain("/tmp/store.json");
+    expect(frame).toContain("2026-07-30 10:00:00");
+    expect(frame).toContain("abcdef12"); // short id row from the report
+  });
+
+  it("passes the scope note through to the underlying table", () => {
+    const frame = renderOverdueWatchFrame(report([]), "/tmp/store.json", 5000, {
+      now: NOW,
+      scopeNote: "project=ghost",
+    });
+    expect(frame).toContain("every 5s");
+    expect(frame).toContain("scope: project=ghost");
   });
 });

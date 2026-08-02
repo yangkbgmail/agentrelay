@@ -634,6 +634,22 @@
       13 + cli overdue 10 신규 테스트, 실제 빌드 CLI e2e로 grace 유예·정렬·스코프·JSON·에러 exit·빈 스토어
       검증. branch `claude/wizardly-pascal-pvjg81`)
 
+- [x] 👷 `agentrelay upcoming --watch` / `overdue --watch` — 카운트다운 중심 두 명령에 라이브 갱신 뷰
+      추가(`status --watch`와 동일한 화면 지우기+재렌더 루프). PROGRESS 세션 49/50이 "다음 할 일"로
+      남긴 인접 후보.
+      (완료 — `status`에만 있던 `--watch`를 `upcoming`(재개 활주로)·`overdue`(지연 재개 진단) 두
+      카운트다운 명령으로 확장. cli.ts에서 `runWatch` 몸통을 재사용 가능한 `startWatchLoop(intervalMs,
+      draw)`(첫 프레임 즉시+매 interval 재렌더, SIGINT/SIGTERM 클린 종료)와 `parseWatchInterval`
+      (`--watch [seconds]`→ms, 기본 2s)로 추출 → status·upcoming·overdue가 한 루프·한 종료 경로 공유.
+      `upcoming.ts`에 순수 `renderUpcomingWatchFrame`·`overdue.ts`에 `renderOverdueWatchFrame`(제목/타임스탬프/
+      스토어 경로 메타 블록 + 컬러 표, `status`의 `renderWatchFrame` 관례 일치). 각 draw가 매 패스
+      스토어를 재-read하고 `Date.now()`로 timeline/report를 재구성 → 데몬의 라이브 쓰기·카운트다운이
+      제자리에서 갱신, `--since`/`--until` 창 경계와 `--grace`는 명령 시작 시 고정. `--json`이 `--watch`보다
+      우선(루프 대신 1회 출력). completion은 라이브 commander program 파생이라 `-w`/`--watch` 자동 노출.
+      새 core 코드 0줄. cli upcoming/overdue 각 +2 watch-frame 테스트, 실제 빌드 CLI e2e로 upcoming
+      `due now`/`1h 0m`·overdue `2h 0m` 지연·status 회귀·`--json` 우선 검증. branch
+      `claude/wizardly-pascal-7u81w9`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
