@@ -647,6 +647,20 @@
       자동 포함. 새 파서/시계 로직 0줄. core tools 8 + cli tools 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·
       카운트다운·idle·스코프 부분집합·--json·에러 exit·completion 포함 검증. branch `claude/wizardly-pascal-tools`)
 
+- [x] 👷 `agentrelay upcoming --watch` / `overdue --watch` — 카운트다운 뷰의 라이브 갱신(`status --watch`의
+      인접 항목). `status`만 `--watch`가 있었고, 정작 카운트다운이 핵심인 `upcoming`(재개까지 남은 시간)·
+      `overdue`(지연이 얼마나 커지는지)에는 없어 매번 재실행해야 했다.
+      (완료 — CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame`·`overdue.ts`에 `renderOverdueWatchFrame`
+      신설(title/meta 헤더 + 기존 `renderUpcoming`/`renderOverdue` 표 재사용, `status`의 `renderWatchFrame`과
+      동일한 룩). cli.ts의 status 전용 watch 루프를 공용 `startWatchLoop(intervalMs, draw)`로 추출(화면
+      클리어 + SIGINT/SIGTERM 정리 공유) + `watchIntervalMs`(`[seconds]` 파싱, 기본 2s) 헬퍼. `upcoming`/
+      `overdue` 액션에 `-w, --watch [seconds]` 배선 — 매 패스 스토어를 재오픈하고 fresh `now`로 timeline/
+      report를 재구성(카운트다운이 제자리에서 tick, overdue 스팬은 자라남), 스코프 경계는 명령 시작 시
+      고정(status --watch와 동일). `--watch --json` 병용 시 json 우선(무한 루프 방지). 새 core 코드 0줄 —
+      전부 기존 검증된 `buildUpcomingTimeline`/`buildOverdueReport` 재사용. cli upcoming +2 / overdue +2
+      신규 테스트, 실제 빌드 CLI e2e로 라이브 갱신(1s 간격 3프레임)·헤더/표/푸터·--watch --json 우선·
+      일회성 뷰 불변·completion 포함 검증. branch `claude/wizardly-pascal-wpvtdo`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -1635,3 +1635,30 @@
   `--tool nope`(exit 1), completion에 `tools` 포함 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools`/`projects`에 `--watch`
   라이브 갱신, `upcoming --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 52 — `upcoming`/`overdue` 라이브 `--watch`] (2026-08-02, 무인 자율 세션)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다.
+  `status`에는 `--watch` 라이브 갱신 TUI가 있지만, 정작 카운트다운이 핵심 가치인 `upcoming`(재개까지
+  남은 시간)·`overdue`(지연이 얼마나 커지는지)에는 없어 매번 명령을 재실행해야 진행 상황을 볼 수 있었다.
+  최근 3개 세션의 PROGRESS "다음 할 일"에 반복적으로 인접 항목으로 언급된 갭.
+- **한 일 (branch `claude/wizardly-pascal-wpvtdo`):** `agentrelay upcoming --watch` / `overdue --watch` —
+  `status --watch`의 룩·룰을 두 카운트다운 뷰로 확장.
+  - CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame`·`overdue.ts`에 `renderOverdueWatchFrame` 신설:
+    title/meta(타임스탬프·스토어 경로) 헤더 + 기존 `renderUpcoming`/`renderOverdue` 표를 그대로 재사용해
+    `status`의 `renderWatchFrame`과 동일한 룩. 순수라 TTY/시계 없이 유닛 테스트 가능(`now` 주입).
+  - cli.ts의 status 전용 watch 루프를 공용 `startWatchLoop(intervalMs, draw)`로 추출 — 화면 클리어
+    (`\x1b[2J\x1b[H`) + 즉시 1프레임 + N초 재페인트 + SIGINT/SIGTERM 정리를 세 뷰가 공유. `watchIntervalMs`
+    (`[seconds]` 파싱, 기본 2s) 헬퍼로 파싱 로직도 통일. `runWatch`를 helper 위로 리팩터(동작 동일).
+  - `upcoming`/`overdue` 액션에 `-w, --watch [seconds]` 배선: 매 패스 스토어를 재오픈하고 fresh `now`로
+    timeline/report를 재구성 → 카운트다운이 제자리에서 tick, overdue 스팬은 계속 자라남. 스코프 경계
+    (--since/--until/--tool/--project)는 명령 시작 시 절대 epoch-ms로 고정(status --watch와 동일 의미).
+    `--watch --json` 병용 시 json을 우선(`!opts.json` 가드 → 무한 루프 방지). help 예제·completion 자동 포함.
+  - 새 core 코드 0줄 — 전부 기존 검증된 `buildUpcomingTimeline`/`buildOverdueReport` 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 561 + cli 283/1skip + dashboard 7; cli upcoming +2 / overdue +2 신규 watch-frame 포함).
+  빌드된 실제 CLI e2e(mock 아님): 2-잡 임시 스토어(미래 대기 1/2h 지연 1)로 `upcoming --watch 1`·
+  `overdue --watch 1`(1s 간격 3프레임 라이브 갱신·title/meta 헤더·표·푸터), `--watch --json`(json 우선·
+  루프 안 돎), 일회성 뷰 불변, help의 `--watch` 노출, completion에 `upcoming`/`overdue` 포함 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools`/`projects`에도 동일
+  `--watch` 확장, `next --watch` 검토. README/ARCHITECTURE(🧭 코워크).
