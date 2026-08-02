@@ -647,6 +647,16 @@
       자동 포함. 새 파서/시계 로직 0줄. core tools 8 + cli tools 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·
       카운트다운·idle·스코프 부분집합·--json·에러 exit·completion 포함 검증. branch `claude/wizardly-pascal-tools`)
 
+- [x] 👷 파서 시각-표현 접속사 확장 — `reset at`뿐 아니라 `rate limited until` / `try again after` /
+      `available (again) at` / `resumes at` 접속사로 표현된 리셋 시각도 인식.
+      (완료 — 기존 절대-시각 패턴 3개[iso-timestamp/clock-time/clock-time-meridiem]는 전부 `reset[s]? at`
+      접두사만 인식해 실사용에서 흔한 다른 접속사를 놓쳤다. `parser.ts`에 공유 비캡처 alternation 상수
+      `RESET_LEADIN`을 신설해 세 패턴이 접두사를 공유 — 접두사만 넓히고 시간 캡처 그룹은 원형 유지(m[1..3]
+      인덱스 불변 → resolve 로직·기존 회귀 전부 불변). `until`은 `(rate) limited` 뒤에서만 허용(산문
+      오검출 방지), relative-duration은 별개 축이라 미변경. pre-filter에 `resumes at`/`available (again)
+      at`/`limited until` 추가. 새 CLI 코드 0줄 — `parse` 커맨드 자동 노출. parser.test +8 회귀(6 접속사
+      변형 + 오검출 방지 2), 실제 빌드 CLI e2e 검증. branch `claude/wizardly-pascal-qfqd0j`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

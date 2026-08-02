@@ -236,6 +236,65 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  // --- alternate reset-time connectives (until / after / available at / resumes at) ---
+
+  it("parses 'rate limited until' an ISO timestamp", () => {
+    const result = parseRateLimitMessage("You are rate limited until 2026-07-13T05:00:00Z.");
+    expect(result?.pattern).toBe("iso-timestamp");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses 'limited until' a meridiem clock time", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Rate limited until 3pm.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(15);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'try again after' a minute-precise clock time", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("You've hit your limit. Try again after 5:30pm.", { now });
+    expect(result?.pattern).toBe("clock-time");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(17);
+    expect(resetDate.getMinutes()).toBe(30);
+  });
+
+  it("parses 'available again at' a meridiem clock time", () => {
+    const now = new Date("2026-07-12T20:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Available again at 10 AM.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(10);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'available at' (without 'again') an ISO timestamp", () => {
+    const result = parseRateLimitMessage("Rate limit hit. Available at 2026-07-13T05:00:00Z.");
+    expect(result?.pattern).toBe("iso-timestamp");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses 'resumes at' a 24-hour clock time", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached; access resumes at 15:00.", { now });
+    expect(result?.pattern).toBe("clock-time");
+    expect(new Date(result!.resetAt).getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("does not treat a bare 'until' in normal prose as a reset cue", () => {
+    // "until" is only a reset connective after "limited"/"rate limited" — plain
+    // prose that happens to mention a rate limit and a time must not misfire.
+    expect(parseRateLimitMessage("We were rate limited; keep retrying until 5pm if needed.")).toBeNull();
+  });
+
+  it("does not misread 'try again after' when no time follows", () => {
+    // "try again after fixing the bug" has no clock/ISO time after the connective.
+    expect(parseRateLimitMessage("Rate limit error. Please try again after fixing the config.")).toBeNull();
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [
