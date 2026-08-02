@@ -1635,3 +1635,25 @@
   `--tool nope`(exit 1), completion에 `tools` 포함 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools`/`projects`에 `--watch`
   라이브 갱신, `upcoming --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 52 — `agentrelay upcoming --watch` 라이브 카운트다운 타임라인] (2026-08-02, 무인 자율 세션, branch `claude/wizardly-pascal-0hi4j4`)
+- **배경:** 이전 세션 브랜치가 이미 병합돼 origin에서 삭제됨 → 지침대로 최신 main(0afae05, #385 tools 병합)에서
+  같은 이름으로 브랜치 재시작. BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유뿐.
+  세션 51의 "다음 할 일"이 지목한 후속을 골라 **새 개선 항목을 발굴**했다: 라이브 갱신은 지금까지 `status
+  --watch`에만 있어, "앞으로 무엇이 언제 재개되나"의 활주로(runway) 뷰인 `upcoming`은 카운트다운을 갱신하려면
+  매번 다시 실행해야 했다.
+- **한 일 (branch `claude/wizardly-pascal-0hi4j4`):** `agentrelay upcoming --watch` — `status --watch`의 타임라인 축 거울.
+  - CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame(timeline, storePath, intervalMs, now?, scopeNote?)` 추가:
+    `status`의 `renderWatchFrame`을 미러링해 제목(라이브·간격·Ctrl-C 힌트)+메타(타임스탬프·스토어 경로) 블록
+    위에 기존 `renderUpcoming`(color:true)을 얹음. 순수 함수라 TTY/시계 없이 테스트 가능.
+  - cli.ts에 `runUpcomingWatch`(매 tick 스토어 재읽기→scope 재적용→`buildUpcomingTimeline` 재빌드→화면 clear
+    `\x1b[2J\x1b[H`+프레임, `setInterval`, SIGINT/SIGTERM에 정리 후 종료) + upcoming 커맨드에 `-w,--watch
+    [seconds]`(기본 2s, `status`와 동일 파싱) 배선. 데몬이 스토어에 쓰면 다음 tick에 자동 반영, `--tool`/
+    `--project`/`--since`/`--until`/`--limit` 스코프는 시작 시 고정된 절대 경계로 매 프레임 재적용.
+  - 새 core 로직 0줄 — 기존 `buildUpcomingTimeline`·`scopeJobs`·`formatCountdown` 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 553 + cli 283/1skip + dashboard 7; cli upcoming +4 신규 포함). 빌드된 실제 CLI
+  e2e(mock 아님): 대기 잡 1개 임시 스토어로 one-shot `upcoming`, `--watch 5` 라이브 프레임(ANSI strip 후 제목/
+  메타/카운트다운/`\x1b[2J` clear-screen 확인), `upcoming --help`에 `-w,--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `projects`/`tools`/`overdue`에도 동일
+  `--watch` 확장, `upcoming --watch`에 `--json` 스트리밍 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
