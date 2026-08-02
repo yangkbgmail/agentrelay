@@ -1635,3 +1635,31 @@
   `--tool nope`(exit 1), completion에 `tools` 포함 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools`/`projects`에 `--watch`
   라이브 갱신, `upcoming --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 52 — `agentrelay upcoming --watch` 라이브 타임라인] (2026-08-02, 무인 자율 세션, branch `claude/wizardly-pascal-eniuqt`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다.
+  세션 49~51이 반복해서 "다음 할 일"로 지목한 항목 — `status`엔 라이브 `--watch`가 있지만 재개
+  타임라인 뷰 `upcoming`엔 없어, 재개를 기다리는 동안 카운트다운을 갱신하려면 매번 명령을 다시 쳐야
+  했다. 릴레이의 핵심 사용 시나리오(한도 걸린 잡이 언제 뜨나 지켜보기)에서 가장 아쉬운 갭.
+- **한 일 (branch `claude/wizardly-pascal-eniuqt`):** `agentrelay upcoming --watch` — `status --watch`의
+  타임라인 판.
+  - CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame(timeline, storePath, intervalMs, now, scopeNote?)`
+    신설(`status.ts`의 `renderWatchFrame` 거울): 볼드 `agentrelay upcoming` 타이틀 + 갱신 주기/`Ctrl-C`
+    안내, 딤 `타임스탬프 · 스토어경로` 메타 라인, 그 아래 컬러 `renderUpcoming` 타임라인. 두 라이브 뷰가
+    동일 헤더 형태를 공유. 순수 함수라 TTY/시계 없이 유닛 테스트 가능.
+  - `cli.ts`에 `runUpcomingWatch` 신설: 매 패스 `listStatus`로 스토어 재읽기(데몬 쓰기 자동 반영),
+    스코프(--tool/--project/--since/--until)·--limit 매 패스 재적용, 스코프 경계는 명령 시작 시 고정된
+    절대 epoch-ms(라이브 쓰기는 계속 반영·창 가장자리는 고정), `\x1b[2J\x1b[H` 화면 클리어 후 프레임
+    페인트, SIGINT/SIGTERM에 exit 0. `upcoming`에 `-w/--watch [seconds]` 배선(초 파싱은 status와 동일,
+    기본 2s), 잘못된 --tool/--since 등은 watch 루프 진입 **전** 검증해 exit 1.
+  - 새 core/파서/스케줄러 로직 0줄 — 전부 기존 검증된 `buildUpcomingTimeline`·`scopeJobs`·`renderUpcoming`
+    재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core + cli 283/1skip + dashboard 7; cli upcoming.test에 renderUpcomingWatchFrame
+  4케이스[타이틀/메타·초 반올림·스코프 노트 전달·컬러] 신규 포함). 빌드된 실제 CLI e2e(mock 아님):
+  1-잡 임시 스토어(90분 뒤 리셋)로 `upcoming --watch 1`이 1.4초 동안 라이브 프레임 2회 갱신(타이틀·
+  `RESUMES IN`·`my-app 1h 30m` 확인), one-shot 출력 불변, `--watch 1 --tool nope`가 루프 진입 전 exit 1,
+  `--help`에 `-w, --watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `overdue`/`tools`/`projects`에도
+  동일 `--watch` 라이브 갱신 확대, README/ARCHITECTURE(🧭 코워크).
