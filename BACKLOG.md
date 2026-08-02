@@ -647,6 +647,20 @@
       자동 포함. 새 파서/시계 로직 0줄. core tools 8 + cli tools 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·
       카운트다운·idle·스코프 부분집합·--json·에러 exit·completion 포함 검증. branch `claude/wizardly-pascal-tools`)
 
+- [x] 👷 `upcoming`/`overdue`/`tools`/`projects`에 라이브 `--watch` 모드 추가 — 카운트다운 계열 읽기 명령을
+      `status --watch`처럼 화면을 지우고 주기 재렌더해 숫자가 제자리에서 tick down.
+      (완료 — `status`만 `--watch`가 있고, 정작 카운트다운을 렌더하는 인접 4개 명령(`upcoming`/`overdue`/
+      `tools`/`projects`)엔 없어 실시간 관찰이 안 됐다. CLI `packages/cli/src/watch.ts` 신설: 순수·테스트
+      가능한 `parseWatchInterval(watch,defaultSec=2)`(status와 동일 규약 — 양수 초만 인정, bare flag/비숫자/
+      0/음수는 기본값) + `renderWatchHeader(command,store,intervalMs,now,color)`(2줄 배너: 굵은 제목+cadence+
+      Ctrl-C 힌트, dim 타임스탬프·스토어 경로, `now` 주입으로 시계 미접촉) + 부수효과 격리된 `runWatchLoop
+      (intervalMs,draw)`(매 프레임 화면 clear+home 후 `draw(Date.now())` 호출, SIGINT/SIGTERM에 클린 종료).
+      네 명령에 `-w,--watch [seconds]` 배선 — 스코프 창 경계는 시작 시 절대 epoch-ms로 고정하고 `now`만
+      프레임마다 전진(status와 동일), 매 프레임 스토어 재읽기로 데몬 쓰기 반영. `--json`은 `--watch`보다
+      우선(원샷). 새 core 로직 0줄. cli watch 8 신규 테스트(parseWatchInterval 5 + renderWatchHeader 3),
+      실제 빌드 CLI e2e로 네 명령 라이브 프레임·SIGINT 클린 종료(exit 0)·--json 우선 검증.
+      branch `claude/wizardly-pascal-3aszde`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

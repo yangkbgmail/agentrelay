@@ -97,6 +97,7 @@ import {
 import { renderTools, renderToolsJson } from "./tools.js";
 import { renderUpcoming, renderUpcomingJson } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
+import { parseWatchInterval, renderWatchHeader, runWatchLoop } from "./watch.js";
 
 /**
  * Split a comma-separated CLI option (e.g. `--status completed,failed`) into
@@ -565,6 +566,7 @@ export function buildCli(): Command {
   program
     .command("upcoming")
     .description("Show the timeline of jobs waiting to resume, soonest first, each with a live countdown")
+    .option("-w, --watch [seconds]", "Continuously refresh the timeline with live countdowns (Ctrl-C to exit)")
     .option("-n, --limit <n>", "Show at most N rows (the totals still count all waiting jobs)")
     .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
     .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
@@ -581,7 +583,7 @@ export function buildCli(): Command {
         "  # feed the timeline to jq\n" +
         "  agentrelay upcoming --json | jq '.timeline.entries[].job.id'"
     )
-    .action((opts: ScopeOpts & { limit?: string; json?: boolean }) => {
+    .action((opts: ScopeOpts & { limit?: string; json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
 
@@ -602,11 +604,24 @@ export function buildCli(): Command {
         process.exitCode = 1;
         return;
       }
-
-      const allJobs = listStatus(store);
-      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
       const scopeNote = built.active ? built.note : undefined;
-      const timeline = buildUpcomingTimeline(jobs, now, limit);
+      // Scope window edges are absolute epoch-ms fixed here at start; only `now`
+      // (countdowns) advances per frame, matching `status --watch`.
+      const scoped = (jobs: RelayJob[]): RelayJob[] => (built.active ? scopeJobs(jobs, built.scope) : jobs);
+
+      if (opts.watch !== undefined && !opts.json) {
+        const intervalMs = parseWatchInterval(opts.watch);
+        const storePath = store ?? defaultStorePath();
+        runWatchLoop(intervalMs, (frameNow) => {
+          const timeline = buildUpcomingTimeline(scoped(listStatus(store)), frameNow, limit);
+          const header = renderWatchHeader("upcoming", storePath, intervalMs, frameNow);
+          const body = renderUpcoming(timeline, { color: true, now: frameNow, scopeNote });
+          process.stdout.write(`${header}\n\n${body}\n`);
+        });
+        return; // setInterval keeps the process alive.
+      }
+
+      const timeline = buildUpcomingTimeline(scoped(listStatus(store)), now, limit);
 
       if (opts.json) {
         console.log(
@@ -625,6 +640,7 @@ export function buildCli(): Command {
   program
     .command("overdue")
     .description("Show waiting jobs whose reset time has already passed but that haven't resumed (a stuck resume loop)")
+    .option("-w, --watch [seconds]", "Continuously refresh the report with live overdue timers (Ctrl-C to exit)")
     .option("-n, --limit <n>", "Show at most N rows (the totals still count all overdue jobs)")
     .option(
       "--grace <duration>",
@@ -648,7 +664,7 @@ export function buildCli(): Command {
         "\nA non-empty list usually means the resume loop is down — check\n" +
         "`agentrelay health` and `agentrelay doctor`."
     )
-    .action((opts: ScopeOpts & { limit?: string; grace?: string; json?: boolean }) => {
+    .action((opts: ScopeOpts & { limit?: string; grace?: string; json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
 
@@ -680,11 +696,22 @@ export function buildCli(): Command {
         process.exitCode = 1;
         return;
       }
-
-      const allJobs = listStatus(store);
-      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
       const scopeNote = built.active ? built.note : undefined;
-      const report = buildOverdueReport(jobs, now, { graceMs, limit });
+      const scoped = (jobs: RelayJob[]): RelayJob[] => (built.active ? scopeJobs(jobs, built.scope) : jobs);
+
+      if (opts.watch !== undefined && !opts.json) {
+        const intervalMs = parseWatchInterval(opts.watch);
+        const storePath = store ?? defaultStorePath();
+        runWatchLoop(intervalMs, (frameNow) => {
+          const report = buildOverdueReport(scoped(listStatus(store)), frameNow, { graceMs, limit });
+          const header = renderWatchHeader("overdue", storePath, intervalMs, frameNow);
+          const body = renderOverdue(report, { color: true, scopeNote });
+          process.stdout.write(`${header}\n\n${body}\n`);
+        });
+        return; // setInterval keeps the process alive.
+      }
+
+      const report = buildOverdueReport(scoped(listStatus(store)), now, { graceMs, limit });
 
       if (opts.json) {
         console.log(
@@ -1024,6 +1051,7 @@ export function buildCli(): Command {
   program
     .command("projects")
     .description("List distinct project labels with per-project job counts and the soonest reset")
+    .option("-w, --watch [seconds]", "Continuously refresh the rollup with live countdowns (Ctrl-C to exit)")
     .option("--json", "Print the summary as JSON (machine-readable, for scripts/CI)")
     .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
     .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
@@ -1038,7 +1066,7 @@ export function buildCli(): Command {
         "  # feed the per-project rollup to jq\n" +
         "  agentrelay projects --json | jq '.summary.projects'"
     )
-    .action((opts: ScopeOpts & { json?: boolean }) => {
+    .action((opts: ScopeOpts & { json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
       const built = buildScope(opts, now);
@@ -1047,9 +1075,22 @@ export function buildCli(): Command {
         process.exitCode = 1;
         return;
       }
-      const allJobs = listStatus(store);
-      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
-      const summary = summarizeProjects(jobs);
+      const scopeNote = built.active ? built.note : undefined;
+      const scoped = (jobs: RelayJob[]): RelayJob[] => (built.active ? scopeJobs(jobs, built.scope) : jobs);
+
+      if (opts.watch !== undefined && !opts.json) {
+        const intervalMs = parseWatchInterval(opts.watch);
+        const storePath = store ?? defaultStorePath();
+        runWatchLoop(intervalMs, (frameNow) => {
+          const summary = summarizeProjects(scoped(listStatus(store)));
+          const header = renderWatchHeader("projects", storePath, intervalMs, frameNow);
+          const body = renderProjects(summary, { color: true, scopeNote, now: frameNow });
+          process.stdout.write(`${header}\n\n${body}\n`);
+        });
+        return; // setInterval keeps the process alive.
+      }
+
+      const summary = summarizeProjects(scoped(listStatus(store)));
       if (opts.json) {
         console.log(
           renderProjectsJson({
@@ -1064,7 +1105,7 @@ export function buildCli(): Command {
       console.log(
         renderProjects(summary, {
           color: Boolean(process.stdout.isTTY),
-          scopeNote: built.active ? built.note : undefined,
+          scopeNote,
           now,
         })
       );
@@ -1073,6 +1114,7 @@ export function buildCli(): Command {
   program
     .command("tools")
     .description("List the agent tools in play (claude-code/codex-cli/generic) with per-tool job counts and next reset")
+    .option("-w, --watch [seconds]", "Continuously refresh the rollup with live countdowns (Ctrl-C to exit)")
     .option("--json", "Print the summary as JSON (machine-readable, for scripts/CI)")
     .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
     .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
@@ -1087,7 +1129,7 @@ export function buildCli(): Command {
         "  # feed the per-tool rollup to jq\n" +
         "  agentrelay tools --json | jq '.summary.tools'"
     )
-    .action((opts: ScopeOpts & { json?: boolean }) => {
+    .action((opts: ScopeOpts & { json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
       const built = buildScope(opts, now);
@@ -1096,9 +1138,22 @@ export function buildCli(): Command {
         process.exitCode = 1;
         return;
       }
-      const allJobs = listStatus(store);
-      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
-      const summary = summarizeTools(jobs);
+      const scopeNote = built.active ? built.note : undefined;
+      const scoped = (jobs: RelayJob[]): RelayJob[] => (built.active ? scopeJobs(jobs, built.scope) : jobs);
+
+      if (opts.watch !== undefined && !opts.json) {
+        const intervalMs = parseWatchInterval(opts.watch);
+        const storePath = store ?? defaultStorePath();
+        runWatchLoop(intervalMs, (frameNow) => {
+          const summary = summarizeTools(scoped(listStatus(store)));
+          const header = renderWatchHeader("tools", storePath, intervalMs, frameNow);
+          const body = renderTools(summary, { color: true, scopeNote, now: frameNow });
+          process.stdout.write(`${header}\n\n${body}\n`);
+        });
+        return; // setInterval keeps the process alive.
+      }
+
+      const summary = summarizeTools(scoped(listStatus(store)));
       if (opts.json) {
         console.log(
           renderToolsJson({
@@ -1113,7 +1168,7 @@ export function buildCli(): Command {
       console.log(
         renderTools(summary, {
           color: Boolean(process.stdout.isTTY),
-          scopeNote: built.active ? built.note : undefined,
+          scopeNote,
           now,
         })
       );
