@@ -15,6 +15,7 @@ import {
   listStoreBackups,
   previewRestoreStore,
   pruneJobs,
+  rescheduleJob,
   restoreStore,
   retryJob,
   runCommand,
@@ -217,6 +218,94 @@ describe("cancelJob / retryJob", () => {
     expect(result.job?.status).toBe("waiting_for_reset");
     expect(result.job?.attempts).toBe(0);
     expect(result.job?.lastError).toBeNull();
+  });
+});
+
+describe("rescheduleJob", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cli-resched-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function seed(status: "waiting_for_reset" | "failed" | "resuming", attempts = 3) {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    if (status === "waiting_for_reset") {
+      queue.markWaitingForReset(job.id, new Date(Date.now() + 60_000).toISOString());
+      // Bump attempts so we can assert reschedule preserves them.
+      for (let i = 0; i < attempts; i++) queue.markResuming(job.id);
+      queue.markWaitingForReset(job.id, new Date(Date.now() + 60_000).toISOString());
+    }
+    if (status === "failed") queue.markFailed(job.id, "boom");
+    if (status === "resuming") queue.markResuming(job.id);
+    queue.close();
+    return job.id;
+  }
+
+  it("moves a waiting job to a duration-from-now due time, preserving attempts", () => {
+    const id = seed("waiting_for_reset");
+    const before = listStatus(storePath)[0];
+    const result = rescheduleJob(id.slice(0, 8), "2h", storePath);
+    expect(result.ok).toBe(true);
+    expect(result.job?.status).toBe("waiting_for_reset");
+    // attempts unchanged (unlike retry, which zeroes them)
+    expect(result.job?.attempts).toBe(before.attempts);
+    const at = Date.parse(result.at as string);
+    expect(at).toBeGreaterThan(Date.now() + 60 * 60 * 1000);
+  });
+
+  it('accepts "now" so the next tick resumes it', () => {
+    const id = seed("waiting_for_reset");
+    const result = rescheduleJob(id, "now", storePath);
+    expect(result.ok).toBe(true);
+    expect(Date.parse(result.at as string)).toBeLessThanOrEqual(Date.now() + 1000);
+  });
+
+  it("accepts an absolute ISO timestamp", () => {
+    const id = seed("waiting_for_reset");
+    const result = rescheduleJob(id, "2026-08-02T18:00:00.000Z", storePath);
+    expect(result.ok).toBe(true);
+    expect(result.at).toBe("2026-08-02T18:00:00.000Z");
+    expect(listStatus(storePath)[0].resetAt).toBe("2026-08-02T18:00:00.000Z");
+  });
+
+  it("brings a failed job's status back into waiting via retry-only path (rejects reschedule)", () => {
+    const id = seed("failed");
+    const result = rescheduleJob(id, "2h", storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("failed");
+    expect(result.message).toContain("retry");
+    expect(listStatus(storePath)[0].status).toBe("failed");
+  });
+
+  it("refuses to reschedule an in-flight (resuming) job", () => {
+    const id = seed("resuming");
+    const result = rescheduleJob(id, "2h", storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("resuming");
+  });
+
+  it("reports an invalid time without mutating the store", () => {
+    const id = seed("waiting_for_reset");
+    const before = listStatus(storePath)[0].resetAt;
+    const result = rescheduleJob(id, "later maybe", storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("could not understand");
+    expect(listStatus(storePath)[0].resetAt).toBe(before);
+  });
+
+  it("reports an unknown id", () => {
+    seed("waiting_for_reset");
+    const result = rescheduleJob("deadbeef", "2h", storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("no job matches");
   });
 });
 
