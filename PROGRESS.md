@@ -1635,3 +1635,29 @@
   `--tool nope`(exit 1), completion에 `tools` 포함 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools`/`projects`에 `--watch`
   라이브 갱신, `upcoming --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 52 — 파서 시각-표현 접속사 확장] (2026-08-02, 무인 자율 세션)
+- **배경:** 세션 시작 시 origin에 미병합 PR이 350+개 누적(대부분 tools·upcoming --watch·overdue·recent·
+  attempts·reschedule·stuck·drain·Gemini 어댑터·파서 타임존[#373]/Anthropic 헤더[#357] 중복). 이 주제들을
+  피해, CLAUDE.md 지침대로 겹치지 않는 **새 개선 항목을 발굴**했다 — 프로젝트 핵심 가치(rate-limit 감지)에
+  직결되면서 열린 파서 PR들과 다른 축. 기존 절대-시각 파서(iso-timestamp/clock-time/clock-time-meridiem)는
+  전부 `reset[s]? at` 접두사만 인식해, 실제로 흔한 `rate limited until 3pm`, `try again after 5:30pm`,
+  `available again at <ISO>`, `resumes at 15:00` 같은 다른 접속사로 표현된 리셋 시각을 모두 놓쳤다.
+- **한 일 (branch `claude/wizardly-pascal-qfqd0j`):** 파서 시각-표현 접속사 확장.
+  - `parser.ts`에 공유 상수 `RESET_LEADIN`(비캡처 alternation: `reset(s) at`·`resumes at`·`available
+    (again) at`·`try again after`·`(rate )limited until` + 후행 `\s+`) 신설. 기존 3개 절대-시각 패턴의
+    정규식을 `new RegExp(RESET_LEADIN + <기존 시간부>, "i")`로 재구성 — **접두사만 넓히고 시간 캡처
+    그룹은 원형 유지**(비캡처라 m[1]/m[2]/m[3] 인덱스 불변 → resolve 로직 0줄 변경, 기존 회귀 전부 보증).
+    `until`은 `limited`/`rate limited` 뒤에서만 허용(일반 산문의 "keep going until done" 오검출 방지),
+    relative-duration("try again in")은 별개 축이라 미변경.
+  - pre-filter `LOOKS_LIKE_RATE_LIMIT`에 `resumes? at`·`available (again )at`·`limited until` 추가
+    (넓혀도 실제 판정은 각 패턴 정규식이 함 — 통과만 시킴).
+  - 새 커맨드/CLI 코드 0줄 — 기존 `parse` 커맨드가 자동 노출.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 561 + cli 279/1skip + dashboard 7; parser.test 41케이스[+8 신규]). 신규 회귀:
+  limited-until-ISO/limited-until-meridiem/try-again-after-clock/available-again-at-meridiem/available-at-ISO/
+  resumes-at-24h + 오검출 방지 2(산문 "until"·시간 없는 "after"). 빌드된 실제 CLI e2e(mock 아님):
+  `parse`로 6개 접속사 변형(clock-time-meridiem/clock-time/iso-timestamp) 매치·2개 오검출→"No rate-limit
+  detected"·기존 "reset at 5pm" 회귀 없음 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 누적된 350+ 미병합 PR 정리(코워크),
+  파서 추가 실사용 포맷 수집(🧭). README/ARCHITECTURE(🧭 코워크).
