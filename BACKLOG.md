@@ -634,6 +634,22 @@
       13 + cli overdue 10 신규 테스트, 실제 빌드 CLI e2e로 grace 유예·정렬·스코프·JSON·에러 exit·빈 스토어
       검증. branch `claude/wizardly-pascal-pvjg81`)
 
+- [x] 👷 `agentrelay upcoming --watch [초]` — 재개 타임라인을 라이브로 갱신(카운트다운이 화면에서 째깍째깍
+      줄어듦). 세션 49·50이 "다음 할 일"로 연속 지목한 후속 — `status --watch`는 있지만 `upcoming`엔 없어
+      "무엇이 언제 재개되나"를 한 번 찍고 마는 정적 스냅샷만 가능했다(대기 잡을 지켜보려면 반복 실행 필요).
+      (완료 — CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame(timeline, storePath, intervalMs, now?,
+      scopeNote?)` 신설: `status --watch`의 프레임과 동일한 타이틀(명령·주기·Ctrl-C 안내)+메타 라인
+      (타임스탬프·스토어 경로) 위에 컬러 타임라인 표(`renderUpcoming` 재사용)를 얹음, 순수(주입 now면
+      시계 미접촉). `cli.ts`에 `runUpcomingWatch`(화면 클리어 후 매 인터벌 재렌더, `listStatus`로 스토어
+      재읽기 → 데몬 쓰기 자동 반영, `--tool`/`--project`/`--since`/`--until` 스코프·`--limit` 매 패스
+      재적용, 시간 창 경계는 명령 시작 시 고정된 절대 epoch-ms로 `status --watch`와 동일 의미)+SIGINT/
+      SIGTERM 클린 종료. `upcoming`에 `-w, --watch [seconds]` 배선(미지정 시 2초, `status --watch`와 동일
+      파싱). 새 core 로직 0줄 — 기존 `buildUpcomingTimeline`·`scopeJobs`·`renderUpcoming` 재사용. cli
+      upcoming.test에 renderUpcomingWatchFrame 3케이스(타이틀/메타/컬러 표·초 반올림·스코프 노트 스레드),
+      실제 빌드 CLI e2e로 라이브 프레임(클리어 스크린 이스케이프+타이틀+타임스탬프+컬러 표)·스코프 필터
+      (late-app 제외+scope note+정직한 totals)·help 노출·`--limit 0` 에러(exit 1) 검증. branch
+      `claude/wizardly-pascal-qw9wig`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
