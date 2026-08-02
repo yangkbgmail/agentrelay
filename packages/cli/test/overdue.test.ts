@@ -1,6 +1,6 @@
 import { buildOverdueReport, type OverdueReport, type RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_OVERDUE_MESSAGE, renderOverdue, renderOverdueJson } from "../src/overdue.js";
+import { NO_OVERDUE_MESSAGE, renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "../src/overdue.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -107,5 +107,39 @@ describe("renderOverdueJson", () => {
       })
     );
     expect(parsed.scope).toEqual({ projects: ["demo"] });
+  });
+});
+
+describe("renderOverdueWatchFrame", () => {
+  it("includes the live title, store path, timestamp and the table", () => {
+    const frame = renderOverdueWatchFrame(
+      report([job({ project: "stuck-app", resetAt: at(-90 * 60_000) })]),
+      "/tmp/store.json",
+      2000,
+      NOW
+    );
+    expect(frame).toContain("agentrelay overdue");
+    expect(frame).toContain("every 2s");
+    expect(frame).toContain("/tmp/store.json");
+    expect(frame).toContain("2026-07-30 10:00:00");
+    expect(frame).toContain("stuck-app");
+    // Overdue span comes precomputed in the report.
+    expect(frame).toContain("1h 30m");
+  });
+
+  it("rounds the interval to whole seconds in the title", () => {
+    const frame = renderOverdueWatchFrame(report([job()]), "/tmp/store.json", 10000, NOW);
+    expect(frame).toContain("every 10s");
+  });
+
+  it("shows the keeping-up message inside the frame when nothing is overdue", () => {
+    const frame = renderOverdueWatchFrame(report([]), "/tmp/store.json", 2000, NOW);
+    expect(frame).toContain("agentrelay overdue");
+    expect(frame).toContain(NO_OVERDUE_MESSAGE);
+  });
+
+  it("carries the scope note into the frame", () => {
+    const frame = renderOverdueWatchFrame(report([job()]), "/tmp/store.json", 2000, NOW, "tool=claude-code");
+    expect(frame).toContain("scope: tool=claude-code");
   });
 });

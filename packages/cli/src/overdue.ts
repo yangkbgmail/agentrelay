@@ -77,6 +77,28 @@ export function renderOverdueJson(input: {
   );
 }
 
+/**
+ * One frame of the live `--watch` view: a title/timestamp header block plus the
+ * overdue table. Separated out so the watch loop in cli.ts only has to clear the
+ * screen and print this. `now` is threaded through only for the header stamp;
+ * the overdue spans come precomputed in a report rebuilt each pass. Colors are
+ * always on (the watch view is a TTY).
+ */
+export function renderOverdueWatchFrame(
+  report: OverdueReport,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now(),
+  scopeNote?: string
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay overdue${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderOverdue(report, { color: true, scopeNote })].join("\n");
+}
+
 function footer(report: OverdueReport): string {
   const jobWord = report.totalOverdue === 1 ? "job" : "jobs";
   const parts = [`${report.totalOverdue} ${jobWord} overdue`];

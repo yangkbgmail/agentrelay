@@ -634,6 +634,19 @@
       13 + cli overdue 10 신규 테스트, 실제 빌드 CLI e2e로 grace 유예·정렬·스코프·JSON·에러 exit·빈 스토어
       검증. branch `claude/wizardly-pascal-pvjg81`)
 
+- [x] 👷 `agentrelay upcoming --watch` / `overdue --watch` — 라이브 갱신 뷰. `status --watch`(세션 초기)와
+      동일한 라이브 카운트다운 경험을 재개 활주로(upcoming)와 지연 진단(overdue)에도 제공(세션 49 발굴).
+      (완료 — `status`만 `--watch`가 있어 upcoming/overdue는 정지 스냅샷만 볼 수 있었다. cli.ts의
+      `runWatch`(status 전용)를 순수 루프 헬퍼 `startWatchLoop(intervalMs, draw)`(화면 클리어+매 프레임
+      `draw()` 페인트+SIGINT/SIGTERM 정리)로 리팩터해 세 뷰가 공유, `--watch [seconds]` 파싱도 공용
+      `watchIntervalMs`(bare 플래그·비양수·garbage→2s 폴백)로 통일. `upcoming.ts`에 `renderUpcomingWatchFrame`
+      ·`overdue.ts`에 `renderOverdueWatchFrame` 신설(status의 `renderWatchFrame` 미러: 타이틀+타임스탬프+
+      스토어 경로 헤더 + 기존 `renderUpcoming`/`renderOverdue` 테이블, 색상 on). 매 프레임 스토어를 재읽어
+      countdown이 흐르고 데몬 쓰기가 반영됨. 스코프 창 경계는 명령 시작 시 고정(status와 동일 의미),
+      `--json`이 `--watch`보다 우선. 새 core/파서 로직 0줄 — 전부 기존 렌더러·`scopeJobs`/`buildScope` 재사용.
+      cli upcoming +3, overdue +4 watch-frame 테스트, 실제 빌드 CLI e2e로 라이브 프레임·countdown·스코프
+      노트·`--json` 우선·help 노출 검증. branch `claude/wizardly-pascal-03mg05`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
