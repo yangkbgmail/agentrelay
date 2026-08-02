@@ -1,6 +1,6 @@
 import { buildUpcomingTimeline, type RelayJob, type UpcomingTimeline } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson } from "../src/upcoming.js";
+import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "../src/upcoming.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -108,5 +108,47 @@ describe("renderUpcomingJson", () => {
       })
     );
     expect(parsed.scope).toEqual({ projects: ["demo"] });
+  });
+});
+
+describe("renderUpcomingWatchFrame", () => {
+  it("puts the live title, interval, timestamp, and store path above the timeline body", () => {
+    const frame = renderUpcomingWatchFrame({
+      timeline: timeline([job({ id: "watch1", resetAt: at(90 * 60_000) })]),
+      storePath: "/tmp/jobs.json",
+      intervalMs: 5000,
+      now: NOW,
+    });
+    expect(frame).toContain("agentrelay upcoming");
+    expect(frame).toContain("every 5s");
+    // Timestamp is "YYYY-MM-DD HH:MM:SSZ" derived from `now`.
+    expect(frame).toContain("2026-07-30 10:00:00Z");
+    expect(frame).toContain("/tmp/jobs.json");
+    // The colored timeline body is included.
+    expect(frame).toContain("RESUMES IN");
+    expect(frame).toContain("watch1");
+  });
+
+  it("rounds the interval to whole seconds in the header", () => {
+    const frame = renderUpcomingWatchFrame({
+      timeline: timeline([]),
+      storePath: "/tmp/jobs.json",
+      intervalMs: 2000,
+      now: NOW,
+    });
+    expect(frame).toContain("every 2s");
+    // Empty timeline still renders the "nothing waiting" body inside the frame.
+    expect(frame).toContain(NO_UPCOMING_MESSAGE);
+  });
+
+  it("passes the scope note through to the body", () => {
+    const frame = renderUpcomingWatchFrame({
+      timeline: timeline([job()]),
+      storePath: "/tmp/jobs.json",
+      intervalMs: 2000,
+      now: NOW,
+      scopeNote: "project=demo",
+    });
+    expect(frame).toContain("scope: project=demo");
   });
 });
