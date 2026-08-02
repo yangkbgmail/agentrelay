@@ -1610,3 +1610,31 @@
   `--limit 0`·`--grace bogus`(exit 1), 빈 스토어("keeping up"), completion·help 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `upcoming --watch` 라이브 갱신·
   `overdue --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 51 — `agentrelay recent` 최근 종료 잡 조회 신규 구현] (2026-08-02, 무인 자율 세션, branch `claude/wizardly-pascal-2yywuy`)
+- **배경:** 세션 시작 시 👷 명시 BACKLOG 항목이 전부 완료(§3 남은 것은 🧭 문서/공동 QA뿐), 지정 브랜치가
+  최신 main(24a8b3e, #361 overdue 병합)과 정확히 일치(ahead/behind 0). 브랜치를 최신 main으로 리셋 후
+  CLAUDE.md 지침대로 신규 개선 항목을 스스로 발굴·구현.
+- **한 일:** **`agentrelay recent` — `upcoming`/`overdue`의 과거 지향 짝.** `next`(단건)·`upcoming`(대기
+  타임라인)·`overdue`(지연 대기)는 전부 **미래 지향**(무엇이 언제 재개되나)인데, "방금 무엇이 끝났나 —
+  릴레이가 최근 마무리한 잡"을 보는 **과거 지향** 뷰가 없었다. `recent`는 종료 상태(completed/failed/
+  cancelled)에 도달한 잡을 **최근 순**으로 보여줘 릴레이가 실제로 일하고 있음을 확인시킨다.
+  - core `recent.ts` 신설(순수·시계/파일시스템 미접촉): `buildRecentReport(jobs, now, {limit?, withinMs?})` +
+    `RecentEntry`(job·resolvedAt·ageMs·resolutionMs)·`RecentReport`(entries·totalTerminal·hidden·byOutcome·
+    withinMs)·`RecentOutcomeCounts`·`RecentOptions` + `isRecentTerminalStatus`. 종료 상태(`TERMINAL_STATUSES`
+    재사용)+파싱 가능 `updatedAt` 잡만 골라 **최근 해결 순** 정렬(tie-break: 최신 updatedAt→최신 createdAt→id).
+    `withinMs`(해결-나이 창, 양수만 유효·비양수/비유한은 unbounded)로 큰 스토어를 최근 꼬리로 제한, `ageMs`는
+    미래 updatedAt(클럭 스큐) 0 클램프, `resolutionMs`(updatedAt−createdAt)는 음수 span이면 null(stats 관례).
+    `limit`로 잘라도 totals/byOutcome는 정직하게 전체(창 적용 후) 반영. 입력 배열 불변.
+  - CLI `recent.ts`에 순수 `renderRecent`(표: id·project·`OUTCOME`[상태별 색상]·`RESOLVED`[age+ago]·`TOOK`
+    [공용 `formatDurationMs` 재사용, span 미상은 "-"], ANSI-safe 컬럼 정렬 `padVisible`, 푸터에 totals·outcome
+    tally·within·hidden)·`renderRecentJson`(overdue/upcoming과 동일 envelope). `agentrelay recent
+    [--limit/-n][--within][--status/-s][--tool/-t][--project/-p][--since][--until][--json]` — 공용 `buildScope`
+    재사용, completion 자동 포함. index.ts 재노출. 새 파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 557 + cli 280/1skip + dashboard 7; core recent 12 + cli recent 9 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 4-잡 임시 스토어(completed 30m/failed 2h/cancelled 5h/waiting)로 `recent`
+  (종료 3건 최근순, waiting 제외), `--within 3h --limit 2`(5h cancelled 창 밖 제외 → total 2·byOutcome 반영),
+  `--status failed --json`(failed 1건·scope 에코), `--within nope`(exit 1), completion·help 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `recent --watch`/`upcoming --watch`
+  라이브 갱신, `recent` 결과를 대시보드에 노출 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).

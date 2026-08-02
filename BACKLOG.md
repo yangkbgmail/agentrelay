@@ -634,6 +634,20 @@
       13 + cli overdue 10 신규 테스트, 실제 빌드 CLI e2e로 grace 유예·정렬·스코프·JSON·에러 exit·빈 스토어
       검증. branch `claude/wizardly-pascal-pvjg81`)
 
+- [x] 👷 `agentrelay recent` — 릴레이가 최근 마무리한 잡(종료 상태)을 최근 순으로 조회(`upcoming`/`overdue`의
+      과거 지향 짝). `next`/`upcoming`/`overdue`는 전부 미래 지향인데 "방금 무엇이 끝났나"를 보는 뷰가 없었다.
+      (완료 — `@agentrelay/core/recent.ts` 신설(순수·시계/파일시스템 미접촉): `buildRecentReport(jobs, now,
+      {limit?, withinMs?})` + `RecentEntry`(job·resolvedAt·ageMs·resolutionMs)·`RecentReport`(entries·
+      totalTerminal·hidden·byOutcome·withinMs) + `isRecentTerminalStatus`. 종료 상태(`TERMINAL_STATUSES` 재사용)+
+      파싱 가능 `updatedAt` 잡만 최근 해결 순 정렬(tie-break: 최신 updatedAt→최신 createdAt→id), `withinMs`
+      해결-나이 창(양수만·비양수/비유한 unbounded), `ageMs` 미래 updatedAt 0 클램프, `resolutionMs` 음수 span은
+      null. limit로 잘라도 totals/byOutcome는 창 적용 후 전체 반영, 입력 불변. CLI `recent.ts` 순수 `renderRecent`
+      (표: id·project·OUTCOME[색상]·RESOLVED[age+ago]·TOOK[`formatDurationMs`], ANSI-safe `padVisible`)·
+      `renderRecentJson`(overdue와 동일 envelope). `agentrelay recent [--limit/-n][--within][--status][--tool]
+      [--project][--since][--until][--json]` — 공용 `buildScope` 재사용, completion 자동 포함. 새 파서/스케줄러
+      로직 0줄. core recent 12 + cli recent 9 신규 테스트, 실제 빌드 CLI e2e로 최근순·waiting 제외·within 창·
+      status 스코프·JSON·에러 exit 검증. branch `claude/wizardly-pascal-2yywuy`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

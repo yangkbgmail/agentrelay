@@ -14,6 +14,7 @@ import type {
 import {
   ALL_TOOLS,
   buildOverdueReport,
+  buildRecentReport,
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
@@ -81,6 +82,7 @@ import { buildParseReport, renderParseReport, renderParseReportJson } from "./pa
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson } from "./projects.js";
+import { renderRecent, renderRecentJson } from "./recent.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson, renderTrend } from "./stats.js";
 import {
@@ -696,6 +698,80 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderOverdue(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
+    });
+
+  program
+    .command("recent")
+    .description("Show the jobs the relay most recently finished (completed/failed/cancelled), newest first")
+    .option("-n, --limit <n>", "Show at most N rows (the totals still count all resolved jobs)")
+    .option("--within <duration>", "Only include jobs resolved within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("-s, --status <statuses>", "Only include jobs with these comma-separated statuses (exact match)")
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # what did the relay just finish?\n" +
+        "  agentrelay recent\n" +
+        "  # the last 5 jobs resolved in the past day\n" +
+        "  agentrelay recent --limit 5 --within 24h\n" +
+        "  # only failures, for scripts\n" +
+        "  agentrelay recent --status failed --json | jq '.report.entries[].job.id'\n" +
+        "\nThe backward-looking mirror of `agentrelay upcoming`/`overdue`."
+    )
+    .action((opts: ScopeOpts & { limit?: string; within?: string; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      let withinMs: number | undefined;
+      if (opts.within !== undefined) {
+        const ms = parseDuration(opts.within);
+        if (ms === null || ms <= 0) {
+          console.error(`Invalid --within value "${opts.within}". Use a positive duration like 24h, 7d, or 30m.`);
+          process.exitCode = 1;
+          return;
+        }
+        withinMs = ms;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const scopeNote = built.active ? built.note : undefined;
+      const report = buildRecentReport(jobs, now, { limit, withinMs });
+
+      if (opts.json) {
+        console.log(
+          renderRecentJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            report,
+          })
+        );
+        return;
+      }
+      console.log(renderRecent(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
     });
 
   program
