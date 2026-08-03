@@ -35,6 +35,7 @@ import {
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  canReschedule,
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
@@ -74,6 +75,7 @@ import {
   resolveConfigWritePath,
   resolveEffectiveConfig,
   resolveJobId,
+  resolveRescheduleTime,
   retryPolicyFromEnv,
   runDiagnostics,
   sampleConfigJson,
@@ -497,6 +499,48 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
       ok: true,
       job: updated,
       message: `job ${shortId(job.id)} (${job.project}) queued to resume now — run "agentrelay tick" or the daemon to pick it up`,
+    };
+  } finally {
+    queue.close();
+  }
+}
+
+/**
+ * Move a pending job's resume time by full id or short prefix. `when` is a
+ * duration from now (`30m`/`2h`/`1d`), `now`, or an absolute ISO timestamp.
+ * Terminal and in-flight jobs are rejected with an explanatory message; the
+ * job's attempt budget and last error are preserved (this corrects *when*, not
+ * the retry state). Returns `ok:false` (with no mutation) for an unresolvable
+ * id or an unparseable time.
+ */
+export function rescheduleJob(
+  idOrPrefix: string,
+  when: string,
+  storePath?: string,
+  now: Date = new Date()
+): JobControlResult {
+  const queue = openQueue(storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { ok: false, job: null, message: resolved.error ?? "job not found" };
+
+    const job = jobs.find((j) => j.id === resolved.id) as RelayJob;
+    const guard = canReschedule(job);
+    if (!guard.ok) return { ok: false, job, message: `cannot reschedule ${shortId(job.id)}: ${guard.reason}` };
+
+    const time = resolveRescheduleTime(when, now);
+    if (time.error || !time.at)
+      return { ok: false, job, message: `cannot reschedule ${shortId(job.id)}: ${time.error}` };
+
+    queue.rescheduleTo(job.id, time.at);
+    const updated = queue.getById(job.id) ?? null;
+    const dueNow = new Date(time.at).getTime() <= now.getTime();
+    const whenText = dueNow ? "now" : time.at;
+    return {
+      ok: true,
+      job: updated,
+      message: `job ${shortId(job.id)} (${job.project}) rescheduled to resume at ${whenText} — run "agentrelay tick" or the daemon to pick it up`,
     };
   } finally {
     queue.close();

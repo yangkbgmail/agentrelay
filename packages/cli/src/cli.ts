@@ -58,6 +58,7 @@ import {
   pruneJobs,
   readHealthReport,
   readLocationReport,
+  rescheduleJob,
   restoreStore,
   retryJob,
   runCommand,
@@ -1499,6 +1500,18 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("reschedule")
+    .description('Change when a pending job resumes: give a duration (30m/2h/1d), "now", or an ISO timestamp')
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .argument("<when>", 'When to resume: a duration from now (30m, 2h, 1d), "now", or an ISO timestamp')
+    .action((id: string, when: string) => {
+      const { store } = program.opts();
+      const result = rescheduleJob(id, when, store);
+      console.log(`[agentrelay] ${result.message}`);
+      if (!result.ok) process.exitCode = 1;
     });
 
   program

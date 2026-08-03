@@ -1662,3 +1662,28 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `agentrelay reschedule` 대기 잡 재개 시각 수동 조작] (2026-08-03, 무인 자율 세션)
+- 배경: 세션 시작 시 지정 브랜치 `claude/wizardly-pascal-uzj9f6`가 최신 main(badc6ee, PR #400 병합)과
+  동일. 열린 PR 다수는 이미 병합된 `upcoming --watch` 등의 중복이라 피하고, 고유 개선 항목을 발굴했다.
+  큐를 조작하는 명령은 `retry`(지금 즉시+attempts 리셋)·`cancel`(취소)뿐이라, "아직 대기 중인데 재개
+  시각만 틀린"(파서 오추정·조용한 시간대로 미루기) 경우를 고칠 중간 조작이 빠져 있었다.
+- 한 일 (branch `claude/wizardly-pascal-uzj9f6`): **`agentrelay reschedule <id> <when>`**.
+  1. `@agentrelay/core/reschedule.ts` 신설(순수·시계/파일시스템 미접촉) — `resolveRescheduleTime(input, now)`가
+     `<when>`을 절대 ISO resetAt으로 해소: `now`/`0`→즉시, `parseDuration` 재사용한 상대 기간
+     (`30m`/`2h`/`1d`/`90s`/`500ms`)→now+기간, 그 외는 `new Date` 파싱 가능한 절대 타임스탬프(ISO 권장).
+     과거 절대시각도 허용(=즉시 due), 빈 입력·해석 불가는 안내 문구와 함께 error.
+  2. `control.ts`에 `canReschedule`(pending=queued/waiting_for_reset만 허용; resuming=in-flight 거부,
+     completed/failed/cancelled 종료 상태는 `retry`로 안내)+`RESCHEDULABLE_STATUSES` export.
+  3. `RelayQueue.rescheduleTo(id, resetAt)` — `requeueNow`와 달리 **시각만 교정**: attempts·lastError를
+     보존(재시도가 아니라 리스케줄), `waiting_for_reset`로 두어 `listDue`가 새 시각에 픽업.
+  4. CLI `commands.ts` `rescheduleJob`(id 해소→canReschedule 가드→시각 해소→rescheduleTo, `now` 주입
+     가능해 테스트 결정적; 미존재 id·해석 불가 시각은 스토어 무변형 exit 1) + `cli.ts` `reschedule <id>
+     <when>` 배선(completion·help 자동 포함). 새 파서/스케줄러 로직 0줄.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **861개 전부 통과**(core 566 + cli 288[+1 skip] + dashboard 7 — reschedule 12 + queue
+    rescheduleTo 1 + CLI rescheduleJob 6 신규). **실제 빌드된 CLI e2e**(mock 아님): rate-limit 잡을 큐잉 →
+    `reschedule <id> 30m`으로 상대 기간 이동 → 절대 ISO(`2099-06-01T12:00:00Z`)로 이동·스토어 지속 →
+    `whenever`(해석 불가)·미존재 id는 각각 exit 1 확인.
+- 다음 할 일: 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 후보: `reschedule --all`(스코프
+  대량 조작), `reschedule`에 대시보드 노출. README/ARCHITECTURE(🧭 코워크).
