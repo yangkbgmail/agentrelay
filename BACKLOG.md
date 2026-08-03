@@ -647,6 +647,19 @@
       자동 포함. 새 파서/시계 로직 0줄. core tools 8 + cli tools 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·
       카운트다운·idle·스코프 부분집합·--json·에러 exit·completion 포함 검증. branch `claude/wizardly-pascal-tools`)
 
+- [x] 👷 `agentrelay slowest` — 해결된 잡(completed+failed)을 릴레이가 얼마나 오래 돌봤는지(라이프사이클
+      span `updatedAt−createdAt`) 기준으로 최장순 랭킹. `stats`의 p50/p90/max 집계 꼬리 뒤에 있는 **구체적
+      잡**을 이름과 함께 보여줌(가장 오래 큐→종료를 배회한 잡 = 재개가 유독 오래 걸린 케이스 진단).
+      (완료 — core `slowest.ts` 신설(순수): `buildSlowestReport(jobs,{limit?})` + `SlowestEntry`/`SlowestReport`.
+      해결 잡만 선별(`stats`와 동일: cancelled 제외·유효 비음수 span), span desc→최신 updatedAt→id tie-break로
+      결정론 정렬, limit로 잘라도 totals/maxResolutionMs는 전체 반영. `stats.ts`의 `resolutionMs`/
+      `RESOLVED_STATUSES`를 export해 재사용 → 두 표면이 "해결 시간"을 동일 측정(드리프트 0), 새 시간 로직 0줄.
+      CLI `slowest.ts` 순수 `renderSlowest`(표+scope note+"N more not shown"+빈 메시지)·`renderSlowestJson`,
+      `formatDurationMs` 재사용. `agentrelay slowest [-n/--limit(기본 10)]` + 공용 `buildScope`(--status/--tool/
+      --project/--since/--until) 재사용, completion 자동 포함. core slowest 7 + cli slowest 5 신규 테스트,
+      실제 빌드 CLI e2e로 랭킹·limit 푸터·스코프·--json·에러 exit·completion 검증. branch
+      `claude/wizardly-pascal-n5dip8`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -198,13 +198,16 @@ export function computeDailyTrend(jobs: RelayJob[], options: { nowMs: number; da
 }
 
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
-const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
+export const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 
 /**
  * Lifecycle span of a job in ms (`updatedAt - createdAt`), or null when either
- * timestamp is missing/unparseable or the span is negative (clock skew).
+ * timestamp is missing/unparseable or the span is negative (clock skew). Shared
+ * by `computeStats` (aggregate percentiles) and `buildSlowestReport` (the
+ * individual longest-babysat jobs) so the two surfaces measure "resolution
+ * time" identically and never drift.
  */
-function resolutionMs(job: RelayJob): number | null {
+export function resolutionMs(job: RelayJob): number | null {
   const created = Date.parse(job.createdAt);
   const updated = Date.parse(job.updatedAt);
   if (Number.isNaN(created) || Number.isNaN(updated)) return null;

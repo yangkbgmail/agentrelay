@@ -1635,3 +1635,30 @@
   `--tool nope`(exit 1), completion에 `tools` 포함 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools`/`projects`에 `--watch`
   라이브 갱신, `upcoming --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 52 — `agentrelay slowest` 최장 해결 시간 잡 랭킹] (2026-08-03, 무인 자율 세션, branch `claude/wizardly-pascal-n5dip8`)
+- **배경:** 세션 시작 시 열린 PR이 30개 쌓여 있고 대부분 중복(`upcoming --watch` 15개+, `tools`/`recent`/
+  `attempts` 등 반복 재구현)이었다 — main이 브랜치 보호로 안 나아가면서 무기억 세션들이 같은 항목을
+  반복 구현하는 전형적 중복 루프. 명시적 미완 👷 항목은 공유 QA(👷🧭)뿐이라, CLAUDE.md 지침대로
+  **어떤 열린 PR과도 겹치지 않는 새 항목을 발굴**했다. `stats`는 해결 시간 백분위수(p50/p90/max)를
+  집계로만 보여줘, 그 꼬리 뒤에 **어떤 구체적 잡이 있는지**(가장 오래 큐→종료를 배회한 잡) 이름을
+  볼 방법이 없었다.
+- **한 일 (branch `claude/wizardly-pascal-n5dip8`): `agentrelay slowest`** — 해결된 잡(completed+failed)을
+  릴레이가 얼마나 오래 돌봤는지(라이프사이클 span `updatedAt−createdAt`) 기준으로 최장순 랭킹.
+  1. `@agentrelay/core/slowest.ts` 신설(순수·시계/파일시스템 미접촉): `buildSlowestReport(jobs, {limit?})` +
+     `SlowestEntry`(job·resolutionMs)·`SlowestReport`(entries·totalResolved·hidden·maxResolutionMs). 해결 잡만
+     선별(`stats`와 동일 정책: cancelled는 사용자 취소라 제외, 유효·비음수 span 필요), 최장순 정렬(span desc→
+     최신 updatedAt→id tie-break로 결정론적), `limit`로 잘라도 totals/maxResolutionMs는 전체 반영, 입력 불변.
+     `stats.ts`의 `resolutionMs`/`RESOLVED_STATUSES`를 export해 재사용 → 두 표면이 "해결 시간"을 동일하게
+     측정, 드리프트 0. 새 시간 계산 로직 0줄.
+  2. CLI `packages/cli/src/slowest.ts`에 순수 `renderSlowest`(표: id·project·tool·resolved-in·status +
+     scope note + "N more not shown" 푸터 + no-resolved 빈 메시지)·`renderSlowestJson`(next/overdue와 동일
+     envelope). `formatDurationMs` 재사용으로 "2h 5m"/"3d 4h" 일관. `agentrelay slowest [-n/--limit(기본 10)]`
+     + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용, completion 자동 포함.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core slowest 7 + cli slowest 5 신규). 빌드된 실제 CLI e2e(mock 아님): 4-잡 임시 스토어
+  (completed 2/failed 1/queued 1)로 `slowest`(최장순 5h→2h→20m 랭킹), `--limit 1`(1행+"2 more not shown"),
+  `--status failed`(스코프 부분집합+scope note), `--json`(maxResolutionMs 초 환산·top id), `--limit 0`(exit 1),
+  completion에 `slowest` 포함 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). **주의: 열린 PR 30개 중복 파일업** —
+  코워크/사람이 distinct 초록 PR을 병합해 main을 전진시켜야 루프가 끊긴다(README/ARCHITECTURE는 🧭 소유).
