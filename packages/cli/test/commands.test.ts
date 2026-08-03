@@ -23,6 +23,7 @@ import {
   showJob,
   unsetConfigFile,
   validateConfigFile,
+  waitAllForJobs,
   waitForJob,
 } from "../src/commands.js";
 import { isConfigDiagnosticInvocation, renderEffectiveConfig, resolveProjectName } from "../src/config.js";
@@ -998,5 +999,108 @@ describe("waitForJob", () => {
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
     expect(result.message).toMatch(/no job matches/);
+  });
+});
+
+describe("waitAllForJobs", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-waitall-cli-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function seed(status: "queued" | "completed" | "failed" | "cancelled", project = "demo"): void {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project, tool: "claude-code", command: ["claude"], cwd: dir });
+    if (status === "completed") queue.markCompleted(job.id, "done");
+    else if (status === "failed") queue.markFailed(job.id, "boom");
+    else if (status === "cancelled") queue.markCancelled(job.id);
+    queue.close();
+  }
+
+  it("reports empty (exit 0) when there are no jobs", async () => {
+    const result = await waitAllForJobs({ storePath, sleep: vi.fn() });
+    expect(result.outcome).toBe("empty");
+    expect(result.exitCode).toBe(0);
+    expect(result.message).toMatch(/no jobs/);
+  });
+
+  it("returns immediately when everything is already settled (all completed)", async () => {
+    seed("completed");
+    seed("completed");
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await waitAllForJobs({ storePath, sleep });
+    expect(result.outcome).toBe("all-completed");
+    expect(result.exitCode).toBe(0);
+    expect(result.progress).toMatchObject({ total: 2, completed: 2, done: true });
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("lets a failure dominate (exit 1)", async () => {
+    seed("completed");
+    seed("failed");
+    seed("cancelled");
+    const result = await waitAllForJobs({ storePath, sleep: vi.fn() });
+    expect(result.outcome).toBe("some-failed");
+    expect(result.exitCode).toBe(1);
+    expect(result.progress).toMatchObject({ completed: 1, failed: 1, cancelled: 1 });
+  });
+
+  it("reports some-cancelled (exit 2) when no failures but a cancellation", async () => {
+    seed("completed");
+    seed("cancelled");
+    const result = await waitAllForJobs({ storePath, sleep: vi.fn() });
+    expect(result.outcome).toBe("some-cancelled");
+    expect(result.exitCode).toBe(2);
+  });
+
+  it("polls until the whole batch drains, then returns the outcome", async () => {
+    // Two active jobs that settle across successive reads.
+    const q = new RelayQueue(storePath);
+    const a = q.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    const b = q.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    const active = q.listAll();
+    q.close();
+    const settledA = active.map((j) => (j.id === a.id ? { ...j, status: "completed" as const } : j));
+    const settledBoth = settledA.map((j) => (j.id === b.id ? { ...j, status: "completed" as const } : j));
+    const snapshots = [active, active, settledA, settledBoth];
+    let i = 0;
+    const readJobs = () => snapshots[Math.min(i++, snapshots.length - 1)];
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    const result = await waitAllForJobs({ storePath, readJobs, sleep, now: () => 0 });
+    expect(result.outcome).toBe("all-completed");
+    expect(result.exitCode).toBe(0);
+    // Slept for the three non-terminal polls before the fully-drained read.
+    expect(sleep).toHaveBeenCalledTimes(3);
+  });
+
+  it("times out while jobs are still active (exit 124)", async () => {
+    seed("queued");
+    let clock = 0;
+    const now = () => clock;
+    const sleep = vi.fn().mockImplementation(async (ms: number) => {
+      clock += ms;
+    });
+    const result = await waitAllForJobs({ storePath, intervalMs: 1000, timeoutMs: 2500, now, sleep });
+    expect(result.outcome).toBe("timeout");
+    expect(result.exitCode).toBe(124);
+    expect(result.message).toMatch(/timed out/);
+    expect(result.progress.active).toBe(1);
+  });
+
+  it("waits only on the scoped subset (--project)", async () => {
+    seed("completed", "keep");
+    seed("queued", "other"); // active but out of scope
+    const result = await waitAllForJobs({ storePath, scope: { projects: ["keep"] }, sleep: vi.fn() });
+    expect(result.outcome).toBe("all-completed");
+    expect(result.exitCode).toBe(0);
+    expect(result.progress.total).toBe(1);
   });
 });

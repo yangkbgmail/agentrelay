@@ -659,6 +659,24 @@
       스케줄러/core 로직 0줄. cli upcoming watch-frame 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브
       배너·카운트다운·--json 우선·--limit 0 exit 1·completion 검증. branch `claude/wizardly-pascal-1z6gb2`)
 
+- [x] 👷 `agentrelay waitall` — 큐 전체(또는 --tool/--project/--since/--until 부분집합)가 종료 상태로
+      드레인될 때까지 블록 후 배치 결과를 exit code로 반환(`wait <id>`의 플릿 레벨 형제, CI 배리어).
+      (완료 — `wait <id>`는 잡 하나만 따라가는데, 여러 잡을 팬아웃한 뒤 "전부 끝날 때까지" 게이트할
+      CI 프리미티브가 없었다. `@agentrelay/core/waitall.ts` 신설(순수·시계/스토어 미접촉):
+      `isActiveStatus`(stats의 `ACTIVE_STATUSES` 재사용) + `summarizeWaitAll(jobs)`→`WaitAllProgress`
+      (total·active·completed·failed·cancelled·done, active===0이면 done) + `resolveWaitAllOutcome(progress,
+      timedOut)`→`WaitAllOutcome`(empty/all-completed/some-failed/some-cancelled/timeout, 정착 시 우선순위
+      failed>cancelled>completed, 데드라인이 정확히 정착 순간이면 진짜 결과 보고) + `WAITALL_EXIT_CODES`/
+      `waitAllExitCode`(0 all-clear·1 failed·2 cancelled·124 timeout[GNU timeout 관례]). CLI
+      `commands.ts` `waitAllForJobs({scope,intervalMs,timeoutMs,...})` — 매 폴링마다 스토어 재오픈 후
+      스코프 재적용(팬아웃 도중 큐잉된 잡도 매치되면 대기), 첫 검사 즉시(이미 정착/빈 큐는 sleep 없이
+      반환), `--timeout`은 sleep 전 데드라인 검사로 1인터벌 이상 초과 안 함, now/sleep/readJobs 주입 가능.
+      CLI `waitall.ts` `renderWaitAllJson`(wait와 동일 envelope). `agentrelay waitall [--tool][--project]
+      [--since][--until][--timeout][--interval][--json][-q]` — 공용 `buildScope` 재사용(단 status 스코프는
+      제외 — 활성 잡이 그 상태를 벗어나길 기다리는 것이라 무의미), completion 자동 포함. core waitall 14 +
+      cli waitAllForJobs 7 신규 테스트, 실제 빌드 CLI e2e로 empty→0·1 failed→some-failed 1·--project 2완료→0·
+      --tool codex-cli→some-failed 1·invalid tool→exit 1·completion·help 검증. branch `claude/wizardly-pascal-fjx6v7`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
