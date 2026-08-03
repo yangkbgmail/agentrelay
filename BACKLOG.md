@@ -647,6 +647,18 @@
       자동 포함. 새 파서/시계 로직 0줄. core tools 8 + cli tools 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·
       카운트다운·idle·스코프 부분집합·--json·에러 exit·completion 포함 검증. branch `claude/wizardly-pascal-tools`)
 
+- [x] 👷 `agentrelay upcoming --watch [초]` — 재개 타임라인 라이브 갱신(카운트다운이 제자리에서 감소).
+      (완료 — `status --watch`가 있던 라이브 뷰를 `upcoming`에도 대칭 제공. `packages/cli/src/upcoming.ts`에
+      순수 `renderUpcomingWatchFrame(timeline, storePath, intervalMs, now, scopeNote?)` 추가: `status`의
+      `renderWatchFrame`을 미러링 — 라이브 타이틀(`(live, every Ns — Ctrl-C to exit)`)·타임스탬프·스토어
+      경로 헤더 + `renderUpcoming` 컬러 테이블(빈 큐/스코프 노트 그대로 전달). cli.ts에 `runUpcomingWatch`
+      루프(화면 클리어 `\x1b[2J\x1b[H` + `setInterval`, `runWatch`와 동형): 매 프레임 `listStatus`로 스토어
+      재읽기[데몬 쓰기 자동 반영]·스코프+`--limit` 재적용, SIGINT/SIGTERM에 정리. `upcoming`에 `-w,--watch
+      [seconds]` 옵션(미지정 2초, 초 파싱) 추가, `buildScope` 검증은 watch 진입 전 수행(잘못된 필터는
+      exit 1). `--since`/`--until` 창 경계는 커맨드 시작 시 절대 epoch-ms로 고정(라이브 쓰기는 반영, 창은
+      고정). completion 자동 포함. upcoming.test.ts에 renderUpcomingWatchFrame 4케이스 추가.
+      branch `claude/wizardly-pascal-noxcoa`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

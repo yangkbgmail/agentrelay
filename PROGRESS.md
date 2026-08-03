@@ -1635,3 +1635,29 @@
   `--tool nope`(exit 1), completion에 `tools` 포함 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools`/`projects`에 `--watch`
   라이브 갱신, `upcoming --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 52 — `agentrelay upcoming --watch` 라이브 갱신] (2026-08-03, 무인 자율 세션, branch `claude/wizardly-pascal-noxcoa`)
+- **맥락:** 최신 main(0afae05, #385 `tools` 병합)으로 최신화. BACKLOG의 👷 항목은 전부 완료 상태라,
+  세션 51의 "다음 할 일"에 명시된 인접 후속(`upcoming --watch`)을 구현. `status`에는 세션 초기부터
+  `--watch` 라이브 카운트다운 TUI가 있었지만, 재개 타임라인 뷰인 `upcoming`에는 없어 "지금 뭐가
+  얼마 남았나"를 제자리에서 지켜볼 방법이 없었다.
+- **한 일 (branch `claude/wizardly-pascal-noxcoa`):** `agentrelay upcoming --watch [초]` — `status --watch`의
+  대칭 미러.
+  - CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame(timeline, storePath, intervalMs, now, scopeNote?)`
+    추가: `status`의 `renderWatchFrame`과 동형 — 라이브 타이틀(`(live, every Ns — Ctrl-C to exit)`)·
+    타임스탬프·스토어 경로 헤더 블록 + `renderUpcoming` 컬러 테이블 재사용(빈 큐 메시지·스코프 노트
+    그대로 전달). TTY/시계 없이 테스트 가능(now 주입).
+  - `cli.ts`에 `runUpcomingWatch` 루프(`runWatch`와 동형): 화면 클리어 `\x1b[2J\x1b[H` + `setInterval`,
+    매 프레임 `listStatus`로 스토어 재읽기(데몬 쓰기 자동 반영)·스코프+`--limit` 재적용, SIGINT/SIGTERM에
+    정리 후 종료. `upcoming` 커맨드에 `-w,--watch [seconds]` 옵션(미지정 2초 기본, `Number.parseFloat`
+    초 파싱). `buildScope` 검증을 watch 진입 전에 수행 → 잘못된 `--tool`/`--status`/duration은 exit 1.
+    `--since`/`--until` 창 경계는 커맨드 시작 시 절대 epoch-ms로 고정(라이브 쓰기는 반영, 창은 고정).
+    새 파서/스케줄러/core 로직 0줄 — CLI 렌더/배선만.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(cli 283/1skip, upcoming.test.ts에 renderUpcomingWatchFrame 4케이스 신규 → 13케이스).
+  빌드된 실제 CLI e2e(mock 아님): 3-잡 임시 스토어(claude-code 대기/codex-cli 대기/generic 완료)로
+  `upcoming --help`에 `--watch` 노출, `--watch 1`(화면 클리어+라이브 헤더+컬러 테이블), `--watch 1
+  --tool codex-cli`(스코프 부분집합 `[scope: tool=codex-cli]`), completion에 `--watch` 포함,
+  `--watch 1 --tool nope`(exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools`/`projects`에도 `--watch`
+  라이브 갱신 대칭 검토, `overdue --watch` 등 인접 항목. README/ARCHITECTURE(🧭 코워크).

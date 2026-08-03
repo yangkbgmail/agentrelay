@@ -1,6 +1,6 @@
 import { buildUpcomingTimeline, type RelayJob, type UpcomingTimeline } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson } from "../src/upcoming.js";
+import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "../src/upcoming.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -83,6 +83,32 @@ describe("renderUpcoming", () => {
     const out = renderUpcoming(timeline([job()]), { now: NOW, color: false });
     // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting no escapes.
     expect(out).not.toMatch(/\x1b\[/);
+  });
+});
+
+describe("renderUpcomingWatchFrame", () => {
+  it("includes a live title, timestamp, store path, and the interval in seconds", () => {
+    const out = renderUpcomingWatchFrame(timeline([job()]), "/tmp/jobs.json", 5000, NOW);
+    expect(out).toContain("agentrelay upcoming");
+    expect(out).toContain("live, every 5s");
+    expect(out).toContain("2026-07-30 10:00:00Z");
+    expect(out).toContain("/tmp/jobs.json");
+  });
+
+  it("embeds the timeline table with countdowns", () => {
+    const out = renderUpcomingWatchFrame(timeline([job({ resetAt: at(90 * 60_000) })]), "/tmp/jobs.json", 2000, NOW);
+    expect(out).toContain("RESUMES IN");
+    expect(out).toContain("1h 30m");
+  });
+
+  it("shows the empty message when nothing is waiting", () => {
+    const out = renderUpcomingWatchFrame(timeline([]), "/tmp/jobs.json", 2000, NOW);
+    expect(out).toContain(NO_UPCOMING_MESSAGE);
+  });
+
+  it("threads the scope note into the frame", () => {
+    const out = renderUpcomingWatchFrame(timeline([job()]), "/tmp/jobs.json", 2000, NOW, "project=demo");
+    expect(out).toContain("scope: project=demo");
   });
 });
 
