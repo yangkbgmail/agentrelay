@@ -1,6 +1,6 @@
 import { buildOverdueReport, type OverdueReport, type RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_OVERDUE_MESSAGE, renderOverdue, renderOverdueJson } from "../src/overdue.js";
+import { NO_OVERDUE_MESSAGE, renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "../src/overdue.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -29,6 +29,34 @@ function job(overrides: Partial<RelayJob> = {}): RelayJob {
 function report(jobs: RelayJob[], options: { graceMs?: number; limit?: number } = {}): OverdueReport {
   return buildOverdueReport(jobs, NOW, options);
 }
+
+describe("renderOverdueWatchFrame", () => {
+  it("prepends a live title with the store path, timestamp, and interval", () => {
+    const out = renderOverdueWatchFrame(report([job()]), "/tmp/jobs.json", 5000, NOW);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("agentrelay overdue");
+    expect(lines[0]).toContain("every 5s");
+    expect(lines[0]).toContain("Ctrl-C to exit");
+    expect(lines[1]).toContain("2026-07-30 10:00:00Z");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+    expect(lines[2]).toBe("");
+    expect(out).toContain("PROJECT");
+  });
+
+  it("embeds the colored report body and always emits ANSI escapes", () => {
+    const out = renderOverdueWatchFrame(report([job({ resetAt: at(-90 * 60_000) })]), "/tmp/jobs.json", 2000, NOW);
+    // 90 minutes overdue → "1h 30m".
+    expect(out).toContain("1h 30m");
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting escapes are present.
+    expect(out).toMatch(/\x1b\[/);
+  });
+
+  it("carries the scope note into the frame body", () => {
+    const out = renderOverdueWatchFrame(report([]), "/tmp/jobs.json", 2000, NOW, "project=ghost");
+    expect(out).toContain(NO_OVERDUE_MESSAGE);
+    expect(out).toContain("scope: project=ghost");
+  });
+});
 
 describe("renderOverdue", () => {
   it("shows the keeping-up message when nothing is overdue", () => {
