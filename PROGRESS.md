@@ -1662,3 +1662,32 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `agentrelay heatmap` 시간대별 활동 히스토그램] (2026-08-03, 무인 자율 세션, branch `claude/wizardly-pascal-heatmap`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]). 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. 세션 49~52가 반복 지목한 `overdue/tools/projects
+  --watch`는 **열린 PR이 수십 개(#404·405·407·409·411·413·415·417 …) 중복 포화** 상태라 피했다.
+  `diff`(#245/#173)·`fish completion`(#100/210/241/315)·`forecast`(#319)·`recent`·`slowest`·`attempts`·
+  `stuck`·`reschedule`·`waitall`·파서(week/conjunction/tz/weekday)도 전부 이미 열린 PR이 있어 중복.
+  열린 PR 전수 조사 후 **중복이 0건인 새 분석 축**을 스스로 발굴: 하루 중 언제(hour-of-day) rate-limit이
+  몰리는지. `stats --trend`(일별 볼륨)·`patterns`(어떤 패턴)와 직교한다.
+- **한 일 (branch `claude/wizardly-pascal-heatmap`):** `agentrelay heatmap` — 잡 큐잉 시각을 24개
+  시간대 버킷으로 접는 히스토그램.
+  - core `heatmap.ts` 신설(순수·시계/파일시스템 미접촉): `computeHourlyActivity(jobs, {offsetMinutes?})`
+    + `HourlyActivity`(total·counted·skipped·offsetMinutes·hours[24]·peakHour·peakCount)·`HourBucket`.
+    영속된 `createdAt`을 파싱해 24 시간대로 버킷팅, 파싱 불가/누락은 `skipped`(총계에서 안 누락), 24버킷
+    항상 zero-fill, peakHour 동점은 이른 시각. `offsetMinutes`(명시 입력→core는 결정론 유지)로 로컬/임의
+    타임존 버킷팅, 음수·큰 값은 floored 양수 나머지로 0–23 정규화, 비유한값은 UTC(0). index.ts 재노출.
+  - CLI `heatmap.ts`에 순수 `renderHeatmap`(24행 비례 막대 + count + share% + `← peak` 마커 + 타임존
+    라벨 + skipped/no-timestamp 안내, color 게이트)·`renderHeatmapJson`(stats/tools와 동일 envelope)·
+    `formatOffsetLabel`(UTC/UTC±HH:MM). `agentrelay heatmap [--json][--local][--utc-offset <분>]` + 공용
+    `buildScope`(--status/--tool/--project/--since/--until) 재사용. `--utc-offset`이 `--local`보다 우선
+    (getTimezoneOffset 부호 반전으로 "UTC에 더할 분" 변환), 잘못된 offset은 exit 1. completion 자동 포함.
+    새 파서/스케줄러/core 스토어 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 563[heatmap +10] + cli 290/1skip[heatmap +8] + dashboard 7). 빌드된 실제 CLI
+  e2e(mock 아님): 3-잡 임시 스토어로 `heatmap`(UTC 09:00 피크·22:00), `--utc-offset 540`(Tokyo 시프트→
+  18:00 피크·22:30 UTC→07:30), `--json`(hours[9]=2·peakHour=9·counted=3 envelope), `--tool codex-cli`
+  (스코프 부분집합→22:00), `--utc-offset abc`(exit 1), `--help`·completion에 `heatmap` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `heatmap`에 요일×시간(7×24)
+  2D 그리드 옵션, `stats`에 hour-of-day 통합 등 인접 분석 항목 검토. README/ARCHITECTURE(🧭 코워크).

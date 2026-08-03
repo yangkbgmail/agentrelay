@@ -19,6 +19,7 @@ import {
   COMPLETION_SHELLS,
   computeDailyTrend,
   computeErrorBreakdown,
+  computeHourlyActivity,
   computeStats,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
@@ -75,6 +76,7 @@ import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } fr
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderHealth, renderHealthJson } from "./health.js";
+import { renderHeatmap, renderHeatmapJson } from "./heatmap.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { renderOverdue, renderOverdueJson } from "./overdue.js";
@@ -1165,6 +1167,81 @@ export function buildCli(): Command {
           color: Boolean(process.stdout.isTTY),
           scopeNote: built.active ? built.note : undefined,
           now,
+        })
+      );
+    });
+
+  program
+    .command("heatmap")
+    .description("Show an hour-of-day histogram of when jobs were queued (the daily rhythm of rate limits)")
+    .option("--json", "Print the distribution as JSON (machine-readable, for scripts/jq)")
+    .option("--local", "Bucket by the machine's local time zone instead of UTC")
+    .option(
+      "--utc-offset <minutes>",
+      "Bucket by a fixed UTC offset in minutes (e.g. 540 for +09:00); overrides --local"
+    )
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # at what time of day do rate limits keep hitting?\n" +
+        "  agentrelay heatmap\n" +
+        "  # read the histogram in your local time zone\n" +
+        "  agentrelay heatmap --local\n" +
+        "  # feed the hourly buckets to jq\n" +
+        "  agentrelay heatmap --json | jq '.activity.hours'"
+    )
+    .action((opts: ScopeOpts & { json?: boolean; local?: boolean; utcOffset?: string }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      // Resolve the bucketing time zone: an explicit --utc-offset wins, else
+      // --local reads the machine offset, else UTC. getTimezoneOffset() returns
+      // minutes to ADD to local to reach UTC, so negate it to get "minutes added
+      // to UTC to reach local" — the sign computeHourlyActivity expects.
+      let offsetMinutes = 0;
+      if (opts.utcOffset !== undefined) {
+        const parsed = Number.parseInt(opts.utcOffset, 10);
+        if (!Number.isInteger(parsed) || String(parsed) !== opts.utcOffset.trim()) {
+          console.error(
+            `Invalid --utc-offset "${opts.utcOffset}". Use an integer number of minutes, e.g. 540 or -420.`
+          );
+          process.exitCode = 1;
+          return;
+        }
+        offsetMinutes = parsed;
+      } else if (opts.local) {
+        offsetMinutes = -new Date().getTimezoneOffset();
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const activity = computeHourlyActivity(jobs, { offsetMinutes });
+      if (opts.json) {
+        console.log(
+          renderHeatmapJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            activity,
+          })
+        );
+        return;
+      }
+      console.log(
+        renderHeatmap(activity, {
+          color: Boolean(process.stdout.isTTY),
+          scopeNote: built.active ? built.note : undefined,
         })
       );
     });
