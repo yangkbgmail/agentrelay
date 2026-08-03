@@ -176,6 +176,15 @@
       tick-mode 하트비트 기록(cron 사용자도 생존 신호). `runDoctor`가 `nowMs` 주입 가능(테스트용).
       heartbeat.test.ts 13 + doctor daemon 6 + scheduler onTick 2 + CLI 7케이스, 실제 빌드 CLI로
       before/after·daemon 수명주기·stale 경고 e2e 검증. branch `claude/wizardly-pascal-hb7k2m`)
+- [x] 👷 파서 주(week) 단위 상대 대기 인식 — 주간 사용량 제한(`try again in 1 week`)이 파싱
+      실패해 잡이 재개 안 되던 갭 메움.
+      (완료 — `relative-duration` 패턴에 `(\d+)\s*w(?:eeks?)?` 그룹을 days 앞에 추가. Claude Code
+      등의 주간 제한은 최대 1주 뒤에 리셋되고 일부 메시지가 `in 7 days`가 아닌 `in 1 week`로
+      표현하는데, 기존 d/h/m만 인식하는 정규식은 이를 못 잡아 `parseRateLimitMessage`가 null을
+      반환 → 잡이 조용히 스케줄되지 않았다. `week`/`weeks`/`w` 축약과 `2 weeks 3 days 4h`·`1w 2d`
+      복합 형식 지원(weeks×7일로 환산). `in 3 minutes` 등 기존 형식 무회귀 확인(week 그룹이 선행
+      숫자를 삼키지 않음). parser.test.ts에 5케이스 회귀 추가(주 단수/복수/복합/축약/minutes 무회귀).
+      branch `claude/wizardly-pascal-haow4i`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

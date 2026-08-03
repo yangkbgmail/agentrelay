@@ -1662,3 +1662,23 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — 파서 주(week) 단위 상대 대기 인식] (2026-08-03, 무인 자율 세션, branch `claude/wizardly-pascal-haow4i`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. open PR 30개는 전부 CLI watch/list 계열
+  (overdue/upcoming/tools/projects `--watch`, reschedule, waitall, slowest, recent, attempts)로
+  서로 중복. 이들과 겹치지 않으면서 제품 핵심 임무(리셋 시각 감지)에 직결되는 파서 갭을 발굴했다.
+- **문제:** `relative-duration` 패턴이 d/h/m만 인식해 주간 사용량 제한 메시지 `try again in 1 week`
+  (또는 `in 2 weeks`)를 못 잡았다. Claude Code 등의 주간 제한은 최대 1주 뒤에 리셋되고 일부
+  메시지가 `in 7 days`가 아닌 `in 1 week`로 표현하는데, 이 경우 `parseRateLimitMessage`가 null을
+  반환 → 잡이 조용히 스케줄되지 않고 재개도 안 되는 무음 실패.
+- **한 일 (branch `claude/wizardly-pascal-haow4i`):** `parser.ts`의 `relative-duration` 정규식에
+  `(\d+)\s*w(?:eeks?)?` 그룹을 days 앞에 추가하고 `resolve`가 weeks×7일로 환산. `week`/`weeks`/`w`
+  축약과 `2 weeks 3 days 4h`·`1w 2d` 복합 형식 지원. 새 파서 로직 최소 변경(그룹 인덱스 시프트),
+  스케줄러/CLI 무변경. parser.test.ts에 5케이스 회귀 추가(주 단수/복수/복합/축약, `in 3 minutes`
+  minutes-only 무회귀 — week 그룹이 선행 숫자를 삼키지 않음 확인).
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·
+  `pnpm test` **전 패키지 통과**(core 558[parser 33→38] + cli 282/1skip + dashboard 7). 빌드된 실제
+  CLI e2e: `parse "Try again in 1 week"`→7d, `parse "resets in 2 weeks 3 days 4h"`→17d 4h 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 실제 rate-limit 메시지 샘플
+  수집(🧭)과 연계해 미인식 포맷 추가 발굴, `an hour`/`a day` 관사 형식·타임존 인식 검토.

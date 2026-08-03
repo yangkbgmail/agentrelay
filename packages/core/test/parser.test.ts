@@ -109,6 +109,50 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 24 * 60 * 60_000).toISOString());
   });
 
+  it("parses a relative duration expressed in weeks ('in 1 week')", () => {
+    // A weekly usage limit can reset up to a full week out, and some messages
+    // phrase it as "in 1 week" rather than "in 7 days" — previously unhandled,
+    // so the job silently never got scheduled.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly usage limit reached. Try again in 1 week.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 7 * 24 * 60 * 60_000).toISOString());
+  });
+
+  it("parses the plural 'in 2 weeks' form", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, retry in 2 weeks.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 14 * 24 * 60 * 60_000).toISOString());
+  });
+
+  it("parses a combined week + day + hour relative duration ('2 weeks 3 days 4h')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit hit — resets in 2 weeks 3 days 4h.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    const totalDays = 2 * 7 + 3;
+    const expected = new Date(now.getTime() + (totalDays * 24 + 4) * 60 * 60_000).toISOString();
+    expect(result?.resetAt).toBe(expected);
+  });
+
+  it("parses the compact 'in 1w 2d' shorthand", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit — resets in 1w 2d.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    const expected = new Date(now.getTime() + (7 + 2) * 24 * 60 * 60_000).toISOString();
+    expect(result?.resetAt).toBe(expected);
+  });
+
+  it("does not mistake minutes for weeks ('in 3 minutes')", () => {
+    // Regression: the new week group must not swallow the leading number of a
+    // minutes-only wait (the word "minutes" starts with neither 'w' nor 'd').
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, please try again in 3 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 3 * 60_000).toISOString());
+  });
+
   it("does not mistake minutes for days ('in 3 minutes')", () => {
     // Regression: the new day group must not swallow the leading number of a
     // minutes-only wait.
