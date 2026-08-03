@@ -95,7 +95,7 @@ import {
   selectJobs,
 } from "./status.js";
 import { renderTools, renderToolsJson } from "./tools.js";
-import { renderUpcoming, renderUpcomingJson } from "./upcoming.js";
+import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -313,14 +313,50 @@ export function buildCompletionSpec(program: Command): CompletionSpec {
  * Runs until the process is interrupted (Ctrl-C).
  */
 function runWatch(store: string, intervalMs: number, selection: JobSelection, window?: JobScope, limit?: number): void {
-  const draw = () => {
+  startWatchLoop(intervalMs, () => {
     const all = listStatus(store);
     const windowed = window && isJobScopeActive(window) ? scopeJobs(all, window) : all;
     const selected = selectJobs(windowed, selection);
     const frame = renderWatchFrame(selected, store, intervalMs, Date.now(), limit);
     // Clear screen + move cursor home, then paint the frame.
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
-  };
+  });
+}
+
+/**
+ * Live `agentrelay upcoming --watch`: clears the screen and re-renders the
+ * timeline on an interval so the countdowns tick down in place. Like the status
+ * watch loop, `listStatus` re-reads the JSON store each pass (a running daemon's
+ * writes show up automatically) and the `--tool`/`--project`/`--since`/`--until`
+ * scope plus `--limit` are re-applied every frame. The window boundaries stay
+ * fixed (absolute epoch-ms from when the command started) while live writes
+ * still surface. Runs until the process is interrupted (Ctrl-C).
+ */
+function runUpcomingWatch(
+  store: string,
+  intervalMs: number,
+  window: JobScope,
+  limit?: number,
+  scopeNote?: string
+): void {
+  const active = isJobScopeActive(window);
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const all = listStatus(store);
+    const jobs = active ? scopeJobs(all, window) : all;
+    const timeline = buildUpcomingTimeline(jobs, now, limit);
+    const frame = renderUpcomingWatchFrame(timeline, store, intervalMs, now, scopeNote);
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
+ * Shared plumbing for the live `--watch` loops: draw one frame immediately, then
+ * re-draw every `intervalMs`, cleaning up the timer and printing a trailing
+ * newline on SIGINT/SIGTERM. `setInterval` keeps the process alive, so the
+ * caller returns right after invoking this.
+ */
+function startWatchLoop(intervalMs: number, draw: () => void): void {
   draw();
   const timer = setInterval(draw, intervalMs);
   const stop = () => {
@@ -565,6 +601,7 @@ export function buildCli(): Command {
   program
     .command("upcoming")
     .description("Show the timeline of jobs waiting to resume, soonest first, each with a live countdown")
+    .option("-w, --watch [seconds]", "Continuously refresh the timeline with live countdowns (Ctrl-C to exit)")
     .option("-n, --limit <n>", "Show at most N rows (the totals still count all waiting jobs)")
     .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
     .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
@@ -579,9 +616,11 @@ export function buildCli(): Command {
         "  # just the next 5, for one project\n" +
         "  agentrelay upcoming --limit 5 --project my-app\n" +
         "  # feed the timeline to jq\n" +
-        "  agentrelay upcoming --json | jq '.timeline.entries[].job.id'"
+        "  agentrelay upcoming --json | jq '.timeline.entries[].job.id'\n" +
+        "  # live countdown, refreshing every 2s\n" +
+        "  agentrelay upcoming --watch"
     )
-    .action((opts: ScopeOpts & { limit?: string; json?: boolean }) => {
+    .action((opts: ScopeOpts & { limit?: string; json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
 
@@ -603,9 +642,20 @@ export function buildCli(): Command {
         return;
       }
 
+      const scopeNote = built.active ? built.note : undefined;
+
+      // Live view: validate flags above (limit/scope) first so a bad value still
+      // exits 1 instead of spinning a broken watch loop. --json takes precedence
+      // over --watch (a one-shot machine dump, not a live TTY view).
+      if (opts.watch !== undefined && !opts.json) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        runUpcomingWatch(store, intervalMs, built.scope, limit, scopeNote);
+        return; // setInterval keeps the process alive.
+      }
+
       const allJobs = listStatus(store);
       const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
-      const scopeNote = built.active ? built.note : undefined;
       const timeline = buildUpcomingTimeline(jobs, now, limit);
 
       if (opts.json) {
