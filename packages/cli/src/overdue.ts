@@ -77,6 +77,30 @@ export function renderOverdueJson(input: {
   );
 }
 
+/**
+ * One frame of the live `overdue --watch` view: a title/header block (matching
+ * the shape of `status --watch`/`upcoming --watch`) plus the colored overdue
+ * report. Separated out so the watch loop only has to clear the screen and print
+ * this. The spans grow in place because the loop re-reads the store and rebuilds
+ * the report against a fresh `now` each pass — the diagnostic use is to leave it
+ * open and watch a stuck queue's overdue count climb (or a recovering relay
+ * drain it back to the keeping-up message).
+ */
+export function renderOverdueWatchFrame(
+  report: OverdueReport,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now(),
+  scopeNote?: string
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay overdue${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderOverdue(report, { color: true, scopeNote })].join("\n");
+}
+
 function footer(report: OverdueReport): string {
   const jobWord = report.totalOverdue === 1 ? "job" : "jobs";
   const parts = [`${report.totalOverdue} ${jobWord} overdue`];
