@@ -1662,3 +1662,28 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `agentrelay overdue --watch` 라이브 지연 진단] (2026-08-03, 무인 자율 세션, branch `claude/overdue-watch`)
+- **맥락:** 세션 52가 `upcoming --watch`를 추가하며 다음 할 일로 "같은 패턴으로 `overdue --watch` 확장"을
+  명시적으로 제안했다. `overdue`는 `upcoming`의 진단 거울(리셋 시각이 지났는데도 재개 안 된 막힌 잡)이라,
+  "지금 재개 루프가 죽어 있나"를 창을 열어두고 실시간으로 지켜보는 라이브 뷰의 가치가 가장 크다. 미병합
+  브랜치(showwatch/statswatch/upcwatch)와 겹치지 않는 확실한 빈틈이라 이 항목을 골랐다.
+- **한 일:**
+  - CLI `overdue.ts`에 순수 `renderOverdueWatchFrame(report, storePath, intervalMs, now, scopeNote?)`
+    신설: `status`/`upcoming`의 watch 프레임과 동일한 title/meta 블록(라이브 배너·타임스탬프·스토어 경로) +
+    항상 컬러인 `renderOverdue` 본문. 순수 함수라 TTY/시계 없이 테스트 가능.
+  - CLI `cli.ts`: `runOverdueWatch`(매 프레임 `now` 재평가로 각 overdue 스팬 재계산·스토어 재읽기·스코프
+    재적용·`graceMs`/`limit` 재적용·화면 clear 후 프레임 출력) 추가 — 세션 52가 추출한 공용
+    `startWatchLoop(intervalMs, draw)` 재사용(신규 루프 인프라 0줄).
+  - `overdue` 커맨드에 `-w, --watch [seconds]` 옵션 배선: limit/grace/scope 검증을 **먼저** 통과시켜 잘못된
+    값은 watch 루프를 돌리기 전에 exit 1, `--json`이 `--watch`보다 우선(라이브 TTY 뷰가 아닌 일회성 기계
+    덤프). 인터벌 기본 2s, `--watch 5`처럼 초 지정 가능. 스코프 경계는 시작 시 고정 epoch-ms(라이브 쓰기는
+    계속 반영). completion은 라이브 프로그램에서 파생되므로 자동 포함. 새 파서/스케줄러/core 로직 0줄 —
+    전부 기존 검증된 `buildOverdueReport`(core)·`renderOverdue`(cli) 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli overdue 9→12, watch-frame 3케이스 신규). 빌드된 실제 CLI e2e(mock 아님): 임시
+  스토어에 2h overdue 잡을 넣고 `overdue --watch 5`(화면 clear `\x1b[2J\x1b[H`·라이브 배너·overdue 스팬
+  `2h 0m`·컬러 출력, timeout으로 종료), 일회성 `overdue`/`--json` 불변, `--watch --json`(JSON 우선·즉시
+  종료), `--watch --limit 0`·`--watch --grace bogus`(watch 루프 전 exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `tools --watch`·
+  `projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE 문서(🧭 코워크 소유).
