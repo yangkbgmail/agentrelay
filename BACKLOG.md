@@ -659,6 +659,22 @@
       스케줄러/core 로직 0줄. cli upcoming watch-frame 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브
       배너·카운트다운·--json 우선·--limit 0 exit 1·completion 검증. branch `claude/wizardly-pascal-1z6gb2`)
 
+- [x] 👷 `agentrelay overdue/tools/projects --watch [seconds]` — 세 조회 커맨드에도 라이브 갱신 뷰
+      추가(세션 52 `upcoming --watch`의 인접 항목, 세션 49~52가 "다음 할 일"로 반복 지목).
+      (완료 — 세션 52가 `upcoming --watch`를 추가하며 공용 `startWatchLoop`을 추출했지만, 형제 조회
+      커맨드 `overdue`/`tools`/`projects`는 아직 일회성 뷰뿐이라 리셋 카운트다운·overdue 스팬이
+      째깍째깍 변하는 라이브 뷰가 없었다. 각 CLI 렌더 파일에 순수 `render{Overdue,Tools,Projects}WatchFrame`
+      신설(`renderUpcomingWatchFrame`와 동일한 title/meta 블록 — 라이브 배너·타임스탬프·스토어 경로 +
+      항상 컬러인 본문, TTY/시계 없이 테스트 가능). `cli.ts`에 `run{Overdue,Tools,Projects}Watch`(공용
+      `startWatchLoop` 재사용, 매 프레임 스토어 재읽기·스코프 재적용·리포트/서머리 재구성·화면 clear).
+      세 커맨드에 `-w, --watch [seconds]` 배선: limit/grace/scope 검증을 **먼저** 통과시켜 잘못된 값은
+      watch 루프 전 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프), 인터벌 기본 2s. overdue는
+      매 프레임 `buildOverdueReport`에 fresh `now`를 넘겨 overdue 스팬이 자라고, tools/projects는 리셋
+      카운트다운이 줄어든다. `--since`/`--until` 창 경계는 시작 시 고정 epoch-ms(라이브 쓰기는 계속 반영).
+      completion 자동 포함. 새 파서/스케줄러/core 로직 0줄. cli overdue 9→12·tools 8→11·projects 8→11
+      watch-frame 각 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브 배너·카운트다운/overdue 스팬·
+      `--watch --limit 0` exit 1·`--watch --json` 우선 검증. branch `claude/wizardly-pascal-qk08pi`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
