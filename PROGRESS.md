@@ -1662,3 +1662,31 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `agentrelay overdue --watch` 라이브 지연 진단] (2026-08-03, 무인 자율 세션, branch `claude/wizardly-pascal-jl8uqu`)
+- **배경:** 세션 시작 시 지정 브랜치가 최신 main(badc6ee, #400 `upcoming --watch` 병합)과 정확히 일치
+  (ahead/behind 0), BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. 세션 49·50·51·52가 반복해 "다음 할 일"로 지목한
+  인접 항목 — `upcoming`/`overdue`/`tools`/`projects`의 `--watch` 라이브 갱신 — 중 세션 52가 첫 항목
+  (`upcoming --watch`)을 끝냈으므로, 그 **진단용 거울**인 `overdue --watch`를 이어서 구현했다.
+- **한 일 (branch `claude/wizardly-pascal-jl8uqu`):** `agentrelay overdue --watch [seconds]` — 세션 52의
+  `status`/`upcoming --watch` 인프라(공용 `startWatchLoop`) 재사용.
+  - CLI `overdue.ts`에 순수 `renderOverdueWatchFrame(report, storePath, intervalMs, now, scopeNote?)` 신설:
+    `renderUpcomingWatchFrame`와 동일한 title/meta 블록(라이브 배너·타임스탬프·스토어 경로) + 항상 컬러인
+    `renderOverdue` 본문. 순수 함수라 TTY/시계 없이 테스트 가능. "OVERDUE BY" 스팬은 매 프레임 fresh `now`로
+    리포트를 재구성하므로 지연이 째깍째깍 **늘어나며** 재개 루프가 살아날 때까지 계속 오른다.
+  - CLI `cli.ts`: `runUpcomingWatch`와 대칭인 `runOverdueWatch(store, intervalMs, window, graceMs, limit,
+    scopeNote)` 추가 — 공용 `startWatchLoop` 재사용, 매 프레임 스토어 재읽기·스코프 재적용·`buildOverdueReport`
+    재구성·화면 clear 후 프레임 출력. `graceMs`도 매 프레임 그대로 적용(막 due된 잡 오탐 방지 유지).
+  - `overdue` 커맨드에 `-w, --watch [seconds]` 옵션 배선: limit/grace/scope 검증을 **먼저** 통과시켜 잘못된
+    값은 watch 루프를 돌리기 전에 exit 1, `--json`이 `--watch`보다 우선(라이브 TTY 뷰가 아닌 일회성 기계 덤프).
+    인터벌 기본 2s, `--watch 5`처럼 초 지정 가능. completion은 라이브 프로그램에서 파생되므로 `--watch`/`-w`
+    자동 포함. 새 파서/스케줄러/core 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 553 + cli 285/1skip + dashboard 7; cli overdue 10→12, watch-frame 3케이스 신규).
+  빌드된 실제 CLI e2e(mock 아님): 2-잡 임시 스토어(2h 지연/미래)로 `overdue --watch 1`(화면 clear
+  `\x1b[2J\x1b[H`·라이브 배너·`OVERDUE BY 2h 0m`·컬러·1초마다 두 프레임 재렌더 22Z→23Z), 일회성 `overdue`
+  불변(grace 60s로 미래 잡 제외), `--watch --json`(JSON 우선·인터벌 없이 즉시 종료), `--watch --limit 0`
+  (watch 루프 전 exit 1), `--help`·completion에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `tools --watch`·
+  `projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
