@@ -41,6 +41,23 @@ export function canRequeue(job: RelayJob): ControlResult {
   return { ok: true };
 }
 
+/** Statuses a job may be rescheduled from — pending but not yet in-flight. */
+export const RESCHEDULABLE_STATUSES: readonly JobStatus[] = ["queued", "waiting_for_reset"];
+
+/**
+ * Whether `job`'s resume time may be moved by `agentrelay reschedule`. Only
+ * pending jobs (`queued`/`waiting_for_reset`) qualify: an in-flight `resuming`
+ * job would race the running command, and a terminal one has no future resume
+ * to shift — retrying it (`retry`) is the way to run it again.
+ */
+export function canReschedule(job: RelayJob): ControlResult {
+  if (job.status === "resuming") return { ok: false, reason: "job is currently resuming; wait for it to finish" };
+  if (job.status === "completed") return { ok: false, reason: "job already completed; use `retry` to run it again" };
+  if (job.status === "failed") return { ok: false, reason: "job already failed; use `retry` to run it again" };
+  if (job.status === "cancelled") return { ok: false, reason: "job was cancelled; use `retry` to run it again" };
+  return { ok: true };
+}
+
 /** One job that a bulk-control guard rejected, paired with the reason why. */
 export interface IneligibleJob {
   job: RelayJob;

@@ -647,6 +647,23 @@
       자동 포함. 새 파서/시계 로직 0줄. core tools 8 + cli tools 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·
       카운트다운·idle·스코프 부분집합·--json·에러 exit·completion 포함 검증. branch `claude/wizardly-pascal-tools`)
 
+- [x] 👷 `agentrelay reschedule <id> <when>` — 대기 중인 잡의 재개 시각을 손으로 옮기기(파서가 리셋
+      시각을 잘못 추정했거나 조용한 시간대로 미루고 싶을 때). `retry`(지금 즉시+시도횟수 리셋)와
+      `cancel`(취소) 사이의 빠져 있던 중간 조작.
+      (완료 — `retry`는 잡을 **지금** 재개시키며 attempts를 0으로 리셋하고, `cancel`은 아예 취소하지만,
+      "아직 대기 중이나 재개 시각만 틀린" 경우를 고치는 수단이 없었다. `@agentrelay/core/reschedule.ts`
+      신설(순수·시계/파일시스템 미접촉): `resolveRescheduleTime(input, now)`가 `<when>`을 절대 ISO
+      resetAt으로 해소 — `now`/`0`→즉시, `parseDuration` 재사용한 상대 기간(`30m`/`2h`/`1d`/`90s`/`500ms`)→
+      now+기간, 그 외는 `new Date`로 파싱 가능한 절대 타임스탬프(ISO 권장). 과거 절대시각도 허용(=즉시 due),
+      빈 입력·해석 불가는 안내 문구와 함께 error. `control.ts`에 `canReschedule`(pending=queued/
+      waiting_for_reset만 허용; resuming=in-flight 거부, 종료 상태는 `retry`로 안내)+`RESCHEDULABLE_STATUSES`.
+      `RelayQueue.rescheduleTo(id, resetAt)`는 `requeueNow`와 달리 **시각만 교정** — attempts·lastError를
+      보존(재시도가 아니라 리스케줄), `waiting_for_reset`로 두어 `listDue`가 새 시각에 픽업. CLI
+      `commands.ts` `rescheduleJob`(id 해소→canReschedule 가드→시각 해소→rescheduleTo, `now` 주입 가능,
+      미존재 id·해석 불가 시각은 무변형 exit 1) + `cli.ts` `reschedule <id> <when>` 배선(completion·help
+      자동 포함). 새 파서/스케줄러 로직 0줄. core reschedule 12 + queue 1 + cli 6 신규 테스트, 실제 빌드 CLI
+      e2e로 상대기간·절대 ISO 지속·bad time exit 1·미존재 id exit 1 검증. branch `claude/wizardly-pascal-uzj9f6`)
+
 - [x] 👷 `agentrelay upcoming --watch [seconds]` — 재개 대기 타임라인을 라이브로 갱신(카운트다운이
       째깍째깍 줄어드는 뷰). `status --watch`(세션 12)를 재개 대기 타임라인에 확장.
       (완료 — CLI `upcoming.ts`에 순수 `renderUpcomingWatchFrame(timeline, storePath, intervalMs, now,

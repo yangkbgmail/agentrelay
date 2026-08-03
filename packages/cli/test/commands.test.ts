@@ -15,6 +15,7 @@ import {
   listStoreBackups,
   previewRestoreStore,
   pruneJobs,
+  rescheduleJob,
   restoreStore,
   retryJob,
   runCommand,
@@ -217,6 +218,78 @@ describe("cancelJob / retryJob", () => {
     expect(result.job?.status).toBe("waiting_for_reset");
     expect(result.job?.attempts).toBe(0);
     expect(result.job?.lastError).toBeNull();
+  });
+});
+
+describe("rescheduleJob", () => {
+  let dir: string;
+  let storePath: string;
+  const NOW = new Date("2026-08-03T12:00:00.000Z");
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cli-resched-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function seedWaiting() {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(job.id, "2026-08-03T13:00:00.000Z");
+    queue.close();
+    return job.id;
+  }
+
+  it("moves a waiting job's resume time by a relative duration", () => {
+    const id = seedWaiting();
+    const result = rescheduleJob(id.slice(0, 8), "2h", storePath, NOW);
+    expect(result.ok).toBe(true);
+    expect(result.job?.status).toBe("waiting_for_reset");
+    expect(result.job?.resetAt).toBe("2026-08-03T14:00:00.000Z");
+    expect(listStatus(storePath)[0].resetAt).toBe("2026-08-03T14:00:00.000Z");
+  });
+
+  it("accepts an absolute ISO timestamp", () => {
+    const id = seedWaiting();
+    const result = rescheduleJob(id, "2026-08-04T05:00:00Z", storePath, NOW);
+    expect(result.ok).toBe(true);
+    expect(result.job?.resetAt).toBe("2026-08-04T05:00:00.000Z");
+  });
+
+  it('reports "now" in the message when rescheduled to the present', () => {
+    const id = seedWaiting();
+    const result = rescheduleJob(id, "now", storePath, NOW);
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain("resume at now");
+  });
+
+  it("refuses to reschedule a completed job and points at retry", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markCompleted(job.id, "done");
+    queue.close();
+    const result = rescheduleJob(job.id, "2h", storePath, NOW);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("retry");
+    expect(listStatus(storePath)[0].status).toBe("completed");
+  });
+
+  it("rejects an unparseable time without mutating the store", () => {
+    const id = seedWaiting();
+    const result = rescheduleJob(id, "whenever", storePath, NOW);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("could not understand");
+    expect(listStatus(storePath)[0].resetAt).toBe("2026-08-03T13:00:00.000Z");
+  });
+
+  it("reports an unknown id", () => {
+    seedWaiting();
+    const result = rescheduleJob("deadbeef", "2h", storePath, NOW);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("no job matches");
   });
 });
 

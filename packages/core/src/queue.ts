@@ -243,6 +243,17 @@ export class RelayQueue {
     this.update(id, { status: "waiting_for_reset", resetAt: at, attempts: 0, lastError: null });
   }
 
+  /**
+   * Move a pending job's resume time to `resetAt` (user-initiated reschedule).
+   * Unlike {@link requeueNow}, this is a *time correction*: the attempt budget
+   * and last error are left untouched, since the job hasn't been retried — only
+   * rescheduled. Uses `waiting_for_reset` so `listDue` picks it up once the new
+   * time arrives. Callers guard eligibility via `canReschedule`.
+   */
+  rescheduleTo(id: string, resetAt: string) {
+    this.update(id, { status: "waiting_for_reset", resetAt });
+  }
+
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {
     this.load();
     const existing = this.jobs.get(id);

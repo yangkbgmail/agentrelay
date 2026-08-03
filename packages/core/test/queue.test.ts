@@ -194,6 +194,25 @@ describe("RelayQueue", () => {
     expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(1);
   });
 
+  it("reschedules a pending job's resume time while preserving attempts and last error", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    queue.markResuming(job.id);
+    queue.markRetryScheduled(job.id, "2026-08-03T15:00:00.000Z", "spawn error");
+    expect(queue.getById(job.id)?.attempts).toBe(1);
+
+    const later = "2026-08-03T18:00:00.000Z";
+    queue.rescheduleTo(job.id, later);
+    const moved = queue.getById(job.id);
+    expect(moved?.status).toBe("waiting_for_reset");
+    expect(moved?.resetAt).toBe(later);
+    // Unlike requeueNow, reschedule is a time correction: attempts/lastError stay.
+    expect(moved?.attempts).toBe(1);
+    expect(moved?.lastError).toBe("spawn error");
+    // Not due before the new time, due after it.
+    expect(queue.listDue(new Date("2026-08-03T17:00:00.000Z"))).toHaveLength(0);
+    expect(queue.listDue(new Date("2026-08-03T19:00:00.000Z"))).toHaveLength(1);
+  });
+
   describe("importJobs", () => {
     const historyJob = (id: string, project = "imported"): RelayJob => ({
       id,
