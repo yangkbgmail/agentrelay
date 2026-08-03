@@ -1662,3 +1662,32 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `overdue`/`tools`/`projects --watch` 라이브 갱신] (2026-08-03, 무인 자율 세션, branch `claude/wizardly-pascal-79u4ii`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. 세션 49·50·51·52가 반복해 "다음 할 일"로
+  지목한 인접 항목 — 나머지 읽기 전용 리스트 커맨드의 `--watch` 라이브 갱신 — 을 마무리했다.
+  `status`(세션 12)·`upcoming`(세션 52)에만 있던 라이브 뷰를 세 형제 커맨드(`overdue`/`tools`/
+  `projects`)로 확장.
+- **한 일 (branch `claude/wizardly-pascal-79u4ii`):** 세 커맨드에 `-w, --watch [seconds]` — 세션 52의
+  `startWatchLoop` 인프라 재사용.
+  - CLI `overdue.ts`/`tools.ts`/`projects.ts`에 각각 순수 `renderOverdueWatchFrame`/`renderToolsWatchFrame`/
+    `renderProjectsWatchFrame(summary, storePath, intervalMs, now, scopeNote?)` 신설: `renderUpcomingWatchFrame`와
+    동일한 bold title + dim meta(라이브 배너·타임스탬프·스토어 경로) 블록 + 항상 컬러인 본문. 순수 함수라
+    TTY/시계 없이 테스트 가능.
+  - CLI `cli.ts`에 `runOverdueWatch`/`runToolsWatch`/`runProjectsWatch`(매 프레임 스토어 재읽기·스코프
+    재적용·리포트/요약 재계산·화면 clear 후 프레임 출력) 추가 — 전부 기존 공용 `startWatchLoop`
+    (draw+setInterval+SIGINT/SIGTERM 정리) 재사용. `--watch [seconds]` 파싱을 공용 `watchIntervalMs`
+    헬퍼로 추출해 `upcoming`의 인라인 중복 제거(리팩터링, 동작 불변, 기본 2s).
+  - 세 커맨드에 옵션 배선: limit/grace/scope 검증을 **먼저** 통과시켜 잘못된 값은 watch 루프 전에 exit 1,
+    `--json`이 `--watch`보다 우선(일회성 기계 덤프). help 예시 3줄 추가 + completion 자동 포함. overdue는
+    매 프레임 `buildOverdueReport`를 fresh now로 재빌드해 새로 지연된 잡이 나타나고, tools/projects는
+    NEXT RESET 카운트다운이 째깍 줄어든다. 새 파서/스케줄러/core 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core + cli 291/1skip + dashboard 7; cli watch-frame 9케이스 신규 — overdue/tools/projects
+  각 3). 빌드된 실제 CLI e2e(mock 아님): 임시 스토어(overdue 잡 1 + 대기 잡 1)로 `overdue --watch 1`
+  (화면 clear `\x1b[2J\x1b[H`·라이브 배너·`OVERDUE BY 1h 30m`·2회 재렌더), `tools --watch 1`/`projects
+  --watch 1`(NEXT RESET 카운트다운 `in 1h 30m`), `--watch --json`(JSON 우선·즉시 종료), `--watch --tool
+  bogus`/`--status bogus`(watch 루프 전 exit 1), `--help`·`completion bash`에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `status`엔 있고 이 셋엔 아직 없는
+  `--limit`을 `tools`/`projects`에도(큰 큐), 또는 `errors --watch`. README/ARCHITECTURE(🧭 코워크).
