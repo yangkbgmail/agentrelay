@@ -659,6 +659,24 @@
       스케줄러/core 로직 0줄. cli upcoming watch-frame 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브
       배너·카운트다운·--json 우선·--limit 0 exit 1·completion 검증. branch `claude/wizardly-pascal-1z6gb2`)
 
+- [x] 👷 `agentrelay heatmap` — 잡이 큐잉된 시각을 하루 24개 시간대(hour-of-day) 버킷으로 접어 보여주는
+      히스토그램(rate-limit이 하루 중 언제 몰리는지 = 사용 리듬). `stats --trend`(일별 볼륨 타임라인)·
+      `patterns`(어떤 패턴이 발화)와 직교하는 새 분석 축 — "며칠에 걸쳐"가 아니라 "하루 중 몇 시에"를 답한다.
+      (완료 — 명시적 👷 백로그가 전부 소진돼 스스로 발굴한 항목. `@agentrelay/core/heatmap.ts` 신설
+      (순수·시계/파일시스템 미접촉): `computeHourlyActivity(jobs, {offsetMinutes?})` + `HourlyActivity`
+      (total·counted·skipped·offsetMinutes·hours[24]·peakHour·peakCount)·`HourBucket`. 각 잡의 영속된
+      `createdAt`을 파싱해 24개 시간대로 버킷팅 — 파싱 불가/누락 `createdAt`은 `skipped`로 카운트해 총계에서
+      조용히 누락시키지 않음, 24버킷은 항상 zero-fill, peakHour는 동점 시 이른 시각(막대 좌→우 읽기 순서).
+      `offsetMinutes`(UTC에 더할 분, 명시 입력이라 core는 시계 미접촉·결정론 유지)로 로컬/임의 타임존 버킷팅
+      가능(음수·큰 값도 floored 양수 나머지로 0–23 정규화, 비유한값은 UTC=0). CLI `heatmap.ts`에 순수
+      `renderHeatmap`(24행 비례 막대+count+share%+peak 마커+타임존 라벨+skipped/no-timestamp 안내)·
+      `renderHeatmapJson`(stats/tools와 동일 envelope)·`formatOffsetLabel`. `agentrelay heatmap [--json]
+      [--local][--utc-offset <분>]` + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용,
+      `--utc-offset`이 `--local`보다 우선(getTimezoneOffset 부호 반전), 잘못된 offset은 exit 1. completion
+      자동 포함. 새 파서/스케줄러 로직 0줄. core heatmap 10 + cli heatmap 8 신규 테스트, 실제 빌드 CLI
+      e2e로 UTC 버킷·Tokyo(+540) 시프트·--json envelope·--tool 스코프·잘못된 offset exit 1·help/completion
+      노출 검증. branch `claude/wizardly-pascal-heatmap`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
