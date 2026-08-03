@@ -1,6 +1,6 @@
 import { buildUpcomingTimeline, type RelayJob, type UpcomingTimeline } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson } from "../src/upcoming.js";
+import { NO_UPCOMING_MESSAGE, renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "../src/upcoming.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -108,5 +108,24 @@ describe("renderUpcomingJson", () => {
       })
     );
     expect(parsed.scope).toEqual({ projects: ["demo"] });
+  });
+});
+
+describe("renderUpcomingWatchFrame", () => {
+  it("includes the live title, interval, store path, timestamp and the table", () => {
+    const frame = renderUpcomingWatchFrame(timeline([job({ id: "j1", project: "web" })]), "/tmp/store.json", 5000, NOW);
+    expect(frame).toContain("agentrelay upcoming");
+    expect(frame).toContain("every 5s");
+    expect(frame).toContain("/tmp/store.json");
+    expect(frame).toContain("2026-07-30 10:00:00");
+    expect(frame).toContain("web");
+    // The countdown row from the underlying table is present.
+    expect(frame).toContain("RESUMES IN");
+  });
+
+  it("passes the scope note through to the frame", () => {
+    const frame = renderUpcomingWatchFrame(timeline([]), "/tmp/store.json", 2000, NOW, "project=ghost");
+    expect(frame).toContain(NO_UPCOMING_MESSAGE);
+    expect(frame).toContain("scope: project=ghost");
   });
 });

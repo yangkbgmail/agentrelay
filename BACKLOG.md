@@ -647,6 +647,19 @@
       자동 포함. 새 파서/시계 로직 0줄. core tools 8 + cli tools 8 신규 테스트, 실제 빌드 CLI e2e로 랭킹·
       카운트다운·idle·스코프 부분집합·--json·에러 exit·completion 포함 검증. branch `claude/wizardly-pascal-tools`)
 
+- [x] 👷 `agentrelay upcoming --watch` / `overdue --watch` — 카운트다운 타임라인/지연 리포트를 화면을 지우고
+      N초마다 재렌더하는 라이브 TUI(`status --watch`를 형제 진단 명령으로 확장).
+      (완료 — `status`에만 있던 `--watch` 라이브 뷰가 정작 카운트다운이 시시각각 바뀌는 `upcoming`(재개 활주로)·
+      `overdue`(지연 감시)에는 없어, 이 둘을 보려면 명령을 반복 입력해야 했다. cli.ts에 제네릭 `runWatchLoop
+      (intervalMs, draw)`(화면 클리어+재페인트+SIGINT/SIGTERM 정리)를 추출해 기존 status `runWatch`를 이 위로
+      재구현하고, 공용 `watchIntervalMs(watch)`(`--watch [초]` 옵션 인자 파싱, 없거나 비양수면 2s 폴백)로 세
+      명령의 인터벌 파싱을 통일. `upcoming.ts`에 순수 `renderUpcomingWatchFrame`, `overdue.ts`에 순수
+      `renderOverdueWatchFrame` 추가(status의 `renderWatchFrame`와 동일한 title/타임스탬프/store 헤더 + 컬러
+      테이블). 두 명령 액션에 `-w, --watch [seconds]` 배선 — 매 프레임 스토어 재읽기·재스코프·재계산(데몬 쓰기와
+      카운트다운이 함께 라이브), 스코프 창(--since/--until) 경계는 명령 시작 시 고정된 절대 epoch-ms 유지.
+      cli upcoming +2 / overdue +2 신규 테스트, 실제 빌드 CLI e2e로 라이브 프레임 재렌더(타임스탬프 전진)·
+      카운트다운/due now/overdue by·-w help 노출 검증. branch `claude/wizardly-pascal-9i7svz`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

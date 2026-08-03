@@ -1635,3 +1635,26 @@
   `--tool nope`(exit 1), completion에 `tools` 포함 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools`/`projects`에 `--watch`
   라이브 갱신, `upcoming --watch` 등 인접 항목 검토. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 52 — `upcoming --watch` / `overdue --watch` 라이브 TUI] (2026-08-03, 무인 자율 세션)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다.
+  세션 50/51의 "다음 할 일"에서 반복 제안된 항목 — `status`에만 있던 `--watch` 라이브 뷰가 정작
+  카운트다운이 시시각각 바뀌는 `upcoming`(재개 활주로)·`overdue`(지연 감시)에는 없어, 이 둘을
+  실시간으로 보려면 명령을 반복 입력해야 했다.
+- **한 일 (branch `claude/wizardly-pascal-9i7svz`):** `agentrelay upcoming --watch` / `overdue --watch`.
+  - cli.ts에 제네릭 `runWatchLoop(intervalMs, draw)` 추출(화면 클리어+재페인트+SIGINT/SIGTERM 정리) —
+    기존 status `runWatch`를 이 위로 재구현. 공용 `watchIntervalMs(watch)`(`--watch [초]` 옵션 인자
+    파싱, 없거나 비양수면 2s 폴백)로 세 명령의 인터벌 파싱 통일(status 인라인 파싱도 대체).
+  - `upcoming.ts`에 순수 `renderUpcomingWatchFrame`, `overdue.ts`에 순수 `renderOverdueWatchFrame`
+    추가 — status의 `renderWatchFrame`와 동일한 title/타임스탬프/store 헤더 + 컬러 테이블(기존
+    `renderUpcoming`/`renderOverdue` 재사용).
+  - 두 명령 액션에 `-w, --watch [seconds]` 배선 — 매 프레임 스토어 재읽기·재스코프·재계산(데몬 쓰기와
+    카운트다운이 함께 라이브), 스코프 창(--since/--until) 경계는 명령 시작 시 고정된 절대 epoch-ms 유지.
+    새 core 코드 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli 283/1skip + core + dashboard; cli upcoming +2 / overdue +2 신규 포함).
+  빌드된 실제 CLI e2e(mock 아님): 2-잡 임시 스토어(due-now + 90m 대기)로 `upcoming --watch 1`·`overdue --watch 1`
+  (timeout으로 다중 프레임 캡처 → 타임스탬프 전진 확인·카운트다운/due now/overdue by 렌더)·`-w` help 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `tools`/`projects`에 `--watch`,
+  `stats --watch` 등 인접 라이브 뷰 확장 검토. README/ARCHITECTURE(🧭 코워크).
