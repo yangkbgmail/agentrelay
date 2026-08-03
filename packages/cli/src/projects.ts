@@ -84,3 +84,24 @@ export function renderProjectsJson(payload: {
 }): string {
   return JSON.stringify(payload, null, 2);
 }
+
+/**
+ * One frame of the live `projects --watch` view: a title/header block (matching
+ * the shape of `status --watch`/`upcoming --watch`) plus the colored summary.
+ * The per-project "next reset" countdowns tick down in place because the loop
+ * re-reads the store and passes a fresh `now` each pass.
+ */
+export function renderProjectsWatchFrame(
+  summary: ProjectsSummary,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now(),
+  scopeNote?: string
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay projects${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderProjects(summary, { color: true, now, scopeNote })].join("\n");
+}

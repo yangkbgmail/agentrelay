@@ -1,7 +1,13 @@
 import type { RelayJob } from "@agentrelay/core";
 import { summarizeTools } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_SCOPE_MATCH_MESSAGE, NO_TOOLS_MESSAGE, renderTools, renderToolsJson } from "../src/tools.js";
+import {
+  NO_SCOPE_MATCH_MESSAGE,
+  NO_TOOLS_MESSAGE,
+  renderTools,
+  renderToolsJson,
+  renderToolsWatchFrame,
+} from "../src/tools.js";
 
 let seq = 0;
 function job(overrides: Partial<RelayJob> = {}): RelayJob {
@@ -25,6 +31,38 @@ function job(overrides: Partial<RelayJob> = {}): RelayJob {
 
 // A fixed "now" comfortably before the reset times below, for a stable countdown.
 const NOW = Date.parse("2026-07-12T12:00:00.000Z");
+
+describe("renderToolsWatchFrame", () => {
+  it("prepends a live title with the store path, timestamp, and interval", () => {
+    const out = renderToolsWatchFrame(summarizeTools([job({ status: "completed" })]), "/tmp/jobs.json", 5000, NOW);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("agentrelay tools");
+    expect(lines[0]).toContain("every 5s");
+    expect(lines[0]).toContain("Ctrl-C to exit");
+    expect(lines[1]).toContain("2026-07-12 12:00:00Z");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+    expect(lines[2]).toBe("");
+  });
+
+  it("embeds the colored summary and always emits ANSI escapes", () => {
+    const out = renderToolsWatchFrame(
+      summarizeTools([job({ status: "waiting_for_reset", resetAt: "2026-07-12T13:30:00.000Z" })]),
+      "/tmp/jobs.json",
+      2000,
+      NOW
+    );
+    // 90 minutes to reset → "1h 30m".
+    expect(out).toContain("1h 30m");
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting escapes are present.
+    expect(out).toMatch(/\x1b\[/);
+  });
+
+  it("carries the scope note into the frame body", () => {
+    const out = renderToolsWatchFrame(summarizeTools([]), "/tmp/jobs.json", 2000, NOW, "project=web");
+    expect(out).toContain("scope: project=web");
+    expect(out).toContain(NO_SCOPE_MATCH_MESSAGE);
+  });
+});
 
 describe("renderTools", () => {
   it("shows the onboarding message for an empty store", () => {
