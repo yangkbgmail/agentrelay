@@ -54,6 +54,28 @@ export function renderOverdue(report: OverdueReport, options: { color?: boolean;
 }
 
 /**
+ * One frame of the live `overdue --watch` view: a title/header block (matching
+ * the shape of `upcoming --watch`) plus the colored report. Separated out so the
+ * watch loop only has to clear the screen and print this. The overdue spans grow
+ * in place because the loop re-reads the store and rebuilds the report with a
+ * fresh `now` each pass.
+ */
+export function renderOverdueWatchFrame(
+  report: OverdueReport,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now(),
+  scopeNote?: string
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay overdue${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderOverdue(report, { color: true, scopeNote })].join("\n");
+}
+
+/**
  * Machine-readable form for `--json` (scripts/jq). Carries the store path, a
  * generation timestamp, the optional active scope, and the full report —
  * entries plus the honest totals (`totalOverdue`/`hidden`/`maxOverdueByMs`) and
