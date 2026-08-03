@@ -1662,3 +1662,29 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `agentrelay overdue --watch` 라이브 진단 테이블] (2026-08-03, 무인 자율 세션, branch `claude/wizardly-pascal-x1dhb4`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유뿐.
+  세션 52가 "다음 할 일"로 명시한 후속 — `upcoming`/`tools`/`projects`의 `--watch` 확장 — 중 가장
+  값어치 있는 `overdue --watch`를 골라 구현했다. `overdue`는 재개 루프(daemon/tick)가 죽으면 쌓이는
+  지연 잡을 보여주는 진단 커맨드지만 일회성 스냅샷뿐이라, 복구를 지켜보려면 사람이 반복 실행해야 했다.
+- **한 일 (branch `claude/wizardly-pascal-x1dhb4`):** `agentrelay overdue --watch [seconds]` — 세션 52의
+  `upcoming --watch` 인프라(공용 `startWatchLoop`) 재사용.
+  - CLI `overdue.ts`에 순수 `renderOverdueWatchFrame(report, storePath, intervalMs, now, scopeNote?)`
+    신설: `status`/`upcoming` watch와 동일한 title/meta 블록(라이브 배너·타임스탬프·스토어 경로) +
+    항상 컬러인 `renderOverdue` 본문. 순수 함수라 TTY/시계 없이 테스트 가능. `upcoming`이 카운트다운을
+    아래로 세는 거울이라면, 이건 "overdue by" 스팬이 위로 자라는 뷰(정체가 심해질수록 숫자가 커짐).
+  - CLI `cli.ts`: 새 `runOverdueWatch`(매 프레임 스토어 재읽기·스코프 재적용·`graceMs`/`limit` 재적용·
+    리포트 재구성·화면 clear 후 프레임 출력)가 세션 52의 공용 `startWatchLoop(intervalMs, draw)` 재사용
+    — draw+setInterval+SIGINT/SIGTERM 정리 로직 공유(리팩터링 불필요, 이미 추출됨).
+  - `overdue` 커맨드에 `-w, --watch [seconds]` 옵션 배선: limit/grace/scope 검증을 **먼저** 통과시켜
+    잘못된 값은 watch 루프를 돌리기 전에 exit 1, `--json`이 `--watch`보다 우선(라이브 TTY 뷰가 아닌
+    일회성 기계 덤프). 인터벌 기본 2s, `--watch 5`처럼 초 지정 가능. completion 자동 포함. 새 파서/
+    스케줄러/core 로직 0줄 — 전부 검증된 기존 함수(`buildOverdueReport`·`scopeJobs`·`startWatchLoop`) 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli 285/1skip; cli overdue 10→13, watch-frame 3케이스 신규). 빌드된 실제 CLI
+  e2e(mock 아님): 임시 스토어에 지연 잡 1개 심어 `overdue --watch 3`(화면 clear `\x1b[2J\x1b[H`·라이브
+  배너·overdue 스팬 2h 0m·컬러, timeout으로 종료), 일회성 `overdue` 불변, `--watch --json`(JSON 우선),
+  `--watch --limit 0`(watch 루프 전 exit 1), `--help`에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `tools --watch`·
+  `projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
