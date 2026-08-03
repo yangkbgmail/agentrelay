@@ -1662,3 +1662,26 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `agentrelay overdue --watch` 라이브 지연 백로그] (2026-08-03, 무인 자율 세션, branch `claude/wizardly-pascal-rbi3av`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유뿐.
+  세션 52가 "다음 할 일"로 지목한 `--watch` 확장 시리즈의 다음 항목 `overdue --watch`를 발굴해 구현했다.
+  `overdue`는 재개 시각이 이미 지났는데 안 재개된 잡(멈춘 데몬/spawn 실패의 신호)을 보여주는데, 라이브
+  뷰가 없어 백로그가 쌓이는 걸(또는 데몬이 복구돼 빠지는 걸) 실시간으로 지켜볼 수 없었다. 세션 52의
+  `upcoming --watch`(공용 `startWatchLoop`)를 그대로 거울처럼 확장.
+- **한 일 (branch `claude/wizardly-pascal-rbi3av`):** `agentrelay overdue --watch [seconds]` — 세션 52 watch 인프라 재사용.
+  - CLI `overdue.ts`에 순수 `renderOverdueWatchFrame(report, storePath, intervalMs, now, scopeNote?)` 신설:
+    `renderUpcomingWatchFrame`와 동일한 title/meta 블록(라이브 배너·타임스탬프·스토어 경로) + 항상 컬러인
+    `renderOverdue` 본문. 순수 함수라 TTY/시계 없이 테스트 가능. "overdue by" 스팬이 매 프레임 커진다.
+  - CLI `cli.ts`: 새 `runOverdueWatch`(매 프레임 스토어 재읽기·스코프 재적용·`buildOverdueReport`를 fresh
+    `now`로 재구성·화면 clear 후 프레임 출력)가 세션 52의 공용 `startWatchLoop` 재사용. 새 루프 인프라 0줄.
+  - `overdue` 커맨드에 `-w, --watch [seconds]` 옵션 배선: limit/grace/scope 검증을 **먼저** 통과시켜 잘못된
+    값은 watch 루프 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프). 인터벌 기본 2s.
+    completion 자동 포함. 새 파서/스케줄러/core 로직 0줄 — `buildOverdueReport`(세션 50) 그대로 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 553 + cli 285/1skip + dashboard 7; cli overdue 9→12, watch-frame 3케이스 신규).
+  빌드된 실제 CLI e2e(mock 아님): 임시 스토어로 `overdue --watch 1`(화면 clear·라이브 배너·"OVERDUE BY"
+  헤더·overdue by 1h 30m·컬러·데몬 복구 힌트 푸터, timeout 종료), `--watch --json`(JSON 우선·즉시 종료
+  exit 0), `--watch --limit 0`(watch 루프 전 exit 1), `--help`에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `tools --watch`·
+  `projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
