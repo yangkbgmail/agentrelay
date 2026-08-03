@@ -1662,3 +1662,32 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 49 — `agentrelay waitall` (배치 드레인 배리어)] (2026-08-03, 무인 자율 세션)
+- 배경: 세션 시작 시 명시적 👷 백로그 항목은 전부 `[x]`, 남은 🧭 항목은 코워크 소유(문서/리서치).
+  열린 PR은 50+개나 되지만 대부분 이미 머지됐거나 다른 세션이 점유한 주제(overdue/upcoming --watch,
+  tools, recent, attempts, slowest, reschedule, stuck, gemini 어댑터, 파서 접속사/타임존, max-resumes)의
+  중복이었다. CLAUDE.md 지침대로 **아무 열린 PR도 다루지 않는 새 개선 항목을 발굴**했다 — `wait <id>`는
+  잡 하나만 따라가는데, 여러 잡을 팬아웃한 뒤 "전부 끝날 때까지" 게이트할 플릿 레벨 CI 배리어가 없었다.
+- 한 일 (branch `claude/wizardly-pascal-fjx6v7`): **`agentrelay waitall`**.
+  - `@agentrelay/core/waitall.ts` 신설(순수·시계/스토어 미접촉): `isActiveStatus`(stats `ACTIVE_STATUSES`
+    재사용), `summarizeWaitAll(jobs)`→`WaitAllProgress`(total/active/completed/failed/cancelled/done —
+    active===0이면 done, 버킷은 total을 분할), `resolveWaitAllOutcome(progress, timedOut)`→`WaitAllOutcome`
+    (empty/all-completed/some-failed/some-cancelled/timeout; 정착 우선순위 failed>cancelled>completed;
+    데드라인이 정확히 정착 순간이면[`timedOut && !done`만 timeout] 진짜 결과 보고), `WAITALL_EXIT_CODES`/
+    `waitAllExitCode`(0 all-clear·1 failed·2 cancelled·124 timeout[GNU timeout(1) 관례]).
+  - CLI `commands.ts` `waitAllForJobs({storePath,scope,intervalMs,timeoutMs,now,sleep,readJobs,onPoll})`:
+    매 폴링마다 스토어 재오픈→스코프 재적용(팬아웃 도중 큐잉된 잡도 매치되면 대기), 첫 검사 즉시(이미
+    정착/빈 큐는 sleep 없이 반환), 데드라인은 sleep **전** 검사로 1인터벌 이상 초과 방지. 순수 판정은
+    전부 core 위임, 이 함수는 I/O 루프만. CLI `waitall.ts` `renderWaitAllJson`(wait와 동일 envelope).
+  - `cli.ts` `agentrelay waitall [--tool][--project][--since][--until][--timeout][--interval][--json][-q]`
+    배선: 공용 `buildScope` 재사용(단 `--status` 스코프는 제외 — 활성 잡이 그 상태를 벗어나길 기다리는
+    것이라 무의미), 잘못된 interval/timeout/tool/기간은 exit 1. completion은 라이브 프로그램에서 파생돼
+    자동 포함.
+- 검증: 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 553→567: waitall 14 신규 / cli 282→290: waitAllForJobs 7 신규 / dashboard 7).
+  빌드된 실제 CLI e2e(mock 아님): 빈 큐→empty exit 0, 3잡(2완료+1실패)→some-failed exit 1,
+  `--project batch`(2완료)→all-completed exit 0, `--tool codex-cli --json`→some-failed exit 1,
+  `--tool bogus`→exit 1, completion·`--help`에 waitall 노출 확인.
+- 다음 할 일: 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 👷 후보: `waitall --watch`로 배치
+  진행률 라이브 표시, `run --wait`로 큐잉 후 즉시 대기하는 원샷 모드. README/ARCHITECTURE(🧭 코워크).

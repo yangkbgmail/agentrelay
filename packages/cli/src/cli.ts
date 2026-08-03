@@ -69,6 +69,7 @@ import {
   tickOnce,
   unsetConfigFile,
   validateConfigFile,
+  waitAllForJobs,
   waitForJob,
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
@@ -97,6 +98,7 @@ import {
 import { renderTools, renderToolsJson } from "./tools.js";
 import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
+import { renderWaitAllJson } from "./waitall.js";
 
 /**
  * Split a comma-separated CLI option (e.g. `--status completed,failed`) into
@@ -801,6 +803,77 @@ export function buildCli(): Command {
       }
       process.exitCode = result.exitCode;
     });
+
+  program
+    .command("waitall")
+    .description(
+      "Block until every job (or a --tool/--project/--since/--until subset) finishes, then exit 0 (all completed) / 1 (any failed) / 2 (any cancelled) / 124 (timeout)"
+    )
+    .option("--tool <tools>", "Only wait on jobs for these comma-separated tools")
+    .option("--project <names>", "Only wait on jobs for these comma-separated projects")
+    .option("--since <duration>", "Only wait on jobs created within this window (e.g. 24h, 7d)")
+    .option("--until <duration>", "Only wait on jobs created before this many ago (e.g. 1h)")
+    .option("--timeout <duration>", "Give up after this long (e.g. 30m, 6h); default: wait forever")
+    .option("--interval <duration>", "How often to poll the store (default 2s)", "2s")
+    .option("--json", "Print the final result as JSON (machine-readable, for scripts/jq)")
+    .option("-q, --quiet", "Suppress the human status line (the exit code still reflects the outcome)")
+    .action(
+      async (opts: {
+        tool?: string;
+        project?: string;
+        since?: string;
+        until?: string;
+        timeout?: string;
+        interval?: string;
+        json?: boolean;
+        quiet?: boolean;
+      }) => {
+        const { store } = program.opts();
+
+        // waitall never scopes by status (you're waiting on active jobs to leave
+        // that state), only by tool/project/time.
+        const built = buildScope(
+          { tool: opts.tool, project: opts.project, since: opts.since, until: opts.until },
+          Date.now()
+        );
+        if ("error" in built) {
+          console.error(`[agentrelay] ${built.error}`);
+          process.exitCode = 1;
+          return;
+        }
+
+        const intervalMs = parseDuration(opts.interval ?? "2s");
+        if (intervalMs === null || intervalMs <= 0) {
+          console.error(`[agentrelay] Invalid --interval: ${opts.interval}. Use forms like 500ms, 2s, 1m.`);
+          process.exitCode = 1;
+          return;
+        }
+
+        let timeoutMs: number | null = null;
+        if (opts.timeout !== undefined) {
+          timeoutMs = parseDuration(opts.timeout);
+          if (timeoutMs === null || timeoutMs < 0) {
+            console.error(`[agentrelay] Invalid --timeout: ${opts.timeout}. Use forms like 30m, 6h, 90s.`);
+            process.exitCode = 1;
+            return;
+          }
+        }
+
+        if (!opts.quiet && !opts.json) {
+          const where = built.active ? ` [scope: ${built.note}]` : "";
+          console.error(`[agentrelay] waiting for all jobs to finish…${where} (Ctrl-C to stop)`);
+        }
+
+        const result = await waitAllForJobs({ storePath: store, scope: built.scope, intervalMs, timeoutMs });
+
+        if (opts.json) {
+          console.log(renderWaitAllJson(result, store));
+        } else if (!opts.quiet) {
+          console.log(`[agentrelay] ${result.message}`);
+        }
+        process.exitCode = result.exitCode;
+      }
+    );
 
   program
     .command("paths")

@@ -74,6 +74,7 @@ import {
   resolveConfigWritePath,
   resolveEffectiveConfig,
   resolveJobId,
+  resolveWaitAllOutcome,
   retryPolicyFromEnv,
   runDiagnostics,
   sampleConfigJson,
@@ -81,9 +82,13 @@ import {
   serializeDaemonHeartbeat,
   setConfigValue,
   summarizeImportPlan,
+  summarizeWaitAll,
   unsetConfigValue,
   validateConfig,
+  type WaitAllOutcome,
+  type WaitAllProgress,
   type WaitOutcome,
+  waitAllExitCode,
   waitExitCode,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
@@ -1442,6 +1447,100 @@ export async function waitForJob(idOrPrefix: string, options: WaitJobOptions = {
       };
     }
     if (job) options.onPoll?.(job, elapsed);
+    await sleep(intervalMs);
+  }
+}
+
+export interface WaitAllOptions {
+  storePath?: string;
+  /** Wait only on the jobs matching this scope. Empty = the whole queue. */
+  scope?: JobScope;
+  /** How often to re-read the store while polling, in ms. Default 2000. */
+  intervalMs?: number;
+  /** Give up after this many ms of waiting. `null`/omitted = wait forever. */
+  timeoutMs?: number | null;
+  /** Injected clock (ms since epoch). Defaults to `Date.now`. */
+  now?: () => number;
+  /** Injected sleeper. Defaults to a `setTimeout`-based delay. */
+  sleep?: (ms: number) => Promise<void>;
+  /**
+   * Injected store reader (returns the *unscoped* job list). Defaults to opening
+   * the store fresh on each poll so separate daemon/tick processes' writes are
+   * observed. The scope is applied on top by {@link waitAllForJobs} itself.
+   */
+  readJobs?: () => RelayJob[];
+  /** Called once per poll with the current progress (for status output). */
+  onPoll?: (progress: WaitAllProgress, elapsedMs: number) => void;
+}
+
+export interface WaitAllResult {
+  outcome: WaitAllOutcome;
+  progress: WaitAllProgress;
+  /** Human-readable line for the CLI to print. */
+  message: string;
+  exitCode: number;
+}
+
+function waitAllMessage(outcome: WaitAllOutcome, progress: WaitAllProgress): string {
+  const { total, active, completed, failed, cancelled } = progress;
+  const breakdown = `${completed} completed, ${failed} failed, ${cancelled} cancelled`;
+  switch (outcome) {
+    case "empty":
+      return "no jobs to wait for";
+    case "all-completed":
+      return `all ${total} job(s) completed`;
+    case "some-failed":
+      return `${total} job(s) settled: ${breakdown}`;
+    case "some-cancelled":
+      return `${total} job(s) settled: ${breakdown}`;
+    case "timeout":
+      return `timed out with ${active} of ${total} job(s) still active (${breakdown})`;
+  }
+}
+
+/**
+ * Block until every job in scope (the whole queue by default) reaches a terminal
+ * state, polling the store as separate daemon/tick processes advance jobs. The
+ * scope is re-applied each poll against a fresh store read, so jobs enqueued
+ * after the wait started are also awaited if they match. Returns the batch
+ * outcome plus an exit code so a CI step can gate on the whole fan-out settling.
+ * Pure decision logic lives in core ({@link summarizeWaitAll} /
+ * {@link resolveWaitAllOutcome}); this owns only the I/O loop, with the
+ * clock/sleeper/reader injectable for tests.
+ */
+export async function waitAllForJobs(options: WaitAllOptions = {}): Promise<WaitAllResult> {
+  const storePath = options.storePath ?? defaultStorePath();
+  const scope = options.scope ?? {};
+  const intervalMs = options.intervalMs ?? 2000;
+  const timeoutMs = options.timeoutMs ?? null;
+  const now = options.now ?? (() => Date.now());
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const readJobs =
+    options.readJobs ??
+    ((): RelayJob[] => {
+      const q = openQueue(storePath);
+      try {
+        return q.listAll();
+      } finally {
+        q.close();
+      }
+    });
+
+  const start = now();
+  const finish = (progress: WaitAllProgress, timedOut: boolean): WaitAllResult => {
+    const outcome = resolveWaitAllOutcome(progress, timedOut);
+    return { outcome, progress, message: waitAllMessage(outcome, progress), exitCode: waitAllExitCode(outcome) };
+  };
+
+  // First check is immediate so an already-settled (or empty) queue returns
+  // without a sleep. The deadline is checked before each sleep so `--timeout`
+  // can't be overshot by more than one interval.
+  while (true) {
+    const progress = summarizeWaitAll(scopeJobs(readJobs(), scope));
+    if (progress.done) return finish(progress, false);
+    const elapsed = now() - start;
+    if (timeoutMs !== null && elapsed >= timeoutMs) return finish(progress, true);
+    options.onPoll?.(progress, elapsed);
     await sleep(intervalMs);
   }
 }
