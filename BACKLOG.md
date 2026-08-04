@@ -659,6 +659,22 @@
       스케줄러/core 로직 0줄. cli upcoming watch-frame 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브
       배너·카운트다운·--json 우선·--limit 0 exit 1·completion 검증. branch `claude/wizardly-pascal-1z6gb2`)
 
+- [x] 👷 `agentrelay overdue --watch [seconds]` + `agentrelay tools --watch [seconds]` — 지연 재개 진단·
+      툴별 인덱스를 라이브로 갱신(세션 52의 `upcoming --watch`를 형제 명령으로 확장, 공용 `startWatchLoop`
+      재사용). `overdue --watch`는 재개 루프가 죽은 채 방치된 잡의 "overdue by" 스팬이 제자리에서 커지는
+      모니터링 뷰, `tools --watch`는 툴별 다음 리셋 카운트다운이 째깍째깍 줄어드는 뷰.
+      (완료 — CLI `overdue.ts`에 순수 `renderOverdueWatchFrame(report, storePath, intervalMs, now, scopeNote?)`,
+      `tools.ts`에 `renderToolsWatchFrame(summary, storePath, intervalMs, now, scopeNote?)` 신설 —
+      둘 다 `status`/`upcoming`의 title/meta 블록과 동일 형태(라이브 배너·타임스탬프·스토어 경로) + 항상
+      컬러인 본문. `cli.ts`에 `runOverdueWatch`(매 프레임 스토어 재읽기·스코프 재적용·grace/limit로 리포트
+      재구성·화면 clear)·`runToolsWatch`(스코프 재적용·요약 재집계) 추가, 둘 다 세션 52의 공용 `startWatchLoop`
+      재사용. 두 커맨드에 `-w, --watch [seconds]` 배선: limit/grace/scope 검증을 **먼저** 통과시켜 잘못된 값은
+      watch 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프), 인터벌 기본 2s. 경계는 시작 시 고정
+      epoch-ms(라이브 쓰기는 계속 반영). completion 자동 포함(4개 watch 커맨드). 새 파서/스케줄러/core 로직
+      0줄. cli overdue 9→12·tools 8→10(watch-frame 케이스 신규), 실제 빌드 CLI e2e로 화면 clear·라이브 배너·
+      overdue 스팬·툴별 카운트다운·--json 우선·--limit 0/bad-tool exit 1·클린 종료(stderr 0)·help·completion
+      검증. branch `claude/wizardly-pascal-sjajer`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
