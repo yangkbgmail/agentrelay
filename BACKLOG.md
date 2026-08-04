@@ -659,6 +659,18 @@
       스케줄러/core 로직 0줄. cli upcoming watch-frame 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브
       배너·카운트다운·--json 우선·--limit 0 exit 1·completion 검증. branch `claude/wizardly-pascal-1z6gb2`)
 
+- [x] 👷 `agentrelay resume <id>` — 대기 중인 잡의 리셋을 지금으로 앞당겨 조기 재개(리셋이 실제로 일찍
+      풀렸을 때). `retry`와 달리 시도 횟수·마지막 에러를 보존 = "새 출발"이 아니라 "조기 기상".
+      (완료 — 제어(control) 표면의 빈틈을 메움: 기존 `retry`는 attempts 0 리셋·lastError 클리어라 이력 보존
+      조기 재개를 표현할 수 없었다. core `control.ts`에 순수 가드 `canResumeNow(job, nowMs)`(nowMs 주입 →
+      시계 없이 테스트) — `waiting_for_reset` + 미래 resetAt만 허용, queued/already-due/resuming/terminal/
+      resetAt-없음은 사유와 함께 거절(terminal은 retry 안내). core `queue.ts`에 `resumeNow(id, at)` — status는
+      `waiting_for_reset` 유지, resetAt만 앞당기고 attempts·lastError 보존(`requeueNow`와의 결정적 차이). CLI
+      `commands.ts` `resumeJob`(단축 id 프리픽스·가드·정확한 실패 메시지) + `cli.ts` 단일-id `resume` 커맨드와
+      resume vs retry 차이 `addHelpText`. 새 파서/스케줄러 로직 0줄. core control canResumeNow 7 + queue
+      resumeNow 1 + cli resumeJob 4 신규 테스트, 실제 빌드 CLI e2e로 조기 재개·이력 보존·"already due" 거절
+      검증. branch `claude/wizardly-pascal-bvs3ou`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

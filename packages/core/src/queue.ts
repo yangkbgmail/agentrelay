@@ -243,6 +243,17 @@ export class RelayQueue {
     this.update(id, { status: "waiting_for_reset", resetAt: at, attempts: 0, lastError: null });
   }
 
+  /**
+   * Bring a parked job's rate-limit reset *forward* so the next scheduler tick
+   * resumes it (user-initiated early resume). Unlike {@link requeueNow} this
+   * preserves the attempt count and last error: the job isn't starting over,
+   * its limit just lifted sooner than the parser predicted. Callers guard
+   * eligibility via {@link canResumeNow}.
+   */
+  resumeNow(id: string, at: string = new Date().toISOString()) {
+    this.update(id, { status: "waiting_for_reset", resetAt: at });
+  }
+
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {
     this.load();
     const existing = this.jobs.get(id);

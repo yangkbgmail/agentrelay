@@ -1662,3 +1662,26 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `agentrelay resume` 조기 재개 제어 커맨드] (2026-08-04, 무인 자율 세션, branch `claude/wizardly-pascal-bvs3ou`)
+- **배경:** BACKLOG의 👷 항목이 모두 완료된 상태라 CLAUDE.md 지침("비면 스스로 개선 항목 발굴")대로
+  제어(control) 표면의 빈틈을 메우는 신규 커맨드를 발굴. 기존 `retry`는 "처음부터 다시 실행"
+  (attempts 0으로 리셋·lastError 클리어)이라, 리셋이 실제로 일찍 풀렸을 때 "이력을 보존한 채 지금
+  재개"하려는 의도를 표현할 수단이 없었음.
+- **한 일 (branch `claude/wizardly-pascal-bvs3ou`):** `agentrelay resume <id>` 신규 — 대기 중
+  (`waiting_for_reset`)이고 리셋이 **미래**인 잡의 `resetAt`을 지금으로 앞당겨 다음 tick이 재개하게 함.
+  - core `control.ts`: 순수 가드 `canResumeNow(job, nowMs)` 추가(`nowMs` 주입 → 시계 없이 테스트 가능).
+    `waiting_for_reset` + 미래 resetAt만 허용, 나머지(queued/already-due=이미 곧 재개, resuming=진행 중,
+    terminal=retry 안내, resetAt 없음)는 사유와 함께 거절.
+  - core `queue.ts`: `resumeNow(id, at)` 추가 — `requeueNow`와 달리 **attempts·lastError 보존**(조기
+    재개이지 새 출발이 아님). 상태는 `waiting_for_reset` 유지, resetAt만 앞당김.
+  - CLI `commands.ts`: `resumeJob(idOrPrefix, storePath)` — 단축 id 프리픽스 해석·가드·정확한 실패 메시지
+    (cancel/retry와 동일 패턴). CLI `cli.ts`: 단일-id `resume` 커맨드 배선 + resume vs retry 차이를 설명하는
+    `addHelpText`. 새 파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 561 + cli 286/1skip + dashboard 7). 신규: core `control.test.ts` canResumeNow 7케이스,
+  `queue.test.ts` resumeNow 보존 1케이스, cli `commands.test.ts` resumeJob 4케이스. 빌드된 실제 CLI e2e(mock 아님):
+  임시 스토어에 attempts=1·lastError 잡을 1h 뒤로 파킹 → `upcoming`이 1h로 표시 → `resume <id>`가 "due now"로
+  당기고 `show`에서 attempts=1·lastError 보존 확인 → 재차 `resume`은 "already due"로 거절.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 아이디어: `resume --all`(스코프 필터로
+  일괄 조기 재개)·`reschedule <id> <time>`(임의 시각으로 이동). README/ARCHITECTURE(🧭 코워크).

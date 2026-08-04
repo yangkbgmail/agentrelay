@@ -16,6 +16,7 @@ import {
   previewRestoreStore,
   pruneJobs,
   restoreStore,
+  resumeJob,
   retryJob,
   runCommand,
   setConfigFile,
@@ -217,6 +218,70 @@ describe("cancelJob / retryJob", () => {
     expect(result.job?.status).toBe("waiting_for_reset");
     expect(result.job?.attempts).toBe(0);
     expect(result.job?.lastError).toBeNull();
+  });
+});
+
+describe("resumeJob", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cli-resume-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Seed a job parked with a future reset, having already used `attempts` tries. */
+  function seedWaiting(resetOffsetMs: number, attempts = 0): string {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    // markResuming bumps the attempt count; loop to reach the desired count.
+    for (let i = 0; i < attempts; i += 1) queue.markResuming(job.id);
+    queue.markRetryScheduled(job.id, new Date(Date.now() + resetOffsetMs).toISOString(), "rate limited");
+    queue.close();
+    return job.id;
+  }
+
+  it("brings a future reset forward to now while preserving attempts and last error", () => {
+    const id = seedWaiting(60 * 60 * 1000, 2);
+    const before = listStatus(storePath)[0];
+    expect(before.attempts).toBe(2);
+
+    const result = resumeJob(id.slice(0, 8), storePath);
+    expect(result.ok).toBe(true);
+    expect(result.job?.status).toBe("waiting_for_reset");
+    // Unlike retry, resume keeps the history intact.
+    expect(result.job?.attempts).toBe(2);
+    expect(result.job?.lastError).toBe("rate limited");
+    // The reset was pulled forward: it is now at or before the current instant.
+    expect(new Date(result.job?.resetAt ?? "").getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("refuses a job whose reset has already passed (already due)", () => {
+    const id = seedWaiting(-60 * 1000);
+    const result = resumeJob(id, storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("already due");
+  });
+
+  it("refuses a completed job and points at retry", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markCompleted(job.id, "done");
+    queue.close();
+    const result = resumeJob(job.id, storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("retry");
+  });
+
+  it("reports an unknown id without mutating the store", () => {
+    seedWaiting(60_000);
+    const result = resumeJob("deadbeef", storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("no job matches");
   });
 });
 

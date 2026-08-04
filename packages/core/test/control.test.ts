@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canCancel, canRequeue, partitionForControl, resolveJobId } from "../src/control.js";
+import { canCancel, canRequeue, canResumeNow, partitionForControl, resolveJobId } from "../src/control.js";
 import type { JobStatus, RelayJob } from "../src/types.js";
 
 function job(id: string, status: JobStatus): RelayJob {
@@ -47,6 +47,51 @@ describe("canRequeue", () => {
     const result = canRequeue(job("a", "resuming"));
     expect(result.ok).toBe(false);
     expect(result.reason).toContain("resuming");
+  });
+});
+
+describe("canResumeNow", () => {
+  const NOW = Date.parse("2026-07-13T10:00:00.000Z");
+  const waiting = (resetAt: string | null): RelayJob => ({ ...job("a", "waiting_for_reset"), resetAt });
+
+  it("allows resuming a job still waiting for a future reset", () => {
+    expect(canResumeNow(waiting("2026-07-13T12:00:00.000Z"), NOW)).toEqual({ ok: true });
+  });
+
+  it("rejects a waiting job whose reset has already passed", () => {
+    const result = canResumeNow(waiting("2026-07-13T09:00:00.000Z"), NOW);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("already due");
+  });
+
+  it("treats a reset exactly at now as already due", () => {
+    expect(canResumeNow(waiting(new Date(NOW).toISOString()), NOW).ok).toBe(false);
+  });
+
+  it("rejects a waiting job with no reset time to bring forward", () => {
+    const result = canResumeNow(waiting(null), NOW);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("no reset time");
+  });
+
+  it("rejects a queued job — the next tick resumes it anyway", () => {
+    const result = canResumeNow(job("a", "queued"), NOW);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("already due");
+  });
+
+  it("rejects an in-flight (resuming) job", () => {
+    const result = canResumeNow(job("a", "resuming"), NOW);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("resuming");
+  });
+
+  it("rejects terminal jobs and points at retry", () => {
+    for (const status of ["completed", "failed", "cancelled"] as JobStatus[]) {
+      const result = canResumeNow(job("a", status), NOW);
+      expect(result.ok).toBe(false);
+      expect(result.reason).toContain("retry");
+    }
   });
 });
 
