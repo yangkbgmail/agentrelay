@@ -1662,3 +1662,29 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `agentrelay overdue --watch` 라이브 진단] (2026-08-04, 무인 자율 세션, branch `claude/wizardly-pascal-3uc1ra`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. 세션 49~52가 반복해 "다음 할 일"로 지목한
+  인접 항목 — `overdue`/`tools`/`projects`의 `--watch` 라이브 확장 — 중 첫 번째인 `overdue --watch`를
+  구현했다. 세션 52가 `upcoming --watch`로 깔아둔 공용 `startWatchLoop`를 재사용한다. `overdue`는 재개
+  루프가 멈췄을 때 지연된 잡을 보여주는 진단 커맨드인데, 라이브 뷰가 없어 "OVERDUE BY" 스팬이 째깍째깍
+  벌어지는 걸 실시간으로 볼 수 없었다.
+- **한 일 (branch `claude/wizardly-pascal-3uc1ra`):** `agentrelay overdue --watch [seconds]` — `upcoming
+  --watch` 인프라 재사용.
+  - CLI `overdue.ts`에 순수 `renderOverdueWatchFrame(report, storePath, intervalMs, now, scopeNote?)` 신설:
+    `status`/`upcoming` 워치와 동일한 title/meta 블록(라이브 배너·타임스탬프·스토어 경로) + 항상 컬러인
+    `renderOverdue` 본문. 순수 함수라 TTY/시계/스폰 없이 테스트 가능.
+  - CLI `cli.ts`: 새 `runOverdueWatch`(매 프레임 스토어 재읽기·스코프 재적용·grace/limit 재적용·리포트
+    재구성·화면 clear 후 프레임 출력)가 세션 52의 공용 `startWatchLoop` 재사용. `overdue` 커맨드에
+    `-w, --watch [seconds]` 배선: limit/grace/scope 검증을 **먼저** 통과시켜 잘못된 값은 watch 루프 전에
+    exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프), 인터벌 기본 2s. completion 자동 포함. 새
+    파서/스케줄러/core 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 553 + cli 285/1skip + dashboard 7; cli overdue watch-frame 3케이스 신규).
+  빌드된 실제 CLI e2e(mock 아님): 3-잡 임시 스토어(claude-code 1[90m 지연]/codex-cli 2[15m 지연·완료])로
+  `overdue`(가장 오래 지연 순 랭킹), `--grace 30m`(15m 지연 잡 숨김), `--tool claude-code`(스코프 부분집합),
+  `--watch 1`(화면 clear `\x1b[2J\x1b[H`·라이브 배너·컬러·카운트다운 풋터), `--watch --json`(JSON 우선),
+  `--watch --limit 0`(watch 루프 전 exit 1), `--help`·completion에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `tools --watch`·
+  `projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
