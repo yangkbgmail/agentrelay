@@ -1,3 +1,4 @@
+import { nextClockTimeInZone, parseZoneToken } from "./timezone.js";
 import type { RateLimitInfo } from "./types.js";
 
 /**
@@ -43,6 +44,48 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Same minute-precise clock time, but with the timezone the message names,
+    // e.g. "resets at 3:00pm (America/New_York)" / "resets at 15:00 UTC" /
+    // "reset at 5:00pm (UTC+9)". Tried BEFORE the local-time `clock-time` so a
+    // stated zone wins; the zone suffix is required, so plain clock times fall
+    // straight through. If the zone token isn't recognized, resolve returns null
+    // and the parser continues to `clock-time` (local interpretation) — a safe
+    // degradation rather than a wrong instant.
+    name: "clock-time-tz",
+    regex:
+      /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?\s*(?:\(\s*([^)\r\n]+?)\s*\)|\b(utc|gmt)\b\s*([+-]\d{1,2}(?::?\d{2})?)?)/i,
+    resolve: (m, now) => {
+      const zone = parseClockZone(m[4], m[5], m[6]);
+      if (!zone) return null;
+      let hour = parseInt(m[1], 10);
+      const minute = parseInt(m[2], 10);
+      const meridiem = m[3]?.toLowerCase();
+      if (meridiem === "pm" && hour < 12) hour += 12;
+      if (meridiem === "am" && hour === 12) hour = 0;
+      if (hour > 23 || minute > 59) return null;
+      return nextClockTimeInZone(zone, hour, minute, now);
+    },
+  },
+  {
+    // Hour + meridiem, no minutes, with a named timezone — the exact shape
+    // Claude Code prints: "Your limit will reset at 5pm (America/New_York)."
+    // Meridiem is required (a bare "reset at 5 (…)" is too ambiguous), same as
+    // the local-time `clock-time-meridiem` this shadows when a zone is present.
+    name: "clock-time-meridiem-tz",
+    regex:
+      /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b\s*(?:\(\s*([^)\r\n]+?)\s*\)|\b(utc|gmt)\b\s*([+-]\d{1,2}(?::?\d{2})?)?)/i,
+    resolve: (m, now) => {
+      const zone = parseClockZone(m[3], m[4], m[5]);
+      if (!zone) return null;
+      let hour = parseInt(m[1], 10);
+      if (hour > 12) return null; // 13pm etc. is not a valid 12-hour clock time
+      const meridiem = m[2].toLowerCase();
+      if (meridiem === "pm" && hour < 12) hour += 12;
+      if (meridiem === "am" && hour === 12) hour = 0;
+      return nextClockTimeInZone(zone, hour, 0, now);
+    },
+  },
+  {
     // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
     name: "clock-time",
     regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
@@ -61,14 +104,15 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
-    // "resets at 5pm" / "reset at 10 AM" — hour + meridiem with NO minutes.
-    // This is the wording Claude Code actually prints ("Your limit will reset
-    // at 5pm (America/New_York)."), which the minute-requiring clock-time
-    // pattern above misses. Meridiem is required: a bare "reset at 5" (no
-    // colon, no am/pm) is too ambiguous to treat as a clock time. The named
-    // timezone in the message is ignored — the hour is interpreted in local
-    // time, same known limitation as clock-time (a real reset is a future
-    // instant, so rolling to tomorrow when already past keeps us safe).
+    // "resets at 5pm" / "reset at 10 AM" — hour + meridiem with NO minutes and
+    // NO timezone. The minute-requiring clock-time pattern above misses this,
+    // and the `-tz` variant only fires when a recognized zone is present, so
+    // this is the local-time interpretation for the zone-less (or unrecognized
+    // zone) case. Meridiem is required: a bare "reset at 5" (no colon, no am/pm)
+    // is too ambiguous to treat as a clock time. When the message *does* name a
+    // zone, `clock-time-meridiem-tz` wins first; this only runs as the fallback
+    // (a real reset is a future instant, so rolling to tomorrow when already
+    // past keeps us safe).
     name: "clock-time-meridiem",
     regex: /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b/i,
     resolve: (m, now) => {
@@ -134,6 +178,23 @@ const PATTERNS: RateLimitPattern[] = [
     resolve: (_m, now) => new Date(now.getTime() + 5 * 60 * 60_000),
   },
 ];
+
+/**
+ * Reassemble a timezone from the alternation groups the tz-aware clock patterns
+ * capture: either the parenthesized token (`paren`, e.g. "America/New_York" or
+ * "UTC+9") or a bare `UTC`/`GMT` (`bare`) with an optional trailing `offset`
+ * ("+9"). Returns null when nothing usable was captured or the token isn't a
+ * zone we recognize — the caller then falls through to local interpretation.
+ */
+function parseClockZone(
+  paren: string | undefined,
+  bare: string | undefined,
+  offset: string | undefined
+): ReturnType<typeof parseZoneToken> {
+  const token = paren ?? (bare ? bare + (offset ?? "") : undefined);
+  if (!token) return null;
+  return parseZoneToken(token);
+}
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
 const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
