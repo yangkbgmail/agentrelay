@@ -1662,3 +1662,32 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `agentrelay overdue --watch` + `tools --watch` 라이브 뷰] (2026-08-04, 무인 자율 세션, branch `claude/wizardly-pascal-sjajer`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)와 공유 최종 QA뿐. 세션 52의 "다음 할 일"이 명시한
+  후속 — `upcoming --watch`를 형제 진단 명령으로 확장 — 을 골라 `overdue --watch`·`tools --watch`를 함께
+  구현했다. `status`(세션 12)·`upcoming`(세션 52)에는 라이브 갱신이 있었지만, 지연 재개 진단(`overdue`)과
+  툴별 인덱스(`tools`)에는 없어 "재개 루프가 죽은 채 스팬이 커지는" 모니터링·"툴별 리셋 카운트다운이
+  줄어드는" 뷰를 라이브로 볼 수 없었다.
+- **한 일 (branch `claude/wizardly-pascal-sjajer`):** `agentrelay overdue --watch [seconds]` +
+  `agentrelay tools --watch [seconds]` — 세션 52의 공용 `startWatchLoop` 재사용.
+  - CLI `overdue.ts`에 순수 `renderOverdueWatchFrame(report, storePath, intervalMs, now, scopeNote?)`,
+    `tools.ts`에 `renderToolsWatchFrame(summary, storePath, intervalMs, now, scopeNote?)` 신설: 둘 다
+    `status`/`upcoming` 워치 프레임과 동일한 title/meta 블록(라이브 배너·타임스탬프·스토어 경로) + 항상
+    컬러인 본문. 순수 함수라 TTY/시계 없이 테스트 가능.
+  - CLI `cli.ts`: `runOverdueWatch`(매 프레임 스토어 재읽기·스코프 재적용·grace/limit로 `buildOverdueReport`
+    재구성·화면 clear)·`runToolsWatch`(스코프 재적용·`summarizeTools` 재집계) 추가 — 둘 다 세션 52의
+    `startWatchLoop(intervalMs, draw)` 재사용(새 루프 인프라 0줄).
+  - 두 커맨드에 `-w, --watch [seconds]` 배선: limit/grace/scope 검증을 **먼저** 통과시켜 잘못된 값은 watch
+    루프를 돌리기 전에 exit 1, `--json`이 `--watch`보다 우선(라이브 TTY 뷰가 아닌 일회성 기계 덤프),
+    인터벌 기본 2s. 경계는 시작 시 고정 epoch-ms(라이브 쓰기는 계속 반영). completion은 라이브 프로그램에서
+    파생되므로 `--watch`/`-w` 자동 포함(이제 4개 watch 커맨드). 새 파서/스케줄러/core 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli overdue 9→12·tools 8→10, watch-frame 케이스 신규). 빌드된 실제 CLI e2e(mock 아님):
+  임시 스토어(overdue 1건 + 대기 1건)로 `overdue --watch 1`(화면 clear `\x1b[2J\x1b[H`·라이브 배너·
+  overdue 스팬 2h 0m·컬러, 파일 리다이렉트 시 2프레임·stderr 0줄·timeout 종료), `tools --watch 1`(툴별
+  카운트다운 due now/1h 30m), `tools --watch --json`(JSON 우선·즉시 종료), `overdue --watch --limit 0`·
+  `tools --watch --tool bogus`(watch 루프 전 exit 1), `--help`·completion(4× `--watch`) 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 남은 형제 `projects --watch`도 같은
+  패턴으로 확장 가능. README/ARCHITECTURE/ROADMAP(🧭 코워크), 공유 최종 QA + 데모 스크립트.
