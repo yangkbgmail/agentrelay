@@ -662,3 +662,14 @@
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
+
+## 클로드 코드가 발굴한 신규 항목 (BACKLOG 소진 후)
+
+- [x] 👷 파서: 리셋 메시지가 **명명한 타임존**을 인식(`reset at 5pm (America/New_York)` 등) — 지금까지
+      호스트 로컬 시간으로 해석하던 정확성 한계를 수정.
+      (완료 — `@agentrelay/core/timezone.ts` 신설(순수·의존성 0·Node 내장 `Intl` ICU): `parseZoneToken`
+      (IANA 이름 검증 + `UTC±HH:MM`/`GMT±H`/`Z`/bare 고정 오프셋) · `ianaOffsetMinutes`(DST 반영) ·
+      `nextClockTimeInZone`(존의 자체 캘린더 날짜 기준 다음 인스턴트, 지났으면 존-익일 롤, DST 2-패스
+      재해소). `parser.ts`에 가법적 신규 패턴 `clock-time-tz`·`clock-time-meridiem-tz`를 로컬 패턴보다
+      앞에 삽입 — 존 접미사 필수·미인식 존은 로컬 패턴으로 안전 폴백이라 기존 동작 불변(regression-safe).
+      core timezone 15 + parser +6 신규, 실제 빌드 CLI `parse` e2e 검증. branch `claude/wizardly-pascal-tz-parse`)

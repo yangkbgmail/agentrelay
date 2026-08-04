@@ -1662,3 +1662,32 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — 파서: 명명된 타임존 인식(clock-time-*-tz)] (2026-08-04, 무인 자율 세션, branch `claude/wizardly-pascal-tz-parse`)
+- **배경:** BACKLOG의 👷(클로드 코드) 항목은 전부 완료 상태 → CLAUDE.md 지침대로 새 개선 항목을 발굴.
+  `parser.ts`의 `clock-time`/`clock-time-meridiem` 주석에 "명명된 타임존은 무시하고 로컬 시간으로
+  해석"이라는 **알려진 정확성 한계**가 적혀 있었다. Claude Code가 실제로 출력하는
+  `"Your limit will reset at 5pm (America/New_York)."`에서 호스트 머신이 다른 타임존이면 리셋 시각이
+  존 격차만큼 어긋나, 릴레이가 **너무 일찍 재개(즉시 재충돌)하거나 너무 늦게 재개(idle 낭비)** 한다.
+  릴레이의 핵심 기능(정확한 리셋 시점)을 직접 개선하는 항목이라 선정.
+- **한 일 (branch `claude/wizardly-pascal-tz-parse`):**
+  - `@agentrelay/core/timezone.ts` 신설(순수·시계 주입 가능, 의존성 0 — Node 내장 `Intl` ICU만 사용):
+    `parseZoneToken`(IANA 이름 검증 + `UTC±HH:MM`/`GMT±H`/`+0530`/`Z`/bare `UTC`/`GMT` 고정 오프셋 파싱,
+    미인식은 null) · `isValidIanaZone` · `ianaOffsetMinutes`(존의 DST 반영 오프셋) · `nextClockTimeInZone`
+    (존의 **자체 캘린더 날짜** 기준으로 다음 hour:minute 인스턴트 계산, 오늘 이미 지났으면 존-익일로 롤,
+    DST 경계는 2-패스 오프셋 재해소로 올바른 쪽에 착지). 전부 UTC 인스턴트로 반환.
+  - `parser.ts`에 **가법적**(regression-safe) 신규 패턴 2개를 로컬 버전보다 **앞**에 삽입:
+    `clock-time-tz`(분 포함 + 존) · `clock-time-meridiem-tz`(hour+meridiem, 분 없음 + 존, Claude Code 실제
+    문구). 존 접미사가 **필수**라 존 없는 문구는 그대로 기존 로컬 패턴으로 폴백, 존 토큰이 미인식이면
+    resolve가 null → 파서가 다음(로컬) 패턴으로 계속 = 잘못된 인스턴트 대신 **안전한 저하**. 기존
+    `clock-time`/`clock-time-meridiem` 코드는 불변, 주석만 폴백 역할로 갱신. `parseClockZone` 헬퍼가
+    정규식 alternation 그룹(괄호 토큰 / bare `UTC`/`GMT`+오프셋)을 `ParsedZone`으로 재조립.
+- **검증:** `pnpm install`→`pnpm build`(Next.js 포함) 클린 · `pnpm ci:lint`(Biome) **0 경고** · `pnpm test`
+  **전 패키지 통과**(core 574[+21] · cli 282/1skip · dashboard 7). 신규 테스트: core `timezone.test.ts` 15케이스
+  (오프셋/IANA 파싱·DST 여름/겨울 인스턴트·존-익일 롤·오프셋↔IANA 동치·미인식 존 null) + `parser.test.ts`
+  +6 회귀(America/New_York EDT 21:00Z·Asia/Seoul 익일 롤·분 정밀 tz·bare UTC·`(UTC+9)`·`GMT-5`·미인식 존
+  로컬 폴백). 기존 "5pm (America/New_York)를 로컬 17시로 해석"하던 테스트를 **올바른 타임존 인식**(EDT
+  21:00Z, 호스트 TZ 무관 결정론)으로 갱신. 빌드된 실제 CLI e2e(mock 아님): `parse`로 IANA/bare UTC/오프셋/
+  미인식 존 폴백/존 없음 불변 각각 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 개선 후보: 존 약어(PST/KST 등, DST
+  모호성 주의) 매핑, `reset at 9am on Monday` 같은 요일/날짜 기반 리셋 인식. README/ARCHITECTURE(🧭 코워크).
