@@ -86,6 +86,54 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // "reset at midnight" / "resets at noon" — word clock times. Agents (and the
+    // humans who quote them) commonly write the two salient reset moments as
+    // words rather than digits ("Your limit will reset at midnight."), which the
+    // digit-only clock patterns above miss. midnight -> 00:00, noon -> 12:00,
+    // interpreted in local time and rolled to the next occurrence if already
+    // past — same convention as clock-time / clock-time-meridiem.
+    name: "clock-time-word",
+    regex: /reset[s]?\s+at\s+(midnight|noon)\b/i,
+    resolve: (m, now) => {
+      const hour = m[1].toLowerCase() === "noon" ? 12 : 0;
+      const candidate = new Date(now);
+      candidate.setHours(hour, 0, 0, 0);
+      if (candidate.getTime() <= now.getTime()) {
+        candidate.setDate(candidate.getDate() + 1);
+      }
+      return candidate;
+    },
+  },
+  {
+    // "resets tomorrow at 9am" / "reset tomorrow at 14:30" / "resets tomorrow at
+    // noon" — an explicit next-day reset. The other clock patterns anchor on
+    // "reset[s] at", so the "tomorrow" wording slips past them entirely; and
+    // unlike them, "tomorrow" forces the day forward by one even when the stated
+    // time hasn't passed yet today. Anchored on "reset[s] tomorrow" to keep an
+    // unrelated "meeting tomorrow at 3pm" from being read as a reset time. The
+    // time part reuses the digit / meridiem / word (midnight|noon) forms.
+    name: "next-day-clock",
+    regex: /reset[s]?\s+tomorrow\s+at\s+(?:(\d{1,2})(?::(\d{2}))?\s*(am|pm)?|(midnight|noon))/i,
+    resolve: (m, now) => {
+      let hour: number;
+      let minute = 0;
+      if (m[4]) {
+        hour = m[4].toLowerCase() === "noon" ? 12 : 0;
+      } else {
+        hour = parseInt(m[1], 10);
+        minute = m[2] ? parseInt(m[2], 10) : 0;
+        const meridiem = m[3]?.toLowerCase();
+        if (meridiem === "pm" && hour < 12) hour += 12;
+        if (meridiem === "am" && hour === 12) hour = 0;
+      }
+      if (hour > 23 || minute > 59) return null; // reject nonsense like 25:00 / :70
+      const candidate = new Date(now);
+      candidate.setDate(candidate.getDate() + 1);
+      candidate.setHours(hour, minute, 0, 0);
+      return candidate;
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
@@ -136,7 +184,7 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in|tomorrow)|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);
