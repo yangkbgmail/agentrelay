@@ -1662,3 +1662,28 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `agentrelay overdue --watch` 라이브 지연 진단] (2026-08-04, 무인 자율 세션, branch `claude/wizardly-pascal-f9dfxq`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. 세션 52가 `upcoming --watch`를 구현하며 "다음 할 일"로
+  `overdue --watch`를 명시적으로 지목했다 — `status`(세션 12)·`upcoming`(세션 52)엔 라이브 `--watch`가 있지만,
+  지연 재개 진단용 거울인 `overdue`엔 없어 죽은 재개 루프를 디버깅하는 동안 백로그가 실시간으로 쌓이는 것을
+  지켜볼 수 없었다(일회성 스냅샷뿐).
+- **한 일 (branch `claude/wizardly-pascal-f9dfxq`):** `agentrelay overdue --watch [seconds]` — 세션 52의
+  `startWatchLoop` 인프라 재사용.
+  - CLI `overdue.ts`에 순수 `renderOverdueWatchFrame(report, storePath, intervalMs, now, scopeNote?)` 신설:
+    `upcoming`의 `renderUpcomingWatchFrame`와 동일한 title/meta 블록(라이브 배너·타임스탬프·스토어 경로) +
+    항상 컬러인 `renderOverdue` 본문. 순수 함수라 TTY/시계 없이 테스트 가능.
+  - CLI `cli.ts`: 새 `runOverdueWatch`(공용 `startWatchLoop` 재사용 — 매 프레임 스토어 재읽기·스코프 재적용·
+    리포트 재구성 후 화면 clear+프레임 출력, 스팬이 프레임마다 위로 늘어남). `overdue` 커맨드에
+    `-w, --watch [seconds]` 옵션 배선: limit/grace/scope 검증을 **먼저** 통과시켜 잘못된 값은 watch 루프를
+    돌리기 전에 exit 1, `--json`이 `--watch`보다 우선. 인터벌 기본 2s, `--watch 5`처럼 초 지정 가능,
+    completion 자동 포함. 새 파서/스케줄러/core 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 553 + cli 285/1skip + dashboard 7; cli overdue 9→12, watch-frame 3케이스 신규).
+  빌드된 실제 CLI e2e(mock 아님): 임시 스토어(2h overdue 잡)로 `overdue --watch 1`(화면 clear `\x1b[2J\x1b[H`
+  3프레임·라이브 배너·overdue 스팬 2h 0m·컬러 출력, timeout 종료), 일회성 `overdue`·`--json` 불변,
+  `--watch --json`(JSON 우선·인터벌 없이 즉시 종료 exit 0), `--watch --limit 0`/`--watch --grace nonsense`
+  (watch 루프 전 exit 1), `--help`·completion에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `tools --watch`·
+  `projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크 소유).
