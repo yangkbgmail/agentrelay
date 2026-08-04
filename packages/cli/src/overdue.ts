@@ -77,6 +77,29 @@ export function renderOverdueJson(input: {
   );
 }
 
+/**
+ * One frame of the live `agentrelay overdue --watch` view: a title/header block
+ * (matching the shape of `status`/`upcoming --watch`) plus the colored report.
+ * Separated out so the watch loop only has to clear the screen and print this.
+ * The overdue durations grow in place because the loop re-reads the store and
+ * re-derives the report against a fresh `now` each pass — a stuck job's
+ * "OVERDUE BY" ticks upward, making a dead resume loop visible at a glance.
+ */
+export function renderOverdueWatchFrame(
+  report: OverdueReport,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now(),
+  scopeNote?: string
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay overdue${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderOverdue(report, { color: true, scopeNote })].join("\n");
+}
+
 function footer(report: OverdueReport): string {
   const jobWord = report.totalOverdue === 1 ? "job" : "jobs";
   const parts = [`${report.totalOverdue} ${jobWord} overdue`];
