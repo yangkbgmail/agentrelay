@@ -430,6 +430,14 @@
 - [x] 👷 `agentrelay export --columns <list>` — CSV/Markdown 내보내기 시 필요한 열만 원하는 순서로 선택.
       (완료 — core `export.ts` `isJobCsvColumn`/`parseCsvColumns`/`COLUMN_AWARE_FORMATS`(csv·md만),
       CLI `export --columns` 배선(json/ndjson·미지 컬럼·빈 목록은 exit 1). PR #132, 세션 33에 통합·병합.)
+- [x] 👷 파서: 재시도 지시형 절대 시각 인식(`try again at 3pm` / `available again at 5pm` / `come back at 9am`).
+      (완료 — 절대 시각(clock/ISO)을 도입하는 동사가 `reset(s) at`로만 하드코딩돼, 같은 절대 시각을
+      재시도 지시형으로 표현한 메시지는 어떤 패턴에도 안 걸렸다(상대시간 `try again in …`은 duration만
+      잡음). 3개 절대-시각 패턴(iso-timestamp·clock-time·clock-time-meridiem)이 공유하는 lead-in 상수
+      `AT_LEAD`(`(?:reset[s]?|try\s+again|available(?:\s+again)?|come\s+back)\s+at`)를 도입해 세 정규식을
+      파생. pre-filter에도 `available/come back at`을 추가. bare `back at`은 오탐 우려로 제외. resolve
+      로직·기존 패턴·상대시간/epoch/Retry-After 경로 전부 불변(additive). parser.test 33→40케이스.
+      branch `claude/wizardly-pascal-va9zjy`)
 - [x] 👷 파서 일(day) 단위 상대 시간 인식 (`try again in 2 days` / `resets in 1d 4h`).
       (완료 — 제네릭 `relative-duration` 정규식에 `(\d+)d` 그룹을 시(h) 앞에 추가하고 resolve를
       days·hours·minutes로 재색인 → `((days*24+hours)*60+minutes)`분. 주간/일간 사용량 한도 문구를

@@ -1662,3 +1662,27 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — 파서: 재시도 지시형 절대 시각 인식(`try again at`/`available again at`/`come back at`)] (2026-08-04, 무인 자율 세션, branch `claude/wizardly-pascal-va9zjy`)
+- **배경:** 지정 브랜치가 이미 main에 병합된 상태라 최신 origin/main에서 재시작. BACKLOG의 명시적
+  👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐.
+  제품 핵심인 파서(`packages/core/src/parser.ts`)에서 실제 갭을 발굴: 절대 시각(clock/ISO)을 도입하는
+  동사가 `reset(s) at`로만 하드코딩돼 있어, 같은 절대 시각을 재시도 지시형으로 표현한 메시지
+  — `try again at 3pm`, `available again at 5pm`, `come back at 9am` — 은 통째로 놓쳤다. 상대시간
+  패턴(`try again in …`)은 duration만 잡을 뿐 clock time을 못 잡으므로 이 표현들은 어떤 패턴에도
+  안 걸렸다.
+- **한 일 (branch `claude/wizardly-pascal-va9zjy`):** 파서의 3개 절대-시각 패턴(iso-timestamp·clock-time·
+  clock-time-meridiem)이 공유하는 lead-in 상수 `AT_LEAD`를 도입 —
+  `(?:reset[s]?|try\s+again|available(?:\s+again)?|come\s+back)\s+at`. 세 패턴의 정규식을 이 lead-in에서
+  파생하도록 바꿔, 절대 clock/ISO 시각이 어느 동사로 도입되든 동일하게 해소된다. 의도적으로 좁게 유지
+  (bare `back at`은 "get back at" 류 오탐 우려로 제외). pre-filter `LOOKS_LIKE_RATE_LIMIT`에도
+  `available(?:\s+again)?|come\s+back)\s+at`를 추가해 그 표현들이 사전 필터를 통과하도록 함
+  (`try again`/`resets at`은 기존 필터가 이미 통과). resolve 로직·기존 패턴 동작·상대시간/epoch/
+  Retry-After 경로는 전부 불변 — 순수 additive 확장.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 560 + cli 282/1skip + dashboard 7). parser.test.ts 33→40케이스(7 신규):
+  `try again at` meridiem/clock/ISO, `available again at`, `come back at`, `try again in`이 여전히
+  relative-duration으로 해소됨(회귀), `back at` prose 오탐 없음.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 파서 갭: `resets tomorrow at 9am`
+  등 상대 요일 한정어(현재 `tomorrow`가 무시돼 오늘로 오해될 수 있음), `overdue --watch`·`tools --watch`·
+  `projects --watch`(세션 52의 공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).

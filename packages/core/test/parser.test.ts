@@ -249,4 +249,61 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("relative-duration");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
   });
+
+  // --- Absolute times introduced by retry/availability verbs (not just "reset at") ---
+
+  it("parses 'try again at' with a meridiem hour, same as 'reset at'", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Please try again at 5pm.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(17);
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'try again at' with an explicit clock time (HH:MM)", () => {
+    const now = new Date("2026-07-12T20:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit. Try again at 3:30pm.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(15);
+    expect(resetDate.getMinutes()).toBe(30);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'try again at' with an explicit ISO timestamp", () => {
+    const result = parseRateLimitMessage("Usage limit. Try again at 2026-07-13T05:00:00Z.");
+    expect(result?.pattern).toBe("iso-timestamp");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses 'available again at' (verb passes the pre-filter and resolves the clock time)", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Your quota will be available again at 9am.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(new Date(result!.resetAt).getHours()).toBe(9);
+  });
+
+  it("parses 'come back at' as an absolute clock time", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Limit reached — come back at 6pm.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(new Date(result!.resetAt).getHours()).toBe(18);
+  });
+
+  it("does not treat 'try again in' (relative) as an absolute 'at' time", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Try again in 2h.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
+  it("does not false-positive on unrelated 'back at' prose with no time", () => {
+    expect(parseRateLimitMessage("Look back at the previous commit for context.")).toBeNull();
+  });
 });
