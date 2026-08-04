@@ -659,6 +659,18 @@
       스케줄러/core 로직 0줄. cli upcoming watch-frame 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브
       배너·카운트다운·--json 우선·--limit 0 exit 1·completion 검증. branch `claude/wizardly-pascal-1z6gb2`)
 
+- [x] 👷 `agentrelay overdue --watch [seconds]` — 지연 재개 진단(overdue) 리포트를 라이브로 갱신
+      ("overdue by" 스팬이 째깍째깍 늘어나는 뷰). `status --watch`(세션 12)·`upcoming --watch`(세션 52)를
+      진단용 거울인 overdue에 확장 — 죽은 재개 루프를 디버깅하는 동안 백로그가 실시간으로 쌓이는 것을 지켜봄.
+      (완료 — CLI `overdue.ts`에 순수 `renderOverdueWatchFrame(report, storePath, intervalMs, now, scopeNote?)`
+      신설(`upcoming`의 `renderUpcomingWatchFrame`와 동일 title/meta 블록 + 항상 컬러인 `renderOverdue` 본문,
+      TTY/시계 없이 테스트 가능). `cli.ts`에 `runOverdueWatch`(공용 `startWatchLoop` 재사용 — 매 프레임 스토어
+      재읽기·스코프 재적용·리포트 재구성·화면 clear) + `overdue`에 `-w, --watch [seconds]` 배선: limit/grace/scope
+      검증을 **먼저** 통과시켜 잘못된 값은 watch 전에 exit 1, `--json`이 `--watch`보다 우선. 인터벌 기본 2s,
+      completion 자동 포함. 새 파서/스케줄러/core 로직 0줄. cli overdue watch-frame 3케이스 신규, 실제 빌드 CLI
+      e2e로 화면 clear(3프레임)·라이브 배너·overdue 스팬·--json 우선·--limit 0/--grace 잘못된 값 exit 1 검증.
+      branch `claude/wizardly-pascal-f9dfxq`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
