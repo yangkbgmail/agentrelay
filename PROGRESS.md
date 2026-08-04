@@ -1662,3 +1662,32 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `overdue`/`tools`/`projects` --watch 라이브 뷰] (2026-08-04, 무인 자율 세션, branch `claude/wizardly-pascal-y3plm2`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. 세션 49~52가 반복해 "다음 할 일"로 지목한
+  인접 항목 — `overdue`/`tools`/`projects`의 `--watch` 라이브 갱신(세션 52의 `upcoming --watch` 후속) —
+  을 발굴해 세 커맨드에 모두 `--watch`를 확장했다. `status`(세션 12)·`upcoming`(세션 52)엔 이미
+  `--watch`가 있었지만, 재개 지연 진단(`overdue`)·툴/프로젝트 인덱스(`tools`/`projects`)엔 없어
+  카운트다운/지연 span이 째깍째깍 변하는 라이브 뷰를 볼 수 없었다.
+- **한 일 (branch `claude/wizardly-pascal-y3plm2`):** `agentrelay overdue|tools|projects --watch [seconds]` —
+  세션 52의 공용 `startWatchLoop` 인프라 재사용, 새 파서/스케줄러/core 로직 0줄.
+  - CLI `overdue.ts`/`tools.ts`/`projects.ts`에 각각 순수 `renderOverdueWatchFrame`/`renderToolsWatchFrame`/
+    `renderProjectsWatchFrame` 신설: `upcoming`의 `renderUpcomingWatchFrame`와 동일한 title/meta 블록
+    (라이브 배너·타임스탬프·스토어 경로) + 항상 컬러인 본문 렌더. 순수 함수라 TTY/시계 없이 테스트 가능.
+  - CLI `cli.ts`: `--watch` 인터벌 파싱을 공용 `watchIntervalMs(watch)` 헬퍼로 추출(기존 `upcoming`의
+    인라인 파싱도 이 헬퍼로 치환 — 리팩터링, 동작 불변). `runOverdueWatch`/`runToolsWatch`/
+    `runProjectsWatch` 신설(매 프레임 스토어 재읽기·스코프 재적용·리포트/서머리 재구성·화면 clear),
+    셋 다 세션 52의 `startWatchLoop` 재사용. `overdue`는 `--grace`/`--limit`도 매 프레임 재적용.
+  - 세 커맨드에 `-w, --watch [seconds]` 옵션 배선: limit/grace/scope 검증을 **먼저** 통과시켜 잘못된
+    값은 watch 루프 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프). 인터벌 기본 2s.
+    completion은 라이브 프로그램에서 파생되므로 `--watch`/`-w` 자동 포함.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli 291/1skip; overdue 9→12·tools 8→11·projects 8→11, watch-frame 3케이스씩 신규).
+  빌드된 실제 CLI e2e(mock 아님): 임시 스토어(과거 due·미래 reset 2잡)로 `overdue --watch 1`(화면 clear·
+  라이브 배너·3h 0m overdue), `tools --watch 1`(2h 0m 카운트다운·프레임 재렌더), `projects --watch --json`
+  (JSON 우선·즉시 종료), `--watch --limit 0`(watch 전 exit 1), `--watch --tool bogus`(scope 검증 exit 1),
+  `--help`·completion에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). BACKLOG의 명시적 👷 항목은 소진 —
+  후속 인접 항목(예: `next --watch`, 대시보드에 upcoming/overdue 타임라인 카드)이나 🧭 코워크 소유
+  문서(README/ARCHITECTURE) 진행 검토.
