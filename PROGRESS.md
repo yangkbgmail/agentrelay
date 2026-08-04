@@ -1662,3 +1662,32 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `overdue`/`tools`/`projects --watch` 라이브 뷰 확장] (2026-08-04, 무인 자율 세션, branch `claude/wizardly-pascal-ouqihu`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. 세션 49·50·51·52가 반복해 "다음 할 일"로 지목한
+  인접 항목 — `overdue`/`tools`/`projects`의 `--watch` 라이브 갱신 — 을 발굴해 세 명령 모두 구현했다.
+  세션 52가 `upcoming --watch`용으로 추출한 공용 `startWatchLoop`이 있어 그대로 재사용.
+- **한 일 (branch `claude/wizardly-pascal-ouqihu`):** `agentrelay overdue|tools|projects --watch [seconds]` —
+  `status`·`upcoming`에만 있던 라이브 뷰를 지연 진단·툴/프로젝트 인덱스로 확장.
+  - CLI `overdue.ts`/`tools.ts`/`projects.ts`에 각각 순수 `renderOverdueWatchFrame`/`renderToolsWatchFrame`/
+    `renderProjectsWatchFrame(summary|report, storePath, intervalMs, now, scopeNote?)` 신설:
+    `renderUpcomingWatchFrame`와 동일한 title/meta 블록(라이브 배너 `(live, every Ns — Ctrl-C to exit)`·
+    ISO 타임스탬프·스토어 경로) + 항상 컬러인 기존 본문 렌더. 순수 함수라 TTY/시계 없이 테스트 가능.
+  - CLI `cli.ts`: `runOverdueWatch`/`runToolsWatch`/`runProjectsWatch` 추가 — 세션 52의 공용
+    `startWatchLoop(intervalMs, draw)` 재사용. 매 프레임 `listStatus`로 스토어 재읽기·스코프 재적용
+    (`--since`/`--until` 경계는 시작 시 고정 epoch-ms)·리포트/서머리 재구성·화면 clear. `overdue`는
+    graceMs/limit도 매 프레임 재적용.
+  - 세 명령에 `-w, --watch [seconds]` 옵션 배선: limit/grace/scope 검증을 **먼저** 통과시켜 잘못된
+    값은 watch 루프 전에 exit 1, `--json`이 `--watch`보다 우선(라이브 TTY 뷰가 아닌 일회성 기계 덤프),
+    인터벌 기본 2s. completion은 라이브 프로그램에서 파생되므로 `--watch`/`-w` 자동 포함. 새 파서/
+    스케줄러/core 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 553 + cli 291/1skip + dashboard 7; cli overdue 9→12, tools 8→11, projects 8→11 —
+  각 watch-frame 3케이스 신규). 빌드된 실제 CLI e2e(mock 아님): 임시 2-잡 스토어로 `tools|projects|overdue
+  --watch 1`(화면 clear `\x1b[2J\x1b[H`·라이브 배너·컬러 표·카운트다운·overdue 스팬 렌더), 네 watch 명령
+  모두 clean timeout-kill(exit 124·stderr 0바이트), `--watch --json`(JSON 우선·즉시 종료 exit 0),
+  `--watch --limit 0`/`--watch --tool nope`(watch 루프 전 exit 1), `--help`·completion에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 이로써 `status`·`upcoming`·`overdue`·
+  `tools`·`projects` 다섯 뷰 명령이 모두 `--watch` 라이브 갱신 지원(watch 패밀리 완결). 후속: 남은 🧭
+  코워크 소유 항목(README/ARCHITECTURE/경쟁조사/샘플수집/성능분석) 또는 새 개선 항목 발굴.

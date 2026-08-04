@@ -1,7 +1,13 @@
 import type { RelayJob } from "@agentrelay/core";
 import { summarizeTools } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_SCOPE_MATCH_MESSAGE, NO_TOOLS_MESSAGE, renderTools, renderToolsJson } from "../src/tools.js";
+import {
+  NO_SCOPE_MATCH_MESSAGE,
+  NO_TOOLS_MESSAGE,
+  renderTools,
+  renderToolsJson,
+  renderToolsWatchFrame,
+} from "../src/tools.js";
 
 let seq = 0;
 function job(overrides: Partial<RelayJob> = {}): RelayJob {
@@ -100,5 +106,38 @@ describe("renderToolsJson", () => {
       summary: summarizeTools([]),
     });
     expect(JSON.parse(json).scope).toEqual({ statuses: ["queued"] });
+  });
+});
+
+describe("renderToolsWatchFrame", () => {
+  it("prepends a live title with the store path, timestamp, and interval", () => {
+    const out = renderToolsWatchFrame(summarizeTools([job()]), "/tmp/jobs.json", 5000, NOW);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("agentrelay tools");
+    expect(lines[0]).toContain("every 5s");
+    expect(lines[0]).toContain("Ctrl-C to exit");
+    expect(lines[1]).toContain("2026-07-12 12:00:00Z");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+    expect(lines[2]).toBe("");
+    expect(out).toContain("TOOL");
+  });
+
+  it("embeds the colored tool index with a live reset countdown", () => {
+    const out = renderToolsWatchFrame(
+      summarizeTools([job({ tool: "claude-code", status: "waiting_for_reset", resetAt: "2026-07-12T18:00:00.000Z" })]),
+      "/tmp/jobs.json",
+      2000,
+      NOW
+    );
+    expect(out).toContain("6h");
+    // Watch frames are always colored (live TTY view).
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting escapes are present.
+    expect(out).toMatch(/\x1b\[/);
+  });
+
+  it("carries the scope note into the frame body", () => {
+    const out = renderToolsWatchFrame(summarizeTools([]), "/tmp/jobs.json", 2000, NOW, "project=ghost");
+    expect(out).toContain(NO_SCOPE_MATCH_MESSAGE);
+    expect(out).toContain("scope: project=ghost");
   });
 });

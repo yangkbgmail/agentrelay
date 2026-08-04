@@ -71,6 +71,28 @@ export function renderProjects(
 }
 
 /**
+ * One frame of the live `projects --watch` view: a title/header block (matching
+ * the shape of `status --watch`/`upcoming --watch`) plus the colored project
+ * index. Separated out so the watch loop only has to clear the screen and print
+ * this. The reset countdowns tick down in place because the loop re-reads the
+ * store and passes a fresh `now` each pass. Pure: `now` is injected here.
+ */
+export function renderProjectsWatchFrame(
+  summary: ProjectsSummary,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now(),
+  scopeNote?: string
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay projects${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderProjects(summary, { color: true, now, scopeNote })].join("\n");
+}
+
+/**
  * Machine-readable form of `agentrelay projects`, mirroring the `renderStatsJson`
  * / `renderPatternsJson` envelope: the resolved store path, when it was
  * generated, the optional active scope, and the full summary. Pure:
