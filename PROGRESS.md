@@ -1662,3 +1662,29 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 49 — `agentrelay stale` 멈춘 재개 진단] (2026-08-04, 무인 자율 세션)
+- **배경:** 세션 시작 시 열린 PR이 30여 개(상당수 `overdue --watch`·`upcoming --watch` 중복)로 쌓여
+  있어, 이들과 겹치지 않는 신규 개선 항목을 발굴했다. 코드를 읽던 중 진단 커맨드의 갭을 발견 —
+  스케줄러는 재개 시 `markResuming`으로 잡을 `resuming`으로 바꾸고 자식 프로세스를 spawn하는데,
+  데몬이 그 사이 크래시하거나 자식이 행(hang)하면 잡이 **`resuming`에 영구히 멈춘다**. `overdue`는
+  `waiting_for_reset`(시작조차 못 한 잡)만 잡고, 이 "시작했으나 끝나지 못한" 무음 실패는 어떤 커맨드도
+  잡지 못했다.
+- **한 일 (branch `claude/wizardly-pascal-2u5vng`):** `agentrelay stale` — 멈춘 재개 진단(`overdue`의 거울).
+  - `@agentrelay/core/stale.ts` 신설(순수·시계/파일시스템 미접촉): `buildStaleReport(jobs, now, {thresholdMs?,
+    limit?})` + `StaleEntry`(job·stuckForMs)·`StaleReport`(entries·totalStale·hidden·thresholdMs·maxStuckForMs)·
+    `StaleOptions`. `resuming` 상태이면서 파싱 가능한 `updatedAt`(=재개 시작 시각)이 `now - updatedMs > thresholdMs`인
+    잡만 골라 가장 오래 멈춘 순(오래된 updatedAt→createdAt→id tie-break, `overdue`와 대칭) 정렬. `thresholdMs`
+    (기본 0, 음수·비유한 0 클램프)로 아직 정상 실행 중인 재개 오탐 방지, `limit`로 잘라도 totals/maxStuckForMs는
+    전체 반영, 입력 불변.
+  - CLI `packages/cli/src/stale.ts`에 순수 `renderStale`(표 + 공용 `formatDurationMs` 재사용 + "resume가
+    크래시했을 수 있음, `health`/`doctor` 점검 후 `retry <id>`" 힌트 + "keeping up" 빈 메시지)·`renderStaleJson`.
+    `agentrelay stale [--limit/-n][--threshold][--tool][--project][--since][--until][--json]` — 공용 `buildScope`
+    재사용, `--threshold` 기본 15m(정상적인 긴 재개 오탐 방지), completion 자동 포함. 새 파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core stale 11 + cli stale 9 신규). 빌드된 실제 CLI e2e(mock 아님): 임시 스토어에
+  3h-멈춘/30s-신선 `resuming` 2개 + completed 1개 시드 → 기본(15m)은 3h 잡만·`--threshold 0s`는 둘 다·completed는
+  절대 미표시·`--json` totals/thresholdMs 정확·`--project web` 스코프·`--limit 0`/`--threshold nonsense`는 exit 1·
+  help·completion `stale` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `stale`을 `doctor`의 체크로도 편입해
+  건강 진단에 노출(👷 후보), `stale --watch` 라이브 뷰(👷 후보). README/ARCHITECTURE(🧭 코워크).
