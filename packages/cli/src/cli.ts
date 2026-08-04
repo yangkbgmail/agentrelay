@@ -77,7 +77,7 @@ import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
-import { renderOverdue, renderOverdueJson } from "./overdue.js";
+import { renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "./overdue.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
@@ -346,6 +346,35 @@ function runUpcomingWatch(
     const jobs = active ? scopeJobs(all, window) : all;
     const timeline = buildUpcomingTimeline(jobs, now, limit);
     const frame = renderUpcomingWatchFrame(timeline, store, intervalMs, now, scopeNote);
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
+ * Live `agentrelay overdue --watch`: clears the screen and re-renders the
+ * overdue report on an interval so the "overdue by" spans grow in place while a
+ * stuck resume loop stays down (or shrink to empty as it catches up). Like the
+ * other watch loops, `listStatus` re-reads the JSON store each pass and the
+ * `--tool`/`--project`/`--since`/`--until` scope, `--grace`, and `--limit` are
+ * re-applied every frame. The window boundaries stay fixed (absolute epoch-ms
+ * from when the command started) while live writes still surface. Runs until the
+ * process is interrupted (Ctrl-C).
+ */
+function runOverdueWatch(
+  store: string,
+  intervalMs: number,
+  window: JobScope,
+  graceMs: number,
+  limit?: number,
+  scopeNote?: string
+): void {
+  const active = isJobScopeActive(window);
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const all = listStatus(store);
+    const jobs = active ? scopeJobs(all, window) : all;
+    const report = buildOverdueReport(jobs, now, { graceMs, limit });
+    const frame = renderOverdueWatchFrame(report, store, intervalMs, now, scopeNote);
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
 }
@@ -675,6 +704,7 @@ export function buildCli(): Command {
   program
     .command("overdue")
     .description("Show waiting jobs whose reset time has already passed but that haven't resumed (a stuck resume loop)")
+    .option("-w, --watch [seconds]", "Continuously refresh the report with live spans (Ctrl-C to exit)")
     .option("-n, --limit <n>", "Show at most N rows (the totals still count all overdue jobs)")
     .option(
       "--grace <duration>",
@@ -695,10 +725,12 @@ export function buildCli(): Command {
         "  agentrelay overdue --grace 5m\n" +
         "  # use as a CI/monitor gate\n" +
         "  test -z \"$(agentrelay overdue --json | jq '.report.entries[]')\"\n" +
+        "  # live view while recovering a stuck resume loop\n" +
+        "  agentrelay overdue --watch\n" +
         "\nA non-empty list usually means the resume loop is down — check\n" +
         "`agentrelay health` and `agentrelay doctor`."
     )
-    .action((opts: ScopeOpts & { limit?: string; grace?: string; json?: boolean }) => {
+    .action((opts: ScopeOpts & { limit?: string; grace?: string; json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
 
@@ -731,9 +763,20 @@ export function buildCli(): Command {
         return;
       }
 
+      const scopeNote = built.active ? built.note : undefined;
+
+      // Live view: validate flags above (limit/grace/scope) first so a bad value
+      // still exits 1 instead of spinning a broken watch loop. --json takes
+      // precedence over --watch (a one-shot machine dump, not a live TTY view).
+      if (opts.watch !== undefined && !opts.json) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        runOverdueWatch(store, intervalMs, built.scope, graceMs, limit, scopeNote);
+        return; // setInterval keeps the process alive.
+      }
+
       const allJobs = listStatus(store);
       const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
-      const scopeNote = built.active ? built.note : undefined;
       const report = buildOverdueReport(jobs, now, { graceMs, limit });
 
       if (opts.json) {
