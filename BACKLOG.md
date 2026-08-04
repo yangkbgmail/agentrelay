@@ -659,6 +659,20 @@
       스케줄러/core 로직 0줄. cli upcoming watch-frame 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브
       배너·카운트다운·--json 우선·--limit 0 exit 1·completion 검증. branch `claude/wizardly-pascal-1z6gb2`)
 
+- [x] 👷 `agentrelay overdue --watch [seconds]` — 지연(overdue) 잡 리포트를 라이브로 갱신(지연 스팬이
+      째깍째깍 늘어나는 뷰). `status --watch`(세션 12)·`upcoming --watch`(세션 49) 인프라 재사용.
+      (완료 — `overdue`는 "재개 루프가 죽었거나 바이너리 spawn 실패"의 진단 뷰인데, 지금까지 일회성
+      스냅샷만 있어 스택 리커버리를 실시간으로 지켜볼 수 없었다. CLI `overdue.ts`에 순수
+      `renderOverdueWatchFrame(report, storePath, intervalMs, now, scopeNote?)` 신설(`upcoming`의
+      `renderUpcomingWatchFrame`와 동일 title/meta 블록 + 항상 컬러인 `renderOverdue` 본문). `cli.ts`에
+      `runOverdueWatch`(공용 `startWatchLoop` 재사용 — 매 프레임 스토어 재읽기·스코프/grace/limit 재적용·
+      화면 clear 후 프레임 출력) 추가, `overdue`에 `-w, --watch [seconds]` 배선: limit/grace/scope 검증을
+      **먼저** 통과시켜 잘못된 값은 watch 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프),
+      인터벌 기본 2s. completion 자동 포함. 새 파서/스케줄러/core 로직 0줄 — 지연 스팬은 기존 검증된
+      `buildOverdueReport`가 매 프레임 fresh `now`로 재계산. cli overdue 9→12(watch-frame 3케이스 신규),
+      실제 빌드 CLI e2e로 화면 clear·라이브 배너·지연 스팬·--json 우선·--limit 0/--grace 오류 exit 1·
+      completion/help 노출 검증. branch `claude/wizardly-pascal-nhvfrf`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
