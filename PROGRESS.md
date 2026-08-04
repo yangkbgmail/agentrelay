@@ -1662,3 +1662,23 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — 파서: 단위 사이 "and"/콤마 구분자 인식(relative-duration)] (2026-08-04, 무인 자율 세션, branch `claude/wizardly-pascal-cpw7an`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]). 열린 PR을 조사하니 인접 항목
+  `overdue/tools/projects --watch`가 20개 이상 중복 PR로 심하게 과포화(#420·#425·#426·#428~#438 등)되어
+  또 하나 여는 건 무가치. 대신 어느 열린 PR도 다루지 않으면서 **실제 정확성 결함**이 있는 파서 빈틈을
+  발굴했다. `relative-duration` 패턴이 단위 사이 구분자를 `\s*`(공백)로만 봐서, 에이전트가 긴 대기를
+  자연어로 풀어쓰는 "try again in 1 hour and 30 minutes" / "2 days and 3 hours" / "2h and 15m" /
+  "1 hour, 30 minutes"에서 **뒤 단위를 조용히 버렸다** → 각각 30분·3시간·15분·30분 **일찍 재개**하여
+  같은 rate limit에 다시 걸리는 버그.
+- **한 일 (branch `claude/wizardly-pascal-cpw7an`):** `packages/core/src/parser.ts`의 `relative-duration`
+  정규식에서 day↔hour, hour↔minute 사이 구분자 `\s*`를 `[\s,]*(?:and\s+)?`로 교체 — 공백·콤마·"and"
+  (및 그 조합)를 소비. 세 단위 모두 여전히 optional이라 기존 "4h32m"·"1d 4h"·"45m"·"2 days"·"3 minutes"
+  회귀는 불변(구분자 optional), all-zero 가드도 그대로. 주석에 "왜"(뒤 단위 유실=조기 재개) 명시.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 553→558, parser.test.ts 33→38: "1 hour and 30 minutes"·"2 days and 3 hours"·
+  "2h and 15m"·"2 days, 3 hours and 15 minutes"·"1 hour, 30 minutes" 5 회귀 신규). 빌드된 실제 CLI e2e
+  (mock 아님): `agentrelay parse "Please try again in 1 hour and 30 minutes."` → `pattern: relative-duration`,
+  `matched: "try again in 1 hour and 30 minutes"`, `resets: … (in 1h 30m)`(이전엔 1h로 잘림).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 인접 파서 포맷("in about N minutes"·
+  "an hour"·서수 표기 등) 추가 발굴, 또는 열린 watch-family 중복 PR 정리(코워크와 조율). README/ARCHITECTURE(🧭).
