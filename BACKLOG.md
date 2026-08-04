@@ -659,6 +659,20 @@
       스케줄러/core 로직 0줄. cli upcoming watch-frame 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브
       배너·카운트다운·--json 우선·--limit 0 exit 1·completion 검증. branch `claude/wizardly-pascal-1z6gb2`)
 
+- [x] 👷 `agentrelay overdue/tools/projects --watch [seconds]` — 남은 세 요약/진단 뷰에도 라이브 갱신
+      확장(공용 `startWatchLoop` 재사용). 세션 49(`upcoming --watch`)의 "다음 할 일"로 명시된 후속.
+      (완료 — CLI `overdue.ts`/`tools.ts`/`projects.ts`에 각각 순수 `renderOverdueWatchFrame`/
+      `renderToolsWatchFrame`/`renderProjectsWatchFrame` 신설: `renderUpcomingWatchFrame`와 동일한
+      title/meta 블록(라이브 배너·타임스탬프·스토어 경로) + 항상 컬러인 본문 렌더. overdue는 매 프레임
+      `now`로 report를 재구성해 "overdue by" 지속시간이 커지고, tools/projects는 `now`를 넘겨 다음-리셋
+      카운트다운이 줄어듦. `cli.ts`에 `runOverdueWatch`/`runToolsWatch`/`runProjectsWatch`(전부 공용
+      `startWatchLoop` 재사용, 매 프레임 스토어 재읽기·스코프 재적용·화면 clear) 추가. 세 커맨드에
+      `-w, --watch [seconds]` 배선: limit/grace/scope 검증을 **먼저** 통과시켜 잘못된 값은 watch 루프
+      전에 exit 1, `--json`이 `--watch`보다 우선, 인터벌 기본 2s. 새 파서/스케줄러/core 로직 0줄.
+      cli overdue/tools/projects 각 watch-frame 3케이스(총 9) 신규, 실제 빌드 CLI e2e로 화면 clear·라이브
+      배너·카운트다운·overdue 지속시간·--json 우선·bad scope/limit exit 1·help/completion 노출 검증.
+      branch `claude/wizardly-pascal-kf2kvj`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
