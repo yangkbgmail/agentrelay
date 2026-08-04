@@ -659,6 +659,21 @@
       스케줄러/core 로직 0줄. cli upcoming watch-frame 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브
       배너·카운트다운·--json 우선·--limit 0 exit 1·completion 검증. branch `claude/wizardly-pascal-1z6gb2`)
 
+- [x] 👷 `agentrelay stale` — 재개를 시작했으나(`resuming`) 종료되지 못하고 멈춘 잡을 가장 오래 멈춘 순으로
+      조회(`overdue`의 거울: "시작했으나 끝나지 못한" 무음 실패). 스케줄러가 `markResuming` 후 데몬 크래시·
+      자식 행으로 종료 미보고 시 잡이 `resuming`에 영구히 멈추는데, `overdue`(waiting_for_reset만)도 다른
+      커맨드도 잡지 못하던 갭.
+      (완료 — `@agentrelay/core/stale.ts` 신설(순수·시계/파일시스템 미접촉): `buildStaleReport(jobs, now,
+      {thresholdMs?,limit?})` + `StaleEntry`(job·stuckForMs)·`StaleReport`(entries·totalStale·hidden·
+      thresholdMs·maxStuckForMs)·`StaleOptions`. `resuming`+파싱 가능 `updatedAt`(재개 시작 시각)이 `now -
+      updatedMs > thresholdMs`인 잡만 골라 오래된 updatedAt→createdAt→id tie-break(overdue와 대칭) 정렬,
+      `thresholdMs`(기본 0, 음수·비유한 0 클램프)로 정상 실행 중 재개 오탐 방지, limit로 잘라도 totals는 전체
+      반영, 입력 불변. CLI `stale.ts` 순수 `renderStale`(표+`formatDurationMs` 재사용+health/doctor/retry 힌트+
+      keeping-up 빈 메시지)·`renderStaleJson`. `agentrelay stale [--limit/-n][--threshold][--tool][--project]
+      [--since][--until][--json]` — 공용 `buildScope` 재사용, `--threshold` 기본 15m, completion 자동 포함.
+      새 파서/스케줄러 로직 0줄. core stale 11 + cli stale 9 신규 테스트, 실제 빌드 CLI e2e로 threshold·정렬·
+      스코프·JSON·에러 exit·completion 검증. branch `claude/wizardly-pascal-2u5vng`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
