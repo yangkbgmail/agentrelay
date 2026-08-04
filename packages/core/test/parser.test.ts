@@ -56,6 +56,61 @@ describe("parseRateLimitMessage", () => {
     expect(noon.getHours()).toBe(12);
   });
 
+  it("parses the word clock time 'reset at midnight' (00:00, next occurrence)", () => {
+    const now = new Date("2026-07-12T20:00:00Z");
+    const result = parseRateLimitMessage("Your limit will reset at midnight.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time-word");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(0);
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses the word clock time 'resets at noon' (12:00, rolling to tomorrow if past)", () => {
+    const now = new Date("2026-07-12T22:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Resets at noon.", { now });
+    expect(result?.pattern).toBe("clock-time-word");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(12);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'reset tomorrow at 9am' — forces the day forward with a meridiem time", () => {
+    const now = new Date("2026-07-12T02:00:00Z"); // 9am has not passed today in most zones
+    const result = parseRateLimitMessage("Your limit will reset tomorrow at 9am.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("next-day-clock");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(9);
+    expect(resetDate.getMinutes()).toBe(0);
+    // Always the *next* calendar day relative to now, even though 9am is still ahead today.
+    expect(resetDate.getDate()).toBe(new Date(now).getDate() + 1);
+  });
+
+  it("parses 'resets tomorrow at 14:30' — 24-hour clock on the next day", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit. Resets tomorrow at 14:30.", { now });
+    expect(result?.pattern).toBe("next-day-clock");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(14);
+    expect(resetDate.getMinutes()).toBe(30);
+  });
+
+  it("parses 'resets tomorrow at midnight' — word time on the next day", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Resets tomorrow at midnight.", { now });
+    expect(result?.pattern).toBe("next-day-clock");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(0);
+  });
+
+  it("does not read an unrelated 'meeting tomorrow at 3pm' as a reset time", () => {
+    // The tomorrow pattern is anchored on "reset[s] tomorrow", so unrelated
+    // sentences that merely mention a time tomorrow are ignored.
+    expect(parseRateLimitMessage("Reminder: team meeting tomorrow at 3pm.")).toBeNull();
+  });
+
   it("still prefers minute-precise clock-time over the meridiem-only pattern", () => {
     const now = new Date("2026-07-12T08:00:00Z");
     const result = parseRateLimitMessage("Resets at 5:30pm.", { now });

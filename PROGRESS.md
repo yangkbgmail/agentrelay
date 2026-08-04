@@ -1662,3 +1662,32 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — 파서: "reset at midnight/noon" 단어형 시각 + "reset tomorrow at <time>" 익일 리셋] (2026-08-04, 무인 자율 세션, branch `claude/wizardly-pascal-rll41o`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. 열린 PR 30여 개를 조사하니 세션 52가 지목한
+  `overdue/tools/projects --watch`는 이미 다수 PR(#420·#413·#408·#405 등)이 중복 진행 중이었고,
+  heatmap/reschedule/waitall/slowest/recent/attempts와 파서 3종(타임존 #419·주 단위 #416·접속사 #396)도
+  전부 in-flight였다. 겹치지 않는 **새 갭**을 파서에서 발굴: 숫자형 `12am`/`12pm`은 이미 처리되지만
+  **단어형 "reset at midnight"/"resets at noon"**과 **"reset tomorrow at 9am"**은 파싱조차 안 됐다
+  ("resets tomorrow at ..."는 기존 pre-filter의 `resets?\s+(at|in)`에도 안 걸려 정규식 단계에 도달조차
+  못 함). Claude Code 등이 실제로 쓰는 자연스러운 문구라 실사용 갭.
+- **한 일 (branch `claude/wizardly-pascal-rll41o`):** `packages/core/src/parser.ts`에 순수 패턴 2종 추가.
+  - `clock-time-word`: `reset[s]? at (midnight|noon)` → midnight=00:00 / noon=12:00, 로컬 시각 해석,
+    이미 지난 시각이면 익일 롤(clock-time·clock-time-meridiem과 동일 규약). 숫자 클록 패턴 뒤에 배치.
+  - `next-day-clock`: `reset[s]? tomorrow at <time>` — 시간부는 digit(`9`/`14:30`)·meridiem(`9am`)·
+    word(`midnight`/`noon`) 세 형태 모두 수용. 다른 클록 패턴이 `reset[s]? at`에 앵커돼 "tomorrow"
+    표현을 통째로 놓치던 갭을 메우고, 그 패턴들과 달리 **명시된 시각이 오늘 아직 안 지났어도 무조건
+    익일**로 하루를 전진. `reset[s]? tomorrow`에 앵커해 무관한 "meeting tomorrow at 3pm"이 리셋으로
+    오독되지 않게 함. `hour>23`/`minute>59`는 null 반환(25:00·:70 등 방어).
+  - pre-filter `LOOKS_LIKE_RATE_LIMIT`를 `resets?\s+(at|in)` → `resets?\s+(at|in|tomorrow)`로 확장해
+    "resets tomorrow at ..."가 정규식 단계에 도달하게 함. 새 CLI/스케줄러 코드 0줄 — 기존 `parse`
+    커맨드가 자동 노출.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 553→559 [parser +6 회귀], cli 282/1skip, dashboard 7). 신규 회귀:
+  midnight·noon(익일 롤 포함)·tomorrow 9am(익일 강제)·tomorrow 14:30·tomorrow midnight·무관한 "meeting
+  tomorrow at 3pm"→null. 빌드된 실제 CLI `parse` e2e(mock 아님): "reset at midnight"→`clock-time-word`
+  (2026-08-05T00:00Z), "reset tomorrow at 9am"→`next-day-clock`(2026-08-05T09:00Z), "team meeting
+  tomorrow at 3pm"→No rate-limit detected.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 파서 갭 후보: bare "resets tomorrow"
+  (시각 없음, 애매해 이번엔 보류)·요일형("resets on Monday")·"end of day". README/ARCHITECTURE(🧭 코워크).

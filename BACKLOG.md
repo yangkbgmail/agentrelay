@@ -659,6 +659,18 @@
       스케줄러/core 로직 0줄. cli upcoming watch-frame 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브
       배너·카운트다운·--json 우선·--limit 0 exit 1·completion 검증. branch `claude/wizardly-pascal-1z6gb2`)
 
+- [x] 👷 파서: 단어형 시각(`reset at midnight`/`resets at noon`) + 익일 리셋(`reset tomorrow at <time>`)
+      인식 — 숫자형 `12am`/`12pm`은 처리되지만 자연어 표현은 파싱조차 안 되던(그리고 "resets tomorrow
+      at ..."는 pre-filter에도 안 걸리던) 실사용 갭.
+      (완료 — `packages/core/src/parser.ts`에 순수 패턴 2종 추가. `clock-time-word`
+      (`reset[s]? at (midnight|noon)`→00:00/12:00, 이미 지난 시각이면 익일 롤, 숫자 클록 뒤 배치) +
+      `next-day-clock`(`reset[s]? tomorrow at <time>` — digit/meridiem/word 세 시간 형태 수용, 오늘
+      안 지났어도 무조건 익일 전진, `reset[s]? tomorrow` 앵커로 "meeting tomorrow at 3pm" 오독 방지,
+      `hour>23`/`minute>59` null 방어). pre-filter를 `resets?\s+(at|in)`→`resets?\s+(at|in|tomorrow)`로
+      확장. 새 CLI/스케줄러 코드 0줄 — `parse` 커맨드 자동 노출. parser.test +6 회귀(midnight·noon·
+      tomorrow 9am·14:30·midnight·무관 문장 null), 빌드된 CLI `parse` e2e로 패턴/리셋시각 검증.
+      branch `claude/wizardly-pascal-rll41o`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
