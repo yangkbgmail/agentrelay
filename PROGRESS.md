@@ -1662,3 +1662,31 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `overdue`/`tools`/`projects --watch` 라이브 뷰] (2026-08-04, 무인 자율 세션, branch `claude/wizardly-pascal-7l38xy`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 49~52가 반복해 "다음 할 일"로 지목한 인접 👷 항목 — `status`(세션
+  12)·`upcoming`(세션 52)에만 있던 `--watch` 라이브 갱신을 나머지 스냅샷 커맨드(`overdue`/`tools`/
+  `projects`)로 확장 — 을 발굴해 세 커맨드에 한 번에 구현했다.
+- **한 일 (branch `claude/wizardly-pascal-7l38xy`):** `agentrelay overdue|tools|projects --watch [seconds]`
+  — `upcoming --watch`의 `startWatchLoop` 인프라 재사용.
+  - CLI `overdue.ts`·`tools.ts`·`projects.ts`에 각각 순수 `render*WatchFrame(data, storePath, intervalMs,
+    now, scopeNote?)` 신설: `renderUpcomingWatchFrame`과 동일한 title/meta 블록(라이브 배너·타임스탬프·
+    스토어 경로) + 항상 컬러인 기존 본문 렌더(`renderOverdue`/`renderTools`/`renderProjects`) 재사용.
+    순수 함수라 TTY/시계 없이 테스트 가능.
+  - `cli.ts`: `--watch [seconds]` 파싱을 공용 `watchIntervalMs(watch)`로 추출(`--watch`=2s 기본,
+    `--watch 5`=5s; `upcoming`도 이 헬퍼로 리팩터). `runOverdueWatch`/`runToolsWatch`/`runProjectsWatch`
+    (매 프레임 스토어 재읽기·스코프 재적용·리포트/서머리 재계산·화면 clear `\x1b[2J\x1b[H`)는 전부 기존
+    `startWatchLoop`(draw+setInterval+SIGINT/SIGTERM 정리)을 재사용.
+  - 세 커맨드에 `-w, --watch [seconds]` 옵션 배선: limit/grace/scope 검증을 **먼저** 통과시켜 잘못된 값은
+    watch 루프 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프). overdue는 "overdue by"
+    스팬이 커지고, tools/projects는 "next reset" 카운트다운이 줄어드는 라이브 뷰. completion은 라이브
+    프로그램에서 파생되므로 `--watch`/`-w` 자동 포함. 새 파서/스케줄러/core 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core + cli 291/1skip + dashboard; cli overdue 9→12·tools 8→11·projects 8→11, watch-frame
+  9케이스 신규). 빌드된 실제 CLI e2e(mock 아님): 임시 스토어로 세 커맨드 `--watch 1` 화면 clear·라이브
+  배너·타임스탬프·스토어 경로·컬러 본문·overdue-span/카운트다운 확인(파일 출력 시 2.2s에 3프레임·exit
+  clean), `--watch --json`(JSON 우선·즉시 종료 exit 0), `--watch --tool nope`(watch 루프 전 exit 1),
+  `--help`·completion에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 `startWatchLoop` 패턴을
+  `errors`/`stats` 등 남은 스냅샷 커맨드로 확장 검토. README/ARCHITECTURE(🧭 코워크).
