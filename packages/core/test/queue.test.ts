@@ -194,6 +194,24 @@ describe("RelayQueue", () => {
     expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(1);
   });
 
+  it("resumes a job now without resetting its attempt count or last error", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    queue.markResuming(job.id);
+    queue.markRetryScheduled(job.id, new Date(Date.now() + 3_600_000).toISOString(), "rate limited");
+    expect(queue.getById(job.id)?.attempts).toBe(1);
+    // Parked an hour out — not due yet.
+    expect(queue.listDue(new Date())).toHaveLength(0);
+
+    queue.resumeNow(job.id);
+    const resumed = queue.getById(job.id);
+    expect(resumed?.status).toBe("waiting_for_reset");
+    // Unlike requeueNow, the history is preserved.
+    expect(resumed?.attempts).toBe(1);
+    expect(resumed?.lastError).toBe("rate limited");
+    // resetAt was pulled forward to now, so the job is immediately due.
+    expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(1);
+  });
+
   describe("importJobs", () => {
     const historyJob = (id: string, project = "imported"): RelayJob => ({
       id,

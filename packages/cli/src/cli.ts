@@ -59,6 +59,7 @@ import {
   readHealthReport,
   readLocationReport,
   restoreStore,
+  resumeJob,
   retryJob,
   runCommand,
   runDoctor,
@@ -1638,6 +1639,23 @@ export function buildCli(): Command {
     describe: "Requeue a job to resume immediately (by id), or every matching job with --all",
     allHelp: "Requeue every matching job to resume now (narrow with the scope filters below)",
   });
+
+  program
+    .command("resume")
+    .description("Bring a waiting job's reset forward so it resumes now, keeping its attempt count (unlike retry)")
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status` / `agentrelay upcoming`)")
+    .addHelpText(
+      "after",
+      "\nResume vs retry:\n" +
+        "  resume  — only a job still waiting for a future reset; keeps attempts/last error (the limit lifted early).\n" +
+        "  retry   — any job, including finished ones; resets attempts and clears the last error (a fresh start).\n"
+    )
+    .action((id: string) => {
+      const { store } = program.opts();
+      const result = resumeJob(id, store);
+      console.log(`[agentrelay] ${result.message}`);
+      if (!result.ok) process.exitCode = 1;
+    });
 
   program
     .command("backup")

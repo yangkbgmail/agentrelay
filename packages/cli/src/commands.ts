@@ -35,6 +35,7 @@ import {
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
+  canResumeNow,
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
@@ -497,6 +498,36 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
       ok: true,
       job: updated,
       message: `job ${shortId(job.id)} (${job.project}) queued to resume now — run "agentrelay tick" or the daemon to pick it up`,
+    };
+  } finally {
+    queue.close();
+  }
+}
+
+/**
+ * Bring a parked job's rate-limit reset forward to now so the next tick
+ * resumes it, by full id or short prefix. Distinct from {@link retryJob}: this
+ * preserves the attempt count and last error (an early resume, not a fresh
+ * start) and only acts on jobs still waiting for a *future* reset — anything
+ * else is rejected with an explanatory message.
+ */
+export function resumeJob(idOrPrefix: string, storePath?: string): JobControlResult {
+  const queue = openQueue(storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { ok: false, job: null, message: resolved.error ?? "job not found" };
+
+    const job = jobs.find((j) => j.id === resolved.id) as RelayJob;
+    const guard = canResumeNow(job, Date.now());
+    if (!guard.ok) return { ok: false, job, message: `cannot resume ${shortId(job.id)}: ${guard.reason}` };
+
+    queue.resumeNow(job.id);
+    const updated = queue.getById(job.id) ?? null;
+    return {
+      ok: true,
+      job: updated,
+      message: `job ${shortId(job.id)} (${job.project}) set to resume now — run "agentrelay tick" or the daemon to pick it up`,
     };
   } finally {
     queue.close();

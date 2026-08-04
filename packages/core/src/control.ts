@@ -41,6 +41,34 @@ export function canRequeue(job: RelayJob): ControlResult {
   return { ok: true };
 }
 
+/**
+ * Whether `job` can be *resumed early* — its rate-limit reset brought forward
+ * to now. Unlike {@link canRequeue}, this is only meaningful for a job still
+ * parked with a reset time in the *future*: the user knows the limit actually
+ * lifted early and wants the job to go now, without the fresh-start semantics
+ * of `retry` (which zeroes attempts and clears the last error). Other states
+ * have nothing to bring forward:
+ *   - `queued` / already-due waiters are picked up by the next tick anyway;
+ *   - `resuming` is mid-flight;
+ *   - `completed` / `failed` / `cancelled` are terminal — use `retry` to run
+ *     them again from scratch.
+ *
+ * `nowMs` is injected (never read from the clock here) so the guard stays pure
+ * and testable.
+ */
+export function canResumeNow(job: RelayJob, nowMs: number): ControlResult {
+  if (job.status !== "waiting_for_reset") {
+    if (job.status === "queued") return { ok: false, reason: "job is already due; the next tick will resume it" };
+    if (job.status === "resuming") return { ok: false, reason: "job is currently resuming; wait for it to finish" };
+    return { ok: false, reason: `job is ${job.status}; use "agentrelay retry" to run it again` };
+  }
+  if (!job.resetAt) return { ok: false, reason: "job has no reset time to bring forward" };
+  if (new Date(job.resetAt).getTime() <= nowMs) {
+    return { ok: false, reason: "job is already due; the next tick will resume it" };
+  }
+  return { ok: true };
+}
+
 /** One job that a bulk-control guard rejected, paired with the reason why. */
 export interface IneligibleJob {
   job: RelayJob;
