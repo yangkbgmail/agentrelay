@@ -1662,3 +1662,35 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `agentrelay overdue/projects/tools --watch` 라이브 갱신] (2026-08-04, 무인 자율 세션, branch `claude/wizardly-pascal-dz8rzz`)
+- **배경:** 세션 52가 "다음 할 일"로 명시한 후속 — 세션 52의 `upcoming --watch` 패턴(공용 `startWatchLoop`)을
+  나머지 라이브-후보 커맨드 셋(`overdue`/`projects`/`tools`)으로 확장. BACKLOG의 명시적 👷 항목은 전부
+  완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐이라 세션 52가
+  지목한 이 인접 항목을 발굴·소진했다. `overdue`는 재개 대기 진단(스팬이 커지는 것을 지켜보는 모니터),
+  `projects`/`tools`는 카운트다운이 도는 대시보드 — 셋 다 라이브 뷰의 실사용 가치가 있으나 `--watch`가 없었다.
+- **한 일 (branch `claude/wizardly-pascal-dz8rzz`):**
+  - CLI `overdue.ts`/`projects.ts`/`tools.ts`에 각각 순수 `renderOverdueWatchFrame`/`renderProjectsWatchFrame`/
+    `renderToolsWatchFrame` 신설: 세션 52 `renderUpcomingWatchFrame`와 **동일 title/meta 블록**(라이브 배너
+    `(live, every Ns — Ctrl-C to exit)`·`YYYY-MM-DD HH:MM:SSZ`·스토어 경로) + 항상 컬러인 각 본문 렌더 재사용.
+    순수 함수라 TTY/시계 없이 테스트 가능.
+  - CLI `cli.ts`에 `runOverdueWatch`/`runProjectsWatch`/`runToolsWatch`: 매 프레임 `listStatus`로 스토어
+    재읽기 → 스코프(`scopeJobs`) 재적용 → 리포트/요약 재구성 → 화면 clear(`\x1b[2J\x1b[H`) 후 프레임 출력.
+    셋 다 세션 52의 공용 `startWatchLoop`(draw+setInterval+SIGINT/SIGTERM 정리) 재사용 → 데몬 쓰기가
+    자동 반영. overdue watch는 `--grace`/`--limit`도 매 프레임 재적용.
+  - 각 커맨드에 `-w, --watch [seconds]` 옵션 + watch 분기 배선: limit/grace/scope 검증을 **먼저** 통과시켜
+    잘못된 값은 watch 루프 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프). `--watch` 인터벌
+    파싱을 공용 `watchIntervalMs(watch)` 헬퍼로 추출(세션 52 upcoming의 인라인 파싱 중복 제거, 동작 불변).
+    인터벌 기본 2s, `--watch 5`처럼 초 지정. completion은 라이브 프로그램에서 파생돼 자동 포함.
+  - **새 파서/스케줄러/core 로직 0줄** — 전부 기존 검증된 `buildOverdueReport`/`summarizeProjects`/
+    `summarizeTools`·렌더 함수·`startWatchLoop` 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli 289/1skip + dashboard 7; overdue 9→12, projects 7→10, tools 7→10, watch-frame 각 3케이스
+  신규). 빌드된 실제 CLI e2e(mock 아님): 임시 스토어(waiting_for_reset 잡 2개)로 `overdue/projects/tools
+  --watch`(화면 clear·라이브 배너·overdue 스팬 1h 30m·`due now` 카운트다운·컬러, timeout 종료), 일회성 뷰
+  불변, `--watch --json`(JSON 우선·즉시 종료), `--watch --limit 0`·`--watch --tool bogus`(watch 루프 전 exit 1),
+  `--help`·`completion bash`에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 라이브-후보 커맨드 셋(`status`/`upcoming`/
+  `overdue`/`projects`/`tools`)에 `--watch` 확장 완료. 후속 발굴 여지: `errors --watch`/`stats --watch`(집계
+  뷰의 라이브 갱신), 또는 `--watch`가 공유하는 프레임 헤더를 core 순수 헬퍼로 추출하는 리팩터. README/
+  ARCHITECTURE(🧭 코워크).

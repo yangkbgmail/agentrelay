@@ -1,7 +1,13 @@
 import type { RelayJob } from "@agentrelay/core";
 import { summarizeTools } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_SCOPE_MATCH_MESSAGE, NO_TOOLS_MESSAGE, renderTools, renderToolsJson } from "../src/tools.js";
+import {
+  NO_SCOPE_MATCH_MESSAGE,
+  NO_TOOLS_MESSAGE,
+  renderTools,
+  renderToolsJson,
+  renderToolsWatchFrame,
+} from "../src/tools.js";
 
 let seq = 0;
 function job(overrides: Partial<RelayJob> = {}): RelayJob {
@@ -72,6 +78,31 @@ describe("renderTools", () => {
       now: NOW,
     });
     expect(out).toContain("scope: status=completed");
+  });
+});
+
+describe("renderToolsWatchFrame", () => {
+  it("prepends a live title with the store path, timestamp, and interval", () => {
+    const summary = summarizeTools([job({ tool: "codex-cli" })]);
+    const out = renderToolsWatchFrame(summary, "/tmp/jobs.json", 5000, NOW);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("agentrelay tools");
+    expect(lines[0]).toContain("every 5s");
+    expect(lines[0]).toContain("Ctrl-C to exit");
+    expect(lines[1]).toContain("2026-07-12 12:00:00Z");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+    expect(lines[2]).toBe("");
+    expect(out).toContain("TOOL");
+  });
+
+  it("embeds the colored tool index and carries the scope note", () => {
+    const summary = summarizeTools([job({ tool: "codex-cli" })]);
+    const out = renderToolsWatchFrame(summary, "/tmp/jobs.json", 2000, NOW, "project=web");
+    expect(out).toContain("codex-cli");
+    expect(out).toContain("scope: project=web");
+    // Watch frames are always colored (live TTY view).
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting escapes are present.
+    expect(out).toMatch(/\x1b\[/);
   });
 });
 
