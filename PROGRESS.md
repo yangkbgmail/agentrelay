@@ -1662,3 +1662,32 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `agentrelay overdue --watch` + `tools --watch` 라이브 갱신] (2026-08-04, 무인 자율 세션, branch `claude/wizardly-pascal-56gm5b`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. 세션 52가 "다음 할 일"로 명시한 인접 항목 —
+  `status`(세션 12)·`upcoming`(세션 52)에는 있지만 형제 조회 명령엔 없던 `--watch` 라이브 갱신 —
+  중 `overdue`(지연 재개 진단)와 `tools`(툴별 인덱스)에 라이브 뷰를 추가했다. `overdue`는 스토어가
+  스틱한 채로 남았을 때 "overdue by" 스팬이 자라나는 걸, `tools`는 NEXT RESET 카운트다운이 째깍째깍
+  줄어드는 걸 실시간으로 보여준다.
+- **한 일 (branch `claude/wizardly-pascal-56gm5b`):** 두 커맨드에 `--watch [seconds]` 추가 — 세션 52가
+  추출한 공용 `startWatchLoop` 인프라 재사용.
+  - CLI `overdue.ts`에 순수 `renderOverdueWatchFrame(report, storePath, intervalMs, now, scopeNote?)`,
+    `tools.ts`에 순수 `renderToolsWatchFrame(summary, storePath, intervalMs, now, scopeNote?)` 신설:
+    `upcoming --watch`의 `renderUpcomingWatchFrame`와 동일한 title/meta 블록(라이브 배너·타임스탬프·
+    스토어 경로) + 항상 컬러인 본문. 순수 함수라 TTY/시계 없이 테스트 가능.
+  - CLI `cli.ts`에 `runOverdueWatch`(매 프레임 스토어 재읽기·스코프 재적용·`buildOverdueReport`를 fresh
+    `now`·`graceMs`·`limit`로 재계산)·`runToolsWatch`(매 프레임 `summarizeTools` 재계산) 신설, 둘 다
+    공용 `startWatchLoop` 사용. `overdue`/`tools` 커맨드에 `-w, --watch [seconds]` 옵션 배선: limit/
+    grace/scope 검증을 **먼저** 통과시켜 잘못된 값은 watch 루프를 돌리기 전에 exit 1, `--json`이
+    `--watch`보다 우선(라이브 TTY 뷰가 아닌 일회성 기계 덤프). 인터벌 기본 2s, `--watch 5`처럼 초 지정
+    가능. completion은 라이브 프로그램에서 파생되므로 `--watch`/`-w` 자동 포함. 새 파서/스케줄러/core
+    로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli overdue 9→12, tools 8→11: 각 watch-frame 3케이스 신규). 빌드된 실제 CLI e2e
+  (mock 아님): 2-잡 임시 스토어(overdue 1[web]/waiting 1[api])로 `overdue --watch 1`·`tools --watch 1`
+  (화면 clear `\x1b[2J\x1b[H`·라이브 배너·overdue 1h 30m 스팬·NEXT RESET 카운트다운·컬러, timeout 종료),
+  `--watch --json`(JSON 우선·즉시 종료), `tools --watch --tool nope`·`overdue --watch --grace nonsense`
+  (watch 루프 전 exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 마지막 남은
+  `projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
