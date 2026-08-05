@@ -58,6 +58,7 @@ import {
   pruneJobs,
   readHealthReport,
   readLocationReport,
+  readOverview,
   restoreStore,
   retryJob,
   runCommand,
@@ -78,6 +79,7 @@ import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "./overdue.js";
+import { renderOverview, renderOverviewJson } from "./overview.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
@@ -457,6 +459,68 @@ export function buildCli(): Command {
           console.log(`[agentrelay] ${job.id} (${job.project}) -> ${job.status}`);
         }
       }
+    });
+
+  program
+    .command("overview")
+    .description("One-screen control panel: queue counts, resume-loop health, next resume, overdue, top projects")
+    .option("--json", "Print the overview as JSON (machine-readable, for scripts/jq)")
+    .option("--strict", "Treat an idle resume loop (down with nothing waiting) as unhealthy in the health verdict")
+    .option(
+      "--grace <duration>",
+      "Ignore jobs due within the last <duration> when counting overdue (default 60s)",
+      "60s"
+    )
+    .option("--top <n>", "How many pending-work projects to list (default 3)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # the whole relay at a glance\n" +
+        "  agentrelay overview\n" +
+        "  # feed the snapshot to jq\n" +
+        "  agentrelay overview --json | jq '.overview.overdue.count'\n" +
+        "\n`overview` composes `status` + `health` + `next` + `overdue` + `projects`\n" +
+        "into one screen; reach for those commands for the full detail of each."
+    )
+    .action((opts: { json?: boolean; strict?: boolean; grace?: string; top?: string }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let graceMs = 0;
+      if (opts.grace !== undefined) {
+        const ms = parseDuration(opts.grace);
+        if (ms === null || ms < 0) {
+          console.error(`Invalid --grace value "${opts.grace}". Use a duration like 60s, 5m, or 1h.`);
+          process.exitCode = 1;
+          return;
+        }
+        graceMs = ms;
+      }
+
+      let topProjects: number | undefined;
+      if (opts.top !== undefined) {
+        const n = Number.parseInt(opts.top, 10);
+        if (!Number.isInteger(n) || n < 0) {
+          console.error(`Invalid --top value "${opts.top}". Use a non-negative integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        topProjects = n;
+      }
+
+      const overview = readOverview({ storePath: store, nowMs: now, strict: opts.strict, graceMs, topProjects });
+
+      if (opts.json) {
+        console.log(
+          renderOverviewJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            overview,
+          })
+        );
+        return;
+      }
+      console.log(renderOverview(overview, { color: Boolean(process.stdout.isTTY), now }));
     });
 
   program

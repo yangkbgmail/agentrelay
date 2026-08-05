@@ -671,6 +671,24 @@
       clear·라이브 배너·지연 스팬·--json 우선·--limit 0/--grace nope exit 1·completion 검증.
       branch `claude/wizardly-pascal-79vs8n`)
 
+- [x] 👷 `agentrelay overview` — 릴레이 전체 상태를 한 화면에 요약하는 "컨트롤 패널" 커맨드
+      (큐 카운트·재개 루프 건강·다음 재개·지연(overdue)·대기 작업이 몰린 프로젝트).
+      (완료 — `status`(테이블)·`stats`(집계)·`health`(프로브)·`next`/`overdue`(단일 질문)가 각각
+      한 측면만 보여주는데, "지금 내 릴레이 상태가 어떤가?"에 한 번에 답하는 종합 뷰가 없었다.
+      `@agentrelay/core/overview.ts` 신설(순수·시계/파일시스템 미접촉): `buildOverview(jobs, options)`가
+      기존 순수 빌더를 **조합만** 함 — `summarizeJobs`(total·byStatus)·`ACTIVE/TERMINAL_STATUSES`
+      (active/terminal 카운트)·`evaluateHealth`(재개 루프 verdict, 입력으로 받은 `HeartbeatStatus`에서)·
+      `selectNextResume`(다음 재개)·`buildOverdueReport`(지연 count·worst span)·`summarizeProjects`
+      (대기 작업 있는 top N 프로젝트). 어떤 계산도 재유도하지 않아 전용 커맨드와 절대 드리프트 안 함.
+      `OverviewOptions`: now·heartbeat·graceMs·strict·topProjects(기본 3, ≤0=빈 목록). CLI
+      `commands.ts` `readOverview`(fs+clock 반: 잡 로드·활성 수 집계·하트비트 읽어 `evaluateHeartbeat`→
+      `buildOverview`, 절대 throw 안 함 — 부재 하트비트=absent). `packages/cli/src/overview.ts` 순수
+      `renderOverview`(헤더+`renderHealth`/`renderNext` 재사용 라인+상태 카운트 줄+지연 시 빨간 경고
+      줄+대기 프로젝트 표, color 게이트)·`renderOverviewJson`(next/health와 동일 envelope). `agentrelay
+      overview [--json][--strict][--grace][--top]` 배선, 잘못된 grace/top은 exit 1. core overview 9 +
+      cli overview 12 신규 테스트, 실제 빌드 CLI e2e로 빈 스토어·재개 루프 unhealthy·다음 재개·overdue
+      grace·top 프로젝트·--json·잘못된 --top exit 1 검증. branch `claude/wizardly-pascal-con1vh`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
