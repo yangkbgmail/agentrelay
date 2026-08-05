@@ -1,6 +1,6 @@
 import { buildOverdueReport, type OverdueReport, type RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_OVERDUE_MESSAGE, renderOverdue, renderOverdueJson } from "../src/overdue.js";
+import { NO_OVERDUE_MESSAGE, renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "../src/overdue.js";
 
 const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
@@ -107,5 +107,30 @@ describe("renderOverdueJson", () => {
       })
     );
     expect(parsed.scope).toEqual({ projects: ["demo"] });
+  });
+});
+
+describe("renderOverdueWatchFrame", () => {
+  it("renders a live title/meta header above the report body", () => {
+    const frame = renderOverdueWatchFrame(report([job()]), "/tmp/jobs.json", 2000, NOW);
+    const lines = frame.split("\n");
+    expect(lines[0]).toContain("agentrelay overdue");
+    expect(lines[0]).toContain("live, every 2s");
+    expect(lines[0]).toContain("Ctrl-C to exit");
+    // The meta line carries the frame timestamp and the store path.
+    expect(lines[1]).toContain("2026-07-30 10:00:00Z");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+    // The body is the colored report — the overdue span shows through.
+    expect(frame).toContain("OVERDUE BY");
+  });
+
+  it("rounds the interval to whole seconds in the banner", () => {
+    const frame = renderOverdueWatchFrame(report([]), "/tmp/jobs.json", 5000, NOW);
+    expect(frame).toContain("live, every 5s");
+  });
+
+  it("passes the scope note through to the report body", () => {
+    const frame = renderOverdueWatchFrame(report([]), "/tmp/jobs.json", 2000, NOW, "project=demo");
+    expect(frame).toContain("scope: project=demo");
   });
 });
