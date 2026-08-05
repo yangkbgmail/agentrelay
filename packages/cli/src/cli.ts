@@ -58,6 +58,7 @@ import {
   pruneJobs,
   readHealthReport,
   readLocationReport,
+  rescheduleJob,
   restoreStore,
   retryJob,
   runCommand,
@@ -1499,6 +1500,37 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("reschedule")
+    .description(
+      "Move a pending job's resume time to a specific moment — the middle ground between retry (resume now) and cancel (never)"
+    )
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .argument("<when>", "New reset time: a duration from now (30m, +2h, 1d) or an ISO timestamp (2026-08-05T15:00:00Z)")
+    .option("--json", "Print the updated job as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # the parser read the wrong reset time — push it out 90 minutes\n" +
+        "  agentrelay reschedule 1a2b3c4d 90m\n" +
+        "  # park a job until a specific instant\n" +
+        "  agentrelay reschedule 1a2b3c4d 2026-08-05T15:00:00Z"
+    )
+    .action((id: string, when: string, opts: { json?: boolean }) => {
+      const { store } = program.opts();
+      const result = rescheduleJob(id, when, store);
+      if (!result.ok) {
+        console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 1;
+        return;
+      }
+      if (opts.json && result.job) {
+        console.log(renderJobDetailJson(result.job, store));
+        return;
+      }
+      console.log(`[agentrelay] ${result.message}`);
     });
 
   program

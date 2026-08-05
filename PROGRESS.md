@@ -1662,3 +1662,31 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `agentrelay reschedule` 잡 재개 시각 수동 이동] (2026-08-05, 무인 자율 세션)
+- **배경:** 세션 시작 시 지정 브랜치(`claude/wizardly-pascal-kuxei5`)가 원격에서 삭제됨(직전 PR #400
+  병합 완료) → 지침대로 최신 `origin/main`에서 동명 브랜치를 새로 파생. BACKLOG의 명시적 👷 항목은
+  모두 완료 상태, 열린 PR 30개(#418~#447)는 대부분 `overdue/tools/projects --watch` 중복과 파서 확장·
+  `heatmap`·`windows`·`resume`·`stale`·`export yaml`를 점유 중. 중복을 피해 CLAUDE.md 지침대로
+  **새 개선 항목을 발굴**했다 — `retry`(지금 재개)와 `cancel`(영영 안 함) 사이의 "특정 시각에 재개"
+  제어가 제품 핵심 가치(rate-limit 릴레이)에서 빠져 있었고, 어떤 열린 PR과도 겹치지 않는다.
+- **한 일 (branch `claude/wizardly-pascal-kuxei5`):** `agentrelay reschedule <id> <when>`.
+  - `@agentrelay/core/reschedule.ts` 신설(순수·시계/스토어 미접촉): `canReschedule`(queued/
+    waiting_for_reset만 허용, resuming·completed·failed 거부, cancelled는 retry로 유도) +
+    `RESCHEDULABLE_STATUSES` + `resolveRescheduleTime(input, now)`(`+`접두 선택 duration 또는 절대 ISO를
+    ISO로 정규화, 과거 시각은 due-now 허용, 파싱 불가/빈 입력은 error). `parseDuration` 재사용 →
+    duration 문법이 `--older-than`/`--since`와 일치.
+  - `RelayQueue.reschedule(id, resetAt)`: `requeueNow`와 달리 attempts·lastError를 **보존**하고
+    status/resetAt만 갱신(재개 시점만 재조정, 새 런 아님). waiting_for_reset로 파킹해 다음 tick이 픽업.
+  - CLI `commands.ts` `rescheduleJob(idOrPrefix, when, storePath?, now?)`(resolveJobId 재사용, now 주입
+    가능해 테스트 결정적) + `cli.ts` `reschedule <id> <when> [--json]` 배선(`--json`은 `show`와 동일
+    job 엔벌롭 `renderJobDetailJson` 재사용, 가드/파싱 실패는 exit 1, 사용 예시 help). completion은
+    라이브 commander 파생이라 `reschedule` 자동 포함. 새 파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·
+  `pnpm test` 전 패키지 통과(core **566** + cli **287**/1skip + dashboard 7; 신규: core reschedule 12 +
+  queue reschedule 1 + cli commands rescheduleJob 5). 실제 빌드 CLI e2e(mock 아님): rate-limit 명령으로
+  waiting 잡 시드 → `reschedule <id> 30m`(30분 뒤로 이동) → `reschedule <id> 2026-12-31T23:59:00Z --json`
+  (절대 ISO로 resetAt 갱신·attempts/lastRateLimit provenance 보존 확인) → bad-time("whenever")·unknown-id는
+  각각 exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 👷 후보: `reschedule --all`
+  스코프 대량 이동, 대시보드에서 재개 시각 인라인 편집. README/ARCHITECTURE(🧭 코워크).
