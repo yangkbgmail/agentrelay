@@ -1662,3 +1662,26 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `overdue`/`tools`/`projects` `--watch` 라이브 뷰 확장] (2026-08-05, 무인 자율 세션, branch `claude/wizardly-pascal-qarp9b`)
+- **배경:** 세션 52가 `upcoming --watch`를 구현하며 "다음 할 일"로 명시한 인접 항목 — 같은 라이브
+  `--watch` 뷰를 `overdue`(지연 진단)·`tools`(툴 인덱스)·`projects`(프로젝트 인덱스)에도 확장 — 을
+  세션 52가 추출해 둔 공용 `startWatchLoop`를 재사용해 마무리했다. `status`·`upcoming`에만 있던 라이브
+  갱신(카운트다운이 째깍째깍 줄고, `overdue`는 "overdue by"가 늘어나는)을 세 자매 명령에도 제공한다.
+- **한 일 (branch `claude/wizardly-pascal-qarp9b`):** `agentrelay overdue|tools|projects --watch [seconds]`.
+  - CLI 각 렌더 파일(`overdue.ts`/`tools.ts`/`projects.ts`)에 순수 `render*WatchFrame(…, storePath,
+    intervalMs, now, scopeNote?)` 신설: `renderUpcomingWatchFrame`와 동일한 title/meta 블록(라이브 배너·
+    타임스탬프·스토어 경로) + 항상 컬러인 본문. 순수 함수라 TTY/시계 없이 테스트 가능.
+  - `cli.ts`에 `runOverdueWatch`/`runToolsWatch`/`runProjectsWatch` 신설(세션 52 공용 `startWatchLoop`
+    재사용): 매 프레임 `listStatus`로 스토어 재읽기·스코프 재적용·리포트/서머리 재구성·화면 clear
+    (`\x1b[2J\x1b[H`). overdue는 `graceMs`/`limit`도 매 프레임 재적용. 윈도우 경계는 시작 시 고정 epoch-ms.
+  - 세 커맨드에 `-w, --watch [seconds]` 배선: 인터벌 기본 2s, 검증(limit/grace/scope)을 **먼저** 통과시켜
+    잘못된 값은 watch 루프 전 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프). completion 자동 포함.
+    새 파서/스케줄러/core 로직 0줄 — 전부 기존 검증된 render 함수·`startWatchLoop` 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli 291/1skip; overdue 9→12·tools 8→11·projects 8→11, watch-frame 각 3케이스 신규).
+  빌드된 실제 CLI e2e(mock 아님): 임시 2-job 스토어로 `overdue|tools|projects --watch 1`(화면 clear·라이브
+  배너·카운트다운/overdue-by·컬러, timeout 종료), `--watch --json`(JSON 우선 즉시 종료), `--watch --limit 0`·
+  `--watch --tool nope`(watch 루프 전 exit 1), `--help`·completion에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목: `next --watch`(단일 잡
+  라이브 카운트다운) 검토, 또는 🧭 코워크 소유 문서(README/ARCHITECTURE) 착수 신호 대기.
