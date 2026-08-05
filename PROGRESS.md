@@ -1691,3 +1691,35 @@
   노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `tools --watch`·
   `projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 54 — `agentrelay tools --watch` · `projects --watch` 라이브 인덱스] (2026-08-05, 무인 자율 세션, branch `claude/wizardly-pascal-ujcdxb`)
+- **배경:** 세션 53이 "다음 할 일"로 명시한 후속 — 같은 watch 패턴을 `tools`·`projects`
+  인덱스 커맨드로 확장 — 을 구현했다. `tools`/`projects`는 툴·프로젝트별 잡 카운트와 다음
+  리셋 시각을 요약하지만, 리셋 카운트다운이 째깍째깍 줄어드는 걸 지켜보려면 반복 실행해야
+  했다. 세션 12·52·53의 공용 `startWatchLoop`/watch-frame 인프라를 그대로 재사용해 두
+  커맨드에 라이브 뷰를 붙였다. 이로써 status·upcoming·overdue·tools·projects 다섯 커맨드가
+  일관된 `--watch` UX를 갖춘다.
+- **한 일 (branch `claude/wizardly-pascal-ujcdxb`):** `agentrelay tools --watch [seconds]` +
+  `agentrelay projects --watch [seconds]`.
+  - CLI `tools.ts`에 순수 `renderToolsWatchFrame(summary, storePath, intervalMs, now, scopeNote?)`,
+    `projects.ts`에 순수 `renderProjectsWatchFrame(...)` 신설: `overdue`/`upcoming`/`status`의
+    watch-frame와 동일한 title/meta 블록(라이브 배너·타임스탬프·스토어 경로) + 항상 컬러인
+    `renderTools`/`renderProjects` 본문(`now` 주입해 카운트다운 라이브). 순수 함수라 TTY/시계
+    없이 테스트 가능.
+  - CLI `cli.ts`: 공용 `startWatchLoop`을 재사용하는 `runToolsWatch`/`runProjectsWatch`
+    (매 프레임 스토어 재읽기·스코프 재적용·`summarizeTools`/`summarizeProjects`를 fresh `now`로
+    재구성 → 리셋 카운트다운 live·화면 clear 후 프레임 출력). 시간 창 경계는 시작 시 고정 epoch-ms.
+  - 두 커맨드에 `-w, --watch [seconds]` 옵션 배선: 스코프 검증을 **먼저** 통과시켜 잘못된 값은
+    watch 루프 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프). 인터벌 기본 2s.
+    completion은 라이브 프로그램에서 파생되므로 `--watch`/`-w` 자동 포함. 새 파서/스케줄러/core
+    로직 0줄 — 전부 기존 검증된 인프라 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·
+  `pnpm test` **전 패키지 통과**(dashboard 7 + cli 291/1skip; cli tools 8→11, projects 8→11,
+  watch-frame 각 3케이스 신규). 빌드된 실제 CLI e2e(mock 아님): 임시 스토어(2잡)로
+  `tools --watch 1`(화면 clear·라이브 배너·claude-code 행·2프레임·timeout exit 124),
+  `projects --watch 1 --tool codex-cli`(스코프 노트·api 프로젝트), `--watch --json`(JSON 우선
+  일회성 덤프), `--watch --tool bogus`(watch 루프 전 exit 1), `--help`·completion에 `--watch`
+  노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 남은 👷 항목 소진 —
+  `errors`/`health` 등 나머지 진단 커맨드에도 동일 `--watch` 확장 검토, 혹은 BACKLOG에서 새
+  개선 항목 발굴. README/ARCHITECTURE(🧭 코워크).
