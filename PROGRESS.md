@@ -1691,3 +1691,25 @@
   노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `tools --watch`·
   `projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 54 — `agentrelay tools --watch` / `projects --watch` 라이브 인덱스] (2026-08-05, 무인 자율 세션, branch `claude/wizardly-pascal-2j43vo`)
+- 한 일: 세션 53의 "다음 할 일"대로, `upcoming --watch`(세션 52)·`overdue --watch`(세션 53)와 동일
+  패턴으로 나머지 두 인덱스 뷰(`tools`·`projects`)에 라이브 `--watch`를 확장. 리셋 카운트다운이
+  째깍째깍 줄어드는 뷰. 새 파서/스케줄러/core 로직 0줄 — 공용 `startWatchLoop`/watch-frame 인프라 재사용.
+  - CLI `tools.ts`에 순수 `renderToolsWatchFrame(summary, storePath, intervalMs, now, scopeNote?)`,
+    `projects.ts`에 `renderProjectsWatchFrame(...)` 신설: `status`/`upcoming`/`overdue`의 watch-frame와
+    동일한 title/meta 블록(라이브 배너·타임스탬프·스토어 경로) + 항상 컬러인 `renderTools`/`renderProjects`
+    본문(`now`를 넘겨 카운트다운 라이브). 순수 함수라 TTY/시계 없이 테스트 가능.
+  - CLI `cli.ts`: 공용 `startWatchLoop`을 재사용하는 `runToolsWatch`/`runProjectsWatch`(매 프레임 스토어
+    재읽기·스코프 재적용·`summarizeTools`/`summarizeProjects`를 fresh `now`로 재구성 → 리셋 카운트다운이
+    live·화면 clear 후 프레임 출력). 시간 창 경계는 시작 시 고정 epoch-ms.
+  - `tools`·`projects` 커맨드에 `-w, --watch [seconds]` 옵션 배선: 스코프 검증을 **먼저** 통과시켜 잘못된
+    값은 watch 루프 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프). 인터벌 기본 2s.
+    completion은 라이브 프로그램에서 파생되므로 `--watch`/`-w` 자동 포함.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 553 + cli 291/1skip + dashboard 7; cli tools 8→11·projects 8→11, watch-frame
+  각 3케이스 신규). 빌드된 실제 CLI e2e(mock 아님): 임시 스토어(waiting 잡)로 `tools --watch 1`(화면 clear
+  `\x1b[2J\x1b[H` 3회·라이브 배너·타임스탬프·컬러 테이블, timeout exit 124), `projects --watch --json`
+  (JSON 우선), `tools --watch --tool bogus`(watch 루프 전 exit 1), `--help`·completion에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: `stats --watch`(라이브 통계 요약)
+  또는 `next --watch`(단일 카운트다운) — 공용 `startWatchLoop` 재사용. README/ARCHITECTURE(🧭 코워크).
