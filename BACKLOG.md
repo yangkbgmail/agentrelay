@@ -659,6 +659,22 @@
       스케줄러/core 로직 0줄. cli upcoming watch-frame 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브
       배너·카운트다운·--json 우선·--limit 0 exit 1·completion 검증. branch `claude/wizardly-pascal-1z6gb2`)
 
+- [x] 👷 `agentrelay windows` — rate-limit 대기 창(wait window) 분석. rate limit이 릴레이를 얼마나 오래
+      멈춰 세웠는지(`resetAt − detectedAt`)를 큐 전체에 걸쳐 집계해, 이 도구의 핵심 가치("얼마나 대신
+      기다려줬나")를 정량화. `stats`(전체 라이프사이클)·`patterns`(패턴 빈도)·`errors`(실패 이유)가
+      다루지 않던 타이밍 축.
+      (완료 — `@agentrelay/core/windows.ts` 신설(순수·파일시스템/시계 미접촉): `jobWaitWindow`(한 job의
+      `lastRateLimit`에서 `resetAt − detectedAt` 추출, 파싱 불가·음수 span은 클램프 대신 스킵=stats 정책,
+      빈 패턴명은 `(unknown)` 버킷, 0 길이 창 유지) + `summarizeRateLimitWindows(jobs,{limit})` →
+      total/withWindow/withoutWindow·totalWaitMs·avg/min/max·median(p50)·p90(로컬 type-7 percentile)·
+      byPattern(총 대기 desc 랭킹)·longest(top-N, jobId asc 타이브레이크). limit 기본 5·0이면 전부, 집계값은
+      limit 무관 전체 반영, 입력 불변. CLI `packages/cli/src/windows.ts` 순수 `renderWindows`(헤드라인 총
+      대기 + 분포 + per-pattern 막대 + longest, `formatDurationMs` 재사용)·`renderWindowsJson`(stats/patterns
+      envelope). `agentrelay windows [--json][-n/--limit][--status][--tool][--project][--since][--until]` —
+      공용 `buildScope` 재사용, `--limit` 비정수/음수 exit 1, completion 자동 포함. core windows 15 + cli
+      windows 6 신규 테스트, 실제 빌드 CLI e2e로 총 대기·분포·per-pattern·longest·스코프·--json·--limit
+      에러 검증. branch `claude/wizardly-pascal-gpeeoq`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

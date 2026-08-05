@@ -38,6 +38,7 @@ import {
   sendTestNotification,
   summarizeProjects,
   summarizeRateLimitPatterns,
+  summarizeRateLimitWindows,
   summarizeTools,
 } from "@agentrelay/core";
 import { Command } from "commander";
@@ -97,6 +98,7 @@ import {
 import { renderTools, renderToolsJson } from "./tools.js";
 import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
+import { renderWindows, renderWindowsJson } from "./windows.js";
 
 /**
  * Split a comma-separated CLI option (e.g. `--status completed,failed`) into
@@ -1065,6 +1067,66 @@ export function buildCli(): Command {
       }
       console.log(
         renderPatterns(summary, {
+          color: Boolean(process.stdout.isTTY),
+          scopeNote: built.active ? built.note : undefined,
+        })
+      );
+    });
+
+  program
+    .command("windows")
+    .description("Report how long rate limits paused the relay (resetAt − detectedAt) across the queue")
+    .option("--json", "Print the summary as JSON (machine-readable, for scripts/CI)")
+    .option("-n, --limit <count>", "Show at most this many of the longest windows (0 = all; default 5)")
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # how much wall-clock did rate limits cost, and how much did the relay recover unattended?\n" +
+        "  agentrelay windows\n" +
+        "  # just this week, top 10 longest pauses\n" +
+        "  agentrelay windows --since 7d --limit 10\n" +
+        "  # feed the total wait time to jq\n" +
+        "  agentrelay windows --json | jq '.summary.totalWaitMs'"
+    )
+    .action((opts: ScopeOpts & { json?: boolean; limit?: string }) => {
+      const { store } = program.opts();
+      const built = buildScope(opts, Date.now());
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const parsed = Number(opts.limit);
+        if (!Number.isInteger(parsed) || parsed < 0) {
+          console.error(`Invalid --limit: ${opts.limit}. Must be a non-negative integer (0 = all).`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = parsed;
+      }
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const summary = summarizeRateLimitWindows(jobs, limit !== undefined ? { limit } : {});
+      if (opts.json) {
+        console.log(
+          renderWindowsJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            summary,
+          })
+        );
+        return;
+      }
+      console.log(
+        renderWindows(summary, {
           color: Boolean(process.stdout.isTTY),
           scopeNote: built.active ? built.note : undefined,
         })
