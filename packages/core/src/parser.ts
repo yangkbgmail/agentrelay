@@ -43,6 +43,42 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Absolute date + clock time, e.g. "reset at 2026-08-05 5:00pm" or
+    // "resets at 2026-08-05 17:00 (UTC)" — the wording Claude Code's weekly /
+    // longer-window limit message actually prints. The full-ISO pattern above
+    // needs a `T` separator *and* seconds, so a space-separated date-time (or a
+    // `T`-separated one without seconds) slips past it. This pattern fills that
+    // gap: it only fires when a `YYYY-MM-DD` date is present, so it never steals
+    // matches from the date-less clock-time patterns below. Like those patterns,
+    // any named timezone in the message is ignored and the time is interpreted
+    // in local time (same documented limitation). Because the date is explicit,
+    // the instant is absolute — we do NOT roll a past time to tomorrow the way
+    // the bare clock patterns do; a stale reset in the past is simply "due now".
+    name: "datetime-local",
+    regex: /reset[s]?\s+(?:at|on)\s+(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm)?/i,
+    resolve: (m) => {
+      const year = parseInt(m[1], 10);
+      const month = parseInt(m[2], 10);
+      const day = parseInt(m[3], 10);
+      let hour = parseInt(m[4], 10);
+      const minute = parseInt(m[5], 10);
+      const meridiem = m[6]?.toLowerCase();
+      if (month < 1 || month > 12 || day < 1 || day > 31 || minute > 59) return null;
+      if (meridiem) {
+        if (hour < 1 || hour > 12) return null; // "13pm" is not a valid 12-hour clock time
+        if (meridiem === "pm" && hour < 12) hour += 12;
+        if (meridiem === "am" && hour === 12) hour = 0;
+      } else if (hour > 23) {
+        return null;
+      }
+      const d = new Date(year, month - 1, day, hour, minute, 0, 0);
+      // Guard against overflow rollover (e.g. 2026-02-31 -> March): reject if the
+      // constructed date's components don't round-trip the parsed values.
+      if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
+      return Number.isNaN(d.getTime()) ? null : d;
+    },
+  },
+  {
     // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
     name: "clock-time",
     regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
@@ -136,7 +172,7 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in|on)|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);
