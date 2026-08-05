@@ -1,7 +1,13 @@
 import type { RelayJob } from "@agentrelay/core";
 import { summarizeProjects } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_PROJECTS_MESSAGE, NO_SCOPE_MATCH_MESSAGE, renderProjects, renderProjectsJson } from "../src/projects.js";
+import {
+  NO_PROJECTS_MESSAGE,
+  NO_SCOPE_MATCH_MESSAGE,
+  renderProjects,
+  renderProjectsJson,
+  renderProjectsWatchFrame,
+} from "../src/projects.js";
 
 let seq = 0;
 function job(overrides: Partial<RelayJob> = {}): RelayJob {
@@ -72,6 +78,38 @@ describe("renderProjects", () => {
       now: NOW,
     });
     expect(out).toContain("scope: status=completed");
+  });
+});
+
+describe("renderProjectsWatchFrame", () => {
+  it("prepends a live title with the store path, timestamp, and interval", () => {
+    const summary = summarizeProjects([job({ project: "web", status: "queued" })]);
+    const out = renderProjectsWatchFrame(summary, "/tmp/jobs.json", 5000, NOW);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("agentrelay projects");
+    expect(lines[0]).toContain("every 5s");
+    expect(lines[0]).toContain("Ctrl-C to exit");
+    expect(lines[1]).toContain("2026-07-12 12:00:00Z");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+    expect(lines[2]).toBe("");
+    expect(out).toContain("web");
+  });
+
+  it("embeds the colored index body with a live countdown", () => {
+    const summary = summarizeProjects([
+      job({ project: "web", status: "waiting_for_reset", resetAt: "2026-07-12T18:00:00.000Z" }),
+    ]);
+    const out = renderProjectsWatchFrame(summary, "/tmp/jobs.json", 2000, NOW);
+    expect(out).toContain("(in 6h 0m)");
+    // Watch frames are always colored (live TTY view).
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting escapes are present.
+    expect(out).toMatch(/\x1b\[/);
+  });
+
+  it("carries the scope note into the frame body", () => {
+    const out = renderProjectsWatchFrame(summarizeProjects([]), "/tmp/jobs.json", 2000, NOW, "tool=codex-cli");
+    expect(out).toContain(NO_SCOPE_MATCH_MESSAGE);
+    expect(out).toContain("scope: tool=codex-cli");
   });
 });
 
