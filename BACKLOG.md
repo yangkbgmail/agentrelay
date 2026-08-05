@@ -659,6 +659,23 @@
       스케줄러/core 로직 0줄. cli upcoming watch-frame 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브
       배너·카운트다운·--json 우선·--limit 0 exit 1·completion 검증. branch `claude/wizardly-pascal-1z6gb2`)
 
+- [x] 👷 `agentrelay overdue/tools/projects --watch [seconds]` — 세 진단·인덱스 뷰를 라이브로 갱신
+      (카운트다운·지연 스팬이 째깍째깍 변하는 뷰). 세션 12(`status --watch`)·세션 49(`upcoming --watch`)의
+      공용 `startWatchLoop` 인프라를 마지막 read 뷰들로 확장.
+      (완료 — CLI `overdue.ts`/`tools.ts`/`projects.ts`에 각각 순수 `render*WatchFrame(summary|report,
+      storePath, intervalMs, now, scopeNote?)` 신설(`status`/`upcoming`의 watch-frame와 동일한 title/meta
+      블록 + 항상 컬러인 본문). `cli.ts`에 `runOverdueWatch`/`runToolsWatch`/`runProjectsWatch`(매 프레임
+      스토어 재읽기·스코프 재적용·리포트/써머리 재구성·화면 clear) 추가, 전부 공용 `startWatchLoop` 재사용.
+      각 커맨드에 `-w, --watch [seconds]` 배선: scope/limit/grace 검증을 **먼저** 통과시켜 잘못된 값은 watch
+      전에 exit 1, `--json`이 `--watch`보다 우선. 인터벌 파싱은 `upcoming`의 인라인 로직을 공용
+      `parseWatchInterval(value)`로 추출해 네 watch 커맨드가 동일 규칙 공유(리팩터링, 동작 불변).
+      부수 버그 수정: 공용 `startWatchLoop`가 stdout EPIPE(예: `... --watch | head`로 리더가 파이프를 닫을
+      때)를 처리하지 않아 다음 프레임 write가 unhandled 'error'로 크래시하던 것을 stdout `error` 핸들러로
+      정상 종료(exit 0)하게 함 — `status`/`upcoming` 포함 모든 watch 뷰에 적용. 새 파서/스케줄러/core 로직
+      0줄. cli overdue/tools/projects watch-frame 각 3케이스(총 9) 신규, 실제 빌드 CLI e2e로 화면 clear·
+      라이브 배너·카운트다운·지연 스팬·--json 우선·에러 exit 1·EPIPE 무크래시·completion 포함 검증.
+      branch `claude/wizardly-pascal-gtq2wk`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

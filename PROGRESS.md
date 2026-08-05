@@ -1662,3 +1662,33 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `agentrelay overdue/tools/projects --watch` 라이브 뷰 + EPIPE 무크래시] (2026-08-05, 무인 자율 세션, branch `claude/wizardly-pascal-gtq2wk`)
+- **맥락:** 지정 브랜치가 원격에서 삭제된(직전 PR 병합) 상태여서 최신 main(badc6ee)에서 브랜치 재시작.
+  BACKLOG의 👷 전용 항목은 전부 완료, 남은 열린 항목은 대부분 🧭(코워크). 세션 49·50·51·52가 반복해
+  "다음 할 일"로 지목한 공용 `startWatchLoop`의 마지막 read 뷰 확장(`overdue`/`tools`/`projects --watch`)을
+  구현.
+- **한 일 (branch `claude/wizardly-pascal-gtq2wk`):** 세 진단·인덱스 뷰에 라이브 `--watch` 추가.
+  - CLI `overdue.ts`/`tools.ts`/`projects.ts`에 각각 순수 `render*WatchFrame(summary|report, storePath,
+    intervalMs, now, scopeNote?)` 신설: `status`/`upcoming`의 watch-frame와 동일한 title/meta 블록(라이브
+    배너·타임스탬프·스토어 경로) + 항상 컬러인 본문. 순수 함수라 TTY/시계 없이 테스트 가능.
+  - CLI `cli.ts`에 `runOverdueWatch`(grace/limit 포함)·`runToolsWatch`·`runProjectsWatch`(매 프레임 스토어
+    재읽기·스코프 재적용·리포트/써머리 재구성·화면 clear 후 프레임 출력) 추가, 전부 공용 `startWatchLoop`
+    재사용. 각 커맨드에 `-w, --watch [seconds]` 옵션 배선: scope/limit/grace 검증을 **먼저** 통과시켜
+    잘못된 값은 watch 루프 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프). 인터벌 파싱은
+    `upcoming`의 인라인 로직을 공용 `parseWatchInterval(value)`로 추출해 네 watch 커맨드가 동일 규칙 공유.
+  - **부수 버그 수정:** 공용 `startWatchLoop`가 stdout EPIPE(예: `agentrelay tools --watch | head`로 리더가
+    파이프를 조기에 닫을 때)를 처리하지 않아 다음 프레임 write가 unhandled 'error' 이벤트로 스택 트레이스와
+    함께 크래시하던 것을, stdout `error` 핸들러(EPIPE면 타이머 정리 후 exit 0)로 정상 종료하게 함. 초기
+    `draw()`도 핸들러 등록 후로 옮겨 첫 프레임까지 보호. `status`/`upcoming` 포함 모든 watch 뷰에 적용
+    (기존에도 있던 결함).
+  - 새 파서/스케줄러/core 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 553 + cli 291/1skip + dashboard 7; cli overdue 9→12·tools 8→11·projects 8→11,
+  watch-frame 각 3케이스 신규). 빌드된 실제 CLI e2e(mock 아님): 임시 스토어(overdue 1 + waiting 1)로
+  `overdue/tools/projects --watch 1`(화면 clear `\x1b[2J\x1b[H`·라이브 배너·카운트다운/지연 스팬·컬러
+  출력, timeout 종료), `--watch --json`(JSON 우선·즉시 종료), `--watch --tool bogus`·`--watch --limit 0`
+  (watch 전 exit 1), `... --watch | head`가 **EPIPE 크래시 없이** 종료(수정 전 크래시 재현→수정 후 0건),
+  completion에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 남은 👷 개선 후보 발굴 필요(순수 read
+  뷰 watch는 이제 전부 커버). README/ARCHITECTURE/경쟁조사(🧭 코워크).

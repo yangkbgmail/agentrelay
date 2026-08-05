@@ -77,11 +77,11 @@ import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
-import { renderOverdue, renderOverdueJson } from "./overdue.js";
+import { renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "./overdue.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
-import { renderProjects, renderProjectsJson } from "./projects.js";
+import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson, renderTrend } from "./stats.js";
 import {
@@ -94,7 +94,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
-import { renderTools, renderToolsJson } from "./tools.js";
+import { renderTools, renderToolsJson, renderToolsWatchFrame } from "./tools.js";
 import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
 
@@ -351,13 +351,88 @@ function runUpcomingWatch(
 }
 
 /**
+ * Live `agentrelay overdue --watch`: clears the screen and re-renders the
+ * overdue report on an interval so the "overdue by" spans grow in place. Like
+ * the other watch loops, `listStatus` re-reads the JSON store each pass and the
+ * `--tool`/`--project`/`--since`/`--until` scope plus `--grace`/`--limit` are
+ * re-applied against a fresh `now` every frame. The window boundaries stay fixed
+ * (absolute epoch-ms from when the command started). Runs until interrupted.
+ */
+function runOverdueWatch(
+  store: string,
+  intervalMs: number,
+  window: JobScope,
+  graceMs: number,
+  limit?: number,
+  scopeNote?: string
+): void {
+  const active = isJobScopeActive(window);
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const all = listStatus(store);
+    const jobs = active ? scopeJobs(all, window) : all;
+    const report = buildOverdueReport(jobs, now, { graceMs, limit });
+    const frame = renderOverdueWatchFrame(report, store, intervalMs, now, scopeNote);
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
+ * Live `agentrelay tools --watch`: clears the screen and re-renders the per-tool
+ * index on an interval so the next-reset countdowns tick down in place. Mirrors
+ * `runProjectsWatch`; `listStatus` re-reads the store each pass and the scope is
+ * re-applied against a fresh `now` every frame. Runs until interrupted.
+ */
+function runToolsWatch(store: string, intervalMs: number, window: JobScope, scopeNote?: string): void {
+  const active = isJobScopeActive(window);
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const all = listStatus(store);
+    const jobs = active ? scopeJobs(all, window) : all;
+    const summary = summarizeTools(jobs);
+    const frame = renderToolsWatchFrame(summary, store, intervalMs, now, scopeNote);
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
+ * Live `agentrelay projects --watch`: clears the screen and re-renders the
+ * per-project index on an interval so the next-reset countdowns tick down in
+ * place. Mirrors `runToolsWatch`; `listStatus` re-reads the store each pass and
+ * the scope is re-applied against a fresh `now` every frame. Runs until
+ * interrupted.
+ */
+function runProjectsWatch(store: string, intervalMs: number, window: JobScope, scopeNote?: string): void {
+  const active = isJobScopeActive(window);
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const all = listStatus(store);
+    const jobs = active ? scopeJobs(all, window) : all;
+    const summary = summarizeProjects(jobs);
+    const frame = renderProjectsWatchFrame(summary, store, intervalMs, now, scopeNote);
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
  * Shared plumbing for the live `--watch` loops: draw one frame immediately, then
  * re-draw every `intervalMs`, cleaning up the timer and printing a trailing
  * newline on SIGINT/SIGTERM. `setInterval` keeps the process alive, so the
  * caller returns right after invoking this.
  */
+/**
+ * Turns a `--watch [seconds]` option value into a refresh interval in ms.
+ * `-w`/`--watch` with no argument (commander passes `true`) or a non-positive /
+ * unparseable seconds value falls back to the default 2s cadence; a positive
+ * number is honored (fractional seconds allowed, e.g. `--watch 0.5`). Shared by
+ * every live watch command so the cadence rules stay identical.
+ */
+function parseWatchInterval(value: string | boolean): number {
+  const parsed = typeof value === "string" ? Number.parseFloat(value) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+}
+
 function startWatchLoop(intervalMs: number, draw: () => void): void {
-  draw();
   const timer = setInterval(draw, intervalMs);
   const stop = () => {
     clearInterval(timer);
@@ -366,6 +441,18 @@ function startWatchLoop(intervalMs: number, draw: () => void): void {
   };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
+  // When the reader closes the pipe (e.g. `agentrelay tools --watch | head`),
+  // the next frame's write lands on a closed stdout and Node emits EPIPE as an
+  // unhandled 'error' event, crashing with a stack trace. A watch view piped
+  // into a truncating reader should exit quietly instead — clear the timer and
+  // leave with a clean code.
+  process.stdout.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EPIPE") {
+      clearInterval(timer);
+      process.exit(0);
+    }
+  });
+  draw();
 }
 
 export function buildCli(): Command {
@@ -648,8 +735,7 @@ export function buildCli(): Command {
       // exits 1 instead of spinning a broken watch loop. --json takes precedence
       // over --watch (a one-shot machine dump, not a live TTY view).
       if (opts.watch !== undefined && !opts.json) {
-        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
-        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        const intervalMs = parseWatchInterval(opts.watch);
         runUpcomingWatch(store, intervalMs, built.scope, limit, scopeNote);
         return; // setInterval keeps the process alive.
       }
@@ -675,6 +761,7 @@ export function buildCli(): Command {
   program
     .command("overdue")
     .description("Show waiting jobs whose reset time has already passed but that haven't resumed (a stuck resume loop)")
+    .option("-w, --watch [seconds]", "Continuously refresh the report with live overdue spans (Ctrl-C to exit)")
     .option("-n, --limit <n>", "Show at most N rows (the totals still count all overdue jobs)")
     .option(
       "--grace <duration>",
@@ -693,12 +780,14 @@ export function buildCli(): Command {
         "  agentrelay overdue\n" +
         "  # flag only jobs stuck for more than 5 minutes\n" +
         "  agentrelay overdue --grace 5m\n" +
+        "  # live view, refreshing every 2s\n" +
+        "  agentrelay overdue --watch\n" +
         "  # use as a CI/monitor gate\n" +
         "  test -z \"$(agentrelay overdue --json | jq '.report.entries[]')\"\n" +
         "\nA non-empty list usually means the resume loop is down — check\n" +
         "`agentrelay health` and `agentrelay doctor`."
     )
-    .action((opts: ScopeOpts & { limit?: string; grace?: string; json?: boolean }) => {
+    .action((opts: ScopeOpts & { limit?: string; grace?: string; json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
 
@@ -731,9 +820,19 @@ export function buildCli(): Command {
         return;
       }
 
+      const scopeNote = built.active ? built.note : undefined;
+
+      // Live view: validate flags above (limit/grace/scope) first so a bad value
+      // still exits 1 instead of spinning a broken watch loop. --json takes
+      // precedence over --watch (a one-shot machine dump, not a live TTY view).
+      if (opts.watch !== undefined && !opts.json) {
+        const intervalMs = parseWatchInterval(opts.watch);
+        runOverdueWatch(store, intervalMs, built.scope, graceMs, limit, scopeNote);
+        return; // setInterval keeps the process alive.
+      }
+
       const allJobs = listStatus(store);
       const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
-      const scopeNote = built.active ? built.note : undefined;
       const report = buildOverdueReport(jobs, now, { graceMs, limit });
 
       if (opts.json) {
@@ -1074,6 +1173,7 @@ export function buildCli(): Command {
   program
     .command("projects")
     .description("List distinct project labels with per-project job counts and the soonest reset")
+    .option("-w, --watch [seconds]", "Continuously refresh the index with live reset countdowns (Ctrl-C to exit)")
     .option("--json", "Print the summary as JSON (machine-readable, for scripts/CI)")
     .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
     .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
@@ -1085,10 +1185,12 @@ export function buildCli(): Command {
       "\nExamples:\n" +
         "  # which project labels exist, and where is work pending?\n" +
         "  agentrelay projects\n" +
+        "  # live view, refreshing every 2s\n" +
+        "  agentrelay projects --watch\n" +
         "  # feed the per-project rollup to jq\n" +
         "  agentrelay projects --json | jq '.summary.projects'"
     )
-    .action((opts: ScopeOpts & { json?: boolean }) => {
+    .action((opts: ScopeOpts & { json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
       const built = buildScope(opts, now);
@@ -1096,6 +1198,12 @@ export function buildCli(): Command {
         console.error(built.error);
         process.exitCode = 1;
         return;
+      }
+      // Live view: validate scope first so a bad value still exits 1 instead of
+      // spinning a broken watch loop. --json takes precedence over --watch.
+      if (opts.watch !== undefined && !opts.json) {
+        runProjectsWatch(store, parseWatchInterval(opts.watch), built.scope, built.active ? built.note : undefined);
+        return; // setInterval keeps the process alive.
       }
       const allJobs = listStatus(store);
       const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
@@ -1123,6 +1231,7 @@ export function buildCli(): Command {
   program
     .command("tools")
     .description("List the agent tools in play (claude-code/codex-cli/generic) with per-tool job counts and next reset")
+    .option("-w, --watch [seconds]", "Continuously refresh the index with live reset countdowns (Ctrl-C to exit)")
     .option("--json", "Print the summary as JSON (machine-readable, for scripts/CI)")
     .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
     .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
@@ -1134,10 +1243,12 @@ export function buildCli(): Command {
       "\nExamples:\n" +
         "  # which agent tools are in play, and where is work pending?\n" +
         "  agentrelay tools\n" +
+        "  # live view, refreshing every 2s\n" +
+        "  agentrelay tools --watch\n" +
         "  # feed the per-tool rollup to jq\n" +
         "  agentrelay tools --json | jq '.summary.tools'"
     )
-    .action((opts: ScopeOpts & { json?: boolean }) => {
+    .action((opts: ScopeOpts & { json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
       const built = buildScope(opts, now);
@@ -1145,6 +1256,12 @@ export function buildCli(): Command {
         console.error(built.error);
         process.exitCode = 1;
         return;
+      }
+      // Live view: validate scope first so a bad value still exits 1 instead of
+      // spinning a broken watch loop. --json takes precedence over --watch.
+      if (opts.watch !== undefined && !opts.json) {
+        runToolsWatch(store, parseWatchInterval(opts.watch), built.scope, built.active ? built.note : undefined);
+        return; // setInterval keeps the process alive.
       }
       const allJobs = listStatus(store);
       const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
