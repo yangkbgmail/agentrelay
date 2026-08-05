@@ -1691,3 +1691,29 @@
   노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `tools --watch`·
   `projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 54 — `agentrelay next --watch` 라이브 단일-라인 카운트다운] (2026-08-05, 무인 자율 세션, branch `claude/next-watch`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. 세션 52·53이 `upcoming`/`overdue`에 `--watch`를
+  붙였고 "다음 할 일"로 `tools`/`projects` --watch를 언급했지만, 정작 가장 스크립트·상태바 친화적인
+  `next`(가장 임박한 재개 하나를 한 줄로)에 라이브 모드가 없었다. CLAUDE.md의 "백로그 비면 스스로
+  개선 항목 발굴" 지침에 따라 `next --watch`를 신규 항목으로 발굴·구현.
+- **한 일:**
+  - `packages/cli/src/next.ts`에 순수 `renderNextWatchFrame(next, storePath, intervalMs, now)` 신설:
+    `status`/`upcoming`/`overdue`의 watch-frame와 동일한 title/meta 블록(`agentrelay next (live, every Ns
+    — Ctrl-C to exit)` + 타임스탬프·스토어 경로) + 항상 컬러인 `renderNext` 본문. `now`를 본문에 전달해
+    카운트다운이 매 프레임 갱신되게 함.
+  - `cli.ts`에 `runNextWatch(store, intervalMs)` — 세션 52가 추출한 공용 `startWatchLoop` 재사용, 매
+    프레임 `listStatus` 스토어 재읽기·`selectNextResume`를 fresh `now`로 재평가 → 카운트다운 째깍
+    감소·화면 clear(`\x1b[2J\x1b[H`). `next` 커맨드에 `-w, --watch [seconds]` 배선: `--json`이 `--watch`
+    보다 우선(일회성 기계 덤프), `--exit-code`는 무한 루프에서 무의미하므로 watch가 대체. 인터벌 기본
+    2s. `--watch`/`-w`는 라이브 프로그램에서 파생돼 completion 자동 포함. examples 헬프 텍스트도 추가.
+  - 새 파서/스케줄러/core 로직 0줄 — 전부 기존 검증된 `selectNextResume`(core)·`renderNext`(cli)·
+    `startWatchLoop`(cli) 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 553 + cli 285→288/1skip + dashboard 7; cli next 8→11, watch-frame 3케이스 신규).
+  빌드된 실제 CLI e2e(mock 아님): 임시 스토어(waiting 잡 1개)로 `next --watch 1`(화면 clear
+  `\x1b[2J\x1b[H`·라이브 배너·`resets in 1h 30m` 컬러 출력·SIGINT 클린 종료), `next --watch --json`
+  (JSON 우선·루프 안 함), `next --help`·completion에 `-w, --watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `tools --watch`·
+  `projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
