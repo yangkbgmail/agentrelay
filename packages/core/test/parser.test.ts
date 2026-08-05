@@ -15,6 +15,65 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("iso-timestamp");
   });
 
+  it("parses an absolute date + 12-hour clock time (Claude weekly-limit wording)", () => {
+    // Real message: "Your limit will reset at 2026-08-05 5:00pm."
+    const result = parseRateLimitMessage("Weekly usage limit reached. Your limit will reset at 2026-08-05 5:00pm.");
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("datetime-local");
+    const d = new Date(result!.resetAt);
+    expect(d.getFullYear()).toBe(2026);
+    expect(d.getMonth()).toBe(7); // August (0-indexed)
+    expect(d.getDate()).toBe(5);
+    expect(d.getHours()).toBe(17); // 5pm local
+    expect(d.getMinutes()).toBe(0);
+  });
+
+  it("parses an absolute date + 24-hour clock time with a trailing timezone label", () => {
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 2026-08-05 17:30 (UTC).");
+    expect(result?.pattern).toBe("datetime-local");
+    const d = new Date(result!.resetAt);
+    expect(d.getMonth()).toBe(7);
+    expect(d.getDate()).toBe(5);
+    expect(d.getHours()).toBe(17);
+    expect(d.getMinutes()).toBe(30);
+  });
+
+  it("parses a T-separated date-time without seconds (which iso-timestamp misses)", () => {
+    const result = parseRateLimitMessage("Try again later — resets at 2026-08-05T09:15.");
+    expect(result?.pattern).toBe("datetime-local");
+    const d = new Date(result!.resetAt);
+    expect(d.getHours()).toBe(9);
+    expect(d.getMinutes()).toBe(15);
+  });
+
+  it("accepts 'reset on <date>' phrasing", () => {
+    const result = parseRateLimitMessage("Your access will reset on 2026-08-05 08:00.");
+    expect(result?.pattern).toBe("datetime-local");
+    const d = new Date(result!.resetAt);
+    expect(d.getDate()).toBe(5);
+    expect(d.getHours()).toBe(8);
+  });
+
+  it("returns a past absolute date-time as-is (due now), without rolling to the future", () => {
+    const now = new Date("2026-08-10T00:00:00Z");
+    const result = parseRateLimitMessage("Resets at 2026-08-05 12:00.", { now });
+    expect(result?.pattern).toBe("datetime-local");
+    const d = new Date(result!.resetAt);
+    expect(d.getFullYear()).toBe(2026);
+    expect(d.getMonth()).toBe(7);
+    expect(d.getDate()).toBe(5); // NOT rolled forward
+  });
+
+  it("rejects an impossible calendar date rather than rolling it over", () => {
+    // 2026-02-31 does not exist; must not silently become March 3rd.
+    expect(parseRateLimitMessage("Resets at 2026-02-31 10:00.")).toBeNull();
+  });
+
+  it("does not let datetime-local steal date-less clock-time matches", () => {
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 3:00pm.");
+    expect(result?.pattern).toBe("clock-time");
+  });
+
   it("parses a 12-hour clock time and rolls to the next day if already past", () => {
     const now = new Date("2026-07-12T20:00:00Z"); // 20:00 UTC
     const result = parseRateLimitMessage("Usage limit reached. Resets at 3:00pm.", { now });

@@ -176,6 +176,16 @@
       tick-mode 하트비트 기록(cron 사용자도 생존 신호). `runDoctor`가 `nowMs` 주입 가능(테스트용).
       heartbeat.test.ts 13 + doctor daemon 6 + scheduler onTick 2 + CLI 7케이스, 실제 빌드 CLI로
       before/after·daemon 수명주기·stale 경고 e2e 검증. branch `claude/wizardly-pascal-hb7k2m`)
+- [x] 👷 파서: 절대 날짜+시각 결합 형식 인식 — Claude 주간/장기 한도 메시지의 실제 문구를 놓치던 gap.
+      (완료 — `packages/core/src/parser.ts`에 새 패턴 `datetime-local` 추가. `reset at 2026-08-05 5:00pm`·
+      `resets at 2026-08-05 17:30 (UTC)`·`reset on 2026-08-05 08:00` 등 **절대 날짜 + 시각** 결합 형식은
+      기존 `iso-timestamp`(T 구분자+초 필수)에도, 날짜 없는 `clock-time`류에도 안 걸려 `null`로 흘렸음.
+      `iso-timestamp` 다음·`clock-time` 앞에 배치, `YYYY-MM-DD`가 있을 때만 발화하므로 날짜 없는 매칭을
+      가로채지 않음(회귀 0). 12h(am/pm)·24h·`T`/공백 구분자·선택적 초·꼬리 TZ 라벨 허용. 날짜 명시 →
+      절대 인스턴트로 취급(과거도 미래 롤오버 없이 "due now"), `2026-02-31` 같은 불가능 날짜는 라운드트립
+      검증으로 거부. named TZ는 무시하고 로컬 타임 해석(기존 clock 패턴과 동일 한계). 사전 필터에 `on`
+      추가로 `reset on` 지원. 순수 파서 확장 — 스케줄러/큐/CLI 로직 0줄. parser.test.ts 8케이스 신규
+      (core 560 통과), 빌드된 CLI `parse`/`parse --json` e2e 검증. branch `claude/wizardly-pascal-fdu9c5`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

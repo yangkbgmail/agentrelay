@@ -1691,3 +1691,25 @@
   노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `tools --watch`·
   `projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 54 — 파서: 절대 날짜+시각 결합 형식 인식] (2026-08-05, 무인 자율 세션, branch `claude/wizardly-pascal-fdu9c5`)
+
+- **한 일:** rate-limit 파서(`packages/core/src/parser.ts`)에 새 패턴 `datetime-local` 추가.
+  Claude Code의 주간/장기 한도 메시지가 실제로 출력하는 **절대 날짜 + 시각** 결합 형식
+  (`reset at 2026-08-05 5:00pm`, `resets at 2026-08-05 17:30 (UTC)`, `reset on 2026-08-05 08:00`)이
+  기존 어떤 패턴에도 걸리지 않아 `null`로 흘려버리던 gap을 메움. 기존 `iso-timestamp`는 `T`
+  구분자 + 초를 요구하고, `clock-time`류는 날짜 없는 형식만 처리했음.
+- **어떻게:** `iso-timestamp` 다음, 날짜 없는 `clock-time`류 **앞**에 배치. `YYYY-MM-DD` 날짜가
+  있을 때만 발화하므로 날짜 없는 시각 매칭을 가로채지 않음(회귀 0). 12h(am/pm)·24h 모두 인식,
+  `T`/공백 구분자, 선택적 초·꼬리 타임존 라벨 허용. 날짜가 명시되므로 절대 인스턴트로 취급 —
+  과거 시각도 미래로 롤오버하지 않고 그대로 반환("due now"). `2026-02-31` 같은 불가능한
+  날짜는 라운드트립 검증으로 거부(3월로 조용히 넘어가지 않음). 시각은 로컬 타임 해석(named TZ
+  무시 — 기존 clock 패턴과 동일한 문서화된 한계). 사전 필터에 `reset on` 지원을 위해 `on` 추가.
+  새 스케줄러/큐/CLI 로직 0줄 — 순수 파서 확장.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 0 경고·`pnpm test` 전 패키지
+  통과(core 560 = 기존 552 + parser 8케이스 신규, cli 285/1skip). 빌드된 실제 CLI e2e:
+  `agentrelay parse "...reset at 2026-08-05 5:00pm."` → `pattern: datetime-local`·`resets 2026-08-05T17:00`,
+  `parse --json`도 동일 확인. 구현 전 실제 gap을 빌드된 파서로 재현(3형식 모두 null)해 검증.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 실제 rate-limit 메시지
+  샘플 추가 수집(🧭 코워크)으로 파서 커버리지 지속 보강, named-timezone 인식(원격 `tz-parse`
+  브랜치 계열)과의 통합 검토.
