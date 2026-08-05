@@ -1662,3 +1662,33 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — 파서: 요일(day-of-week) 리셋 인식 `weekday-clock`] (2026-08-05, 무인 자율 세션, branch `claude/wizardly-pascal-ukvnz2`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. origin의 미병합 브랜치(`overdue-watch`·`stats-watch`·
+  `reschedule`·`tz-aware-clock-reset`)와 겹치지 않으면서 **제품 핵심(rate-limit 감지)**에 직결되는 실사용
+  갭을 발굴했다: Claude Code의 **주간(weekly)** 사용량 한도는 5시간 창과 달리 요일로 리셋되어
+  "Resets Monday at 9am" / "Your limit will reset on Thursday" / "Try again Friday at 4:30pm" 같은 문구를
+  출력하는데, 기존 파서(`reset at`/`reset in`/`retry_after`/`Retry-After`)는 이를 전혀 못 잡아 주간 한도에
+  걸린 잡이 큐잉조차 되지 않았다.
+- **한 일 (branch `claude/wizardly-pascal-ukvnz2`):** `packages/core/src/parser.ts`에 순수 `weekday-clock`
+  패턴 신설.
+  - 정규식 `(?:reset[s]?|try again|retry)\s+(?:on\s+)?(<weekday>[a-z]*)(?:\s+at\s+H(:MM)?\s*(am|pm)?)?` —
+    요일 토큰을 통째로 캡처하고 시각은 선택(없으면 그 날 자정 로컬 = 보수적으로 가장 이른 순간).
+  - `WEEKDAY_INDEX` 맵(full name + 약어 sun..sat/tues/weds/thur(s))으로 토큰을 **검증**해, rate-limit
+    동사 뒤에 단지 요일 접두사로 시작하는 무관한 단어("resets satisfies"의 "sat")가 오면 `null` 반환 →
+    오검출 방지. `resolve`는 다음 해당 요일을 계산하고, 산출 순간이 이미 지났으면 7일 롤포워드(리셋은
+    언제나 미래).
+  - 배치는 `relative-duration` 뒤 `unix-epoch` 앞 — "resets in 2 days"는 relative-duration이 먼저,
+    "resets Monday"는 weekday-clock이 잡음(서로소). "resets at 3:00pm"은 여전히 clock-time 우선.
+  - 사전필터 `LOOKS_LIKE_RATE_LIMIT`에 `weekly limit`·`resets? (on|sun|mon|...)` 대안 추가 → 요일 문구가
+    필터를 통과하도록. meridiem 있을 때 `hour>12`(13pm) 무효, 없을 때 24h `hour>23` 무효 가드.
+  - CLI 코드 0줄 — 기존 `agentrelay parse` 커맨드가 모든 패턴을 자동 노출(http-retry-after·days 항목과 동일).
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 560 + cli 282/1skip + dashboard 7; parser.test 32→40, weekday 8케이스 신규:
+  요일+시각/시각없음 자정/7일 롤포워드/분+meridiem/약어/비요일 단어 거부/clock-time 우선 유지/노이즈). 빌드된
+  실제 CLI e2e(mock 아님): `parse "Weekly limit reached. Resets Monday at 9am."` → `weekday-clock` 매치,
+  `parse "usage limit resets satisfies the quota"` → No rate-limit detected(가드 확인).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 파서 요일에 상대 요일("next Monday")·
+  타임존 반영(미병합 tz-aware 브랜치와 조율), `overdue --watch`/`tools --watch` 확장(미병합 브랜치 통합).
+  README/ARCHITECTURE(🧭 코워크).
