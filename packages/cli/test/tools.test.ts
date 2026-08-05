@@ -1,7 +1,13 @@
 import type { RelayJob } from "@agentrelay/core";
 import { summarizeTools } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_SCOPE_MATCH_MESSAGE, NO_TOOLS_MESSAGE, renderTools, renderToolsJson } from "../src/tools.js";
+import {
+  NO_SCOPE_MATCH_MESSAGE,
+  NO_TOOLS_MESSAGE,
+  renderTools,
+  renderToolsJson,
+  renderToolsWatchFrame,
+} from "../src/tools.js";
 
 let seq = 0;
 function job(overrides: Partial<RelayJob> = {}): RelayJob {
@@ -72,6 +78,38 @@ describe("renderTools", () => {
       now: NOW,
     });
     expect(out).toContain("scope: status=completed");
+  });
+});
+
+describe("renderToolsWatchFrame", () => {
+  it("prepends a live title with the store path, timestamp, and interval", () => {
+    const summary = summarizeTools([job({ status: "completed" })]);
+    const out = renderToolsWatchFrame(summary, "/tmp/jobs.json", 5000, NOW);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("agentrelay tools");
+    expect(lines[0]).toContain("every 5s");
+    expect(lines[0]).toContain("Ctrl-C to exit");
+    // Metadata line: ISO timestamp (space-separated, trimmed to seconds) + store path.
+    expect(lines[1]).toContain("2026-07-12 12:00:00Z");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+    // Then a blank line, then the tool table.
+    expect(lines[2]).toBe("");
+    expect(out).toContain("TOOL");
+  });
+
+  it("embeds the colored table body with a live reset countdown", () => {
+    const summary = summarizeTools([job({ status: "waiting_for_reset", resetAt: "2026-07-12T13:30:00.000Z" })]);
+    const out = renderToolsWatchFrame(summary, "/tmp/jobs.json", 2000, NOW);
+    expect(out).toContain("1h 30m");
+    // Watch frames are always colored (live TTY view).
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting escapes are present.
+    expect(out).toMatch(/\x1b\[/);
+  });
+
+  it("carries the scope note into the frame body", () => {
+    const out = renderToolsWatchFrame(summarizeTools([]), "/tmp/jobs.json", 2000, NOW, "project=ghost");
+    expect(out).toContain("scope: project=ghost");
+    expect(out).toContain(NO_SCOPE_MATCH_MESSAGE);
   });
 });
 
