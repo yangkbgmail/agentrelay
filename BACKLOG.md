@@ -671,6 +671,20 @@
       clear·라이브 배너·지연 스팬·--json 우선·--limit 0/--grace nope exit 1·completion 검증.
       branch `claude/wizardly-pascal-79vs8n`)
 
+- [x] 👷 `agentrelay tools --watch` / `agentrelay projects --watch` — 툴/프로젝트 인덱스를 라이브로
+      갱신(리셋 카운트다운이 째깍째깍 줄어드는 뷰). 세션 53이 "다음 할 일"로 명시한 후속 — `upcoming
+      --watch`(세션 52)·`overdue --watch`(세션 53)와 동일 패턴으로 공용 `startWatchLoop`을 재사용.
+      (완료 — CLI `tools.ts`·`projects.ts`에 순수 `renderToolsWatchFrame`/`renderProjectsWatchFrame`
+      신설(`status`/`upcoming`/`overdue`의 watch-frame와 동일 title/meta 블록 + 항상 컬러인 `renderTools`/
+      `renderProjects` 본문, `now` 주입으로 TTY/시계 없이 테스트 가능). `cli.ts`에 공용 `startWatchLoop`을
+      재사용하는 `runToolsWatch`/`runProjectsWatch`(매 프레임 스토어 재읽기·스코프 재적용·`summarizeTools`/
+      `summarizeProjects`를 fresh `now`로 재계산 → 리셋 카운트다운 live·화면 clear). 두 커맨드에
+      `-w, --watch [seconds]` 배선: 스코프 검증을 먼저 통과시켜 잘못된 필터는 watch 전에 exit 1,
+      `--json`이 `--watch`보다 우선(일회성 기계 덤프), 인터벌 기본 2s, completion 자동 포함. 새 파서/
+      스케줄러/core 로직 0줄. cli tools 8→11·projects 8→11(watch-frame 각 3케이스 신규), 실제 빌드 CLI
+      e2e로 화면 clear·라이브 배너·카운트다운·--json 우선·잘못된 --tool exit 1·help/completion 노출 검증.
+      branch `claude/wizardly-pascal-bp2ma3`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -1,7 +1,13 @@
 import type { RelayJob } from "@agentrelay/core";
 import { summarizeProjects } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_PROJECTS_MESSAGE, NO_SCOPE_MATCH_MESSAGE, renderProjects, renderProjectsJson } from "../src/projects.js";
+import {
+  NO_PROJECTS_MESSAGE,
+  NO_SCOPE_MATCH_MESSAGE,
+  renderProjects,
+  renderProjectsJson,
+  renderProjectsWatchFrame,
+} from "../src/projects.js";
 
 let seq = 0;
 function job(overrides: Partial<RelayJob> = {}): RelayJob {
@@ -25,6 +31,11 @@ function job(overrides: Partial<RelayJob> = {}): RelayJob {
 
 // A fixed "now" comfortably before the reset times below, for a stable countdown.
 const NOW = Date.parse("2026-07-12T12:00:00.000Z");
+
+/** ISO string `seconds` after NOW — for reset times whose countdown we assert. */
+function at(seconds: number): string {
+  return new Date(NOW + seconds * 1000).toISOString();
+}
 
 describe("renderProjects", () => {
   it("shows the onboarding message for an empty store", () => {
@@ -100,5 +111,38 @@ describe("renderProjectsJson", () => {
       summary: summarizeProjects([]),
     });
     expect(JSON.parse(json).scope).toEqual({ statuses: ["queued"] });
+  });
+});
+
+describe("renderProjectsWatchFrame", () => {
+  it("prepends a live title with the store path, timestamp, and interval", () => {
+    const summary = summarizeProjects([job({ project: "web", status: "waiting_for_reset", resetAt: at(60) })]);
+    const out = renderProjectsWatchFrame(summary, "/tmp/jobs.json", 5000, NOW);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("agentrelay projects");
+    expect(lines[0]).toContain("every 5s");
+    expect(lines[0]).toContain("Ctrl-C to exit");
+    // Metadata line: ISO timestamp (space-separated, trimmed to seconds) + store path.
+    expect(lines[1]).toContain("2026-07-12 12:00:00Z");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+    // Then a blank line, then the table header.
+    expect(lines[2]).toBe("");
+    expect(out).toContain("PROJECT");
+  });
+
+  it("embeds the colored body with the live reset countdown", () => {
+    const summary = summarizeProjects([job({ project: "web", status: "waiting_for_reset", resetAt: at(90 * 60) })]);
+    const out = renderProjectsWatchFrame(summary, "/tmp/jobs.json", 2000, NOW);
+    // The countdown is computed from the injected `now`, so it grows/shrinks in place.
+    expect(out).toContain("1h 30m");
+    // Watch frames are always colored (live TTY view).
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting escapes are present.
+    expect(out).toMatch(/\x1b\[/);
+  });
+
+  it("carries the scope note into the frame body", () => {
+    const out = renderProjectsWatchFrame(summarizeProjects([]), "/tmp/jobs.json", 2000, NOW, "project=ghost");
+    expect(out).toContain(NO_SCOPE_MATCH_MESSAGE);
+    expect(out).toContain("scope: project=ghost");
   });
 });
