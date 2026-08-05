@@ -1691,3 +1691,34 @@
   노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `tools --watch`·
   `projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 54 — `agentrelay tools --watch` / `projects --watch` 라이브 인덱스] (2026-08-05, 무인 자율 세션, branch `claude/wizardly-pascal-g41qfj`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. 세션 53이 "다음 할 일"로 명시한 후속 —
+  같은 패턴으로 `tools`/`projects`의 `--watch` 확장(공용 `startWatchLoop` 재사용) — 을 구현했다.
+  `status`/`upcoming`/`overdue`는 라이브 `--watch` 뷰가 있지만 툴·프로젝트별 인덱스 뷰인
+  `tools`/`projects`에는 없어, 리셋 카운트다운을 실시간으로 지켜보려면 반복 실행해야 했다. 두
+  인덱스 뷰에도 라이브 뷰를 붙여 카운트다운이 째깍째깍 줄어드는 걸 그대로 볼 수 있게 했다.
+- **한 일 (branch `claude/wizardly-pascal-g41qfj`):** `agentrelay tools --watch [seconds]` /
+  `agentrelay projects --watch [seconds]` — 세션 12·52·53의 `startWatchLoop`/watch-frame 인프라 재사용.
+  - CLI `tools.ts`/`projects.ts`에 순수 `renderToolsWatchFrame`/`renderProjectsWatchFrame`
+    (summary, storePath, intervalMs, now, scopeNote?) 신설: `status`/`upcoming`/`overdue`의
+    watch-frame와 동일한 title/meta 블록(라이브 배너·타임스탬프·스토어 경로) + 항상 컬러인
+    `renderTools`/`renderProjects` 본문(`now`를 넘겨 리셋 카운트다운도 live). 순수 함수라 TTY/시계
+    없이 테스트 가능.
+  - CLI `cli.ts`: 세션 52가 추출한 공용 `startWatchLoop`을 그대로 재사용하는 `runToolsWatch`/
+    `runProjectsWatch`(매 프레임 스토어 재읽기·스코프 재적용·`summarizeTools`/`summarizeProjects`를
+    fresh `now`로 재구성 → 카운트다운 live·화면 clear 후 프레임 출력). 시간 창 경계는 시작 시 고정
+    epoch-ms.
+  - 두 커맨드에 `-w, --watch [seconds]` 옵션 배선: scope 검증을 **먼저** 통과시켜 잘못된 값은 watch
+    루프 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프). 인터벌 기본 2s. completion은
+    라이브 프로그램에서 파생되므로 `--watch`/`-w` 자동 포함. 새 파서/스케줄러/core 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core + cli + dashboard; cli tools 8→11, projects 8→11, watch-frame 각 3케이스 신규).
+  빌드된 실제 CLI e2e(mock 아님): 임시 스토어(waiting 잡+completed 잡)로 `tools --watch 1`(화면 clear
+  `\x1b[2J\x1b[H` 3프레임/2.5s·라이브 배너 "agentrelay tools (live, every 1s — Ctrl-C to exit)"·
+  claude-code/codex-cli 행·컬러 출력·timeout exit 124), `projects --watch --json`(JSON 우선),
+  `projects --watch --tool bogus`(watch 루프 전 exit 1), `--help`·completion에 `-w, --watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 명시적 👷 항목은 이로써 모두 소진 —
+  후속은 스스로 새 개선 항목 발굴(예: `errors`/`patterns` 등 남은 조회 뷰의 `--watch`, 또는 대시보드
+  기능 확장). README/ARCHITECTURE(🧭 코워크).
