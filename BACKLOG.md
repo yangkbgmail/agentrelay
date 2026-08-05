@@ -671,6 +671,21 @@
       clear·라이브 배너·지연 스팬·--json 우선·--limit 0/--grace nope exit 1·completion 검증.
       branch `claude/wizardly-pascal-79vs8n`)
 
+- [x] 👷 `agentrelay tools --watch` / `projects --watch` — 툴·프로젝트별 잡 인덱스를 라이브로 갱신
+      (리셋 카운트다운이 째깍째깍 줄어드는 뷰). `overdue --watch`(세션 53)가 명시한 후속으로, watch를
+      가진 뷰(status/upcoming/overdue)와 아직 없던 두 인덱스 뷰(tools/projects) 사이의 간극을 메움.
+      (완료 — CLI `tools.ts`/`projects.ts`에 순수 `renderToolsWatchFrame`/`renderProjectsWatchFrame`
+      (report, storePath, intervalMs, now, scopeNote?) 신설: `status`/`upcoming`/`overdue`의 watch-frame와
+      동일한 title/meta 블록(라이브 배너·타임스탬프·스토어 경로) + 항상 컬러인 `renderTools`/`renderProjects`
+      본문(`now`를 넘겨 카운트다운도 live). 순수 함수라 TTY/시계 없이 테스트 가능. CLI `cli.ts`: 세션 52가
+      추출한 공용 `startWatchLoop`을 재사용하는 `runToolsWatch`/`runProjectsWatch`(매 프레임 스토어 재읽기·
+      스코프 재적용·`summarizeTools`/`summarizeProjects`를 fresh `now`로 재구성 → 카운트다운 live·화면
+      clear). 두 커맨드에 `-w, --watch [seconds]` 배선: scope 검증을 먼저 통과시켜 잘못된 값은 watch 전에
+      exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프), 인터벌 기본 2s, completion 자동 포함. 새
+      파서/스케줄러/core 로직 0줄 — 전부 기존 검증된 렌더러·`startWatchLoop` 재사용. cli tools/projects
+      watch-frame 각 3케이스 신규(8→11), 실제 빌드 CLI e2e로 화면 clear(3프레임/2.5s)·라이브 배너·툴 행·
+      --json 우선·--tool bogus exit 1·--help에 --watch 노출 검증. branch `claude/wizardly-pascal-g41qfj`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
