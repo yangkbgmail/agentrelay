@@ -671,6 +671,19 @@
       clear·라이브 배너·지연 스팬·--json 우선·--limit 0/--grace nope exit 1·completion 검증.
       branch `claude/wizardly-pascal-79vs8n`)
 
+- [x] 👷 `agentrelay ical` — 재개 대기 잡의 리셋 시각을 iCalendar(`.ics`)로 내보내 캘린더 앱에서
+      구독·임포트. `upcoming`이 터미널에서 보여주는 걸 일정표로 가져간다.
+      (완료 — 프로젝트 핵심 가치 "잡이 *언제* 재개되는가"의 새 출력 축. core `ical.ts` 신설(순수):
+      `jobsToIcal(jobs, {now, prodId, calName, durationMs})`가 `waiting_for_reset`+파싱가능 resetAt 잡당
+      RFC 5545 VEVENT 생성(DTSTART=resetAt·잡별 안정 UID·기본 5분 DURATION), `selectSchedulableJobs`는
+      `upcoming`/`next`와 동일한 resetAt→createdAt→id tie-break로 재개 순서 미러링. RFC 5545 헬퍼
+      `escapeIcalText`(`\ ; , \n`)·`foldIcalLine`(75옥텟 줄접기, 멀티바이트 미분할)·`formatIcalDate`(UTC).
+      CLI `commands.ts` `exportIcal`(스토어 읽기·스케줄 잡 카운트·선택적 파일 쓰기), `cli.ts` `ical`
+      커맨드(`-o/--out`·공용 `buildScope`·`--duration <분>`·`--name`, 잘못된 값 exit 1). completion 자동
+      포함, 새 파서/스케줄러 로직 0줄. core ical 20 + cli exportIcal 4 신규 테스트, 실제 빌드 CLI e2e로
+      VEVENT·이스케이프·줄접기·UTC·스코프·completed 제외·--duration·에러 exit·빈 스토어 검증.
+      branch `claude/wizardly-pascal-4e6px6`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

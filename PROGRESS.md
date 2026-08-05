@@ -1691,3 +1691,32 @@
   노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `tools --watch`·
   `projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 54 — `agentrelay ical` 재개 스케줄 iCalendar 내보내기] (2026-08-05, 무인 자율 세션, branch `claude/wizardly-pascal-4e6px6`)
+- **맥락:** BACKLOG의 명시적 👷 항목은 사실상 소진됐고, `tools/projects --watch`는 이미 **열린 중복
+  PR이 10개 이상(#449~#459)** 쌓여 있어 그대로 또 만들면 중복이 된다. CLAUDE.md 지침("비면 스스로
+  새 개선 항목을 발굴")에 따라, 프로젝트 핵심 가치("잡이 *언제* 재개되는가")에 정확히 부합하면서
+  아직 없던 새 축 — 재개 스케줄을 캘린더 앱으로 내보내기 — 을 발굴해 구현했다.
+- **한 일 (branch `claude/wizardly-pascal-4e6px6`):** `agentrelay ical` — `waiting_for_reset` 잡의 재개
+  시각을 iCalendar(RFC 5545 `.ics`)로 내보내 Apple/Google/Outlook 캘린더에서 구독·임포트할 수 있게
+  한다. "내 리팩터가 오후 3시에 재개됨"이 터미널이 아니라 일정표에 뜬다.
+  - core `ical.ts` 신설(순수·파일시스템 미접촉): `jobsToIcal(jobs, {now, prodId, calName, durationMs})`가
+    잡당 VEVENT를 생성(`DTSTART`=파싱된 resetAt·잡별 안정 `UID`로 재임포트 시 중복 대신 갱신·기본
+    5분 `DURATION`). `selectSchedulableJobs`(waiting+파싱가능 resetAt만, `upcoming`/`next`와 동일한
+    resetAt→createdAt→id tie-break로 재개 순서 미러링), RFC 5545 준수 헬퍼 `escapeIcalText`(`\ ; , \n`
+    이스케이프)·`foldIcalLine`(75옥텟 줄접기, 멀티바이트 문자 미분할)·`formatIcalDate`(UTC basic).
+    `now` 주입으로 DTSTAMP까지 결정적이라 바이트 단위 재현 가능한 테스트.
+  - CLI `commands.ts`에 `exportIcal`(스토어 읽기·스케줄 가능 잡 수 카운트·선택적 파일 쓰기),
+    `cli.ts`에 `ical` 커맨드 배선: `-o/--out`·공용 `buildScope`(`--tool/--project/--since/--until`)·
+    `--duration <분>`(0이면 point-in-time)·`--name`. 잘못된 값은 exit 1, `--out` 시 개수 stderr 보고.
+    completion은 라이브 프로그램에서 자동 파생. 새 파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·
+  `pnpm test` **전 패키지 통과**(core 570 + cli 289/1skip + dashboard 7; core ical 20케이스·cli
+  exportIcal 4케이스 신규). 빌드된 실제 CLI e2e(mock 아님): 임시 스토어(waiting 잡 1 + completed 1)로
+  `ical`(VEVENT 1개·`;`→`\;`·`,`→`\,`·긴 DESCRIPTION 줄접기·DTSTART UTC), `ical --out --duration 15`
+  (`PT15M`·"wrote 1 resume event(s)"), `ical --project my-app`(스코프), `ical --project api`(completed
+  제외 0), `ical --duration -5`·`ical --tool bogus`(exit 1), 빈 스토어(유효한 빈 VCALENDAR),
+  completion에 `ical` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). **주의: `tools/projects --watch`
+  중복 PR #449~#459는 정리(중복 close) 대상** — 코워크/사람 판단 필요. 후속 발굴 후보: `ical` 구독용
+  로컬 HTTP 엔드포인트(대시보드 `/api/schedule.ics`), `upcoming --ical` 별칭. README/ARCHITECTURE(🧭).

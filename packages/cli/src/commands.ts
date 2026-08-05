@@ -21,6 +21,7 @@ import type {
   HealthReport,
   HeartbeatFacts,
   HeartbeatMode,
+  IcalOptions,
   JobStatus,
   Notifier,
   PruneOptions,
@@ -55,6 +56,7 @@ import {
   isJobScopeActive,
   type JobCsvColumn,
   type JobScope,
+  jobsToIcal,
   type LocationReport,
   listBackups,
   loadConfigFile,
@@ -78,6 +80,7 @@ import {
   runDiagnostics,
   sampleConfigJson,
   scopeJobs,
+  selectSchedulableJobs,
   serializeDaemonHeartbeat,
   setConfigValue,
   summarizeImportPlan,
@@ -1042,6 +1045,45 @@ export function exportStore(options: ExportJobsOptions): ExportJobsResult {
     writtenTo = path;
   }
   return { content, count: jobs.length, writtenTo };
+}
+
+export interface ExportIcalOptions {
+  storePath?: string;
+  /** Already-selected jobs to serialize (filtered by the caller). If omitted, the whole store is read. */
+  jobs?: RelayJob[];
+  /** When set, write the `.ics` to this file (parent dirs created) instead of returning it for stdout. */
+  outPath?: string;
+  /** Options forwarded to the pure `jobsToIcal` (duration, calendar name, …). */
+  ical?: IcalOptions;
+}
+
+export interface ExportIcalResult {
+  /** The serialized VCALENDAR payload. Always populated, even when also written to a file. */
+  content: string;
+  /** Number of resume events (schedulable jobs) in the calendar. */
+  count: number;
+  /** Absolute path written to, or null when the caller should print to stdout. */
+  writtenTo: string | null;
+}
+
+/**
+ * Serialize the resume schedule as an iCalendar (`.ics`) feed. The RFC 5545
+ * formatting lives in the pure `@agentrelay/core` `jobsToIcal`; this wrapper only
+ * handles the store read, the schedulable-job count, and the optional file write
+ * so the CLI stays thin. A file write appends a trailing newline; the returned
+ * `content` is the exact serializer output without it.
+ */
+export function exportIcal(options: ExportIcalOptions): ExportIcalResult {
+  const jobs = options.jobs ?? listStatus(options.storePath);
+  const content = jobsToIcal(jobs, options.ical ?? {});
+  let writtenTo: string | null = null;
+  if (options.outPath) {
+    const path = resolve(process.cwd(), options.outPath);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${content}\n`, "utf8");
+    writtenTo = path;
+  }
+  return { content, count: selectSchedulableJobs(jobs).length, writtenTo };
 }
 
 export interface ImportStoreOptions {

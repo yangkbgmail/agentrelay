@@ -48,6 +48,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  exportIcal,
   exportStore,
   importStore,
   initConfig,
@@ -1448,6 +1449,64 @@ export function buildCli(): Command {
         }
       }
     );
+
+  program
+    .command("ical")
+    .description("Export the resume schedule as an iCalendar (.ics) feed so waiting jobs show up in your calendar app")
+    .option("-o, --out <file>", "Write the .ics to this file instead of stdout")
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--duration <minutes>", "Length of each resume event in minutes (default 5; 0 for a point-in-time event)")
+    .option("--name <name>", "Calendar name shown by clients (default: agentrelay resume schedule)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # print the schedule as an .ics feed\n" +
+        "  agentrelay ical\n" +
+        "  # write it to a file to import into Calendar\n" +
+        "  agentrelay ical --out resumes.ics\n" +
+        "  # only one project, 15-minute blocks\n" +
+        "  agentrelay ical --project my-app --duration 15"
+    )
+    .action((opts: ScopeOpts & { out?: string; duration?: string; name?: string }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let durationMs: number | undefined;
+      if (opts.duration !== undefined) {
+        const minutes = Number.parseFloat(opts.duration);
+        if (!Number.isFinite(minutes) || minutes < 0) {
+          console.error(`Invalid --duration value "${opts.duration}". Use a non-negative number of minutes.`);
+          process.exitCode = 1;
+          return;
+        }
+        durationMs = Math.round(minutes * 60 * 1000);
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const result = exportIcal({
+        storePath: store,
+        jobs,
+        outPath: opts.out,
+        ical: { now, durationMs, calName: opts.name },
+      });
+      if (result.writtenTo) {
+        // Keep stdout clean for redirection; status goes to stderr.
+        console.error(`[agentrelay] wrote ${result.count} resume event(s) to ${result.writtenTo}`);
+      } else {
+        console.log(result.content);
+      }
+    });
 
   program
     .command("import")
