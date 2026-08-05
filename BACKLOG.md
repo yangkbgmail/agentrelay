@@ -671,6 +671,19 @@
       clear·라이브 배너·지연 스팬·--json 우선·--limit 0/--grace nope exit 1·completion 검증.
       branch `claude/wizardly-pascal-79vs8n`)
 
+- [x] 👷 `agentrelay next --watch [seconds]` — 가장 임박한 재개 잡의 단일-라인 카운트다운을 라이브로
+      갱신(상태바/tmux/셸 프롬프트 친화). `upcoming --watch`(세션 52)·`overdue --watch`(세션 53)를
+      가장 스크립트 친화적인 `next`로 확장.
+      (완료 — CLI `next.ts`에 순수 `renderNextWatchFrame(next, storePath, intervalMs, now)` 신설
+      (`status`/`upcoming`/`overdue`의 watch-frame와 동일 title/meta 블록 + 항상 컬러인 `renderNext`
+      본문, `now`를 본문에 전달해 카운트다운 라이브). 공용 `startWatchLoop`(세션 52 추출)을 재사용하는
+      `runNextWatch`(매 프레임 스토어 재읽기·`selectNextResume`를 fresh `now`로 재평가 → 카운트다운
+      감소·화면 clear). `next`에 `-w, --watch [seconds]` 배선: `--json`이 `--watch`보다 우선(일회성
+      기계 덤프), `--exit-code`는 무한 루프에서 무의미하므로 watch가 대체, 인터벌 기본 2s, completion
+      자동 포함, examples 헬프 추가. 새 파서/스케줄러/core 로직 0줄. cli next watch-frame 3케이스 신규
+      (8→11), 실제 빌드 CLI e2e로 화면 clear·라이브 배너·카운트다운·--json 우선·SIGINT 클린 종료·
+      completion 검증. branch `claude/next-watch`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
