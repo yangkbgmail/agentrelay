@@ -8,6 +8,7 @@ export * from "./errors.js";
 export * from "./export.js";
 export * from "./health.js";
 export * from "./heartbeat.js";
+export * from "./ical.js";
 export * from "./import.js";
 export * from "./locations.js";
 export * from "./metrics.js";
