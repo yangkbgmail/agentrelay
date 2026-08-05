@@ -1662,3 +1662,33 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `agentrelay windows` rate-limit 대기 창 분석] (2026-08-05, 무인 자율 세션, branch `claude/wizardly-pascal-gpeeoq`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 미완은 전부 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR 30여 개가 대부분 `overdue/tools/projects --watch` 중복이거나
+  파서 확장이라, 이들과 겹치지 않는 새 가치 축을 발굴했다. 각 job의 `lastRateLimit`(세션의 detection
+  provenance)에는 `detectedAt`과 `resetAt`이 **둘 다** 저장되는데, 그 차이(`resetAt − detectedAt`)가
+  곧 "rate limit이 릴레이를 얼마나 오래 멈춰 세웠나"인 **대기 창(wait window)**이다. `stats`(전체
+  라이프사이클 createdAt→updatedAt)·`patterns`(어떤 패턴이 몇 번)·`errors`(실패 이유) 어느 것도 이
+  타이밍을 다루지 않던 진짜 빈틈 — 이 도구의 핵심 가치("얼마나 대신 기다려줬나")를 정량화한다.
+- **한 일:** `@agentrelay/core/windows.ts` 신설(순수·파일시스템/시계 미접촉):
+  - `jobWaitWindow(job)` — 한 job의 `lastRateLimit`에서 `resetAt − detectedAt`(ms) 추출. 파싱 불가
+    타임스탬프·음수 span(클럭 스큐)은 **클램프 대신 스킵**(stats 해결시간과 동일 정책), 빈 패턴명은
+    `(unknown)` 버킷. 0 길이 창은 유효로 유지.
+  - `summarizeRateLimitWindows(jobs, {limit})` → `RateLimitWindowSummary`: total/withWindow/withoutWindow,
+    totalWaitMs(총 대기시간), avg/min/max, median(p50)·p90(로컬 type-7 선형보간 percentile — stats의
+    private 헬퍼를 침범하지 않도록 동일 의미를 이 모듈에 복제), byPattern(총 대기시간 desc 랭킹),
+    longest(가장 긴 창 top-N, jobId asc 타이브레이크). `limit` 기본 5, 0이면 전부 — **집계값은 limit과
+    무관하게 항상 전체 반영**(조용한 절단 없음), 입력 불변.
+  - CLI `packages/cli/src/windows.ts` 순수 `renderWindows`(헤드라인 총 대기 + 분포 라인 +
+    비율 막대 per-pattern 롤업 + 가장 긴 창 리스트, `formatDurationMs` 재사용, color 게이트, scope note)·
+    `renderWindowsJson`(stats/patterns와 동일 envelope). `agentrelay windows [--json] [-n/--limit]
+    [--status] [--tool] [--project] [--since] [--until]` 커맨드를 `patterns` 옆에 배선 —
+    공용 `buildScope` 재사용, `--limit` 비정수/음수는 exit 1, completion 자동 포함.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) 에러 0·`pnpm test`
+  전 패키지 통과(core 553→568[windows 15 신규] + cli 282→288[windows 6 신규] + dashboard 7).
+  빌드된 실제 CLI e2e(mock 아님): 3-job 임시 스토어(clock-time 5h·relative-duration 30m 창 + 창 없는 job
+  1개)로 `windows`(5h 30m 총 대기·avg/median/p90 분포·per-pattern 막대·longest 정렬), `--json`(envelope +
+  ms 정확), `--tool claude-code`(스코프 부분집합 = 1창), `--limit -1`(exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 발굴 후보: 대시보드에 총 대기시간
+  카드 노출, `windows --group-by tool|project`, `stats`에 wait-window 요약 한 줄 통합. README/ARCHITECTURE(🧭).
