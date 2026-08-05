@@ -1662,3 +1662,24 @@
   `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `overdue --watch`·
   `tools --watch`·`projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 53 — `agentrelay export --format yaml` 무손실 YAML 내보내기] (2026-08-05, 무인 자율 세션, branch `claude/wizardly-pascal-6hqpuu`)
+- **한 일 (branch `claude/wizardly-pascal-6hqpuu`):** export 패밀리(csv/json/md/ndjson/html)에 무손실
+  **YAML** 포맷 추가. 레포에 커밋하거나 diff에서 눈으로 보기 좋은 사람 친화 무손실 포맷 — CSV/md(평면·손실)와
+  달리 JSON/NDJSON처럼 전체 `RelayJob` 구조(command 배열·lastOutputTail·중첩 lastRateLimit)를 보존.
+  - `@agentrelay/core/export.ts`에 의존성 0개 블록 스타일 YAML 이미터 신설: 순수 `yamlScalarString`
+    (보수적 스칼라 인용 — `42`/`true`/`null`처럼 재파싱될 값·선행 인디케이터[`-p`]·콜론 포함[ISO 타임스탬프]·
+    공백은 큐트, 안전 스칼라만 plain; 큐트 시 `\\`/`\"`/`\n`/`\r`/`\t`/`\xNN` C-스타일 이스케이프),
+    내부 `isPlainYamlScalar`·`YAML_RESERVED_WORDS`(YAML 1.1 yes/no/on/off/y/n/~ 등)·`emitYamlMapping`/
+    `emitYamlSequence`(블록-시퀀스-of-매핑 컴팩트 형식: 첫 키를 `- ` 라인에 호이스트, undefined 키 생략=
+    JSON과 동일), 순수 `jobsToYaml`(빈 스토어=`[]`, 후행 개행 없음 — 파일 라이터가 부착).
+  - `EXPORT_FORMATS`에 `yaml` 등록·`exportJobs` 디스패치. `yaml`은 무손실 full-shape라 `COLUMN_AWARE_FORMATS`
+    에서 제외 → `--columns yaml`은 exit 1(csv/md/html만 컬럼 적용). CLI export는 `EXPORT_FORMATS.includes`로
+    검증하므로 `-f yaml` 자동 배선(설명·lossless 힌트 문구만 갱신), `--out`으로 파일 저장·기존 스코프/시간창
+    필터와 조합. 새 CLI 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core export 54→71, cli export 15→17). 빌드된 실제 CLI e2e(mock 아님): 임시 스토어로
+  `export -f yaml`(블록 시퀀스·중첩 command/lastRateLimit 매핑·ISO/`-p` 큐트 확인), `-f yaml --columns`(exit 1),
+  `-f yaml -o out.yaml`(후행 개행). **PyYAML로 export→parse 무손실 왕복 True** 확인(원본 JSON == 파싱 결과).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 export 아이디어: `--format toml`,
+  export 시 `--pretty`/`--compact` JSON 토글. README/ARCHITECTURE(🧭 코워크).
