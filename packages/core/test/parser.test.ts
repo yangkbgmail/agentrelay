@@ -102,6 +102,44 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(expected);
   });
 
+  it("parses a fractional-hour relative duration like '1.5 hours'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in 1.5 hours.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("relative-decimal-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
+  });
+
+  it("parses a fractional-hour relative duration in the compact '0.5h' form", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("resets in 0.5h", { now });
+    expect(result?.pattern).toBe("relative-decimal-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
+
+  it("parses a fractional-day relative duration like '2.5 days'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly usage limit reached, retry in 2.5 days.", { now });
+    expect(result?.pattern).toBe("relative-decimal-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2.5 * 24 * 60 * 60_000).toISOString());
+  });
+
+  it("parses a fractional-minute relative duration like '90.5 minutes'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("try again in 90.5 minutes", { now });
+    expect(result?.pattern).toBe("relative-decimal-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 90.5 * 60_000).toISOString());
+  });
+
+  it("keeps integer relative durations on the integer pattern (no decimal shadowing)", () => {
+    // Regression: the decimal pattern requires a "." so plain integers must still
+    // be attributed to `relative-duration`, preserving pattern provenance.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("resets in 90m", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
+  });
+
   it("parses the singular 'in 1 day' form", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Usage limit reached. Try again in 1 day.", { now });

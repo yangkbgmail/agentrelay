@@ -671,6 +671,18 @@
       clear·라이브 배너·지연 스팬·--json 우선·--limit 0/--grace nope exit 1·completion 검증.
       branch `claude/wizardly-pascal-79vs8n`)
 
+- [x] 👷 파서가 소수(fractional) 상대 대기 시간을 인식 — "try again in 1.5 hours" / "resets in 0.5h" /
+      "retry in 2.5 days" / "in 90.5 minutes" 같은 단일 소수 수량 대기를 재개 시각으로 변환.
+      (완료 — 기존 `relative-duration` 패턴의 `\d+` 그룹은 소수점을 못 받아, 실제 rate-limit 문구가
+      대기를 단일 소수로 표현하면 전체 매치가 0으로 붕괴해 `null`(=재개 안 되는 잡)로 조용히 실패했다.
+      `parser.ts`에 새 패턴 `relative-decimal-duration`을 정수 패턴 **앞에** 추가: 소수점을 **필수**로
+      요구(`(\d+\.\d+)`)해 정수 "in 2 hours"의 패턴 귀속(provenance)은 절대 가리지 않고 진짜 소수에만
+      발화, 단일 소수 단위(d/h/m)만 지원(복합 "1.5h 30m"은 어떤 CLI도 안 냄), 초는 정수 패턴과 동일하게
+      어댑터 영역으로 남김. 값×단위ms를 now에 더함(비유한·≤0은 null 가드). parser.test.ts에 회귀 5케이스
+      추가(1.5h/0.5h/2.5days/90.5min + 정수 no-shadow), 리빌드된 실제 CLI e2e로 `parse "try again in
+      1.5 hours"`가 `relative-decimal-duration`으로 5400초 후 리셋 산출·정수는 `relative-duration` 유지
+      확인. branch `claude/wizardly-pascal-lvabiv`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

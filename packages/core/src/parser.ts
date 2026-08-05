@@ -86,6 +86,27 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Fractional relative durations: "try again in 1.5 hours" / "resets in 0.5h" /
+    // "retry in 2.5 days" / "resets in 90.5 minutes". Real rate-limit copy some-
+    // times phrases the wait as a single decimal quantity, which the integer-only
+    // `relative-duration` pattern below silently misses (its `\d+` groups don't
+    // accept a decimal point, so the whole match collapses to zero and returns
+    // null — a job that never resumes). A decimal point is *required* here so this
+    // pattern only ever fires on genuine fractionals and never shadows the integer
+    // pattern's provenance for plain "in 2 hours". Only a single fractional unit is
+    // supported (a compound "1.5h 30m" is not a shape any CLI emits). Seconds stay
+    // adapter territory (see adapters.ts), same as the integer pattern.
+    name: "relative-decimal-duration",
+    regex: /(?:try again|resets?|retry)\s+in\s+(\d+\.\d+)\s*(d(?:ays?)?|h(?:ours?)?|m(?:in(?:utes?)?)?)\b/i,
+    resolve: (m, now) => {
+      const value = parseFloat(m[1]);
+      if (!Number.isFinite(value) || value <= 0) return null;
+      const unit = m[2].toLowerCase()[0];
+      const unitMs = unit === "d" ? 86_400_000 : unit === "h" ? 3_600_000 : 60_000;
+      return new Date(now.getTime() + value * unitMs);
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
