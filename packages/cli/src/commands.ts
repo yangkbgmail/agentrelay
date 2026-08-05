@@ -23,6 +23,7 @@ import type {
   HeartbeatMode,
   JobStatus,
   Notifier,
+  OverviewReport,
   PruneOptions,
   RelayJob,
   WritableFacts,
@@ -32,6 +33,7 @@ import {
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
   buildLocationReport,
+  buildOverview,
   CONFIG_FILENAME,
   canCancel,
   canRequeue,
@@ -306,6 +308,51 @@ export function readHealthReport(options: HealthOptions = {}): HealthReport {
 
   const status = evaluateHeartbeat(heartbeat, { nowMs, waitingJobs });
   return evaluateHealth(status, { strict: options.strict });
+}
+
+export interface OverviewOptions {
+  storePath?: string;
+  /** Injected for tests; defaults to the real wall clock. */
+  nowMs?: number;
+  /** Escalate the health verdict to unhealthy when the loop is down even idle. */
+  strict?: boolean;
+  /** Only flag jobs due more than this many ms ago as overdue (default 0). */
+  graceMs?: number;
+  /** How many pending-work projects to surface (default from core). */
+  topProjects?: number;
+  /** Pre-fetched jobs (for scoped views); defaults to reading the whole store. */
+  jobs?: RelayJob[];
+}
+
+/**
+ * Gather the facts for `agentrelay overview` and compose the report. This is the
+ * filesystem + clock half; the composition ({@link buildOverview}) and the
+ * liveness rule ({@link evaluateHeartbeat}) live in `@agentrelay/core`, so the
+ * overview never drifts from `health`, `next`, `overdue`, and `projects`. Never
+ * throws — an absent/unreadable heartbeat reads as "no live loop".
+ */
+export function readOverview(options: OverviewOptions = {}): OverviewReport {
+  const storePath = options.storePath ?? defaultStorePath();
+  const nowMs = options.nowMs ?? Date.now();
+  const jobs = options.jobs ?? listStatus(storePath);
+
+  const waitingJobs = countActiveJobs(jobs);
+  let heartbeat = null;
+  try {
+    const raw = readFileSync(daemonHeartbeatPath(storePath), "utf8");
+    heartbeat = parseDaemonHeartbeat(raw);
+  } catch {
+    // Missing/unreadable heartbeat → absent loop, judged by evaluateHeartbeat.
+  }
+  const heartbeatStatus = evaluateHeartbeat(heartbeat, { nowMs, waitingJobs });
+
+  return buildOverview(jobs, {
+    now: nowMs,
+    heartbeat: heartbeatStatus,
+    strict: options.strict,
+    graceMs: options.graceMs,
+    topProjects: options.topProjects,
+  });
 }
 
 /**

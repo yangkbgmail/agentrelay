@@ -1691,3 +1691,30 @@
   노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `tools --watch`·
   `projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 54 — `agentrelay overview` 종합 컨트롤 패널 커맨드] (2026-08-05, 무인 자율 세션)
+- 배경: 세션 시작 시 모든 BACKLOG 👷 항목이 `[x]` 완료 상태였고, 열린 PR 30개가 쌓여 있었다
+  (상당수가 `overdue/tools/projects --watch`·파서 변형의 중복). CLAUDE.md 지침대로 **어떤 열린
+  PR과도 겹치지 않는 새 개선 항목을 발굴**했다 — `status`(테이블)·`stats`(집계)·`health`(프로브)·
+  `next`/`overdue`가 각각 릴레이의 한 측면만 보여줄 뿐, "지금 내 릴레이 상태가 어떤가?"에 한 번에
+  답하는 종합 뷰가 없었다.
+- 한 일 (branch `claude/wizardly-pascal-con1vh`): **`agentrelay overview` — 한 화면 컨트롤 패널**.
+  - `@agentrelay/core/overview.ts` 신설(순수·시계/파일시스템 미접촉): `buildOverview(jobs, options)`가
+    기존 순수 빌더를 **조합만** 한다(새 계산 로직 0줄) — `summarizeJobs`(total·byStatus), `ACTIVE/
+    TERMINAL_STATUSES`(active/terminal), `evaluateHealth`(입력 `HeartbeatStatus`에서 재개 루프 verdict),
+    `selectNextResume`, `buildOverdueReport`(count·worst span), `summarizeProjects`(대기 작업 있는 top N).
+    어떤 필드도 재유도하지 않아 전용 커맨드(`health`/`next`/`overdue`/`projects`)와 절대 드리프트 안 함.
+    `OverviewOptions`: now·heartbeat·graceMs·strict·topProjects(기본 3, ≤0=빈 목록).
+  - CLI `commands.ts` `readOverview`(fs+clock 반: 잡 로드→활성 수 집계→하트비트 읽어 `evaluateHeartbeat`
+    →`buildOverview`, 절대 throw 안 함 — 부재/깨진 하트비트=absent). `packages/cli/src/overview.ts` 순수
+    `renderOverview`(헤더+`renderHealth`/`renderNext` 재사용 라인+상태 카운트 줄+지연 시 빨간 경고 줄+
+    대기 프로젝트 표, color 게이트)·`renderOverviewJson`(next/health와 동일 envelope). `agentrelay
+    overview [--json][--strict][--grace <dur>][--top <n>]` 배선, 잘못된 grace/top은 exit 1.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 에러**·`pnpm test`
+  **전 패키지 통과**(core 553→562, cli 285→296/1skip, dashboard 7 — core overview 9 + cli overview 12
+  신규). 빌드된 실제 CLI e2e(mock 아님): 빈 스토어→온보딩 문구, rate-limit 잡 2개+node --version 시드→
+  재개 루프 UNHEALTHY(하트비트 부재)·다음 재개(beta 30m, 1 more behind)·상태 카운트·대기 프로젝트 표
+  (alpha 2h/beta 30m), `--json`(total/active/health/next.project/overdue/topProjects 정확), 잘못된
+  `--top -3`→exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 후보: `overview --watch`
+  라이브 갱신, 대시보드에 overview 종합 카드. 열린 PR 30개(중복 다수) 정리·병합은 🧭 코워크/사람 몫.
