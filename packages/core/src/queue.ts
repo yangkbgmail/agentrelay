@@ -243,6 +243,18 @@ export class RelayQueue {
     this.update(id, { status: "waiting_for_reset", resetAt: at, attempts: 0, lastError: null });
   }
 
+  /**
+   * Move a pending job's resume time to a specific moment (user-initiated
+   * `agentrelay reschedule`). Unlike {@link requeueNow} this preserves the
+   * attempt count and last error — it only re-times *when* the job resumes, it
+   * does not start a fresh run. Parks the job in `waiting_for_reset` so the next
+   * scheduler tick picks it up once `resetAt` passes. Callers guard eligibility
+   * via {@link canReschedule}.
+   */
+  reschedule(id: string, resetAt: string) {
+    this.update(id, { status: "waiting_for_reset", resetAt });
+  }
+
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {
     this.load();
     const existing = this.jobs.get(id);

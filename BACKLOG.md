@@ -659,6 +659,24 @@
       스케줄러/core 로직 0줄. cli upcoming watch-frame 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브
       배너·카운트다운·--json 우선·--limit 0 exit 1·completion 검증. branch `claude/wizardly-pascal-1z6gb2`)
 
+- [x] 👷 `agentrelay reschedule <id> <when>` — 대기 잡의 재개 시각을 특정 시점으로 이동(파서가 리셋
+      시각을 잘못 읽었거나 의도적으로 미루고 싶을 때). `retry`(지금 재개)와 `cancel`(영영 재개 안 함)
+      사이의 빠져 있던 중간 제어.
+      (완료 — `retry`=now·`cancel`=never만 있고 "이 시각에 재개"를 지정할 방법이 없었다. 파서가 특이한
+      타임존 문구나 시계가 어긋난 "resets at 5pm"에서 리셋 시각을 오독하면 지금까진 즉시 재개(재충돌
+      위험)하거나 작업을 버리는 수밖에 없었다. `@agentrelay/core/reschedule.ts` 신설(순수·시계/스토어
+      미접촉): `canReschedule(job)`(queued/waiting_for_reset만 허용, resuming=in-flight·completed·failed
+      거부, cancelled는 retry로 유도) + `RESCHEDULABLE_STATUSES` + `resolveRescheduleTime(input, now)` —
+      `+`선택적 접두 duration(`30m`/`2h`/`1d`, 기존 `parseDuration` 재사용) 또는 절대 ISO 타임스탬프
+      (`Date.parse`)를 ISO로 정규화, 과거 시각은 "지금 due"로 허용(운영자 명시 선택), 파싱 불가/빈
+      입력은 `{error}`. `RelayQueue.reschedule(id, resetAt)`는 `requeueNow`와 달리 attempts·lastError를
+      **보존**하고 status/resetAt만 갱신(재개 시점만 재조정, 새 런 아님). CLI `commands.ts`
+      `rescheduleJob(idOrPrefix, when, storePath?, now?)`(resolveJobId 재사용, now 주입 가능) + `cli.ts`
+      `reschedule <id> <when> [--json]` 배선(`--json`은 show와 동일 job 엔벌롭, 실패는 exit 1). completion은
+      라이브 프로그램 파생이라 자동 포함. core reschedule 12 + queue 1 + cli commands 5 신규 테스트,
+      실제 빌드 CLI e2e로 duration/절대 ISO 재조정·attempts/provenance 보존·bad-time·unknown-id exit 1
+      검증. branch `claude/wizardly-pascal-kuxei5`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
