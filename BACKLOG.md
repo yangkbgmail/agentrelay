@@ -659,6 +659,16 @@
       스케줄러/core 로직 0줄. cli upcoming watch-frame 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브
       배너·카운트다운·--json 우선·--limit 0 exit 1·completion 검증. branch `claude/wizardly-pascal-1z6gb2`)
 
+- [x] 👷 파서: 요일(day-of-week) 기반 리셋 인식 — Claude Code의 주간(weekly) 사용량 한도가 출력하는
+      "resets Monday at 9am" / "reset on Thursday" / "try again Friday at 4:30pm" 문구.
+      (완료 — `parser.ts`에 순수 `weekday-clock` 패턴 신설: `(?:reset[s]?|try again|retry)\s+(?:on\s+)?
+      (<weekday>[a-z]*)(?:\s+at\s+H(:MM)?(am|pm)?)?`. 요일 토큰을 통째로 캡처 후 `WEEKDAY_INDEX`(full
+      name+약어 sun..sat)로 검증 → "resets satisfies"처럼 요일 접두사로 시작만 하는 무관 단어는 null
+      반환(오검출 방지). resolve는 다음 해당 요일 계산·이미 지났으면 7일 롤포워드, 시각 없으면 자정 로컬.
+      `relative-duration` 뒤·`unix-epoch` 앞 배치(서로소), "resets at 3:00pm"은 clock-time 우선 유지.
+      사전필터에 `weekly limit`·`resets? (on|sun|mon|...)` 대안 추가. meridiem 13pm/24h>23 무효 가드.
+      CLI 0줄 — `agentrelay parse` 자동 노출. parser.test +8 회귀. branch `claude/wizardly-pascal-ukvnz2`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
