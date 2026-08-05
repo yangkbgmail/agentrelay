@@ -1691,3 +1691,26 @@
   노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속: 같은 패턴으로 `tools --watch`·
   `projects --watch` 확장(공용 `startWatchLoop` 재사용). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 — 파서 소수 상대 대기 시간 인식] (2026-08-05, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 50+개가 대부분 `overdue/tools/projects --watch`·파서 개별 포맷으로
+  중복·누적된 상태(main=현재 브랜치 동일, 0/0). 열린 파서 PR들(datetime-local·day-of-week/weekly·
+  retry-directive 절대시각·named timezone·"and"/콤마 구분자·"1 week"·midnight/noon/tomorrow)과
+  겹치지 않는 실제 gap을 코드에서 발견: 파서의 `relative-duration` 패턴은 `\d+`만 받아
+  **소수 상대 대기**("try again in 1.5 hours"·"resets in 0.5h"·"retry in 2.5 days")를 못 잡고
+  전체 매치가 0으로 붕괴→`null`(=영영 재개 안 되는 잡)로 조용히 실패. 리빌드한 dist로 재현 확인.
+- 한 일 (branch `claude/wizardly-pascal-lvabiv`):
+  - `packages/core/src/parser.ts`에 새 패턴 `relative-decimal-duration`을 정수 `relative-duration`
+    **앞에** 추가. 소수점을 **필수**로 요구(`(\d+\.\d+)`)해 정수 "in 2 hours"의 패턴 귀속을 절대
+    가리지 않고 진짜 소수에만 발화. 단일 소수 단위(d/h/m)만 지원(복합 "1.5h 30m"은 어떤 CLI도 안 냄),
+    초는 정수 패턴과 동일하게 어댑터 영역으로 남김. `value × unitMs`를 now에 더함(비유한·≤0은 null 가드).
+  - `packages/core/test/parser.test.ts`에 회귀 5케이스: 1.5h·0.5h(compact)·2.5days·90.5min +
+    정수 90m이 여전히 `relative-duration`으로 귀속(no-shadow) 확인.
+- 검증: 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·
+  `pnpm test` **전 패키지 통과**(core 558[+5] + cli 285/1skip + dashboard 7 = 850). 리빌드된 실제
+  CLI e2e(mock 아님): `parse "try again in 1.5 hours" --json`이 `relative-decimal-duration`으로
+  now+5400초 리셋 산출, `resets in 0.5h`=+30m·`try again in 2.5 days`=+2.5일, `resets in 90m`·
+  `try again in 2 hours`는 그대로 `relative-duration` 유지(정수 무영향) 확인.
+- 다음 할 일: 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속(👷 후보): 소수 초 단위("1.5s")는
+  현재 Codex 어댑터가 `1.5s`를 잡지만 generic엔 초 패턴 자체가 없음 — generic 소수/정수 초 지원 검토.
+  "half an hour"/"an hour and a half" 같은 단어형 소수도 후보. README/ARCHITECTURE(🧭 코워크).
