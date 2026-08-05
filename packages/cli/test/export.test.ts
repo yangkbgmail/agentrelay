@@ -165,6 +165,29 @@ describe("exportStore", () => {
     expect(result.content).not.toContain("<th>project</th>");
   });
 
+  it("produces a lossless YAML block sequence with a mapping per job", () => {
+    seed();
+    const result = exportStore({ storePath, format: "yaml" });
+    expect(result.count).toBe(2);
+    // One top-level sequence entry per job (block-sequence-of-mappings form).
+    const entries = result.content.split("\n").filter((l) => l.startsWith("- id:"));
+    expect(entries).toHaveLength(2);
+    expect(result.content).toContain("project: alpha");
+    expect(result.content).toContain("project: beta");
+    // The command array survives as a nested block sequence (lossless, unlike CSV).
+    expect(result.content).toContain('  command:\n    - claude\n    - "-p"\n    - go');
+  });
+
+  it("writes a YAML export to a file with a trailing newline", () => {
+    seed();
+    const out = join(dir, "jobs.yaml");
+    const result = exportStore({ storePath, format: "yaml", outPath: out });
+    expect(result.writtenTo).toBe(out);
+    const onDisk = readFileSync(out, "utf8");
+    expect(onDisk.startsWith("- id:")).toBe(true);
+    expect(onDisk.endsWith("\n")).toBe(true);
+  });
+
   // The `export` command applies the same scope filters as `stats`/`status`:
   // the --since/--until time window via core scopeJobs, then
   // --status/--tool/--project/--sort/--reverse via selectJobs. These tests

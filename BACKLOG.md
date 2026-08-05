@@ -659,6 +659,22 @@
       스케줄러/core 로직 0줄. cli upcoming watch-frame 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브
       배너·카운트다운·--json 우선·--limit 0 exit 1·completion 검증. branch `claude/wizardly-pascal-1z6gb2`)
 
+- [x] 👷 `agentrelay export --format yaml` — 잡 이력을 무손실 YAML 블록 시퀀스로 내보내기(레포에 커밋·
+      diff에서 눈으로 보기 좋은 사람 친화 무손실 포맷). CSV/md(평면·손실)와 달리 JSON/NDJSON처럼 전체
+      `RelayJob` 구조(command 배열·lastOutputTail·중첩 lastRateLimit)를 보존하면서 JSON보다 훨씬 읽기 쉬움.
+      (완료 — `@agentrelay/core/export.ts`에 순수·의존성 0개 블록 스타일 YAML 이미터 신설: `yamlScalarString`
+      (보수적 스칼라 인용 — 숫자·불리언·null처럼 재파싱될 값, 선행 인디케이터[`-p`]·콜론 포함[ISO 타임스탬프]·
+      공백은 큐트, 그 외 안전 스칼라만 plain, 큐트 시 `\\`/`\"`/`\n`/`\r`/`\t`/`\xNN` C-스타일 이스케이프) +
+      내부 `isPlainYamlScalar`·`YAML_RESERVED_WORDS`(YAML 1.1 yes/no/on/off 등)·`emitYamlMapping`/
+      `emitYamlSequence`(블록-시퀀스-of-매핑 컴팩트 형식 — 첫 키를 `- ` 라인으로 호이스트) + `jobsToYaml`
+      (빈 스토어는 `[]`, 후행 개행 없음 — 파일 라이터가 부착). `EXPORT_FORMATS`에 `yaml` 등록·`exportJobs`
+      디스패치. `yaml`은 무손실 full-shape라 `COLUMN_AWARE_FORMATS` 제외 → `--columns yaml`은 exit 1. CLI
+      export는 `EXPORT_FORMATS.includes`로 검증하므로 `-f yaml` 자동 배선(설명·lossless 힌트 문구만 갱신),
+      `--out`으로 파일 저장·기존 스코프/시간창 필터와 조합. core export +17(yamlScalarString 5 + jobsToYaml 8 +
+      dispatch/formats 2 + 기존 2) / cli export +2 신규 테스트, 실제 빌드 CLI e2e로 블록 시퀀스·중첩 매핑·
+      `--columns` 거부·파일 후행 개행 검증 + PyYAML로 export→parse 무손실 왕복 확인. branch
+      `claude/wizardly-pascal-6hqpuu`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

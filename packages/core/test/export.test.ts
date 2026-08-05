@@ -15,7 +15,9 @@ import {
   jobsToJson,
   jobsToMarkdown,
   jobsToNdjson,
+  jobsToYaml,
   parseCsvColumns,
+  yamlScalarString,
 } from "../src/export.js";
 import type { RelayJob } from "../src/types.js";
 
@@ -320,8 +322,13 @@ describe("exportJobs", () => {
     expect(exportJobs(jobs, "html", { columns: [...columns] })).toBe(jobsToHtml(jobs, { columns: [...columns] }));
   });
 
+  it("dispatches to YAML", () => {
+    const jobs = [job({ id: "d" })];
+    expect(exportJobs(jobs, "yaml")).toBe(jobsToYaml(jobs));
+  });
+
   it("exposes the supported formats", () => {
-    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md", "ndjson", "html"]);
+    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md", "ndjson", "html", "yaml"]);
   });
 });
 
@@ -407,5 +414,102 @@ describe("jobsToHtml", () => {
     const out = jobsToHtml([job({ id: "x", status: "queued" })], { columns: ["status", "id"] });
     expect(out).toContain("<th>status</th><th>id</th>");
     expect(out).not.toContain("<th>project</th>");
+  });
+});
+
+describe("yamlScalarString", () => {
+  it("leaves an unambiguous plain scalar unquoted", () => {
+    expect(yamlScalarString("claude-code")).toBe("claude-code");
+    expect(yamlScalarString("proj_1")).toBe("proj_1");
+    expect(yamlScalarString("job-42")).toBe("job-42");
+  });
+
+  it("quotes the empty string (a bare blank would parse as null)", () => {
+    expect(yamlScalarString("")).toBe('""');
+  });
+
+  it("quotes strings that would reparse as a non-string type", () => {
+    // Numeric- and boolean/null-looking values must be quoted to stay strings.
+    expect(yamlScalarString("42")).toBe('"42"');
+    expect(yamlScalarString("3.14")).toBe('"3.14"');
+    expect(yamlScalarString("true")).toBe('"true"');
+    expect(yamlScalarString("No")).toBe('"No"');
+    expect(yamlScalarString("null")).toBe('"null"');
+    expect(yamlScalarString("~")).toBe('"~"');
+  });
+
+  it("quotes leading indicators and colon-bearing values (ISO timestamps)", () => {
+    expect(yamlScalarString("-p")).toBe('"-p"');
+    expect(yamlScalarString("2026-07-13T00:00:00.000Z")).toBe('"2026-07-13T00:00:00.000Z"');
+    expect(yamlScalarString("a: b")).toBe('"a: b"');
+    expect(yamlScalarString("#comment")).toBe('"#comment"');
+  });
+
+  it("escapes backslashes, quotes, and whitespace controls in the quoted form", () => {
+    expect(yamlScalarString('a"b')).toBe('"a\\"b"');
+    expect(yamlScalarString("a\\b")).toBe('"a\\\\b"');
+    expect(yamlScalarString("line1\nline2")).toBe('"line1\\nline2"');
+    expect(yamlScalarString("a\tb")).toBe('"a\\tb"');
+  });
+});
+
+describe("jobsToYaml", () => {
+  it("renders an empty list as an empty YAML sequence", () => {
+    expect(jobsToYaml([])).toBe("[]");
+  });
+
+  it("emits a block sequence of mappings with the first key on the dash line", () => {
+    const out = jobsToYaml([job({ id: "a", project: "proj", attempts: 2 })]);
+    const lines = out.split("\n");
+    expect(lines[0]).toBe("- id: a");
+    // Sibling keys align two spaces in, under the hoisted first key.
+    expect(lines).toContain("  project: proj");
+    // Numbers are emitted unquoted.
+    expect(lines).toContain("  attempts: 2");
+  });
+
+  it("renders the command array as an indented block sequence, quoting when needed", () => {
+    const out = jobsToYaml([job({ command: ["claude", "-p", "a b"] })]);
+    expect(out).toContain('  command:\n    - claude\n    - "-p"\n    - "a b"');
+  });
+
+  it("emits an empty command array inline", () => {
+    const out = jobsToYaml([job({ command: [] })]);
+    expect(out).toContain("  command: []");
+  });
+
+  it("renders null fields as null and nests lastRateLimit as a mapping", () => {
+    const out = jobsToYaml([
+      job({
+        resetAt: null,
+        lastError: null,
+        lastRateLimit: {
+          pattern: "clock-time",
+          rawMatch: "resets at 5pm",
+          resetAt: "2026-07-13T17:00:00.000Z",
+          detectedAt: "2026-07-13T12:00:00.000Z",
+        },
+      }),
+    ]);
+    expect(out).toContain("  resetAt: null");
+    expect(out).toContain("  lastError: null");
+    expect(out).toContain("  lastRateLimit:\n    pattern: clock-time");
+    expect(out).toContain('    rawMatch: "resets at 5pm"');
+    expect(out).toContain('    resetAt: "2026-07-13T17:00:00.000Z"');
+  });
+
+  it("omits an undefined lastRateLimit (mirrors JSON dropping undefined keys)", () => {
+    const out = jobsToYaml([job()]);
+    expect(out).not.toContain("lastRateLimit");
+  });
+
+  it("separates multiple jobs as top-level sequence entries", () => {
+    const out = jobsToYaml([job({ id: "a" }), job({ id: "b" })]);
+    const dashLines = out.split("\n").filter((l) => l.startsWith("- id:"));
+    expect(dashLines).toEqual(["- id: a", "- id: b"]);
+  });
+
+  it("has no trailing newline (the file writer adds it)", () => {
+    expect(jobsToYaml([job()]).endsWith("\n")).toBe(false);
   });
 });

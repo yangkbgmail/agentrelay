@@ -293,8 +293,160 @@ export function jobsToHtml(jobs: RelayJob[], options: HtmlOptions = {}): string 
   ].join("\n");
 }
 
+/**
+ * Scalar strings YAML would otherwise read back as a non-string type, so they
+ * must be quoted even though they contain only "safe" characters. Compared
+ * case-insensitively (YAML 1.1 treats `Yes`, `TRUE`, `Null`, … as their typed
+ * values too), which is why the check lower-cases first. `~` is YAML's null.
+ */
+const YAML_RESERVED_WORDS = new Set([
+  "true",
+  "false",
+  "null",
+  "yes",
+  "no",
+  "on",
+  "off",
+  "y",
+  "n",
+  "~",
+  "nan",
+  ".nan",
+  "inf",
+  ".inf",
+]);
+
+/**
+ * True when `s` can be emitted as a YAML plain (unquoted) scalar with no risk of
+ * being reparsed as something other than that exact string. We're deliberately
+ * conservative: the value must start with an unambiguous letter/digit/`_@/`,
+ * contain only characters that are never YAML indicators, not look like a number,
+ * and not be a reserved boolean/null word. Anything else (leading `-`, embedded
+ * `:`/`#`, whitespace, quotes, an ISO timestamp's colons, …) falls through to the
+ * double-quoted form, which is always safe. Quoting a few extra strings costs
+ * nothing; emitting an ambiguous plain scalar would silently corrupt a round-trip.
+ */
+function isPlainYamlScalar(s: string): boolean {
+  if (!/^[A-Za-z0-9_@/][A-Za-z0-9_@/.+-]*$/.test(s)) {
+    return false;
+  }
+  if (/^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(s)) {
+    return false;
+  }
+  return !YAML_RESERVED_WORDS.has(s.toLowerCase());
+}
+
+/**
+ * Render a string as a YAML scalar: plain when {@link isPlainYamlScalar} allows,
+ * otherwise a double-quoted scalar with the C-style escapes YAML's double-quoted
+ * style defines (`\\`, `\"`, `\n`, `\r`, `\t`, and `\xNN` for other control
+ * characters). Used for both keys and values.
+ */
+export function yamlScalarString(s: string): string {
+  if (s !== "" && isPlainYamlScalar(s)) {
+    return s;
+  }
+  const escaped = s
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t")
+    // Any remaining control character (C0 range minus the ones handled above)
+    // must be escaped so the double-quoted scalar stays a single valid line.
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control chars is the point — they must be \xNN-escaped.
+    .replace(/[\x00-\x1f]/g, (ch) => `\\x${ch.charCodeAt(0).toString(16).padStart(2, "0")}`);
+  return `"${escaped}"`;
+}
+
+type YamlValue = string | number | boolean | null | YamlValue[] | { [key: string]: YamlValue };
+
+/** Render a scalar (non-container) YAML value. */
+function yamlScalar(value: string | number | boolean | null): string {
+  if (value === null) {
+    return "null";
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value) : yamlScalarString(String(value));
+  }
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  return yamlScalarString(value);
+}
+
+function emitYamlMapping(obj: { [key: string]: YamlValue }, indent: number, out: string[]): void {
+  const pad = " ".repeat(indent);
+  const keys = Object.keys(obj).filter((key) => obj[key] !== undefined);
+  if (keys.length === 0) {
+    out.push(`${pad}{}`);
+    return;
+  }
+  for (const key of keys) {
+    const value = obj[key];
+    const k = yamlScalarString(key);
+    if (value === null || typeof value !== "object") {
+      out.push(`${pad}${k}: ${yamlScalar(value)}`);
+    } else if (Array.isArray(value)) {
+      if (value.length === 0) {
+        out.push(`${pad}${k}: []`);
+      } else {
+        out.push(`${pad}${k}:`);
+        emitYamlSequence(value, indent + 2, out);
+      }
+    } else {
+      out.push(`${pad}${k}:`);
+      emitYamlMapping(value, indent + 2, out);
+    }
+  }
+}
+
+function emitYamlSequence(arr: YamlValue[], indent: number, out: string[]): void {
+  const pad = " ".repeat(indent);
+  for (const item of arr) {
+    if (item === null || typeof item !== "object") {
+      out.push(`${pad}- ${yamlScalar(item)}`);
+    } else if (Array.isArray(item)) {
+      if (item.length === 0) {
+        out.push(`${pad}- []`);
+      } else {
+        out.push(`${pad}-`);
+        emitYamlSequence(item, indent + 2, out);
+      }
+    } else {
+      // An object entry: hoist its first key onto the "- " line and align the
+      // rest under it (the standard compact block-sequence-of-mappings form).
+      const childIndent = indent + 2;
+      const lines: string[] = [];
+      emitYamlMapping(item, childIndent, lines);
+      lines[0] = `${pad}- ${lines[0].slice(childIndent)}`;
+      out.push(...lines);
+    }
+  }
+}
+
+/**
+ * Serialize jobs to YAML — a lossless, human-readable full-shape export (the
+ * counterpart to {@link jobsToJson}). Like JSON/NDJSON it preserves the entire
+ * {@link RelayJob} structure (the `command` array, `lastOutputTail`, and the
+ * nested `lastRateLimit` provenance), so it round-trips through any YAML parser,
+ * but it reads far more naturally when checked into a repo or eyeballed in a
+ * diff. Dependency-free: a small block-style emitter with conservative scalar
+ * quoting, no `js-yaml`. An empty job list yields `[]` (a valid empty YAML
+ * sequence) rather than a blank file, mirroring the other exports' "schema is
+ * visible" behavior. No trailing newline (the CLI file writer adds it).
+ */
+export function jobsToYaml(jobs: RelayJob[]): string {
+  if (jobs.length === 0) {
+    return "[]";
+  }
+  const out: string[] = [];
+  emitYamlSequence(jobs as unknown as YamlValue[], 0, out);
+  return out.join("\n");
+}
+
 /** Supported export formats. */
-export const EXPORT_FORMATS = ["csv", "json", "md", "ndjson", "html"] as const;
+export const EXPORT_FORMATS = ["csv", "json", "md", "ndjson", "html", "yaml"] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 /** Dispatch to the right serializer for the given format. */
@@ -308,6 +460,8 @@ export function exportJobs(jobs: RelayJob[], format: ExportFormat, options: CsvO
       return jobsToNdjson(jobs);
     case "html":
       return jobsToHtml(jobs, options);
+    case "yaml":
+      return jobsToYaml(jobs);
     default:
       return jobsToCsv(jobs, options);
   }
