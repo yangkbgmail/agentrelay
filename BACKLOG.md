@@ -682,6 +682,27 @@
       로직 0줄. cli tools watch-frame 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브 배너·카운트다운·
       --json 우선·--tool nope exit 1·completion·help 검증. branch `claude/wizardly-pascal-jn5lc0`)
 
+- [x] 👷 `agentrelay projects --watch [seconds]` — 프로젝트별 인덱스를 라이브로 갱신(리셋 카운트다운이
+      째깍째깍 줄어드는 뷰). `tools --watch`(세션 54)와 동일 패턴으로 `projects`에 확장(공용
+      `startWatchLoop` 재사용). watch 계열(status/upcoming/overdue/tools/projects) 완성.
+      (완료 — CLI `projects.ts`에 순수 `renderProjectsWatchFrame`, `cli.ts`에 `runProjectsWatch`. 새
+      파서/스케줄러/core 로직 0줄. branch `claude/wizardly-pascal-j5exbn`, PR #467)
+
+- [x] 👷 `agentrelay stats --watch [seconds]` — 집계 지표(성공률·재시도·다음 리셋 카운트다운·
+      per-tool/project 브레이크다운)를 라이브로 갱신. watch 계열의 마지막 조회 명령까지 확장.
+      (완료 — 세션 55가 "다음 할 일"로 명시한 후속. `stats`는 watch 형제들과 달리 본문이 plain stats·
+      `--group-by` 브레이크다운·`--trend` 히스토그램 세 형태를 가질 수 있어, watch 루프가 매 프레임 fresh
+      `now`로 본문을 조합(→ "next reset in" 카운트다운 live)하고 새 순수 `renderStatsWatchFrame(body,
+      storePath, intervalMs, now)`이 `status`/`tools`/`projects`와 동일한 title/meta 라이브 배너로 감싼다.
+      CLI `cli.ts`에 `runStatsWatch`(매 프레임 스토어 재읽기·스코프 재적용·groupBy/trend 조합; 시간 창
+      경계는 시작 시 고정 epoch-ms). `stats`에 `-w, --watch [seconds]` 배선 — scope/group-by/trend 검증을
+      **먼저** 통과시켜 잘못된 값은 watch 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프),
+      인터벌 기본 2s, addHelpText 예시 3줄, completion 자동 포함. 새 파서/스케줄러/core 로직 0줄 — 전부
+      기존 검증된 `computeStats`/`groupStats`/`computeDailyTrend`/`renderStats`/`renderGroupedStats`/
+      `renderTrend` 재사용. cli stats watch-frame 3케이스 신규(plain·live countdown·group-by 본문 wrap),
+      실제 빌드 CLI e2e로 화면 clear·라이브 배너·1h30m 카운트다운·group-by --watch·--json 우선·--status
+      bogus exit 1·help/completion `--watch` 노출 검증. branch `claude/wizardly-pascal-stats-watch`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
