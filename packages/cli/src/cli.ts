@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type {
   AgentTool,
   CompletionCommandSpec,
@@ -78,7 +79,14 @@ import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "./overdue.js";
-import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
+import {
+  buildBatchParseReport,
+  buildParseReport,
+  renderBatchParseReport,
+  renderBatchParseReportJson,
+  renderParseReport,
+  renderParseReportJson,
+} from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
@@ -1699,30 +1707,81 @@ export function buildCli(): Command {
     )
     .argument("[text...]", "Message to parse; if omitted, read from stdin (e.g. pipe your agent's output)")
     .option("-t, --tool <tool>", `Use one tool's adapter patterns before the generic ones: ${ALL_TOOLS.join(", ")}`)
+    .option(
+      "-f, --file <path>",
+      "Batch mode: parse each non-blank line of this file as its own message (a corpus regression tester)"
+    )
+    .option("--batch", "Batch mode over the argument/stdin: parse each non-blank line as its own message")
+    .option("--strict", "In batch mode, exit 1 if any message goes unmatched (regression gate)")
     .option("--json", "Print the result as JSON (machine-readable, for scripts/jq)")
-    .action(async (textParts: string[], opts: { tool?: string; json?: boolean }) => {
-      let text = (textParts ?? []).join(" ");
-      if (!text) {
-        if (process.stdin.isTTY) {
-          console.error("[agentrelay] No message given. Pass text as an argument or pipe it via stdin.");
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        '  agentrelay parse "You\'ve hit your limit. Resets at 5pm."\n' +
+        "  claude -p '...' | agentrelay parse\n" +
+        "  agentrelay parse --file rate-limit-corpus.txt --strict\n" +
+        "  grep -i limit *.log | agentrelay parse --batch --json"
+    )
+    .action(
+      async (
+        textParts: string[],
+        opts: { tool?: string; file?: string; batch?: boolean; strict?: boolean; json?: boolean }
+      ) => {
+        const tool = opts.tool;
+        if (tool !== undefined && !ALL_TOOLS.includes(tool as AgentTool)) {
+          console.error(`Unknown tool: ${tool}. Valid: ${ALL_TOOLS.join(", ")}.`);
           process.exitCode = 1;
           return;
         }
-        text = await readStdin();
+
+        // Batch mode: --file reads a corpus from disk, --batch splits the
+        // argument/stdin. Both parse one message per non-blank line.
+        if (opts.file !== undefined || opts.batch) {
+          let input: string;
+          if (opts.file !== undefined) {
+            try {
+              input = readFileSync(opts.file, "utf8");
+            } catch (err) {
+              console.error(`[agentrelay] Cannot read ${opts.file}: ${(err as Error).message}`);
+              process.exitCode = 1;
+              return;
+            }
+          } else {
+            input = (textParts ?? []).join(" ");
+            if (!input && !process.stdin.isTTY) input = await readStdin();
+          }
+          const result = buildBatchParseReport(input, { tool: tool as AgentTool | undefined });
+          if (result.summary.total === 0) {
+            console.error("[agentrelay] No messages to parse (input was empty or blank).");
+            process.exitCode = 1;
+            return;
+          }
+          if (opts.json) {
+            console.log(renderBatchParseReportJson(result));
+          } else {
+            console.log(renderBatchParseReport(result, { color: Boolean(process.stdout.isTTY) }));
+          }
+          if (opts.strict && result.summary.unmatched > 0) process.exitCode = 1;
+          return;
+        }
+
+        let text = (textParts ?? []).join(" ");
+        if (!text) {
+          if (process.stdin.isTTY) {
+            console.error("[agentrelay] No message given. Pass text as an argument or pipe it via stdin.");
+            process.exitCode = 1;
+            return;
+          }
+          text = await readStdin();
+        }
+        const report = buildParseReport(text, { tool: tool as AgentTool | undefined });
+        if (opts.json) {
+          console.log(renderParseReportJson(report));
+          return;
+        }
+        console.log(renderParseReport(report, { color: Boolean(process.stdout.isTTY) }));
       }
-      const tool = opts.tool;
-      if (tool !== undefined && !ALL_TOOLS.includes(tool as AgentTool)) {
-        console.error(`Unknown tool: ${tool}. Valid: ${ALL_TOOLS.join(", ")}.`);
-        process.exitCode = 1;
-        return;
-      }
-      const report = buildParseReport(text, { tool: tool as AgentTool | undefined });
-      if (opts.json) {
-        console.log(renderParseReportJson(report));
-        return;
-      }
-      console.log(renderParseReport(report, { color: Boolean(process.stdout.isTTY) }));
-    });
+    );
 
   const config = program.command("config").description("Manage the agentrelay.config.json defaults file");
   config

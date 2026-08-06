@@ -721,6 +721,24 @@
       정확히 반환(랭킹·nextResetAt)하고, 사전설치 Chromium 헤드리스 렌더로 클라이언트 폴링 후 `By project`/
       `By tool` 카드·라벨·1h 28m 카운트다운이 실제로 그려짐을 e2e 확인. branch `claude/wizardly-pascal-wip07r`)
 
+- [x] 👷 `agentrelay parse --file <path>` / `--batch` — 여러 rate-limit 메시지를 한 번에(한 줄에 하나)
+      파싱하는 코퍼스 회귀 테스터. 단일 메시지 진단인 `parse`를 배치로 확장해, 실제 콘솔 덤프를 파일에
+      모아 파서를 한 방에 검증. 🧭 "실제 rate-limit 샘플 수집→파서 보강" 항목을 코드로 뒷받침.
+      (완료 — 기존 `parse`는 메시지 한 건만 진단해, 수집한 rate-limit 문구 묶음을 파서에 통째로 돌려
+      "어떤 포맷이 잡히고 뭐가 새는지"를 한눈에 볼 수단이 없었다. CLI `parse.ts`에 순수
+      `buildBatchParseReport(input, {tool?,now?})`(비어있지 않은 각 줄을 개별 메시지로 파싱, 공백/빈
+      줄은 스킵하되 **원본 줄 번호는 그대로 유지**해 실패 위치 추적 용이, `total`/`matched`/`unmatched`/
+      `matchRate`[total 0이면 null] + `byPattern`[count desc·이름 asc 랭킹, 기존 관례 일치] 집계) +
+      `renderBatchParseReport`(줄별 ✓/· 마커·패턴·리셋 카운트다운·잘린 미리보기 + 요약 푸터 + per-pattern
+      브레이크다운, color 게이트)·`renderBatchParseReportJson`(summary + 줄별 entries[line/text/report/
+      resetInMs]) 추가. 새 파서 로직 0줄 — 기존 검증된 `buildParseReport`/`resolveAdapter` 재사용. CLI
+      `parse`에 `-f/--file <path>`(디스크 코퍼스, 못 읽으면 exit 1)·`--batch`(인자/stdin을 줄 단위로)·
+      `--strict`(미매칭 1건이라도 있으면 exit 1 — 파서 변경 회귀 게이트) 배선 + 예시 4줄 addHelpText.
+      빈/공백 입력은 exit 1, `--json`은 배치에도 적용, 단일 메시지 모드는 그대로(하위호환). completion
+      자동 포함. cli parse.test에 batch 8케이스(줄번호 유지·랭킹·툴 어댑터·빈 입력·렌더·JSON) 신규,
+      실제 빌드 CLI e2e로 --file 매치율·--strict exit 1·--batch stdin·빈 코퍼스/못읽는 파일 exit 1·
+      단일 모드 하위호환 검증. branch `claude/wizardly-pascal-nar57h`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

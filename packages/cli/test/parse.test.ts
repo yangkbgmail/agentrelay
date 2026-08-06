@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildParseReport, renderParseReport, renderParseReportJson } from "../src/parse.js";
+import {
+  buildBatchParseReport,
+  buildParseReport,
+  renderBatchParseReport,
+  renderBatchParseReportJson,
+  renderParseReport,
+  renderParseReportJson,
+} from "../src/parse.js";
 
 const NOW = new Date("2026-07-20T12:00:00.000Z");
 const NOW_MS = NOW.getTime();
@@ -90,5 +97,100 @@ describe("renderParseReportJson", () => {
     expect(parsed.matched).toBe(false);
     expect(parsed.resetAt).toBeNull();
     expect(parsed.resetInMs).toBeNull();
+  });
+});
+
+describe("buildBatchParseReport", () => {
+  const CORPUS = [
+    "usage limit reached — resets at 2026-07-20T17:00:00Z",
+    "", // blank line — skipped, does not count
+    "rate limit — try again in 2h30m",
+    "Build succeeded in 3.2s", // no match
+    "   ", // whitespace-only — skipped
+    "resets at 3:00pm",
+  ].join("\n");
+
+  it("parses each non-blank line and skips blanks while keeping faithful line numbers", () => {
+    const { entries, summary } = buildBatchParseReport(CORPUS, { now: NOW });
+    // 4 non-blank lines parsed (lines 1, 3, 4, 6 of the source).
+    expect(entries.map((e) => e.line)).toEqual([1, 3, 4, 6]);
+    expect(summary.total).toBe(4);
+    expect(summary.matched).toBe(3);
+    expect(summary.unmatched).toBe(1);
+    expect(summary.matchRate).toBe(0.75);
+    expect(summary.tool).toBe("generic");
+  });
+
+  it("ranks the per-pattern breakdown by count desc then name asc", () => {
+    const input = ["try again in 1h", "try again in 30m", "resets at 2026-07-20T17:00:00Z"].join("\n");
+    const { summary } = buildBatchParseReport(input, { now: NOW });
+    expect(summary.byPattern).toEqual([
+      { pattern: "relative-duration", count: 2 },
+      { pattern: "iso-timestamp", count: 1 },
+    ]);
+  });
+
+  it("uses the given tool's adapter patterns across the whole corpus", () => {
+    const input = ["Rate limit reached. Please try again in 20s.", "Rate limited, try again in 45s"].join("\n");
+    // Generic adapter has no seconds pattern → nothing matches.
+    expect(buildBatchParseReport(input, { now: NOW }).summary.matched).toBe(0);
+    // Codex adapter recognizes bare-seconds waits on every line.
+    const { summary } = buildBatchParseReport(input, { tool: "codex-cli", now: NOW });
+    expect(summary.matched).toBe(2);
+    expect(summary.byPattern).toEqual([{ pattern: "codex-relative-seconds", count: 2 }]);
+  });
+
+  it("reports total 0 and null matchRate for empty/blank input", () => {
+    const { entries, summary } = buildBatchParseReport("\n   \n\t\n", { now: NOW });
+    expect(entries).toEqual([]);
+    expect(summary.total).toBe(0);
+    expect(summary.matchRate).toBeNull();
+    expect(summary.byPattern).toEqual([]);
+  });
+});
+
+describe("renderBatchParseReport", () => {
+  it("renders a marker per line plus a summary footer and pattern breakdown", () => {
+    const result = buildBatchParseReport(["try again in 1h", "just a normal log line"].join("\n"), { now: NOW });
+    const out = renderBatchParseReport(result, { now: NOW_MS, color: false });
+    expect(out).toContain("✓");
+    expect(out).toContain("·");
+    expect(out).toContain("relative-duration");
+    expect(out).toContain("resets in 1h 0m");
+    expect(out).toContain("no match");
+    expect(out).toContain("2 message(s)");
+    expect(out).toContain("1 matched (50%)");
+    expect(out).toContain("1 unmatched");
+    expect(out).toContain("By pattern:");
+  });
+
+  it("shows a placeholder for empty input and no ANSI when color is false", () => {
+    const empty = renderBatchParseReport(buildBatchParseReport("", { now: NOW }), { now: NOW_MS, color: false });
+    expect(empty).toContain("No messages to parse");
+    expect(empty).not.toContain("\x1b[");
+    const colored = renderBatchParseReport(buildBatchParseReport("try again in 1h", { now: NOW }), {
+      now: NOW_MS,
+      color: true,
+    });
+    expect(colored).toContain("\x1b[");
+  });
+});
+
+describe("renderBatchParseReportJson", () => {
+  it("emits the summary and per-line entries with resetInMs", () => {
+    const result = buildBatchParseReport(["try again in 30m", "nothing here"].join("\n"), { now: NOW });
+    const parsed = JSON.parse(renderBatchParseReportJson(result, { now: NOW_MS }));
+    expect(parsed.summary.total).toBe(2);
+    expect(parsed.summary.matched).toBe(1);
+    expect(parsed.summary.matchRate).toBe(0.5);
+    expect(parsed.entries).toHaveLength(2);
+    expect(parsed.entries[0]).toMatchObject({
+      line: 1,
+      text: "try again in 30m",
+      matched: true,
+      pattern: "relative-duration",
+      resetInMs: 30 * 60_000,
+    });
+    expect(parsed.entries[1]).toMatchObject({ line: 2, matched: false, resetInMs: null });
   });
 });

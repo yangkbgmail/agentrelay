@@ -84,10 +84,171 @@ export function renderParseReport(report: ParseReport, options: { now?: number; 
  */
 export function renderParseReportJson(report: ParseReport, options: { now?: number } = {}): string {
   const now = options.now ?? Date.now();
+  return JSON.stringify(reportToJson(report, now), null, 2);
+}
+
+function reportToJson(report: ParseReport, now: number): ParseReport & { resetInMs: number | null } {
   let resetInMs: number | null = null;
   if (report.resetAt) {
     const target = new Date(report.resetAt).getTime();
     if (!Number.isNaN(target)) resetInMs = target - now;
   }
-  return JSON.stringify({ ...report, resetInMs }, null, 2);
+  return { ...report, resetInMs };
+}
+
+// --- Batch mode -------------------------------------------------------------
+// `agentrelay parse --file corpus.txt` (or `--batch` over stdin) runs the parser
+// against many candidate messages at once — one per non-blank line — and reports
+// a match-rate summary plus a per-pattern breakdown. This turns the single-message
+// diagnostic into a *corpus tester*: collect real rate-limit console dumps into a
+// file (`grep -i limit *.log >> corpus.txt`) and validate, in one shot, that the
+// parser still recognises every format — a regression gate for parser changes.
+
+/** One line of a batch parse: its 1-based source line number, the trimmed text, and the report. */
+export interface BatchParseEntry {
+  line: number;
+  text: string;
+  report: ParseReport;
+}
+
+/** A pattern's hit count across the corpus (ranked count desc, then name asc). */
+export interface BatchPatternStat {
+  pattern: string;
+  count: number;
+}
+
+/** Aggregate outcome of a batch parse. `matchRate` is null only when nothing was parsed. */
+export interface BatchParseSummary {
+  tool: AgentTool;
+  total: number;
+  matched: number;
+  unmatched: number;
+  matchRate: number | null;
+  byPattern: BatchPatternStat[];
+}
+
+export interface BatchParseResult {
+  entries: BatchParseEntry[];
+  summary: BatchParseSummary;
+}
+
+/**
+ * Parse every non-blank line of `input` as its own candidate message. Blank /
+ * whitespace-only lines are skipped (and don't count toward totals) but line
+ * numbers stay faithful to the source so failures are easy to locate. Pure: the
+ * only ambient input is `options.now` (used for the resolved reset countdown),
+ * which defaults inside the core parser when omitted — pass it for deterministic
+ * tests.
+ */
+export function buildBatchParseReport(input: string, options: { tool?: AgentTool; now?: Date } = {}): BatchParseResult {
+  const adapter = resolveAdapter({ tool: options.tool });
+  const entries: BatchParseEntry[] = [];
+  const patternCounts = new Map<string, number>();
+  let matched = 0;
+
+  const lines = input.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const text = lines[i].trim();
+    if (text === "") continue;
+    const report = buildParseReport(text, { tool: options.tool, now: options.now });
+    entries.push({ line: i + 1, text, report });
+    if (report.matched) {
+      matched++;
+      if (report.pattern) patternCounts.set(report.pattern, (patternCounts.get(report.pattern) ?? 0) + 1);
+    }
+  }
+
+  const total = entries.length;
+  const byPattern = [...patternCounts.entries()]
+    .map(([pattern, count]) => ({ pattern, count }))
+    .sort((a, b) => b.count - a.count || a.pattern.localeCompare(b.pattern));
+
+  return {
+    entries,
+    summary: {
+      tool: adapter.tool,
+      total,
+      matched,
+      unmatched: total - matched,
+      matchRate: total === 0 ? null : matched / total,
+      byPattern,
+    },
+  };
+}
+
+function formatRate(rate: number | null): string {
+  if (rate === null) return "n/a";
+  return `${Math.round(rate * 100)}%`;
+}
+
+/**
+ * Render a batch result as a human-readable block: one line per parsed message
+ * (✓/· marker, line number, pattern, reset countdown, truncated text) followed
+ * by a summary footer and a per-pattern breakdown. Pure: no I/O, `now` only
+ * feeds the countdown; `color` gates ANSI codes.
+ */
+export function renderBatchParseReport(
+  result: BatchParseResult,
+  options: { now?: number; color?: boolean } = {}
+): string {
+  const color = options.color ?? false;
+  const now = options.now ?? Date.now();
+  const { entries, summary } = result;
+
+  if (entries.length === 0) {
+    return paint(YELLOW, "No messages to parse (input was empty or blank).", color);
+  }
+
+  const lines: string[] = [];
+  for (const entry of entries) {
+    const preview = entry.text.length > 60 ? `${entry.text.slice(0, 57)}...` : entry.text;
+    if (entry.report.matched) {
+      const countdown = formatCountdown(entry.report.resetAt, now);
+      lines.push(
+        `${paint(GREEN, "✓", color)} ${paint(DIM, `L${entry.line}`, color)} ` +
+          `${paint(BOLD, entry.report.pattern ?? "?", color)} ` +
+          `${paint(DIM, `resets in ${countdown}`, color)}`
+      );
+    } else {
+      lines.push(
+        `${paint(YELLOW, "·", color)} ${paint(DIM, `L${entry.line}`, color)} ${paint(DIM, "no match", color)}`
+      );
+    }
+    lines.push(paint(DIM, `    ${JSON.stringify(preview)}`, color));
+  }
+
+  lines.push("");
+  lines.push(
+    `${paint(BOLD, "Summary:", color)} ${summary.total} message(s) · ` +
+      `${paint(GREEN, `${summary.matched} matched`, color)} (${formatRate(summary.matchRate)}) · ` +
+      `${summary.unmatched} unmatched ${paint(DIM, `(adapter: ${summary.tool})`, color)}`
+  );
+  if (summary.byPattern.length > 0) {
+    lines.push(paint(BOLD, "By pattern:", color));
+    for (const stat of summary.byPattern) {
+      lines.push(`  ${stat.pattern.padEnd(24)} ${paint(DIM, String(stat.count), color)}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Render a batch result as JSON (machine-readable). Each entry carries its line
+ * number, text, the full report and `resetInMs`; the summary carries the totals
+ * and per-pattern breakdown. Pure aside from `now` defaulting.
+ */
+export function renderBatchParseReportJson(result: BatchParseResult, options: { now?: number } = {}): string {
+  const now = options.now ?? Date.now();
+  return JSON.stringify(
+    {
+      summary: result.summary,
+      entries: result.entries.map((entry) => ({
+        line: entry.line,
+        text: entry.text,
+        ...reportToJson(entry.report, now),
+      })),
+    },
+    null,
+    2
+  );
 }
