@@ -1805,3 +1805,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
   대시보드 롤업에 정렬/필터 상호작용, `stats --group-by` 요약(성공률/해결시간)의 대시보드 노출.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 58 — 파서: "at" 없는 리셋 시각 문구 인식] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-l8ef3z`)
+- **배경:** BACKLOG의 명시적 👷 항목은 세션 57까지 전부 완료([x])이고, 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐이라 CLAUDE.md 지침("백로그가 비면 스스로 새
+  개선 항목을 발굴")대로 신규 👷 항목을 발굴했다. 실증: 실제 빌드 파서로 `5-hour limit reached ∙
+  resets 3pm`·`resets 3:30pm`·`usage limit resets 5am`을 넣어보니 **셋 다 null**(미감지) — Claude
+  Code의 컴팩트 상태줄이 "at"을 생략하는데 파서가 이를 못 잡는 실사용 갭을 확인.
+- **한 일 (branch `claude/wizardly-pascal-l8ef3z`):** `packages/core/src/parser.ts`의 clock 계열 패턴에서
+  `at`을 선택적으로.
+  - `clock-time`(`\d{1,2}:\d{2}`)·`clock-time-meridiem`(`\d{1,2}(am|pm)`) 정규식에서 `\s+at\s+`를
+    `\s+(?:at\s+)?`로 완화. 콜론 또는 meridiem이 있는 형식만 매치하므로 "at" 없이도 모호하지 않고,
+    바닥 `resets 5`(콜론·meridiem 둘 다 없음)는 여전히 미매치 → 오탐 방지 가드 유지.
+  - pre-filter `LOOKS_LIKE_RATE_LIMIT`를 `resets?\s+(at|in)` → `resets?\s+(at|in|\d)`로 확장. 이게
+    없으면 `5-hour limit reached ∙ resets 3pm`은 게이트조차 못 넘어 패턴 실행 자체가 안 됐다. 숫자를
+    허용해도 실제 시각이 아닌 값은 clock 패턴이 계속 거부하므로 안전.
+  - `packages/core/test/parser.test.ts`에 회귀 4케이스: `resets 3pm`(clock-time-meridiem)·`resets
+    3:30pm`(clock-time)·`resets 15:00`(24h clock-time)·바닥 `resets 5` 거부. 새 CLI 코드 0줄.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test` 전 패키지
+  통과(core 553→557, cli 294/1skip). **실제 빌드 CLI e2e**(mock 아님): `node packages/cli/dist/bin.js
+  parse "5-hour limit reached ∙ resets 3pm" --json`→ matched:true·pattern:clock-time-meridiem·resetAt
+  15:00, `parse "… resets 3:30pm"`→ clock-time, 바닥 `parse "Rate limit hit ∙ resets 5."`→ 미감지(오탐
+  없음)를 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 개선 후보 —
+  요일 포함 주간 리셋(`resets Thu 9am`) 인식, standalone `5-hour limit reached`(리셋 시각 문구 없이도
+  five-hour-window-fallback이 실제로 발화하도록 pre-filter 보강). README/ARCHITECTURE(🧭 코워크).
