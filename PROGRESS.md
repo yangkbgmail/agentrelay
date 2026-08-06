@@ -1774,3 +1774,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). watch 계열 조회 명령 완성 → 후속은
   인접 신규 항목 발굴(예: 대시보드에 프로젝트/툴 롤업 노출, `stats --watch`의 `--group-by/--trend` 조합
   라이브 뷰 폴리시). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 57 — `agentrelay next --watch` 한 줄 라이브 카운트다운] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-85n39a`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 51~56이 watch 계열을 전체 테이블 조회 명령(status/upcoming/
+  overdue/tools/projects/stats)에 확장 완료했는데, 한 줄 요약 명령 `next`(세션 lgawzr, PR #64)만
+  라이브 뷰가 빠져 있었다. `next`는 "다음 재개 잡 하나 + 카운트다운"을 한 줄로 내는 스크립트/상태바
+  친화 명령이라, 오히려 tmux/셸 상태바에 라이브로 박아두기 딱 좋은데도 카운트다운이 줄어드는 걸 보려면
+  반복 실행해야 했다. watch 계열을 한 줄 명령까지 마저 확장했다.
+- **한 일 (branch `claude/wizardly-pascal-85n39a`):** `agentrelay next --watch [seconds]` — 세션 12·52의
+  `startWatchLoop`/watch-frame 인프라 재사용.
+  - CLI `next.ts`에 순수 `renderNextWatchFrame(next, storePath, intervalMs, now)` 신설: `status`/`stats`/
+    `tools`/`projects --watch`와 동일한 title/meta 라이브 배너(타임스탬프·스토어 경로)로 `renderNext` 한
+    줄 본문을 감싼다. 형제들이 테이블을 감싸는 자리에 여기선 한 줄을 감싸 상태바/tmux 위젯이 된다.
+    순수 함수라 TTY/시계 없이 테스트 가능, 본문은 항상 컬러(watch 루프는 라이브 터미널에서만 돎).
+  - CLI `cli.ts`: 공용 `startWatchLoop`을 재사용하는 `runNextWatch`(매 프레임 스토어 재읽기 +
+    `selectNextResume`를 fresh `now`로 재계산 → 카운트다운 live·데몬 쓰기[잡 재개·새 rate-limit] 반영·
+    화면 clear `\x1b[2J\x1b[H`).
+  - `next` 커맨드에 `-w, --watch [seconds]` 옵션 배선: `--json`(일회성 기계 덤프)과 `--exit-code`(일회성
+    스크립트 분기) 둘 다 `--watch`보다 우선 — watch는 스스로 종료하지 않으므로 두 일회성 모드를 먼저
+    처리. 인터벌 기본 2s, addHelpText 예시 3줄. completion은 라이브 프로그램 파생이라 `--watch`/`-w`
+    자동 포함. 새 파서/스케줄러/core 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli 298/1skip + dashboard 7; cli next 8→12, watch-frame 4케이스 신규[배너 wrap·초
+  반올림·idle 메시지·컬러]). 빌드된 실제 CLI e2e(mock 아님): 2-잡 임시 스토어(web-app 대기 1[리셋 1h 30m]/
+  api-svc 완료 1)로 `next --watch 1`(화면 clear·라이브 배너·타임스탬프·스토어 경로·컬러 한 줄 카운트다운
+  "1h 30m", timeout으로 2프레임·exit 0), 일회성 `next` 불변, `next --watch --json`(JSON 우선·즉시 종료),
+  `next --watch --exit-code`(일회성 우선·exit 3, watch 루프 안 돎), `--help`·completion에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). watch 계열이 조회 명령 전반(테이블 6종
+  + 한 줄 `next`)으로 완성 → 후속은 인접 신규 항목 발굴(예: 대시보드에 프로젝트/툴 롤업·다음 재개 위젯
+  노출, `errors`/`metrics` 라이브 뷰). README/ARCHITECTURE(🧭 코워크).

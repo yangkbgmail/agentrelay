@@ -1,6 +1,6 @@
 import type { NextResume, RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_PENDING_MESSAGE, renderNext, renderNextJson } from "../src/next.js";
+import { NO_PENDING_MESSAGE, renderNext, renderNextJson, renderNextWatchFrame } from "../src/next.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -84,5 +84,37 @@ describe("renderNextJson", () => {
     expect(parsed.next.due).toBe(true);
     expect(parsed.next.dueInMs).toBe(-500);
     expect(parsed.next.waitingBehind).toBe(0);
+  });
+});
+
+describe("renderNextWatchFrame", () => {
+  it("wraps the next-resume line in the live banner (title + meta + body)", () => {
+    const frame = renderNextWatchFrame(next(), "/tmp/store.json", 2000, NOW);
+    const lines = frame.split("\n");
+    expect(lines[0]).toContain("agentrelay next");
+    expect(lines[0]).toContain("live, every 2s");
+    // meta line carries the timestamp and store path
+    expect(lines[1]).toContain("2026-07-13 00:00:00Z");
+    expect(lines[1]).toContain("/tmp/store.json");
+    // blank spacer, then the same one-line body renderNext produces
+    expect(lines[2]).toBe("");
+    expect(frame).toContain("resets in");
+    expect(frame).toContain("demo");
+  });
+
+  it("rounds the interval to whole seconds in the banner", () => {
+    const frame = renderNextWatchFrame(next(), "/tmp/store.json", 5000, NOW);
+    expect(frame).toContain("live, every 5s");
+  });
+
+  it("renders the idle message when nothing is waiting", () => {
+    const frame = renderNextWatchFrame(null, "/tmp/store.json", 2000, NOW);
+    expect(frame).toContain(NO_PENDING_MESSAGE);
+    expect(frame).toContain("agentrelay next");
+  });
+
+  it("colors the body (the loop only runs on a live terminal)", () => {
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting ANSI escape presence
+    expect(renderNextWatchFrame(next(), "/tmp/store.json", 2000, NOW)).toMatch(/\x1b\[/);
   });
 });
