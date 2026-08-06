@@ -1805,3 +1805,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
   대시보드 롤업에 정렬/필터 상호작용, `stats --group-by` 요약(성공률/해결시간)의 대시보드 노출.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 58 — `agentrelay stats --by-hour` 시간대별 활동 히스토그램] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-bx1hox`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/
+  ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md 지침대로 인접 개선 항목을 신규 발굴 —
+  기존 `stats --trend`는 **일별**(calendar day) 축으로 "언제 바빴나"를 보여주지만 "하루 안에서
+  어느 시간대에 rate-limit이 몰리나"는 안 보였다. 그 시간대(hour-of-day) 축을 채우는 `--by-hour`를
+  구현. 이미 검증된 `computeDailyTrend`/`renderTrend` 패턴을 미러링하는 저위험 순수-로직 추가.
+- **한 일 (branch `claude/wizardly-pascal-bx1hox`):**
+  - `packages/core/src/stats.ts`: 순수 `computeHourlyActivity(jobs)` + `HourlyActivity`{hour,count} 신설.
+    `createdAt`을 `getUTCHours()`로 버킷팅해 모든 날짜에 걸쳐 집계, 항상 24슬롯(hour 0 first) zero-fill,
+    파싱 불가/누락 `createdAt`은 스킵. `computeDailyTrend`와 달리 시각은 타임스탬프 고유 속성이라
+    주입 clock이 아예 불필요(더 순수).
+  - `packages/cli/src/stats.ts`: 순수 `renderHourly`(`renderTrend` 미러 — busiest 시간 기준 바 스케일,
+    빈 시간은 dim 베이스라인 dot, "HH:00" 고정폭 라벨, 푸터 total) + `renderStatsJson`에 optional
+    `hourly` 필드(요청 시에만 방출, 기본 JSON shape 불변).
+  - `packages/cli/src/cli.ts`: `stats`에 `--by-hour` 플래그 배선. `--trend`와 공존(둘 다 렌더),
+    스코프 필터(`--status/--tool/--project/--since/--until`)·`--watch` 전부에 적용(`runStatsWatch`에
+    `byHour` 인자 추가). 스코프가 스토어를 비우면 히스토그램 생략(renderStats no-match 위임).
+  - 새 알림/스케줄러/파일I/O 코드 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test` 전 패키지 통과
+  (core stats +4, cli stats 25→31). **실제 빌드 CLI e2e**(mock 아님): 임시 스토어(web 09시×2 완료 +
+  api 22시 실패)로 `AGENTRELAY_STORE` 지정해 `stats --by-hour`가 09:00=2·22:00=1 버킷을 정확히 그리고,
+  `--json`이 hourly[9]={hour:9,count:2}·hourly[22]={hour:22,count:1} 24슬롯 반환, `--trend 3 --by-hour`가
+  두 히스토그램 공존, `--tool codex-cli` 스코프가 22시 1건만, 빈 스코프(`--project nonexistent`)는
+  히스토그램 생략을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
+  `--by-hour`의 대시보드 노출, `stats --group-by` 요약의 대시보드 노출, 로컬 요일(day-of-week)
+  히스토그램. README/ARCHITECTURE(🧭 코워크).
