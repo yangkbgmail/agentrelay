@@ -703,6 +703,27 @@
       실제 빌드 CLI e2e로 화면 clear·라이브 배너·1h30m 카운트다운·group-by --watch·--json 우선·--status
       bogus exit 1·help/completion `--watch` 노출 검증. branch `claude/wizardly-pascal-stats-watch`)
 
+- [x] 👷 `agentrelay recent` — 최근 해결된(completed/failed/cancelled) 잡을 최신순으로, 각 잡이 얼마나
+      전에 끝났고(resolved N ago) 릴레이가 얼마나 오래 돌봤는지(took)와 함께 조회. `next`/`upcoming`/
+      `overdue`가 **앞을 보는**(대기·지연) 뷰라면, `recent`는 그 거울인 **뒤돌아보는** 해결-활동 피드 —
+      "릴레이가 방금 무엇을 끝냈나?"에 답한다.
+      (완료 — `@agentrelay/core/recent.ts` 신설(순수·파일시스템/시계 미접촉): `buildRecentActivity(jobs,
+      now, {limit?, outcomes?})` + `RecentEntry`(outcome·resolvedAtMs·resolvedAgoMs·resolutionMs·position)·
+      `RecentActivity`(entries·totalResolved·hidden·byOutcome)·`ResolvedOutcome`. 종료 상태(completed/
+      failed/cancelled)이면서 파싱 가능한 `updatedAt`을 가진 잡만 골라 **가장 최근 해결 순**(최신 resolvedAt→
+      최신 createdAt→id desc tie-break)으로 정렬 — `upcoming`이 파싱 불가 `resetAt`을 버리듯 파싱 불가
+      `updatedAt`은 타임라인에 못 놓아 제외. `resolutionMs`(=updatedAt−createdAt)는 `stats`의 해결시간
+      정책과 동일하게 파싱 불가·음수 span(클럭 스큐)이면 null, `resolvedAgoMs`는 미래 updatedAt이면 0
+      클램프. `outcomes`로 하위집합 필터(비종료 상태는 무시), `limit`로 잘라도 totals/byOutcome는 전체 반영,
+      입력 불변. CLI `packages/cli/src/recent.ts`에 순수 `renderRecent`(표: #·id·project·outcome[상태색]·
+      "N ago"·took·per-outcome 푸터·no-match 문구)·`renderRecentJson`·`renderRecentWatchFrame`(status/
+      upcoming/overdue와 동일 라이브 배너). `agentrelay recent [--limit/-n][--status/-s][--tool/-t][--project/-p]
+      [--since][--until][--json][--watch/-w]` — 공용 `buildScope`(--status로 outcome 필터)·`runRecentWatch`
+      (매 프레임 스토어 재읽기·fresh now로 span live)·completion 자동 포함. 새 파서/스케줄러 로직 0줄.
+      core recent 13 + cli recent 12 신규 테스트, 실제 빌드 CLI e2e로 정렬·per-outcome 푸터·--limit 은닉·
+      --status/--project 스코프·--json·--limit 0/--status bogus exit 1·--watch 화면 clear·completion·help
+      검증. branch `claude/wizardly-pascal-euj32e`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -14,6 +14,7 @@ import type {
 import {
   ALL_TOOLS,
   buildOverdueReport,
+  buildRecentActivity,
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
@@ -82,6 +83,7 @@ import { buildParseReport, renderParseReport, renderParseReportJson } from "./pa
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
+import { renderRecent, renderRecentJson, renderRecentWatchFrame } from "./recent.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
   renderGroupedStats,
@@ -382,6 +384,29 @@ function runOverdueWatch(
     const jobs = active ? scopeJobs(all, window) : all;
     const report = buildOverdueReport(jobs, now, { graceMs, limit });
     const frame = renderOverdueWatchFrame(report, store, intervalMs, now, scopeNote);
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
+ * Live `agentrelay recent --watch`: clears the screen and re-renders the
+ * resolved-activity feed on an interval so the "resolved N ago" spans grow in
+ * place. Like the other watch loops, `listStatus` re-reads the JSON store each
+ * pass (so newly-resolved jobs surface automatically as a daemon works through
+ * the queue) and the `--status`/`--tool`/`--project`/`--since`/`--until` scope
+ * plus `--limit` are re-applied every frame. `buildRecentActivity` is rebuilt
+ * with a fresh `now` each pass so the spans stay live; the time-window
+ * boundaries stay fixed (absolute epoch-ms from when the command started). Runs
+ * until interrupted (Ctrl-C).
+ */
+function runRecentWatch(store: string, intervalMs: number, window: JobScope, limit?: number, scopeNote?: string): void {
+  const active = isJobScopeActive(window);
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const all = listStatus(store);
+    const jobs = active ? scopeJobs(all, window) : all;
+    const feed = buildRecentActivity(jobs, now, { limit });
+    const frame = renderRecentWatchFrame(feed, store, intervalMs, now, scopeNote);
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
 }
@@ -882,6 +907,81 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderOverdue(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
+    });
+
+  program
+    .command("recent")
+    .description("Show recently resolved jobs (completed/failed/cancelled), most recent first, with how long each took")
+    .option("-w, --watch [seconds]", "Continuously refresh the feed with live 'resolved N ago' spans (Ctrl-C to exit)")
+    .option("-n, --limit <n>", "Show at most N rows (the totals still count all resolved jobs)")
+    .option("-s, --status <statuses>", "Only include jobs with these comma-separated statuses (e.g. failed,cancelled)")
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--json", "Print the feed as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # what did the relay just finish?\n" +
+        "  agentrelay recent\n" +
+        "  # the last 5 failures\n" +
+        "  agentrelay recent --status failed --limit 5\n" +
+        "  # feed the outcomes to jq\n" +
+        "  agentrelay recent --json | jq '.feed.entries[] | {id: .job.id, outcome}'\n" +
+        "  # live feed, refreshing every 2s\n" +
+        "  agentrelay recent --watch"
+    )
+    .action((opts: ScopeOpts & { limit?: string; json?: boolean; watch?: string | boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const scopeNote = built.active ? built.note : undefined;
+
+      // Live view: validate flags above (limit/scope) first so a bad value still
+      // exits 1 instead of spinning a broken watch loop. --json takes precedence
+      // over --watch (a one-shot machine dump, not a live TTY view).
+      if (opts.watch !== undefined && !opts.json) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        runRecentWatch(store, intervalMs, built.scope, limit, scopeNote);
+        return; // setInterval keeps the process alive.
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const feed = buildRecentActivity(jobs, now, { limit });
+
+      if (opts.json) {
+        console.log(
+          renderRecentJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            feed,
+          })
+        );
+        return;
+      }
+      console.log(renderRecent(feed, { color: Boolean(process.stdout.isTTY), scopeNote }));
     });
 
   program
