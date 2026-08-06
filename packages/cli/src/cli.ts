@@ -75,7 +75,7 @@ import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } fr
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderHealth, renderHealthJson } from "./health.js";
-import { renderNext, renderNextJson } from "./next.js";
+import { renderNext, renderNextJson, renderNextWatchFrame } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "./overdue.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
@@ -326,6 +326,24 @@ function runWatch(store: string, intervalMs: number, selection: JobSelection, wi
     const selected = selectJobs(windowed, selection);
     const frame = renderWatchFrame(selected, store, intervalMs, Date.now(), limit);
     // Clear screen + move cursor home, then paint the frame.
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
+ * Live `agentrelay next --watch`: clears the screen and re-renders the single
+ * next-resume one-liner on an interval so its countdown ticks down in place —
+ * handy pinned in a tmux pane or status bar. Like the other watch loops,
+ * `listStatus` re-reads the JSON store each pass (a running daemon's writes show
+ * up automatically, and a resumed job hands off to the next one) and
+ * `selectNextResume` is recomputed with a fresh `now` each frame. Runs until the
+ * process is interrupted (Ctrl-C).
+ */
+function runNextWatch(store: string, intervalMs: number): void {
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const next = selectNextResume(listStatus(store), now);
+    const frame = renderNextWatchFrame(next, store, intervalMs, now);
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
 }
@@ -693,13 +711,35 @@ export function buildCli(): Command {
   program
     .command("next")
     .description("Show the single job the relay will resume next and how long until it's due")
+    .option("-w, --watch [seconds]", "Continuously refresh the one-liner with a live countdown (Ctrl-C to exit)")
     .option("--json", "Print as JSON (machine-readable, for scripts/jq)")
     .option(
       "--exit-code",
       "Reflect state in the exit code (0 = a job is due now, 3 = pending but not yet due, 4 = nothing waiting)"
     )
-    .action((opts: { json?: boolean; exitCode?: boolean }) => {
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # what resumes next, and in how long?\n" +
+        "  agentrelay next\n" +
+        "  # live countdown for a tmux pane / status bar\n" +
+        "  agentrelay next --watch\n" +
+        "  # only poke the relay when something is actually due\n" +
+        "  agentrelay next --exit-code && agentrelay tick"
+    )
+    .action((opts: { json?: boolean; exitCode?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
+
+      // Live view: a one-shot machine dump (--json) or a scripted exit-code
+      // check are both single-shot by nature, so they take precedence over the
+      // never-returning watch loop.
+      if (opts.watch !== undefined && !opts.json && !opts.exitCode) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        runNextWatch(store, intervalMs);
+        return; // setInterval keeps the process alive.
+      }
+
       const next = selectNextResume(listStatus(store));
 
       if (opts.json) {

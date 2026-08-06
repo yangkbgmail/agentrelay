@@ -1805,3 +1805,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
   대시보드 롤업에 정렬/필터 상호작용, `stats --group-by` 요약(성공률/해결시간)의 대시보드 노출.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 58 — agentrelay next --watch (카운트다운-watch 패밀리 완성)] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-lxnbm1`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x])이고, 남은 미완은 🧭 코워크 소유(README/
+  ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. 신규 👷 항목을 발굴하며, 세션 55·56이 제안한 후보(파서
+  헤더 인식·대시보드 stats 노출)를 검토했다. 파서 쪽 후보(`anthropic-ratelimit-*-reset` 헤더)는
+  claude-api 스킬을 확인한 결과 Anthropic 429가 실제로 노출하는 건 `retry-after`(이미 파서가 처리)와
+  `x-ratelimit-*`(한도/잔량, 리셋 타임스탬프 아님)뿐이라 근거 없는 추측이 될 위험(🧭의 "실제 샘플 수집"
+  영역과도 겹침)이라 보류. 대신 **근거가 확실하고 순수·테스트 가능한** CLI 기능을 골랐다: watch 계열
+  (status/upcoming/overdue/tools/projects/stats)에서 카운트다운을 가진 채 유일하게 `--watch`가 없던
+  `next`를 확장.
+- **한 일 (branch `claude/wizardly-pascal-lxnbm1`):** `agentrelay next --watch [seconds]` — 다음 재개
+  잡 한 줄(카운트다운)을 라이브로 갱신(tmux 페인·상태바 친화).
+  - `packages/cli/src/next.ts`: 순수 `renderNextWatchFrame(next, storePath, intervalMs, now)` 신설 —
+    `upcoming`/`stats` watch-frame와 동일 title/meta 라이브 배너 + 항상 컬러인 `renderNext` 한 줄 본문.
+  - `packages/cli/src/cli.ts`: 세션 52가 추출한 공용 `startWatchLoop`을 재사용하는 `runNextWatch`
+    (매 프레임 스토어 재읽기 + fresh `now`로 `selectNextResume` 재계산 → 카운트다운 live·화면 clear).
+    `next`에 `-w, --watch [seconds]` 배선: `--json`(일회성 기계 덤프)·`--exit-code`(스크립트용 일회성
+    검사)가 모두 `--watch`보다 우선, 인터벌 기본 2s, addHelpText 예시 3줄. 새 파서/스케줄러/core 로직 0줄.
+  - `packages/cli/test/next.test.ts`: renderNextWatchFrame 3케이스(pending countdown·due now·no-pending)
+    신규(8→11).
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(cli 294→297, 1 skip). **실제 빌드 CLI e2e**(mock 아님): 임시 스토어(web-app 대기1
+  [리셋 90m]/api-svc 대기1[리셋 120m]/done-proj 완료1)로 `next --watch 5`를 1초 후 SIGINT → 화면
+  clear(`\x1b[2J\x1b[H`)·라이브 배너("live, every 5s — Ctrl-C to exit")·스탬프+스토어경로·`aaaa1111
+  web-app resets in 1h 30m` 컬러 카운트다운·"1 more job waiting behind it." 확인. `--json`은 일회성
+  JSON 덤프로 exit 0, `--exit-code`는 일회성 exit 3(대기·미도래)로 둘 다 `--watch`보다 우선함을 확인.
+  `next --help`·`completion bash` 모두 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
+  대시보드에 `stats` 집계(성공률/해결시간/재시도) 노출, 대시보드 롤업 정렬/필터 상호작용.
+  README/ARCHITECTURE(🧭 코워크).
