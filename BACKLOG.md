@@ -703,6 +703,18 @@
       실제 빌드 CLI e2e로 화면 clear·라이브 배너·1h30m 카운트다운·group-by --watch·--json 우선·--status
       bogus exit 1·help/completion `--watch` 노출 검증. branch `claude/wizardly-pascal-stats-watch`)
 
+- [x] 👷 파서: 주(week) 단위 상대 시간 인식 (`try again in 1 week` / `resets in 1w 3d`) — Claude
+      주간 사용량 제한(weekly usage limit) 문구 대응.
+      (완료 — `relative-duration` 패턴이 일/시/분은 인식했지만 주 단위가 없어 "try again in 1 week"·
+      "resets in 2 weeks"·"resets in 1w 3d" 같은 Claude 주간 리셋 문구가 모두 null로 떨어졌다(week가
+      d/h/m 유닛에 매칭 안 돼 전 그룹이 빈 매치 → resolve가 0). `parser.ts`의 정규식 맨 앞에 선택적
+      week 그룹 `(?:(\d+)\s*w(?:eeks?)?)?\s*`를 유닛 순서 largest→smallest(w→d→h→m)로 추가하고,
+      resolve를 `(((weeks*7 + days)*24 + hours)*60 + minutes)`로 확장. week 그룹은 뒤에 'w' 유닛이
+      올 때만 매칭돼 days-only/minutes-only 파싱을 삼키지 않음(무회귀). 파서 이외 core/스케줄러 로직
+      0줄. parser.test.ts에 6케이스 신규(1 week/2 weeks/1w 3d/full 1w 2d 3h 4m 체인/days-only 무회귀/
+      minutes 오인 방지), 빌드된 실제 CLI `parse`로 1 week→7d·1w 3d→10d·2 days 무회귀 e2e 검증.
+      branch `claude/wizardly-pascal-wyqolv`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
