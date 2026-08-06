@@ -1805,3 +1805,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
   대시보드 롤업에 정렬/필터 상호작용, `stats --group-by` 요약(성공률/해결시간)의 대시보드 노출.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 58 — `agentrelay parse --file/--batch` 코퍼스 회귀 테스터] (2026-08-06, 무인 자율 세션)
+- 배경: 세션 시작 시 열린 PR 0개, main=현재 브랜치 동일(중복/누적 없음). BACKLOG의 👷 항목은
+  전부 완료 상태(watch 계열·대시보드 롤업까지)라, CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다 —
+  `parse`는 메시지 한 건만 진단해, 수집한 rate-limit 문구 묶음을 파서에 통째로 돌려 검증할 방법이 없었다.
+  🧭 미완 항목 "실제 rate-limit 메시지 샘플 수집→파서 패턴 보강 제안"을 실제로 굴릴 도구가 없던 갭.
+- 한 일 (branch `claude/wizardly-pascal-nar57h`): **`agentrelay parse` 배치/코퍼스 모드**.
+  - `packages/cli/src/parse.ts`에 순수 `buildBatchParseReport(input, {tool?,now?})` — 비어있지 않은
+    각 줄을 개별 후보 메시지로 파싱(공백/빈 줄 스킵하되 **원본 줄 번호 유지**해 실패 위치 추적 용이),
+    `total`/`matched`/`unmatched`/`matchRate`(total 0이면 null) + `byPattern`(count desc·이름 asc 랭킹,
+    projects/patterns 랭킹 관례 일치) 집계. 기존 `buildParseReport`/`resolveAdapter` 재사용(새 파서 0줄).
+  - `renderBatchParseReport`(줄별 ✓/· 마커·패턴·리셋 카운트다운·잘린 미리보기 + 요약 푸터 +
+    per-pattern 브레이크다운, color 게이트)·`renderBatchParseReportJson`(summary + entries[line/text/
+    report/resetInMs]) 추가. 기존 `renderParseReportJson`은 공용 `reportToJson` 헬퍼로 리팩터(동작 불변).
+  - `cli.ts` `parse`에 `-f/--file <path>`(디스크 코퍼스, 못 읽으면 exit 1)·`--batch`(인자/stdin을 줄
+    단위로)·`--strict`(미매칭 1건이라도 있으면 exit 1 — 파서 변경 회귀 게이트) 배선 + 예시 4줄
+    addHelpText. 빈/공백 입력은 exit 1, `--json`은 배치에도 적용, 단일 메시지 모드는 그대로(하위호환),
+    completion 자동 포함. `node:fs` `readFileSync` import 추가.
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·
+  `pnpm test` **863개 전부 통과**(core 553 + cli 301/1skip + dashboard 9 — cli parse.test에 batch
+  8케이스 신규: 줄번호 유지·랭킹·툴 어댑터·빈 입력·렌더·JSON). **실제 빌드된 CLI e2e**(mock 아님):
+  6줄 코퍼스 파일(iso/relative/clock-meridiem 매치 + 빈 줄/공백/무매치 섞음) → `--file`이 매치율 80%
+  (4/5)·per-pattern 랭킹 렌더, `--file --strict`는 미매칭 1건에 exit 1, `--batch`로 grep 파이프(stdin)
+  파싱, 빈 코퍼스·못 읽는 파일 exit 1, 단일 메시지 모드 그대로 동작 확인.
+- 다음 할 일: 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
+  `parse --batch`에 미지 포맷을 리포트해 파서 개선 후보를 제안하는 `--suggest` 모드,
+  `errors --watch`(watch 계열 미확장 유일 조회 명령). README/ARCHITECTURE(🧭 코워크).
