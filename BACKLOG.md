@@ -721,6 +721,20 @@
       정확히 반환(랭킹·nextResetAt)하고, 사전설치 Chromium 헤드리스 렌더로 클라이언트 폴링 후 `By project`/
       `By tool` 카드·라벨·1h 28m 카운트다운이 실제로 그려짐을 e2e 확인. branch `claude/wizardly-pascal-wip07r`)
 
+- [x] 👷 파서: bare-"wait" + 기간 표현(`Please wait 30 minutes`) 인식 — "in" 없는 대기 문구.
+      (완료 — 기존 `relative-duration` 패턴은 `try again|resets|retry` **뒤에 "in"**이 와야만 매칭돼
+      `Claude usage limit reached. Please wait 30 minutes and try again.` 같은 매우 자연스러운 rate-limit
+      문구가 통째로 null이었다("and try again"은 "try again *in* …"이 아니라 도움 안 됨). `parser.ts`에
+      `wait-duration` 패턴 추가 — `wait` 뒤 선택적 lead-in(`for`/`another`/`about`/`approximately`/`~`)을
+      삼키고 `Nd Nh Nm` 기간을 `relative-duration`과 동일 계산으로 해석. **일반 pre-filter를 통해서만**
+      도달하게 둬(= 주변 텍스트가 이미 rate-limit처럼 보여야 함) `wait 5 minutes for the build` 같은 무관한
+      로그가 리셋 시각으로 오인돼 잡을 잘못 재큐잉하는 false positive를 방지(놓침보다 나쁨). 새 패턴 이름은
+      `patterns`/adapters가 동적 집계하므로 하드코딩 레지스트리 수정 0. parser test +6(대기30분·wait for 2h·
+      wait about 1h30m·기간없는 'wait a moment' null·pre-filter 미통과 로그 null·`resets in`이 wait보다
+      우선). 검증: `pnpm build` 클린·`pnpm ci:lint` 0경고·`pnpm test` 전 패키지 통과(core parser 33→39,
+      559 total). 실제 빌드 CLI `agentrelay parse "…please wait 30 minutes…"` e2e로 `pattern: wait-duration`·
+      `matched: "wait 30 minutes"`·`in 30m` 확인. branch `claude/wizardly-pascal-qx6ojd`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -102,6 +102,35 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // "Please wait 30 minutes" / "wait for 2 hours" / "wait about 1h30m" —
+    // the bare-"wait" phrasing that carries a duration but NOT the "in" the
+    // relative-duration pattern above requires ("wait 30 minutes", not "wait
+    // *in* 30 minutes"). This is a very natural way rate-limit notices are worded
+    // ("Claude usage limit reached. Please wait 30 minutes and try again.") and,
+    // without this, that whole message parses to nothing: relative-duration needs
+    // "try again *in* …", so a trailing "and try again" doesn't help it.
+    //
+    // Deliberately reached ONLY through the generic pre-filter — "wait" alone is
+    // far too common in ordinary CLI output to treat as rate-limit-y, so the
+    // surrounding text must already look like a rate-limit message (contain
+    // "usage limit"/"rate limit"/"try again"/"resets"/"retry after") before this
+    // pattern gets a chance. That keeps a stray "wait 5 minutes for the build" in
+    // unrelated logs from being misread as a reset instant (a false positive here
+    // wrongly re-queues a job, which is worse than a miss). An optional lead-in
+    // ("for"/"another"/"about"/"approximately"/"~") is swallowed so it doesn't
+    // sit between "wait" and the number.
+    name: "wait-duration",
+    regex:
+      /wait\s+(?:(?:for|another|about|approximately)\s+|~\s*)?(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
+    resolve: (m, now) => {
+      const days = m[1] ? parseInt(m[1], 10) : 0;
+      const hours = m[2] ? parseInt(m[2], 10) : 0;
+      const minutes = m[3] ? parseInt(m[3], 10) : 0;
+      if (days === 0 && hours === 0 && minutes === 0) return null;
+      return new Date(now.getTime() + ((days * 24 + hours) * 60 + minutes) * 60_000);
+    },
+  },
+  {
     // Unix epoch seconds embedded in structured error payloads, e.g.
     // `retry_after=1752345600`, `retry_after: 1752345600`, or the JSON form
     // `"retry_after": 1752345600`.

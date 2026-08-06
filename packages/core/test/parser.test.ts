@@ -249,4 +249,52 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("relative-duration");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
   });
+
+  it("parses the bare-'wait' phrasing with no 'in' (e.g. 'Please wait 30 minutes')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    // The trailing "and try again" would NOT satisfy relative-duration (it needs
+    // "try again *in* …"), so before wait-duration this whole message parsed to null.
+    const result = parseRateLimitMessage("Claude usage limit reached. Please wait 30 minutes and try again.", {
+      now,
+    });
+    expect(result?.pattern).toBe("wait-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
+
+  it("parses 'wait for 2 hours' with the optional 'for' lead-in", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit. You'll need to wait for 2 hours.", { now });
+    expect(result?.pattern).toBe("wait-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
+  it("parses a combined 'wait about 1h30m' with a fuzzy 'about' lead-in", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached — wait about 1h30m before retrying.", { now });
+    expect(result?.pattern).toBe("wait-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
+  });
+
+  it("does not treat a bare 'wait' with no duration as a reset time", () => {
+    // Rate-limit-y text (passes the pre-filter) but "wait a moment" has no
+    // parseable duration, so wait-duration must fall through to null.
+    expect(parseRateLimitMessage("Usage limit reached. Please wait a moment.")).toBeNull();
+  });
+
+  it("does not fire wait-duration on unrelated output that never trips the pre-filter", () => {
+    // "wait 5 minutes for the build" is ordinary log noise: with no rate-limit
+    // wording the generic pre-filter skips every pattern, wait-duration included.
+    expect(parseRateLimitMessage("Compiling… please wait 5 minutes for the build to finish.")).toBeNull();
+  });
+
+  it("still prefers the more specific 'resets in' relative-duration over wait-duration", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    // Both a "resets in 2h" and a "wait 30 minutes" appear; relative-duration is
+    // listed first, so the explicit reset window wins.
+    const result = parseRateLimitMessage("Usage limit reached. Resets in 2h — no need to wait 30 minutes.", {
+      now,
+    });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
 });
