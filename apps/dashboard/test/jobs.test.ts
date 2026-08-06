@@ -41,6 +41,46 @@ describe("readJobsSnapshot", () => {
     expect(snapshot.summary.nextResetAt).toBe("2099-01-01T00:00:00.000Z");
   });
 
+  it("returns empty project/tool rollups for an empty store", () => {
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.projects.total).toBe(0);
+    expect(snapshot.projects.projectCount).toBe(0);
+    expect(snapshot.projects.projects).toEqual([]);
+    expect(snapshot.tools.total).toBe(0);
+    expect(snapshot.tools.toolCount).toBe(0);
+    expect(snapshot.tools.tools).toEqual([]);
+  });
+
+  it("rolls jobs up by project and tool, mirroring the CLI summaries", () => {
+    const queue = new RelayQueue(storePath);
+    // proj-a: one waiting (claude-code), one completed (generic)
+    const a = queue.enqueue({ project: "proj-a", tool: "claude-code", command: ["claude", "-p", "hi"], cwd: dir });
+    queue.markWaitingForReset(a.id, "2099-01-01T00:00:00.000Z");
+    const b = queue.enqueue({ project: "proj-a", tool: "generic", command: ["echo", "done"], cwd: dir });
+    queue.markCompleted(b.id, "done");
+    // proj-b: one completed (claude-code)
+    const c = queue.enqueue({ project: "proj-b", tool: "claude-code", command: ["claude", "-p", "bye"], cwd: dir });
+    queue.markCompleted(c.id, "ok");
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+
+    // Projects: proj-a has the pending work so it ranks first (active desc).
+    expect(snapshot.projects.total).toBe(3);
+    expect(snapshot.projects.projectCount).toBe(2);
+    expect(snapshot.projects.projects.map((p) => p.project)).toEqual(["proj-a", "proj-b"]);
+    const projA = snapshot.projects.projects[0];
+    expect(projA).toMatchObject({ project: "proj-a", total: 2, active: 1, waiting: 1, terminal: 1 });
+    expect(projA.nextResetAt).toBe("2099-01-01T00:00:00.000Z");
+
+    // Tools: claude-code appears twice (one waiting), generic once.
+    expect(snapshot.tools.toolCount).toBe(2);
+    expect(snapshot.tools.tools.map((t) => t.tool)).toEqual(["claude-code", "generic"]);
+    const claude = snapshot.tools.tools[0];
+    expect(claude).toMatchObject({ tool: "claude-code", total: 2, active: 1, waiting: 1 });
+    expect(claude.nextResetAt).toBe("2099-01-01T00:00:00.000Z");
+  });
+
   it("survives a corrupt store file instead of crashing the API route", () => {
     writeFileSync(storePath, "{ not json !!", "utf8");
     const snapshot = readJobsSnapshot(storePath);

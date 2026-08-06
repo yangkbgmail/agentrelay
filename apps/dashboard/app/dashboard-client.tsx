@@ -1,6 +1,6 @@
 "use client";
 
-import type { HeartbeatStatus, JobStatus, RelayJob } from "@agentrelay/core";
+import type { HeartbeatStatus, JobStatus, ProjectBreakdown, RelayJob, ToolBreakdown } from "@agentrelay/core";
 import { useEffect, useState } from "react";
 import type { JobsSnapshot } from "../lib/jobs";
 
@@ -92,6 +92,88 @@ function ResumeLoopCard({ heartbeat }: { heartbeat: HeartbeatStatus | undefined 
   );
 }
 
+/**
+ * A single rollup row, flattened from either a {@link ProjectBreakdown} (keyed
+ * by project) or a {@link ToolBreakdown} (keyed by tool). Both core summaries
+ * share the same count/timing shape, so one renderer covers both axes.
+ */
+interface RollupRow {
+  label: string;
+  total: number;
+  active: number;
+  waiting: number;
+  terminal: number;
+  nextResetAt: string | null;
+}
+
+function projectRow(p: ProjectBreakdown): RollupRow {
+  return {
+    label: p.project,
+    total: p.total,
+    active: p.active,
+    waiting: p.waiting,
+    terminal: p.terminal,
+    nextResetAt: p.nextResetAt,
+  };
+}
+
+function toolRow(t: ToolBreakdown): RollupRow {
+  return {
+    label: t.tool,
+    total: t.total,
+    active: t.active,
+    waiting: t.waiting,
+    terminal: t.terminal,
+    nextResetAt: t.nextResetAt,
+  };
+}
+
+function RollupCard({
+  title,
+  keyHeader,
+  rows,
+  now,
+}: {
+  title: string;
+  keyHeader: string;
+  rows: RollupRow[];
+  now: number;
+}) {
+  return (
+    <section className="rollup-card" aria-label={title}>
+      <h2 className="rollup-title">{title}</h2>
+      {rows.length === 0 ? (
+        <p className="rollup-empty">No jobs yet.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>{keyHeader}</th>
+              <th className="numeric">Active</th>
+              <th className="numeric">Waiting</th>
+              <th className="numeric">Done</th>
+              <th className="numeric">Total</th>
+              <th className="numeric">Next reset</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.label}>
+                <td>{row.label}</td>
+                <td className="numeric">{row.active}</td>
+                <td className="numeric">{row.waiting}</td>
+                <td className="numeric">{row.terminal}</td>
+                <td className="numeric">{row.total}</td>
+                <td className="numeric">{row.waiting > 0 ? formatCountdown(row.nextResetAt, now) : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
 function StatusBadge({ status }: { status: JobStatus }) {
   const meta = STATUS_META[status] ?? { label: status, colorVar: "var(--ink-muted)" };
   return (
@@ -165,6 +247,9 @@ export default function DashboardClient() {
 
   const jobs = snapshot?.jobs ?? [];
   const summary = snapshot?.summary;
+  const projectRows = (snapshot?.projects.projects ?? []).map(projectRow);
+  const toolRows = (snapshot?.tools.tools ?? []).map(toolRow);
+  const hasRollup = projectRows.length > 0 || toolRows.length > 0;
 
   return (
     <>
@@ -218,6 +303,13 @@ export default function DashboardClient() {
           <div className="value numeric">{summary?.total ?? "–"}</div>
         </div>
       </section>
+
+      {hasRollup && (
+        <section className="rollup-grid" aria-label="Rollups by project and tool">
+          <RollupCard title="By project" keyHeader="Project" rows={projectRows} now={now} />
+          <RollupCard title="By tool" keyHeader="Tool" rows={toolRows} now={now} />
+        </section>
+      )}
 
       <section className="jobs-card" aria-label="Job list">
         {jobs.length === 0 ? (

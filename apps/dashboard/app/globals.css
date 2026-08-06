@@ -107,6 +107,36 @@ main {
   flex: none;
 }
 
+.rollup-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin: 24px 0;
+}
+
+.rollup-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow-x: auto;
+}
+
+.rollup-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  margin: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.rollup-empty {
+  color: var(--ink-muted);
+  font-size: 13px;
+  margin: 0;
+  padding: 14px;
+}
+
 .jobs-card {
   background: var(--surface);
   border: 1px solid var(--border);
