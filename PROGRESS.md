@@ -1805,3 +1805,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
   대시보드 롤업에 정렬/필터 상호작용, `stats --group-by` 요약(성공률/해결시간)의 대시보드 노출.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 58 — `agentrelay attempts` 재개 시도 분포 히스토그램] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-pumio2`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x])이고 watch·롤업 계열도 세션 57까지 완결됐다.
+  남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐이라, CLAUDE.md 지침대로
+  **신규 👷 항목을 발굴**했다: `stats`는 총 시도수·재시도 잡 수만 줄 뿐 **분포의 모양**(첫 재개에 통과 vs
+  재충돌 반복)을 안 보여줘 릴레이 효과성을 읽기 어려웠다. 이미 검증된 스코프 필터·`computeStats` 정의를
+  재사용하므로 저위험.
+- **한 일 (branch `claude/wizardly-pascal-pumio2`):** `agentrelay attempts` — 시도 횟수 히스토그램 커맨드.
+  - `@agentrelay/core/attempts.ts`(신설, 순수): `computeAttemptDistribution(jobs)` + `AttemptDistribution`/
+    `AttemptBucket`. `job.attempts`로 오름차순 버킷팅, 각 버킷을 active vs terminal로 분리, 헤드라인
+    집계(`totalAttempts`·`retriedJobs`)는 `computeStats`와 동일 정의(두 커맨드 불일치 방지). 음수·소수·
+    비유한 attempts는 0 이상 정수로 클램프.
+  - `packages/cli/src/attempts.ts`: 순수 `renderAttempts`(막대 히스토그램, 비지 않은 버킷 최소 1블록,
+    혼재 버킷만 split 주석, `total/mean/retried/max` 푸터)·`renderAttemptsJson`. `cli.ts`에 `agentrelay
+    attempts [--json]` + 스코프 필터(`--status`/`--tool`/`--project`/`--since`/`--until`) 배선(`buildScope`/
+    `scopeJobs` 재사용), 잘못된 입력은 exit 1.
+  - index.ts에 `attempts.js` export 추가.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core +6, cli 300/1skip). **실제 빌드 CLI e2e**(mock 아님): 5-잡 임시 스토어(attempts
+  0/1/1/3/2, active·terminal 혼재)로 히스토그램 렌더·`--tool` 스코프·`--json` 버킷·`--tool nope` exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
+  `attempts --group-by <tool|project>`(툴/프로젝트별 시도 분포 비교), `stats`에 attempts 분포 요약 노출,
+  대시보드에 attempts 히스토그램 카드. README/ARCHITECTURE(🧭 코워크).

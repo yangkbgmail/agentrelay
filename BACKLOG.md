@@ -721,6 +721,23 @@
       정확히 반환(랭킹·nextResetAt)하고, 사전설치 Chromium 헤드리스 렌더로 클라이언트 폴링 후 `By project`/
       `By tool` 카드·라벨·1h 28m 카운트다운이 실제로 그려짐을 e2e 확인. branch `claude/wizardly-pascal-wip07r`)
 
+- [x] 👷 `agentrelay attempts` — 잡별 재개 시도 횟수 분포(히스토그램). "릴레이가 잡을 몇 번 만에
+      해결했나"를 한눈에.
+      (완료 — `stats`는 총 시도수(`totalAttempts`)와 재시도 잡 수(`retriedJobs`)만 줄 뿐 **분포의 모양**을
+      보여주지 않아, "첫 재개에 통과한 잡 vs 2·3번 이상 재충돌한 잡"의 비율을 볼 방법이 없었다 —
+      릴레이 효과성을 가장 명확히 읽는 신호. `@agentrelay/core/attempts.ts` 신설(순수·파일시스템/클럭
+      미접촉): `computeAttemptDistribution(jobs)` + `AttemptDistribution`/`AttemptBucket`. `job.attempts`로
+      버킷팅(오름차순), 각 버킷을 active(queued+waiting+resuming) vs terminal(completed+failed+cancelled)로
+      분리, 헤드라인 집계(`totalAttempts`·`retriedJobs`)는 `computeStats`와 **동일 정의**라 두 커맨드가
+      절대 어긋나지 않음. 손상/레거시 스토어의 음수·소수·비유한 attempts는 `normalizeAttempts`로 0 이상
+      정수로 클램프(NaN 키 버킷 방지). CLI `packages/cli/src/attempts.ts`에 순수 `renderAttempts`(가장
+      바쁜 버킷을 폭 상한으로 스케일한 막대 히스토그램, 비지 않은 버킷은 최소 1블록, active/done 혼재
+      버킷만 split 주석 + `total attempts · mean · retried · max` 푸터)·`renderAttemptsJson`. `agentrelay
+      attempts [--json]` + 기존 스코프 필터(`--status`/`--tool`/`--project`/`--since`/`--until`)를
+      `buildScope`/`scopeJobs`로 재사용, 잘못된 status/tool·빈 시간 범위는 exit 1. core 6 + cli 7 신규
+      테스트, 실제 빌드 CLI e2e로 히스토그램·스코프·JSON·에러 exit 검증. branch
+      `claude/wizardly-pascal-pumio2`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
