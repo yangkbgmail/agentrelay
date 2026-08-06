@@ -37,6 +37,30 @@ export function renderNext(next: NextResume | null, options: { now?: number; col
 }
 
 /**
+ * One frame of the live `agentrelay next --watch` view: the same title/meta
+ * banner the other `--watch` commands use (matching `status`/`stats`/`tools`/
+ * `projects --watch`) plus the single-line `renderNext` body. Where those wrap a
+ * whole table, `next` wraps its one imminent-resume line — a live status-bar/tmux
+ * widget whose countdown ticks down in place. Pure: `now` is injected so the
+ * frame is testable without a TTY or an ambient clock. Body is always colored
+ * (the loop only runs on a live terminal).
+ */
+export function renderNextWatchFrame(
+  next: NextResume | null,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now()
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay next${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  const body = renderNext(next, { now, color: true });
+  return [title, meta, "", body].join("\n");
+}
+
+/**
  * Machine-readable form for `--json` (scripts/jq). `next` is null when nothing
  * is waiting; otherwise it carries the full job plus the derived due state.
  */
