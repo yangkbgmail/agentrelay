@@ -81,6 +81,38 @@ describe("readJobsSnapshot", () => {
     expect(claude.nextResetAt).toBe("2099-01-01T00:00:00.000Z");
   });
 
+  it("returns empty effectiveness stats for an empty store", () => {
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.stats.total).toBe(0);
+    expect(snapshot.stats.terminal).toBe(0);
+    expect(snapshot.stats.successRate).toBeNull();
+    expect(snapshot.stats.retriedJobs).toBe(0);
+    expect(snapshot.stats.timing.resolvedCount).toBe(0);
+    expect(snapshot.stats.timing.medianResolutionMs).toBeNull();
+  });
+
+  it("computes relay effectiveness stats, mirroring the CLI", () => {
+    const queue = new RelayQueue(storePath);
+    // Two resolved (one completed, one failed) → 50% success rate.
+    const a = queue.enqueue({ project: "proj-a", tool: "claude-code", command: ["claude", "-p", "hi"], cwd: dir });
+    queue.markCompleted(a.id, "done");
+    const b = queue.enqueue({ project: "proj-b", tool: "generic", command: ["echo", "bye"], cwd: dir });
+    queue.markFailed(b.id, "boom");
+    // One still waiting → active, not counted in success rate.
+    const c = queue.enqueue({ project: "proj-c", tool: "codex-cli", command: ["codex", "run"], cwd: dir });
+    queue.markWaitingForReset(c.id, "2099-01-01T00:00:00.000Z");
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.stats.total).toBe(3);
+    expect(snapshot.stats.active).toBe(1);
+    expect(snapshot.stats.terminal).toBe(2);
+    expect(snapshot.stats.successRate).toBe(0.5);
+    expect(snapshot.stats.byStatus.completed).toBe(1);
+    expect(snapshot.stats.byStatus.failed).toBe(1);
+    expect(snapshot.stats.timing.resolvedCount).toBe(2);
+  });
+
   it("survives a corrupt store file instead of crashing the API route", () => {
     writeFileSync(storePath, "{ not json !!", "utf8");
     const snapshot = readJobsSnapshot(storePath);

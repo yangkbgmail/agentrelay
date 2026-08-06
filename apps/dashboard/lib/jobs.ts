@@ -1,6 +1,14 @@
 import { readFileSync } from "node:fs";
-import type { HeartbeatStatus, ProjectsSummary, QueueSummary, RelayJob, ToolsSummary } from "@agentrelay/core";
+import type {
+  HeartbeatStatus,
+  ProjectsSummary,
+  QueueSummary,
+  RelayJob,
+  RelayStats,
+  ToolsSummary,
+} from "@agentrelay/core";
 import {
+  computeStats,
   countActiveJobs,
   daemonHeartbeatPath,
   defaultStorePath,
@@ -30,6 +38,13 @@ export interface JobsSnapshot {
    * `summarizeTools`.
    */
   tools: ToolsSummary;
+  /**
+   * Relay effectiveness metrics (mirror of `agentrelay stats`): success rate,
+   * retried jobs, and resolution-time percentiles. The counts in {@link summary}
+   * answer "how many jobs?"; these answer "did relaying actually help?". Reuses
+   * core's `computeStats`, so it never drifts from the CLI.
+   */
+  stats: RelayStats;
   /**
    * Liveness of the resume loop (daemon/tick), so the dashboard can surface the
    * #1 silent failure: jobs queued to resume with nothing running to resume them.
@@ -70,6 +85,7 @@ export function readJobsSnapshot(storePath: string = defaultStorePath()): JobsSn
     summary: summarizeJobs(jobs),
     projects: summarizeProjects(jobs),
     tools: summarizeTools(jobs),
+    stats: computeStats(jobs),
     heartbeat: readHeartbeatStatus(storePath, jobs, nowMs),
   };
 }

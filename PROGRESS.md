@@ -1805,3 +1805,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
   대시보드 롤업에 정렬/필터 상호작용, `stats --group-by` 요약(성공률/해결시간)의 대시보드 노출.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 58 — 대시보드에 릴레이 효과(effectiveness) 지표 노출] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-qzhyoh`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x])이고 watch 계열(세션 52~56)·대시보드 롤업(세션 57)도
+  끝났다. 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐이라, 세션 56·57이
+  "다음 할 일"로 반복 제안한 후속 — **대시보드에 `stats` 효과 지표 노출** — 을 신규 👷 항목으로 발굴·구현했다.
+  대시보드는 잡 **수**를 세는 counts 위주 `summary`와 롤업·하트비트만 보여줄 뿐, `agentrelay stats`가 계산하는
+  "릴레이가 실제로 효과 있었나" 지표(성공률·재시도·해결 시간 percentile)는 노출하지 않았다. `apps/**`는 클로드
+  코드 소유 영역이고 이미 검증된 core `computeStats`를 재사용하므로 새 core 로직 0줄로 저위험.
+- **한 일 (branch `claude/wizardly-pascal-qzhyoh`):** `agentrelay stats`의 효과 지표를 대시보드에도.
+  - `apps/dashboard/lib/jobs.ts`: `JobsSnapshot`에 `stats: RelayStats` 추가, `readJobsSnapshot`이 매 폴링마다
+    core `computeStats(jobs)`로 채움 → CLI와 드리프트 방지(단일 진실원). 새 core 코드 0줄.
+  - `apps/dashboard/app/dashboard-client.tsx`: `EffectivenessCard`(기존 `.tile` 스타일 재사용) — Success rate
+    (`completed of completed+failed resolved`)·Retried jobs·Median resolution·p90 resolution 4-타일. CLI의
+    `formatSuccessRate`/`formatDurationMs`를 그대로 미러링해 표기 일치(null 성공률=`n/a`, median/p90은
+    resolvedCount>0일 때만·아니면 "—"). **터미널 잡이 하나라도 있을 때만** 렌더(측정할 게 없는 초기엔 숨김).
+    tile-row와 rollup-grid 사이에 배치.
+  - `apps/dashboard/app/globals.css`: 섹션 제목용 `.section-title`(+ `.section-title + .tile-row` 상단 마진
+    보정) 추가. 라이트/다크는 기존 CSS 변수 그대로 상속.
+  - `apps/dashboard/test/jobs.test.ts`: effectiveness 스냅샷 2케이스(빈 스토어 empty successRate null·
+    resolvedCount 0 + completed/failed/waiting 3-잡으로 successRate 0.5·terminal 2·resolvedCount 2 mirror).
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test` 전
+  패키지 통과(dashboard 9→11, cli 294/1skip). **실제 빌드 대시보드 e2e**(mock 아님): 임시 스토어
+  (web-app completed 1[span 90m·attempts 2]/api-svc failed 1[span 20m·attempts 3]/web-app waiting 1)로
+  `AGENTRELAY_STORE` 지정해 `next start` → `/api/jobs`가 successRate 0.5·retriedJobs 2·median 55m(3300000ms)·
+  p90 1h 23m(4980000ms)을 정확히 반환 → 사전설치 Chromium 헤드리스 `--dump-dom`으로 클라이언트 폴링 후
+  `Relay effectiveness` 카드·`Success rate 50%`·`Median resolution 55m 0s`·`p90 resolution 1h 23m`·
+  `Retried jobs 2`가 실제 DOM에 그려짐을 확인. 임시 시드는 스크래치패드에만(리포 미접촉).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
+  `stats --group-by`(툴/프로젝트별 성공률·해결시간) 브레이크다운 노출(이번 세션이 그 기반), 대시보드 롤업에
+  정렬/필터 상호작용. README/ARCHITECTURE(🧭 코워크).
