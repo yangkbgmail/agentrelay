@@ -1167,11 +1167,14 @@ export function buildCli(): Command {
         "  # scrape via the node_exporter textfile collector\n" +
         "  agentrelay metrics > /var/lib/node_exporter/textfile_collector/agentrelay.prom\n" +
         "  # only failed jobs from the last day\n" +
-        "  agentrelay metrics --status failed --since 1d"
+        "  agentrelay metrics --status failed --since 1d\n" +
+        "  # alert when the resume loop falls behind (overdue jobs, resume-loop-down signal)\n" +
+        "  agentrelay metrics | grep agentrelay_overdue_jobs"
     )
     .action((opts: ScopeOpts & { prefix?: string }) => {
       const { store } = program.opts();
-      const built = buildScope(opts, Date.now());
+      const now = Date.now();
+      const built = buildScope(opts, now);
       if ("error" in built) {
         console.error(built.error);
         process.exitCode = 1;
@@ -1180,7 +1183,19 @@ export function buildCli(): Command {
       const allJobs = listStatus(store);
       const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
       const stats = computeStats(jobs);
-      process.stdout.write(renderPrometheusMetrics(stats, { prefix: opts.prefix }));
+
+      // Clock-relative resume-loop gauges: reuse the same overdue/upcoming logic
+      // the `overdue`/`upcoming` commands render, so the scraped `overdue_jobs`
+      // never drifts from what a human would see. One shared `now`.
+      const overdue = buildOverdueReport(jobs, now, { graceMs: 0 });
+      const timeline = buildUpcomingTimeline(jobs, now);
+      const live = {
+        overdueJobs: overdue.totalOverdue,
+        maxOverdueMs: overdue.maxOverdueByMs,
+        nextResetInMs: timeline.entries.length > 0 ? timeline.entries[0].dueInMs : null,
+      };
+
+      process.stdout.write(renderPrometheusMetrics(stats, { prefix: opts.prefix, live }));
     });
 
   program
