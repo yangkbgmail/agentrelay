@@ -1744,3 +1744,35 @@
   `--watch --status bogus`(watch 루프 전 exit 1), `--help`·completion에 `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). watch 계열 완성 → 후속은 인접 신규
   항목 발굴(예: `stats --watch`·대시보드 프로젝트/툴 롤업 노출 등). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 56 — `agentrelay stats --watch` 라이브 지표 뷰] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-tlws95`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/
+  ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. 세션 55가 "다음 할 일"로 명시한 후속 —
+  watch 계열을 stats로 확장 — 을 구현했다. `stats`(성공률·재시도·툴/프로젝트 롤업·해결시간·
+  다음 리셋)는 라이브 뷰가 없어 데몬이 큐를 처리하는 동안 지표가 갱신되는 걸 보려면 반복
+  실행해야 했다.
+- **한 일 (branch `claude/wizardly-pascal-tlws95`):** `agentrelay stats --watch [seconds]` —
+  세션 12·52의 `startWatchLoop`/watch-frame 인프라 재사용.
+  - CLI `stats.ts`에 순수 `renderStatsWatchFrame(body, storePath, intervalMs, now)` 신설:
+    다른 watch-frame과 동일한 title/meta 블록(라이브 배너·타임스탬프·스토어 경로). 다른
+    커맨드와 달리 **summary 객체가 아닌 이미 렌더된 body 문자열**을 감싼다 — stats는 세 가지
+    렌더 형태(헤드라인·`--group-by`·헤드라인+`--trend`)가 있어 커맨드가 매 프레임 맞는 형태를
+    fresh `now`로 만들어 넘긴다. 순수 함수라 TTY/시계 없이 테스트 가능.
+  - CLI `cli.ts`: 공용 `startWatchLoop`을 재사용하는 `runStatsWatch`(매 프레임 스토어
+    재읽기·스코프 재적용·`computeStats`/`groupStats`/`computeDailyTrend`를 fresh `now`로 재구성
+    → 리셋 카운트다운·성공률 live·화면 clear 후 프레임 출력). `--group-by`면 grouped body,
+    아니면 headline body(+`--trend`면 히스토그램 append). 시간 창 경계는 시작 시 고정 epoch-ms.
+  - `stats` 커맨드에 `-w, --watch [seconds]` 옵션 배선: 스코프/`--group-by`/`--trend` 검증을
+    **먼저** 통과시켜 잘못된 값은 watch 루프 전에 exit 1, `--json`이 `--watch`보다 우선(일회성
+    기계 덤프). 인터벌 기본 2s. 발견성 위해 `--watch` 예시가 담긴 addHelpText 추가. 새 파서/
+    스케줄러/core 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·
+  `pnpm test` **전 패키지 통과**(cli 294/1skip + dashboard 7; cli stats 24→27, watch-frame 3케이스
+  신규). 빌드된 실제 CLI e2e(mock 아님): 3-잡 임시 스토어(web-app 대기[리셋 1h 30m]/api-svc 완료·
+  실패)로 `stats --watch 1`(화면 clear·라이브 배너·카운트다운 1h 30m·컬러), `--watch --group-by
+  tool`(grouped body 래핑), `--watch --trend 7`(히스토그램 append), `--watch --json`(JSON 우선·
+  즉시 종료 exit 0), `--watch --status bogus`·`--watch --group-by nope`(watch 루프 전 exit 1),
+  `--help`에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). watch 계열(status/upcoming/
+  overdue/tools/projects/stats) 완성 → 후속은 인접 신규 항목 발굴(예: 대시보드에 프로젝트/툴/stats
+  롤업 노출, `errors --watch`, `patterns --watch` 등). README/ARCHITECTURE(🧭 코워크).
