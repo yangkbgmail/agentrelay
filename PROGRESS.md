@@ -1805,3 +1805,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
   대시보드 롤업에 정렬/필터 상호작용, `stats --group-by` 요약(성공률/해결시간)의 대시보드 노출.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 58 — `agentrelay search` 자유 텍스트 잡 검색] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-af8bqr`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x])이고, 남은 미완은 전부 🧭 코워크 소유(README/
+  ARCHITECTURE/경쟁조사/샘플수집/성능분석). CLAUDE.md 지침(§작업 방식)대로 신규 👷 개선 항목을 발굴·
+  구현했다. 발굴한 갭: 필터 생태계(status/stats/export/errors/metrics/patterns/cancel/retry)는 전부
+  status/tool/project/시간 창의 **구조화** 차원만 스코프할 뿐, 자유 텍스트 조회("migrate-db를 돌린 잡이
+  어느 것?"·"ENOSPC로 죽은 실패가 어느 것?")가 불가능했다 — `show`는 이미 아는 id가 필요하고, `status`는
+  명령어 텍스트를 검색 키로 못 건다. 이미 검증된 `scopeJobs`/`renderStatusTable`을 재사용하므로 저위험.
+- **한 일 (branch `claude/wizardly-pascal-af8bqr`):** `agentrelay search <query>` 신규 커맨드.
+  - `packages/core/src/search.ts`(신설, 순수·파일시스템/시계 미접촉): `JobSearchField`
+    (`command`/`project`/`id`/`error`)·`JOB_SEARCH_FIELDS`·`isJobSearchField`·`jobFieldText`(command는
+    공백 조인=`show` 에코 shape, null error→빈 문자열)·`JobSearchQuery`·순수/비throw `compileJobMatcher`
+    (빈 query·잘못된 regex는 `{error}` — `buildScope` 관례; regex는 `i` 플래그, literal은 양쪽 lower-case)
+    ·`searchJobs`(입력 순서 보존, mutate 안 함, `scopeJobs`와 조합 가능). `index.ts`에 export 추가.
+  - `packages/cli/src/search.ts`(신설): 순수 `renderSearch`(query 설명 preface + 기존 `renderStatusTable`
+    재사용 → status와 출력 일관, `--limit`/summary 그대로)·`searchHeaderLine`·`renderSearchJson`(status
+    스냅샷 + `search` provenance 블록)·`NO_SEARCH_MATCH_MESSAGE`.
+  - `packages/cli/src/cli.ts`: `search <query> [--field <list>] [--regex] [--case-sensitive]
+    [-n/--limit] [--json]` + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용. 빈 query·
+    잘못된 regex/field/status·비정수 limit은 exit 1, 무매치는 온보딩 문구 대신 `NO_SEARCH_MATCH_MESSAGE`.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 552→565, cli 294→300, dashboard 9). **실제 빌드 CLI e2e**(mock 아님): 3-잡 임시
+  스토어로 기본 전-필드 검색·`--field command`/`error` 제한·`--project` 스코프 조합(scope note)·regex
+  (`migrate|tests`)·`--json` provenance(total/returned/search)·`--limit` truncation·무매치 exit 0·잘못된
+  regex/field/status exit 1·`completion bash`에 `search` 자동 포함을 확인. 임시 스토어는 커밋 전 제거.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
+  `search`를 status/export처럼 `--sort`/컬럼 선택과 조합, 또는 대시보드에 검색 박스 노출.
+  세션 57이 남긴 `stats --group-by` 요약의 대시보드 노출도 여전히 후보. README/ARCHITECTURE(🧭 코워크).
