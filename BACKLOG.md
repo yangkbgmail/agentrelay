@@ -703,6 +703,24 @@
       실제 빌드 CLI e2e로 화면 clear·라이브 배너·1h30m 카운트다운·group-by --watch·--json 우선·--status
       bogus exit 1·help/completion `--watch` 노출 검증. branch `claude/wizardly-pascal-stats-watch`)
 
+- [x] 👷 `agentrelay drain` — 큐(또는 스코프한 부분집합)의 활성 잡이 모두 종료 상태에 도달할 때까지
+      블록한 뒤 집계 결과를 exit code로 반환. `wait <id>`가 잡 하나를 따라간다면 `drain`은 플릿 전체를
+      따라가, CI가 여러 릴레이 잡을 큐잉한 뒤 "전부 정리될 때까지 기다렸다가 배포"할 수 있게 함.
+      (완료 — `wait`(세션 37)는 단일 잡만 따라가 큐 전체가 비길 기다리는 수단이 없었다.
+      `@agentrelay/core/drain.ts` 신설(순수·시계/스토어 미접촉): `DrainOutcome`(empty/completed/failed/
+      cancelled/timeout) + `DRAIN_EXIT_CODES`/`drainExitCode`(0 empty·completed / 1 failed / 2 cancelled /
+      124 timeout[GNU coreutils 관례, `wait`과 대칭]) + `DrainSnapshot`(total/active/completed/failed/
+      cancelled) + `summarizeDrain`(`summarizeJobs`.byStatus 재사용, `ACTIVE_STATUSES` 합) +
+      `evaluateDrain(jobs)`(active>0이면 미종료, 아니면 실패 우선 집계 — 하나라도 failed면 전체 failed,
+      다음 cancelled, 아니면 completed, 잡 0개면 empty). CLI `commands.ts` `drainQueue`(폴링 루프: 매 폴링
+      스토어 재오픈+`scopeJobs`로 스코프 적용해 별도 daemon/tick 프로세스 쓰기 관측, 첫 검사 즉시,
+      `--timeout`은 sleep 전 데드라인 검사로 1인터벌 이상 초과 안 함, now/sleep/readJobs 주입 가능),
+      `packages/cli/src/drain.ts` `renderDrainJson`(wait와 동일 envelope). `agentrelay drain [--status]
+      [--tool][--project][--since][--until][--timeout][--interval][--json][-q]` — 공용 `buildScope` 재사용,
+      completion 자동 포함. core drain 10 + cli drainQueue 6 신규 테스트, 실제 빌드 CLI e2e로 빈 큐→empty 0·
+      failed 스코프→1·활성 잡→timeout 124·스코프 부분집합·bad status→exit 1·help·completion 검증.
+      branch `claude/wizardly-pascal-iunnj2`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

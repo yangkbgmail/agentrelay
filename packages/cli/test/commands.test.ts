@@ -9,6 +9,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  drainQueue,
   importStore,
   initConfig,
   listStatus,
@@ -998,5 +999,113 @@ describe("waitForJob", () => {
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
     expect(result.message).toMatch(/no job matches/);
+  });
+});
+
+describe("drainQueue", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-drain-cli-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function seed(status: "queued" | "completed" | "failed" | "cancelled", project = "demo"): string {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project, tool: "claude-code", command: ["claude"], cwd: dir });
+    if (status === "completed") queue.markCompleted(job.id, "done");
+    else if (status === "failed") queue.markFailed(job.id, "boom");
+    else if (status === "cancelled") queue.markCancelled(job.id);
+    queue.close();
+    return job.id;
+  }
+
+  it("returns empty (exit 0) for a store with no jobs, without sleeping", async () => {
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await drainQueue({ storePath, sleep });
+    expect(result.outcome).toBe("empty");
+    expect(result.exitCode).toBe(0);
+    expect(result.message).toMatch(/nothing to drain/);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("returns immediately when the queue is already drained cleanly (exit 0)", async () => {
+    seed("completed");
+    seed("completed");
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await drainQueue({ storePath, sleep });
+    expect(result.outcome).toBe("completed");
+    expect(result.snapshot).toMatchObject({ total: 2, active: 0, completed: 2 });
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("reports failed (exit 1) — failure wins over cancelled", async () => {
+    seed("completed");
+    seed("cancelled");
+    seed("failed");
+    const result = await drainQueue({ storePath, sleep: vi.fn() });
+    expect(result.outcome).toBe("failed");
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toMatch(/1 of 3 job\(s\) in the queue failed/);
+  });
+
+  it("polls until the last active job settles, then returns the aggregate outcome", async () => {
+    const active: RelayJob = {
+      id: "a",
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude"],
+      cwd: dir,
+      status: "waiting_for_reset",
+      resetAt: null,
+      createdAt: "2026-07-13T00:00:00.000Z",
+      updatedAt: "2026-07-13T00:00:00.000Z",
+      attempts: 1,
+      lastError: null,
+      lastOutputTail: null,
+    };
+    const done: RelayJob = { ...active, status: "completed" };
+    // pending twice, then all terminal.
+    const frames: RelayJob[][] = [[active], [active], [done]];
+    let i = 0;
+    const readJobs = () => frames[Math.min(i++, frames.length - 1)];
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    const result = await drainQueue({ storePath, readJobs, sleep, now: () => 0 });
+    expect(result.outcome).toBe("completed");
+    expect(sleep).toHaveBeenCalledTimes(2);
+  });
+
+  it("times out while jobs are still active (exit 124)", async () => {
+    seed("queued");
+    let clock = 0;
+    const now = () => clock;
+    const sleep = vi.fn().mockImplementation(async (ms: number) => {
+      clock += ms;
+    });
+    const result = await drainQueue({ storePath, intervalMs: 1000, timeoutMs: 2500, now, sleep });
+    expect(result.outcome).toBe("timeout");
+    expect(result.exitCode).toBe(124);
+    expect(result.message).toMatch(/still active/);
+  });
+
+  it("scopes the drain to a subset (waits only on matching jobs)", async () => {
+    // web-app has a queued (active) job; api-svc is all done.
+    seed("queued", "web-app");
+    seed("completed", "api-svc");
+    // Scoped to api-svc only → already drained (the web-app job is out of scope).
+    const result = await drainQueue({
+      storePath,
+      scope: { projects: ["api-svc"] },
+      sleep: vi.fn(),
+    });
+    expect(result.outcome).toBe("completed");
+    expect(result.snapshot.total).toBe(1);
+    expect(result.message).toMatch(/in scope/);
   });
 });
