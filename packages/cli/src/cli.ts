@@ -81,7 +81,7 @@ import { renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "./ove
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
-import { renderProjects, renderProjectsJson } from "./projects.js";
+import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson, renderTrend } from "./stats.js";
 import {
@@ -397,6 +397,28 @@ function runToolsWatch(store: string, intervalMs: number, window: JobScope, scop
     const jobs = active ? scopeJobs(all, window) : all;
     const summary = summarizeTools(jobs);
     const frame = renderToolsWatchFrame(summary, store, intervalMs, now, scopeNote);
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
+ * Live `agentrelay projects --watch`: clears the screen and re-renders the
+ * per-project index on an interval so the reset countdowns tick down in place.
+ * Like the other watch loops, `listStatus` re-reads the JSON store each pass (so
+ * a running daemon's writes and newly-queued projects surface automatically) and
+ * the `--status`/`--tool`/`--project`/`--since`/`--until` scope is re-applied
+ * every frame. `summarizeProjects` is rebuilt with a fresh `now` each pass so the
+ * countdowns stay live; the time-window boundaries stay fixed (absolute epoch-ms
+ * from when the command started). Runs until interrupted (Ctrl-C).
+ */
+function runProjectsWatch(store: string, intervalMs: number, window: JobScope, scopeNote?: string): void {
+  const active = isJobScopeActive(window);
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const all = listStatus(store);
+    const jobs = active ? scopeJobs(all, window) : all;
+    const summary = summarizeProjects(jobs);
+    const frame = renderProjectsWatchFrame(summary, store, intervalMs, now, scopeNote);
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
 }
@@ -1139,6 +1161,7 @@ export function buildCli(): Command {
   program
     .command("projects")
     .description("List distinct project labels with per-project job counts and the soonest reset")
+    .option("-w, --watch [seconds]", "Continuously refresh the index with live reset countdowns (Ctrl-C to exit)")
     .option("--json", "Print the summary as JSON (machine-readable, for scripts/CI)")
     .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
     .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
@@ -1150,10 +1173,12 @@ export function buildCli(): Command {
       "\nExamples:\n" +
         "  # which project labels exist, and where is work pending?\n" +
         "  agentrelay projects\n" +
+        "  # live view, reset countdowns ticking down every 2s\n" +
+        "  agentrelay projects --watch\n" +
         "  # feed the per-project rollup to jq\n" +
         "  agentrelay projects --json | jq '.summary.projects'"
     )
-    .action((opts: ScopeOpts & { json?: boolean }) => {
+    .action((opts: ScopeOpts & { json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
       const built = buildScope(opts, now);
@@ -1162,6 +1187,19 @@ export function buildCli(): Command {
         process.exitCode = 1;
         return;
       }
+
+      const scopeNote = built.active ? built.note : undefined;
+
+      // Live view: validate the scope above first so a bad value still exits 1
+      // instead of spinning a broken watch loop. --json takes precedence over
+      // --watch (a one-shot machine dump, not a live TTY view).
+      if (opts.watch !== undefined && !opts.json) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        runProjectsWatch(store, intervalMs, built.scope, scopeNote);
+        return; // setInterval keeps the process alive.
+      }
+
       const allJobs = listStatus(store);
       const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
       const summary = summarizeProjects(jobs);
