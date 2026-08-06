@@ -6,6 +6,7 @@ import {
   formatSlackText,
   listNotifyChannels,
   notifiersFromEnv,
+  sendNotification,
   sendTestNotification,
   slackNotifierFromEnv,
   testNotifyPayload,
@@ -266,6 +267,42 @@ describe("testNotifyPayload", () => {
     expect(p.project).toBe("agentrelay");
     expect(typeof p.jobId).toBe("string");
     expect(p.message.length).toBeGreaterThan(0);
+  });
+});
+
+describe("sendNotification", () => {
+  it("delivers an arbitrary payload to every configured channel", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const digest: NotifyPayload = {
+      jobId: "queue-digest",
+      project: "agentrelay",
+      event: "digest",
+      message: "3 job(s) tracked — 1 waiting, 0 active, 2 finished.",
+    };
+    const results = await sendNotification(digest, {
+      env: {
+        AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/abc",
+        AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+      },
+      fetchFn,
+    });
+
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(results.map((r) => r.channel.kind)).toEqual(["slack", "webhook"]);
+    expect(results.every((r) => r.ok)).toBe(true);
+    // The webhook body carries the structured digest payload verbatim.
+    const webhookCall = fetchFn.mock.calls.find(([url]) => String(url).includes("example"));
+    if (!webhookCall) throw new Error("expected a webhook call");
+    const body = JSON.parse((webhookCall[1] as RequestInit).body as string);
+    expect(body.event).toBe("digest");
+    expect(body.message).toContain("3 job(s) tracked");
+  });
+
+  it("returns an empty array (and never fetches) with no channels configured", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const results = await sendNotification(payload, { env: {}, fetchFn });
+    expect(results).toEqual([]);
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 });
 

@@ -35,6 +35,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
   selectNextResume,
+  sendNotification,
   sendTestNotification,
   summarizeProjects,
   summarizeRateLimitPatterns,
@@ -76,7 +77,7 @@ import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
-import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
+import { buildDigestPayload, renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "./overdue.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
@@ -1437,6 +1438,50 @@ export function buildCli(): Command {
       }
       // Exit non-zero when nothing was configured (nothing to test) or any
       // channel failed, so scripts/CI can gate on working notifications.
+      if (results.length === 0 || results.some((r) => !r.ok)) process.exitCode = 1;
+    });
+
+  notify
+    .command("digest")
+    .description(
+      "Send a queue-status digest (waiting/next-reset/success-rate) to every configured channel — schedule via cron for periodic pings"
+    )
+    .option("--json", "Print the delivery results as JSON (machine-readable, for scripts/CI)")
+    .option("--dry-run", "Print the digest that would be sent without delivering it (preview)")
+    .option("--show-secrets", "Reveal masked destination URLs in the human-readable output")
+    .action(async (opts: { json?: boolean; dryRun?: boolean; showSecrets?: boolean }) => {
+      const { store } = program.opts();
+      const jobs = listStatus(store);
+      const stats = computeStats(jobs);
+      const payload = buildDigestPayload(stats);
+
+      // --dry-run previews the composed digest without contacting any channel,
+      // so it's always exit 0 (nothing was attempted).
+      if (opts.dryRun) {
+        if (opts.json) {
+          console.log(JSON.stringify({ dryRun: true, payload }, null, 2));
+        } else {
+          console.log(`digest (dry-run — not sent):\n${payload.message}`);
+        }
+        return;
+      }
+
+      const results = await sendNotification(payload);
+      if (opts.json) {
+        console.log(renderTestNotifyResultsJson(results));
+      } else {
+        console.log(payload.message);
+        console.log("");
+        console.log(
+          renderTestNotifyResults(results, {
+            color: Boolean(process.stdout.isTTY),
+            showSecrets: opts.showSecrets,
+            title: "digest delivery",
+          })
+        );
+      }
+      // Exit non-zero when nothing was configured or any channel failed, so a
+      // cron/CI wrapper can tell the digest didn't actually go out.
       if (results.length === 0 || results.some((r) => !r.ok)) process.exitCode = 1;
     });
 

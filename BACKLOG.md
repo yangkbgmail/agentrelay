@@ -721,6 +721,23 @@
       정확히 반환(랭킹·nextResetAt)하고, 사전설치 Chromium 헤드리스 렌더로 클라이언트 폴링 후 `By project`/
       `By tool` 카드·라벨·1h 28m 카운트다운이 실제로 그려짐을 e2e 확인. branch `claude/wizardly-pascal-wip07r`)
 
+- [x] 👷 `agentrelay notify digest` — 실제 큐 상태 요약(대기/다음 리셋 카운트다운/성공률·재시도)을
+      설정된 모든 알림 채널(Slack/웹훅)로 전송. `notify test`(고정 합성 페이로드로 채널 소통만 검증)와
+      달리 **살아있는 큐 상태**를 보내, cron으로 스케줄해 주기적 릴레이-상태 핑을 받게 함.
+      (완료 — core `notify.ts`에서 `sendTestNotification`의 전달 로직을 범용 `sendNotification(payload,
+      options)`으로 추출(임의 `NotifyPayload`를 전 채널에 독립 전달·per-channel 결과 반환, 기존
+      `sendTestNotification`은 이를 감싸는 얇은 래퍼로 하위호환). `NotifyPayload.event`에 합성 이벤트
+      `digest` 추가(+ 📊 이모지) — 단일 잡 전이가 아닌 큐 요약을 나르는 이벤트. CLI `notify.ts`에 순수
+      `buildDigestMessage(stats, now)`(빈 스토어는 온보딩 한 줄, 아니면 대기/활성/종료 카운트 + 대기 잡
+      있을 때만 `formatCountdown` 다음-리셋 + `formatSuccessRate`·재시도 노트 — status/stats와 동일 포맷
+      재사용해 드리프트 방지)·`buildDigestPayload`(digest 이벤트 래핑). `renderTestNotifyResults`에 `title`
+      옵션 추가(digest는 "digest delivery" 헤더). CLI `notify digest [--json] [--dry-run] [--show-secrets]`:
+      `--dry-run`은 전달 없이 미리보기(항상 exit 0), 실전달은 전달 결과를 리포트하고 채널 0개·전달 실패 시
+      exit 1(cron/CI 게이트). 새 파서/스케줄러 로직 0줄 — 기존 `computeStats`·notifier 팩토리 재사용. core
+      sendNotification 2 + cli digest 8 신규 테스트, 실제 빌드 CLI e2e로 dry-run 미리보기·no-channels exit 1·
+      로컬 HTTP 서버 실전달(Auth 헤더+digest 페이로드 수신)·헤더 "digest delivery"·help 노출 검증.
+      branch `claude/wizardly-pascal-7thdhj`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

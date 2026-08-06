@@ -1,6 +1,33 @@
-import type { TestNotifyResult } from "@agentrelay/core";
+import type { AgentTool, JobStatus, RelayJob, TestNotifyResult } from "@agentrelay/core";
+import { computeStats } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_CHANNELS_MESSAGE, renderTestNotifyResults, renderTestNotifyResultsJson } from "../src/notify.js";
+import {
+  buildDigestMessage,
+  buildDigestPayload,
+  NO_CHANNELS_MESSAGE,
+  renderTestNotifyResults,
+  renderTestNotifyResultsJson,
+} from "../src/notify.js";
+
+let seq = 0;
+function job(overrides: Partial<RelayJob> = {}): RelayJob {
+  seq += 1;
+  return {
+    id: `job-${seq}`,
+    project: "proj",
+    tool: "claude-code" as AgentTool,
+    command: ["claude", "-p", "go"],
+    cwd: "/tmp",
+    status: "completed" as JobStatus,
+    resetAt: null,
+    createdAt: "2026-07-13T00:00:00.000Z",
+    updatedAt: "2026-07-13T00:00:00.000Z",
+    attempts: 1,
+    lastError: null,
+    lastOutputTail: null,
+    ...overrides,
+  };
+}
 
 function result(overrides: Partial<TestNotifyResult> = {}): TestNotifyResult {
   return {
@@ -14,6 +41,65 @@ function result(overrides: Partial<TestNotifyResult> = {}): TestNotifyResult {
     ...overrides,
   };
 }
+
+const NOW = Date.parse("2026-07-13T00:00:00.000Z");
+
+describe("buildDigestMessage", () => {
+  it("returns a single onboarding line for an empty store", () => {
+    expect(buildDigestMessage(computeStats([]), NOW)).toBe(
+      "No jobs tracked yet. Run `agentrelay run -- <your agent command>` to get started."
+    );
+  });
+
+  it("summarizes waiting/active/finished counts and the next reset countdown", () => {
+    const stats = computeStats([
+      job({ status: "waiting_for_reset", resetAt: "2026-07-13T01:30:00.000Z" }),
+      job({ status: "queued" }),
+      job({ status: "resuming" }),
+      job({ status: "completed" }),
+      job({ status: "failed" }),
+    ]);
+    const msg = buildDigestMessage(stats, NOW);
+    expect(msg).toContain("5 job(s) tracked — 1 waiting, 2 active, 2 finished.");
+    expect(msg).toContain("Next reset in 1h 30m.");
+    expect(msg).toContain("Success rate 50%");
+  });
+
+  it("omits the next-reset line when nothing is waiting for reset", () => {
+    const stats = computeStats([job({ status: "completed" }), job({ status: "failed" })]);
+    const msg = buildDigestMessage(stats, NOW);
+    expect(msg).not.toContain("Next reset");
+    expect(msg).toContain("Success rate 50%");
+  });
+
+  it("notes retried jobs and total attempts when any job was retried", () => {
+    const stats = computeStats([job({ status: "completed", attempts: 3 }), job({ status: "completed", attempts: 1 })]);
+    const msg = buildDigestMessage(stats, NOW);
+    expect(msg).toContain("2 job(s) tracked");
+    expect(msg).toContain("1 job(s) retried across 4 attempt(s).");
+    expect(msg).toContain("Success rate 100%");
+  });
+
+  it("shows n/a success rate when nothing has resolved", () => {
+    const stats = computeStats([job({ status: "waiting_for_reset", resetAt: "2026-07-13T02:00:00.000Z" })]);
+    expect(buildDigestMessage(stats, NOW)).toContain("Success rate n/a.");
+  });
+});
+
+describe("buildDigestPayload", () => {
+  it("wraps the message in a digest-event payload with defaults", () => {
+    const payload = buildDigestPayload(computeStats([job({ status: "completed" })]), { now: NOW });
+    expect(payload.event).toBe("digest");
+    expect(payload.jobId).toBe("queue-digest");
+    expect(payload.project).toBe("agentrelay");
+    expect(payload.message).toContain("1 job(s) tracked");
+  });
+
+  it("honors a project override", () => {
+    const payload = buildDigestPayload(computeStats([]), { now: NOW, project: "my-app" });
+    expect(payload.project).toBe("my-app");
+  });
+});
 
 describe("renderTestNotifyResults", () => {
   it("shows the no-channels hint for an empty result set", () => {
@@ -56,6 +142,12 @@ describe("renderTestNotifyResults", () => {
   it("emits ANSI codes only when color is enabled", () => {
     expect(renderTestNotifyResults([result()], { color: true })).toContain("\x1b[");
     expect(renderTestNotifyResults([result()], { color: false })).not.toContain("\x1b[");
+  });
+
+  it("uses the default header, or a custom title when given", () => {
+    expect(renderTestNotifyResults([result()])).toContain("notification test");
+    expect(renderTestNotifyResults([result()], { title: "digest delivery" })).toContain("digest delivery");
+    expect(renderTestNotifyResults([result()], { title: "digest delivery" })).not.toContain("notification test");
   });
 });
 
