@@ -1805,3 +1805,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
   대시보드 롤업에 정렬/필터 상호작용, `stats --group-by` 요약(성공률/해결시간)의 대시보드 노출.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 58 — `agentrelay stats --by-hour` 시간대별 활동 히스토그램] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-4vbxna`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x])이고 watch 계열(status/upcoming/overdue/tools/
+  projects/stats)·대시보드 롤업(세션 57)까지 완결됐다. 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이라, CLAUDE.md의 "백로그 비면 스스로 새 개선 항목 발굴" 지침대로 인접
+  신규 👷 항목을 발굴했다 — `--trend`(일별 히스토그램)는 "어느 *날* 바빴나"만 보여줄 뿐, 하루 중 어느
+  *시각*에 rate-limit이 몰리는지(사용 리듬)는 볼 수 없었다. 그 시간대(hour-of-day) 축을 채웠다.
+- **한 일 (branch `claude/wizardly-pascal-4vbxna`):**
+  - core `packages/core/src/stats.ts`: 순수 `computeHourlyDistribution(jobs)` + `HourlyActivity` 신설.
+    `createdAt`의 UTC 시(`((floor(ms/HOUR_MS)%24)+24)%24` — double-mod로 pre-1970 음수 epoch 안전)로
+    버킷팅, 항상 24슬롯(0–23시) zero-fill, 파싱 불가/누락 createdAt은 스킵. 시각이 타임스탬프에 내재하므로
+    ambient clock/nowMs 불필요(`computeDailyTrend`보다 더 순수). 입력 불변.
+  - CLI `packages/cli/src/stats.ts`: 순수 `renderHourly` — `renderTrend`와 동일 관례(busiest 시각에
+    막대 스케일·`TREND_BAR_WIDTH` 공유·zero는 baseline dot·컬러 게이트) + `HH:00` 라벨 + "N job(s)
+    across 24 hour(s)" 푸터. `renderStatsJson`에 optional `hourly` 필드 추가(미요청 시 생략 → 기존 JSON
+    shape·소비자 불변, `trend` 필드와 동일 패턴).
+  - CLI `packages/cli/src/cli.ts`: `stats`에 `--by-hour` 플래그 배선 — 일회성·`--json`·`--watch`(runStatsWatch에
+    byHour 인자 추가) 세 뷰 모두, `--trend`와 공존, 기존 스코프 필터(--status/--tool/--project/--since/
+    --until)와 조합. 잡 없으면(no-match) 히스토그램 생략(renderStats가 온보딩/no-match 문구 담당). addHelpText에
+    예시 1줄 추가. 새 파서/스케줄러/core 위임 외 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린·`pnpm format`+`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core stats +5 / cli stats +6 신규). **실제 빌드 CLI e2e**(mock 아님): 임시 스토어(09:15·
+  09:45·14:05 UTC 생성 3잡)로 `stats --by-hour`가 09시 막대 2·14시 막대 1·나머지 baseline dot·"3 job(s)
+  across 24 hour(s)"를 정확히 렌더, `--json`이 `hourly[9]={hour:9,count:2}`/`hourly[14]=count:1`·길이 24 노출,
+  plain `--json`은 `hourly` 키 생략, `--trend 5 --by-hour` 두 히스토그램 공존, `--by-hour --tool claude-code`
+  스코프가 09시만 남김, `--by-hour --watch 1`이 2프레임 라이브 배너+히스토그램 렌더, `--help`에 `--by-hour`
+  노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
+  일별/시간대별 활동 히스토그램 노출, `--by-hour`의 로컬 타임존 옵션(현재 UTC 고정). README/ARCHITECTURE(🧭 코워크).
