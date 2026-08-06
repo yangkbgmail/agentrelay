@@ -688,6 +688,18 @@
       (완료 — CLI `projects.ts`에 순수 `renderProjectsWatchFrame`, `cli.ts`에 `runProjectsWatch`. 새
       파서/스케줄러/core 로직 0줄. branch `claude/wizardly-pascal-j5exbn`, PR #467)
 
+- [x] 👷 `agentrelay recent` — 릴레이가 가장 최근에 건드린 잡을 최신순으로 "얼마나 전에 상태가
+      바뀌었나(ago)"와 함께 조회(활동 축 피드). `next`/`upcoming`/`overdue`는 전부 리셋 시각(미래)
+      축인데, "릴레이가 최근에 무엇을 했나"를 보는 활동 축 뷰가 없었다.
+      (완료 — core `recent.ts` 신설(순수·파일시스템/시계 미접촉): `buildRecentActivity(jobs, now, limit?)`가
+      전 상태의 잡을 `updatedAt` 내림차순(→createdAt desc→id asc tie-break, 파싱 불가 updatedAt은 맨
+      아래)으로 정렬, 각 행에 `ageMs`(now−updatedAt, 파싱 불가면 null)·`position` 부여 + `total`/`hidden`
+      (limit로 잘라도 total은 전체 반영). CLI `recent.ts`에 순수 `renderRecent`(표+상태 색상+`formatDurationMs`
+      재사용한 "X ago"·sub-second/클럭스큐는 "just now"·파싱불가는 "unknown"·scope note·no-match 문구)·
+      `renderRecentJson`. `agentrelay recent [--limit/-n] [--status] [--tool] [--project] [--since] [--until]
+      [--json]` — 공용 `buildScope` 재사용, completion 자동 포함. 새 파서/스케줄러 로직 0줄. core recent 9 +
+      cli recent 10 신규 테스트, 실제 빌드 CLI e2e로 정렬·ago·limit 부분표시·tool/status 스코프·--json·--limit 0
+      에러(exit 1)·help/completion 노출 검증. branch `claude/wizardly-pascal-vzto3c`)
 - [x] 👷 `agentrelay stats --watch [seconds]` — 집계 지표(성공률·재시도·다음 리셋 카운트다운·
       per-tool/project 브레이크다운)를 라이브로 갱신. watch 계열의 마지막 조회 명령까지 확장.
       (완료 — 세션 55가 "다음 할 일"로 명시한 후속. `stats`는 watch 형제들과 달리 본문이 plain stats·
