@@ -1774,3 +1774,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). watch 계열 조회 명령 완성 → 후속은
   인접 신규 항목 발굴(예: 대시보드에 프로젝트/툴 롤업 노출, `stats --watch`의 `--group-by/--trend` 조합
   라이브 뷰 폴리시). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 57 — `agentrelay recent` 뒤돌아보는 해결-활동 피드] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-euj32e`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md의 "백로그가 비면 스스로 새 개선 항목 발굴" 지침대로 인접
+  신규 항목을 발굴했다. 조회 명령 계열은 `next`/`upcoming`/`overdue`가 전부 **앞을 보는**(대기·지연)
+  뷰인데, 그 거울인 **뒤돌아보는** 뷰 — "릴레이가 방금 무엇을 끝냈나?" — 가 없었다. `status --sort updated`
+  로는 종료 잡만 걸러 해결 소요시간과 함께 시간순으로 보는 전용 렌즈가 안 됐다.
+- **한 일 (branch `claude/wizardly-pascal-euj32e`):** `agentrelay recent` — 최근 해결된 잡(completed/
+  failed/cancelled)을 최신순으로, 각 잡이 얼마나 전에 끝났고(resolved N ago) 릴레이가 얼마나 오래
+  돌봤는지(took)와 함께.
+  - core `recent.ts` 신설(순수·파일시스템/시계 미접촉): `buildRecentActivity(jobs, now, {limit?, outcomes?})`
+    + `RecentEntry`/`RecentActivity`/`RecentOptions`/`ResolvedOutcome`. 종료 상태 + 파싱 가능 `updatedAt`
+    잡만 골라 **가장 최근 해결 순**(resolvedAt desc→createdAt desc→id desc) 정렬(`upcoming`이 파싱 불가
+    `resetAt`을 버리듯 파싱 불가 `updatedAt` 제외). `resolutionMs`=updatedAt−createdAt은 `stats` 해결시간
+    정책과 동일(파싱불가·음수 span은 null), `resolvedAgoMs`는 미래 updatedAt이면 0 클램프. `outcomes`
+    하위집합 필터·`limit` 트림(totals/byOutcome는 전체 반영)·입력 불변.
+  - CLI `recent.ts`에 순수 `renderRecent`(표: #·id·project·outcome[상태색]·"N ago"·took·per-outcome 푸터·
+    no-match 문구)·`renderRecentJson`·`renderRecentWatchFrame`(status/upcoming/overdue와 동일 라이브 배너).
+    `cli.ts`에 `runRecentWatch`(세션 52 `startWatchLoop` 재사용) + `agentrelay recent [--limit/-n]
+    [--status/-s][--tool/-t][--project/-p][--since][--until][--json][--watch/-w]` 배선(공용 `buildScope`로
+    스코프, --status로 outcome 필터). 새 파서/스케줄러 로직 0줄, core index에 export 추가.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 566[recent 13 신규]·cli 306/1skip[recent 12 신규]·dashboard 7). 빌드된 실제 CLI
+  e2e(mock 아님): 4-잡 임시 스토어(completed/failed/cancelled + waiting 1)로 `recent`(waiting 제외·최신순·
+  per-outcome 푸터), `--status failed`(1건), `--project web-app --limit 1`("1 more not shown" 정직 푸터),
+  `--json`(totalResolved/byOutcome/first 확인), `--limit 0`·`--status bogus`(exit 1), `--watch 1`(2.5s에
+  3프레임·화면 clear `\x1b[2J`·라이브 배너), completion·`--help`에 `recent` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 조회 계열이 앞/뒤 대칭으로 완성 →
+  후속 발굴 후보: `recent --watch`가 이미 있으니 대시보드에 "recently resolved" 피드/프로젝트·툴 롤업
+  노출(세션 31 대시보드 후속), 또는 `agentrelay resume-log`식 이벤트 타임라인. README/ARCHITECTURE(🧭 코워크).
