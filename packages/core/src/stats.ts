@@ -197,6 +197,42 @@ export function computeDailyTrend(jobs: RelayJob[], options: { nowMs: number; da
   return trend;
 }
 
+/** Milliseconds in one hour. Epoch hour boundaries are UTC-aligned. */
+const HOUR_MS = 3_600_000;
+
+/** One hour-of-day slot in a {@link computeHourlyDistribution} histogram. */
+export interface HourlyActivity {
+  /** UTC hour of day, 0–23. */
+  hour: number;
+  /** Jobs created during this hour of day (bucketed by `createdAt`, UTC, across every day). */
+  count: number;
+}
+
+/**
+ * Buckets jobs by the UTC hour of day (0–23) they were created, aggregated over
+ * every day in the input, so `agentrelay stats --by-hour` can show which hours
+ * of the day rate-limits actually pile up — the time-of-day rhythm that a
+ * per-day {@link computeDailyTrend} can't reveal. Pure and non-mutating:
+ * hour-of-day is intrinsic to each timestamp, so no ambient clock is needed.
+ *
+ * The result is always exactly 24 entries, hour 0 through hour 23, zero-filled
+ * for quiet hours so the histogram has a stable shape. Jobs with a missing or
+ * unparseable `createdAt` are skipped — they can't be placed on the clock.
+ */
+export function computeHourlyDistribution(jobs: RelayJob[]): HourlyActivity[] {
+  const counts = new Array<number>(24).fill(0);
+  for (const job of jobs) {
+    const created = Date.parse(job.createdAt);
+    if (Number.isNaN(created)) continue;
+    // Epoch 0 is 1970-01-01T00:00:00Z and HOUR_MS divides the epoch evenly, so
+    // flooring to an hour and taking mod 24 yields the UTC hour of day with no
+    // timezone math. The double-mod keeps pre-1970 (negative) epochs in 0–23.
+    const hour = ((Math.floor(created / HOUR_MS) % 24) + 24) % 24;
+    counts[hour] += 1;
+  }
+  return counts.map((count, hour) => ({ hour, count }));
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 

@@ -19,6 +19,7 @@ import {
   COMPLETION_SHELLS,
   computeDailyTrend,
   computeErrorBreakdown,
+  computeHourlyDistribution,
   computeStats,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
@@ -86,6 +87,7 @@ import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
   renderGroupedStats,
   renderGroupedStatsJson,
+  renderHourly,
   renderStats,
   renderStatsJson,
   renderStatsWatchFrame,
@@ -447,7 +449,8 @@ function runStatsWatch(
   scope: JobScope,
   scopeNote: string | undefined,
   groupBy: GroupDimension | undefined,
-  trendDays: number | null
+  trendDays: number | null,
+  byHour: boolean
 ): void {
   const active = isJobScopeActive(scope);
   startWatchLoop(intervalMs, () => {
@@ -463,6 +466,9 @@ function runStatsWatch(
       if (trendDays !== null && stats.total > 0) {
         const trend = computeDailyTrend(jobs, { nowMs: now, days: trendDays });
         body += `\n\n${renderTrend(trend, { color: true })}`;
+      }
+      if (byHour && stats.total > 0) {
+        body += `\n\n${renderHourly(computeHourlyDistribution(jobs), { color: true })}`;
       }
     }
     const frame = renderStatsWatchFrame(body, store, intervalMs, now);
@@ -984,6 +990,7 @@ export function buildCli(): Command {
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("-g, --group-by <dimension>", `Break down metrics per group: ${GROUP_DIMENSIONS.join(", ")}`)
     .option("--trend [days]", "Also show a per-day activity histogram over the last N days, UTC (default 14, max 90)")
+    .option("--by-hour", "Also show an hour-of-day activity histogram (jobs created per UTC hour, all days)")
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
     .addHelpText(
       "after",
@@ -993,7 +1000,9 @@ export function buildCli(): Command {
         "  # live view, the next-reset countdown ticking down every 2s\n" +
         "  agentrelay stats --watch\n" +
         "  # live per-tool breakdown, refreshed every 5s\n" +
-        "  agentrelay stats --group-by tool --watch 5"
+        "  agentrelay stats --group-by tool --watch 5\n" +
+        "  # which hours of the day rate-limits pile up (UTC)\n" +
+        "  agentrelay stats --by-hour"
     )
     .action(
       (opts: {
@@ -1004,6 +1013,7 @@ export function buildCli(): Command {
         until?: string;
         groupBy?: string;
         trend?: string | boolean;
+        byHour?: boolean;
         json?: boolean;
         watch?: string | boolean;
       }) => {
@@ -1116,7 +1126,7 @@ export function buildCli(): Command {
         if (opts.watch !== undefined && !opts.json) {
           const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
           const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
-          runStatsWatch(store, intervalMs, scope, scopeNote, groupBy, trendDays);
+          runStatsWatch(store, intervalMs, scope, scopeNote, groupBy, trendDays, Boolean(opts.byHour));
           return; // setInterval keeps the process alive.
         }
 
@@ -1135,19 +1145,24 @@ export function buildCli(): Command {
 
         const stats = computeStats(jobs);
         const trend = trendDays !== null ? computeDailyTrend(jobs, { nowMs: now, days: trendDays }) : null;
+        const hourly = opts.byHour ? computeHourlyDistribution(jobs) : null;
 
         if (opts.json) {
-          console.log(renderStatsJson(stats, store, { scope, trend }));
+          console.log(renderStatsJson(stats, store, { scope, trend, hourly }));
           return;
         }
         // A store with jobs but an empty scoped subset should say "no match",
         // not the onboarding hint — renderStats keys that off scopeNote.
         console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY), scopeNote }));
-        // Append the histogram only when the store has matching jobs (renderStats
+        // Append the histograms only when the store has matching jobs (renderStats
         // already handles the empty/no-match messaging on its own).
         if (trend !== null && stats.total > 0) {
           console.log("");
           console.log(renderTrend(trend, { color: Boolean(process.stdout.isTTY) }));
+        }
+        if (hourly !== null && stats.total > 0) {
+          console.log("");
+          console.log(renderHourly(hourly, { color: Boolean(process.stdout.isTTY) }));
         }
       }
     );
