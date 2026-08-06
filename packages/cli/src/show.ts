@@ -116,6 +116,38 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
   return lines.join("\n");
 }
 
+/**
+ * One frame of the live `agentrelay show <id> --watch` view: a title/header
+ * block plus the full detail body, mirroring the `status` watch banner so the
+ * two live views read the same. `detail` is a pre-rendered `renderJobDetail`
+ * string (or the not-found notice below) so this stays a pure wrapper — the
+ * watch loop in cli.ts re-resolves the job and re-renders the body each pass.
+ */
+export function renderJobWatchFrame(
+  detail: string,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now()
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay show${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", detail].join("\n");
+}
+
+/**
+ * Body shown by the watch view when the job can no longer be resolved — it was
+ * pruned, cancelled-and-cleared, or the id became ambiguous while watching.
+ * Kept as a plain notice (not an error exit) so the live loop keeps running:
+ * the job may reappear, or the user just Ctrl-C's out.
+ */
+export function renderJobGoneFrame(idOrPrefix: string, reason?: string): string {
+  const why = reason ? `: ${reason}` : "";
+  return `Job "${idOrPrefix}" is no longer in the store${why}.`;
+}
+
 /** Machine-readable single-job snapshot for `--json` (scripts, jq, tooling). */
 export function renderJobDetailJson(
   job: RelayJob,

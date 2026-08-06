@@ -1,6 +1,12 @@
 import type { RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { formatCommand, renderJobDetail, renderJobDetailJson } from "../src/show.js";
+import {
+  formatCommand,
+  renderJobDetail,
+  renderJobDetailJson,
+  renderJobGoneFrame,
+  renderJobWatchFrame,
+} from "../src/show.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -114,6 +120,37 @@ describe("renderJobDetail", () => {
   it("emits ANSI codes only when color is enabled", () => {
     expect(renderJobDetail(job(), { now: NOW, color: false })).not.toContain("\x1b[");
     expect(renderJobDetail(job(), { now: NOW, color: true })).toContain("\x1b[");
+  });
+});
+
+describe("renderJobWatchFrame", () => {
+  it("wraps the detail body with a live header and store meta", () => {
+    const detail = renderJobDetail(job(), { now: NOW });
+    const frame = renderJobWatchFrame(detail, "/store/jobs.json", 2000, NOW);
+    expect(frame).toContain("agentrelay show");
+    expect(frame).toContain("live, every 2s");
+    expect(frame).toContain("Ctrl-C to exit");
+    expect(frame).toContain("/store/jobs.json");
+    // The whole detail body is embedded verbatim below the banner.
+    expect(frame).toContain(detail);
+    // Timestamp stamp of `now` (seconds precision, no fractional part).
+    expect(frame).toContain("2026-07-13 00:00:00Z");
+  });
+
+  it("rounds the interval to whole seconds in the header", () => {
+    const frame = renderJobWatchFrame("body", "/store/jobs.json", 5000, NOW);
+    expect(frame).toContain("live, every 5s");
+  });
+});
+
+describe("renderJobGoneFrame", () => {
+  it("states the job is no longer in the store", () => {
+    expect(renderJobGoneFrame("abcd1234")).toBe('Job "abcd1234" is no longer in the store.');
+  });
+
+  it("appends the resolver reason when one is given", () => {
+    const out = renderJobGoneFrame("ab", 'id prefix "ab" is ambiguous');
+    expect(out).toContain('Job "ab" is no longer in the store: id prefix "ab" is ambiguous.');
   });
 });
 

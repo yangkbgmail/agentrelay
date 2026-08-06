@@ -721,6 +721,20 @@
       정확히 반환(랭킹·nextResetAt)하고, 사전설치 Chromium 헤드리스 렌더로 클라이언트 폴링 후 `By project`/
       `By tool` 카드·라벨·1h 28m 카운트다운이 실제로 그려짐을 e2e 확인. branch `claude/wizardly-pascal-wip07r`)
 
+- [x] 👷 `agentrelay show <id> --watch` — 단일 잡 상세 뷰의 라이브 카운트다운(상태 전이·리셋 카운트다운을
+      실시간으로). status/upcoming/overdue/tools/projects/stats에 이어 watch 테마의 마지막 빈칸을 메움.
+      (완료 — `show`는 지금까지 일회성 스냅샷만 지원해, 잡 하나의 리셋 카운트다운을 지켜보거나 상태
+      전이[waiting → resuming → completed]를 실시간으로 보려면 반복 실행해야 했다. `packages/cli/src/show.ts`에
+      순수 `renderJobWatchFrame(detail, storePath, intervalMs, now)`(라이브 배너+타임스탬프로 상세 본문을
+      감싸는 얇은 래퍼, `status`의 `renderWatchFrame`과 배너 형식 일치) + `renderJobGoneFrame(idOrPrefix,
+      reason?)`(감시 중 잡이 prune/삭제/모호해지면 에러 exit 대신 계속 도는 안내 문구) 추가. `cli.ts`에
+      `runShowWatch` — 다른 watch 루프와 달리 매 프레임 `showJob`으로 id/prefix를 **재해소**(스토어 재읽기)해
+      데몬 쓰기가 자동 반영되고, 잡이 사라지면 안내 프레임으로 계속 실행. `show`에 `-w, --watch [seconds]`
+      배선(오타 id는 감시 시작 전 1회 해소해 exit 1, 빈/비정상 초는 기본 2초로 `status`와 동일 파싱).
+      새 core 로직 0줄 — 전부 기존 검증된 `showJob`·`renderJobDetail`·`startWatchLoop` 재사용. show.test.ts에
+      `renderJobWatchFrame` 2 + `renderJobGoneFrame` 2 케이스(14→17), 실제 빌드 CLI e2e로 매초 라이브 프레임
+      재렌더·미존재 id exit 1 검증. branch `claude/wizardly-pascal-a3bour`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -1805,3 +1805,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
   대시보드 롤업에 정렬/필터 상호작용, `stats --group-by` 요약(성공률/해결시간)의 대시보드 노출.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 58 — `agentrelay show <id> --watch` 라이브 단일 잡 뷰] (2026-08-06, 무인 자동 트리거)
+- **맥락:** 저장소 최신화 후 BACKLOG의 👷 항목은 모두 완료([x]) 상태였고, 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md의 "백로그가 비면 스스로 개선 항목을
+  발굴하라" 지침에 따라, 최근 세션들이 status/upcoming/overdue/tools/projects/stats에 추가한 `--watch`
+  라이브 뷰 테마의 마지막 빈칸 — 단일 잡 상세(`show`)에는 `--watch`가 없던 것 — 을 신규 👷 항목으로 발굴.
+  잡 하나의 리셋 카운트다운을 실시간으로 지켜보고 상태 전이(waiting → resuming → completed)를 바로 보고
+  싶을 때 유용하며, 이미 검증된 `showJob`·`renderJobDetail`·`startWatchLoop`을 재사용해 저위험.
+- **한 일 (branch `claude/wizardly-pascal-a3bour`):**
+  - `packages/cli/src/show.ts`: 순수 `renderJobWatchFrame(detail, storePath, intervalMs, now)`(라이브 배너 +
+    타임스탬프 + 상세 본문을 그대로 감싸는 얇은 래퍼, `status`의 `renderWatchFrame`과 배너 형식 일치) +
+    `renderJobGoneFrame(idOrPrefix, reason?)`(감시 중 잡이 prune/삭제/모호해지면 에러 exit 대신 계속
+    도는 안내 문구) 추가.
+  - `packages/cli/src/cli.ts`: `runShowWatch(store, intervalMs, idOrPrefix)` — 다른 watch 루프와 달리 매
+    프레임 `showJob`으로 id/prefix를 **재해소**(스토어 재읽기)하므로 데몬의 쓰기가 자동 반영, 잡이 사라지면
+    안내 프레임. `show` 커맨드에 `-w, --watch [seconds]` 옵션 배선(오타 id는 감시 시작 전 1회 해소해 exit 1,
+    빈/비정상 초는 기본 2초, `status`와 동일한 파싱).
+  - `packages/cli/test/show.test.ts`: `renderJobWatchFrame` 2 + `renderJobGoneFrame` 2 케이스 추가(14→17).
+- **검증:** `pnpm install`→`pnpm build` 클린·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test` 전 패키지 통과
+  (cli show 14→17, 총 298/1skip). **실제 빌드 CLI e2e**(mock 아님): 임시 스토어에 대기 잡 1개 시드 →
+  `show <prefix> --watch 1`이 매초 라이브 프레임(배너·타임스탬프 14:37:54→55·카운트다운) 재렌더, 알 수
+  없는 id는 감시 진입 전 exit 1 확인. 임시 시드 스크립트는 커밋 안 함.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 후보 — 대시보드 롤업
+  정렬/필터 상호작용, `stats --group-by` 요약의 대시보드 노출. README/ARCHITECTURE(🧭 코워크).
