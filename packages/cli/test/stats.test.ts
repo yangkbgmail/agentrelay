@@ -11,6 +11,7 @@ import {
   renderGroupedStatsJson,
   renderStats,
   renderStatsJson,
+  renderStatsWatchFrame,
   renderTrend,
 } from "../src/stats.js";
 
@@ -314,5 +315,43 @@ describe("renderStatsJson trend field", () => {
     const trend: DailyActivity[] = [{ date: "2026-07-20", count: 1 }];
     const withTrend = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", trend }));
     expect(withTrend.trend).toEqual(trend);
+  });
+});
+
+describe("renderStatsWatchFrame", () => {
+  it("prepends a live title with the store path, timestamp, and interval", () => {
+    const body = renderStats(computeStats([job()]), { color: false });
+    const out = renderStatsWatchFrame(body, "/tmp/jobs.json", 5000, NOW);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("agentrelay stats");
+    expect(lines[0]).toContain("every 5s");
+    expect(lines[0]).toContain("Ctrl-C to exit");
+    // Metadata line: ISO timestamp (space-separated, trimmed to seconds) + store path.
+    expect(lines[1]).toContain("2026-07-13 00:00:00Z");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+    // Then a blank line, then the composed body verbatim.
+    expect(lines[2]).toBe("");
+    expect(out.endsWith(body)).toBe(true);
+  });
+
+  it("carries a live next-reset countdown from the composed body", () => {
+    // A job waiting for a reset 6h out should surface a live countdown; the
+    // frame wraps whatever body the watch loop composes with a fresh `now`.
+    const stats = computeStats([job({ status: "waiting_for_reset", resetAt: "2026-07-13T06:00:00.000Z" })]);
+    const body = renderStats(stats, { color: true, now: NOW });
+    const out = renderStatsWatchFrame(body, "/tmp/jobs.json", 2000, NOW);
+    expect(out).toContain("next reset in: 6h 0m");
+    // Watch frames are always colored (live TTY view).
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting escapes are present.
+    expect(out).toMatch(/\x1b\[/);
+  });
+
+  it("wraps a --group-by breakdown body just as well as plain stats", () => {
+    const jobs = [job({ tool: "claude-code" }), job({ tool: "codex-cli", status: "failed" })];
+    const body = renderGroupedStats(groupStats(jobs, "tool"), "tool", { color: false });
+    const out = renderStatsWatchFrame(body, "/tmp/jobs.json", 2000, NOW);
+    expect(out.split("\n")[0]).toContain("agentrelay stats");
+    expect(out).toContain("across 2 tool(s)");
+    expect(out.endsWith(body)).toBe(true);
   });
 });

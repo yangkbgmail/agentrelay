@@ -1744,3 +1744,33 @@
   `--watch --status bogus`(watch 루프 전 exit 1), `--help`·completion에 `--watch` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). watch 계열 완성 → 후속은 인접 신규
   항목 발굴(예: `stats --watch`·대시보드 프로젝트/툴 롤업 노출 등). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 56 — `agentrelay stats --watch` 라이브 집계 지표] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-stats-watch`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 55가 "다음 할 일"로 명시한 후속 — `stats --watch` — 을 구현해
+  watch 계열을 조회 명령 전반(status/upcoming/overdue/tools/projects/**stats**)으로 완성했다. `stats`는
+  성공률·재시도·다음 리셋·per-tool/project 브레이크다운을 보여주는데, 라이브 뷰가 없어 리셋 카운트다운이
+  줄어드는 걸 보려면 반복 실행해야 했다.
+- **한 일 (branch `claude/wizardly-pascal-stats-watch`):** `agentrelay stats --watch [seconds]` — 세션
+  12·52의 `startWatchLoop`/watch-frame 인프라 재사용.
+  - CLI `stats.ts`에 순수 `renderStatsWatchFrame(body, storePath, intervalMs, now)` 신설: `status`/
+    `tools`/`projects`의 watch-frame와 동일한 title/meta 라이브 배너(타임스탬프·스토어 경로) + 이미 조합된
+    본문. **형제들과 다른 점** — `stats` 본문은 plain stats·`--group-by` 브레이크다운·`--trend` 히스토그램
+    세 형태를 가질 수 있어, 본문 조합을 watch 루프가 맡고 이 함수는 배너 wrap만(순수·`now` 주입).
+  - CLI `cli.ts`: 공용 `startWatchLoop`을 재사용하는 `runStatsWatch`(매 프레임 스토어 재읽기·스코프
+    재적용·`computeStats`/`groupStats`/`computeDailyTrend`를 fresh `now`로 재구성 → "next reset in"
+    카운트다운 live·화면 clear). 시간 창 경계는 시작 시 고정 epoch-ms.
+  - `stats` 커맨드에 `-w, --watch [seconds]` 옵션 배선: scope/group-by/trend 검증을 **먼저** 통과시켜
+    잘못된 값은 watch 루프 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프). 인터벌 기본 2s,
+    addHelpText 예시 3줄. completion은 라이브 프로그램 파생이라 `--watch`/`-w` 자동 포함. 새 파서/
+    스케줄러/core 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli 294/1skip + dashboard 7; cli stats 24→27, watch-frame 3케이스 신규). 빌드된 실제
+  CLI e2e(mock 아님): 2-잡 임시 스토어(web-app 대기 1[리셋 1h 30m]/api-svc 완료 1)로 `stats --watch 1`
+  (화면 clear `\x1b[2J\x1b[H`·라이브 배너·카운트다운 1h 30m·컬러 출력, timeout으로 2프레임·exit 124),
+  일회성 `stats` 불변, `stats --group-by tool --watch 1`(라이브 grouped 본문 "2 job(s) across 2 tool(s)"),
+  `--watch --json`(JSON 우선·즉시 종료 exit 0), `--watch --status bogus`(watch 루프 전 exit 1),
+  `--help`·completion에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). watch 계열 조회 명령 완성 → 후속은
+  인접 신규 항목 발굴(예: 대시보드에 프로젝트/툴 롤업 노출, `stats --watch`의 `--group-by/--trend` 조합
+  라이브 뷰 폴리시). README/ARCHITECTURE(🧭 코워크).
