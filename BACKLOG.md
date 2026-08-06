@@ -721,6 +721,23 @@
       정확히 반환(랭킹·nextResetAt)하고, 사전설치 Chromium 헤드리스 렌더로 클라이언트 폴링 후 `By project`/
       `By tool` 카드·라벨·1h 28m 카운트다운이 실제로 그려짐을 e2e 확인. branch `claude/wizardly-pascal-wip07r`)
 
+- [x] 👷 `agentrelay metrics`에 재개-루프 라이브 게이지 추가 — Prometheus 노출에 시간 상대적
+      신호(overdue/다음 리셋)를 실어, 재개 루프가 죽어 잡이 리셋 시각을 넘겨도 재개 안 되는 최다
+      무음 실패를 스크레이핑/알림으로 잡음.
+      (완료 — 기존 `metrics`는 `RelayStats`(시계 없음)만 반영해 집계 게이지만 냈고, "지금 재개돼야
+      하는데 안 된 잡이 있나"라는 모니터링의 핵심 신호를 노출하지 못했다. core `metrics.ts`에
+      `RelayLiveMetrics`(overdueJobs·maxOverdueMs·nextResetInMs) + `PrometheusOptions.live` 추가 —
+      `renderPrometheusMetrics`는 여전히 순수(시계·I/O 미접촉), 호출자가 `now`를 소유해 값을 주입.
+      `live` 미제공 시 게이지 전부 생략(하위호환 — 기존 스크레이퍼는 집계 지표를 그대로 봄).
+      게이지: `agentrelay_overdue_jobs`(0이어도 항상 노출 — 알림 대상, 지속 비영은 재개 루프 다운
+      신호)·`agentrelay_overdue_seconds{stat="max"}`(overdue>0일 때만, 빈 집합 max=오도 0 방지)·
+      `agentrelay_next_reset_seconds`(대기 잡 있을 때만, 소진 시각이 이미 지났으면 음수). CLI
+      metrics 액션이 스코프한 잡·공유 `now`로 검증된 `buildOverdueReport(grace 0)`/`buildUpcomingTimeline`
+      재사용 → 스크레이핑 값이 `overdue`/`upcoming` 명령과 절대 드리프트 안 함. 새 파서/스케줄러
+      로직 0줄. metrics.test.ts 12→17(라이브 게이지 생략/제로 노출/초 환산/음수 next/prefix 5케이스),
+      실제 빌드 CLI e2e로 overdue+upcoming 시드 스토어→overdue_jobs 1·max 90s·next 음수, `--status
+      completed` 스코프→대기 0·overdue_jobs 0·max/next 생략 검증. branch `claude/wizardly-pascal-ql7arb`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

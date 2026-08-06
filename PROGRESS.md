@@ -1805,3 +1805,34 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
   대시보드 롤업에 정렬/필터 상호작용, `stats --group-by` 요약(성공률/해결시간)의 대시보드 노출.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 58 — `agentrelay metrics` 재개-루프 라이브 게이지] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-ql7arb`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유뿐. `metrics`는
+  Prometheus 노출 포맷이라 스크레이핑/알림 인프라의 핵심인데, 지금까지 `RelayStats`(시계 없음)만
+  반영해 **집계 게이지만** 냈다. 정작 릴레이가 막으려는 최다 무음 실패 — "재개 루프(daemon/tick)가
+  죽어 잡이 리셋 시각을 넘겨도 재개 안 됨" — 는 시간 상대적 신호라 노출되지 않아, 모니터가 알림을
+  걸 수 없었다. 세션 51의 `overdue` 진단 명령이 사람용이라면, 그 신호를 기계용(Prometheus)으로
+  잇는 것이 자연스러운 다음 항목이라 신규 👷 항목으로 발굴·구현.
+- **한 일 (branch `claude/wizardly-pascal-ql7arb`):**
+  - `packages/core/src/metrics.ts`: `RelayLiveMetrics`(overdueJobs·maxOverdueMs·nextResetInMs) +
+    `PrometheusOptions.live` 추가. `renderPrometheusMetrics`는 여전히 순수(시계·I/O 미접촉) — 호출자가
+    `now`를 소유해 값을 주입하므로 테스트 가능성 유지. `live` 미제공 시 신규 게이지 전부 생략(하위호환:
+    기존 스크레이퍼는 집계 지표를 그대로 봄). 게이지 3종: `agentrelay_overdue_jobs`(0이어도 항상 노출 —
+    스크레이퍼가 0을 기록·알림 대상, 지속 비영은 재개 루프 다운 신호)·`agentrelay_overdue_seconds{stat="max"}`
+    (overdue>0일 때만 — 빈 집합 max=오도 0 방지)·`agentrelay_next_reset_seconds`(대기 잡 있을 때만,
+    소진 시각이 이미 지났으면 음수). 초 단위(Prometheus base unit)로 환산.
+  - `packages/cli/src/cli.ts`: metrics 액션이 공유 `now`로 스코프한 잡에 검증된 core
+    `buildOverdueReport(grace 0)`/`buildUpcomingTimeline`을 재사용해 `live` 구성 → 스크레이핑 값이
+    `overdue`/`upcoming` 명령이 사람에게 보여주는 것과 절대 드리프트 안 함(단일 진실원). addHelpText에
+    overdue 알림 예시 1줄 추가. 새 파서/스케줄러/core 로직 0줄.
+  - `packages/core/src/metrics.test.ts`: 12→17. 라이브 게이지 생략(미제공)·제로 노출+max/next 생략·
+    overdue_seconds 초 환산·next_reset 음수 유지·prefix 반영 5케이스.
+- **검증:** `pnpm install`→`pnpm build` 클린·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test` 전 패키지
+  통과(core 553→558, cli 294/1skip, dashboard 9). **실제 빌드 CLI e2e**(mock 아님): 임시 스토어
+  (web 대기1[리셋 90s 지남=overdue]·api 대기1[리셋 +300s]·web 완료1)로 `AGENTRELAY_STORE` 지정 →
+  `metrics`가 `overdue_jobs 1`·`overdue_seconds{stat="max"} ~90`·`next_reset_seconds` 음수(소진 시각
+  지남) 반환, `metrics --status completed`(대기 0 스코프)는 `overdue_jobs 0`·max/next 생략 검증. 임시
+  시드는 검증 후 제거.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
+  `patterns`/`errors`에 `--limit`/`--watch` 정렬, 대시보드에 overdue 배지 노출, `metrics`에 데몬
+  하트비트 나이 게이지(`heartbeat_age_seconds`). README/ARCHITECTURE(🧭 코워크).

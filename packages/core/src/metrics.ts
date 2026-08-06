@@ -13,6 +13,33 @@ import { ALL_STATUSES } from "./summary.js";
  * because the store can shrink (via `prune`), so nothing here is monotonic.
  */
 
+/**
+ * Time-relative, resume-loop signals that {@link RelayStats} cannot carry
+ * because it is clock-free. The caller computes these from the same scoped job
+ * set (via `buildOverdueReport` / `buildUpcomingTimeline`) and passes them in,
+ * keeping {@link renderPrometheusMetrics} pure. When absent, the live gauges are
+ * simply omitted — a scraper that never supplies them sees the aggregate
+ * metrics exactly as before.
+ *
+ * The headline signal is `overdueJobs`: `waiting_for_reset` jobs whose reset
+ * time has already passed but which have not been resumed. A value that stays
+ * above zero is the single clearest sign the resume loop (daemon/tick) is down
+ * or the agent binary can't spawn — exactly the silent failure the relay exists
+ * to prevent — so it is the natural thing to alert on.
+ */
+export interface RelayLiveMetrics {
+  /** Count of `waiting_for_reset` jobs already past their reset time (grace 0). */
+  overdueJobs: number;
+  /** Worst single overdue span in ms across those jobs; 0 when none are overdue. */
+  maxOverdueMs: number;
+  /**
+   * Milliseconds until the soonest waiting job's reset, or null when nothing is
+   * waiting with a parseable reset. May be ≤ 0 when the soonest reset has
+   * already passed (in which case see `overdueJobs`).
+   */
+  nextResetInMs: number | null;
+}
+
 export interface PrometheusOptions {
   /**
    * Metric name prefix (default "agentrelay"). Sanitized to a valid Prometheus
@@ -20,6 +47,11 @@ export interface PrometheusOptions {
    * prefixed with `_` so the emitted names always parse.
    */
   prefix?: string;
+  /**
+   * Optional clock-relative resume-loop gauges. Supplied by the caller (which
+   * owns `now`) so the render stays pure. Omit to emit aggregate metrics only.
+   */
+  live?: RelayLiveMetrics;
 }
 
 const DEFAULT_PREFIX = "agentrelay";
@@ -150,6 +182,43 @@ export function renderPrometheusMetrics(stats: RelayStats, options: PrometheusOp
         `${metric}{${label("stat", "max")}} ${formatValue(t.maxResolutionMs / 1000)}`,
       ])
     );
+  }
+
+  // Clock-relative resume-loop gauges, only when the caller supplied them.
+  // `overdue_jobs` is the one to alert on: a persistent non-zero value means the
+  // relay has jobs whose reset already passed but nothing is resuming them.
+  const live = options.live;
+  if (live !== undefined) {
+    lines.push(
+      ...metricFamily(
+        name("overdue_jobs"),
+        "waiting_for_reset jobs whose reset time has already passed but which have not resumed (resume-loop-down signal).",
+        [`${name("overdue_jobs")} ${formatValue(live.overdueJobs)}`]
+      )
+    );
+
+    // Only meaningful when something is actually overdue — a "max" over an empty
+    // set would be a misleading 0, so omit the family entirely otherwise.
+    if (live.overdueJobs > 0) {
+      const metric = name("overdue_seconds");
+      lines.push(
+        ...metricFamily(metric, "How long the most-overdue waiting job has been past its reset time, seconds.", [
+          `${metric}{${label("stat", "max")}} ${formatValue(live.maxOverdueMs / 1000)}`,
+        ])
+      );
+    }
+
+    // Seconds until the soonest waiting job's reset. Omitted when nothing is
+    // waiting; can be ≤ 0 when the soonest reset has already passed.
+    if (live.nextResetInMs !== null) {
+      lines.push(
+        ...metricFamily(
+          name("next_reset_seconds"),
+          "Seconds until the soonest waiting job's reset (negative once it has passed).",
+          [`${name("next_reset_seconds")} ${formatValue(live.nextResetInMs / 1000)}`]
+        )
+      );
+    }
   }
 
   return `${lines.join("\n")}\n`;

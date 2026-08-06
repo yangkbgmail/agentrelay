@@ -125,4 +125,56 @@ describe("renderPrometheusMetrics", () => {
     expect(text).toContain("my_relay_jobs ");
     expect(text).not.toContain("agentrelay_jobs ");
   });
+
+  it("omits the live resume-loop gauges when no live metrics are supplied", () => {
+    const text = renderPrometheusMetrics(computeStats([job()]));
+    expect(text).not.toContain("agentrelay_overdue_jobs");
+    expect(text).not.toContain("agentrelay_overdue_seconds");
+    expect(text).not.toContain("agentrelay_next_reset_seconds");
+  });
+
+  it("emits overdue_jobs even at zero, but suppresses the max/next families with no data", () => {
+    const text = renderPrometheusMetrics(computeStats([job()]), {
+      live: { overdueJobs: 0, maxOverdueMs: 0, nextResetInMs: null },
+    });
+    const s = parseSamples(text);
+    // The headline alerting gauge is always present so a scraper can record 0.
+    expect(s.get("agentrelay_overdue_jobs")).toBe(0);
+    expect(text).toContain("# TYPE agentrelay_overdue_jobs gauge");
+    // A "max over nothing overdue" and a "no waiting job" reset would both be
+    // misleading zeros, so those families are omitted entirely.
+    expect(text).not.toContain("agentrelay_overdue_seconds");
+    expect(text).not.toContain("agentrelay_next_reset_seconds");
+  });
+
+  it("emits overdue_seconds (max, in seconds) only when jobs are overdue", () => {
+    const text = renderPrometheusMetrics(computeStats([job()]), {
+      // 90_000 ms overdue → 90 seconds.
+      live: { overdueJobs: 2, maxOverdueMs: 90_000, nextResetInMs: null },
+    });
+    const s = parseSamples(text);
+    expect(s.get("agentrelay_overdue_jobs")).toBe(2);
+    expect(s.get('agentrelay_overdue_seconds{stat="max"}')).toBe(90);
+  });
+
+  it("emits next_reset_seconds in seconds, keeping a negative value when the soonest reset has passed", () => {
+    const future = renderPrometheusMetrics(computeStats([job()]), {
+      live: { overdueJobs: 0, maxOverdueMs: 0, nextResetInMs: 120_000 },
+    });
+    expect(parseSamples(future).get("agentrelay_next_reset_seconds")).toBe(120);
+
+    const past = renderPrometheusMetrics(computeStats([job()]), {
+      live: { overdueJobs: 1, maxOverdueMs: 5_000, nextResetInMs: -5_000 },
+    });
+    expect(parseSamples(past).get("agentrelay_next_reset_seconds")).toBe(-5);
+  });
+
+  it("honors the prefix for the live gauges too", () => {
+    const text = renderPrometheusMetrics(computeStats([job()]), {
+      prefix: "my-relay",
+      live: { overdueJobs: 3, maxOverdueMs: 1_000, nextResetInMs: null },
+    });
+    expect(text).toContain("my_relay_overdue_jobs 3");
+    expect(text).not.toContain("agentrelay_overdue_jobs");
+  });
 });
