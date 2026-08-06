@@ -6,6 +6,7 @@ const EVENT_EMOJI: Record<NotifyPayload["event"], string> = {
   resumed: "▶️",
   completed: "✅",
   failed: "❌",
+  digest: "📊",
 };
 
 export function formatSlackText(payload: NotifyPayload): string {
@@ -215,25 +216,26 @@ export interface TestNotifyResult {
   error?: string;
 }
 
-export interface SendTestNotificationOptions {
+export interface SendNotificationOptions {
   env?: Record<string, string | undefined>;
   /** Injected for tests; defaults to global fetch. */
   fetchFn?: typeof fetch;
-  /** Overrides the synthetic payload (defaults to {@link testNotifyPayload}). */
-  payload?: NotifyPayload;
 }
 
 /**
- * Delivers the test payload to every configured channel independently and
+ * Delivers an arbitrary payload to every configured channel independently and
  * reports a per-channel result. Reuses the production notifier factories, so a
  * pass here means the *real* delivery path (body shape, auth header, HTTP
  * status handling) works — not merely that a URL is set. Each channel is
  * awaited; a failure on one never throws or aborts the others. Returns an
- * empty array when no channels are configured.
+ * empty array when no channels are configured. Both `notify test` (synthetic
+ * payload) and `notify digest` (queue-status summary) build on this.
  */
-export async function sendTestNotification(options: SendTestNotificationOptions = {}): Promise<TestNotifyResult[]> {
+export async function sendNotification(
+  payload: NotifyPayload,
+  options: SendNotificationOptions = {}
+): Promise<TestNotifyResult[]> {
   const env = options.env ?? process.env;
-  const payload = options.payload ?? testNotifyPayload();
   const channels = listNotifyChannels(env);
   return Promise.all(
     channels.map(async (channel): Promise<TestNotifyResult> => {
@@ -256,6 +258,24 @@ export async function sendTestNotification(options: SendTestNotificationOptions 
       return { channel, ok: false, error: message };
     })
   );
+}
+
+export interface SendTestNotificationOptions {
+  env?: Record<string, string | undefined>;
+  /** Injected for tests; defaults to global fetch. */
+  fetchFn?: typeof fetch;
+  /** Overrides the synthetic payload (defaults to {@link testNotifyPayload}). */
+  payload?: NotifyPayload;
+}
+
+/**
+ * Delivers the test payload to every configured channel and reports a
+ * per-channel result. Thin wrapper over {@link sendNotification} that supplies
+ * the synthetic {@link testNotifyPayload} when none is given.
+ */
+export async function sendTestNotification(options: SendTestNotificationOptions = {}): Promise<TestNotifyResult[]> {
+  const payload = options.payload ?? testNotifyPayload();
+  return sendNotification(payload, { env: options.env, fetchFn: options.fetchFn });
 }
 
 /** Builds the `Authorization` header for the generic webhook, if configured. */

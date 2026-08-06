@@ -91,6 +91,12 @@ export interface RetryPolicy {
 export interface NotifyPayload {
   jobId: string;
   project: string;
-  event: "queued" | "resumed" | "completed" | "failed";
+  /**
+   * The queue event this notification describes. The first four are emitted by
+   * the scheduler as jobs move through their lifecycle. `digest` is a synthetic
+   * event carrying an on-demand queue-status summary (`agentrelay notify
+   * digest`) rather than a single job's transition.
+   */
+  event: "queued" | "resumed" | "completed" | "failed" | "digest";
   message: string;
 }

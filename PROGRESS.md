@@ -1805,3 +1805,42 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
   대시보드 롤업에 정렬/필터 상호작용, `stats --group-by` 요약(성공률/해결시간)의 대시보드 노출.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 58 — `agentrelay notify digest` 큐-상태 다이제스트 전송] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-7thdhj`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. 열린 PR 30개는 대부분 병렬 세션의 중복
+  (이미 병합된 tools/next/stats --watch 재구현 등)이라 병합하지 않고, CLAUDE.md 지침대로 **새 개선
+  항목을 발굴**했다. `notify` 커맨드는 지금까지 `test`(고정 합성 페이로드로 채널 소통만 검증)만
+  있어, 실제 큐 상태를 알림 채널로 내보내는 수단이 없었다. cron으로 스케줄해 "지금 대기 몇 개,
+  다음 리셋까지 얼마, 성공률은" 같은 릴레이 상태 핑을 Slack/웹훅으로 받는 실용 갭.
+  (타임존-aware 파서 아이디어는 미병합 브랜치 `claude/tz-aware-clock-reset`가 이미 점유해 회피.)
+- **한 일 (branch `claude/wizardly-pascal-7thdhj`):** `agentrelay notify digest` — 살아있는 큐 요약을
+  설정된 모든 채널로 전송.
+  - core `notify.ts`: `sendTestNotification`의 전달 로직을 범용 `sendNotification(payload, options)`으로
+    추출 — 임의 `NotifyPayload`를 전 채널에 독립 전달(실패 하나가 다른 채널 안 막음)하고 per-channel
+    결과 반환. 기존 `sendTestNotification`은 이를 감싸는 얇은 래퍼로 유지(하위호환·기존 테스트 불변).
+    `NotifyPayload.event`(types.ts)에 합성 이벤트 `digest` 추가(+ `EVENT_EMOJI`에 📊) — 단일 잡 전이가
+    아닌 큐 요약을 나르는 이벤트.
+  - CLI `notify.ts`: 순수 `buildDigestMessage(stats, now)`(빈 스토어는 온보딩 한 줄, 아니면
+    "N job(s) tracked — X waiting, Y active, Z finished." + 대기 잡 있을 때만 `formatCountdown`으로
+    "Next reset in …" + `formatSuccessRate`·재시도 노트. status/stats와 동일 포맷 헬퍼 재사용 → 드리프트
+    방지)·`buildDigestPayload`(digest 이벤트로 래핑). `renderTestNotifyResults`에 `title` 옵션 추가
+    (digest는 "digest delivery" 헤더로, "notification test"와 구분).
+  - CLI `cli.ts`: `notify digest [--json] [--dry-run] [--show-secrets]` 서브커맨드. 스토어에서
+    `computeStats`로 요약 → 페이로드 조립. `--dry-run`은 채널 접촉 없이 미리보기만(항상 exit 0),
+    실전달은 `sendNotification`으로 보내고 사람용은 전송된 메시지 + per-channel 결과, `--json`은
+    기존 `renderTestNotifyResultsJson` 재사용. 채널 0개·전달 실패 시 exit 1(cron/CI가 "다이제스트가
+    실제로 나갔나"를 게이트 가능). 새 파서/스케줄러/core 요약 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 553→555: sendNotification 2 신규 / cli 294→302: digest message/payload/title 8 신규 /
+  dashboard 9). **실제 빌드된 CLI e2e**(mock 아님): 3-잡 임시 스토어(web-app 대기1[리셋 90m]/완료1[3회
+  재시도]/api 실패1[2회])로 `notify digest --dry-run`("3 job(s) tracked — 1 waiting, 0 active, 2 finished.
+  / Next reset in 1h 30m. / Success rate 50% — 2 job(s) retried across 6 attempt(s)." + exit 0),
+  no-channels `notify digest`는 메시지 + "No notification channels…" + exit 1, 로컬 HTTP 서버에
+  `AGENTRELAY_WEBHOOK_URL`+`AGENTRELAY_WEBHOOK_AUTH` 실전달(서버가 `Authorization: Bearer …`
+  헤더 + `content-type: application/json` + `event:"digest"`·`project:"agentrelay"`·`jobId:"queue-digest"`·
+  `text`·digest message 수신, exit 0), 사람용 헤더 "digest delivery", `notify --help`에 `test`/`digest`
+  두 서브커맨드 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
+  daemon이 주기적으로 digest를 자동 발송(`AGENTRELAY_DIGEST_EVERY`), digest에 스코프 필터
+  (--project/--tool) 추가, overdue 잡 강조. README/ARCHITECTURE(🧭 코워크).
