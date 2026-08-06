@@ -1774,3 +1774,34 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). watch 계열 조회 명령 완성 → 후속은
   인접 신규 항목 발굴(예: 대시보드에 프로젝트/툴 롤업 노출, `stats --watch`의 `--group-by/--trend` 조합
   라이브 뷰 폴리시). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 57 — 대시보드 프로젝트/툴 롤업 노출] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-wip07r`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x])이고 watch 계열(status/upcoming/overdue/tools/
+  projects/stats)도 세션 56에서 완결됐다. 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/경쟁조사/
+  샘플수집/성능분석)뿐이라, 세션 55·56이 "다음 할 일"로 반복 제안한 후속 — **대시보드에 프로젝트/툴
+  롤업 노출** — 을 신규 👷 항목으로 발굴·구현했다. `apps/**`는 클로드 코드 소유 영역이고, 이미 검증된
+  core `summarizeProjects`/`summarizeTools`를 재사용하므로 새 core 로직 0줄로 저위험.
+- **한 일 (branch `claude/wizardly-pascal-wip07r`):** `agentrelay projects`/`tools` CLI 인덱스를 대시보드에도.
+  - `apps/dashboard/lib/jobs.ts`: `JobsSnapshot`에 `projects: ProjectsSummary`·`tools: ToolsSummary` 추가,
+    `readJobsSnapshot`이 매 폴링마다 core `summarizeProjects(jobs)`/`summarizeTools(jobs)`로 채움 → CLI와
+    드리프트 방지(단일 진실원). 새 core 코드 0줄.
+  - `apps/dashboard/app/dashboard-client.tsx`: 공용 `RollupCard` — project/tool 브레이크다운이 동일
+    count/timing shape라 `RollupRow`로 평탄화(`projectRow`/`toolRow`) 후 한 렌더러로 처리. active/waiting/
+    done/total 컬럼 + 대기 잡 있을 때만 기존 `formatCountdown`으로 next-reset 카운트다운. 랭킹은 core
+    그대로(active desc→total desc→이름 asc). tile-row와 job 테이블 사이에 `By project`·`By tool` 2-카드
+    그리드(빈 스토어면 `hasRollup` false로 숨김).
+  - `apps/dashboard/app/globals.css`: `.rollup-grid`(auto-fit minmax 280px 반응형)·`.rollup-card`(기존
+    surface/border 토큰 재사용, overflow-x auto)·`.rollup-title`·`.rollup-empty` 추가. 라이트/다크는 기존
+    CSS 변수 그대로 상속.
+  - `apps/dashboard/test/jobs.test.ts`: 롤업 스냅샷 2케이스(빈 스토어 empty projects/tools + 3-잡
+    랭킹·카운트·nextResetAt이 core 요약을 mirror).
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(dashboard 7→9, cli 294/1skip). **실제 빌드 대시보드 e2e**(mock 아님): 임시 스토어
+  (web-app 대기1[리셋 90m]/완료1 + api-svc 대기1[리셋 30m])로 `AGENTRELAY_STORE` 지정해 `next start` →
+  `/api/jobs`가 projects(web-app 먼저, active desc)·tools(claude-code/codex-cli가 generic 위) 롤업을
+  랭킹·nextResetAt까지 정확히 반환 → 사전설치 Chromium 헤드리스 `--dump-dom`으로 클라이언트 폴링 후
+  `By project`/`By tool` 카드·라벨(web-app/api-svc/claude-code/codex-cli)·`1h 28m` 카운트다운이 실제
+  DOM에 그려짐을 확인. 임시 시드 스크립트는 커밋 전 제거.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
+  대시보드 롤업에 정렬/필터 상호작용, `stats --group-by` 요약(성공률/해결시간)의 대시보드 노출.
+  README/ARCHITECTURE(🧭 코워크).

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import type { HeartbeatStatus, QueueSummary, RelayJob } from "@agentrelay/core";
+import type { HeartbeatStatus, ProjectsSummary, QueueSummary, RelayJob, ToolsSummary } from "@agentrelay/core";
 import {
   countActiveJobs,
   daemonHeartbeatPath,
@@ -8,6 +8,8 @@ import {
   parseDaemonHeartbeat,
   RelayQueue,
   summarizeJobs,
+  summarizeProjects,
+  summarizeTools,
 } from "@agentrelay/core";
 
 export interface JobsSnapshot {
@@ -15,6 +17,19 @@ export interface JobsSnapshot {
   generatedAt: string;
   jobs: RelayJob[];
   summary: QueueSummary;
+  /**
+   * Per-project rollup (mirror of `agentrelay projects`) so the dashboard can
+   * show which project has work parked waiting for a reset — ranked with the most
+   * pending work first. Reuses core's `summarizeProjects`, so it never drifts
+   * from the CLI.
+   */
+  projects: ProjectsSummary;
+  /**
+   * Per-tool rollup (mirror of `agentrelay tools`), keyed off `job.tool`, so the
+   * dashboard shows which agent CLI is rate-limited. Reuses core's
+   * `summarizeTools`.
+   */
+  tools: ToolsSummary;
   /**
    * Liveness of the resume loop (daemon/tick), so the dashboard can surface the
    * #1 silent failure: jobs queued to resume with nothing running to resume them.
@@ -53,6 +68,8 @@ export function readJobsSnapshot(storePath: string = defaultStorePath()): JobsSn
     generatedAt: new Date(nowMs).toISOString(),
     jobs,
     summary: summarizeJobs(jobs),
+    projects: summarizeProjects(jobs),
+    tools: summarizeTools(jobs),
     heartbeat: readHeartbeatStatus(storePath, jobs, nowMs),
   };
 }

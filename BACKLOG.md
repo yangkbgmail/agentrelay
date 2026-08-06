@@ -703,6 +703,24 @@
       실제 빌드 CLI e2e로 화면 clear·라이브 배너·1h30m 카운트다운·group-by --watch·--json 우선·--status
       bogus exit 1·help/completion `--watch` 노출 검증. branch `claude/wizardly-pascal-stats-watch`)
 
+- [x] 👷 대시보드에 프로젝트/툴 롤업(rollup) 노출 — CLI `projects`/`tools` 인덱스를 대시보드에서도
+      한눈에. 세션 55·56이 "다음 할 일"로 반복 제안한 후속.
+      (완료 — 대시보드는 잡 요약 타일·잡 테이블·재개-루프 하트비트만 보여줄 뿐, `--project`/`--tool`
+      필터 생태계가 키로 쓰는 **프로젝트/툴 축의 롤업**을 노출하지 않아 "어느 프로젝트/툴에 대기
+      작업이 몰렸나"를 대시보드에서 볼 수 없었다. `apps/dashboard/lib/jobs.ts`의 `JobsSnapshot`에
+      `projects: ProjectsSummary`·`tools: ToolsSummary` 추가 — core의 `summarizeProjects`/
+      `summarizeTools`를 매 폴링마다 재사용해 CLI와 절대 드리프트하지 않음(새 core 로직 0줄).
+      `dashboard-client.tsx`에 공용 `RollupCard`(project/tool 브레이크다운은 동일 count/timing shape라
+      `RollupRow`로 평탄화 후 한 렌더러로 처리) — active/waiting/done/total 컬럼 + 대기 잡 있을 때만
+      `formatCountdown`으로 next-reset 카운트다운, 랭킹은 core 그대로(active desc→total desc→이름 asc,
+      대기 몰린 축이 위). tile-row와 job 테이블 사이에 `By project`·`By tool` 2-카드 그리드(빈 스토어면
+      숨김). `globals.css`에 `.rollup-grid`(auto-fit minmax 반응형)·`.rollup-card`·`.rollup-title` 추가.
+      dashboard test에 롤업 스냅샷 2케이스(빈 스토어 empty + 3-잡 랭킹/카운트 mirror). 검증: `pnpm build`
+      클린·`pnpm ci:lint`(Biome) 0경고·`pnpm test` 전 패키지 통과(dashboard 7→9). 실제 빌드 대시보드
+      `next start`+임시 스토어(web-app 대기/완료 2 + api-svc 대기 1)로 `/api/jobs`가 projects/tools 롤업을
+      정확히 반환(랭킹·nextResetAt)하고, 사전설치 Chromium 헤드리스 렌더로 클라이언트 폴링 후 `By project`/
+      `By tool` 카드·라벨·1h 28m 카운트다운이 실제로 그려짐을 e2e 확인. branch `claude/wizardly-pascal-wip07r`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
