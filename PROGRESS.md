@@ -1805,3 +1805,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
   대시보드 롤업에 정렬/필터 상호작용, `stats --group-by` 요약(성공률/해결시간)의 대시보드 노출.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 58 — 파서 bare-"wait" 기간 표현 인식] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-qx6ojd`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x])이고 CLI/대시보드 표면도 포화 상태(거의
+  모든 명령이 `--json`·watch·스코프 필터 완비). 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이라, `parser.ts` 주석이 명시적으로 권장하는 대로("Add new patterns
+  here as real-world message formats are observed") **실제로 흔하지만 미처리인 rate-limit 문구**를
+  발굴·구현했다. 파서 보강은 여러 세션에서 반복된 👷 패턴(days·Retry-After·reset at 5pm 등).
+- **한 일 (branch `claude/wizardly-pascal-qx6ojd`):** `Please wait 30 minutes` 형태 인식.
+  - `packages/core/src/parser.ts`: `wait-duration` 패턴 신규. 기존 `relative-duration`은
+    `try again|resets|retry` **뒤에 "in"** 필수라 `Claude usage limit reached. Please wait 30 minutes
+    and try again.`이 통째로 null이었음("and try again"은 "try again *in*"이 아님). `wait` 뒤 선택적
+    lead-in(`for`/`another`/`about`/`approximately`/`~`)을 삼키고 `Nd Nh Nm`를 relative-duration과
+    동일 계산으로 해석. **일반 pre-filter 통과 시에만** 도달 → 주변 텍스트가 rate-limit처럼 보여야만
+    적용되므로 `wait 5 minutes for the build` 같은 무관 로그의 false positive(잘못된 재큐잉, 놓침보다
+    나쁨) 방지. 새 core 로직은 이 패턴 한 개뿐, 하드코딩 pattern-name 레지스트리 수정 0.
+  - `packages/core/test/parser.test.ts`: +6 케이스(대기30분·wait for 2h·wait about 1h30m·기간없는
+    'wait a moment' null·pre-filter 미통과 로그 null·`resets in`이 wait보다 우선).
+- **검증:** `pnpm install`→`pnpm build` 클린·`pnpm ci:lint`(Biome) **0경고**·`pnpm test` 전 패키지
+  통과(core parser 33→39, core 559 total, cli 294/1skip, dashboard 9). 실제 빌드 CLI e2e:
+  `agentrelay parse "Claude usage limit reached. Please wait 30 minutes and try again."` →
+  `pattern: wait-duration`·`matched: "wait 30 minutes"`·`resets … (in 30m)` 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 —
+  `try again after 5pm`(after+clock)·요일 기반 주간 리셋(`resets on Wednesday`) 인식.
+  README/ARCHITECTURE(🧭 코워크).
