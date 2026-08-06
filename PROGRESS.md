@@ -1774,3 +1774,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). watch 계열 조회 명령 완성 → 후속은
   인접 신규 항목 발굴(예: 대시보드에 프로젝트/툴 롤업 노출, `stats --watch`의 `--group-by/--trend` 조합
   라이브 뷰 폴리시). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 57 — `agentrelay recent` 활동 축(activity) 피드] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-vzto3c`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x])되고 watch 계열(status/upcoming/overdue/tools/
+  projects/stats)도 세션 56에서 완성. 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/경쟁조사/샘플수집/
+  성능분석)뿐이라 CLAUDE.md 지침대로 **스스로 신규 개선 항목을 발굴**했다. 조회 명령을 훑어보니
+  `next`/`upcoming`/`overdue`는 전부 **리셋 시각(미래) 축**만 보고, `projects`/`tools`는 롤업이며,
+  "릴레이가 **최근에 무엇을 했나**"라는 **활동 축**(가장 최근 상태 전이) 뷰가 비어 있었다. `status --sort
+  updated -r`로 근사할 수 있지만 "얼마나 전에 바뀌었나(ago)" 컬럼이 없고 활동 피드라는 1급 명령이 없었다.
+- **한 일 (branch `claude/wizardly-pascal-vzto3c`):** `agentrelay recent` — 전 상태의 잡을 `updatedAt`
+  최신순으로, 각 행에 "X ago"와 함께 조회하는 활동 피드.
+  - core `recent.ts` 신설(순수·파일시스템/시계 미접촉): `buildRecentActivity(jobs, now, limit?)`가
+    `updatedAt` 내림차순(→createdAt desc→id asc tie-break; 파싱 불가 updatedAt은 맨 아래로, 절대 드롭
+    안 함) 정렬 후 각 행에 `ageMs`(now−updatedAt, 파싱 불가면 null)·`position`(1-based) 부여. `total`은
+    limit 이전 전체를 반영해 "N more not shown" 푸터를 정직하게 유지, 입력 불변([...jobs] 복사 후 정렬).
+  - CLI `recent.ts`에 순수 `renderRecent`(위치·짧은 id·project·상태 색상[status와 동일 팔레트]·"X ago"
+    컬럼, `formatDurationMs` 재사용, sub-second/클럭스큐는 "just now"·파싱불가는 "unknown"으로 렌더해
+    바 "-" 노출 방지·scope note·`NO_RECENT_MESSAGE`)·`renderRecentJson`(next/upcoming과 동일 envelope).
+  - `cli.ts`에 `recent [--limit/-n] [--status/-s] [--tool/-t] [--project/-p] [--since] [--until] [--json]`
+    배선 — 공용 `buildScope`(status/tool/project/since/until 검증)·`scopeJobs` 재사용, `--limit` 비양수는
+    watch 형제들과 동일하게 exit 1, completion은 프로그램 파생이라 `recent` 자동 포함. 새 파서/스케줄러/
+    core 재사용 외 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 562[recent 9 신규]·cli 304/1skip[recent 10 신규]·dashboard 7). 빌드된 실제 CLI
+  e2e(mock 아님): 3-잡 임시 스토어(web-app completed/api-svc waiting/web-app failed)로 `recent`(updatedAt
+  최신순·ago 컬럼), `--limit 1`("2 more not shown"), `--tool codex-cli`(scope note+1잡), `--status failed
+  --json`(scope 에코+ageMs), `--limit 0`(exit 1), `--help`·`completion bash`에 `recent` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 활동 축 조회 명령 추가 → 후속 인접 항목
+  발굴(예: `recent --watch` 라이브 피드, 대시보드에 활동/프로젝트/툴 롤업 노출). README/ARCHITECTURE(🧭 코워크).

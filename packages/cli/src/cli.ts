@@ -14,6 +14,7 @@ import type {
 import {
   ALL_TOOLS,
   buildOverdueReport,
+  buildRecentActivity,
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
@@ -82,6 +83,7 @@ import { buildParseReport, renderParseReport, renderParseReportJson } from "./pa
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
+import { renderRecent, renderRecentJson } from "./recent.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
   renderGroupedStats,
@@ -790,6 +792,69 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderUpcoming(timeline, { color: Boolean(process.stdout.isTTY), now, scopeNote }));
+    });
+
+  program
+    .command("recent")
+    .description("Show the jobs the relay most recently touched, newest first, each with how long ago it changed")
+    .option("-n, --limit <n>", "Show at most N rows (the total still counts every job)")
+    .option("-s, --status <statuses>", "Only include jobs in these comma-separated statuses")
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--json", "Print the feed as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # what has the relay been doing lately?\n" +
+        "  agentrelay recent\n" +
+        "  # just the last 5 for one project\n" +
+        "  agentrelay recent --limit 5 --project my-app\n" +
+        "  # only recent failures\n" +
+        "  agentrelay recent --status failed\n" +
+        "  # feed the activity to jq\n" +
+        "  agentrelay recent --json | jq '.activity.entries[].job.id'"
+    )
+    .action((opts: ScopeOpts & { limit?: string; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const scopeNote = built.active ? built.note : undefined;
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const activity = buildRecentActivity(jobs, now, limit);
+
+      if (opts.json) {
+        console.log(
+          renderRecentJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            activity,
+          })
+        );
+        return;
+      }
+      console.log(renderRecent(activity, { color: Boolean(process.stdout.isTTY), scopeNote }));
     });
 
   program
