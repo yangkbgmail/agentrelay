@@ -1774,3 +1774,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). watch 계열 조회 명령 완성 → 후속은
   인접 신규 항목 발굴(예: 대시보드에 프로젝트/툴 롤업 노출, `stats --watch`의 `--group-by/--trend` 조합
   라이브 뷰 폴리시). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 57 — `agentrelay drain` 큐 전체 배수(drain) 블로킹] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-iunnj2`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이라 CLAUDE.md 지침대로 인접 신규 개선 항목을 스스로 발굴했다. 세션 37의
+  `wait <id>`는 잡 **하나**를 종료까지 따라가지만, CI가 여러 릴레이 잡을 큐잉한 뒤 "전부 정리될 때까지
+  기다렸다가 배포"할 수단(플릿 전체 배수)이 없었다.
+- **한 일 (branch `claude/wizardly-pascal-iunnj2`):** `agentrelay drain` — 큐(또는 스코프한 부분집합)의
+  활성 잡이 모두 종료 상태에 도달할 때까지 블록 후 집계 결과를 exit code로 반환.
+  - core `drain.ts` 신설(순수·시계/스토어 미접촉): `DrainOutcome`(empty/completed/failed/cancelled/timeout)
+    + `DRAIN_EXIT_CODES`/`drainExitCode`(0 empty·completed / 1 failed / 2 cancelled / 124 timeout[GNU
+    coreutils 관례, `wait`과 대칭]) + `DrainSnapshot`(total/active/completed/failed/cancelled) +
+    `summarizeDrain`(`summarizeJobs`.byStatus·`ACTIVE_STATUSES` 재사용) + `evaluateDrain(jobs)`(active>0이면
+    미종료, 아니면 실패 우선 집계 — 하나라도 failed면 전체 failed, 다음 cancelled, 아니면 completed, 잡
+    0개면 empty).
+  - CLI `commands.ts` `drainQueue`(폴링 루프만; 순수 판정은 core): 매 폴링 스토어 재오픈+`scopeJobs`로
+    스코프 재적용해 별도 daemon/tick 프로세스 쓰기 관측, 첫 검사 즉시(이미 배수된 큐는 sleep 없이 반환),
+    `--timeout`은 sleep 전 데드라인 검사로 1인터벌 이상 초과 안 함, now/sleep/readJobs 주입 가능.
+    `packages/cli/src/drain.ts` `renderDrainJson`(`wait --json`과 동일 envelope).
+  - `drain` 커맨드에 공용 `buildScope`(--status/--tool/--project/--since/--until) + `--timeout`/`--interval`/
+    `--json`/`-q` 배선, scope 검증을 폴링 전에 통과시켜 잘못된 값은 exit 1, `--json`은 stdout 청정(진행
+    안내는 stderr). completion은 라이브 프로그램 파생이라 자동 포함. 새 파서/스케줄러 로직 0줄.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 553→563, drain 10 신규; cli commands 70→76, drainQueue 6 신규). 빌드된 실제 CLI
+  e2e(mock 아님): 빈 큐→empty exit 0, 3-잡 스토어(completed/failed/waiting)로 전체 drain→활성 1개라
+  timeout(exit 124, "1 of 3 … still active"), `--project api-svc`(failed 종료)→exit 1, `--project web-app`
+  (waiting 포함)→timeout 124 `--json`, `--status bogus`→exit 1, `--help`/completion에 `drain` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴(예: `drain --watch`
+  라이브 진행 뷰, 대시보드에 "큐 배수 진행률" 노출). README/ARCHITECTURE(🧭 코워크).

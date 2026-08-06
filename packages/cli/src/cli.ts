@@ -48,6 +48,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  drainQueue,
   exportStore,
   importStore,
   initConfig,
@@ -73,6 +74,7 @@ import {
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
+import { renderDrainJson } from "./drain.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
@@ -930,6 +932,78 @@ export function buildCli(): Command {
 
       if (opts.json) {
         console.log(renderWaitJson(result, store));
+      } else if (!opts.quiet) {
+        console.log(`[agentrelay] ${result.message}`);
+      }
+      process.exitCode = result.exitCode;
+    });
+
+  program
+    .command("drain")
+    .description(
+      "Block until the queue (or a scoped subset) has no active jobs left, then exit with a code reflecting the aggregate outcome (0 completed/empty, 1 any failed, 2 any cancelled, 124 timeout)"
+    )
+    .option("-s, --status <statuses>", "Only wait on jobs with these statuses (comma-separated)")
+    .option("-t, --tool <tools>", "Only wait on jobs run with these tools (comma-separated)")
+    .option("-p, --project <projects>", "Only wait on jobs in these projects (comma-separated)")
+    .option("--since <duration>", "Only jobs created within this long ago (e.g. 24h, 7d)")
+    .option("--until <duration>", "Only jobs created before this long ago (e.g. 1d)")
+    .option("--timeout <duration>", "Give up after this long (e.g. 30m, 6h); default: wait forever")
+    .option("--interval <duration>", "How often to poll the store (default 2s)", "2s")
+    .option("--json", "Print the final result as JSON (machine-readable, for scripts/jq)")
+    .option("-q, --quiet", "Suppress the human status line (the exit code still reflects the outcome)")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  agentrelay drain --timeout 6h && deploy   # deploy only once nothing is pending",
+        "  agentrelay drain --project web-app        # wait only for one project's jobs",
+      ].join("\n")
+    )
+    .action(async (opts: ScopeOpts & { timeout?: string; interval?: string; json?: boolean; quiet?: boolean }) => {
+      const { store } = program.opts();
+
+      const built = buildScope(opts, Date.now());
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const intervalMs = parseDuration(opts.interval ?? "2s");
+      if (intervalMs === null || intervalMs <= 0) {
+        console.error(`[agentrelay] Invalid --interval: ${opts.interval}. Use forms like 500ms, 2s, 1m.`);
+        process.exitCode = 1;
+        return;
+      }
+
+      let timeoutMs: number | null = null;
+      if (opts.timeout !== undefined) {
+        timeoutMs = parseDuration(opts.timeout);
+        if (timeoutMs === null || timeoutMs < 0) {
+          console.error(`[agentrelay] Invalid --timeout: ${opts.timeout}. Use forms like 30m, 6h, 90s.`);
+          process.exitCode = 1;
+          return;
+        }
+      }
+
+      // A blocking command with no visible progress is confusing; let the user
+      // know it's waiting (stderr, so --json stdout stays clean).
+      if (!opts.quiet && !opts.json) {
+        const scopeSuffix = built.note ? ` [scope: ${built.note}]` : "";
+        console.error(`[agentrelay] draining the queue…${scopeSuffix} (Ctrl-C to stop)`);
+      }
+
+      const result = await drainQueue({
+        storePath: store,
+        scope: built.active ? built.scope : undefined,
+        intervalMs,
+        timeoutMs,
+      });
+
+      if (opts.json) {
+        console.log(renderDrainJson(result, store));
       } else if (!opts.quiet) {
         console.log(`[agentrelay] ${result.message}`);
       }
