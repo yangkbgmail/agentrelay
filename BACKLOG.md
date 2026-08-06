@@ -721,6 +721,18 @@
       정확히 반환(랭킹·nextResetAt)하고, 사전설치 Chromium 헤드리스 렌더로 클라이언트 폴링 후 `By project`/
       `By tool` 카드·라벨·1h 28m 카운트다운이 실제로 그려짐을 e2e 확인. branch `claude/wizardly-pascal-wip07r`)
 
+- [x] 👷 `agentrelay errors --watch [seconds]` — 실패 브레이크다운을 라이브로 갱신(새 실패가 쌓이는 걸
+      실시간으로). watch 계열(status/upcoming/overdue/tools/projects/stats)에서 유일하게 빠져 있던 진단용
+      조회 명령 `errors`에 확장(공용 `startWatchLoop` 재사용).
+      (완료 — CLI `errors.ts`에 순수 `renderErrorsWatchFrame(breakdown, storePath, intervalMs, now,
+      {limit, scopeNote})` 신설(형제 watch-frame와 동일 title/meta 배너 + 항상 컬러인 `renderErrorBreakdown`
+      본문, `-n`/스코프 필터 존중). `cli.ts`에 공용 `startWatchLoop` 재사용 `runErrorsWatch`(매 프레임
+      스토어 재읽기·스코프 재적용·`computeErrorBreakdown` fresh `now` 재구성). `errors`에 `-w, --watch
+      [seconds]` 배선 — `--limit`·scope 검증 먼저 통과(잘못된 값은 watch 전 exit 1), `--json`이 `--watch`
+      보다 우선, 인터벌 기본 2s, addHelpText 예시 3줄, completion 자동 포함. 새 파서/스케줄러/core 로직 0줄.
+      cli errors watch-frame 3케이스 신규, 실제 빌드 CLI e2e로 화면 clear·라이브 배너·그룹·--json 우선·
+      --limit 0 exit 1·help 노출 검증. branch `claude/wizardly-pascal-cwqr3n`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
