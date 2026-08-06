@@ -83,7 +83,14 @@ import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
-import { renderGroupedStats, renderGroupedStatsJson, renderStats, renderStatsJson, renderTrend } from "./stats.js";
+import {
+  renderGroupedStats,
+  renderGroupedStatsJson,
+  renderStats,
+  renderStatsJson,
+  renderStatsWatchFrame,
+  renderTrend,
+} from "./stats.js";
 import {
   type JobSelection,
   NO_MATCH_MESSAGE,
@@ -419,6 +426,48 @@ function runProjectsWatch(store: string, intervalMs: number, window: JobScope, s
     const jobs = active ? scopeJobs(all, window) : all;
     const summary = summarizeProjects(jobs);
     const frame = renderProjectsWatchFrame(summary, store, intervalMs, now, scopeNote);
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
+ * Live `agentrelay stats --watch`: clears the screen and re-renders the headline
+ * metrics on an interval so the success rate, retry counts, and next-reset
+ * countdown update in place as a daemon works the queue. Like the other watch
+ * loops, `listStatus` re-reads the JSON store each pass (so a running daemon's
+ * writes surface automatically) and the scope is re-applied every frame. The
+ * scope itself — including any `--since`/`--until` time window — is fixed at
+ * command start (absolute epoch-ms) so the window doesn't slide underfoot; only
+ * `now` is refreshed each frame, for the live countdown and the `--trend` day
+ * buckets. Honors `--group-by` and `--trend` by rebuilding the matching body
+ * shape each pass. Runs until interrupted (Ctrl-C).
+ */
+function runStatsWatch(
+  store: string,
+  intervalMs: number,
+  window: JobScope,
+  options: { groupBy?: GroupDimension; trendDays?: number | null; scopeNote?: string }
+): void {
+  const active = isJobScopeActive(window);
+  const { groupBy, trendDays, scopeNote } = options;
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const all = listStatus(store);
+    const jobs = active ? scopeJobs(all, window) : all;
+
+    let body: string;
+    if (groupBy !== undefined) {
+      body = renderGroupedStats(groupStats(jobs, groupBy), groupBy, { color: true, scopeNote });
+    } else {
+      const stats = computeStats(jobs);
+      body = renderStats(stats, { color: true, scopeNote, now });
+      if (trendDays !== null && trendDays !== undefined && stats.total > 0) {
+        const trend = computeDailyTrend(jobs, { nowMs: now, days: trendDays });
+        body += `\n\n${renderTrend(trend, { color: true })}`;
+      }
+    }
+
+    const frame = renderStatsWatchFrame(body, store, intervalMs, now);
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
 }
@@ -929,6 +978,10 @@ export function buildCli(): Command {
   program
     .command("stats")
     .description("Show aggregate relay metrics: success rate, retries, per-tool/per-project breakdown")
+    .option(
+      "-w, --watch [seconds]",
+      "Continuously refresh the metrics with a live next-reset countdown (Ctrl-C to exit)"
+    )
     .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. completed,failed)")
     .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
@@ -937,6 +990,16 @@ export function buildCli(): Command {
     .option("-g, --group-by <dimension>", `Break down metrics per group: ${GROUP_DIMENSIONS.join(", ")}`)
     .option("--trend [days]", "Also show a per-day activity histogram over the last N days, UTC (default 14, max 90)")
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # headline relay metrics\n" +
+        "  agentrelay stats\n" +
+        "  # live view, success rate & next-reset countdown refreshing every 2s\n" +
+        "  agentrelay stats --watch\n" +
+        "  # feed the metrics to jq\n" +
+        "  agentrelay stats --json | jq '.stats.successRate'"
+    )
     .action(
       (opts: {
         status?: string;
@@ -947,6 +1010,7 @@ export function buildCli(): Command {
         groupBy?: string;
         trend?: string | boolean;
         json?: boolean;
+        watch?: string | boolean;
       }) => {
         const { store } = program.opts();
 
@@ -1046,10 +1110,21 @@ export function buildCli(): Command {
           }
         }
 
-        const allJobs = listStatus(store);
         const active = isJobScopeActive(scope);
-        const jobs = active ? scopeJobs(allJobs, scope) : allJobs;
         const scopeNote = active ? noteParts.join(" ") : undefined;
+
+        // Live view: all scope/group-by/trend validation above has run, so a bad
+        // flag still exits 1 instead of spinning a broken watch loop. --json takes
+        // precedence over --watch (a one-shot machine dump, not a live TTY view).
+        if (opts.watch !== undefined && !opts.json) {
+          const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+          const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+          runStatsWatch(store, intervalMs, scope, { groupBy, trendDays, scopeNote });
+          return; // setInterval keeps the process alive.
+        }
+
+        const allJobs = listStatus(store);
+        const jobs = active ? scopeJobs(allJobs, scope) : allJobs;
 
         if (groupBy !== undefined) {
           const groups = groupStats(jobs, groupBy);
