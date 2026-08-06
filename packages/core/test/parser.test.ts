@@ -102,6 +102,53 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(expected);
   });
 
+  it("parses a relative duration expressed in weeks (Claude weekly windows)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly usage limit reached. Try again in 1 week.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 7 * 24 * 60 * 60_000).toISOString());
+  });
+
+  it("parses a plural weeks form ('in 2 weeks')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, resets in 2 weeks.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 14 * 24 * 60 * 60_000).toISOString());
+  });
+
+  it("parses a compact combined week + day duration like '1w 3d'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit hit — resets in 1w 3d.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    // 1 week + 3 days = 10 days
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 10 * 24 * 60 * 60_000).toISOString());
+  });
+
+  it("parses a full week + day + hour + minute chain ('1w 2d 3h 4m')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("try again in 1w 2d 3h 4m", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    const expectedMs = (((1 * 7 + 2) * 24 + 3) * 60 + 4) * 60_000;
+    expect(result?.resetAt).toBe(new Date(now.getTime() + expectedMs).toISOString());
+  });
+
+  it("does not regress days-only parsing when the week group is present ('in 2 days')", () => {
+    // Regression: the new leading week group must not swallow the number of a
+    // days-only wait (it only matches when followed by a 'w' unit).
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("try again in 2 days", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 24 * 60 * 60_000).toISOString());
+  });
+
+  it("does not mistake minutes for weeks ('in 3 minutes')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in 3 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 3 * 60_000).toISOString());
+  });
+
   it("parses the singular 'in 1 day' form", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Usage limit reached. Try again in 1 day.", { now });

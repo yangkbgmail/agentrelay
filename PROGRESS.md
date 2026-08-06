@@ -1774,3 +1774,23 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). watch 계열 조회 명령 완성 → 후속은
   인접 신규 항목 발굴(예: 대시보드에 프로젝트/툴 롤업 노출, `stats --watch`의 `--group-by/--trend` 조합
   라이브 뷰 폴리시). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 57 — 파서: 주(week) 단위 상대 시간 인식] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-wyqolv`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유
+  (README/ARCHITECTURE/경쟁조사/샘플수집/성능분석). CLAUDE.md 지침대로 스스로 인접 개선 항목을 발굴.
+  파서의 `relative-duration` 패턴이 일/시/분은 인식하지만 **주(week) 단위가 없어**, Claude의 주간
+  사용량 제한(weekly usage limit) 리셋 문구 "try again in 1 week"·"resets in 2 weeks"·"resets in 1w 3d"가
+  전부 null로 떨어졌다(week가 d/h/m 유닛과 매칭 안 돼 전 그룹이 빈 매치 → resolve가 0을 반환).
+  완료된 다수의 👷 파서 항목(일 단위·분 없는 시각·HTTP Retry-After)과 같은 결의 self-contained 코드 작업.
+- **한 일 (branch `claude/wizardly-pascal-wyqolv`):** `parser.ts`의 `relative-duration` 정규식 맨 앞에
+  선택적 week 그룹 `(?:(\d+)\s*w(?:eeks?)?)?\s*`를 유닛 순서 largest→smallest(w→d→h→m)로 추가하고,
+  resolve를 `(((weeks*7 + days)*24 + hours)*60 + minutes)`로 확장(캡처 그룹 인덱스 1→weeks 재배치).
+  week 그룹은 뒤에 'w' 유닛이 올 때만 매칭돼 days-only/minutes-only 파싱을 삼키지 않음(무회귀 설계).
+  파서 이외 core/스케줄러/CLI 로직 0줄 — 기존 diagnostic 커맨드 `parse`가 라이브 파서 파생이라 자동 반영.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(core 559, cli 294/1skip + dashboard 7; core parser 33→39, week 6케이스 신규:
+  1 week/2 weeks/1w 3d/full 1w 2d 3h 4m 체인/days-only 무회귀/minutes 오인 방지). 빌드된 실제 CLI
+  `parse`(mock 아님): "Try again in 1 week"→`in 7d 0h`·"resets in 1w 3d"→10일(863999999ms)·
+  "try again in 2 days"→무회귀 검증.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 파서 발굴 여지: 연결어("1 hour
+  and 30 minutes")·월(month) 단위·복합 "in about N" 헤지 표현. README/ARCHITECTURE(🧭 코워크).

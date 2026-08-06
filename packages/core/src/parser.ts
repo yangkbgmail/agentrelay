@@ -87,18 +87,22 @@ const PATTERNS: RateLimitPattern[] = [
   },
   {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
-    // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
-    // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
-    // are OpenAI/Codex-style wording that the Codex adapter contributes).
+    // "try again in 2 days" / "resets in 1d 4h" / "try again in 1 week" / "resets in
+    // 1w 3d" — weeks and days cover Claude's weekly/daily usage windows. Seconds are
+    // deliberately *not* handled here (see adapters.ts: they are OpenAI/Codex-style
+    // wording that the Codex adapter contributes). Unit order is largest→smallest
+    // (w → d → h → m); each unit is optional but at least one must be present, and a
+    // bare number with no recognized unit resolves to null (nothing to add).
     name: "relative-duration",
     regex:
-      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
+      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*w(?:eeks?)?)?\s*(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
     resolve: (m, now) => {
-      const days = m[1] ? parseInt(m[1], 10) : 0;
-      const hours = m[2] ? parseInt(m[2], 10) : 0;
-      const minutes = m[3] ? parseInt(m[3], 10) : 0;
-      if (days === 0 && hours === 0 && minutes === 0) return null;
-      return new Date(now.getTime() + ((days * 24 + hours) * 60 + minutes) * 60_000);
+      const weeks = m[1] ? parseInt(m[1], 10) : 0;
+      const days = m[2] ? parseInt(m[2], 10) : 0;
+      const hours = m[3] ? parseInt(m[3], 10) : 0;
+      const minutes = m[4] ? parseInt(m[4], 10) : 0;
+      if (weeks === 0 && days === 0 && hours === 0 && minutes === 0) return null;
+      return new Date(now.getTime() + (((weeks * 7 + days) * 24 + hours) * 60 + minutes) * 60_000);
     },
   },
   {
