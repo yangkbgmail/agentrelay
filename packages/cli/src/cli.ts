@@ -17,6 +17,7 @@ import {
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
+  computeAttemptDistribution,
   computeDailyTrend,
   computeErrorBreakdown,
   computeStats,
@@ -41,6 +42,7 @@ import {
   summarizeTools,
 } from "@agentrelay/core";
 import { Command } from "commander";
+import { renderAttempts, renderAttemptsJson } from "./attempts.js";
 import {
   ALL_JOB_STATUSES,
   type BulkControlAction,
@@ -1401,6 +1403,55 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderErrorBreakdown(breakdown, { color: Boolean(process.stdout.isTTY), limit, scopeNote }));
+    });
+
+  program
+    .command("attempts")
+    .description("Histogram of how many resume attempts jobs needed (relay effectiveness at a glance)")
+    .option("--json", "Print the distribution as JSON (machine-readable, for scripts/CI)")
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. completed,failed)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # how many jobs resolved on the first pass vs. needed retries?\n" +
+        "  agentrelay attempts\n" +
+        "  # only claude-code jobs from the last week\n" +
+        "  agentrelay attempts --tool claude-code --since 7d\n" +
+        "  # feed the histogram buckets to jq\n" +
+        "  agentrelay attempts --json | jq '.distribution.buckets'"
+    )
+    .action((opts: ScopeOpts & { json?: boolean }) => {
+      const { store } = program.opts();
+      const built = buildScope(opts, Date.now());
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const distribution = computeAttemptDistribution(jobs);
+      if (opts.json) {
+        console.log(
+          renderAttemptsJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            distribution,
+          })
+        );
+        return;
+      }
+      console.log(
+        renderAttempts(distribution, {
+          color: Boolean(process.stdout.isTTY),
+          scopeNote: built.active ? built.note : undefined,
+        })
+      );
     });
 
   program
