@@ -703,6 +703,23 @@
       실제 빌드 CLI e2e로 화면 clear·라이브 배너·1h30m 카운트다운·group-by --watch·--json 우선·--status
       bogus exit 1·help/completion `--watch` 노출 검증. branch `claude/wizardly-pascal-stats-watch`)
 
+- [x] 👷 `agentrelay show <id> --watch [seconds]` — 단일 잡 상세 뷰를 라이브로 갱신(리셋 카운트다운이
+      째깍째깍 줄고 상태 전이 waiting_for_reset→resuming→completed가 자동 노출). watch 계열(status/
+      upcoming/overdue/tools/projects/stats)을 개별 잡 심층 뷰까지 확장. 자율 세션이 발굴한 신규 항목.
+      (완료 — 조회 명령엔 watch가 다 붙었지만 개별 잡을 깊게 보는 `show`엔 없어, 특정 잡의 리셋
+      카운트다운이 줄고 상태가 바뀌는 걸 보려면 반복 실행해야 했다. CLI `show.ts`에 순수
+      `renderShowWatchFrame(job, storePath, intervalMs, now)`(형제 watch-frame와 동일 title/meta 라이브
+      배너 + 항상 컬러인 `renderJobDetail`을 fresh `now`로 wrap → "resets in" 카운트다운 live)와
+      `renderShowWatchMissingFrame`(잡이 watch 도중 스토어에서 사라져도[prune·prefix 비유일화] 크래시
+      대신 "no longer available" 프레임 렌더) 신설. CLI `cli.ts`에 공용 `startWatchLoop` 재사용하는
+      `runShowWatch`(매 프레임 `showJob`으로 스토어 재읽기·id/prefix 재해소 → 데몬 쓰기·상태 전이 자동
+      반영). `show`에 `-w, --watch [seconds]` 배선 — 일회성 lookup으로 id 해소를 **먼저** 검증해 잘못된
+      id는 watch 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프), 인터벌 기본 2s, addHelpText
+      예시 4줄, completion 자동 포함. 새 파서/스케줄러/core 로직 0줄 — 전부 기존 검증된 `showJob`/
+      `renderJobDetail` 재사용. cli show watch-frame 5케이스 신규(배너·초 반올림·라이브 카운트다운·
+      missing 프레임), 실제 빌드 CLI e2e로 화면 clear·라이브 배너·1h30m 카운트다운·3프레임·--json 우선·
+      bad id exit 1·미존재 잡 프레임·help `--watch` 노출 검증. branch `claude/wizardly-pascal-yla0xc`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
