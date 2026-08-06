@@ -721,6 +721,20 @@
       정확히 반환(랭킹·nextResetAt)하고, 사전설치 Chromium 헤드리스 렌더로 클라이언트 폴링 후 `By project`/
       `By tool` 카드·라벨·1h 28m 카운트다운이 실제로 그려짐을 e2e 확인. branch `claude/wizardly-pascal-wip07r`)
 
+- [x] 👷 `agentrelay next --watch [seconds]` — 다음 재개될 잡 한 줄(카운트다운)을 라이브로 갱신
+      (tmux 페인·상태바 친화). watch 계열(status/upcoming/overdue/tools/projects/stats)에서 유일하게
+      카운트다운을 가진 채 `--watch`가 없던 `next`까지 확장해 카운트다운-watch 패밀리 완성.
+      (완료 — CLI `next.ts`에 순수 `renderNextWatchFrame(next, storePath, intervalMs, now)` 신설
+      (`upcoming`/`stats` watch-frame와 동일 title/meta 라이브 배너 + 항상 컬러인 `renderNext` 한 줄
+      본문). 세션 52가 추출한 공용 `startWatchLoop`을 재사용하는 `runNextWatch`(매 프레임 스토어
+      재읽기 + fresh `now`로 `selectNextResume` 재계산 → 카운트다운 live·화면 clear). `next`에
+      `-w, --watch [seconds]` 배선: `--json`(일회성 기계 덤프)·`--exit-code`(스크립트용 일회성 검사)가
+      모두 `--watch`보다 우선, 인터벌 기본 2s, addHelpText 예시 3줄, completion 자동 포함. 새 파서/
+      스케줄러/core 로직 0줄 — 기존 검증된 `selectNextResume`/`renderNext` 재사용. cli next.test에
+      renderNextWatchFrame 3케이스(pending countdown·due now·no-pending) 신규(8→11), 실제 빌드
+      CLI e2e로 화면 clear·라이브 배너·1h 30m 카운트다운·--json 우선(exit 0)·--exit-code 우선(exit 3)·
+      help/completion `--watch` 노출 검증. branch `claude/wizardly-pascal-lxnbm1`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

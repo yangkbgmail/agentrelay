@@ -37,6 +37,27 @@ export function renderNext(next: NextResume | null, options: { now?: number; col
 }
 
 /**
+ * One frame of the live `next --watch` view: a title/header block (matching the
+ * shape of `status`/`upcoming --watch`) plus the colored one-liner. Separated
+ * out so the watch loop only has to clear the screen and print this. The
+ * countdown ticks down in place because the loop re-reads the store and passes a
+ * fresh `now` each pass — handy pinned in a tmux pane or status bar.
+ */
+export function renderNextWatchFrame(
+  next: NextResume | null,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now()
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay next${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderNext(next, { now, color: true })].join("\n");
+}
+
+/**
  * Machine-readable form for `--json` (scripts/jq). `next` is null when nothing
  * is waiting; otherwise it carries the full job plus the derived due state.
  */
