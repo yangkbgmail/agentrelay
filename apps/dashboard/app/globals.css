@@ -72,6 +72,17 @@ main {
   margin: 24px 0;
 }
 
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  margin: 24px 0 0;
+}
+
+.section-title + .tile-row {
+  margin-top: 12px;
+}
+
 .tile {
   background: var(--surface);
   border: 1px solid var(--border);

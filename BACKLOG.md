@@ -721,6 +721,24 @@
       정확히 반환(랭킹·nextResetAt)하고, 사전설치 Chromium 헤드리스 렌더로 클라이언트 폴링 후 `By project`/
       `By tool` 카드·라벨·1h 28m 카운트다운이 실제로 그려짐을 e2e 확인. branch `claude/wizardly-pascal-wip07r`)
 
+- [x] 👷 대시보드에 릴레이 효과(effectiveness) 지표 노출 — 성공률·재시도·해결 시간(median/p90). 세션
+      56·57이 "다음 할 일"로 반복 제안한 후속(대시보드의 `stats --group-by` 노출 계열의 기반 단계).
+      (완료 — 대시보드는 잡 수를 세는 counts 위주 `summary`(waiting/resuming/completed/failed/total 타일)와
+      프로젝트/툴 롤업·하트비트만 보여줄 뿐, `agentrelay stats`가 계산하는 **"릴레이가 실제로 효과 있었나"
+      지표** — 성공률·재시도 잡 수·해결 시간 percentile — 은 노출하지 않았다. `apps/dashboard/lib/jobs.ts`의
+      `JobsSnapshot`에 `stats: RelayStats` 추가 — core의 `computeStats(jobs)`를 매 폴링마다 재사용해 CLI
+      `stats`와 절대 드리프트하지 않음(새 core 로직 0줄). `dashboard-client.tsx`에 `EffectivenessCard`(기존
+      `.tile` 스타일 재사용): Success rate(`completed of completed+failed resolved`)·Retried jobs·Median
+      resolution·p90 resolution 4-타일, CLI의 `formatSuccessRate`/`formatDurationMs`를 그대로 미러링해 표기가
+      일치(median/p90은 resolvedCount>0일 때만, 아니면 "—"). **터미널 잡이 하나라도 있을 때만** 렌더(측정할
+      게 없는 초기 상태엔 숨김). tile-row와 rollup-grid 사이에 배치, `globals.css`에 `.section-title` 추가.
+      dashboard test에 effectiveness 스냅샷 2케이스(빈 스토어 empty + completed/failed/waiting 3-잡으로
+      successRate 0.5·terminal 2·resolvedCount 2 mirror). 검증: `pnpm build` 클린·`pnpm ci:lint`(Biome)
+      0경고·`pnpm test` 전 패키지 통과(dashboard 9→11, cli 294/1skip). 실제 빌드 대시보드 `next start`+임시
+      스토어(completed 1[span 90m]/failed 1[span 20m]/waiting 1)로 `/api/jobs`가 successRate 0.5·retriedJobs 2·
+      median 55m·p90 83m을 정확히 반환하고, 사전설치 Chromium 헤드리스 렌더로 `Relay effectiveness` 카드·
+      `50%`·`55m 0s`·`1h 23m` 값이 실제 DOM에 그려짐을 e2e 확인. branch `claude/wizardly-pascal-qzhyoh`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

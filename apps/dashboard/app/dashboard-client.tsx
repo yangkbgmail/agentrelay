@@ -1,6 +1,13 @@
 "use client";
 
-import type { HeartbeatStatus, JobStatus, ProjectBreakdown, RelayJob, ToolBreakdown } from "@agentrelay/core";
+import type {
+  HeartbeatStatus,
+  JobStatus,
+  ProjectBreakdown,
+  RelayJob,
+  RelayStats,
+  ToolBreakdown,
+} from "@agentrelay/core";
 import { useEffect, useState } from "react";
 import type { JobsSnapshot } from "../lib/jobs";
 
@@ -48,6 +55,83 @@ function formatAge(ms: number | undefined): string {
   if (hours > 0) return `${hours}h ${minutes}m ago`;
   if (minutes > 0) return `${minutes}m ${seconds}s ago`;
   return `${seconds}s ago`;
+}
+
+/**
+ * Format a nullable success rate as a percentage, or "n/a". Mirrors the CLI's
+ * `formatSuccessRate` so the dashboard and `agentrelay stats` never disagree.
+ */
+function formatSuccessRate(rate: number | null): string {
+  if (rate === null) return "n/a";
+  return `${Math.round(rate * 100)}%`;
+}
+
+/**
+ * Format an absolute duration (ms) as a compact two-unit string ("4h 12m",
+ * "3d 2h", "45m 30s", "8s"). Mirrors the CLI's `formatDurationMs`: "-" for a
+ * negative/non-finite input, "<1s" for a sub-second span.
+ */
+function formatDurationMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "-";
+  if (ms < 1000) return "<1s";
+  const totalSeconds = Math.round(ms / 1000);
+  const seconds = totalSeconds % 60;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const minutes = totalMinutes % 60;
+  const totalHours = Math.floor(totalMinutes / 60);
+  const hours = totalHours % 24;
+  const days = Math.floor(totalHours / 24);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (totalHours > 0) return `${totalHours}h ${minutes}m`;
+  if (totalMinutes > 0) return `${totalMinutes}m ${seconds}s`;
+  return `${totalSeconds}s`;
+}
+
+/**
+ * Relay effectiveness tiles (mirror of `agentrelay stats`): the counts in the
+ * tile-row say how many jobs; this says whether relaying actually helped —
+ * success rate, jobs actually resumed more than once, and how long the relay
+ * babysat a job before it resolved (typical p50 and near-worst-case p90).
+ * Rendered only when at least one job has reached a terminal state; before that
+ * there's nothing to measure.
+ */
+function EffectivenessCard({ stats }: { stats: RelayStats | undefined }) {
+  if (!stats || stats.terminal === 0) return null;
+  const { timing } = stats;
+  const resolvedCount = `${timing.resolvedCount} resolved`;
+  const median = timing.resolvedCount > 0 ? formatDurationMs(timing.medianResolutionMs ?? 0) : "—";
+  const p90 = timing.resolvedCount > 0 ? formatDurationMs(timing.p90ResolutionMs ?? 0) : "—";
+
+  return (
+    <section aria-label="Relay effectiveness">
+      <h2 className="section-title">Relay effectiveness</h2>
+      <div className="tile-row">
+        <div className="tile">
+          <div className="label">Success rate</div>
+          <div className="value numeric">{formatSuccessRate(stats.successRate)}</div>
+          <div className="sub">
+            <span className="numeric">{stats.byStatus.completed}</span> of{" "}
+            <span className="numeric">{stats.byStatus.completed + stats.byStatus.failed}</span> resolved
+          </div>
+        </div>
+        <div className="tile">
+          <div className="label">Retried jobs</div>
+          <div className="value numeric">{stats.retriedJobs}</div>
+          <div className="sub">resumed more than once</div>
+        </div>
+        <div className="tile">
+          <div className="label">Median resolution</div>
+          <div className="value numeric">{median}</div>
+          <div className="sub">{resolvedCount}</div>
+        </div>
+        <div className="tile">
+          <div className="label">p90 resolution</div>
+          <div className="value numeric">{p90}</div>
+          <div className="sub">near-worst-case wait</div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 const HEARTBEAT_META: Record<HeartbeatStatus["state"], { label: string; colorVar: string }> = {
@@ -303,6 +387,8 @@ export default function DashboardClient() {
           <div className="value numeric">{summary?.total ?? "–"}</div>
         </div>
       </section>
+
+      <EffectivenessCard stats={snapshot?.stats} />
 
       {hasRollup && (
         <section className="rollup-grid" aria-label="Rollups by project and tool">
