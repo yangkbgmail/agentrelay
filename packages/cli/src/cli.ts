@@ -82,7 +82,7 @@ import { buildParseReport, renderParseReport, renderParseReportJson } from "./pa
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
-import { renderJobDetail, renderJobDetailJson } from "./show.js";
+import { renderJobDetail, renderJobDetailJson, renderShowWatchFrame, renderShowWatchMissingFrame } from "./show.js";
 import {
   renderGroupedStats,
   renderGroupedStatsJson,
@@ -466,6 +466,29 @@ function runStatsWatch(
       }
     }
     const frame = renderStatsWatchFrame(body, store, intervalMs, now);
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
+ * Live `agentrelay show <id> --watch`: clears the screen and re-renders one
+ * job's full detail block on an interval so the "resets in" countdown ticks
+ * down in place and a status transition (waiting_for_reset → resuming →
+ * completed) surfaces without re-running the command. Like the other watch
+ * loops, `showJob` re-reads the JSON store each pass (so a running daemon's
+ * writes surface automatically) and re-resolves the id/prefix every frame. If
+ * the job leaves the store mid-watch (pruned, or the short prefix stops
+ * resolving uniquely), a "no longer available" frame is drawn instead of
+ * crashing. Runs until interrupted (Ctrl-C).
+ */
+function runShowWatch(store: string, idOrPrefix: string, intervalMs: number): void {
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const result = showJob(idOrPrefix, store);
+    const frame =
+      result.ok && result.job
+        ? renderShowWatchFrame(result.job, store, intervalMs, now)
+        : renderShowWatchMissingFrame(idOrPrefix, result.error ?? "job not found", store, intervalMs, now);
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
 }
@@ -1677,7 +1700,19 @@ export function buildCli(): Command {
     .description("Show full details for one job: command, cwd, timestamps, last error, and captured output")
     .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
     .option("--json", "Print the job as JSON (machine-readable, for scripts/jq)")
-    .action((id: string, opts: { json?: boolean }) => {
+    .option(
+      "-w, --watch [seconds]",
+      "Live view: re-render the job's detail on an interval so the reset countdown ticks down and status transitions surface (default 2s)"
+    )
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  agentrelay show a1b2c3d4\n" +
+        "  agentrelay show a1b2c3d4 --json\n" +
+        "  agentrelay show a1b2c3d4 --watch\n" +
+        "  agentrelay show a1b2c3d4 --watch 5"
+    )
+    .action((id: string, opts: { json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const result = showJob(id, store);
       if (!result.ok || !result.job) {
@@ -1688,6 +1723,15 @@ export function buildCli(): Command {
       if (opts.json) {
         console.log(renderJobDetailJson(result.job, store));
         return;
+      }
+      // Live view: the one-shot lookup above already validated the id resolves
+      // (so a bad id still exits 1 instead of spinning a broken watch loop).
+      // --json takes precedence over --watch (a one-shot machine dump).
+      if (opts.watch !== undefined) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : Number.NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        runShowWatch(store, id, intervalMs);
+        return; // setInterval keeps the process alive.
       }
       console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
     });

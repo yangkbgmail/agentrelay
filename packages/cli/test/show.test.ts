@@ -1,6 +1,12 @@
 import type { RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { formatCommand, renderJobDetail, renderJobDetailJson } from "../src/show.js";
+import {
+  formatCommand,
+  renderJobDetail,
+  renderJobDetailJson,
+  renderShowWatchFrame,
+  renderShowWatchMissingFrame,
+} from "../src/show.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -125,5 +131,39 @@ describe("renderJobDetailJson", () => {
     expect(parsed.generatedAt).toBe(generatedAt);
     expect(parsed.job.id).toBe("abcdef1234567890");
     expect(parsed.job.command).toEqual(["claude", "-p", "continue the refactor"]);
+  });
+});
+
+describe("renderShowWatchFrame", () => {
+  it("wraps the colored detail block in a live banner with interval and store path", () => {
+    const out = renderShowWatchFrame(job(), "/store/jobs.json", 2000, NOW);
+    expect(out).toContain("agentrelay show");
+    expect(out).toContain("(live, every 2s — Ctrl-C to exit)");
+    expect(out).toContain("/store/jobs.json");
+    // The banner carries the injected `now` as a UTC stamp.
+    expect(out).toContain("2026-07-13 00:00:00Z");
+    // Detail block is embedded and always colored.
+    expect(out).toContain("Job abcdef1234567890");
+    expect(out).toContain("\x1b[");
+  });
+
+  it("rounds the interval label to whole seconds", () => {
+    expect(renderShowWatchFrame(job(), "/s.json", 5000, NOW)).toContain("every 5s");
+    expect(renderShowWatchFrame(job(), "/s.json", 1500, NOW)).toContain("every 2s");
+  });
+
+  it("renders the reset countdown live off the injected now", () => {
+    // resetAt is 90 minutes past `at(0)`; at NOW that is "in 1h 30m".
+    expect(renderShowWatchFrame(job(), "/s.json", 2000, NOW)).toContain("1h 30m");
+  });
+});
+
+describe("renderShowWatchMissingFrame", () => {
+  it("keeps the banner but reports the job is gone instead of a detail block", () => {
+    const out = renderShowWatchMissingFrame("a1b2", "no job matches prefix", "/store/jobs.json", 2000, NOW);
+    expect(out).toContain("agentrelay show");
+    expect(out).toContain("(live, every 2s — Ctrl-C to exit)");
+    expect(out).toContain('Job "a1b2" is no longer available: no job matches prefix');
+    expect(out).not.toContain("Job a1b2 ");
   });
 });

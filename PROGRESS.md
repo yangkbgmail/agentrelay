@@ -1774,3 +1774,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). watch 계열 조회 명령 완성 → 후속은
   인접 신규 항목 발굴(예: 대시보드에 프로젝트/툴 롤업 노출, `stats --watch`의 `--group-by/--trend` 조합
   라이브 뷰 폴리시). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 57 — `agentrelay show <id> --watch` 라이브 단일-잡 상세] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-yla0xc`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md 지침대로 자율 세션이 신규 개선 항목을 발굴 — 조회 명령
+  전반(status/upcoming/overdue/tools/projects/stats)엔 `--watch`가 붙었지만 개별 잡을 깊게 보는 `show`엔
+  없어, 특정 잡의 리셋 카운트다운이 줄고 상태가 waiting_for_reset→resuming→completed로 전이하는 걸
+  보려면 명령을 반복 실행해야 했다. watch 계열을 개별 잡 심층 뷰까지 확장.
+- **한 일 (branch `claude/wizardly-pascal-yla0xc`):** `agentrelay show <id> --watch [seconds]` — 세션
+  12·52의 `startWatchLoop`/watch-frame 인프라 재사용.
+  - CLI `show.ts`에 순수 `renderShowWatchFrame(job, storePath, intervalMs, now)` 신설: 형제 watch-frame
+    (status/tools/projects/stats)와 동일한 title/meta 라이브 배너(타임스탬프·스토어 경로) + 항상 컬러인
+    `renderJobDetail`을 fresh `now`로 wrap → "resets in" 카운트다운 live. 잡이 watch 도중 스토어에서
+    사라져도(prune·짧은 prefix 비유일화) 크래시 대신 "no longer available"를 렌더하는
+    `renderShowWatchMissingFrame`도 추가.
+  - CLI `cli.ts`: 공용 `startWatchLoop`을 재사용하는 `runShowWatch`(매 프레임 `showJob`으로 스토어
+    재읽기·id/prefix 재해소 → 데몬 쓰기·상태 전이 자동 반영·화면 clear).
+  - `show` 커맨드에 `-w, --watch [seconds]` 옵션 배선: 일회성 lookup으로 id 해소를 **먼저** 검증해
+    잘못된 id는 watch 루프 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프). 인터벌 기본 2s,
+    addHelpText 예시 4줄. completion은 라이브 프로그램 파생이라 `--watch`/`-w` 자동 포함. 새 파서/
+    스케줄러/core 로직 0줄 — 전부 기존 검증된 `showJob`/`renderJobDetail` 재사용.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli show 5케이스 신규: 배너·초 반올림·라이브 카운트다운·missing 프레임). 빌드된 실제
+  CLI e2e(mock 아님): 1-잡 임시 스토어(web-app 대기[리셋 1h 30m])로 `show <id> --watch 1`(화면 clear
+  `\x1b[2J\x1b[H` 3프레임·라이브 배너·1h 30m 카운트다운·컬러 상세, timeout exit 124), `show <id> --watch
+  --json`(JSON 우선·즉시 종료 exit 0), `show nope --watch`(watch 루프 전 exit 1), watch 도중 스토어를
+  `[]`로 비우면 "no longer available" 프레임, `--help`에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). watch 계열이 조회+개별-잡 상세까지 완성 →
+  후속은 인접 신규 항목 발굴(예: `agentrelay upcoming --watch` 이미 완료 확인, 대시보드에 프로젝트/툴
+  롤업·단일-잡 딥링크 노출). README/ARCHITECTURE(🧭 코워크).
