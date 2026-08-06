@@ -73,7 +73,7 @@ import {
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
-import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
+import { renderErrorBreakdown, renderErrorBreakdownJson, renderErrorsWatchFrame } from "./errors.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
@@ -466,6 +466,34 @@ function runStatsWatch(
       }
     }
     const frame = renderStatsWatchFrame(body, store, intervalMs, now);
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
+ * Live `agentrelay errors --watch`: clears the screen and re-renders the error
+ * breakdown on an interval so a failure that lands while you're watching shows up
+ * without re-running the command. Like the other watch loops, `listStatus`
+ * re-reads the JSON store each pass (so a running daemon's writes surface
+ * automatically) and the `--status`/`--tool`/`--project`/`--since`/`--until`
+ * scope is re-applied every frame (time-window boundaries stay fixed at the
+ * absolute epoch-ms captured when the command started). `computeErrorBreakdown`
+ * is rebuilt each pass; `limit` mirrors the one-shot `-n`. Runs until interrupted.
+ */
+function runErrorsWatch(
+  store: string,
+  intervalMs: number,
+  window: JobScope,
+  scopeNote: string | undefined,
+  limit: number | undefined
+): void {
+  const active = isJobScopeActive(window);
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const all = listStatus(store);
+    const jobs = active ? scopeJobs(all, window) : all;
+    const breakdown = computeErrorBreakdown(jobs);
+    const frame = renderErrorsWatchFrame(breakdown, store, intervalMs, now, { limit, scopeNote });
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
 }
@@ -1369,8 +1397,19 @@ export function buildCli(): Command {
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("-n, --limit <n>", "Show at most N error reasons (the totals still count all)")
+    .option("-w, --watch [seconds]", "Continuously refresh the breakdown as failures land (Ctrl-C to exit)")
     .option("--json", "Print the breakdown as JSON (machine-readable, for scripts/jq)")
-    .action((opts: ScopeOpts & { limit?: string; json?: boolean }) => {
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # why are jobs failing, ranked by frequency?\n" +
+        "  agentrelay errors\n" +
+        "  # live view — watch new failures show up every 2s\n" +
+        "  agentrelay errors --watch\n" +
+        "  # only recent spawn failures, feed to jq\n" +
+        "  agentrelay errors --since 24h --json | jq '.groups'"
+    )
+    .action((opts: ScopeOpts & { limit?: string; watch?: string | boolean; json?: boolean }) => {
       const { store } = program.opts();
 
       let limit: number | undefined;
@@ -1391,9 +1430,20 @@ export function buildCli(): Command {
         return;
       }
 
+      const scopeNote = built.active ? built.note : undefined;
+
+      // Live view: validate --limit and the scope above first so a bad value
+      // still exits 1 instead of spinning a broken watch loop. --json takes
+      // precedence over --watch (a one-shot machine dump, not a live TTY view).
+      if (opts.watch !== undefined && !opts.json) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        runErrorsWatch(store, intervalMs, built.scope, scopeNote, limit);
+        return; // setInterval keeps the process alive.
+      }
+
       const all = listStatus(store);
       const jobs = built.active ? scopeJobs(all, built.scope) : all;
-      const scopeNote = built.active ? built.note : undefined;
       const breakdown = computeErrorBreakdown(jobs);
 
       if (opts.json) {

@@ -6,7 +6,10 @@ import {
   NO_ERRORS_MESSAGE,
   renderErrorBreakdown,
   renderErrorBreakdownJson,
+  renderErrorsWatchFrame,
 } from "../src/errors.js";
+
+const NOW = Date.parse("2026-07-12T12:00:00.000Z");
 
 function job(overrides: Partial<RelayJob>): RelayJob {
   return {
@@ -75,6 +78,50 @@ describe("renderErrorBreakdown", () => {
     const jobs = Array.from({ length: 5 }, (_, i) => job({ id: `job${i}00000`, lastError: "same boom" }));
     const out = renderErrorBreakdown(breakdownOf(jobs));
     expect(out).toContain("+2 more");
+  });
+});
+
+describe("renderErrorsWatchFrame", () => {
+  it("prepends a live title with the store path, timestamp, and interval", () => {
+    const out = renderErrorsWatchFrame(
+      breakdownOf([job({ id: "id-a", lastError: "boom" })]),
+      "/tmp/jobs.json",
+      5000,
+      NOW
+    );
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("agentrelay errors");
+    expect(lines[0]).toContain("every 5s");
+    expect(lines[0]).toContain("Ctrl-C to exit");
+    // Metadata line: ISO timestamp (space-separated, trimmed to seconds) + store path.
+    expect(lines[1]).toContain("2026-07-12 12:00:00Z");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+    // Then a blank line, then the breakdown body.
+    expect(lines[2]).toBe("");
+    expect(out).toContain("boom");
+    // Watch frames are always colored (live TTY view).
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting escapes are present.
+    expect(out).toMatch(/\x1b\[/);
+  });
+
+  it("honors --limit and the scope note in the embedded body", () => {
+    const out = renderErrorsWatchFrame(
+      breakdownOf([job({ id: "a", lastError: "err one" }), job({ id: "b", lastError: "err two" })]),
+      "/tmp/jobs.json",
+      2000,
+      NOW,
+      { limit: 1, scopeNote: "status=failed" }
+    );
+    expect(out).toContain("err one");
+    expect(out).not.toContain("err two");
+    expect(out).toContain("1 more reason(s) not shown");
+    expect(out).toContain("scope: status=failed");
+  });
+
+  it("carries the no-match message when a scoped subset is empty", () => {
+    const out = renderErrorsWatchFrame(breakdownOf([]), "/tmp/jobs.json", 2000, NOW, { scopeNote: "tool=codex-cli" });
+    expect(out).toContain(NO_ERROR_MATCH_MESSAGE);
+    expect(out).toContain("scope: tool=codex-cli");
   });
 });
 

@@ -87,6 +87,31 @@ export function renderErrorBreakdown(
 }
 
 /**
+ * One frame of the live `agentrelay errors --watch` view: the same title/meta
+ * banner the other watch commands (`status`/`tools`/`projects`/`stats`) print,
+ * followed by the colored error breakdown. Pure — the caller re-reads the store,
+ * recomputes the breakdown with a fresh `now`, and clears the screen each pass;
+ * this only assembles the string. `limit`/`scopeNote` mirror the one-shot view so
+ * a live watch honors the same `-n`/scope filters. The body is always colored
+ * (live TTY view).
+ */
+export function renderErrorsWatchFrame(
+  breakdown: ErrorBreakdown,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now(),
+  options: { limit?: number; scopeNote?: string } = {}
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay errors${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  const body = renderErrorBreakdown(breakdown, { color: true, limit: options.limit, scopeNote: options.scopeNote });
+  return [title, meta, "", body].join("\n");
+}
+
+/**
  * Machine-readable form of the error breakdown for scripts/jq. Includes the
  * store path and echoes an active scope note (if any). Pretty-printed with a
  * trailing newline stripped by the caller's console.log.

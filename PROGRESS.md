@@ -1805,3 +1805,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
   대시보드 롤업에 정렬/필터 상호작용, `stats --group-by` 요약(성공률/해결시간)의 대시보드 노출.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 58 — `agentrelay errors --watch` 라이브 실패 브레이크다운] (2026-08-06, 무인 자율 세션, branch `claude/wizardly-pascal-cwqr3n`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. watch 계열은 status/upcoming/overdue/tools/projects/stats까지 라이브
+  뷰가 있는데, **진단용 실패 요약인 `errors`만 `--watch`가 빠져** 있었다. 실패가 실시간으로 쌓이는 걸
+  보려면 명령을 반복 실행해야 했다. 확립된 watch 패턴(`startWatchLoop`/watch-frame)을 그대로 재사용하는
+  자연스러운 인접 개선이라 신규 👷 항목으로 발굴·구현했다.
+- **한 일 (branch `claude/wizardly-pascal-cwqr3n`):** `agentrelay errors --watch [seconds]` — 세션
+  12·52의 `startWatchLoop`/watch-frame 인프라 재사용, 새 파서/스케줄러/core 로직 0줄.
+  - CLI `errors.ts`에 순수 `renderErrorsWatchFrame(breakdown, storePath, intervalMs, now, {limit, scopeNote})`
+    신설: `status`/`tools`/`projects`/`stats`의 watch-frame와 동일한 title/meta 라이브 배너(타임스탬프·
+    스토어 경로) + 항상 컬러인 `renderErrorBreakdown` 본문. `limit`/`scopeNote`를 일회성 뷰와 동일하게
+    전달해 라이브 watch도 `-n`/스코프 필터를 존중.
+  - CLI `cli.ts`: 공용 `startWatchLoop`을 재사용하는 `runErrorsWatch`(매 프레임 스토어 재읽기·스코프
+    재적용·`computeErrorBreakdown`를 fresh `now`로 재구성 → 새 실패가 자동 반영·화면 clear). 시간 창
+    경계는 시작 시 고정 epoch-ms.
+  - `errors` 커맨드에 `-w, --watch [seconds]` 옵션 배선: `--limit`·scope 검증을 **먼저** 통과시켜 잘못된
+    값은 watch 루프 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프). 인터벌 기본 2s,
+    addHelpText 예시 3줄. completion은 라이브 프로그램 파생이라 `--watch`/`-w` 자동 포함.
+- **검증:** 로컬 `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  **전 패키지 통과**(cli 297/1skip + core 553 + dashboard 9; cli errors 7→10, watch-frame 3케이스 신규).
+  빌드된 실제 CLI e2e(mock 아님): 2-잡 임시 스토어(web-app+api-svc 모두 `spawn claude ENOENT` failed)로
+  `errors --watch 1`(화면 clear `\x1b[2J\x1b[H`·라이브 배너·"2 jobs (failed)" 그룹·컬러 출력),
+  `--watch --json`(JSON 우선·즉시 종료 exit 0), `--watch --limit 0`(watch 루프 전 exit 1 "Use a positive
+  integer"), `--help`에 `--watch`·Examples 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). watch 계열이 조회 명령 전반으로 완결됨
+  (status/upcoming/overdue/tools/projects/stats/**errors**). 후속 인접 항목 발굴 후보 — 대시보드에 실패
+  브레이크다운(`errors`) 카드 노출, `health`/`metrics`의 라이브 뷰. README/ARCHITECTURE(🧭 코워크).
