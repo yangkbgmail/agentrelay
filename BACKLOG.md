@@ -721,6 +721,19 @@
       정확히 반환(랭킹·nextResetAt)하고, 사전설치 Chromium 헤드리스 렌더로 클라이언트 폴링 후 `By project`/
       `By tool` 카드·라벨·1h 28m 카운트다운이 실제로 그려짐을 e2e 확인. branch `claude/wizardly-pascal-wip07r`)
 
+- [x] 👷 `agentrelay stats --hours` — 하루 중 어느 UTC 시간대에 rate-limit이 몰리는지 시간(0–23) 분포 히스토그램.
+      (완료 — 세션 26의 `--trend`(일별)는 있지만 "하루 중 언제 rate-limit에 걸리나"라는 시간-of-day 축이
+      없었다. core `stats.ts`에 순수 `computeHourlyDistribution(jobs)` + `HourlyActivity`(hour 0–23, count)
+      신설 — 각 잡의 `createdAt`을 UTC 시(hour)로 버킷팅해 **모든 날에 걸쳐** 집계, 항상 정확히 24 슬롯
+      (0시→23시) zero-fill, `createdAt` 누락/파싱불가는 스킵. `--trend`와 달리 창(window)도 시계도 불필요
+      (hour-of-day는 타임스탬프의 절대 속성). CLI `stats.ts`에 순수 `renderHours`(24행 ASCII 막대, 최다
+      시간에 스케일, 0시간은 dim 베이스라인 점, `HH:00` 라벨 + 합계 푸터)·`renderStatsJson`에 옵셔널
+      `hours` 필드(요청 시에만 방출, 기존 JSON shape 불변). `cli.ts` `stats`에 `--hours` 배선 —
+      일회성·`--json`·`--watch` 세 뷰 모두 적용, 기존 스코프 필터(--status/--tool/--project/--since/--until)와
+      조합 가능(`--trend`와 함께도 렌더). 새 파서/스케줄러 로직 0줄. core stats +5 + cli stats +5(=32) 신규
+      테스트, 실제 빌드 CLI e2e로 시간 버킷팅·최다시간 풀바·스코프 부분집합·`--json` hours 필드·기본 JSON
+      미포함·help/completion `--hours` 노출 검증. branch `claude/wizardly-pascal-hours`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
