@@ -721,6 +721,19 @@
       정확히 반환(랭킹·nextResetAt)하고, 사전설치 Chromium 헤드리스 렌더로 클라이언트 폴링 후 `By project`/
       `By tool` 카드·라벨·1h 28m 카운트다운이 실제로 그려짐을 e2e 확인. branch `claude/wizardly-pascal-wip07r`)
 
+- [x] 👷 파서: "at" 없는 리셋 시각 문구(`resets 3pm` / `resets 3:30pm` / `resets 15:00`) 인식 —
+      Claude Code 컴팩트 상태줄(`5-hour limit reached ∙ resets 3pm`)이 실제로 쓰는 형식.
+      (완료 — 기존 `clock-time`/`clock-time-meridiem`은 `reset[s]? at ...`처럼 "at"을 필수로 요구해,
+      "at"을 생략하는 컴팩트 상태줄 문구를 놓쳤다. 게다가 pre-filter `LOOKS_LIKE_RATE_LIMIT`가
+      `resets?\s+(at|in)`만 통과시켜 `5-hour limit reached ∙ resets 3pm`은 아예 게이트조차 못 넘었다.
+      두 clock 패턴의 정규식에서 `at`을 `(?:at\s+)?`로 선택화 — 콜론(`3:30pm`/`15:00`) 또는 meridiem
+      (`3pm`)이 있는 형식만 매치하므로 "at" 없이도 모호하지 않고, 바닥 `resets 5`(콜론·meridiem 없음)는
+      여전히 미매치(오탐 방지). pre-filter는 `resets?\s+(at|in|\d)`로 확장해 `resets 3pm`이 게이트를 통과
+      하되, 실제 시각이 아닌 숫자는 clock 패턴이 계속 거부. 새 CLI 코드 0줄 — 기존 `parse` 커맨드가 자동
+      노출. parser.test +4 회귀(`resets 3pm`/`resets 3:30pm`/`resets 15:00`/바닥 `resets 5` 거부), 실제
+      빌드 CLI `parse`로 clock-time-meridiem·clock-time 매치·미매치 e2e 확인. branch
+      `claude/wizardly-pascal-l8ef3z`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

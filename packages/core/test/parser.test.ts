@@ -69,6 +69,44 @@ describe("parseRateLimitMessage", () => {
     expect(parseRateLimitMessage("Rate limit hit, reset at 5.")).toBeNull();
   });
 
+  it("parses the compact Claude Code status line 'resets 3pm' (meridiem, no 'at')", () => {
+    // Actual status line: "5-hour limit reached ∙ resets 3pm". The word "at" is
+    // absent here, which the previous "at"-requiring patterns (and the pre-filter)
+    // both dropped — so the reset was never queued.
+    const now = new Date("2026-07-12T08:00:00Z"); // 08:00 UTC
+    const result = parseRateLimitMessage("5-hour limit reached ∙ resets 3pm", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(15); // 3pm local
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses a minute-precise clock time with no 'at' ('resets 3:30pm')", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Approaching usage limit ∙ resets 3:30pm", { now });
+    expect(result?.pattern).toBe("clock-time");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(15);
+    expect(resetDate.getMinutes()).toBe(30);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses a 24-hour clock time with no 'at' ('resets 15:00')", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Usage limit ∙ resets 15:00", { now });
+    expect(result?.pattern).toBe("clock-time");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(15);
+    expect(resetDate.getMinutes()).toBe(0);
+  });
+
+  it("still rejects a bare 'resets 5' with no 'at', no colon, no meridiem", () => {
+    // The relaxed "at"-optional patterns must not make an ambiguous bare hour match.
+    expect(parseRateLimitMessage("Rate limit hit ∙ resets 5.")).toBeNull();
+  });
+
   it("parses a relative duration like '4h32m'", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Rate limit exceeded, try again in 4h32m.", { now });
