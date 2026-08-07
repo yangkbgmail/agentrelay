@@ -11,10 +11,10 @@
 // and deterministic.
 
 /** Shells we can emit a completion script for. */
-export type CompletionShell = "bash" | "zsh";
+export type CompletionShell = "bash" | "zsh" | "powershell";
 
 /** Every shell `agentrelay completion` accepts, in a stable order. */
-export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh"] as const;
+export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh", "powershell"] as const;
 
 /** Type guard: is `value` one of the shells we support? */
 export function isCompletionShell(value: string): value is CompletionShell {
@@ -86,6 +86,7 @@ export function generateCompletion(shell: CompletionShell, spec: CompletionSpec)
     for (const sub of cmd.subcommands ?? []) assertSafeToken(sub.name, "subcommand name");
   }
   if (shell === "bash") return generateBash(spec);
+  if (shell === "powershell") return generatePowerShell(spec);
   return generateZsh(spec);
 }
 
@@ -266,5 +267,100 @@ ${caseArms.join("\n")}
   esac
 }
 ${fn} "$@"
+`;
+}
+
+/** Render a validated word list as a PowerShell single-quoted string array literal. */
+function psArray(words: string[], kind: string): string {
+  const cleaned = uniq(words.filter((w) => w.length > 0));
+  for (const w of cleaned) assertSafeToken(w, kind);
+  if (cleaned.length === 0) return "@()";
+  return `@(${cleaned.map((w) => `'${w}'`).join(", ")})`;
+}
+
+/**
+ * PowerShell: a `Register-ArgumentCompleter -Native` block driven by hashtables
+ * derived from the spec. It inspects the words already on the line to find the
+ * active subcommand (and nested subcommand), then offers that scope's flags —
+ * falling back to the top-level command list / global options at the start of
+ * the line. Kept table-driven and prefix-filtered rather than state-machined, so
+ * it stays robust and matches the bash/zsh behaviour.
+ */
+function generatePowerShell(spec: CompletionSpec): string {
+  for (const c of spec.commands) assertSafeToken(c.name, "command name");
+
+  const commandArray = psArray(
+    spec.commands.map((c) => c.name),
+    "command name"
+  );
+  const globalArray = psArray([...spec.options, "--help", "--version"], "global option");
+
+  // Per-command option table + parent/subcommand tables.
+  const optionEntries: string[] = [];
+  const subNameEntries: string[] = [];
+  const subOptionEntries: string[] = [];
+  for (const cmd of spec.commands) {
+    const subs = cmd.subcommands ?? [];
+    if (subs.length > 0) {
+      subNameEntries.push(`    '${cmd.name}' = ${psArray([...subs.map((s) => s.name), "--help"], "subcommand name")}`);
+      for (const s of subs) {
+        assertSafeToken(s.name, "subcommand name");
+        subOptionEntries.push(
+          `    '${cmd.name} ${s.name}' = ${psArray([...s.options, "--help"], "subcommand option")}`
+        );
+      }
+    } else {
+      optionEntries.push(`    '${cmd.name}' = ${psArray([...cmd.options, "--help"], "command option")}`);
+    }
+  }
+
+  const optionTable = optionEntries.length > 0 ? `@{\n${optionEntries.join("\n")}\n  }` : "@{}";
+  const subNameTable = subNameEntries.length > 0 ? `@{\n${subNameEntries.join("\n")}\n  }` : "@{}";
+  const subOptionTable = subOptionEntries.length > 0 ? `@{\n${subOptionEntries.join("\n")}\n  }` : "@{}";
+
+  return `# PowerShell completion for ${spec.program}
+# Install: add this line to your PowerShell profile ($PROFILE), or dot-source this file:
+#   ${spec.program} completion powershell | Out-String | Invoke-Expression
+Register-ArgumentCompleter -Native -CommandName ${spec.program} -ScriptBlock {
+  param($wordToComplete, $commandAst, $cursorPosition)
+
+  $commands = ${commandArray}
+  $globalOptions = ${globalArray}
+  $commandOptions = ${optionTable}
+  $subcommands = ${subNameTable}
+  $subcommandOptions = ${subOptionTable}
+
+  # Words already typed after the program name (excluding the partial word).
+  $elements = @($commandAst.CommandElements | Select-Object -Skip 1 | ForEach-Object { $_.ToString() })
+  if ($wordToComplete -and $elements.Count -gt 0 -and $elements[-1] -eq $wordToComplete) {
+    $elements = $elements[0..($elements.Count - 2)]
+  }
+  $nonOption = @($elements | Where-Object { $_ -notlike '-*' })
+
+  $suggest = $null
+  if ($nonOption.Count -eq 0) {
+    # No subcommand yet: complete global options or command names.
+    if ($wordToComplete -like '-*') { $suggest = $globalOptions } else { $suggest = $commands }
+  } else {
+    $cmd = $nonOption[0]
+    if ($subcommands.ContainsKey($cmd)) {
+      if ($nonOption.Count -ge 2) {
+        $key = "$cmd $($nonOption[1])"
+        if ($subcommandOptions.ContainsKey($key)) { $suggest = $subcommandOptions[$key] }
+        else { $suggest = @('--help') }
+      } else {
+        $suggest = $subcommands[$cmd]
+      }
+    } elseif ($commandOptions.ContainsKey($cmd)) {
+      $suggest = $commandOptions[$cmd]
+    } else {
+      $suggest = $globalOptions
+    }
+  }
+
+  $suggest |
+    Where-Object { $_ -like "$wordToComplete*" } |
+    ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
+}
 `;
 }

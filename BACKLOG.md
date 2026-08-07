@@ -734,6 +734,21 @@
       테스트, 실제 빌드 CLI e2e로 시간 버킷팅·최다시간 풀바·스코프 부분집합·`--json` hours 필드·기본 JSON
       미포함·help/completion `--hours` 노출 검증. branch `claude/wizardly-pascal-hours`)
 
+- [x] 👷 `agentrelay completion powershell` — PowerShell 탭 완성 스크립트 생성(bash/zsh에 이은 세 번째 셸).
+      (완료 — `completion.ts`의 bash/zsh 완성은 있었지만 Windows/크로스플랫폼 PowerShell 사용자를 위한
+      네이티브 완성이 없었다. core `completion.ts`에 `CompletionShell`에 `"powershell"` 추가 +
+      `COMPLETION_SHELLS`/`isCompletionShell` 자동 확장 + 순수 `generatePowerShell(spec)` 신설:
+      `Register-ArgumentCompleter -Native`가 spec에서 파생한 해시테이블(`$commands`/`$globalOptions`/
+      `$commandOptions`/`$subcommands`/`$subcommandOptions`)을 구동, 이미 입력된 단어를 검사해 활성
+      (하위)커맨드를 찾고 해당 스코프의 플래그/서브커맨드를 `$wordToComplete*` prefix 필터 후
+      `CompletionResult`로 방출(bash/zsh와 동일 동작 — 톱레벨=커맨드/글로벌옵션, 부모=서브네임+--help,
+      리프=플래그+--help). 순수 `psArray`(검증된 토큰만 single-quote 배열 리터럴로, dedupe first-seen)
+      추가, `assertSafeToken` 재사용으로 셸 메타문자 방어. CLI는 `isCompletionShell` 기반이라 `-f
+      powershell` 자동 배선(설명/addHelpText 문구만 갱신). 새 스케줄러/파서/스토어 로직 0줄. core
+      completion.test +9(shell helpers 확장 + powershell 렌더 구조/서브커맨드/dedupe/빈 테이블) 신규,
+      실제 빌드 CLI e2e로 `completion powershell` 생성·라이브 프로그램 파생 커맨드/플래그 반영·잘못된
+      셸(fish) exit 1 검증. branch `claude/wizardly-pascal-55w5a0`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
