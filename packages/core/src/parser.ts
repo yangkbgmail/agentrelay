@@ -32,6 +32,44 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/**
+ * Parses an explicit timezone designator that trails a clock time (e.g.
+ * `UTC`, `GMT`, `Z`, `+02:00`, `-0500`, `+9`) into an offset in minutes east of
+ * UTC, or `null` if it isn't one we understand. Only unambiguous, numeric-offset
+ * or UTC/GMT designators are accepted — named IANA zones and ambiguous letter
+ * abbreviations (PST could be US Pacific or Philippine Standard Time; CST spans
+ * three continents) are deliberately rejected so we never guess an offset.
+ */
+function parseZoneOffsetMinutes(raw: string): number | null {
+  const z = raw.toUpperCase();
+  if (z === "UTC" || z === "GMT" || z === "Z") return 0;
+  const m = /^([+-])(\d{1,2}):?(\d{2})?$/.exec(raw);
+  if (!m) return null;
+  const sign = m[1] === "-" ? -1 : 1;
+  const hh = parseInt(m[2], 10);
+  const mm = m[3] ? parseInt(m[3], 10) : 0;
+  if (hh > 14 || mm > 59) return null; // real UTC offsets never exceed ±14:00
+  return sign * (hh * 60 + mm);
+}
+
+/**
+ * Builds the next future instant matching a wall-clock `hour:minute` in a fixed
+ * zone `offsetMin` minutes east of UTC, relative to `now`. If that wall-clock
+ * time has already passed today (in the target zone) it rolls to tomorrow, same
+ * as the local clock patterns — a rate-limit reset is always a future instant.
+ * DST is intentionally not modeled: UTC/GMT and numeric offsets are fixed, and
+ * adding 24h preserves the wall-clock time for them.
+ */
+function resolveZonedClock(hour: number, minute: number, offsetMin: number, now: Date): Date {
+  // Shift `now` into the target zone so its UTC getters read the zone-local date.
+  const nowInZone = new Date(now.getTime() + offsetMin * 60_000);
+  let candidateMs =
+    Date.UTC(nowInZone.getUTCFullYear(), nowInZone.getUTCMonth(), nowInZone.getUTCDate(), hour, minute) -
+    offsetMin * 60_000;
+  if (candidateMs <= now.getTime()) candidateMs += 24 * 60 * 60_000;
+  return new Date(candidateMs);
+}
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
@@ -40,6 +78,36 @@ const PATTERNS: RateLimitPattern[] = [
     resolve: (m) => {
       const d = new Date(m[1]);
       return Number.isNaN(d.getTime()) ? null : d;
+    },
+  },
+  {
+    // "resets at 15:00 UTC" / "reset at 5pm GMT" / "resets at 09:30 +02:00" /
+    // "reset at 17:00-0500" — a clock time carrying an EXPLICIT timezone. This
+    // is a strict improvement over the local-time clock patterns below, which
+    // ignore any zone in the message: Claude Code actually prints the reset
+    // zone ("Your limit will reset at 5pm (America/New_York)."), and when that
+    // zone is an unambiguous UTC/GMT/offset we can pin the true instant instead
+    // of guessing the user's local hour. Placed before the local clock patterns
+    // so an explicit zone always wins; when no zone (or only a named IANA zone
+    // in parens) is present this doesn't match and we fall through to local
+    // interpretation, exactly as before — so it's purely additive.
+    name: "clock-time-zoned",
+    regex: /reset[s]?\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(UTC|GMT|Z|[+-]\d{2}:?\d{2}|[+-]\d{1,2})(?![:\d])/i,
+    resolve: (m, now) => {
+      let hour = parseInt(m[1], 10);
+      const minute = m[2] ? parseInt(m[2], 10) : 0;
+      const meridiem = m[3]?.toLowerCase();
+      if (meridiem) {
+        if (hour < 1 || hour > 12) return null; // 0pm / 13am aren't 12-hour clock times
+        if (meridiem === "pm" && hour < 12) hour += 12;
+        if (meridiem === "am" && hour === 12) hour = 0;
+      } else if (hour > 23) {
+        return null;
+      }
+      if (minute > 59) return null;
+      const offsetMin = parseZoneOffsetMinutes(m[4]);
+      if (offsetMin === null) return null;
+      return resolveZonedClock(hour, minute, offsetMin, now);
     },
   },
   {

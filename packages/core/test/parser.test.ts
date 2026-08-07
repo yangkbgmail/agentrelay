@@ -64,6 +64,51 @@ describe("parseRateLimitMessage", () => {
     expect(resetDate.getMinutes()).toBe(30);
   });
 
+  it("pins a 24-hour clock time carrying an explicit UTC zone to the real instant", () => {
+    const now = new Date("2026-07-12T20:00:00Z"); // 20:00 UTC
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 15:00 UTC.", { now });
+    expect(result?.pattern).toBe("clock-time-zoned");
+    // 15:00 UTC already passed today (now is 20:00 UTC) -> rolls to tomorrow.
+    expect(result?.resetAt).toBe("2026-07-13T15:00:00.000Z");
+  });
+
+  it("pins 'reset at 5pm UTC' to 17:00 UTC, not the local 5pm", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Your limit will reset at 5pm UTC.", { now });
+    expect(result?.pattern).toBe("clock-time-zoned");
+    expect(result?.resetAt).toBe("2026-07-12T17:00:00.000Z");
+  });
+
+  it("applies a positive numeric UTC offset (15:00 +09:00 == 06:00 UTC)", () => {
+    const now = new Date("2026-07-12T20:00:00Z");
+    const result = parseRateLimitMessage("Resets at 15:00 +09:00.", { now });
+    expect(result?.pattern).toBe("clock-time-zoned");
+    // now in +09:00 is 2026-07-13T05:00 local -> next 15:00 local is the 13th -> 06:00 UTC.
+    expect(result?.resetAt).toBe("2026-07-13T06:00:00.000Z");
+  });
+
+  it("applies a negative compact offset (10:00-0500 == 15:00 UTC)", () => {
+    const now = new Date("2026-07-12T06:00:00Z");
+    const result = parseRateLimitMessage("Try again — resets at 10:00-0500.", { now });
+    expect(result?.pattern).toBe("clock-time-zoned");
+    // now in -05:00 is 2026-07-12T01:00 local -> next 10:00 local is 15:00 UTC same day.
+    expect(result?.resetAt).toBe("2026-07-12T15:00:00.000Z");
+  });
+
+  it("ignores a parenthesized named zone (falls through to local clock interpretation)", () => {
+    // A named IANA zone is ambiguous to offset without a tz database, so the
+    // zoned pattern must NOT fire — the existing local-time behavior is kept.
+    const result = parseRateLimitMessage("reset at 5pm (America/New_York)");
+    expect(result?.pattern).toBe("clock-time-meridiem");
+  });
+
+  it("rejects an out-of-range numeric offset instead of guessing (falls back to local)", () => {
+    // +20:00 is not a real UTC offset; the zoned matcher declines and the local
+    // clock pattern handles the time instead of producing a bogus instant.
+    const result = parseRateLimitMessage("resets at 9:00 +20:00");
+    expect(result?.pattern).toBe("clock-time");
+  });
+
   it("does not treat a bare 'reset at 5' (no minutes, no meridiem) as a clock time", () => {
     // Too ambiguous — could be "5 hours", "5th", etc. Requiring am/pm keeps us safe.
     expect(parseRateLimitMessage("Rate limit hit, reset at 5.")).toBeNull();
