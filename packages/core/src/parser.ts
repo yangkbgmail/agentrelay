@@ -86,6 +86,32 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // "resets tomorrow at 9am" / "try again tomorrow at 3:30pm" / "back tomorrow at 15:00".
+    // This is the wording Claude Code prints for the *weekly* usage limit, where the
+    // reset lands on the next calendar day ("Your usage limit resets tomorrow at 9am").
+    // The clock-time patterns above require "reset(s) at" to be adjacent, so the
+    // intervening "tomorrow" makes them miss this entirely. Unlike clock-time (which
+    // rolls to the next day only if the wall-clock has already passed), "tomorrow" is
+    // explicit: always resolve to the *next* day at the stated hour/minute in local
+    // time. Minutes and meridiem are both optional ("tomorrow at 9" → 09:00). The
+    // named timezone, if any, is ignored (same known limitation as clock-time — the
+    // hour is read in local time).
+    name: "clock-time-tomorrow",
+    regex: /tomorrow\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i,
+    resolve: (m, now) => {
+      let hour = parseInt(m[1], 10);
+      const minute = m[2] ? parseInt(m[2], 10) : 0;
+      const meridiem = m[3]?.toLowerCase();
+      if (meridiem === "pm" && hour < 12) hour += 12;
+      if (meridiem === "am" && hour === 12) hour = 0;
+      if (hour > 23 || minute > 59) return null;
+      const candidate = new Date(now);
+      candidate.setDate(candidate.getDate() + 1);
+      candidate.setHours(hour, minute, 0, 0);
+      return candidate;
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
@@ -136,7 +162,7 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|tomorrow\s+at|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);

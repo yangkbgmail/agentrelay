@@ -734,6 +734,16 @@
       테스트, 실제 빌드 CLI e2e로 시간 버킷팅·최다시간 풀바·스코프 부분집합·`--json` hours 필드·기본 JSON
       미포함·help/completion `--hours` 노출 검증. branch `claude/wizardly-pascal-hours`)
 
+- [x] 👷 파서: 주간(weekly) 제한 문구 `resets tomorrow at 9am` / `try again tomorrow at 3:30pm` 인식.
+      (완료 — Claude Code의 *주간* 사용량 제한은 리셋이 다음 날에 걸리며 "resets tomorrow at 9am"처럼
+      "tomorrow"가 "reset(s) at" 사이에 끼어 기존 clock-time 패턴이 전부 놓쳤다. core `parser.ts`에
+      `clock-time-tomorrow` 패턴 신설(`/tomorrow\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i`) — 분·meridiem
+      모두 옵셔널, 24시/12시 모두 수용, hour>23·minute>59는 null, "tomorrow"는 명시적이므로 항상 *다음* 날로
+      해석(clock-time은 이미 지났을 때만 익일 롤). pre-filter에 `tomorrow\s+at` 큐 추가 — "usage limit"류 단어가
+      없는 단독 "resets tomorrow at 15:00"도 통과. 로컬시 해석·명명 타임존 무시는 clock-time과 동일 한계.
+      core parser +4 신규 테스트(9am 익일/3:30pm 분+meridiem/24h 15:00 pre-filter 단독/out-of-range 25:00 null),
+      실제 빌드 CLI `parse` e2e로 세 포맷 검증. 새 스케줄러/CLI 로직 0줄. branch `claude/wizardly-pascal-kip0oc`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

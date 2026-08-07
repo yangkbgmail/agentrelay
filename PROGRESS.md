@@ -1831,3 +1831,23 @@
   09:00만 2·나머지 0, `--help`·bash completion에 `--hours` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 59 — 파서: `resets tomorrow at 9am` 주간-제한 문구] (2026-08-07, 무인 자율 세션, branch `claude/wizardly-pascal-kip0oc`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 열린 PR도 30건이 이미 인접 아이디어(요일/시간별
+  분포·주·소수·datetime-local 파서 등)를 차지. CLAUDE.md 지침대로 **미개척·미인플라이트 개선 항목을 발굴**했다 —
+  Claude Code의 *주간* 사용량 제한은 "Your limit resets tomorrow at 9am"처럼 리셋이 다음 날에 걸리는데,
+  "tomorrow"가 `reset(s) at` 사이에 끼어 기존 clock-time 패턴 3종이 전부 이를 놓쳤다(파서는 이 문구를 무시 →
+  잡이 재개 시각 없이 남음). tz-aware/요일 등은 미병합 브랜치·열린 PR로 이미 손대고 있어 회피, 이 문구는 무주공산.
+- **한 일 (branch `claude/wizardly-pascal-kip0oc`):** core `parser.ts`에 `clock-time-tomorrow` 패턴 신설.
+  - regex `/tomorrow\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i` — 분·meridiem 모두 옵셔널("tomorrow at 9"→09:00),
+    12시/24시 모두 수용, hour>23·minute>59는 null 반환(잘못된 날짜 조작 방지). "tomorrow"는 명시적이므로 항상
+    *다음* 날 해당 시각으로 해석(clock-time은 wall-clock이 지났을 때만 익일 롤 — 대비 명확히 주석화).
+  - pre-filter `LOOKS_LIKE_RATE_LIMIT`에 `tomorrow\s+at` 큐 추가 → "usage limit"/"rate limit" 단어가 없는
+    단독 "resets tomorrow at 15:00"도 파서까지 도달. 로컬시 해석·명명 타임존 무시는 clock-time과 동일 한계.
+  - 새 스케줄러/CLI/스토어 로직 0줄 — 파서 패턴은 레지스트리 열거식이라 `parse`·`patterns` 등 소비자 무변경.
+- **검증:** `pnpm install`→`pnpm build` 클린·`pnpm format`후 `pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 558→562, cli 299/1skip, dashboard 9). parser +4 신규 테스트(9am 익일 롤·3:30pm 분+meridiem·
+  24h 15:00 pre-filter 단독 통과·out-of-range 25:00 null). **실제 빌드 CLI e2e**(mock 아님): `node dist/bin.js parse`로
+  세 포맷 모두 `clock-time-tomorrow`·익일 시각·"in 1d Xh" 카운트다운 렌더 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — bare "try again tomorrow"
+  (시각 없는 저신뢰 케이스)·"resets on <weekday>"·필러어("in about 3 hours") 견고화. README/ARCHITECTURE(🧭 코워크).
