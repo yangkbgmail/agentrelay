@@ -26,6 +26,7 @@ import {
   waitForJob,
 } from "../src/commands.js";
 import { isConfigDiagnosticInvocation, renderEffectiveConfig, resolveProjectName } from "../src/config.js";
+import { renderRunResultJson, runResultToJsonSummary } from "../src/run.js";
 
 describe("resolveProjectName", () => {
   it("derives the label from the cwd's last path segment", () => {
@@ -161,6 +162,113 @@ describe("runCommand", () => {
     // dir is a mkdtemp path; its last segment is the derived label, never blank.
     expect(result.queuedJob?.project).toBe(dir.split("/").filter(Boolean).pop());
     expect(result.queuedJob?.project?.trim()).not.toBe("");
+  });
+
+  it("in --json mode, prints a machine-readable summary and suppresses the banner", async () => {
+    let out = "";
+    const stdout = new PassThrough();
+    stdout.on("data", (chunk) => {
+      out += chunk.toString();
+    });
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      json: true,
+      stdout,
+      stderr: new PassThrough(),
+      notify: null,
+    });
+
+    // The human banner must not appear in --json mode.
+    expect(out).not.toContain("[agentrelay] Rate limit detected");
+    // The final stdout line is a single JSON object a script can `tail -n1 | jq`.
+    const lastLine = out.trim().split("\n").pop() ?? "";
+    const summary = JSON.parse(lastLine);
+    expect(summary.queued).toBe(true);
+    expect(summary.jobId).toBe(result.queuedJob?.id);
+    expect(summary.resetAt).toBe(result.queuedJob?.resetAt);
+    expect(summary.status).toBe("waiting_for_reset");
+    expect(summary.exitCode).toBe(result.exitCode);
+  });
+
+  it("in --json mode with no rate limit, reports queued:false with null job fields", async () => {
+    let out = "";
+    const stdout = new PassThrough();
+    stdout.on("data", (chunk) => {
+      out += chunk.toString();
+    });
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('all good, task complete')"],
+      storePath,
+      cwd: dir,
+      json: true,
+      stdout,
+      stderr: new PassThrough(),
+      notify: null,
+    });
+
+    expect(result.queuedJob).toBeNull();
+    const summary = JSON.parse(out.trim().split("\n").pop() ?? "");
+    expect(summary.queued).toBe(false);
+    expect(summary.jobId).toBeNull();
+    expect(summary.resetAt).toBeNull();
+    expect(summary.exitCode).toBe(0);
+  });
+});
+
+describe("run --json summary (pure)", () => {
+  const baseJob: RelayJob = {
+    id: "job-1234",
+    project: "billing",
+    tool: "claude-code",
+    status: "waiting_for_reset",
+    command: ["claude", "-p", "continue"],
+    cwd: "/home/user/billing",
+    attempts: 0,
+    resetAt: "2026-08-07T12:00:00.000Z",
+    createdAt: "2026-08-07T11:00:00.000Z",
+    updatedAt: "2026-08-07T11:00:00.000Z",
+    lastError: null,
+    lastOutputTail: null,
+  };
+
+  it("maps a queued job to a full summary", () => {
+    const summary = runResultToJsonSummary({ exitCode: 0, queuedJob: baseJob });
+    expect(summary).toEqual({
+      queued: true,
+      exitCode: 0,
+      jobId: "job-1234",
+      project: "billing",
+      tool: "claude-code",
+      resetAt: "2026-08-07T12:00:00.000Z",
+      status: "waiting_for_reset",
+    });
+  });
+
+  it("maps a non-queued result to null job fields but keeps the exit code", () => {
+    const summary = runResultToJsonSummary({ exitCode: 2, queuedJob: null });
+    expect(summary).toEqual({
+      queued: false,
+      exitCode: 2,
+      jobId: null,
+      project: null,
+      tool: null,
+      resetAt: null,
+      status: null,
+    });
+  });
+
+  it("renders a compact single-line JSON string", () => {
+    const line = renderRunResultJson({ exitCode: 0, queuedJob: baseJob });
+    expect(line).not.toContain("\n");
+    expect(JSON.parse(line).jobId).toBe("job-1234");
+  });
+
+  it("tolerates a queued job with a null resetAt", () => {
+    const summary = runResultToJsonSummary({ exitCode: 0, queuedJob: { ...baseJob, resetAt: null } });
+    expect(summary.queued).toBe(true);
+    expect(summary.resetAt).toBeNull();
   });
 });
 

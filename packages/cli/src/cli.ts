@@ -520,13 +520,18 @@ export function buildCli(): Command {
       "-p, --project <name>",
       "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
     )
-    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
+    .option(
+      "--json",
+      "Emit a machine-readable JSON summary (queued?/jobId/resetAt) as the final stdout line, for scripts (pair with `agentrelay wait`)"
+    )
+    .action(async (command: string[], opts: { tool?: string; project?: string; json?: boolean }) => {
       const { store } = program.opts();
       const result = await runCommand({
         command,
         storePath: store,
         tool: opts.tool as AgentTool | undefined,
         project: opts.project,
+        json: opts.json,
       });
       process.exitCode = result.exitCode;
     });

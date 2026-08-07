@@ -1831,3 +1831,31 @@
   09:00만 2·나머지 0, `--help`·bash completion에 `--hours` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 59 — `agentrelay run --json` 스크립트 친화 출력] (2026-08-07, 무인 자율 세션, branch `claude/wizardly-pascal-kurs4o`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 시작 시 열린 PR 30개(다수 중복: weekday 3·by-hour 2·next --watch 3·
+  show --watch 2·recent 2 등)를 조사해 겹치지 않는 **미점유 신규 항목**을 발굴했다 — 열린 PR 어느 것도
+  `run` 커맨드를 건드리지 않았고, `run`은 큐잉된 job id를 사람용 배너로만 출력해 스크립트가
+  `agentrelay run -- claude …`로 큐잉된 job을 이어받으려면(→ 기존 `agentrelay wait <id>`) 텍스트를
+  긁어야 하는 실질적 스크립팅 빈틈이 있었다.
+- **한 일 (branch `claude/wizardly-pascal-kurs4o`):** `agentrelay run --json` — 실행 결과를 machine-readable로.
+  - CLI `run.ts` 신설(순수·I/O 미접촉): `RunJsonSummary`(queued·exitCode·jobId·project·tool·resetAt·status
+    평면 shape, `jq` 필터 단순화) + `runResultToJsonSummary(result)`(큐잉이면 job 필드 채움, 미큐잉이면
+    job 파생 필드 전부 null이되 exitCode는 자식 종료코드 유지) + `renderRunResultJson`(1줄 compact JSON).
+  - `commands.ts` `runCommand`에 `json?: boolean` 옵션 추가 — 켜지면 사람용 "[agentrelay] Rate limit
+    detected…" 배너를 억제(JSON 오염 방지)하고, 자식 명령 출력 뒤 **마지막 stdout 라인**으로 JSON 요약을
+    방출. 미큐잉(rate-limit 없음) run도 `{"queued":false,…}` 방출해 스크립트가 두 축(큐잉 여부·종료코드)으로
+    분기 가능. 알림(notify)은 출력 포맷과 무관하게 그대로 발송. 흐름을 조기 return 대신 result 변수로
+    통합 리팩터.
+  - `cli.ts` `run`에 `--json` 플래그 배선(설명에 `agentrelay wait` 페어링 힌트). completion은 라이브
+    프로그램 파생이라 `--json` 자동 포함. 새 파서/스케줄러/core 스토어 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 558·dashboard 9·cli 299→305/1skip — run json 통합 2 + 순수 4 신규). **실제 빌드
+  CLI e2e**(mock 아님): 임시 스토어로 `run --json -- node -e "…Resets in 10m…"` → 자식 출력 뒤 마지막
+  라인이 `{"queued":true,"jobId":"<uuid>",…}` → `tail -n1`로 jobId 추출 → `status --json`이 그 job 1건
+  표시(id 일치) → 배너 미출력 확인, 미큐잉 명령은 `{"queued":false,"jobId":null,…}`, 일반 `run`(--json 없이)은
+  여전히 "Rate limit detected" 배너 1건 출력, `run --help`·bash completion에 `--json` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 —
+  `run --json`을 `run --wait`(큐잉 후 리셋까지 블록해 자동 재개, drain의 단일-잡 판)와 조합, 또는 `run`이
+  큐잉 시 종료코드를 rate-limit 전용 코드로 구분. README/ARCHITECTURE(🧭 코워크).
