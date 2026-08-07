@@ -1831,3 +1831,32 @@
   09:00만 2·나머지 0, `--help`·bash completion에 `--hours` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 59 — `--color`/`--no-color` + NO_COLOR/FORCE_COLOR 표준 지원] (2026-08-07, 무인 자율 세션, branch `claude/wizardly-pascal-uqamk9`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR 50여 개가 이미 파서/watch/stats 축을 두껍게 점유(상당수 중복)해,
+  중복을 피해 **아직 아무 PR에도 없는 신규 항목**을 발굴했다 — 색상 출력이 지금까지 `Boolean(process.stdout.isTTY)`
+  단일 조건으로 19곳에서 개별 판정돼, 파이프/CI/로그에서 색을 강제하거나 끄는 사실상 표준(`NO_COLOR`,
+  `FORCE_COLOR`, `--color`/`--no-color`)을 전혀 지원하지 않았다. `packages/cli`는 클로드 코드 소유 영역이고
+  순수 로직 재사용이라 저위험.
+- **한 일 (branch `claude/wizardly-pascal-uqamk9`):** 색상 출력 정책 표준화.
+  - CLI `color.ts` 신설(순수·process/tty/env 미접촉이라 단위 테스트 자명): `normalizeColorPreference(value)`가
+    commander가 주는 raw 값(undefined=플래그 없음→auto / false=`--no-color`→never / true=bare `--color`→always /
+    문자열 `auto|always|never`)을 tri-state로 정규화하고 미지 값은 조용한 폴백 대신 명확한 에러 throw.
+    `shouldUseColor({preference,env,isTTY})` 우선순위: **explicit 플래그 > `NO_COLOR`(비어있지 않으면 끔 —
+    no-color.org 스펙대로 빈 문자열은 미적용) > `FORCE_COLOR`(켬, `0`/`false`만 끔) > TTY 감지.**
+  - `cli.ts`: 전역 `--color [when]`·`--no-color` 옵션 추가 + `useColor()` 클로저(program.opts().color +
+    process.env + process.stdout.isTTY 결합) + preAction 훅(잘못된 `--color` 값은 커맨드 실행 전 exit 1).
+    반복되던 19개 `Boolean(process.stdout.isTTY)` 렌더 사이트를 전부 `useColor()`로 통일 → 단일 색상 정책
+    지점(DRY). `--json`은 원래도 무색이라 shape 불변. watch 루프(항상 컬러)는 범위 밖으로 남김.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(cli 299→312/1skip, color.test 13케이스 신규; core 558·dashboard 9 불변). **실제 빌드 CLI e2e**
+  (mock 아님): 시드 잡 1개 스토어에 대해 파이프(비-TTY)에서 `--color always`·`FORCE_COLOR=1`→ANSI 색상 출력,
+  `default`·`--no-color`·`NO_COLOR=1`(+`FORCE_COLOR=1`과 함께여도)→무색, `--color always` on stats도 색상,
+  `--color bad`→"Invalid --color value" + exit 1, `--help`에 `--color`/`--no-color` 노출 확인. 임시 시드 제거.
+- **주의 (다음 세션 참고):** 열린 PR이 50여 개 쌓여 있고 상당수가 서로 중복(예: `stats --weekday` #491/#492/#493,
+  `stats --by-hour` #485/#486[이미 #490로 병합됨], `tools/projects --watch`·`overdue --watch`·`next --watch` 다수).
+  매시간 새 기능 PR을 쌓기만 하면 병합 파이프라인 정체가 악화된다. 병합/중복 정리(COLLAB 정책: CI 초록이면
+  병합 가능)를 우선 고려할 것.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). NO_COLOR를 watch 루프에도 확장(현재 항상 컬러),
+  또는 쌓인 중복 PR 정리. README/ARCHITECTURE(🧭 코워크).
