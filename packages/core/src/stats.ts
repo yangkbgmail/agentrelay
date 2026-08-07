@@ -225,6 +225,44 @@ export function computeHourlyDistribution(jobs: RelayJob[]): HourlyActivity[] {
   return counts.map((count, hour) => ({ hour, count }));
 }
 
+export interface WeekdayActivity {
+  /** Day of week, 0 = Monday … 6 = Sunday (ISO-8601 weekday order). */
+  weekday: number;
+  /** Three-letter UTC weekday name, "Mon" … "Sun". */
+  name: string;
+  /** Jobs whose `createdAt` falls on this UTC weekday, across every week. */
+  count: number;
+}
+
+/** Weekday labels in ISO order (Monday first), indexed by {@link WeekdayActivity.weekday}. */
+export const WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+
+/**
+ * Buckets jobs by the UTC day-of-week (Mon–Sun) they were created on, aggregated
+ * across every week in the store, so `agentrelay stats --weekday` can show which
+ * days rate-limits tend to cluster on ("I mostly get throttled on weekdays").
+ * Like {@link computeHourlyDistribution} and unlike {@link computeDailyTrend},
+ * this has no window and needs no clock: day-of-week is an absolute property of
+ * each timestamp.
+ *
+ * The result is always exactly 7 entries in ISO order (Monday first, Sunday
+ * last), zero-filled for quiet days so the histogram has a stable shape. Jobs
+ * with a missing or unparseable `createdAt` are skipped — they can't be placed
+ * on the calendar.
+ */
+export function computeWeekdayDistribution(jobs: RelayJob[]): WeekdayActivity[] {
+  const counts = new Array<number>(7).fill(0);
+  for (const job of jobs) {
+    const created = Date.parse(job.createdAt);
+    if (Number.isNaN(created)) continue;
+    // getUTCDay(): 0 = Sunday … 6 = Saturday. Shift to ISO order (0 = Monday …
+    // 6 = Sunday) so the chart reads Mon→Sun like most activity calendars.
+    const isoWeekday = (new Date(created).getUTCDay() + 6) % 7;
+    counts[isoWeekday] += 1;
+  }
+  return counts.map((count, weekday) => ({ weekday, name: WEEKDAY_NAMES[weekday], count }));
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 
