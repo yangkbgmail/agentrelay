@@ -1831,3 +1831,29 @@
   09:00만 2·나머지 0, `--help`·bash completion에 `--hours` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 59 — `agentrelay doctor` 스토어 비대화(bloat) 검사] (2026-08-07, 무인 자율 세션)
+- **배경:** 세션 시작 시 열린 PR 30개가 파서/stats/watch/search/recent 등 인접 아이디어를 이미
+  점유·누적 중(중복 루프 위험). 겹치지 않는 신규 항목을 찾기 위해 열린 PR·스톨 브랜치 토픽을
+  전수 조사한 결과 **`doctor` 영역은 열린 PR/브랜치가 하나도 없었고**, 이 프로젝트가 명시적으로
+  신경 쓰는 "`jobs.json` 무한 증가"(prune 생태계 전체의 존재 이유)를 진단하는 검사가 doctor에
+  빠져 있었다. 스토어는 매 상태 변경마다 통째로 재기록되는 단일 JSON 파일이라, 재개될 일 없는
+  종료 잡이 수백~수천 개 쌓이면 매 `flush()`가 느려지는데 doctor는 이를 잡지 못했다.
+- **한 일 (branch `claude/wizardly-pascal-leqvb6`):** doctor에 **`store-size`(bloat) 검사** 추가.
+  - core `doctor.ts`: `StoreFacts`에 옵셔널 `sizeBytes`(온-디스크 파일 크기) 추가, 순수
+    `storeSizeCheck(store)` 신설(`node→store→**store-size**→store-writable→adapters→daemon→config→notify`
+    순서). 종료(terminal) 잡 수(`jobCount-activeCount`)가 `STORE_BLOAT_JOB_THRESHOLD`(500) 이상이거나
+    파일이 `STORE_BLOAT_SIZE_BYTES`(5 MiB) 이상이면 **warning**(prune·auto-prune 힌트), 그 외엔 **ok**
+    (온-디스크 크기 표기). 종료 잡만 카운트 — 활성 잡은 재개 대상이라 아무리 많아도 경고 안 함.
+    absent/corrupt 스토어는 no-op ok(`store` 검사가 이미 담당). 순수 `formatBytes(bytes)`(B/KB/MB/GB,
+    non-finite·음수는 `0 B`로 클램프) export.
+  - CLI `commands.ts`: `runDoctor`가 큐 오픈 전 `statSync(storePath).size`로 파일 크기를 best-effort
+    수집(stat 실패는 크기 생략→검사는 종료-잡 수로 폴백). 렌더러(`packages/cli/src/doctor.ts`)는
+    검사를 일반 순회하므로 코드 변경 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 553→568[doctor bloat 8 + formatBytes 3 신규], cli 300/1skip[runDoctor size 1 신규],
+  dashboard 9). **실제 빌드 CLI e2e**(mock 아님): 종료 잡 600개 스토어 → `store-size` **warning**
+  "600 finished job(s) could be pruned" + prune 힌트, 5개 스토어 → **ok** "healthy (…, 1.2 KB on disk)",
+  `--json`에 store-size 검사 노출, 보고서 exit는 warning이라 계속 통과(exit 0) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 — 대시보드에도
+  스토어 크기/prune 후보 수 노출, `store-size` 임계값을 env/config로 조정 가능하게. README/ARCHITECTURE(🧭 코워크).
