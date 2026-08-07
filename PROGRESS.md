@@ -1831,3 +1831,33 @@
   09:00만 2·나머지 0, `--help`·bash completion에 `--hours` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 59 — 스케줄러 resume 시 세션 컨텍스트 유지(`--continue` 주입)] (2026-08-07, 무인 자율 세션, branch `claude/wizardly-pascal-4llcqe`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유뿐. CLAUDE.md 지침대로
+  **새 개선 항목을 발굴**했다. SPEC §4는 스케줄러가 재개 시 "가능하면 `--resume`/컨텍스트 유지 플래그
+  사용"을 명시하지만, 실제 스케줄러(`scheduler.ts`)는 지금까지 `job.command`를 **그대로** 재실행했다.
+  즉 `agentrelay run -- claude -p "..."`가 rate-limit에 걸려 자동 재개되면, 이전 대화 세션을 이어가는
+  게 아니라 프롬프트를 **처음부터 새 세션으로** 다시 던져 컨텍스트가 유실됐다 — 이 도구의 핵심 가치
+  ("리밋 창을 가로질러 작업을 이어준다")를 정면으로 훼손하는, 스펙에 적혀 있으나 미구현이던 갭.
+- **한 일 (branch `claude/wizardly-pascal-4llcqe`):** 어댑터 주도 resume-command 변환 도입.
+  - core `adapters.ts`: `AgentAdapter`에 `buildResumeCommand(command)` 추가(기본은 verbatim 재실행).
+    순수 `insertClaudeContinueFlag(command)` 신설 — 명령에 `claude` 바이너리 토큰이 실제로 있을 때만
+    그 토큰 **바로 뒤에** `--continue`를 삽입(`npx claude …`→`npx claude --continue …`), path/`.exe`
+    수식 바이너리도 매칭, 이미 `--continue`/`-c`/`--resume`/`-r`가 있으면 no-op(idempotent), 인식 못 하는
+    래퍼는 절대 건드리지 않음. Claude Code 어댑터만 이 변환을 쓰고 Codex/generic은 그대로. 순수
+    `resumeWithContextFromEnv(env)`(`AGENTRELAY_RESUME_CONTINUE`가 `0`/`false`/`off`/`no`면 off, 기본 on).
+  - core `scheduler.ts`: `SchedulerOptions.resumeWithContext`(기본 true) 추가. `resume()`가 어댑터를 한 번
+    해소해 rate-limit 감지와 resume-command 변환에 함께 쓰고, `resumeWithContext`면 `adapter.buildResumeCommand`로
+    변환된 명령을 spawn(아니면 verbatim). **첫 실행(`agentrelay run`)은 항상 리터럴 명령** — 변환은 오직
+    스케줄러 재개 경로에만. 저장된 `job.command`는 불변(변환은 spawn 시점 1회).
+  - CLI `commands.ts`: daemon·tick 스케줄러 구성이 `resumeWithContextFromEnv()`로 배선, off면 데몬 배너에
+    "(resume flag off)" 표기.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 558→571, cli 299/1skip, dashboard 9). 기존 스케줄러 테스트 2개는 재개 명령이 이제
+  `--continue`를 포함하므로 fake spawn 키를 변환된 명령으로 갱신. **실제 빌드 CLI e2e**(mock 아님): 임시
+  스토어에 due 상태 claude 잡을 심고 argv를 기록하는 fake `claude`를 PATH에 두고 `agentrelay tick` 실행 —
+  기본은 fake가 `--continue -p keep going`을 수신(주입 확인), `AGENTRELAY_RESUME_CONTINUE=0`이면 `-p keep going`을
+  그대로 수신(opt-out 확인).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — Codex CLI의
+  세션 재개 문법 조사 후 어댑터에 반영, Claude `--resume <sessionId>`로 정확한 세션 지정(현재는 cwd의 가장
+  최근 대화를 잇는 `--continue` 휴리스틱). README/ARCHITECTURE(🧭 코워크).

@@ -66,8 +66,10 @@ describe("RelayScheduler", () => {
     queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
 
     const scheduler = new RelayScheduler({
+      // On resume the Claude Code command is rewritten with --continue, so the
+      // fake keys on the rewritten command.
       queue,
-      spawnFn: fakeSpawnFn({ "claude -p continue": "All done, task finished successfully." }),
+      spawnFn: fakeSpawnFn({ "claude --continue -p continue": "All done, task finished successfully." }),
     });
 
     const results = await scheduler.tick();
@@ -87,7 +89,7 @@ describe("RelayScheduler", () => {
     const scheduler = new RelayScheduler({
       queue,
       spawnFn: fakeSpawnFn({
-        "claude -p continue": "Usage limit reached again. Resets in 2h.",
+        "claude --continue -p continue": "Usage limit reached again. Resets in 2h.",
       }),
     });
 
@@ -390,6 +392,68 @@ describe("RelayScheduler", () => {
     expect(pruned).toHaveLength(3);
     expect(pruned[2].map((j) => j.id)).toEqual([c.id]);
     expect(queue.listAll()).toHaveLength(0);
+  });
+
+  // Records every command spawnFn is invoked with, then closes cleanly.
+  function recordingSpawnFn(seen: string[][]): SpawnFn {
+    return (command) => {
+      seen.push(command);
+      const emitter = new EventEmitter() as any;
+      emitter.stdout = new EventEmitter();
+      emitter.stderr = new EventEmitter();
+      setTimeout(() => emitter.emit("close", 0), 0);
+      return emitter;
+    };
+  }
+
+  it("rewrites a Claude Code resume with --continue so the session carries over", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "keep going"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const seen: string[][] = [];
+    const scheduler = new RelayScheduler({ queue, spawnFn: recordingSpawnFn(seen) });
+    await scheduler.tick();
+
+    expect(seen).toEqual([["claude", "--continue", "-p", "keep going"]]);
+    // The stored command is untouched — only the spawned resume run is rewritten.
+    expect(queue.getById(job.id)?.command).toEqual(["claude", "-p", "keep going"]);
+  });
+
+  it("re-runs the literal command when resumeWithContext is disabled", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "keep going"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const seen: string[][] = [];
+    const scheduler = new RelayScheduler({ queue, spawnFn: recordingSpawnFn(seen), resumeWithContext: false });
+    await scheduler.tick();
+
+    expect(seen).toEqual([["claude", "-p", "keep going"]]);
+  });
+
+  it("leaves a non-Claude tool's command verbatim on resume", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "generic",
+      command: ["my-agent", "--go"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const seen: string[][] = [];
+    const scheduler = new RelayScheduler({ queue, spawnFn: recordingSpawnFn(seen) });
+    await scheduler.tick();
+
+    expect(seen).toEqual([["my-agent", "--go"]]);
   });
 
   it("fires onTick after every tick with the reference time, even when nothing is due", async () => {

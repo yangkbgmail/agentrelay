@@ -5,7 +5,9 @@ import {
   CODEX_CLI_ADAPTER,
   GENERIC_ADAPTER,
   inferToolFromCommand,
+  insertClaudeContinueFlag,
   resolveAdapter,
+  resumeWithContextFromEnv,
 } from "../src/adapters.js";
 
 describe("inferToolFromCommand", () => {
@@ -84,5 +86,71 @@ describe("adapter rate-limit detection", () => {
   it("the Claude Code adapter behaves like the generic parser", () => {
     const text = "usage limit reached, resets at 2026-07-13T05:00:00Z";
     expect(CLAUDE_CODE_ADAPTER.detectRateLimit(text, { now })?.pattern).toBe("iso-timestamp");
+  });
+});
+
+describe("insertClaudeContinueFlag", () => {
+  it("inserts --continue right after the claude binary", () => {
+    expect(insertClaudeContinueFlag(["claude", "-p", "keep going"])).toEqual([
+      "claude",
+      "--continue",
+      "-p",
+      "keep going",
+    ]);
+  });
+
+  it("inserts after the recognized binary even when wrapped (npx claude ...)", () => {
+    expect(insertClaudeContinueFlag(["npx", "claude", "-p", "x"])).toEqual(["npx", "claude", "--continue", "-p", "x"]);
+  });
+
+  it("matches a path- or .exe-qualified binary", () => {
+    expect(insertClaudeContinueFlag(["/usr/local/bin/claude", "-p", "x"])).toEqual([
+      "/usr/local/bin/claude",
+      "--continue",
+      "-p",
+      "x",
+    ]);
+  });
+
+  it("is idempotent when a continue/resume flag is already present", () => {
+    for (const flag of ["--continue", "-c", "--resume", "-r"]) {
+      const cmd = ["claude", flag, "-p", "x"];
+      expect(insertClaudeContinueFlag(cmd)).toEqual(cmd);
+    }
+  });
+
+  it("leaves a command alone when the claude binary isn't present", () => {
+    expect(insertClaudeContinueFlag(["some-wrapper", "-p", "x"])).toEqual(["some-wrapper", "-p", "x"]);
+    expect(insertClaudeContinueFlag([])).toEqual([]);
+  });
+});
+
+describe("adapter buildResumeCommand", () => {
+  it("Claude Code adapter continues the previous session on resume", () => {
+    expect(CLAUDE_CODE_ADAPTER.buildResumeCommand(["claude", "-p", "x"])).toEqual(["claude", "--continue", "-p", "x"]);
+  });
+
+  it("Codex and generic adapters re-run the command verbatim", () => {
+    expect(CODEX_CLI_ADAPTER.buildResumeCommand(["codex", "exec", "x"])).toEqual(["codex", "exec", "x"]);
+    expect(GENERIC_ADAPTER.buildResumeCommand(["mystery", "x"])).toEqual(["mystery", "x"]);
+  });
+});
+
+describe("resumeWithContextFromEnv", () => {
+  it("defaults to on when the env var is unset or blank", () => {
+    expect(resumeWithContextFromEnv({})).toBe(true);
+    expect(resumeWithContextFromEnv({ AGENTRELAY_RESUME_CONTINUE: "   " })).toBe(true);
+  });
+
+  it("turns off for falsy values (case/space-insensitive)", () => {
+    for (const v of ["0", "false", "off", "no", " OFF ", "False"]) {
+      expect(resumeWithContextFromEnv({ AGENTRELAY_RESUME_CONTINUE: v })).toBe(false);
+    }
+  });
+
+  it("stays on for any other value", () => {
+    for (const v of ["1", "true", "on", "yes"]) {
+      expect(resumeWithContextFromEnv({ AGENTRELAY_RESUME_CONTINUE: v })).toBe(true);
+    }
   });
 });

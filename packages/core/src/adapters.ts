@@ -30,18 +30,87 @@ export interface AgentAdapter {
    * parser but injects this adapter's patterns at highest priority.
    */
   detectRateLimit(output: string, options?: ParseOptions): RateLimitInfo | null;
+  /**
+   * Rewrite the original command for a *resume* run so the agent continues its
+   * previous session instead of starting the task over from scratch. Returns
+   * the command unchanged when the tool has no context-preserving flag, when
+   * the tool's binary isn't recognized in the command, or when a continue/
+   * resume flag is already present (idempotent). Only the scheduler calls this
+   * — the very first run always executes the literal command the user gave.
+   */
+  buildResumeCommand(command: string[]): string[];
 }
 
-function makeAdapter(spec: Omit<AgentAdapter, "detectRateLimit">): AgentAdapter {
+/** Optional per-tool resume-command transform; defaults to re-running verbatim. */
+type AdapterSpec = Omit<AgentAdapter, "detectRateLimit" | "buildResumeCommand"> & {
+  resume?: (command: string[]) => string[];
+};
+
+function makeAdapter(spec: AdapterSpec): AgentAdapter {
+  const resume = spec.resume ?? ((command: string[]) => command);
   return {
-    ...spec,
+    tool: spec.tool,
+    displayName: spec.displayName,
+    binaries: spec.binaries,
+    patterns: spec.patterns,
     detectRateLimit(output, options = {}) {
       return parseRateLimitMessage(output, {
         ...options,
         extraPatterns: [...spec.patterns, ...(options.extraPatterns ?? [])],
       });
     },
+    buildResumeCommand(command) {
+      return resume(command);
+    },
   };
+}
+
+/** argv[0] basenames that identify the Claude Code CLI. */
+const CLAUDE_BINARIES = ["claude", "claude-code"];
+
+/** The flag that makes Claude Code continue the most recent session in the cwd. */
+export const CLAUDE_CONTINUE_FLAG = "--continue";
+
+/**
+ * Flags that already continue/resume a prior Claude Code session. If the user's
+ * command carries any of these we leave it alone so we never double-continue.
+ */
+const CLAUDE_RESUME_FLAGS = new Set(["--continue", "-c", "--resume", "-r"]);
+
+/**
+ * Rewrite a Claude Code command so a *resume* run continues the previous
+ * conversation (SPEC §4: "가능하면 --resume/컨텍스트 유지 플래그 사용") instead of
+ * re-issuing the prompt as a brand-new session.
+ *
+ * Conservative and idempotent: only rewrites when the `claude` binary is
+ * actually present in the command (so wrappers we don't understand are left
+ * untouched), inserts `--continue` right after that binary token (so
+ * `npx claude …` becomes `npx claude --continue …`), and no-ops when a
+ * continue/resume flag is already there.
+ */
+export function insertClaudeContinueFlag(command: string[]): string[] {
+  if (command.length === 0) return command;
+  const binaryIndex = command.findIndex((token) => CLAUDE_BINARIES.includes(baseName(token)));
+  if (binaryIndex === -1) return command;
+  if (command.some((token) => CLAUDE_RESUME_FLAGS.has(token))) return command;
+  const next = command.slice();
+  next.splice(binaryIndex + 1, 0, CLAUDE_CONTINUE_FLAG);
+  return next;
+}
+
+/**
+ * Whether the scheduler should rewrite a resumed command to continue the prior
+ * session (see {@link AgentAdapter.buildResumeCommand}). On by default so the
+ * flagship Claude Code flow keeps its context across rate-limit windows; set
+ * `AGENTRELAY_RESUME_CONTINUE` to a falsy value (`0`/`false`/`off`/`no`) to make
+ * resumes re-run the literal command the user originally gave instead.
+ */
+export function resumeWithContextFromEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env.AGENTRELAY_RESUME_CONTINUE;
+  if (raw === undefined) return true;
+  const value = raw.trim().toLowerCase();
+  if (value === "") return true;
+  return !(value === "0" || value === "false" || value === "off" || value === "no");
 }
 
 /**
@@ -64,8 +133,9 @@ const CODEX_SECONDS_PATTERN: RateLimitPattern = {
 export const CLAUDE_CODE_ADAPTER: AgentAdapter = makeAdapter({
   tool: "claude-code",
   displayName: "Claude Code",
-  binaries: ["claude", "claude-code"],
+  binaries: CLAUDE_BINARIES,
   patterns: [],
+  resume: insertClaudeContinueFlag,
 });
 
 export const CODEX_CLI_ADAPTER: AgentAdapter = makeAdapter({

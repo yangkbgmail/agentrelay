@@ -734,6 +734,19 @@
       테스트, 실제 빌드 CLI e2e로 시간 버킷팅·최다시간 풀바·스코프 부분집합·`--json` hours 필드·기본 JSON
       미포함·help/completion `--hours` 노출 검증. branch `claude/wizardly-pascal-hours`)
 
+- [x] 👷 스케줄러 resume 시 세션 컨텍스트 유지 — 재개 명령에 컨텍스트 유지 플래그 주입(SPEC §4의
+      "가능하면 `--resume`/컨텍스트 유지 플래그 사용" 미구현 갭 메움). 지금까지 스케줄러는 `job.command`를
+      그대로 재실행해, rate-limit 자동 재개가 이전 대화를 잇는 게 아니라 프롬프트를 새 세션으로 다시 던져
+      컨텍스트를 유실했다.
+      (완료 — core `adapters.ts`에 `AgentAdapter.buildResumeCommand(command)`(기본 verbatim) + 순수
+      `insertClaudeContinueFlag`(claude 바이너리 토큰 바로 뒤에 `--continue` 삽입, 이미
+      `--continue`/`-c`/`--resume`/`-r`면 no-op, 인식 못 하는 래퍼는 불변; idempotent) +
+      `resumeWithContextFromEnv`(`AGENTRELAY_RESUME_CONTINUE` off 스위치, 기본 on) 추가. Claude Code 어댑터만
+      변환 사용, Codex/generic은 그대로. `scheduler.ts`에 `resumeWithContext` 옵션(기본 true) — `resume()`가
+      변환된 명령을 spawn하되 첫 실행(`run`)과 저장된 `job.command`는 리터럴 불변. CLI daemon/tick이 env로
+      배선, off면 데몬 배너에 "(resume flag off)". core adapters +6·scheduler +3 신규 테스트, 실제 빌드 CLI
+      tick e2e로 `--continue` 주입/opt-out 검증. branch `claude/wizardly-pascal-4llcqe`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
