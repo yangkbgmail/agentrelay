@@ -11,6 +11,7 @@ import type {
   JobScope,
   JobStatus,
   RelayStats,
+  ResolutionBucket,
 } from "@agentrelay/core";
 import { isJobScopeActive } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
@@ -273,6 +274,46 @@ export function renderHours(hours: HourlyActivity[], options: { color?: boolean 
   return lines.join("\n");
 }
 
+/** Max width (chars) of a full-scale bar in the resolution-time histogram. */
+const DURATIONS_BAR_WIDTH = 24;
+
+/**
+ * Renders a resolution-time distribution histogram (resolved jobs bucketed by
+ * how long they took to resolve) as a compact ASCII bar chart. Bars scale to the
+ * fullest bucket so the shape reads regardless of absolute volume; an empty
+ * bucket shows a dim baseline dot. Pure: no I/O, no clock. Callers pass the
+ * already-computed distribution so it stays testable.
+ */
+export function renderDurations(buckets: ResolutionBucket[], options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [b("by duration") + d(" (resolved jobs by how long they took to resolve)")];
+  if (buckets.length === 0) {
+    lines.push("  none");
+    return lines.join("\n");
+  }
+
+  const max = buckets.reduce((m, bk) => Math.max(m, bk.count), 0);
+  const total = buckets.reduce((sum, bk) => sum + bk.count, 0);
+  // Right-align the labels so the bars share a left edge regardless of label width.
+  const labelWidth = buckets.reduce((w, bk) => Math.max(w, bk.label.length), 0);
+  for (const { label, count } of buckets) {
+    // Scale each bar to the fullest bucket; guarantee at least one block for any
+    // non-zero bucket so small counts don't vanish next to a spike.
+    const filled = max === 0 || count === 0 ? 0 : Math.max(1, Math.round((count / max) * DURATIONS_BAR_WIDTH));
+    // Pad the plain bar to a fixed width so the count column stays aligned; an
+    // empty bucket shows a single baseline dot (dimmed only when color is on).
+    const plain = count === 0 ? "·" : "█".repeat(filled);
+    const padded = plain.padEnd(DURATIONS_BAR_WIDTH);
+    const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
+    lines.push(`  ${label.padStart(labelWidth)}  ${shown} ${count}`);
+  }
+  lines.push(d(`  ${total} resolved job(s)`));
+  return lines.join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,
@@ -282,15 +323,17 @@ export function renderStatsJson(
     scope?: JobScope;
     trend?: DailyActivity[] | null;
     hours?: HourlyActivity[] | null;
+    durations?: ResolutionBucket[] | null;
   } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
-  // Only emit `trend`/`hours` when the matching flag was requested; omit them
-  // otherwise so the default JSON shape is unchanged for existing consumers.
+  // Only emit `trend`/`hours`/`durations` when the matching flag was requested;
+  // omit them otherwise so the default JSON shape is unchanged for existing consumers.
   const trend = options.trend ?? undefined;
   const hours = options.hours ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, stats }, null, 2);
+  const durations = options.durations ?? undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, durations, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */

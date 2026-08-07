@@ -1,5 +1,11 @@
 import type { DailyActivity, HourlyActivity, RelayJob } from "@agentrelay/core";
-import { computeDailyTrend, computeHourlyDistribution, computeStats, groupStats } from "@agentrelay/core";
+import {
+  computeDailyTrend,
+  computeHourlyDistribution,
+  computeResolutionHistogram,
+  computeStats,
+  groupStats,
+} from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
   formatDurationMs,
@@ -7,6 +13,7 @@ import {
   NO_GROUP_MESSAGE,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
+  renderDurations,
   renderGroupedStats,
   renderGroupedStatsJson,
   renderHours,
@@ -379,6 +386,76 @@ describe("renderStatsJson hours field", () => {
     const withHours = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", hours }));
     expect(withHours.hours).toHaveLength(24);
     expect(withHours.hours[5].count).toBe(1);
+  });
+});
+
+describe("renderDurations", () => {
+  const MIN = 60_000;
+  const HR = 60 * MIN;
+  function resolvedJob(spanMs: number): RelayJob {
+    const created = Date.parse("2026-07-20T00:00:00.000Z");
+    return job({
+      status: "completed",
+      createdAt: new Date(created).toISOString(),
+      updatedAt: new Date(created + spanMs).toISOString(),
+    });
+  }
+
+  it("renders a header, all 8 bucket rows, and a footer total", () => {
+    const out = renderDurations(computeResolutionHistogram([resolvedJob(2 * MIN), resolvedJob(2 * HR)]));
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("by duration");
+    // One header + 8 buckets + one footer.
+    expect(lines).toHaveLength(10);
+    for (const label of ["<1m", "1–5m", "5–15m", "15–30m", "30–60m", "1–3h", "3–6h", "≥6h"]) {
+      expect(out).toContain(label);
+    }
+    expect(lines[lines.length - 1]).toContain("2 resolved job(s)");
+  });
+
+  it("scales bars to the fullest bucket and draws blocks only for non-empty buckets", () => {
+    // Three jobs in 1–5m, one in 1–3h.
+    const out = renderDurations(
+      computeResolutionHistogram([
+        resolvedJob(2 * MIN),
+        resolvedJob(3 * MIN),
+        resolvedJob(4 * MIN),
+        resolvedJob(2 * HR),
+      ])
+    );
+    const rows = out.split("\n");
+    const peakRow = rows.find((r) => r.includes("1–5m")) ?? "";
+    const midRow = rows.find((r) => r.includes("1–3h")) ?? "";
+    const emptyRow = rows.find((r) => r.includes("≥6h")) ?? "";
+    const width = (r: string) => (r.match(/█/g) ?? []).length;
+    expect(width(peakRow)).toBeGreaterThanOrEqual(width(midRow));
+    expect(width(midRow)).toBeGreaterThanOrEqual(1);
+    expect(emptyRow).not.toContain("█");
+  });
+
+  it("handles an all-empty distribution without any bars", () => {
+    const out = renderDurations(computeResolutionHistogram([]));
+    expect(out).not.toContain("█");
+    expect(out).toContain("0 resolved job(s)");
+  });
+});
+
+describe("renderStatsJson durations field", () => {
+  it("omits `durations` by default but includes it when provided", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("durations" in without).toBe(false);
+    const created = Date.parse("2026-07-20T00:00:00.000Z");
+    const durations = computeResolutionHistogram([
+      job({
+        status: "completed",
+        createdAt: new Date(created).toISOString(),
+        updatedAt: new Date(created + 120_000).toISOString(),
+      }),
+    ]);
+    const withDurations = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", durations }));
+    expect(withDurations.durations).toHaveLength(8);
+    expect(withDurations.durations.find((b: { label: string }) => b.label === "1–5m").count).toBe(1);
   });
 });
 
