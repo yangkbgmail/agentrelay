@@ -53,6 +53,7 @@ import {
   type ImportResult,
   type IneligibleJob,
   isJobScopeActive,
+  isScheduleTimeError,
   type JobCsvColumn,
   type JobScope,
   type LocationReport,
@@ -74,6 +75,7 @@ import {
   resolveConfigWritePath,
   resolveEffectiveConfig,
   resolveJobId,
+  resolveScheduledResetAt,
   retryPolicyFromEnv,
   runDiagnostics,
   sampleConfigJson,
@@ -198,6 +200,62 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   });
 
   return { exitCode, queuedJob: queue.getById(job.id) ?? null };
+}
+
+export interface ScheduleOptions {
+  /** The agent command to enqueue (e.g. `["claude", "-p", "continue"]`). */
+  command: string[];
+  /** Absolute ISO 8601 instant to first run the command at. */
+  at?: string;
+  /** Relative delay before the first run (e.g. `5h`, `30m`). */
+  in?: string;
+  /** Explicit adapter; inferred from the command's binary when omitted. */
+  tool?: AgentTool;
+  /** Project label override; falls back to the cwd-derived name. */
+  project?: string;
+  storePath?: string;
+  cwd?: string;
+  /** Injected for tests; defaults to the current epoch. */
+  now?: number;
+}
+
+export interface ScheduleResult {
+  /** The queued job, or null when scheduling failed. */
+  job: RelayJob | null;
+  /** The resolved reset time (ISO), present only on success. */
+  resetAt?: string;
+  /** A human-readable failure reason, present only on error. */
+  error?: string;
+}
+
+/**
+ * Proactively enqueue a command to auto-run at a future reset time, WITHOUT
+ * running it first. This is the deliberate counterpart to {@link runCommand}:
+ * when you already know your limit is exhausted (you just saw the message),
+ * you name the reset time directly (`--at`/`--in`) and let the daemon resume
+ * the command when it arrives -- reusing the exact `waiting_for_reset` +
+ * `resetAt` machinery the reactive path produces, so `status`/`upcoming`/
+ * `next`/the daemon all treat it identically.
+ */
+export function scheduleCommand(options: ScheduleOptions): ScheduleResult {
+  const now = options.now ?? Date.now();
+  const resolved = resolveScheduledResetAt({ at: options.at, in: options.in, now });
+  if (isScheduleTimeError(resolved)) {
+    return { job: null, error: resolved.error };
+  }
+
+  const cwd = options.cwd ?? process.cwd();
+  const adapter = resolveAdapter({ tool: options.tool, command: options.command });
+  const storePath = options.storePath ?? defaultStorePath();
+
+  const queue = openQueue(storePath);
+  const project = resolveProjectName(cwd, options.project);
+  const job = queue.enqueue({ project, tool: adapter.tool, command: options.command, cwd });
+  queue.markWaitingForReset(job.id, resolved.resetAt);
+  const stored = queue.getById(job.id) ?? null;
+  queue.close();
+
+  return { job: stored, resetAt: resolved.resetAt };
 }
 
 export interface DaemonOptions {

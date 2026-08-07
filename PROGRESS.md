@@ -1831,3 +1831,28 @@
   09:00만 2·나머지 0, `--help`·bash completion에 `--hours` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 57 — `agentrelay schedule` 사전 예약 실행] (2026-08-07, 무인 자율 세션)
+- 배경: 세션 시작 시 명시적 미완 👷 항목이 없고(전부 [완료]), 열린 PR 30개가 weekday/hour/durations/
+  summary/search/파서 변형 등 인접 축을 이미 점유 중. CLAUDE.md 지침대로 중복을 피해 **새 개선 항목을
+  발굴**했다 — 지금까지 잡은 오직 `run`이 실행 중 rate-limit을 감지해야만 큐에 들어갔다. 이미 한도가
+  소진된 걸 아는 사용자가 "리셋 시각에 이 명령을 자동 실행"하도록 **선제적으로 예약**하는 수단이 없었다.
+- 한 일 (branch `claude/wizardly-pascal-hkl4wh`): **`agentrelay schedule` — 미래 리셋 시각 사전 예약**.
+  - core `schedule.ts` 신설(순수·시계/스토어 미접촉): `resolveScheduledResetAt({at?,in?,now})` +
+    `ScheduledTime`/`ScheduleTimeError`/`isScheduleTimeError`. `--in`은 공용 `parseDuration` 재사용(양수만,
+    `now+ms`), `--at`은 ISO 8601 파싱(과거 시각 허용=즉시 due). `at`/`in` 정확히 하나 필수(둘 다·둘 다
+    아님·공백은 에러), 파싱 불가/0·음수는 명확한 에러 문자열 반환(절대 throw 안 함).
+  - CLI `commands.ts` `scheduleCommand(options)` — 어댑터 추론(`resolveAdapter`)·프로젝트 라벨 해소
+    (`resolveProjectName`, `--project` 오버라이드)를 `run`과 공유하되, **명령을 실행하지 않고** enqueue +
+    `markWaitingForReset(id, resetAt)`로 바로 `waiting_for_reset` 잡 생성. 에러면 스토어를 건드리지 않음.
+    `cli.ts` `agentrelay schedule --in <dur>|--at <iso> [--tool][-p][--json] -- <command...>` 배선
+    (성공 시 job id + `formatCountdown` 카운트다운, 실패는 stderr + exit 1). 새 스케줄러/파서 로직 0줄 —
+    reactive rate-limit 경로가 만드는 것과 동일한 `waiting_for_reset`+`resetAt`이라 status/upcoming/next/
+    daemon이 전부 동일하게 취급. completion은 라이브 프로그램 파생이라 `schedule` 자동 포함.
+- 검증: `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core schedule 10 신규→568, cli commands scheduleCommand 6 신규→305/1skip, dashboard 9).
+  **실제 빌드 CLI e2e**(mock 아님): `schedule --in 5h`가 명령 미실행으로 `waiting_for_reset` 잡 생성·
+  status/upcoming에 5h 카운트다운 표시, `--at 2030-…Z --json`이 codex 툴 추론·resetAt 정확 반영,
+  `--in`/`--at` 미지정→exit 1, 잘못된 duration→exit 1, bash completion에 `schedule` 노출 확인.
+- 다음 할 일: 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 — `schedule`에 스코프 없는
+  즉시 daemon 킥(`--now`)이나, 예약 잡에 provenance("manually scheduled") 태깅. README/ARCHITECTURE(🧭).
