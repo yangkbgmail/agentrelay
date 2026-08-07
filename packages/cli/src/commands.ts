@@ -74,6 +74,7 @@ import {
   resolveConfigWritePath,
   resolveEffectiveConfig,
   resolveJobId,
+  resumeWithContextFromEnv,
   retryPolicyFromEnv,
   runDiagnostics,
   sampleConfigJson,
@@ -359,6 +360,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   const autoPrune = autoPruneOptionsFromEnv();
   const autoPruneEveryMs = autoPruneEveryMsFromEnv() ?? undefined;
   const autoPruneEveryTicks = autoPruneEveryTicksFromEnv() ?? undefined;
+  const resumeWithContext = resumeWithContextFromEnv();
   const pollIntervalMs = options.pollIntervalMs ?? 30_000;
   const logLine = (line: string) => {
     // eslint-disable-next-line no-console
@@ -384,6 +386,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
+    resumeWithContext,
     onPrune: (pruned) => logLine(`[agentrelay] auto-pruned ${pruned.length} finished job(s)`),
     onTick: (referenceTime) => beat(referenceTime),
     notify: async (payload) => {
@@ -405,6 +408,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   console.log(
     `[agentrelay] daemon started, watching ${storePath} every ${pollIntervalMs / 1000}s` +
       (remoteNotify ? " (notifications on)" : "") +
+      (resumeWithContext ? "" : " (resume flag off)") +
       autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks)
   );
   return scheduler;
@@ -419,6 +423,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     notify: notify ?? undefined,
     retryPolicy: retryPolicyFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
+    resumeWithContext: resumeWithContextFromEnv(),
   });
   const processed = await scheduler.tick();
   // Record that a (typically cron-driven) tick ran, so `doctor` can tell the

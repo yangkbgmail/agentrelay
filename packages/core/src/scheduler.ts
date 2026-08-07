@@ -53,6 +53,15 @@ export interface SchedulerOptions {
    * time throttle, only meaningful for the long-running scheduler.
    */
   autoPruneEveryTicks?: number;
+  /**
+   * When `true` (the default), a resumed command is rewritten via the tool's
+   * adapter so the agent continues its previous session instead of starting the
+   * task over — e.g. a Claude Code job's command gains `--continue`. Set to
+   * `false` to always re-run the literal command. See
+   * {@link AgentAdapter.buildResumeCommand}. Only affects *resumes*; the first
+   * run (in `agentrelay run`) always executes the literal command.
+   */
+  resumeWithContext?: boolean;
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
   /**
@@ -82,6 +91,7 @@ export class RelayScheduler {
   private autoPrune: PruneOptions | null;
   private autoPruneEveryMs: number;
   private autoPruneEveryTicks: number;
+  private resumeWithContext: boolean;
   private lastPruneAtMs: number | null = null;
   private pruneTickCounter = 0;
   private onPrune?: (pruned: RelayJob[]) => void;
@@ -99,6 +109,7 @@ export class RelayScheduler {
     this.autoPrune = options.autoPrune ?? null;
     this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
+    this.resumeWithContext = options.resumeWithContext ?? true;
     this.onPrune = options.onPrune;
     this.onTick = options.onTick;
   }
@@ -175,11 +186,16 @@ export class RelayScheduler {
       message: `Resuming job for ${job.project} (attempt ${attemptNumber})`,
     });
 
-    const { output, exitCode, error } = await this.runCommand(job);
+    // Resolve the tool's adapter once: it tells us both how to recognize
+    // tool-specific rate-limit wording on resume (e.g. Codex's seconds-based
+    // waits) and how to rewrite the command so the agent continues its previous
+    // session (e.g. Claude Code's `--continue`) instead of starting over.
+    const adapter = resolveAdapter({ tool: job.tool, command: job.command });
+    const command = this.resumeWithContext ? adapter.buildResumeCommand(job.command) : job.command;
+
+    const { output, exitCode, error } = await this.runCommand(command, job.cwd);
     const tail = output.slice(-this.outputTailLength);
-    // Use the tool's adapter so tool-specific rate-limit wording (e.g. Codex's
-    // seconds-based waits) is recognized on resume, not just at enqueue time.
-    const rateLimit = resolveAdapter({ tool: job.tool, command: job.command }).detectRateLimit(output);
+    const rateLimit = adapter.detectRateLimit(output);
 
     // Rate limit takes priority over exit code: agent CLIs commonly exit
     // non-zero when they hit a limit, and that's an expected relay, not a crash.
@@ -249,12 +265,15 @@ export class RelayScheduler {
     return job;
   }
 
-  private runCommand(job: RelayJob): Promise<{ output: string; exitCode: number | null; error: Error | null }> {
+  private runCommand(
+    command: string[],
+    cwd: string
+  ): Promise<{ output: string; exitCode: number | null; error: Error | null }> {
     return new Promise((resolve) => {
       let output = "";
       let child: ChildProcessWithoutNullStreams;
       try {
-        child = this.spawnFn(job.command, job.cwd);
+        child = this.spawnFn(command, cwd);
       } catch (err) {
         // Synchronous spawn failure (e.g. bad cwd) — surface as a transient error
         // so the caller can apply the retry policy rather than dropping the job.
