@@ -1831,3 +1831,28 @@
   09:00만 2·나머지 0, `--help`·bash completion에 `--hours` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 59 — 파서: IANA 명명 타임존 인식(`clock-time-zoned`)] (2026-08-07, 무인 자율 세션, branch `claude/wizardly-pascal-iana-tz`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다. 파서의 clock-time 계열
+  패턴은 코드 주석에 "The named timezone in the message is ignored — the hour is interpreted in local
+  time, same known limitation"이라고 **명시된 한계**가 있었다. 그런데 Claude Code가 실제로 출력하는
+  문구가 바로 `"Your limit will reset at 5pm (America/New_York)."` — 명명(IANA) 타임존을 괄호로 달고 온다.
+  이를 무시하면 릴레이 호스트가 뉴욕이 아닐 때(예: 서울 서버) 리셋 시각이 최대 수 시간 어긋난다. 이는 제품
+  핵심(리셋 시점 정확도)에 직접 영향. 오픈 PR #498(UTC/GMT/오프셋 인식)과는 **별개의 갭**(IANA 존 이름).
+- **한 일 (branch `claude/wizardly-pascal-iana-tz`):** core `parser.ts`에 새 패턴 `clock-time-zoned` 추가.
+  - `Intl.DateTimeFormat`(timeZone 지정) 기반 순수 헬퍼 3종: `zoneOffsetMs`(해당 순간의 존 오프셋, DST 반영),
+    `zonedWallClockToInstant`(존 벽시계 → 절대 instant 역산, DST 경계 1회 보정), `nextTimeInZone`(now 이후
+    가장 이른 해당 벽시계 시각 — 오늘 지났으면 다음 날). 잘못된 존 이름은 `Intl`이 `RangeError` → `null`.
+  - 새 패턴은 `iso-timestamp` 뒤, 로컬 시간 `clock-time`/`clock-time-meridiem` **앞**에 배치(먼저 매칭).
+    존 토큰은 `/`를 포함하는 IANA 이름(`Continent/City`)만 인식 → 약어/오프셋과 disjoint, 날짜의 `/`와도 충돌 X.
+    존이 없으면 기존 로컬 패턴으로 그대로 fall-through. 존 이름이 유효하지 않으면 로컬 패턴으로 fall-through
+    (`"5pm Mars/Olympus"` → clock-time-meridiem). `12am`/`12pm`·`15pm`(무효) 등 meridiem 규칙 동일 적용.
+  - 파서·스케줄러 외 다른 로직 0줄 변경(패턴 추가만). CLI/스토어 변경 없음.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 557→562=+5, cli 300, dashboard). **실제 빌드 CLI e2e**(mock 아님): `parse --json`으로
+  `"reset at 5pm (America/New_York)"`→여름 EDT(UTC−4) 21:00Z, `"15:00 Asia/Seoul"`→06:00Z(무DST),
+  존 없는 `"reset at 5pm"`→로컬 `clock-time-meridiem` 유지, `"5pm Mars/Olympus"`(무효 존)→로컬로 fall-through 확인.
+  기존 한계를 고정하던 테스트는 결정론적 UTC 단언으로 갱신(로컬 `getHours()` 의존 제거 → CI 타임존 무관).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 존 약어(PST/JST 등)
+  매핑, 또는 `"reset at 5pm on Monday"`처럼 요일/날짜가 붙은 문구 인식. README/ARCHITECTURE(🧭 코워크).
