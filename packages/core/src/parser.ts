@@ -32,6 +32,103 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/**
+ * Signed offset (ms) of an IANA time zone at a given instant, i.e. how far the
+ * zone's wall clock is ahead of UTC (positive east of UTC, e.g. +9h for
+ * Asia/Seoul, −4h for America/New_York in summer). Computed from `Intl` so it
+ * respects DST at that instant. Throws `RangeError` for an unknown zone name —
+ * callers catch it and treat the zone as unrecognised.
+ */
+function zoneOffsetMs(timeZone: string, instant: Date): number {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const parts: Record<string, string> = {};
+  for (const p of dtf.formatToParts(instant)) parts[p.type] = p.value;
+  const asUTC = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second)
+  );
+  return asUTC - instant.getTime();
+}
+
+/**
+ * The absolute instant at which the wall clock in `timeZone` reads
+ * `year-month-day hour:minute:00`. Inverts {@link zoneOffsetMs}: we guess by
+ * treating the wall-clock fields as UTC, correct by the zone's offset, then do
+ * one more correction so a DST transition between the guess and the corrected
+ * instant is accounted for (the offset can differ across the jump).
+ */
+function zonedWallClockToInstant(
+  timeZone: string,
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number
+): Date {
+  const guessUTC = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const offset1 = zoneOffsetMs(timeZone, new Date(guessUTC));
+  let instant = guessUTC - offset1;
+  const offset2 = zoneOffsetMs(timeZone, new Date(instant));
+  if (offset2 !== offset1) instant = guessUTC - offset2;
+  return new Date(instant);
+}
+
+/**
+ * The next instant strictly after `now` at which the wall clock in `timeZone`
+ * reads `hour:minute` — i.e. "today in that zone if still ahead, else
+ * tomorrow". Returns `null` if the zone name is not a valid IANA zone. Used by
+ * the `clock-time-zoned` pattern so a reset stamped with its real zone
+ * ("reset at 5pm (America/New_York)") resolves to the correct absolute instant
+ * instead of being (mis)read in the relay host's local time.
+ */
+function nextTimeInZone(now: Date, hour: number, minute: number, timeZone: string): Date | null {
+  let year: number;
+  let month: number;
+  let day: number;
+  try {
+    const dtf = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    const parts: Record<string, string> = {};
+    for (const p of dtf.formatToParts(now)) parts[p.type] = p.value;
+    year = Number(parts.year);
+    month = Number(parts.month);
+    day = Number(parts.day);
+  } catch {
+    return null; // unknown/invalid time zone
+  }
+
+  // Try the target time on the zone's current calendar day, then the next day.
+  for (let i = 0; i < 2; i++) {
+    const candidate = zonedWallClockToInstant(timeZone, year, month, day, hour, minute);
+    if (candidate.getTime() > now.getTime()) return candidate;
+    const nextDay = new Date(Date.UTC(year, month - 1, day) + 24 * 60 * 60_000);
+    year = nextDay.getUTCFullYear();
+    month = nextDay.getUTCMonth() + 1;
+    day = nextDay.getUTCDate();
+  }
+  // Both candidates were somehow in the past (only reachable via a >24h DST
+  // anomaly); fall back to the last computed candidate rather than returning
+  // a stale time.
+  return zonedWallClockToInstant(timeZone, year, month, day, hour, minute);
+}
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
@@ -40,6 +137,32 @@ const PATTERNS: RateLimitPattern[] = [
     resolve: (m) => {
       const d = new Date(m[1]);
       return Number.isNaN(d.getTime()) ? null : d;
+    },
+  },
+  {
+    // "reset at 5pm (America/New_York)" / "resets at 15:00 Asia/Seoul" —
+    // a clock time carrying its real IANA zone name. This is the exact wording
+    // Claude Code prints ("Your limit will reset at 5pm (America/New_York)."),
+    // and unlike the local-time clock-time patterns below we honour the zone:
+    // the reset is resolved to the correct absolute instant regardless of the
+    // relay host's own local time. The zone token must contain a "/" (e.g.
+    // Continent/City), which both identifies an IANA name and keeps this
+    // disjoint from bare abbreviations/offsets. Placed before the local-time
+    // clock patterns so a zoned message wins; a message with no zone falls
+    // through to them unchanged.
+    name: "clock-time-zoned",
+    regex: /reset[s]?\s+at\s+(\d{1,2})(?::(\d{2}))?(?:\s*(am|pm)\b)?\s*\(?\s*([A-Za-z]+(?:\/[A-Za-z_]+)+)\)?/i,
+    resolve: (m, now) => {
+      let hour = parseInt(m[1], 10);
+      const minute = m[2] ? parseInt(m[2], 10) : 0;
+      const meridiem = m[3]?.toLowerCase();
+      if (meridiem) {
+        if (hour > 12) return null; // "15pm" is not a valid 12-hour clock time
+        if (meridiem === "pm" && hour < 12) hour += 12;
+        if (meridiem === "am" && hour === 12) hour = 0;
+      }
+      if (hour > 23 || minute > 59) return null;
+      return nextTimeInZone(now, hour, minute, m[4]);
     },
   },
   {
