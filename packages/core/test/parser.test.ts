@@ -236,6 +236,46 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  it("parses the weekly-limit wording 'resets tomorrow at 9am' onto the next day", () => {
+    const now = new Date("2026-07-12T14:00:00Z");
+    const result = parseRateLimitMessage("Claude usage limit reached. Your limit resets tomorrow at 9am.", { now });
+    expect(result?.pattern).toBe("clock-time-tomorrow");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(9);
+    expect(resetDate.getMinutes()).toBe(0);
+    // Always the *next* calendar day, regardless of the current wall-clock.
+    const expected = new Date(now);
+    expected.setDate(expected.getDate() + 1);
+    expect(resetDate.getDate()).toBe(expected.getDate());
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'try again tomorrow at 3:30pm' with minutes + meridiem", () => {
+    const now = new Date("2026-07-12T02:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit. Try again tomorrow at 3:30pm.", {
+      now,
+    });
+    expect(result?.pattern).toBe("clock-time-tomorrow");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(15);
+    expect(resetDate.getMinutes()).toBe(30);
+  });
+
+  it("parses 24-hour 'tomorrow at 15:00' and passes the rate-limit pre-filter on its own", () => {
+    const now = new Date("2026-07-12T23:00:00Z");
+    // No "usage limit"/"rate limit" words — the "tomorrow at" cue must trip the pre-filter.
+    const result = parseRateLimitMessage("Your access resets tomorrow at 15:00.", { now });
+    expect(result?.pattern).toBe("clock-time-tomorrow");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(15);
+    expect(resetDate.getMinutes()).toBe(0);
+  });
+
+  it("rejects an out-of-range 'tomorrow at 25:00' rather than fabricating a bad date", () => {
+    const result = parseRateLimitMessage("usage limit — resets tomorrow at 25:00.");
+    expect(result).toBeNull();
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [
