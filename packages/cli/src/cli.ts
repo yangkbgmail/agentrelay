@@ -20,6 +20,7 @@ import {
   computeDailyTrend,
   computeErrorBreakdown,
   computeHourlyDistribution,
+  computeResolutionHistogram,
   computeStats,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
@@ -85,6 +86,7 @@ import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
+  renderDurations,
   renderGroupedStats,
   renderGroupedStatsJson,
   renderHours,
@@ -450,7 +452,8 @@ function runStatsWatch(
   scopeNote: string | undefined,
   groupBy: GroupDimension | undefined,
   trendDays: number | null,
-  hours: boolean
+  hours: boolean,
+  durations: boolean
 ): void {
   const active = isJobScopeActive(scope);
   startWatchLoop(intervalMs, () => {
@@ -469,6 +472,9 @@ function runStatsWatch(
       }
       if (hours && stats.total > 0) {
         body += `\n\n${renderHours(computeHourlyDistribution(jobs), { color: true })}`;
+      }
+      if (durations && stats.total > 0) {
+        body += `\n\n${renderDurations(computeResolutionHistogram(jobs), { color: true })}`;
       }
     }
     const frame = renderStatsWatchFrame(body, store, intervalMs, now);
@@ -991,6 +997,7 @@ export function buildCli(): Command {
     .option("-g, --group-by <dimension>", `Break down metrics per group: ${GROUP_DIMENSIONS.join(", ")}`)
     .option("--trend [days]", "Also show a per-day activity histogram over the last N days, UTC (default 14, max 90)")
     .option("--hours", "Also show an hour-of-day activity histogram (jobs created per UTC hour, 0–23)")
+    .option("--durations", "Also show a resolution-time histogram (resolved jobs bucketed by how long they took)")
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
     .addHelpText(
       "after",
@@ -1002,7 +1009,9 @@ export function buildCli(): Command {
         "  # live per-tool breakdown, refreshed every 5s\n" +
         "  agentrelay stats --group-by tool --watch 5\n" +
         "  # which UTC hours rate-limits cluster in\n" +
-        "  agentrelay stats --hours"
+        "  agentrelay stats --hours\n" +
+        "  # the shape of how long jobs take to resolve\n" +
+        "  agentrelay stats --durations"
     )
     .action(
       (opts: {
@@ -1014,6 +1023,7 @@ export function buildCli(): Command {
         groupBy?: string;
         trend?: string | boolean;
         hours?: boolean;
+        durations?: boolean;
         json?: boolean;
         watch?: string | boolean;
       }) => {
@@ -1126,7 +1136,16 @@ export function buildCli(): Command {
         if (opts.watch !== undefined && !opts.json) {
           const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
           const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
-          runStatsWatch(store, intervalMs, scope, scopeNote, groupBy, trendDays, Boolean(opts.hours));
+          runStatsWatch(
+            store,
+            intervalMs,
+            scope,
+            scopeNote,
+            groupBy,
+            trendDays,
+            Boolean(opts.hours),
+            Boolean(opts.durations)
+          );
           return; // setInterval keeps the process alive.
         }
 
@@ -1146,9 +1165,10 @@ export function buildCli(): Command {
         const stats = computeStats(jobs);
         const trend = trendDays !== null ? computeDailyTrend(jobs, { nowMs: now, days: trendDays }) : null;
         const hours = opts.hours ? computeHourlyDistribution(jobs) : null;
+        const durations = opts.durations ? computeResolutionHistogram(jobs) : null;
 
         if (opts.json) {
-          console.log(renderStatsJson(stats, store, { scope, trend, hours }));
+          console.log(renderStatsJson(stats, store, { scope, trend, hours, durations }));
           return;
         }
         // A store with jobs but an empty scoped subset should say "no match",
@@ -1163,6 +1183,10 @@ export function buildCli(): Command {
         if (hours !== null && stats.total > 0) {
           console.log("");
           console.log(renderHours(hours, { color: Boolean(process.stdout.isTTY) }));
+        }
+        if (durations !== null && stats.total > 0) {
+          console.log("");
+          console.log(renderDurations(durations, { color: Boolean(process.stdout.isTTY) }));
         }
       }
     );

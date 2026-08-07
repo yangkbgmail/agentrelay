@@ -734,6 +734,22 @@
       테스트, 실제 빌드 CLI e2e로 시간 버킷팅·최다시간 풀바·스코프 부분집합·`--json` hours 필드·기본 JSON
       미포함·help/completion `--hours` 노출 검증. branch `claude/wizardly-pascal-hours`)
 
+- [x] 👷 `agentrelay stats --durations` — 해결 시간 분포 히스토그램(해결된 job을 소요 시간 구간별로 버킷팅).
+      (완료 — `TimingStats`의 avg/median/p90 헤드라인 한 줄로는 분포의 *모양*이 안 보였다.
+      "대부분 즉시 재개되지만 일부는 몇 시간짜리 긴 대기가 꼬리로 붙는" 이봉(bimodal) 분포는 단일
+      백분위수엔 안 보이지만 히스토그램엔 명확히 드러난다. core `stats.ts`에 순수
+      `computeResolutionHistogram(jobs)` + `ResolutionBucket`(label·minMs·maxMs[open-ended는 null]·count)
+      신설 — 해결된(completed/failed) job의 `updatedAt-createdAt` span을 8개 고정 구간
+      (<1m·1–5m·5–15m·15–30m·30–60m·1–3h·3–6h·≥6h)에 `[min,max)` 반열림 규칙으로 버킷팅, 항상 8슬롯
+      zero-fill, 미해결·타임스탬프 누락/음수 span(시계 skew)은 스킵. 기존 `RESOLVED_STATUSES`/
+      `resolutionMs` 헬퍼 재사용(timing 통계와 판정 일관). CLI `stats.ts`에 순수 `renderDurations`
+      (라벨 우측정렬 8행 ASCII 막대, 최다 버킷에 스케일, 빈 버킷은 dim 점, "N resolved job(s)" 푸터)·
+      `renderStatsJson`에 옵셔널 `durations` 필드(요청 시에만 방출, 기존 JSON shape 불변). `cli.ts`
+      `stats`에 `--durations` 배선 — 일회성·`--json`·`--watch` 세 뷰 모두 적용, 기존 스코프 필터와 조합
+      가능(`--trend`/`--hours`와 함께도 렌더). 새 파서/스케줄러 로직 0줄. core stats +8 + cli stats +4
+      신규 테스트, 실제 빌드 CLI e2e로 span 버킷팅(30s→<1m·3m→1–5m·2h→1–3h)·`--durations` 렌더·
+      `--json` durations 필드 검증. branch `claude/wizardly-pascal-t1wmtv`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

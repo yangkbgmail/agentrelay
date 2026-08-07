@@ -240,6 +240,70 @@ function resolutionMs(job: RelayJob): number | null {
   return span >= 0 ? span : null;
 }
 
+/** One bucket in a {@link computeResolutionHistogram} distribution. */
+export interface ResolutionBucket {
+  /** Short human label for the bucket range (e.g. "1–5m", "≥6h"). */
+  label: string;
+  /** Inclusive lower bound of the bucket, in ms. */
+  minMs: number;
+  /** Exclusive upper bound of the bucket, in ms; `null` for the open-ended top bucket. */
+  maxMs: number | null;
+  /** Resolved jobs whose lifecycle span falls in `[minMs, maxMs)`. */
+  count: number;
+}
+
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+
+/**
+ * The fixed, ordered edges of the resolution-time histogram. Chosen for a
+ * rate-limit relay: sub-minute (the resume fired almost immediately) up through
+ * multi-hour waits (a long reset window). Each entry is `[label, minMs, maxMs)`
+ * with `maxMs === null` marking the open-ended final bucket. Kept as data so the
+ * shape is stable and testable, and so the render/JSON layers never invent it.
+ */
+const RESOLUTION_BUCKET_EDGES: ReadonlyArray<readonly [string, number, number | null]> = [
+  ["<1m", 0, MINUTE_MS],
+  ["1–5m", MINUTE_MS, 5 * MINUTE_MS],
+  ["5–15m", 5 * MINUTE_MS, 15 * MINUTE_MS],
+  ["15–30m", 15 * MINUTE_MS, 30 * MINUTE_MS],
+  ["30–60m", 30 * MINUTE_MS, HOUR_MS],
+  ["1–3h", HOUR_MS, 3 * HOUR_MS],
+  ["3–6h", 3 * HOUR_MS, 6 * HOUR_MS],
+  ["≥6h", 6 * HOUR_MS, null],
+];
+
+/**
+ * Buckets resolved jobs (completed/failed with a valid, non-negative lifecycle
+ * span) by how long they took to resolve, so `agentrelay stats --durations` can
+ * show the *shape* of resolution times — not just the avg/median/p90 headline in
+ * {@link TimingStats}. A bimodal distribution ("mostly instant, but a long tail
+ * of multi-hour waits") is invisible in a single percentile but obvious here.
+ *
+ * The result is always exactly {@link RESOLUTION_BUCKET_EDGES}.length entries in
+ * ascending order, zero-filled for empty buckets so the histogram has a stable
+ * shape. Jobs that aren't resolved, or whose span is missing/negative, are
+ * skipped — they can't be placed on the duration axis.
+ */
+export function computeResolutionHistogram(jobs: RelayJob[]): ResolutionBucket[] {
+  const buckets: ResolutionBucket[] = RESOLUTION_BUCKET_EDGES.map(([label, minMs, maxMs]) => ({
+    label,
+    minMs,
+    maxMs,
+    count: 0,
+  }));
+  for (const job of jobs) {
+    if (!RESOLVED_STATUSES.includes(job.status)) continue;
+    const span = resolutionMs(job);
+    if (span === null) continue;
+    // Find the bucket whose [minMs, maxMs) contains span; the last bucket is
+    // open-ended (maxMs === null) and catches everything at or above its floor.
+    const bucket = buckets.find((b) => span >= b.minMs && (b.maxMs === null || span < b.maxMs));
+    if (bucket) bucket.count += 1;
+  }
+  return buckets;
+}
+
 /**
  * Linear-interpolated percentile (0..1) over an ascending-sorted, non-empty
  * array. p=0.5 → median, p=0.9 → p90. Matches the common "type 7" / NumPy

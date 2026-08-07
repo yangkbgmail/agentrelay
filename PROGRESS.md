@@ -1831,3 +1831,26 @@
   09:00만 2·나머지 0, `--help`·bash completion에 `--hours` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 59 — `agentrelay stats --durations` 해결 시간 분포 히스토그램] (2026-08-07, 무인 자율 세션, branch `claude/wizardly-pascal-t1wmtv`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/성능분석)뿐이라 CLAUDE.md 지침대로 인접 개선 항목을 자체 발굴. `stats`의 `TimingStats`는
+  avg/min/max/median/p90 한 줄 헤드라인만 있어 해결 시간 *분포의 모양*(예: "대부분 즉시, 일부만 긴 꼬리"
+  이봉 분포)은 단일 백분위수에 안 보였음. `--trend`(일별)·`--hours`(시간-of-day)는 있으나 소요-시간 축
+  히스토그램은 부재. 관련 브랜치도 없음(중복 아님).
+- **한 일 (branch `claude/wizardly-pascal-t1wmtv`):** `agentrelay stats --durations` — 해결 시간 분포 히스토그램.
+  core `stats.ts`에 순수 `computeResolutionHistogram(jobs)` + `ResolutionBucket`(label·minMs·maxMs[open-ended
+  는 null]·count) 신설 — 해결된(completed/failed) job의 `updatedAt-createdAt` span을 8개 고정 구간
+  (<1m·1–5m·5–15m·15–30m·30–60m·1–3h·3–6h·≥6h)에 `[min,max)` 반열림 규칙으로 버킷팅, 항상 8슬롯
+  zero-fill, 미해결·타임스탬프 누락/음수 span(시계 skew)은 스킵. 기존 `RESOLVED_STATUSES`/`resolutionMs`
+  헬퍼 재사용(timing 통계와 판정 일관). CLI `stats.ts`에 순수 `renderDurations`(라벨 우측정렬 8행 ASCII
+  막대, 최다 버킷에 스케일, 빈 버킷은 dim 점, "N resolved job(s)" 푸터)·`renderStatsJson`에 옵셔널
+  `durations` 필드(요청 시에만 방출, 기존 JSON shape 불변). `cli.ts` `stats`에 `--durations` 배선 —
+  일회성·`--json`·`--watch` 세 뷰 모두 적용, 기존 스코프 필터(--status/--tool/--project/--since/--until)와
+  조합 가능(`--trend`/`--hours`와 함께도 렌더). 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 558→564, cli stats 32→36=303/1skip, dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  3-잡 임시 스토어(완료 30s·완료 2h·실패 3m)로 `stats --durations`가 <1m·1–5m·1–3h 각 1의 풀바·나머지 dim
+  점·"3 resolved job(s)" 푸터 렌더, `--durations --json`은 `durations` 8버킷(해당 3버킷 count=1)을 방출함을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 해결 시간 축을
+  요일(day-of-week)·시간대와 교차한 2D 히트맵, 또는 대시보드에 duration 분포 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).

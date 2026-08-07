@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   computeDailyTrend,
   computeHourlyDistribution,
+  computeResolutionHistogram,
   computeStats,
   GROUP_DIMENSIONS,
   groupStats,
@@ -524,6 +525,91 @@ describe("computeHourlyDistribution", () => {
     const jobs = [job({ createdAt: "2026-07-20T05:00:00.000Z" })];
     const before = JSON.stringify(jobs);
     computeHourlyDistribution(jobs);
+    expect(JSON.stringify(jobs)).toBe(before);
+  });
+});
+
+describe("computeResolutionHistogram", () => {
+  // Helper: a resolved job spanning `spanMs` between createdAt and updatedAt.
+  const MIN = 60_000;
+  const HR = 60 * MIN;
+  function resolved(spanMs: number, status: JobStatus = "completed"): RelayJob {
+    const created = Date.parse("2026-07-20T00:00:00.000Z");
+    return job({
+      status,
+      createdAt: new Date(created).toISOString(),
+      updatedAt: new Date(created + spanMs).toISOString(),
+    });
+  }
+
+  it("returns the full 8-bucket shape, zero-filled, for an empty store", () => {
+    const hist = computeResolutionHistogram([]);
+    expect(hist.map((b) => b.label)).toEqual(["<1m", "1–5m", "5–15m", "15–30m", "30–60m", "1–3h", "3–6h", "≥6h"]);
+    expect(hist.every((b) => b.count === 0)).toBe(true);
+    // The final bucket is open-ended.
+    expect(hist[hist.length - 1].maxMs).toBeNull();
+    expect(hist[0].minMs).toBe(0);
+  });
+
+  it("places spans into the right buckets", () => {
+    const hist = computeResolutionHistogram([
+      resolved(30 * 1000), // 30s -> <1m
+      resolved(2 * MIN), // 2m  -> 1–5m
+      resolved(10 * MIN), // 10m -> 5–15m
+      resolved(20 * MIN), // 20m -> 15–30m
+      resolved(45 * MIN), // 45m -> 30–60m
+      resolved(2 * HR), // 2h  -> 1–3h
+      resolved(4 * HR), // 4h  -> 3–6h
+      resolved(9 * HR), // 9h  -> ≥6h
+    ]);
+    expect(hist.map((b) => b.count)).toEqual([1, 1, 1, 1, 1, 1, 1, 1]);
+  });
+
+  it("treats bucket edges as [min, max): the upper edge falls into the next bucket", () => {
+    const hist = computeResolutionHistogram([
+      resolved(MIN), // exactly 1m -> 1–5m (not <1m)
+      resolved(HR), // exactly 1h -> 1–3h (not 30–60m)
+      resolved(6 * HR), // exactly 6h -> ≥6h (not 3–6h)
+      resolved(0), // exactly 0 -> <1m
+    ]);
+    const byLabel = Object.fromEntries(hist.map((b) => [b.label, b.count]));
+    expect(byLabel["<1m"]).toBe(1);
+    expect(byLabel["1–5m"]).toBe(1);
+    expect(byLabel["1–3h"]).toBe(1);
+    expect(byLabel["≥6h"]).toBe(1);
+    expect(byLabel["30–60m"]).toBe(0);
+    expect(byLabel["3–6h"]).toBe(0);
+  });
+
+  it("counts both completed and failed as resolved, but skips active jobs", () => {
+    const hist = computeResolutionHistogram([
+      resolved(2 * MIN, "completed"),
+      resolved(2 * MIN, "failed"),
+      resolved(2 * MIN, "queued"), // not resolved -> skipped
+      resolved(2 * MIN, "waiting_for_reset"), // not resolved -> skipped
+      resolved(2 * MIN, "cancelled"), // cancelled is not a relay resolution -> skipped
+    ]);
+    const total = hist.reduce((sum, b) => sum + b.count, 0);
+    expect(total).toBe(2);
+    expect(hist.find((b) => b.label === "1–5m")?.count).toBe(2);
+  });
+
+  it("skips jobs with a missing/unparseable timestamp or a negative span (clock skew)", () => {
+    const created = Date.parse("2026-07-20T00:00:00.000Z");
+    const negative = job({
+      status: "completed",
+      createdAt: new Date(created).toISOString(),
+      updatedAt: new Date(created - MIN).toISOString(), // ends before it started
+    });
+    const badDate = job({ status: "completed", createdAt: "nope", updatedAt: "2026-07-20T00:05:00.000Z" });
+    const hist = computeResolutionHistogram([negative, badDate, resolved(2 * MIN)]);
+    expect(hist.reduce((sum, b) => sum + b.count, 0)).toBe(1);
+  });
+
+  it("does not mutate its input", () => {
+    const jobs = [resolved(2 * MIN)];
+    const before = JSON.stringify(jobs);
+    computeResolutionHistogram(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
   });
 });
