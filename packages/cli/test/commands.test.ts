@@ -18,6 +18,7 @@ import {
   restoreStore,
   retryJob,
   runCommand,
+  scheduleCommand,
   setConfigFile,
   showConfig,
   showJob,
@@ -161,6 +162,99 @@ describe("runCommand", () => {
     // dir is a mkdtemp path; its last segment is the derived label, never blank.
     expect(result.queuedJob?.project).toBe(dir.split("/").filter(Boolean).pop());
     expect(result.queuedJob?.project?.trim()).not.toBe("");
+  });
+});
+
+describe("scheduleCommand", () => {
+  let dir: string;
+  let storePath: string;
+  const NOW = Date.parse("2026-08-07T12:00:00.000Z");
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cli-test-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("pre-queues a waiting_for_reset job at now + --in without running the command", () => {
+    const result = scheduleCommand({
+      command: ["claude", "-p", "continue"],
+      in: "5h",
+      storePath,
+      cwd: dir,
+      now: NOW,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.job?.status).toBe("waiting_for_reset");
+    expect(result.job?.resetAt).toBe("2026-08-07T17:00:00.000Z");
+    expect(result.job?.command).toEqual(["claude", "-p", "continue"]);
+
+    const jobs = listStatus(storePath);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].resetAt).toBe("2026-08-07T17:00:00.000Z");
+  });
+
+  it("pre-queues at an absolute --at instant", () => {
+    const result = scheduleCommand({
+      command: ["claude", "-p", "resume"],
+      at: "2026-08-08T02:00:00Z",
+      storePath,
+      cwd: dir,
+      now: NOW,
+    });
+    expect(result.job?.resetAt).toBe("2026-08-08T02:00:00.000Z");
+    expect(result.job?.status).toBe("waiting_for_reset");
+  });
+
+  it("infers the tool from the command binary", () => {
+    const result = scheduleCommand({
+      command: ["codex", "exec", "resume"],
+      in: "1h",
+      storePath,
+      cwd: dir,
+      now: NOW,
+    });
+    expect(result.job?.tool).toBe("codex-cli");
+  });
+
+  it("honours an explicit --project override", () => {
+    const result = scheduleCommand({
+      command: ["claude", "-p", "continue"],
+      in: "1h",
+      project: "billing",
+      storePath,
+      cwd: dir,
+      now: NOW,
+    });
+    expect(result.job?.project).toBe("billing");
+  });
+
+  it("returns an error and writes nothing when neither --at nor --in is given", () => {
+    const result = scheduleCommand({
+      command: ["claude", "-p", "continue"],
+      storePath,
+      cwd: dir,
+      now: NOW,
+    });
+    expect(result.job).toBeNull();
+    expect(result.error).toMatch(/--at <time> or --in <duration>/);
+    expect(existsSync(storePath)).toBe(false);
+  });
+
+  it("returns an error for an unparseable duration without touching the store", () => {
+    const result = scheduleCommand({
+      command: ["claude", "-p", "continue"],
+      in: "soon",
+      storePath,
+      cwd: dir,
+      now: NOW,
+    });
+    expect(result.job).toBeNull();
+    expect(result.error).toMatch(/Invalid --in/);
+    expect(existsSync(storePath)).toBe(false);
   });
 });
 

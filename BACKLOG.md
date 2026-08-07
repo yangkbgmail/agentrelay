@@ -734,6 +734,18 @@
       테스트, 실제 빌드 CLI e2e로 시간 버킷팅·최다시간 풀바·스코프 부분집합·`--json` hours 필드·기본 JSON
       미포함·help/completion `--hours` 노출 검증. branch `claude/wizardly-pascal-hours`)
 
+- [x] 👷 `agentrelay schedule` — 미래 리셋 시각에 명령을 자동 실행하도록 선제적으로 예약(실행 없이 큐잉).
+      (완료 — 지금까진 오직 `run`이 실행 중 rate-limit을 감지해야만 잡이 큐에 들어갔다. 이미 한도 소진을
+      아는 사용자가 "리셋 시각에 이 명령을 자동 실행"하도록 사전 예약할 수단이 없었다. core `schedule.ts`
+      신설(순수): `resolveScheduledResetAt({at?,in?,now})` + `ScheduleTimeError`/`isScheduleTimeError` —
+      `--in`은 공용 `parseDuration`(양수만), `--at`은 ISO 8601(과거=즉시 due), 정확히 하나 필수·파싱불가/
+      0·음수는 throw 없이 에러 반환. CLI `scheduleCommand`가 어댑터 추론·프로젝트 라벨을 `run`과 공유하되
+      명령을 실행하지 않고 enqueue+`markWaitingForReset`로 `waiting_for_reset` 잡 생성(에러면 스토어 불변).
+      `agentrelay schedule --in <dur>|--at <iso> [--tool][-p][--json] -- <command...>` 배선, 성공 시 job id +
+      카운트다운·실패는 exit 1. reactive 경로와 동일한 shape라 status/upcoming/next/daemon이 동일 취급,
+      completion 자동 포함. 새 스케줄러/파서 로직 0줄. core 10 + cli 6 신규 테스트, 실제 빌드 CLI e2e로
+      미실행 큐잉·5h 카운트다운·툴 추론·--json·에러 exit 검증. branch `claude/wizardly-pascal-hkl4wh`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

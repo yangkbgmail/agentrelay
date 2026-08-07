@@ -63,6 +63,7 @@ import {
   retryJob,
   runCommand,
   runDoctor,
+  scheduleCommand,
   setConfigFile,
   showConfig,
   showJob,
@@ -94,6 +95,7 @@ import {
   renderTrend,
 } from "./stats.js";
 import {
+  formatCountdown,
   type JobSelection,
   NO_MATCH_MESSAGE,
   renderStatusJson,
@@ -530,6 +532,57 @@ export function buildCli(): Command {
       });
       process.exitCode = result.exitCode;
     });
+
+  program
+    .command("schedule")
+    .description("Pre-queue a command to auto-run at a future reset time, without running it now")
+    .argument("<command...>", 'Command to schedule, e.g. agentrelay schedule --in 5h -- claude -p "continue"')
+    .option("--at <time>", "Absolute ISO 8601 instant to first run at (e.g. 2026-08-08T02:00:00Z)")
+    .option("--in <duration>", "Delay before the first run (e.g. 5h, 30m, 90s)")
+    .option(
+      "--tool <tool>",
+      "Agent tool adapter to use (claude-code | codex-cli | generic). Inferred from the command when omitted."
+    )
+    .option("-p, --project <name>", "Project label for the queued job (overrides the auto-derived cwd name)")
+    .option("--json", "Print the queued job as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        '  agentrelay schedule --in 5h -- claude -p "continue"',
+        '  agentrelay schedule --at 2026-08-08T02:00:00Z -- codex exec "resume"',
+        "",
+        'Run "agentrelay daemon" (or cron "agentrelay tick") to auto-run it when the time arrives.',
+      ].join("\n")
+    )
+    .action(
+      (command: string[], opts: { at?: string; in?: string; tool?: string; project?: string; json?: boolean }) => {
+        const { store } = program.opts();
+        const result = scheduleCommand({
+          command,
+          at: opts.at,
+          in: opts.in,
+          tool: opts.tool as AgentTool | undefined,
+          project: opts.project,
+          storePath: store,
+        });
+        if (result.error || !result.job) {
+          console.error(`[agentrelay] ${result.error ?? "Failed to schedule the command."}`);
+          process.exitCode = 1;
+          return;
+        }
+        if (opts.json) {
+          console.log(JSON.stringify(result.job, null, 2));
+          return;
+        }
+        const countdown = formatCountdown(result.job.resetAt, Date.now());
+        console.log(
+          `[agentrelay] Scheduled job ${result.job.id} (${result.job.project}) to run at ${result.job.resetAt} (${countdown}).\n` +
+            'Run "agentrelay daemon" (or schedule "agentrelay tick" via cron) to auto-run it.'
+        );
+      }
+    );
 
   program
     .command("daemon")

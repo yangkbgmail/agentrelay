@@ -21,6 +21,7 @@ export * from "./projects.js";
 export * from "./prune.js";
 export * from "./queue.js";
 export * from "./retry.js";
+export * from "./schedule.js";
 export * from "./scheduler.js";
 export * from "./stats.js";
 export * from "./summary.js";
