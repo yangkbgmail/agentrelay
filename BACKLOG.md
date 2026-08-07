@@ -747,7 +747,7 @@
       적용, 기존 스코프 필터(--status/--tool/--project/--since/--until)·`--hours`·`--trend`와 조합 가능.
       새 파서/스케줄러 로직 0줄. core stats +5(=563) + cli stats +5(=37=304) 신규 테스트, 실제 빌드 CLI
       e2e로 요일 버킷팅·최다요일 풀바·Sun/Sat 경계·스코프 부분집합·`--hours` 병존·`--json` weekday 필드·
-      기본 JSON 미포함·help/completion `--weekday` 노출 검증. branch `claude/wizardly-pascal-weekday`)
+      기본 JSON 미포함·help/completion `--weekday` 노출 검증. branch `claude/wizardly-pascal-weekday-stats`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

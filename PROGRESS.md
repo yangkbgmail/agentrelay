@@ -1832,12 +1832,12 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
 
-### [세션 59 — `agentrelay stats --weekday` 요일-of-week 분포] (2026-08-07, 무인 자율 세션, branch `claude/wizardly-pascal-weekday`)
+### [세션 59 — `agentrelay stats --weekday` 요일-of-week 분포] (2026-08-07, 무인 자율 세션, branch `claude/wizardly-pascal-weekday-stats`)
 - **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
   경쟁조사/샘플수집/성능분석)뿐. 세션 58(`--hours`)이 "다음 할 일"로 명시한 후속 축을 발굴·구현했다 —
   `--hours`(하루 중 시간)·`--trend`(일별 타임라인)는 있지만 "무슨 요일에 rate-limit이 몰리나"라는 요일축이
   없었다. "나는 주로 평일에 throttle되고 주말은 한산하다" 같은 주간 패턴 파악에 유용하다.
-- **한 일 (branch `claude/wizardly-pascal-weekday`):** `agentrelay stats --weekday` — UTC 요일(Sun–Sat) 활동 분포 히스토그램.
+- **한 일 (branch `claude/wizardly-pascal-weekday-stats`):** `agentrelay stats --weekday` — UTC 요일(Sun–Sat) 활동 분포 히스토그램.
   - core `stats.ts`: 순수 `computeWeekdayDistribution(jobs)` + `WeekdayActivity`(weekday 0=Sun…6=Sat
     [`Date.getUTCDay()`], count) 신설. 각 잡의 `createdAt`을 UTC 요일로 버킷팅해 **모든 주에 걸쳐** 집계,
     항상 정확히 7 슬롯(Sun→Sat) zero-fill, `createdAt` 누락/파싱불가는 스킵. `computeHourlyDistribution`과
