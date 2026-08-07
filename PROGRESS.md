@@ -1831,3 +1831,23 @@
   09:00만 2·나머지 0, `--help`·bash completion에 `--hours` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 59 — 파서: 단어 기반 시각 표현(midnight/noon)] (2026-08-07, 무인 자율 세션)
+- **배경:** 세션 시작 시 명시적 미완 👷 항목은 사실상 소진(공동 항목 "최종 QA + 데모 스크립트"만
+  남음), 열린 PR 20개가 파서(타임존/tomorrow/bare-wait)·stats 분포·watch·notify 영역을 이미 점유.
+  중복을 피해 CLAUDE.md 지침대로 **신규 개선 항목을 발굴** — 파서(제품 핵심 가치)의 실제 갭을 찾음.
+- **한 일** (branch `claude/wizardly-pascal-w0sw7e`): **파서 `clock-time-word` 패턴**.
+  기존 clock-time 계열(`clock-time`=`12:00`, `clock-time-meridiem`=`5pm`)은 전부 숫자를 요구해
+  "your limit resets at midnight UTC" / "reset at noon" 같은 단어 시각을 놓치고 null을 반환,
+  잡이 큐잉되지 않던 실사용 갭. `parser.ts`에 순수 `clock-time-word`(`reset[s]? at (midnight|noon)`,
+  midnight→00:00·noon→12:00) 추가 — 다른 clock-time 패턴과 동일 규약(로컬 시각 해석, 이미 지난
+  시각은 익일 롤 → "at midnight"은 항상 다가오는 자정). 분 정밀 `clock-time`을 앞에 둬 `12:00`은
+  단어 패턴보다 우선. 새 CLI/스케줄러 코드 0줄 — 기존 `parse` 커맨드가 자동 노출.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+  `pnpm test` **전부 통과**(core 563[parser.test 33→38, +5] + cli 300 + dashboard 9). parser.test
+  신규 5케이스: midnight 상방 해소·noon 익일 롤·문장 내('at midnight tonight') 매치·무관한
+  'The meeting is at noon.' 무시(pre-filter 게이트)·`12:00` 숫자 패턴 우선. **실제 빌드된 CLI
+  e2e**(mock 아님): `parse "...resets at midnight UTC."`→pattern `clock-time-word`+익일 00:00,
+  `parse --json "Reset at noon."`→resetAt 당일 12:00 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 파서 갭 후보 —
+  요일 기반 리셋("resets on Monday")·"midnight tonight"의 명시 타임존 해석. README/ARCHITECTURE(🧭 코워크).

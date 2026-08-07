@@ -734,6 +734,17 @@
       테스트, 실제 빌드 CLI e2e로 시간 버킷팅·최다시간 풀바·스코프 부분집합·`--json` hours 필드·기본 JSON
       미포함·help/completion `--hours` 노출 검증. branch `claude/wizardly-pascal-hours`)
 
+- [x] 👷 파서: 단어 기반 시각 표현 `resets at midnight` / `reset at noon` 인식 — 사용량 한도를
+      하루 경계(day boundary)에 못박는 문구를 놓치지 않고 큐잉.
+      (완료 — 기존 clock-time 패턴들은 전부 숫자를 요구해 "your limit resets at midnight UTC" 같은
+      단어 시각을 놓쳤다. `parser.ts`에 순수 `clock-time-word` 패턴 추가 — `reset[s]? at (midnight|noon)`,
+      midnight→00:00·noon→12:00. 다른 clock-time 패턴과 동일하게 로컬 시각 해석·이미 지난 시각은
+      익일 롤(리셋은 미래 순간이므로 "at midnight"은 항상 다가오는 자정으로 해소). 분 정밀
+      `clock-time`(`12:00`)이 단어 패턴보다 우선하도록 순서 유지. 새 CLI 코드 0줄 — 기존 `parse`
+      커맨드가 자동 노출. parser.test +5 회귀(midnight 상방·noon 익일 롤·문장 내 매치·무관한
+      'noon' 무시·숫자 우선), 실제 빌드 CLI `parse`로 clock-time-word 매치 e2e 확인.
+      branch `claude/wizardly-pascal-w0sw7e`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

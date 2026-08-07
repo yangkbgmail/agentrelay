@@ -69,6 +69,43 @@ describe("parseRateLimitMessage", () => {
     expect(parseRateLimitMessage("Rate limit hit, reset at 5.")).toBeNull();
   });
 
+  it("parses the word clock time 'resets at midnight' as the upcoming 00:00", () => {
+    const now = new Date("2026-07-12T15:00:00Z");
+    const result = parseRateLimitMessage("Your usage limit resets at midnight UTC.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time-word");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(0);
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'reset at noon', rolling to tomorrow when noon has already passed", () => {
+    const now = new Date("2026-07-12T20:00:00Z"); // local afternoon on most TZs
+    const result = parseRateLimitMessage("Rate limit reached. Reset at noon.", { now });
+    expect(result?.pattern).toBe("clock-time-word");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(12);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("word clock time still matches inside a longer sentence ('at midnight tonight')", () => {
+    const result = parseRateLimitMessage("Usage limit hit — resets at midnight tonight.");
+    expect(result?.pattern).toBe("clock-time-word");
+    expect(new Date(result!.resetAt).getHours()).toBe(0);
+  });
+
+  it("does not treat an unrelated 'midnight'/'noon' word without 'reset at' as a clock time", () => {
+    // The pre-filter also gates on rate-limit-ish wording; a bare mention is ignored.
+    expect(parseRateLimitMessage("The meeting is at noon.")).toBeNull();
+  });
+
+  it("prefers a minute-precise clock-time over the word pattern when both could apply", () => {
+    // "resets at 12:00" is digit-precise and must win over any word fallback.
+    const result = parseRateLimitMessage("Resets at 12:00.", { now: new Date("2026-07-12T20:00:00Z") });
+    expect(result?.pattern).toBe("clock-time");
+  });
+
   it("parses a relative duration like '4h32m'", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Rate limit exceeded, try again in 4h32m.", { now });
