@@ -1831,3 +1831,24 @@
   09:00만 2·나머지 0, `--help`·bash completion에 `--hours` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 59 — 파서: 명시적 타임존(UTC/GMT/오프셋) 인식] (2026-08-07, 무인 자율 세션, branch `claude/wizardly-pascal-k47osm`)
+- **배경:** 명시적 👷 BACKLOG 항목은 전부 [x]이고 열린 PR도 40여 개(파서/watch/stats 계열)가 쌓여
+  있어 중복 위험이 크다. 어느 열린 PR도 다루지 않으면서 제품 핵심(리셋 시각 파싱 정확도)을 직접
+  개선하는 gap — 시각에 붙은 **명시적 타임존** — 을 신규 👷 항목으로 발굴했다. 기존 `clock-time`/
+  `clock-time-meridiem` 패턴은 주석에서 스스로 "메시지의 타임존은 무시하고 로컬 시각으로 해석"이라는
+  한계를 문서화하고 있었다(Claude Code는 실제로 "reset at 5pm (America/New_York)"처럼 존을 출력).
+- **한 일 (branch `claude/wizardly-pascal-k47osm`):** `packages/core/src/parser.ts`에 신규 `clock-time-zoned`
+  패턴 추가 — `resets at 15:00 UTC` / `reset at 5pm GMT` / `resets at 09:30 +02:00` / `reset at 17:00-0500`처럼
+  시각 뒤에 **모호하지 않은** 존(UTC/GMT/Z 또는 수치 오프셋 `±HH[:MM]`)이 붙은 경우 로컬 추정 대신 진짜
+  instant로 고정. 순수 헬퍼 `parseZoneOffsetMinutes`(UTC/GMT/Z=0, `±HH[:MM]`→분, ±14:00 초과 거부)·
+  `resolveZonedClock`(존-로컬 날짜 기준 다음 미래 발생, 이미 지났으면 +24h). 로컬 패턴보다 **앞에** 배치해
+  존이 있으면 우선; 존이 없거나 괄호 안 IANA 이름만 있으면 매치 안 돼 기존 로컬 해석으로 그대로 폴백(순수
+  additive, 무회귀). 애매한 문자 약어(PST/CST 등)와 범위 밖 오프셋은 의도적으로 거부해 오프셋을 절대 추측하지
+  않음. 새 스케줄러/큐 로직 0줄.
+- **검증:** `pnpm build` 클린·`pnpm ci:lint`(Biome) 0경고·`pnpm test` 전 패키지 통과(core 558→564, 신규 6케이스:
+  24h UTC 롤오버·`5pm UTC`→17:00Z·`+09:00`·compact `-0500`·괄호 IANA 폴백·범위밖 오프셋 거부). **실제 빌드
+  CLI e2e**(`agentrelay parse`): `5pm UTC`→17:00:00Z, `15:00 +09:00`→익일 06:00Z, `(America/New_York)`→
+  clock-time-meridiem 로컬 폴백을 실물로 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 — 파서에 24h 존 시각의
+  분(minute) 없는 형태 확장, 또는 `agentrelay parse`에 존 인식 결과 강조 표시. README/ARCHITECTURE(🧭 코워크).
