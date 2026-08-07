@@ -37,6 +37,7 @@ import {
   scopeJobs,
   selectNextResume,
   sendTestNotification,
+  summarizeJobs,
   summarizeProjects,
   summarizeRateLimitPatterns,
   summarizeTools,
@@ -103,6 +104,13 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import {
+  hasPendingWork,
+  renderSummary,
+  renderSummaryJson,
+  SUMMARY_EXIT_IDLE,
+  SUMMARY_EXIT_PENDING,
+} from "./summary.js";
 import { renderTools, renderToolsJson, renderToolsWatchFrame } from "./tools.js";
 import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
 import { renderWaitJson } from "./wait.js";
@@ -721,6 +729,56 @@ export function buildCli(): Command {
         if (next === null) process.exitCode = 4;
         else if (!next.due) process.exitCode = 3;
         // due-now → exit 0 (default).
+      }
+    });
+
+  program
+    .command("summary")
+    .description("Print a compact one-line overview of the whole queue (for shell prompts, status bars, CI)")
+    .option("--json", "Print as JSON (machine-readable, for scripts/jq)")
+    .option(
+      "--exit-code",
+      `Reflect state in the exit code (${SUMMARY_EXIT_IDLE} = nothing pending, ${SUMMARY_EXIT_PENDING} = work still queued/resuming/waiting)`
+    )
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # glanceable line for a tmux/shell status bar\n" +
+        "  agentrelay summary\n" +
+        "  # branch in a script without jq: gate work on whether anything is pending\n" +
+        "  agentrelay summary --exit-code || echo 'relay idle'\n" +
+        "  # scope to one project and feed jq\n" +
+        "  agentrelay summary --project my-app --json | jq '.pending'"
+    )
+    .action((opts: ScopeOpts & { json?: boolean; exitCode?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const summary = summarizeJobs(jobs);
+
+      if (opts.json) {
+        console.log(renderSummaryJson(summary, store ?? defaultStorePath()));
+      } else {
+        console.log(renderSummary(summary, { color: Boolean(process.stdout.isTTY), now }));
+      }
+
+      // Opt-in exit code lets scripts branch without jq: pending work (queued /
+      // resuming / waiting_for_reset) → exit 3, an idle/empty queue → exit 0.
+      if (opts.exitCode) {
+        process.exitCode = hasPendingWork(summary) ? SUMMARY_EXIT_PENDING : SUMMARY_EXIT_IDLE;
       }
     });
 

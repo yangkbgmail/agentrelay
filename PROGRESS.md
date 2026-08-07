@@ -1831,3 +1831,27 @@
   09:00만 2·나머지 0, `--help`·bash completion에 `--hours` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 59 — `agentrelay summary` 한 줄 큐 오버뷰] (2026-08-07, 무인 자율 세션, branch `claude/wizardly-pascal-58lkz9`)
+- **배경:** 세션 시작 시 열린 PR 30개(파서·stats·watch·index 계열이 이미 광범위하게 점유 — 중복
+  재구현 위험). BACKLOG의 명시적 👷 항목은 전부 완료([x])라 CLAUDE.md 지침대로 **열린 PR과 겹치지 않는
+  새 개선 항목을 발굴**했다 — `status`(전체 표)·`next`(가장 임박한 재개 하나)·`stats`(다중행 블록)는
+  있지만, 셸 프롬프트/tmux 상태바/CI 스텝에 박아 넣을 **한 줄짜리 글랜서블 오버뷰**가 없었다.
+- **한 일 (branch `claude/wizardly-pascal-58lkz9`):** `agentrelay summary` — 큐 전체를 한 줄로 압축.
+  - CLI `packages/cli/src/summary.ts` 신설(순수·시계/스토어 미접촉): `computeSummarySegments`(6개
+    라이프사이클 상태를 5개 글랜서블 버킷으로 접음 — `active`=queued+resuming, 고정 표시 순서)·
+    `hasPendingWork`(queued+resuming+waiting_for_reset>0)·`renderSummary`(non-zero 버킷만 " · "로 join →
+    유휴 큐는 짧게, 대기 잡 있으면 `formatCountdown` 재사용해 "next reset in 1h 30m"/"due now"를 status
+    표와 동일 표기, 빈 스토어는 "queue empty")·`renderSummaryJson`(다른 read 커맨드와 동일
+    `{storePath,generatedAt,pending,summary}` envelope).
+  - `cli.ts`: `agentrelay summary [--json] [--exit-code] [--status/--tool/--project/--since/--until]` 배선.
+    공용 `buildScope` 재사용(스코프 검증 실패는 exit 1), `--exit-code`는 pending이면 3·유휴/빈 큐면 0(jq
+    없이 스크립트 분기 가능), addHelpText 예시 3줄, completion은 라이브 프로그램 파생이라 자동 포함.
+    새 core/파서/스케줄러 로직 0줄 — 기존 `summarizeJobs`(core)·`formatCountdown`(status.ts) 재사용.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(cli summary 12 신규 → cli 300/1skip). **실제 빌드 CLI e2e**(mock 아님): 3-잡 임시
+  스토어(web 대기1[90분 후]·api 완료1·api 실패1)로 `summary`가 "1 waiting · 1 done · 1 failed · next
+  reset in 1h 30m", `--exit-code`=3(pending), `--project api-svc`는 "1 done · 1 failed"+exit 0(유휴),
+  `--json`은 pending=true + byStatus, 빈 스토어는 "queue empty", `--status bogus`는 exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
+  라이브 뷰, 또는 대시보드 헤더에 동일 한 줄 요약 노출. README/ARCHITECTURE(🧭 코워크).
