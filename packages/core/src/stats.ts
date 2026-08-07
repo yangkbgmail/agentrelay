@@ -225,6 +225,44 @@ export function computeHourlyDistribution(jobs: RelayJob[]): HourlyActivity[] {
   return counts.map((count, hour) => ({ hour, count }));
 }
 
+/**
+ * Three-letter English abbreviations for the seven UTC weekdays, indexed by
+ * `Date.getUTCDay()` (0 = Sunday … 6 = Saturday). Exposed so renderers label
+ * {@link WeekdayActivity} slots without re-deriving the mapping.
+ */
+export const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+export interface WeekdayActivity {
+  /** UTC weekday index, 0 = Sunday … 6 = Saturday (matches `Date.getUTCDay()`). */
+  weekday: number;
+  /** Three-letter label for {@link weekday} ("Sun"…"Sat"). */
+  label: string;
+  /** Jobs whose `createdAt` falls on this UTC weekday, across every week. */
+  count: number;
+}
+
+/**
+ * Buckets jobs by the UTC weekday (0 = Sunday … 6 = Saturday) they were created
+ * on, aggregated across every week in the store, so `agentrelay stats --weekday`
+ * can show which days of the week rate-limits tend to cluster on ("I mostly get
+ * throttled on Mondays"). Like {@link computeHourlyDistribution} and unlike
+ * {@link computeDailyTrend} this has no window and needs no clock: weekday is an
+ * absolute property of each timestamp.
+ *
+ * The result is always exactly 7 entries, Sunday through Saturday, zero-filled
+ * for quiet days so the histogram has a stable shape. Jobs with a missing or
+ * unparseable `createdAt` are skipped — they can't be placed on the calendar.
+ */
+export function computeWeekdayDistribution(jobs: RelayJob[]): WeekdayActivity[] {
+  const counts = new Array<number>(7).fill(0);
+  for (const job of jobs) {
+    const created = Date.parse(job.createdAt);
+    if (Number.isNaN(created)) continue;
+    counts[new Date(created).getUTCDay()] += 1;
+  }
+  return counts.map((count, weekday) => ({ weekday, label: WEEKDAY_LABELS[weekday], count }));
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 

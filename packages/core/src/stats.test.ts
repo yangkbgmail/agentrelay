@@ -3,10 +3,12 @@ import {
   computeDailyTrend,
   computeHourlyDistribution,
   computeStats,
+  computeWeekdayDistribution,
   GROUP_DIMENSIONS,
   groupStats,
   isJobScopeActive,
   scopeJobs,
+  WEEKDAY_LABELS,
 } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
 
@@ -524,6 +526,53 @@ describe("computeHourlyDistribution", () => {
     const jobs = [job({ createdAt: "2026-07-20T05:00:00.000Z" })];
     const before = JSON.stringify(jobs);
     computeHourlyDistribution(jobs);
+    expect(JSON.stringify(jobs)).toBe(before);
+  });
+});
+
+describe("computeWeekdayDistribution", () => {
+  it("returns exactly 7 slots, Sunday(0) through Saturday(6), zero-filled for an empty store", () => {
+    const dist = computeWeekdayDistribution([]);
+    expect(dist).toHaveLength(7);
+    expect(dist.map((w) => w.weekday)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(dist.map((w) => w.label)).toEqual([...WEEKDAY_LABELS]);
+    expect(dist.every((w) => w.count === 0)).toBe(true);
+  });
+
+  it("buckets jobs by their UTC creation weekday, across all weeks", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-20T09:15:00.000Z" }), // Monday
+      job({ createdAt: "2026-07-13T23:00:00.000Z" }), // Monday, prior week
+      job({ createdAt: "2026-07-19T12:00:00.000Z" }), // Sunday
+    ];
+    const dist = computeWeekdayDistribution(jobs);
+    expect(dist[1].count).toBe(2); // Mon
+    expect(dist[1].label).toBe("Mon");
+    expect(dist[0].count).toBe(1); // Sun
+    expect(dist.reduce((sum, w) => sum + w.count, 0)).toBe(3);
+  });
+
+  it("places day-boundary timestamps on the correct UTC weekday", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-20T00:00:00.000Z" }), // Monday 00:00
+      job({ createdAt: "2026-07-19T23:59:59.999Z" }), // Sunday, one ms earlier
+    ];
+    const dist = computeWeekdayDistribution(jobs);
+    expect(dist[1].count).toBe(1); // Mon
+    expect(dist[0].count).toBe(1); // Sun
+  });
+
+  it("skips jobs with a missing/unparseable createdAt", () => {
+    const jobs = [job({ createdAt: "not-a-date" }), job({ createdAt: "2026-07-25T14:00:00.000Z" })]; // Sat
+    const dist = computeWeekdayDistribution(jobs);
+    expect(dist.reduce((sum, w) => sum + w.count, 0)).toBe(1);
+    expect(dist[6].count).toBe(1); // Sat
+  });
+
+  it("does not mutate its input", () => {
+    const jobs = [job({ createdAt: "2026-07-20T05:00:00.000Z" })];
+    const before = JSON.stringify(jobs);
+    computeWeekdayDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
   });
 });
