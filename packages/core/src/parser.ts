@@ -86,6 +86,26 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // "resets at midnight" / "reset at noon" — word clock times with no digits.
+    // Usage-limit messages that peg the reset to a day boundary phrase it this
+    // way ("your limit resets at midnight UTC") and the digit-based clock-time
+    // patterns above miss it entirely. midnight -> 00:00, noon -> 12:00. Like
+    // the other clock-time patterns the hour is interpreted in local time and,
+    // since a real reset is a future instant, an already-past time rolls to the
+    // next day (so "at midnight" always resolves to the upcoming midnight).
+    name: "clock-time-word",
+    regex: /reset[s]?\s+at\s+(midnight|noon)\b/i,
+    resolve: (m, now) => {
+      const hour = m[1].toLowerCase() === "noon" ? 12 : 0;
+      const candidate = new Date(now);
+      candidate.setHours(hour, 0, 0, 0);
+      if (candidate.getTime() <= now.getTime()) {
+        candidate.setDate(candidate.getDate() + 1);
+      }
+      return candidate;
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
