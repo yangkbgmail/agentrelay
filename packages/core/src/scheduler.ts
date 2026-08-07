@@ -1,5 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { resolveAdapter } from "./adapters.js";
+import { type AutoBackupOptions, type BackupResult, shouldAutoBackup } from "./backup.js";
 import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
 import type { RelayQueue } from "./queue.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
@@ -56,6 +57,17 @@ export interface SchedulerOptions {
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
   /**
+   * When set, a timestamped snapshot of the store is written on a schedule,
+   * keeping point-in-time backups of the single JSON data file without a
+   * separate `agentrelay backup` cron. `null`/omitted disables auto-backup.
+   * The pass runs before auto-prune each tick, so a snapshot still captures the
+   * finished jobs a prune is about to remove. Only meaningful for the
+   * long-running daemon — a fresh process starts with no prior-pass memory.
+   */
+  autoBackup?: AutoBackupOptions | null;
+  /** Called with the result of each auto-backup pass (for logging). */
+  onBackup?: (result: BackupResult) => void;
+  /**
    * Called at the end of every tick with the tick's reference time, whether or
    * not any job was due. The daemon uses this to refresh its liveness heartbeat
    * so `agentrelay doctor` can tell the resume loop is alive. Kept as a callback
@@ -85,6 +97,9 @@ export class RelayScheduler {
   private lastPruneAtMs: number | null = null;
   private pruneTickCounter = 0;
   private onPrune?: (pruned: RelayJob[]) => void;
+  private autoBackup: AutoBackupOptions | null;
+  private lastBackupAtMs: number | null = null;
+  private onBackup?: (result: BackupResult) => void;
   private onTick?: (referenceTime: Date) => void | Promise<void>;
   private timer: ReturnType<typeof setInterval> | null = null;
 
@@ -100,6 +115,8 @@ export class RelayScheduler {
     this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
     this.onPrune = options.onPrune;
+    this.autoBackup = options.autoBackup ?? null;
+    this.onBackup = options.onBackup;
     this.onTick = options.onTick;
   }
 
@@ -122,6 +139,9 @@ export class RelayScheduler {
     for (const job of due) {
       processed.push(await this.resume(job, referenceTime));
     }
+    // Snapshot before pruning, so a backup preserves the finished jobs the
+    // subsequent auto-prune may sweep.
+    this.runAutoBackup(referenceTime);
     this.runAutoPrune(referenceTime);
     // Refresh liveness last, so a heartbeat write reflects a fully completed
     // tick. Best-effort: a failing hook must never stop the relay loop.
@@ -161,6 +181,27 @@ export class RelayScheduler {
       if (pruned.length > 0) this.onPrune?.(pruned);
     } catch {
       // Ignore — bounding the store is best-effort and must not stop relaying.
+    }
+  }
+
+  /**
+   * Write a timestamped store snapshot after a tick when auto-backup is
+   * configured, throttled to at most once per `autoBackup.everyMs` (the first
+   * tick always snapshots). Reuses the tick's `referenceTime` so the snapshot
+   * stamp and throttle marker stay deterministic alongside job processing. Like
+   * auto-prune, any failure is swallowed — a backup must never break the relay
+   * loop — and the time marker advances only when a pass actually runs.
+   */
+  private runAutoBackup(referenceTime: Date): void {
+    if (!this.autoBackup) return;
+    const nowMs = referenceTime.getTime();
+    if (!shouldAutoBackup(this.lastBackupAtMs, nowMs, this.autoBackup.everyMs)) return;
+    this.lastBackupAtMs = nowMs;
+    try {
+      const result = this.queue.backup({ keepLast: this.autoBackup.keepLast, now: referenceTime });
+      this.onBackup?.(result);
+    } catch {
+      // Ignore — snapshotting the store is best-effort and must not stop relaying.
     }
   }
 

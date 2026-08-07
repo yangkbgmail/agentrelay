@@ -2,7 +2,17 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { backupFilePath, backupStamp, listBackups, resolveBackup, selectRotatableBackups } from "../src/backup.js";
+import {
+  autoBackupOptionsFromEnv,
+  backupFilePath,
+  backupStamp,
+  DEFAULT_AUTOBACKUP_EVERY_MS,
+  DEFAULT_BACKUP_KEEP,
+  listBackups,
+  resolveBackup,
+  selectRotatableBackups,
+  shouldAutoBackup,
+} from "../src/backup.js";
 import { RelayQueue } from "../src/queue.js";
 
 describe("backup pure helpers", () => {
@@ -312,5 +322,73 @@ describe("RelayQueue.previewRestore", () => {
     const live = JSON.parse(readFileSync(storePath, "utf8"));
     expect(live).toHaveLength(1);
     expect(live[0].id).toBe(job.id);
+  });
+});
+
+describe("autoBackupOptionsFromEnv", () => {
+  it("returns null unless the opt-in flag is truthy", () => {
+    expect(autoBackupOptionsFromEnv({})).toBeNull();
+    expect(autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP: "0" })).toBeNull();
+    expect(autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP: "false" })).toBeNull();
+    // Interval/keep alone (without the opt-in) does not enable auto-backup.
+    expect(autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP_EVERY: "6h" })).toBeNull();
+  });
+
+  it("defaults to a 1h interval and DEFAULT_BACKUP_KEEP when opted in bare", () => {
+    for (const v of ["1", "true", "yes", "on", "ON", " On "]) {
+      expect(autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP: v })).toEqual({
+        everyMs: DEFAULT_AUTOBACKUP_EVERY_MS,
+        keepLast: DEFAULT_BACKUP_KEEP,
+      });
+    }
+  });
+
+  it("reads a custom interval and keep count", () => {
+    expect(
+      autoBackupOptionsFromEnv({
+        AGENTRELAY_AUTOBACKUP: "1",
+        AGENTRELAY_AUTOBACKUP_EVERY: "30m",
+        AGENTRELAY_AUTOBACKUP_KEEP: "3",
+      })
+    ).toEqual({ everyMs: 1_800_000, keepLast: 3 });
+  });
+
+  it("falls back to the 1h default (not every-tick) on an unparseable/non-positive interval", () => {
+    expect(
+      autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP: "1", AGENTRELAY_AUTOBACKUP_EVERY: "garbage" })?.everyMs
+    ).toBe(DEFAULT_AUTOBACKUP_EVERY_MS);
+    expect(autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP: "1", AGENTRELAY_AUTOBACKUP_EVERY: "0s" })?.everyMs).toBe(
+      DEFAULT_AUTOBACKUP_EVERY_MS
+    );
+  });
+
+  it("floors a fractional keep and ignores a negative/non-numeric one", () => {
+    expect(autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP: "1", AGENTRELAY_AUTOBACKUP_KEEP: "2.9" })?.keepLast).toBe(
+      2
+    );
+    expect(autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP: "1", AGENTRELAY_AUTOBACKUP_KEEP: "-1" })?.keepLast).toBe(
+      DEFAULT_BACKUP_KEEP
+    );
+    expect(autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP: "1", AGENTRELAY_AUTOBACKUP_KEEP: "nope" })?.keepLast).toBe(
+      DEFAULT_BACKUP_KEEP
+    );
+    // keep: 0 is a valid value (retain only the fresh snapshot).
+    expect(autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP: "1", AGENTRELAY_AUTOBACKUP_KEEP: "0" })?.keepLast).toBe(0);
+  });
+});
+
+describe("shouldAutoBackup", () => {
+  it("always runs the first pass and when there is no throttle", () => {
+    expect(shouldAutoBackup(null, 1000)).toBe(true);
+    expect(shouldAutoBackup(null, 1000, 60_000)).toBe(true);
+    expect(shouldAutoBackup(500, 1000, 0)).toBe(true);
+  });
+
+  it("runs again only once the interval has elapsed", () => {
+    const every = 60_000;
+    expect(shouldAutoBackup(1_000_000, 1_030_000, every)).toBe(false); // 30s < 60s
+    expect(shouldAutoBackup(1_000_000, 1_059_999, every)).toBe(false); // just under
+    expect(shouldAutoBackup(1_000_000, 1_060_000, every)).toBe(true); // exactly at boundary
+    expect(shouldAutoBackup(1_000_000, 1_120_000, every)).toBe(true); // well past
   });
 });

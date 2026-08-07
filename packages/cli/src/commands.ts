@@ -15,6 +15,7 @@ import { basename, delimiter, dirname, join, resolve } from "node:path";
 import type {
   AgentRelayConfig,
   AgentTool,
+  AutoBackupOptions,
   BackupResult,
   ConfigIssue,
   DiagnosticReport,
@@ -28,6 +29,7 @@ import type {
   WritableFacts,
 } from "@agentrelay/core";
 import {
+  autoBackupOptionsFromEnv,
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
@@ -352,6 +354,12 @@ function autoPruneBanner(
   return parts.length ? ` (auto-prune on, ${parts.join(" + ")})` : " (auto-prune on)";
 }
 
+/** Human-readable "(auto-backup on, every Ns)" suffix for the daemon banner. */
+function autoBackupBanner(autoBackup: AutoBackupOptions | null): string {
+  if (!autoBackup) return "";
+  return ` (auto-backup on, every ${Math.round(autoBackup.everyMs / 1000)}s, keep ${autoBackup.keepLast})`;
+}
+
 export function startDaemon(options: DaemonOptions = {}) {
   const storePath = options.storePath ?? defaultStorePath();
   const queue = openQueue(storePath);
@@ -359,6 +367,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   const autoPrune = autoPruneOptionsFromEnv();
   const autoPruneEveryMs = autoPruneEveryMsFromEnv() ?? undefined;
   const autoPruneEveryTicks = autoPruneEveryTicksFromEnv() ?? undefined;
+  const autoBackup = autoBackupOptionsFromEnv();
   const pollIntervalMs = options.pollIntervalMs ?? 30_000;
   const logLine = (line: string) => {
     // eslint-disable-next-line no-console
@@ -385,6 +394,8 @@ export function startDaemon(options: DaemonOptions = {}) {
     autoPruneEveryMs,
     autoPruneEveryTicks,
     onPrune: (pruned) => logLine(`[agentrelay] auto-pruned ${pruned.length} finished job(s)`),
+    autoBackup,
+    onBackup: (result) => logLine(`[agentrelay] auto-backed up ${result.jobCount} job(s) to ${result.path}`),
     onTick: (referenceTime) => beat(referenceTime),
     notify: async (payload) => {
       logLine(`[agentrelay] ${payload.event} — ${payload.project}: ${payload.message}`);
@@ -405,7 +416,8 @@ export function startDaemon(options: DaemonOptions = {}) {
   console.log(
     `[agentrelay] daemon started, watching ${storePath} every ${pollIntervalMs / 1000}s` +
       (remoteNotify ? " (notifications on)" : "") +
-      autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks)
+      autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks) +
+      autoBackupBanner(autoBackup)
   );
   return scheduler;
 }
@@ -419,6 +431,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     notify: notify ?? undefined,
     retryPolicy: retryPolicyFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
+    autoBackup: autoBackupOptionsFromEnv(),
   });
   const processed = await scheduler.tick();
   // Record that a (typically cron-driven) tick ran, so `doctor` can tell the

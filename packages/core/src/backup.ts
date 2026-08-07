@@ -8,6 +8,8 @@
 // they're trivially testable; the actual filesystem writes live on
 // `RelayQueue.backup()`.
 
+import { parseDuration } from "./prune.js";
+
 /**
  * Filename infix marking a rotating store snapshot, e.g.
  * `jobs.json.backup-<ts>`. Deliberately distinct from the `.corrupt-` (recovery)
@@ -134,4 +136,83 @@ export interface RestorePreview {
    * (true only when a safety backup is requested *and* a store file exists).
    */
   wouldBackUp: boolean;
+}
+
+/**
+ * Configuration for the daemon's periodic auto-backup — snapshotting the JSON
+ * store on a schedule without a separate cron, the safety companion to
+ * auto-prune (which trims history). A backup pass runs before the tick's
+ * auto-prune, so each snapshot still holds the finished jobs a prune is about
+ * to remove.
+ */
+export interface AutoBackupOptions {
+  /** Retain the newest N snapshots after each pass (rotation, like `backup`). */
+  keepLast: number;
+  /** Minimum wall-clock interval (ms) between auto-backup passes. Always > 0. */
+  everyMs: number;
+}
+
+/**
+ * Default interval between auto-backup passes when the daemon opts in without an
+ * explicit `AGENTRELAY_AUTOBACKUP_EVERY`. One hour keeps a useful set of recent
+ * snapshots without rewriting the store on every fast poll — unlike auto-prune,
+ * an auto-backup *always* carries a positive interval, because snapshotting on
+ * every tick would spew files pointlessly.
+ */
+export const DEFAULT_AUTOBACKUP_EVERY_MS = 60 * 60_000;
+
+function parseAutoBackupBool(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+/**
+ * Builds the {@link AutoBackupOptions} the daemon should apply, from environment
+ * variables — or `null` when auto-backup is off (the default). Lets a
+ * long-running daemon keep timestamped snapshots of the single JSON data file
+ * without a separate `agentrelay backup` cron:
+ *
+ * - `AGENTRELAY_AUTOBACKUP`        opt-in flag (1/true/yes/on). Off ⇒ returns null.
+ * - `AGENTRELAY_AUTOBACKUP_EVERY`  interval like `1h`/`30m`/`6h` (default 1h).
+ *                                  Missing, unparseable, or non-positive values
+ *                                  fall back to the 1h default rather than
+ *                                  disabling the opt-in or backing up every tick.
+ * - `AGENTRELAY_AUTOBACKUP_KEEP`   retain the newest N snapshots (default
+ *                                  {@link DEFAULT_BACKUP_KEEP}); `0` keeps only
+ *                                  the pass's own fresh snapshot.
+ */
+export function autoBackupOptionsFromEnv(env: NodeJS.ProcessEnv = process.env): AutoBackupOptions | null {
+  if (!parseAutoBackupBool(env.AGENTRELAY_AUTOBACKUP)) return null;
+
+  let everyMs = DEFAULT_AUTOBACKUP_EVERY_MS;
+  const everyRaw = env.AGENTRELAY_AUTOBACKUP_EVERY?.trim();
+  if (everyRaw) {
+    const parsed = parseDuration(everyRaw);
+    if (parsed !== null && parsed > 0) everyMs = parsed;
+  }
+
+  let keepLast = DEFAULT_BACKUP_KEEP;
+  const keepRaw = env.AGENTRELAY_AUTOBACKUP_KEEP?.trim();
+  if (keepRaw) {
+    const n = Number(keepRaw);
+    if (Number.isFinite(n) && n >= 0) keepLast = Math.floor(n);
+  }
+
+  return { keepLast, everyMs };
+}
+
+/**
+ * Pure predicate deciding whether an auto-backup pass should run now, given the
+ * timestamp of the last pass (`lastRunMs`, or `null` if none yet), the current
+ * time (`nowMs`), and the configured interval (`everyMs`). Mirrors
+ * {@link shouldAutoPrune}: the first pass (`lastRunMs === null`) always runs so a
+ * snapshot is captured at daemon start; afterwards a pass runs only once
+ * `everyMs` has elapsed. An `everyMs` of `0`/undefined means "no throttle" (run
+ * every tick) for symmetry, though {@link autoBackupOptionsFromEnv} never
+ * produces one.
+ */
+export function shouldAutoBackup(lastRunMs: number | null, nowMs: number, everyMs?: number): boolean {
+  if (!everyMs || everyMs <= 0) return true;
+  if (lastRunMs === null) return true;
+  return nowMs - lastRunMs >= everyMs;
 }
