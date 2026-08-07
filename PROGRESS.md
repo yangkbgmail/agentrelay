@@ -1831,3 +1831,30 @@
   09:00만 2·나머지 0, `--help`·bash completion에 `--hours` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 59 — `agentrelay stats --weekday` 요일 분포] (2026-08-07, 무인 자율 세션, branch `claude/wizardly-pascal-weekday`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 58이 "다음 할 일"로 명시한 인접 항목을 발굴 — `stats --hours`(세션 58)는
+  하루 중 어느 시각에 rate-limit에 걸리나(hour-of-day)를 주지만, "한 주 중 어느 요일에 몰리나"라는 요일 축이
+  없었다. 이 뷰는 사용량 패턴 파악(예: "나는 주로 평일에 throttle된다")에 유용하다.
+- **한 일 (branch `claude/wizardly-pascal-weekday`):** `agentrelay stats --weekday` — UTC 요일(Mon–Sun) 활동 분포 히스토그램.
+  - core `stats.ts`: 순수 `computeWeekdayDistribution(jobs)` + `WeekdayActivity`(weekday 0–6, count) 신설.
+    각 잡의 `createdAt`을 UTC 요일로 버킷팅해 **모든 주에 걸쳐** 집계, `Date.getUTCDay()`(0=일…6=토)를
+    **월요일 시작**(0=Mon…6=Sun, ISO 8601 주 순서)으로 `(getUTCDay()+6)%7` 리맵, 항상 정확히 7 슬롯
+    (Mon→Sun) zero-fill, `createdAt` 누락/파싱불가는 스킵. `computeHourlyDistribution`과 동일하게 창도
+    시계도 불필요 — 요일은 타임스탬프의 절대 속성이라 순수·`nowMs` 미주입.
+  - CLI `stats.ts`: 순수 `renderWeekday(distribution, {color})`(`renderHours`와 동일한 막대 스케일링 관례 —
+    최다 요일에 스케일, 비영 요일 최소 1블록 보장, 0요일은 dim 베이스라인 점, `Mon`/`Tue`… 라벨 + 합계 푸터).
+    `renderStatsJson`에 옵셔널 `weekday` 필드 추가(요청 시에만 방출, 기존 소비자용 기본 JSON shape 불변).
+  - `cli.ts`: `stats`에 `--weekday` 플래그 배선. 일회성 뷰(hours 뒤에 append)·`--json`·`--watch`(fresh `now`로
+    본문 재조합) 세 뷰 모두 적용, 기존 스코프 필터(--status/--tool/--project/--since/--until)·`--hours`·`--trend`와
+    조합 가능. addHelpText 예시 1줄, completion은 라이브 프로그램 파생이라 `--weekday` 자동 포함. 새 파서/
+    스케줄러/core 스토어 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 558→564, cli stats 32→37=304/1skip, dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  4-잡 임시 스토어(web 완료[Mon]·web 실패[Mon]·api 완료[Sun]·web 대기[Sat])로 `stats --weekday`가 Mon에
+  풀바(2)·Sat·Sun 각 1·나머지 dim 점·"4 job(s) across 7 day(s), UTC" 푸터 렌더, `--weekday --json`은
+  `weekday` 7개(Mon=2/Sat=1/Sun=1), 기본 `--json`은 `weekday` 미포함, `--weekday --project web`은 scope note +
+  Mon 2·Sat 1·Sun 0(api 제외), `--help`·bash completion에 `--weekday` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `--hours`/`--weekday`
+  분포를 대시보드에 히스토그램으로 노출, 또는 `stats --group-by`에 시간/요일 교차. README/ARCHITECTURE(🧭 코워크).

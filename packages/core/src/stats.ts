@@ -225,6 +225,39 @@ export function computeHourlyDistribution(jobs: RelayJob[]): HourlyActivity[] {
   return counts.map((count, hour) => ({ hour, count }));
 }
 
+export interface WeekdayActivity {
+  /** Day of week, 0–6, Monday-first (0=Mon … 6=Sun) — ISO 8601 week order. */
+  weekday: number;
+  /** Jobs whose `createdAt` falls on this UTC weekday, across every week. */
+  count: number;
+}
+
+/**
+ * Buckets jobs by the UTC day-of-week (Mon–Sun) they were created on, aggregated
+ * across every week in the store, so `agentrelay stats --weekday` can show which
+ * days rate-limits tend to cluster on ("I mostly get throttled on weekdays").
+ * The companion axis to {@link computeHourlyDistribution} (hour-of-day). Like it,
+ * this has no window and needs no clock — weekday is an absolute property of each
+ * timestamp.
+ *
+ * The result is always exactly 7 entries, Monday (0) through Sunday (6),
+ * zero-filled for quiet days so the histogram has a stable shape. `Date.getUTCDay()`
+ * returns 0=Sunday…6=Saturday, so it is remapped to Monday-first order. Jobs with
+ * a missing or unparseable `createdAt` are skipped — they can't be placed on the
+ * calendar.
+ */
+export function computeWeekdayDistribution(jobs: RelayJob[]): WeekdayActivity[] {
+  const counts = new Array<number>(7).fill(0);
+  for (const job of jobs) {
+    const created = Date.parse(job.createdAt);
+    if (Number.isNaN(created)) continue;
+    // getUTCDay(): 0=Sun…6=Sat → Monday-first index (Mon=0 … Sun=6).
+    const weekday = (new Date(created).getUTCDay() + 6) % 7;
+    counts[weekday] += 1;
+  }
+  return counts.map((count, weekday) => ({ weekday, count }));
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 
