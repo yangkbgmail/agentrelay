@@ -734,6 +734,20 @@
       테스트, 실제 빌드 CLI e2e로 시간 버킷팅·최다시간 풀바·스코프 부분집합·`--json` hours 필드·기본 JSON
       미포함·help/completion `--hours` 노출 검증. branch `claude/wizardly-pascal-hours`)
 
+- [x] 👷 `agentrelay summary` — 큐 전체를 한 줄로 압축한 글랜서블 오버뷰(셸 프롬프트·tmux/상태바·CI용).
+      (완료 — `status`(전체 표)·`next`(가장 임박한 재개 하나)·`stats`(다중행 블록) 사이에 "지금 릴레이가
+      뭐 하나?"에 한 줄로 답하는 뷰가 없었다. CLI `packages/cli/src/summary.ts` 신설(순수·시계/스토어
+      미접촉): `computeSummarySegments`(6개 라이프사이클 상태를 5개 글랜서블 버킷으로 접음 — `active`는
+      queued+resuming 합, 고정 표시 순서)·`hasPendingWork`(queued+resuming+waiting_for_reset>0)·
+      `renderSummary`(non-zero 버킷만 " · "로 join → 유휴 큐는 짧게 유지, 대기 잡 있으면 `formatCountdown`
+      재사용해 "next reset in 1h 30m"/"due now"를 status 표와 동일 표기, 빈 스토어는 "queue empty")·
+      `renderSummaryJson`(다른 read 커맨드와 동일 `{storePath,generatedAt,pending,summary}` envelope).
+      `agentrelay summary [--json] [--exit-code] [--status/--tool/--project/--since/--until]` 배선 — 공용
+      `buildScope` 재사용, `--exit-code`는 pending이면 3·유휴/빈 큐면 0(jq 없이 스크립트 분기), completion
+      자동 포함. 새 core/파서 로직 0줄 — 기존 `summarizeJobs`·`formatCountdown` 재사용. cli summary 12
+      신규 테스트, 실제 빌드 CLI e2e로 한줄 오버뷰·카운트다운·--exit-code 3/0·--project 스코프·--json
+      pending 플래그·빈 스토어·bad status→exit 1 검증. branch `claude/wizardly-pascal-58lkz9`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
