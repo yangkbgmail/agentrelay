@@ -11,10 +11,10 @@
 // and deterministic.
 
 /** Shells we can emit a completion script for. */
-export type CompletionShell = "bash" | "zsh";
+export type CompletionShell = "bash" | "zsh" | "fish";
 
 /** Every shell `agentrelay completion` accepts, in a stable order. */
-export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh"] as const;
+export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh", "fish"] as const;
 
 /** Type guard: is `value` one of the shells we support? */
 export function isCompletionShell(value: string): value is CompletionShell {
@@ -86,6 +86,7 @@ export function generateCompletion(shell: CompletionShell, spec: CompletionSpec)
     for (const sub of cmd.subcommands ?? []) assertSafeToken(sub.name, "subcommand name");
   }
   if (shell === "bash") return generateBash(spec);
+  if (shell === "fish") return generateFish(spec);
   return generateZsh(spec);
 }
 
@@ -267,4 +268,69 @@ ${caseArms.join("\n")}
 }
 ${fn} "$@"
 `;
+}
+
+/**
+ * Fish: a series of `complete -c` rules gated by fish's built-in helpers.
+ * Top-level commands and global options fire under `__fish_use_subcommand`
+ * (true until a subcommand word appears); each command's flags fire under
+ * `__fish_seen_subcommand_from <name>`. Parent commands (e.g. `config`) offer
+ * their subcommand names until one is chosen, then that subcommand's flags.
+ *
+ * Flags are offered as plain argument candidates (`-a`) rather than mapped to
+ * fish's `-l`/`-s` option system — this keeps the generator simple and mirrors
+ * the word-list approach the bash/zsh generators use, while still completing
+ * `--json`, `-r`, etc. correctly.
+ */
+function generateFish(spec: CompletionSpec): string {
+  const p = spec.program;
+  const lines: string[] = [
+    `# fish completion for ${p}`,
+    `# Install: ${p} completion fish > ~/.config/fish/completions/${p}.fish`,
+    "",
+    `# Turn off default file completion; every rule below opts in explicitly.`,
+    `complete -c ${p} -f`,
+    "",
+  ];
+
+  // Top-level subcommands, offered only before any subcommand word appears.
+  lines.push("# Top-level subcommands.");
+  for (const cmd of spec.commands) {
+    lines.push(`complete -c ${p} -n '__fish_use_subcommand' -a '${cmd.name}'`);
+  }
+
+  // Global options, likewise before a subcommand is chosen.
+  const globalOpts = uniq([...spec.options, "--help", "--version"].filter((o) => o.length > 0));
+  for (const o of globalOpts) assertSafeToken(o, "global option");
+  if (globalOpts.length > 0) {
+    lines.push("", "# Global options (before a subcommand).");
+    lines.push(`complete -c ${p} -n '__fish_use_subcommand' -a '${globalOpts.join(" ")}'`);
+  }
+
+  for (const cmd of spec.commands) {
+    const hasSubs = (cmd.subcommands?.length ?? 0) > 0;
+    lines.push("", `# ${cmd.name}`);
+    if (hasSubs) {
+      const subs = cmd.subcommands ?? [];
+      const subNames = subs.map((s) => s.name);
+      // Offer subcommand names while `config` is present but no sub chosen yet.
+      const seenSubs = subNames.map((n) => n).join(" ");
+      lines.push(
+        `complete -c ${p} -n '__fish_seen_subcommand_from ${cmd.name}; and not __fish_seen_subcommand_from ${seenSubs}' -a '${subNames.join(" ")}'`
+      );
+      for (const s of subs) {
+        const subOpts = wordList([...s.options, "--help"], "subcommand option");
+        if (subOpts.length > 0) {
+          lines.push(`complete -c ${p} -n '__fish_seen_subcommand_from ${s.name}' -a '${subOpts}'`);
+        }
+      }
+    } else {
+      const opts = wordList([...cmd.options, "--help"], "command option");
+      if (opts.length > 0) {
+        lines.push(`complete -c ${p} -n '__fish_seen_subcommand_from ${cmd.name}' -a '${opts}'`);
+      }
+    }
+  }
+
+  return `${lines.join("\n")}\n`;
 }

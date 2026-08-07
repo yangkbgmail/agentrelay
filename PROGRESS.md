@@ -1831,3 +1831,29 @@
   09:00만 2·나머지 0, `--help`·bash completion에 `--hours` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 59 — `agentrelay completion fish` fish 셸 완성 지원] (2026-08-07, 무인 자율 세션, branch `claude/wizardly-pascal-i77y1r`)
+- **배경:** 세션 시작 시 열린 PR이 50+개로 쌓였고(main 브랜치 보호로 병합 지연), `--weekday`·`--by-hour`·
+  각종 `--watch`·파서 개선 등 인접 후보는 대부분 이미 열린 PR이 점유. 중복을 피해 **어떤 열린 PR에도 없는**
+  깨끗한 확장을 골랐다 — `completion`(세션에서 bash/zsh 지원)에 **fish** 셸을 추가. 이미 검증된
+  `completion.ts` 순수 렌더 패턴을 재사용하므로 새 파서/스토어/스케줄러 로직 0줄로 저위험.
+- **한 일 (branch `claude/wizardly-pascal-i77y1r`):** `agentrelay completion fish`.
+  - core `completion.ts`: `CompletionShell`에 `"fish"` 추가, `COMPLETION_SHELLS=["bash","zsh","fish"]`,
+    `generateCompletion` 디스패치에 fish 분기. 순수 `generateFish(spec)` 신설 — fish 내장 헬퍼로 게이팅:
+    최상위 서브커맨드·글로벌 옵션은 `__fish_use_subcommand`(서브커맨드 등장 전까지 true), 각 커맨드 플래그는
+    `__fish_seen_subcommand_from <name>`. 부모 커맨드(`config`)는 `'seen config; and not seen init validate
+    show set unset'`로 서브커맨드명을 먼저 제안하고, 서브커맨드 선택 후엔 그 플래그를 제안. 플래그는 `-l/-s`
+    옵션 시스템 대신 `-a`(argument) 후보로 방출 — bash/zsh의 word-list 관례를 미러링해 생성기를 단순·안전 유지.
+    기존 `assertSafeToken`/`wordList`/`uniq`로 프로그램명·커맨드명·플래그 토큰을 전부 검증(셸 메타문자 거부).
+  - CLI `cli.ts`: `completion` 커맨드 설명을 "(bash, zsh, or fish)"로, addHelpText에 fish 설치 예시 추가.
+    배선은 `COMPLETION_SHELLS`/`isCompletionShell`/`generateCompletion` 재사용이라 새 배선 로직 0줄.
+  - `completion.test.ts`: 셸 헬퍼 2케이스 갱신(fish 포함/`powershell` 거부) + fish 렌더 6케이스 신규
+    (헤더·file-completion off / 최상위 커맨드 / 글로벌 옵션 / 리프 커맨드 플래그 / 부모→서브 게이팅 / 중복 dedup).
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 558→564, cli 299/1skip, dashboard 9). **실제 fish로 e2e**(mock 아님): 생성 스크립트를
+  `fish -c 'source …'`로 로드(SOURCE_OK, 문법 유효) → `complete -C "agentrelay "`가 서브커맨드(config/stats/
+  status) 제안 → `complete -C "agentrelay status --"`가 status 플래그 11개 제안 → `complete -C "agentrelay
+  config "`가 init/validate/show/set/unset 제안 → `complete -C "agentrelay config init --"`가 init 플래그
+  (--force/--help)만 제안(서브커맨드명 미노출) 확인. 미지 셸(`powershell`)은 "Valid: bash, zsh, fish" + exit 1.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — PowerShell 완성,
+  또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).

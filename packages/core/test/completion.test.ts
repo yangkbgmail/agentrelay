@@ -20,16 +20,17 @@ const SPEC: CompletionSpec = {
 };
 
 describe("completion shell helpers", () => {
-  it("COMPLETION_SHELLS lists bash and zsh", () => {
-    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh"]);
+  it("COMPLETION_SHELLS lists bash, zsh and fish", () => {
+    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh", "fish"]);
   });
 
   it("isCompletionShell accepts known shells and rejects others", () => {
     expect(isCompletionShell("bash")).toBe(true);
     expect(isCompletionShell("zsh")).toBe(true);
-    expect(isCompletionShell("fish")).toBe(false);
+    expect(isCompletionShell("fish")).toBe(true);
     expect(isCompletionShell("")).toBe(false);
     expect(isCompletionShell("BASH")).toBe(false);
+    expect(isCompletionShell("powershell")).toBe(false);
   });
 });
 
@@ -97,6 +98,53 @@ describe("generateCompletion — zsh", () => {
     // parent command lists subcommands
     expect(script).toContain("'init'");
     expect(script).toContain("'validate'");
+  });
+});
+
+describe("generateCompletion — fish", () => {
+  const script = generateCompletion("fish", SPEC);
+
+  it("starts with the fish header and disables default file completion", () => {
+    expect(script.startsWith("# fish completion for agentrelay")).toBe(true);
+    expect(script).toContain("complete -c agentrelay -f");
+  });
+
+  it("offers each top-level command under __fish_use_subcommand", () => {
+    expect(script).toContain("complete -c agentrelay -n '__fish_use_subcommand' -a 'run'");
+    expect(script).toContain("complete -c agentrelay -n '__fish_use_subcommand' -a 'status'");
+    expect(script).toContain("complete -c agentrelay -n '__fish_use_subcommand' -a 'config'");
+  });
+
+  it("offers global options plus --help/--version before a subcommand", () => {
+    expect(script).toContain(
+      "complete -c agentrelay -n '__fish_use_subcommand' -a '--store --config --help --version'"
+    );
+  });
+
+  it("offers a leaf command's flags gated by __fish_seen_subcommand_from", () => {
+    expect(script).toContain("complete -c agentrelay -n '__fish_seen_subcommand_from run' -a '--tool --help'");
+    expect(script).toContain(
+      "complete -c agentrelay -n '__fish_seen_subcommand_from status' -a '--watch --json --status --sort -r --help'"
+    );
+  });
+
+  it("offers a parent command's subcommands until one is chosen, then that sub's flags", () => {
+    expect(script).toContain(
+      "complete -c agentrelay -n '__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from init validate show' -a 'init validate show'"
+    );
+    expect(script).toContain("complete -c agentrelay -n '__fish_seen_subcommand_from init' -a '--force -f --help'");
+    expect(script).toContain(
+      "complete -c agentrelay -n '__fish_seen_subcommand_from show' -a '--json --show-secrets --help'"
+    );
+  });
+
+  it("dedupes repeated flags while keeping first-seen order", () => {
+    const dup = generateCompletion("fish", {
+      program: "x",
+      options: [],
+      commands: [{ name: "c", options: ["--json", "--json", "-j"] }],
+    });
+    expect(dup).toContain("complete -c x -n '__fish_seen_subcommand_from c' -a '--json -j --help'");
   });
 });
 
