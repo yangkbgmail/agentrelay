@@ -11,6 +11,7 @@ import type {
   JobScope,
   JobStatus,
   RelayStats,
+  WeekdayActivity,
 } from "@agentrelay/core";
 import { isJobScopeActive } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
@@ -273,6 +274,47 @@ export function renderHours(hours: HourlyActivity[], options: { color?: boolean 
   return lines.join("\n");
 }
 
+/** Max width (chars) of a full-scale bar in the day-of-week histogram. */
+const DOW_BAR_WIDTH = 24;
+
+/** Three-letter UTC weekday labels, indexed by `Date.getUTCDay` (0 = Sunday). */
+const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * Renders a day-of-week activity histogram (jobs created per UTC weekday, Sun–
+ * Sat, aggregated across all weeks) as a compact ASCII bar chart. Bars scale to
+ * the busiest weekday so the shape reads regardless of absolute volume; a zero
+ * day shows a dim baseline dot. Pure: no I/O, no clock. Callers pass the already-
+ * computed distribution so it stays testable.
+ */
+export function renderDow(weekdays: WeekdayActivity[], options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [b("by weekday") + d(" (jobs created per day of week, UTC)")];
+  if (weekdays.length === 0) {
+    lines.push("  none");
+    return lines.join("\n");
+  }
+
+  const max = weekdays.reduce((m, w) => Math.max(m, w.count), 0);
+  const total = weekdays.reduce((sum, w) => sum + w.count, 0);
+  for (const { weekday, count } of weekdays) {
+    // Scale each bar to the busiest weekday; guarantee at least one block for any
+    // non-zero day so small counts don't vanish next to a spike.
+    const filled = max === 0 || count === 0 ? 0 : Math.max(1, Math.round((count / max) * DOW_BAR_WIDTH));
+    // Pad the plain bar to a fixed width so the count column stays aligned; a
+    // zero day shows a single baseline dot (dimmed only when color is on).
+    const plain = count === 0 ? "·" : "█".repeat(filled);
+    const padded = plain.padEnd(DOW_BAR_WIDTH);
+    const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
+    lines.push(`  ${WEEKDAY_LABELS[weekday] ?? "?"}  ${shown} ${count}`);
+  }
+  lines.push(d(`  ${total} job(s) across 7 weekday(s), UTC`));
+  return lines.join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,
@@ -282,15 +324,17 @@ export function renderStatsJson(
     scope?: JobScope;
     trend?: DailyActivity[] | null;
     hours?: HourlyActivity[] | null;
+    dow?: WeekdayActivity[] | null;
   } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
-  // Only emit `trend`/`hours` when the matching flag was requested; omit them
-  // otherwise so the default JSON shape is unchanged for existing consumers.
+  // Only emit `trend`/`hours`/`dow` when the matching flag was requested; omit
+  // them otherwise so the default JSON shape is unchanged for existing consumers.
   const trend = options.trend ?? undefined;
   const hours = options.hours ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, stats }, null, 2);
+  const dow = options.dow ?? undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, dow, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */

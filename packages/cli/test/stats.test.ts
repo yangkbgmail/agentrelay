@@ -1,5 +1,11 @@
-import type { DailyActivity, HourlyActivity, RelayJob } from "@agentrelay/core";
-import { computeDailyTrend, computeHourlyDistribution, computeStats, groupStats } from "@agentrelay/core";
+import type { DailyActivity, HourlyActivity, RelayJob, WeekdayActivity } from "@agentrelay/core";
+import {
+  computeDailyTrend,
+  computeHourlyDistribution,
+  computeStats,
+  computeWeekdayDistribution,
+  groupStats,
+} from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
   formatDurationMs,
@@ -7,6 +13,7 @@ import {
   NO_GROUP_MESSAGE,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
+  renderDow,
   renderGroupedStats,
   renderGroupedStatsJson,
   renderHours,
@@ -379,6 +386,69 @@ describe("renderStatsJson hours field", () => {
     const withHours = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", hours }));
     expect(withHours.hours).toHaveLength(24);
     expect(withHours.hours[5].count).toBe(1);
+  });
+});
+
+describe("renderDow", () => {
+  function distFrom(counts: Record<number, number>): WeekdayActivity[] {
+    return Array.from({ length: 7 }, (_, weekday) => ({ weekday, count: counts[weekday] ?? 0 }));
+  }
+
+  it("renders a header, all 7 weekday rows (Sun–Sat), and a footer total", () => {
+    const out = renderDow(distFrom({ 1: 2, 6: 4 })); // Mon=2, Sat=4
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("by weekday");
+    for (const label of ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]) {
+      expect(out).toContain(label);
+    }
+    // One header + 7 rows + one footer.
+    expect(lines).toHaveLength(9);
+    // Each weekday's count appears at the end of its row.
+    expect(out).toMatch(/Sat .* 4/);
+    expect(lines[lines.length - 1]).toContain("6 job(s) across 7 weekday(s), UTC");
+  });
+
+  it("scales bars to the busiest weekday and draws blocks only for non-zero days", () => {
+    const out = renderDow(distFrom({ 1: 2, 6: 4 }));
+    const rows = out.split("\n");
+    const zeroRow = rows.find((r) => r.includes("Sun")) ?? "";
+    const peakRow = rows.find((r) => r.includes("Sat")) ?? "";
+    const midRow = rows.find((r) => r.includes("Mon")) ?? "";
+    expect(peakRow).toContain("█");
+    expect(zeroRow).not.toContain("█");
+    const width = (r: string) => (r.match(/█/g) ?? []).length;
+    expect(width(peakRow)).toBeGreaterThanOrEqual(width(midRow));
+    expect(width(midRow)).toBeGreaterThanOrEqual(1);
+  });
+
+  it("handles an all-zero week without any bars", () => {
+    const out = renderDow(distFrom({}));
+    expect(out).not.toContain("█");
+    expect(out).toContain("0 job(s) across 7 weekday(s), UTC");
+  });
+
+  it("round-trips a store subset through computeWeekdayDistribution + renderDow", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-20T09:00:00.000Z" }), // Mon
+      job({ createdAt: "2026-07-13T09:30:00.000Z" }), // Mon, prior week
+      job({ createdAt: "2026-07-19T14:00:00.000Z" }), // Sun
+    ];
+    const out = renderDow(computeWeekdayDistribution(jobs));
+    expect(out).toMatch(/Mon .* 2/);
+    expect(out).toMatch(/Sun .* 1/);
+    expect(out).toContain("3 job(s) across 7 weekday(s), UTC");
+  });
+});
+
+describe("renderStatsJson dow field", () => {
+  it("omits `dow` by default but includes it when provided", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("dow" in without).toBe(false);
+    const dow = computeWeekdayDistribution([job({ createdAt: "2026-07-20T05:00:00.000Z" })]); // Mon
+    const withDow = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", dow }));
+    expect(withDow.dow).toHaveLength(7);
+    expect(withDow.dow[1].count).toBe(1);
   });
 });
 

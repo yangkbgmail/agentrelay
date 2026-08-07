@@ -1831,3 +1831,29 @@
   09:00만 2·나머지 0, `--help`·bash completion에 `--hours` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 59 — `agentrelay stats --dow` 요일 분포] (2026-08-07, 무인 자율 세션, branch `claude/wizardly-pascal-p55s50`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 58(`stats --hours`)의 "다음 할 일"에서 명시한 인접 후보 —
+  시간-of-day 축의 자매 뷰인 요일(day-of-week) 축 — 을 발굴·구현했다. "나는 주로 월요일에 throttle된다"
+  같은 주간 패턴 파악에 유용하다.
+- **한 일 (branch `claude/wizardly-pascal-p55s50`):** `agentrelay stats --dow` — UTC 요일(Sun–Sat) 활동 분포 히스토그램.
+  - core `stats.ts`: 순수 `computeWeekdayDistribution(jobs)` + `WeekdayActivity`(weekday 0–6, count) 신설.
+    각 잡의 `createdAt`을 `getUTCDay()`(0=Sun..6=Sat)로 버킷팅해 **모든 주에 걸쳐** 집계, 항상 정확히 7 슬롯
+    zero-fill, `createdAt` 누락/파싱불가는 스킵. `--hours`와 동일하게 창도 시계도 불필요 — 요일은 타임스탬프의
+    절대 속성이라 순수·`nowMs` 미주입.
+  - CLI `stats.ts`: 순수 `renderDow(distribution, {color})`(`--hours`와 동일한 막대 스케일링 관례 — 최다 요일에
+    스케일, 비영요일 최소 1블록 보장, 0요일은 dim 베이스라인 점, `Sun`/`Mon`… 3글자 라벨 + 합계 푸터).
+    `renderStatsJson`에 옵셔널 `dow` 필드 추가(요청 시에만 방출, 기존 JSON shape 불변).
+  - `cli.ts`: `stats`에 `--dow` 플래그 배선. 일회성 뷰(hours 뒤에 append)·`--json`·`--watch`(fresh `now`로
+    본문 재조합) 세 뷰 모두 적용, 기존 스코프 필터(--status/--tool/--project/--since/--until) 및 `--hours`/`--trend`와
+    조합 가능. addHelpText 예시 1줄, completion은 라이브 프로그램 파생이라 `--dow` 자동 포함. 새 파서/스케줄러/core
+    스토어 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 558→563, cli stats 32→37=304/1skip, dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  4-잡 임시 스토어(web 완료[월]/실패[월]·api 완료[일]·대기[토])로 `stats --dow`가 Mon에 풀바(2)·Sun·Sat 각 1·
+  나머지 dim 점·"4 job(s) across 7 weekday(s), UTC" 푸터 렌더, `--dow --json`은 `dow` 7개(Sun=1/Mon=2/Sat=1) +
+  `hours` 미포함, 기본 `--json`은 `dow` 미포함, `--dow --project web`은 scope note + Mon만 2·나머지 0,
+  `--hours --dow` 병용 시 두 블록 모두 렌더, `--help`·bash completion에 `--dow` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에 시간대/요일/
+  추이 히스토그램 노출, 또는 `stats --dow`/`--hours`를 로컬 시간대(TZ) 옵션으로도. README/ARCHITECTURE(🧭 코워크).
