@@ -734,6 +734,21 @@
       테스트, 실제 빌드 CLI e2e로 시간 버킷팅·최다시간 풀바·스코프 부분집합·`--json` hours 필드·기본 JSON
       미포함·help/completion `--hours` 노출 검증. branch `claude/wizardly-pascal-hours`)
 
+- [x] 👷 `--color`/`--no-color` 전역 플래그 + `NO_COLOR`/`FORCE_COLOR` 환경변수 표준 지원 — 지금까지 색상은
+      `Boolean(process.stdout.isTTY)`만으로 ~19곳에서 개별 판정해, 파이프/CI/로그에서 색상을 강제하거나 끄는
+      표준 스위치를 무시했다.
+      (완료 — CLI `color.ts` 신설(순수·process/tty/env 미접촉): `normalizeColorPreference(value)`(commander의
+      `--color`/`--no-color` raw 값[undefined/false/true/문자열]을 `auto`/`always`/`never` tri-state로 정규화,
+      미지 값은 조용한 폴백 대신 명확한 에러 throw) + `shouldUseColor({preference,env,isTTY})`(우선순위:
+      explicit 플래그 > `NO_COLOR`[비어있지 않으면 끔, no-color.org 스펙 준수 — 빈 문자열은 미적용] >
+      `FORCE_COLOR`[켬, `0`/`false`만 끔] > TTY 감지). `cli.ts`에 전역 `--color [when]`/`--no-color` 옵션 +
+      `useColor()` 클로저(program.opts()+process.env+isTTY 결합) + preAction 훅(잘못된 `--color` 값은 커맨드
+      실행 전 exit 1). 반복되던 19개 `Boolean(process.stdout.isTTY)` 렌더 사이트를 전부 `useColor()`로 통일
+      (DRY·단일 색상 정책 지점). `--json`은 원래도 무색이라 불변. color.test 13케이스(정규화 5 + shouldUseColor 8:
+      always/never 우선·auto TTY 폴백·NO_COLOR 비움 구분·FORCE_COLOR on/off·NO_COLOR>FORCE_COLOR), 실제 빌드
+      CLI e2e로 --color always→colored/default→plain/FORCE_COLOR→colored/--no-color·NO_COLOR→plain/bogus→exit 1
+      검증. branch `claude/wizardly-pascal-uqamk9`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
