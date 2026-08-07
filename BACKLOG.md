@@ -734,6 +734,23 @@
       테스트, 실제 빌드 CLI e2e로 시간 버킷팅·최다시간 풀바·스코프 부분집합·`--json` hours 필드·기본 JSON
       미포함·help/completion `--hours` 노출 검증. branch `claude/wizardly-pascal-hours`)
 
+- [x] 👷 자동 백업(daemon 주기 스냅샷) — 유일한 데이터 파일(`jobs.json`)을 별도 cron 없이 데몬이
+      주기적으로 시점 스냅샷. auto-prune(세션 8·10·11)이 종료 잡을 **삭제**하는 것의 안전 짝 —
+      auto-backup은 삭제 전에 **보존**한다.
+      (완료 — `@agentrelay/core/backup.ts`에 `autoBackupOptionsFromEnv(env)`(`AGENTRELAY_AUTOBACKUP`
+      opt-in + `_EVERY` 간격[기본 1h, 파싱불가/비양수는 매-틱이 아니라 1h 기본으로 폴백 — 매 틱 스냅샷은
+      무의미하므로 auto-prune과 의도적으로 다름] + `_KEEP` 로테이션[기본 `DEFAULT_BACKUP_KEEP`=10]) +
+      `AutoBackupOptions`/`DEFAULT_AUTOBACKUP_EVERY_MS`(1h) + 순수 `shouldAutoBackup(lastRunMs, nowMs,
+      everyMs)`(첫 패스 항상 실행, 이후 간격 경과 후에만 — `shouldAutoPrune` 미러) 추가. `RelayScheduler`에
+      `autoBackup`/`onBackup` 옵션 + 인메모리 `lastBackupAtMs` 마커. 매 tick에서 `runAutoBackup`을
+      **auto-prune 앞**에 호출 → 스냅샷이 곧이어 prune이 삭제할 종료 잡까지 포함(진짜 보존 이득). 백업 실패는
+      삼켜 릴레이 루프 보호(auto-prune과 동일 계약). 기존 `RelayQueue.backup`(원자적 write+로테이션) 재사용 —
+      새 스토어 로직 0줄. CLI daemon/tick이 env로 배선, 데몬 배너에 "(auto-backup on, every Ns, keep N)",
+      백업 시 `[agentrelay] auto-backed up N job(s) to <path>` 로그. core backup env/predicate +11 +
+      scheduler 통합 +3 신규 테스트, 실제 빌드 CLI e2e로 opt-in 없으면 무-백업·opt-in 시 스냅샷(잡 보존)·
+      배너 3형태(off/기본 3600s·keep 10/커스텀 1800s·keep 5 + auto-prune 공존) 검증. branch
+      `claude/wizardly-pascal-1x1zg0`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -1831,3 +1831,32 @@
   09:00만 2·나머지 0, `--help`·bash completion에 `--hours` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 59 — 자동 백업(daemon 주기 스냅샷)] (2026-08-07, 무인 자율 세션, branch `claude/wizardly-pascal-1x1zg0`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유뿐. 열린 PR 50+개가
+  파서·stats 히스토그램·watch 계열에 몰려(대량 중복) 있어, 충돌을 피해 **열린 PR이 0개인 backup/restore
+  영역**에서 신규 항목을 발굴했다. auto-prune(세션 8·10·11)은 종료 잡을 **삭제**하지만, 삭제 전에 데이터를
+  **보존**하는 대칭 안전장치가 없었다 — 유일한 데이터 파일(`jobs.json`)을 별도 cron 없이 데몬이 주기적으로
+  시점 스냅샷하는 자동 백업.
+- **한 일 (branch `claude/wizardly-pascal-1x1zg0`):** 자동 백업 — auto-prune 스로틀 패턴을 그대로 미러링.
+  - core `backup.ts`: `autoBackupOptionsFromEnv(env)`(`AGENTRELAY_AUTOBACKUP` opt-in + `_EVERY` 간격 +
+    `_KEEP` 로테이션) + `AutoBackupOptions`/`DEFAULT_AUTOBACKUP_EVERY_MS`(1h) + 순수 `shouldAutoBackup`
+    (첫 패스 항상 실행, 이후 간격 경과 후에만 — `shouldAutoPrune` 미러). 파싱불가/비양수 간격은 **매 틱이
+    아니라 1h 기본으로 폴백**(매 틱 스냅샷은 파일 폭증이라 auto-prune의 "매 틱 폴백"과 의도적으로 다름).
+    `parseDuration`(prune.ts)만 재사용, 새 스토어 로직 0줄.
+  - core `scheduler.ts`: `SchedulerOptions.autoBackup`/`onBackup` + 인메모리 `lastBackupAtMs` 마커. 매 tick에서
+    `runAutoBackup`을 **`runAutoPrune` 앞**에 호출 → 스냅샷이 곧이어 prune이 삭제할 종료 잡까지 포함(진짜
+    보존 이득). 기존 `RelayQueue.backup`(원자적 temp+rename write + `.backup-*` 로테이션) 재사용. 백업 실패는
+    삼켜 릴레이 루프 보호(auto-prune과 동일 best-effort 계약), 시간 마커는 패스 실제 실행 시에만 전진.
+  - CLI `commands.ts`: daemon이 `autoBackupOptionsFromEnv()`를 배선, `autoBackupBanner` 헬퍼로 배너에
+    "(auto-backup on, every Ns, keep N)" 추가, `onBackup`이 `[agentrelay] auto-backed up N job(s) to <path>`
+    로그. one-shot `tick`도 배선(auto-prune과 parity — 프로세스마다 마커 없어 매 tick 백업, 문서화).
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 553→568[backup +11, scheduler +3], cli 299/1skip, dashboard 9). **실제 빌드 CLI e2e**
+  (mock 아님): 종료 잡 1개 시드 스토어로 (1) opt-in 없는 `tick`은 `.backup-*` 미생성, (2) `AGENTRELAY_AUTOBACKUP=1
+  tick`은 `jobs.json.backup-<ts>` 스냅샷 생성(잡 id 보존 확인), (3) 데몬 배너 3형태 — off / 기본
+  "(auto-backup on, every 3600s, keep 10)" / 커스텀 `_EVERY=30m _KEEP=5` + auto-prune 공존
+  "(auto-prune on) (auto-backup on, every 1800s, keep 5)" 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `agentrelay backup
+  --list`에 크기/나이 표기, 설정 파일(config.ts)에 autoBackup 그룹 노출(현재 env-only), 대시보드에 최근 백업
+  시각 노출. README/ARCHITECTURE(🧭 코워크).

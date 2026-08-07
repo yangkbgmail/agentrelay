@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -390,6 +390,79 @@ describe("RelayScheduler", () => {
     expect(pruned).toHaveLength(3);
     expect(pruned[2].map((j) => j.id)).toEqual([c.id]);
     expect(queue.listAll()).toHaveLength(0);
+  });
+
+  it("auto-backs up the store after a tick and rotates old snapshots", async () => {
+    const done = queue.enqueue({ project: "done", tool: "claude-code", command: ["x"], cwd: dir });
+    queue.markCompleted(done.id, "done");
+
+    const backups: string[] = [];
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({}),
+      autoBackup: { keepLast: 2, everyMs: 60_000 },
+      onBackup: (result) => backups.push(result.path),
+    });
+
+    const storeFile = join(dir, "test.db");
+    const backupCount = () => readdirSync(dir).filter((f) => f.includes(".backup-")).length;
+
+    const t0 = new Date("2026-07-13T00:00:00Z");
+    const at = (ms: number) => new Date(t0.getTime() + ms);
+
+    // First tick always snapshots.
+    await scheduler.tick(t0);
+    expect(backups).toHaveLength(1);
+    expect(backupCount()).toBe(1);
+    // The snapshot reflects the current store (the finished job is captured).
+    const snap = JSON.parse(readFileSync(backups[0], "utf8"));
+    expect(snap.map((j: RelayJob) => j.id)).toEqual([done.id]);
+
+    // A tick inside the window makes no new snapshot.
+    await scheduler.tick(at(30_000));
+    expect(backups).toHaveLength(1);
+
+    // Once the window elapses, another snapshot is written.
+    await scheduler.tick(at(60_000));
+    await scheduler.tick(at(120_000));
+    expect(backups).toHaveLength(3);
+    // keepLast: 2 caps the rotating set at 2 (plus the just-written one is always spared).
+    expect(backupCount()).toBe(2);
+    // The live store is untouched by backups.
+    expect(JSON.parse(readFileSync(storeFile, "utf8")).map((j: RelayJob) => j.id)).toEqual([done.id]);
+  });
+
+  it("snapshots before auto-pruning, so a backup preserves the jobs prune removes", async () => {
+    const done = queue.enqueue({ project: "done", tool: "claude-code", command: ["x"], cwd: dir });
+    queue.markCompleted(done.id, "done");
+
+    const backups: string[] = [];
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({}),
+      autoBackup: { keepLast: 5, everyMs: 60_000 },
+      onBackup: (result) => backups.push(result.path),
+      autoPrune: { olderThanMs: 0 }, // sweep every finished job on the same tick
+    });
+
+    await scheduler.tick(new Date("2026-07-13T00:00:00Z"));
+
+    // Prune removed the finished job from the live store...
+    expect(queue.listAll()).toHaveLength(0);
+    // ...but the backup taken earlier in the same tick still holds it.
+    expect(backups).toHaveLength(1);
+    const snap = JSON.parse(readFileSync(backups[0], "utf8"));
+    expect(snap.map((j: RelayJob) => j.id)).toEqual([done.id]);
+  });
+
+  it("does not back up when auto-backup is not configured", async () => {
+    const done = queue.enqueue({ project: "done", tool: "claude-code", command: ["x"], cwd: dir });
+    queue.markCompleted(done.id, "done");
+
+    const scheduler = new RelayScheduler({ queue, spawnFn: fakeSpawnFn({}) });
+    await scheduler.tick();
+
+    expect(readdirSync(dir).filter((f) => f.includes(".backup-"))).toHaveLength(0);
   });
 
   it("fires onTick after every tick with the reference time, even when nothing is due", async () => {
