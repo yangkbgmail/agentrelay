@@ -20,16 +20,18 @@ const SPEC: CompletionSpec = {
 };
 
 describe("completion shell helpers", () => {
-  it("COMPLETION_SHELLS lists bash and zsh", () => {
-    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh"]);
+  it("COMPLETION_SHELLS lists bash, zsh, and powershell", () => {
+    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh", "powershell"]);
   });
 
   it("isCompletionShell accepts known shells and rejects others", () => {
     expect(isCompletionShell("bash")).toBe(true);
     expect(isCompletionShell("zsh")).toBe(true);
+    expect(isCompletionShell("powershell")).toBe(true);
     expect(isCompletionShell("fish")).toBe(false);
     expect(isCompletionShell("")).toBe(false);
     expect(isCompletionShell("BASH")).toBe(false);
+    expect(isCompletionShell("PowerShell")).toBe(false);
   });
 });
 
@@ -97,6 +99,62 @@ describe("generateCompletion — zsh", () => {
     // parent command lists subcommands
     expect(script).toContain("'init'");
     expect(script).toContain("'validate'");
+  });
+});
+
+describe("generateCompletion — powershell", () => {
+  const script = generateCompletion("powershell", SPEC);
+
+  it("registers a native argument completer for the program", () => {
+    expect(script).toContain("Register-ArgumentCompleter -Native -CommandName agentrelay");
+    expect(script).toContain("param($wordToComplete, $commandAst, $cursorPosition)");
+  });
+
+  it("declares the top-level command list", () => {
+    expect(script).toContain("$commands = @('run', 'status', 'config')");
+  });
+
+  it("includes global options plus --help/--version", () => {
+    expect(script).toContain("$globalOptions = @('--store', '--config', '--help', '--version')");
+  });
+
+  it("maps each leaf command to its flags plus --help", () => {
+    expect(script).toContain("'run' = @('--tool', '--help')");
+    expect(script).toContain("'status' = @('--watch', '--json', '--status', '--sort', '-r', '--help')");
+  });
+
+  it("maps a parent command to its subcommand names plus --help", () => {
+    expect(script).toContain("'config' = @('init', 'validate', 'show', '--help')");
+  });
+
+  it("maps each 'parent sub' key to that subcommand's flags", () => {
+    expect(script).toContain("'config init' = @('--force', '-f', '--help')");
+    expect(script).toContain("'config show' = @('--json', '--show-secrets', '--help')");
+  });
+
+  it("prefix-filters suggestions and emits CompletionResult objects", () => {
+    expect(script).toContain('Where-Object { $_ -like "$wordToComplete*" }');
+    expect(script).toContain("[System.Management.Automation.CompletionResult]::new(");
+  });
+
+  it("dedupes repeated flags while keeping first-seen order", () => {
+    const dup = generateCompletion("powershell", {
+      program: "x",
+      options: [],
+      commands: [{ name: "c", options: ["--json", "--json", "-j"] }],
+    });
+    expect(dup).toContain("'c' = @('--json', '-j', '--help')");
+  });
+
+  it("uses empty hashtables when there are no leaf commands or subcommands", () => {
+    const bare = generateCompletion("powershell", {
+      program: "agentrelay",
+      options: [],
+      commands: [],
+    });
+    expect(bare).toContain("$commands = @()");
+    expect(bare).toContain("$commandOptions = @{}");
+    expect(bare).toContain("$subcommands = @{}");
   });
 });
 

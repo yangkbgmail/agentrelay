@@ -1831,3 +1831,33 @@
   09:00만 2·나머지 0, `--help`·bash completion에 `--hours` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 59 — `agentrelay completion powershell` PowerShell 완성 스크립트] (2026-08-07, 무인 자율 세션, branch `claude/wizardly-pascal-55w5a0`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이고, 열린 PR 30개(요일 분포·파서 타임존·summary·schedule 등)가 인접
+  아이디어를 이미 점유 중이었다(그중 fish 완성=PR #495). 중복을 피해 CLAUDE.md 지침대로 **새 개선 항목을
+  발굴**했다 — 완성 스크립트는 bash/zsh만 있어 PowerShell(Windows/크로스플랫폼) 사용자가 탭 완성을 못 썼다.
+- **한 일 (branch `claude/wizardly-pascal-55w5a0`):** `agentrelay completion powershell`.
+  - core `completion.ts`: `CompletionShell` 유니온에 `"powershell"` 추가 → `COMPLETION_SHELLS`/
+    `isCompletionShell`이 자동으로 셋째 셸 인식. 순수 `generatePowerShell(spec)` 신설 —
+    `Register-ArgumentCompleter -Native -CommandName agentrelay -ScriptBlock`이 spec에서 파생한
+    해시테이블(`$commands`·`$globalOptions`·`$commandOptions`[리프]·`$subcommands`[부모→서브네임+--help]·
+    `$subcommandOptions`["부모 서브"→플래그])를 구동. 스크립트블록은 `$commandAst.CommandElements`에서
+    이미 입력된 단어를 뽑아 활성 커맨드/서브커맨드를 판정하고, 해당 스코프 후보를 `$wordToComplete*`
+    prefix로 필터한 뒤 `CompletionResult`로 방출(bash/zsh case-arm 분기와 동일 의미). 순수 `psArray`
+    (필터·dedupe first-seen·`assertSafeToken` 검증 후 single-quote 배열 리터럴, 빈 목록은 `@()`) 추가,
+    빈 리프/서브 테이블은 `@{}`로 안전 렌더.
+  - CLI `cli.ts`: `completion` 커맨드는 `isCompletionShell`/`generateCompletion` 기반이라 코드 변경 없이
+    `powershell` 자동 배선 — description을 "(bash, zsh, or powershell)"로, addHelpText에 `$PROFILE` 설치
+    예시 2줄 추가. 새 스케줄러/파서/스토어 로직 0줄.
+  - core `completion.test.ts`: shell-helpers 2케이스 확장(COMPLETION_SHELLS=3셸·isCompletionShell) +
+    powershell 렌더 describe 9케이스 신규(네이티브 completer 등록·톱레벨 커맨드/글로벌옵션·리프 플래그
+    테이블·부모 서브네임·"부모 서브" 옵션 키·prefix 필터+CompletionResult·dedupe·빈 테이블).
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·
+  `pnpm test` 전 패키지 통과(core 558→567, cli 300, dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  `completion powershell`이 라이브 commander 프로그램에서 파생한 전체 커맨드/플래그(run·status·config
+  서브커맨드 등)를 반영한 유효 스크립트 출력, 잘못된 셸(`completion fish`)은 "Valid: bash, zsh,
+  powershell" + exit 1 확인. (pwsh 미설치 환경이라 런타임 파싱은 스킵 — 스크립트는 검증된 토큰에서만
+  파생되고 유닛 테스트가 구조를 커버.)
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 후보 — 완성 스크립트에
+  `--tool`/`--status` 값 완성(동적), 또는 fish 완성(PR #495 병합 대기). README/ARCHITECTURE(🧭 코워크).
