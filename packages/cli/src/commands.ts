@@ -87,6 +87,7 @@ import {
   waitExitCode,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
+import { renderRunResultJson } from "./run.js";
 
 /**
  * Constructs a {@link RelayQueue} that, if the store file turns out to be
@@ -117,6 +118,12 @@ export interface RunOptions {
    */
   project?: string;
   storePath?: string;
+  /**
+   * Emit a machine-readable JSON summary as the final line of stdout (and
+   * suppress the human `[agentrelay] Rate limit detected...` banner) so a
+   * wrapping script can capture the queued job id. See {@link renderRunResultJson}.
+   */
+  json?: boolean;
   /** Injected for tests; defaults to real stdout/stderr passthrough. */
   stdout?: NodeJS.WritableStream;
   stderr?: NodeJS.WritableStream;
@@ -169,35 +176,48 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   });
 
   const rateLimit = adapter.detectRateLimit(output);
+  let result: RunResult;
   if (!rateLimit) {
-    return { exitCode, queuedJob: null };
+    result = { exitCode, queuedJob: null };
+  } else {
+    const queue = openQueue(storePath);
+    const project = resolveProjectName(cwd, options.project);
+    const job = queue.enqueue({ project, tool, command: options.command, cwd });
+    queue.markWaitingForReset(job.id, rateLimit.resetAt, {
+      pattern: rateLimit.pattern,
+      rawMatch: rateLimit.rawMatch,
+      resetAt: rateLimit.resetAt,
+      detectedAt: new Date().toISOString(),
+    });
+    queue.close();
+
+    // In --json mode the human banner would corrupt the machine-readable output,
+    // so we suppress it and let the JSON summary below be the sole agentrelay line.
+    if (!options.json) {
+      stdout.write(
+        `\n[agentrelay] Rate limit detected for ${adapter.displayName} (pattern: ${rateLimit.pattern}). Queued job ${job.id} to resume at ${rateLimit.resetAt}.\n` +
+          `Run "agentrelay daemon" (or schedule "agentrelay tick" via cron) to auto-resume it.\n`
+      );
+    }
+
+    const notify = options.notify === undefined ? notifiersFromEnv() : options.notify;
+    await notify?.({
+      jobId: job.id,
+      project,
+      event: "queued",
+      message: `Rate limit detected, queued to resume at ${rateLimit.resetAt}`,
+    });
+
+    result = { exitCode, queuedJob: queue.getById(job.id) ?? null };
   }
 
-  const queue = openQueue(storePath);
-  const project = resolveProjectName(cwd, options.project);
-  const job = queue.enqueue({ project, tool, command: options.command, cwd });
-  queue.markWaitingForReset(job.id, rateLimit.resetAt, {
-    pattern: rateLimit.pattern,
-    rawMatch: rateLimit.rawMatch,
-    resetAt: rateLimit.resetAt,
-    detectedAt: new Date().toISOString(),
-  });
-  queue.close();
+  // Written last so it's the final stdout line, after the wrapped command's own
+  // output: a script can grab it with `agentrelay run --json ... | tail -n1 | jq`.
+  if (options.json) {
+    stdout.write(`${renderRunResultJson(result)}\n`);
+  }
 
-  stdout.write(
-    `\n[agentrelay] Rate limit detected for ${adapter.displayName} (pattern: ${rateLimit.pattern}). Queued job ${job.id} to resume at ${rateLimit.resetAt}.\n` +
-      `Run "agentrelay daemon" (or schedule "agentrelay tick" via cron) to auto-resume it.\n`
-  );
-
-  const notify = options.notify === undefined ? notifiersFromEnv() : options.notify;
-  await notify?.({
-    jobId: job.id,
-    project,
-    event: "queued",
-    message: `Rate limit detected, queued to resume at ${rateLimit.resetAt}`,
-  });
-
-  return { exitCode, queuedJob: queue.getById(job.id) ?? null };
+  return result;
 }
 
 export interface DaemonOptions {

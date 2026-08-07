@@ -734,6 +734,22 @@
       테스트, 실제 빌드 CLI e2e로 시간 버킷팅·최다시간 풀바·스코프 부분집합·`--json` hours 필드·기본 JSON
       미포함·help/completion `--hours` 노출 검증. branch `claude/wizardly-pascal-hours`)
 
+- [x] 👷 `agentrelay run --json` — 래핑한 명령이 rate-limit으로 큐잉됐는지·큐잉된 job id/resetAt을
+      스크립트가 파싱할 machine-readable JSON으로 방출(기존 `agentrelay wait <id>`와 짝).
+      (완료 — 지금까지 `run`은 큐잉된 job id를 사람용 배너 라인으로만 출력해, 스크립트가
+      `agentrelay run -- claude ...`로 큐잉된 job을 이어받으려면 stderr/stdout 텍스트를 긁어야 했다.
+      CLI `run.ts` 신설(순수·I/O 미접촉): `RunJsonSummary`(queued/exitCode/jobId/project/tool/resetAt/
+      status 평면 shape) + `runResultToJsonSummary(result)`(큐잉이면 job 필드 채움, 미큐잉이면 전부 null
+      이되 exitCode는 자식 종료코드 유지) + `renderRunResultJson`(1줄 compact JSON, `tail -n1 | jq`용).
+      `runCommand`에 `json?` 옵션 추가 — 켜지면 사람용 "[agentrelay] Rate limit detected…" 배너를 억제
+      (JSON 오염 방지)하고 자식 출력 뒤 **마지막 stdout 라인**으로 JSON 요약을 방출, 미큐잉 run도
+      `{"queued":false,…}` 방출. notify는 포맷과 무관하게 그대로 발송. CLI `run`에 `--json` 배선,
+      completion 자동 포함. 새 파서/스케줄러/core 로직 0줄. cli run json 6케이스(통합 2: 배너 억제+
+      jobId 매칭·미큐잉 queued:false / 순수 4: 큐잉·미큐잉 매핑·1줄 보장·null resetAt) 신규, 실제
+      빌드 CLI e2e로 `run --json`→마지막 라인 JSON→jobId 추출→status가 그 job 표시·배너 억제·미큐잉
+      queued:false·일반 run 배너 유지·help/completion `--json` 노출 검증. branch
+      `claude/wizardly-pascal-kurs4o`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
