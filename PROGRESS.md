@@ -1831,3 +1831,29 @@
   09:00만 2·나머지 0, `--help`·bash completion에 `--hours` 노출 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`를
   요일(day-of-week) 축으로도, 또는 대시보드에 시간대/추이 히스토그램 노출. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 59 — `agentrelay stats --dow` 요일-of-week 분포] (2026-08-07, 무인 자율 세션, branch `claude/wizardly-pascal-dow`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 58 "다음 할 일"이 후속 인접 항목으로 **요일(day-of-week) 축**을
+  제시했다 — `stats --hours`(세션 58)는 하루 중 어느 시간대에 throttle되는지를 주지만, "한 주 중 어느
+  요일에 몰리나"(예: "나는 주로 수요일에 rate-limit에 걸린다")라는 축이 없었다. CLAUDE.md 지침대로 발굴·구현.
+- **한 일 (branch `claude/wizardly-pascal-dow`):** `agentrelay stats --dow` — UTC 요일(Sun–Sat) 활동 분포 히스토그램.
+  - core `stats.ts`: 순수 `computeWeekdayDistribution(jobs)` + `WeekdayActivity`(day 0–6, label, count) +
+    `WEEKDAY_LABELS` 신설. 각 잡의 `createdAt`을 `getUTCDay()`로 UTC 요일 버킷팅해 **모든 주에 걸쳐** 집계,
+    항상 정확히 7 슬롯(Sun→Sat) zero-fill, `createdAt` 누락/파싱불가는 스킵. `computeHourlyDistribution`과
+    마찬가지로 창(window)도 시계도 불필요 — day-of-week는 타임스탬프의 절대 속성이라 순수·`nowMs` 미주입.
+  - CLI `stats.ts`: 순수 `renderWeekdays(distribution, {color})`(`--hours`와 동일한 막대 스케일링 관례 —
+    최다 요일에 스케일, 비영요일 최소 1블록 보장, 0요일은 dim 베이스라인 점, `Sun`..`Sat` 라벨 + 합계 푸터).
+    `renderStatsJson`에 옵셔널 `weekdays` 필드 추가(요청 시에만 방출, 기존 소비자용 기본 JSON shape 불변).
+  - `cli.ts`: `stats`에 `--dow` 플래그 배선. 일회성 뷰(hours 뒤에 append)·`--json`·`--watch`(fresh `now`로
+    본문 재조합) 세 뷰 모두 적용, 기존 스코프 필터(--status/--tool/--project/--since/--until) 및
+    `--trend`/`--hours`와 조합 가능. addHelpText 예시 1줄, completion은 라이브 프로그램 파생이라 `--dow`
+    자동 포함. 새 파서/스케줄러/core 스토어 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core stats +5·cli stats +5 신규). **실제 빌드 CLI e2e**(mock 아님): 4-잡 임시 스토어
+  (web 완료[07-20 월]/실패[07-27 월]·api 완료[07-22 수]·대기[07-19 일])로 `stats --dow`가 Mon에 풀바(2)·
+  Sun·Wed 각 1·나머지 dim 점·"4 job(s) across 7 weekday(s), UTC" 푸터 렌더, `--dow --json`은 `weekdays`
+  7개(Sun day0=1/Mon day1=2/Wed day3=1, label 포함), 기본 `--json`은 `weekdays` 미포함, `--dow --project web`은
+  scope note + Sun 1·Mon 2·Wed 0(api 수요일 잡 제외), `--help`·bash completion에 `--dow` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `stats --hours`/
+  `--dow`(시간·요일 분포)를 대시보드 히스토그램으로도 노출, 또는 시간×요일 히트맵. README/ARCHITECTURE(🧭 코워크).
