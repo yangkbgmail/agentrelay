@@ -1263,6 +1263,18 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
   // not-yet-created dir look already-present).
   const writable = probeStoreWritable(storePath);
 
+  // On-disk size of the store file, for the store-size (bloat) check. Best
+  // effort: a store that can't be stat-ed just omits the size and the check
+  // falls back to the finished-job count.
+  let storeSizeBytes: number | undefined;
+  if (existedBefore) {
+    try {
+      storeSizeBytes = statSync(storePath).size;
+    } catch {
+      // ignore — size is optional
+    }
+  }
+
   let corrupt = false;
   let jobs: RelayJob[] = [];
   try {
@@ -1308,6 +1320,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
       corrupt,
       jobCount: jobs.length,
       activeCount: countActiveJobs(jobs),
+      sizeBytes: storeSizeBytes,
     },
     writable,
     config: { path: configPathResolved, loadError, issues },

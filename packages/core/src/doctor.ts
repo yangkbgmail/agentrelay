@@ -55,6 +55,12 @@ export interface StoreFacts {
   jobCount: number;
   /** Jobs in a non-terminal state (queued/waiting_for_reset/resuming). */
   activeCount: number;
+  /**
+   * On-disk size of the store file in bytes, when it exists and could be
+   * `stat`-ed. Omitted when absent/unreadable. Used by the store-size check to
+   * flag a store that's grown large and would benefit from pruning.
+   */
+  sizeBytes?: number;
 }
 
 /**
@@ -161,6 +167,33 @@ export interface DiagnosticInput {
 export const MIN_NODE_MAJOR = 22;
 export const MIN_NODE_MINOR = 5;
 
+/**
+ * How many *finished* (terminal) jobs may accumulate before the store-size
+ * check nudges the user to prune. The store is a single JSON file rewritten
+ * atomically on every state change, so a store bloated with thousands of
+ * completed/failed/cancelled jobs makes each flush slower for no benefit —
+ * pruning them costs nothing (they're never re-spawned).
+ */
+export const STORE_BLOAT_JOB_THRESHOLD = 500;
+
+/** File-size ceiling (bytes) past which the store-size check warns. */
+export const STORE_BLOAT_SIZE_BYTES = 5 * 1024 * 1024; // 5 MiB
+
+/** Human-friendly byte size ("512 B", "4.2 KB", "6.1 MB") for size messages. */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 1024) {
+    return `${Number.isFinite(bytes) ? Math.max(0, Math.round(bytes)) : 0} B`;
+  }
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(1)} ${units[unit]}`;
+}
+
 /** The non-terminal statuses that make a job "active" (still being relayed). */
 const ACTIVE_STATUSES = new Set<RelayJob["status"]>(["queued", "waiting_for_reset", "resuming"]);
 
@@ -216,17 +249,20 @@ export function isSupportedNode(version: string): boolean {
  * 1. **node** — the runtime meets the `>=22.5` engines floor.
  * 2. **store** — the job store is readable (corrupt → error; absent → an OK
  *    "will be created" note, since a fresh install has no store yet).
- * 3. **store-writable** — the store directory can actually be written to; if
+ * 3. **store-size** — the store hasn't bloated with prunable finished jobs (or
+ *    grown into a large file); a store past the threshold is a warning that
+ *    suggests `agentrelay prune`.
+ * 4. **store-writable** — the store directory can actually be written to; if
  *    not, every `flush()` fails and job state is silently lost (error).
- * 4. **adapters** — every agent binary a queued job will re-spawn is on PATH
+ * 5. **adapters** — every agent binary a queued job will re-spawn is on PATH
  *    (a missing one is an error: those jobs can't resume). Skipped-as-OK when
  *    nothing is queued to resume.
- * 5. **daemon** — a resume loop (daemon/tick) is alive, cross-referenced with
+ * 6. **daemon** — a resume loop (daemon/tick) is alive, cross-referenced with
  *    how many jobs are waiting: waiting jobs with no live loop is a warning
  *    (they won't resume), otherwise absence is just an informational OK.
- * 6. **config** — the config file (if any) loads and validates; a broken file
+ * 7. **config** — the config file (if any) loads and validates; a broken file
  *    is an error, semantic warnings are surfaced as warnings.
- * 7. **notify** — at least one notification channel is set (absence is a
+ * 8. **notify** — at least one notification channel is set (absence is a
  *    warning, not an error: notifications are optional but you'd want to know
  *    the relay can't reach you).
  */
@@ -235,6 +271,7 @@ export function runDiagnostics(input: DiagnosticInput): DiagnosticReport {
 
   checks.push(nodeCheck(input.nodeVersion));
   checks.push(storeCheck(input.store));
+  checks.push(storeSizeCheck(input.store));
   checks.push(writableCheck(input.writable));
   checks.push(adapterCheck(input.adapters));
   checks.push(daemonCheck(input.heartbeat, input.store));
@@ -294,6 +331,49 @@ function storeCheck(store: StoreFacts): DiagnosticCheck {
     name: "store",
     level: "ok",
     message: `job store at ${store.path} is readable (${store.jobCount} job(s)${active})`,
+  };
+}
+
+/**
+ * Judges whether the job store has grown large enough to warrant pruning. The
+ * store is a single JSON file that's fully rewritten on every state change, so
+ * an accumulation of finished (terminal) jobs — which are never re-spawned — is
+ * pure dead weight. Warns when either the count of prunable finished jobs or the
+ * on-disk file size crosses its threshold, and points at `agentrelay prune`.
+ *
+ * Absent/corrupt stores are a no-op here (the `store` check owns those cases):
+ * there's nothing to size up yet, or the contents are unreadable.
+ */
+function storeSizeCheck(store: StoreFacts): DiagnosticCheck {
+  if (store.corrupt) {
+    return { name: "store-size", level: "ok", message: "store contents unreadable — see the store check" };
+  }
+  if (!store.exists) {
+    return { name: "store-size", level: "ok", message: "no job store yet — nothing to prune" };
+  }
+
+  const finished = Math.max(0, store.jobCount - store.activeCount);
+  const tooManyJobs = finished >= STORE_BLOAT_JOB_THRESHOLD;
+  const tooLargeFile = store.sizeBytes !== undefined && store.sizeBytes >= STORE_BLOAT_SIZE_BYTES;
+
+  if (tooManyJobs || tooLargeFile) {
+    const reasons: string[] = [];
+    if (tooManyJobs) reasons.push(`${finished} finished job(s) could be pruned`);
+    if (tooLargeFile && store.sizeBytes !== undefined)
+      reasons.push(`the store file is ${formatBytes(store.sizeBytes)}`);
+    return {
+      name: "store-size",
+      level: "warning",
+      message: `job store is growing large: ${reasons.join(", ")}`,
+      hint: "Trim finished jobs with `agentrelay prune`, or enable auto-prune (AGENTRELAY_AUTOPRUNE=1).",
+    };
+  }
+
+  const size = store.sizeBytes !== undefined ? `, ${formatBytes(store.sizeBytes)} on disk` : "";
+  return {
+    name: "store-size",
+    level: "ok",
+    message: `job store size is healthy (${store.jobCount} job(s), ${finished} finished${size})`,
   };
 }
 

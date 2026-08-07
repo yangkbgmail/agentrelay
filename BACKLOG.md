@@ -734,6 +734,16 @@
       테스트, 실제 빌드 CLI e2e로 시간 버킷팅·최다시간 풀바·스코프 부분집합·`--json` hours 필드·기본 JSON
       미포함·help/completion `--hours` 노출 검증. branch `claude/wizardly-pascal-hours`)
 
+- [x] 👷 `agentrelay doctor` 스토어 비대화(bloat) 검사 — 종료(terminal) 잡이 쌓여 `jobs.json`이
+      비대해지면 prune을 권장. 이 프로젝트가 명시적으로 신경 쓰는 "스토어 무한 증가" 문제의 진단 짝.
+      (완료 — core `doctor.ts`에 옵셔널 `StoreFacts.sizeBytes` + 순수 `storeSizeCheck`(`store` 뒤 배치):
+      종료 잡 수(jobCount−activeCount)≥`STORE_BLOAT_JOB_THRESHOLD`(500) 또는 파일≥`STORE_BLOAT_SIZE_BYTES`
+      (5 MiB)면 warning(prune/auto-prune 힌트), 그 외 ok(온-디스크 크기 표기). 종료 잡만 카운트(활성 잡은
+      재개 대상이라 제외), absent/corrupt는 no-op ok(`store` 검사 담당). 순수 `formatBytes` export. CLI
+      `runDoctor`가 `statSync().size`로 크기 best-effort 수집(실패 시 종료-잡 수로 폴백), 렌더러 변경 0줄.
+      core doctor 8 + formatBytes 3 + cli 1 신규 테스트, 실제 빌드 CLI e2e로 600잡→warning/5잡→ok+크기/
+      --json 노출 검증. branch `claude/wizardly-pascal-leqvb6`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -48,6 +48,18 @@ describe("runDoctor", () => {
     expect(store.message).toContain("1 active");
   });
 
+  it("reports the on-disk store size in the store-size check", () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    const size = find(report, "store-size");
+    expect(size.level).toBe("ok");
+    // a real, small store on disk -> a byte/KB reading is surfaced
+    expect(size.message).toMatch(/on disk/);
+  });
+
   it("errors when the store file is corrupt", () => {
     writeFileSync(storePath, "{ this is not valid json", "utf8");
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });

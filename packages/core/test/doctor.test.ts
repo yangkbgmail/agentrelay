@@ -4,9 +4,12 @@ import {
   countActiveJobs,
   type DiagnosticInput,
   distinctActiveBinaries,
+  formatBytes,
   isSupportedNode,
   parseNodeVersion,
   runDiagnostics,
+  STORE_BLOAT_JOB_THRESHOLD,
+  STORE_BLOAT_SIZE_BYTES,
 } from "../src/doctor.js";
 import type { RelayJob } from "../src/types.js";
 
@@ -105,6 +108,7 @@ describe("runDiagnostics", () => {
     expect(report.counts.error).toBe(0);
     expect(find(report, "node-version").level).toBe("ok");
     expect(find(report, "store").level).toBe("ok");
+    expect(find(report, "store-size").level).toBe("ok");
     expect(find(report, "store-writable").level).toBe("ok");
     expect(find(report, "adapters").level).toBe("ok");
     expect(find(report, "config").level).toBe("ok");
@@ -241,7 +245,7 @@ describe("runDiagnostics", () => {
     const report = runDiagnostics(input({ nodeVersion: "v20.0.0", notify: {} }));
     expect(report.counts.error).toBe(1); // node
     expect(report.counts.warning).toBe(1); // notify
-    expect(report.counts.ok).toBe(5); // store + store-writable + adapters + daemon + config
+    expect(report.counts.ok).toBe(6); // store + store-size + store-writable + adapters + daemon + config
     expect(report.ok).toBe(false);
   });
 
@@ -278,6 +282,78 @@ describe("runDiagnostics", () => {
     expect(writable.message).toContain("EACCES: permission denied");
     expect(writable.hint).toContain("AGENTRELAY_STORE");
     expect(report.ok).toBe(false);
+  });
+
+  describe("store-size (bloat) check", () => {
+    const bloatStore = (over: Partial<DiagnosticInput["store"]> = {}): DiagnosticInput["store"] => ({
+      path: "/s/jobs.json",
+      exists: true,
+      corrupt: false,
+      jobCount: 0,
+      activeCount: 0,
+      ...over,
+    });
+
+    it("is OK for a small store and reports the finished count", () => {
+      const report = runDiagnostics(input({ store: bloatStore({ jobCount: 10, activeCount: 3 }) }));
+      const check = find(report, "store-size");
+      expect(check.level).toBe("ok");
+      expect(check.message).toContain("7 finished");
+    });
+
+    it("warns when finished jobs cross the prune threshold", () => {
+      const report = runDiagnostics(
+        input({ store: bloatStore({ jobCount: STORE_BLOAT_JOB_THRESHOLD + 5, activeCount: 5 }) })
+      );
+      const check = find(report, "store-size");
+      expect(check.level).toBe("warning");
+      expect(check.message).toContain(`${STORE_BLOAT_JOB_THRESHOLD} finished job(s) could be pruned`);
+      expect(check.hint).toContain("agentrelay prune");
+      // a warning must not fail the report
+      expect(report.ok).toBe(true);
+    });
+
+    it("counts only finished (terminal) jobs toward the threshold", () => {
+      // All active: nothing prunable, so no warning even at a high job count.
+      const report = runDiagnostics(
+        input({
+          store: bloatStore({
+            jobCount: STORE_BLOAT_JOB_THRESHOLD + 100,
+            activeCount: STORE_BLOAT_JOB_THRESHOLD + 100,
+          }),
+        })
+      );
+      expect(find(report, "store-size").level).toBe("ok");
+    });
+
+    it("warns on a large file even with few finished jobs", () => {
+      const report = runDiagnostics(
+        input({ store: bloatStore({ jobCount: 3, activeCount: 0, sizeBytes: STORE_BLOAT_SIZE_BYTES }) })
+      );
+      const check = find(report, "store-size");
+      expect(check.level).toBe("warning");
+      expect(check.message).toContain("the store file is");
+    });
+
+    it("shows the on-disk size in the healthy message when known", () => {
+      const report = runDiagnostics(input({ store: bloatStore({ jobCount: 2, sizeBytes: 4096 }) }));
+      const check = find(report, "store-size");
+      expect(check.level).toBe("ok");
+      expect(check.message).toContain("4.0 KB on disk");
+    });
+
+    it("is a no-op OK for an absent store", () => {
+      const report = runDiagnostics(input({ store: bloatStore({ exists: false }) }));
+      expect(find(report, "store-size").level).toBe("ok");
+      expect(find(report, "store-size").message).toContain("nothing to prune");
+    });
+
+    it("defers to the store check for a corrupt store", () => {
+      const report = runDiagnostics(input({ store: bloatStore({ corrupt: true }) }));
+      const check = find(report, "store-size");
+      expect(check.level).toBe("ok");
+      expect(check.message).toContain("unreadable");
+    });
   });
 
   describe("daemon (resume-loop liveness) check", () => {
@@ -361,6 +437,24 @@ describe("runDiagnostics", () => {
       expect(daemon.level).toBe("ok");
       expect(daemon.message).toContain("tick");
     });
+  });
+});
+
+describe("formatBytes", () => {
+  it("renders sub-KB values in bytes", () => {
+    expect(formatBytes(0)).toBe("0 B");
+    expect(formatBytes(512)).toBe("512 B");
+    expect(formatBytes(1023)).toBe("1023 B");
+  });
+  it("scales into KB/MB/GB with one decimal", () => {
+    expect(formatBytes(1024)).toBe("1.0 KB");
+    expect(formatBytes(1536)).toBe("1.5 KB");
+    expect(formatBytes(5 * 1024 * 1024)).toBe("5.0 MB");
+    expect(formatBytes(3 * 1024 * 1024 * 1024)).toBe("3.0 GB");
+  });
+  it("clamps non-finite/negative input to a byte reading", () => {
+    expect(formatBytes(Number.NaN)).toBe("0 B");
+    expect(formatBytes(-100)).toBe("0 B");
   });
 });
 
