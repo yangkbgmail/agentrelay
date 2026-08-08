@@ -81,6 +81,50 @@ describe("readJobsSnapshot", () => {
     expect(claude.nextResetAt).toBe("2099-01-01T00:00:00.000Z");
   });
 
+  it("returns full, zero-filled activity histograms for an empty store", () => {
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.activity.hours).toHaveLength(24);
+    expect(snapshot.activity.hours.every((h) => h.count === 0)).toBe(true);
+    expect(snapshot.activity.weekday).toHaveLength(7);
+    expect(snapshot.activity.weekday.map((w) => w.name)).toEqual(["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]);
+    expect(snapshot.activity.weekday.every((w) => w.count === 0)).toBe(true);
+  });
+
+  it("buckets jobs into UTC hour-of-day and weekday activity, mirroring the CLI", () => {
+    // Write the store directly so createdAt is controlled (enqueue stamps now).
+    // 2026-07-20 is a Monday; two jobs in the 09:00 UTC hour, one on Wednesday.
+    const mkJob = (id: string, createdAt: string) => ({
+      id,
+      project: "p",
+      tool: "generic",
+      command: ["echo"],
+      cwd: dir,
+      status: "completed",
+      resetAt: null,
+      createdAt,
+      updatedAt: createdAt,
+      attempts: 1,
+      lastError: null,
+      lastOutputTail: null,
+    });
+    writeFileSync(
+      storePath,
+      JSON.stringify([
+        mkJob("a", "2026-07-20T09:15:00.000Z"),
+        mkJob("b", "2026-07-20T09:45:00.000Z"),
+        mkJob("c", "2026-07-22T14:00:00.000Z"),
+      ]),
+      "utf8"
+    );
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.activity.hours[9].count).toBe(2);
+    expect(snapshot.activity.hours[14].count).toBe(1);
+    expect(snapshot.activity.hours.reduce((sum, h) => sum + h.count, 0)).toBe(3);
+    expect(snapshot.activity.weekday[1].count).toBe(2); // Monday
+    expect(snapshot.activity.weekday[3].count).toBe(1); // Wednesday
+  });
+
   it("survives a corrupt store file instead of crashing the API route", () => {
     writeFileSync(storePath, "{ not json !!", "utf8");
     const snapshot = readJobsSnapshot(storePath);

@@ -750,6 +750,21 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 대시보드에 활동 히스토그램(시간-of-day / 요일) 노출 — CLI `stats --hours`/`--weekday`의
+      대시보드 미러. "rate-limit이 하루 중/한 주 중 언제 몰리나"를 대시보드에서 바로 확인
+      (직전 세션이 "다음 할 일"로 제안).
+      (완료 — 대시보드는 세션 57의 프로젝트/툴 롤업까지만 미러링했고, 세션 58/59가 CLI에 추가한
+      시간/요일 활동 히스토그램은 대시보드에 없었다. `apps/dashboard/lib/jobs.ts`의 `JobsSnapshot`에
+      `activity: ActivitySnapshot`(hours 24·weekday 7) 추가 — core의 `computeHourlyDistribution`/
+      `computeWeekdayDistribution`(main에 이미 병합)을 재사용해 매 폴링마다 UTC 시간(0–23)·요일(Sun–Sat)
+      분포를 실어 API가 반환(CLI와 드리프트 없음). 클라이언트에 `ActivityCard`+`ActivityChart`(세로 막대
+      히스토그램, 최다 버킷에 스케일·0버킷은 faint 베이스라인 틱·각 열 `title` hover로 정확한 버킷/카운트,
+      시간 축은 3시간마다 틱으로 밀집 방지) + `.activity-*` CSS(기존 롤업 카드 그리드 관례 재사용, 라이트/
+      다크 토큰). 활동은 잡이 하나라도 있을 때만 렌더. dashboard +2 신규 테스트(빈 스토어=zero-fill 24/7·
+      시간/요일 버킷팅 Mon 2·Wed 1), 실제 빌드 대시보드 `next start`+임시 스토어로 `/api/jobs` activity
+      필드(hours[9]=2·[14]=1·weekday Mon=2) e2e + Playwright 스크린샷으로 두 차트 렌더·막대 스케일(09시·Mon
+      풀바) 검증. 새 core 로직 0줄. branch `claude/wizardly-pascal-dashhist`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

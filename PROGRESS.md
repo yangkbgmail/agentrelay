@@ -1859,3 +1859,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 60 — 대시보드 활동 히스토그램(시간-of-day / 요일) 노출] (2026-08-08, 무인 자율 세션, branch `claude/wizardly-pascal-dashhist`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 59가 "다음 할 일"로 명시한 후속 두 후보 중 하나를 구현했다 —
+  세션 58(`--hours`)·59(`--weekday`)가 CLI에 시간/요일 활동 히스토그램을 추가했지만 대시보드에는 없어,
+  브라우저 사용자는 "rate-limit이 하루 중/한 주 중 언제 몰리나"를 볼 수 없었다. (참고: 다른 후보였던
+  `stats --utc-offset`은 병렬 세션이 이미 PR #514로 열어둬 중복 회피 — 이 항목으로 선회했다.)
+- **한 일 (branch `claude/wizardly-pascal-dashhist`):** 대시보드에 CLI `stats --hours`/`--weekday`의 미러인
+  시간-of-day/요일 활동 히스토그램 카드 추가.
+  - `apps/dashboard/lib/jobs.ts`: `JobsSnapshot`에 `activity: ActivitySnapshot`(hours 24·weekday 7) 추가.
+    core의 `computeHourlyDistribution`/`computeWeekdayDistribution`(세션 58/59에서 main에 병합됨)을 재사용해
+    매 폴링마다 UTC 시간(0–23)·요일(Sun–Sat) 분포를 실어 `/api/jobs`가 반환 — CLI와 드리프트 없음.
+  - `apps/dashboard/app/dashboard-client.tsx`: 순수 `ActivityChart`(세로 막대 히스토그램, 최다 버킷에 스케일,
+    비영 버킷 최소 6% 높이 보장, 0버킷은 faint 베이스라인 틱, 각 열 `title` hover로 정확한 버킷/카운트,
+    시간 축 라벨은 3시간마다 틱으로 밀집 방지) + `ActivityCard`(hour/weekday 두 차트, 잡이 하나라도 있을
+    때만 렌더, `aria-label`/`role="img"` 접근성). 롤업 그리드 다음에 배선.
+  - `apps/dashboard/app/globals.css`: `.activity-grid`/`.activity-card`/`.activity-bars`/`.activity-col`/
+    `.activity-track`/`.activity-fill`/`.activity-tick` — 기존 롤업 카드 그리드 관례(auto-fit minmax 280px)
+    재사용, 라이트/다크 토큰(`--accent-running` 막대, `--hairline` 0버킷)만 참조. 새 core 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm format`/`pnpm ci:lint`(Biome) **0 경고**·
+  `pnpm test` 전 패키지 통과(core 563, cli 304/1skip, dashboard 9→11). **실제 빌드 대시보드 e2e**(mock 아님):
+  4-잡 임시 스토어(web 09:15/09:45 Mon·api 14:00 Wed·21:00 Fri)로 `next start`+`/api/jobs` curl이 activity
+  필드에 hours[9]=2·[14]=1·weekday Mon=2·Wed=1 반환, **Playwright 스크린샷**으로 "By hour"·"By weekday" 두
+  차트 렌더·31개 막대(24+7)·비영 높이 스케일(09시·Mon 100%·나머지 50%) 시각 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드
+  활동 카드에 `--trend`(일별 추이) 차트도 추가, 또는 활동 히스토그램에 로컬 타임존 토글(PR #514의
+  `--utc-offset` 병합 후 대시보드에도 미러). README/ARCHITECTURE(🧭 코워크).
