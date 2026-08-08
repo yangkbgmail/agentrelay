@@ -2,7 +2,7 @@
 
 import type { HeartbeatStatus, JobStatus, ProjectBreakdown, RelayJob, ToolBreakdown } from "@agentrelay/core";
 import { useEffect, useState } from "react";
-import type { JobsSnapshot } from "../lib/jobs";
+import type { ActivitySnapshot, JobsSnapshot } from "../lib/jobs";
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -174,6 +174,76 @@ function RollupCard({
   );
 }
 
+/** One column in an {@link ActivityChart}: a bucket count plus its label. */
+interface ActivityBar {
+  /** Full label for the hover title (e.g. "09:00", "Mon"). */
+  label: string;
+  /** Sparse axis tick shown under the bar ("" hides it to avoid crowding). */
+  tick: string;
+  count: number;
+}
+
+/**
+ * A compact vertical bar histogram. Bars scale to the busiest bucket so the
+ * shape reads regardless of absolute volume; every column carries a `title` so
+ * the exact bucket/count is available on hover even when its axis tick is
+ * hidden. Mirrors the CLI `stats --hours`/`--weekday` ASCII charts.
+ */
+function ActivityChart({ title, caption, bars }: { title: string; caption: string; bars: ActivityBar[] }) {
+  const max = bars.reduce((m, b) => Math.max(m, b.count), 0);
+  const total = bars.reduce((sum, b) => sum + b.count, 0);
+  return (
+    <section className="activity-card" aria-label={title}>
+      <h2 className="activity-title">
+        {title} <span className="activity-caption">{caption}</span>
+      </h2>
+      <div className="activity-bars" role="img" aria-label={`${title} — ${caption}, ${total} job(s)`}>
+        {bars.map((bar) => {
+          const pct = max === 0 || bar.count === 0 ? 0 : Math.max(6, Math.round((bar.count / max) * 100));
+          return (
+            <div className="activity-col" key={bar.label} title={`${bar.label}: ${bar.count}`}>
+              <div className="activity-track">
+                <div className="activity-fill" data-zero={bar.count === 0} style={{ height: `${pct}%` }} />
+              </div>
+              <div className="activity-tick numeric">{bar.tick}</div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * "When rate-limits cluster" panel: hour-of-day and day-of-week activity
+ * histograms (UTC), mirroring `agentrelay stats --hours`/`--weekday`. Rendered
+ * only once at least one job has a creation time to place on the clock.
+ */
+function ActivityCard({ activity }: { activity: ActivitySnapshot | undefined }) {
+  if (!activity) return null;
+  const total = activity.hours.reduce((sum, h) => sum + h.count, 0);
+  if (total === 0) return null;
+
+  const hourBars: ActivityBar[] = activity.hours.map((h) => ({
+    label: `${String(h.hour).padStart(2, "0")}:00`,
+    // Label every third hour so 24 ticks don't crowd; hover shows the rest.
+    tick: h.hour % 3 === 0 ? String(h.hour).padStart(2, "0") : "",
+    count: h.count,
+  }));
+  const weekdayBars: ActivityBar[] = activity.weekday.map((w) => ({
+    label: w.name,
+    tick: w.name,
+    count: w.count,
+  }));
+
+  return (
+    <section className="activity-grid" aria-label="Activity patterns">
+      <ActivityChart title="By hour" caption="jobs created per hour of day, UTC" bars={hourBars} />
+      <ActivityChart title="By weekday" caption="jobs created per day of week, UTC" bars={weekdayBars} />
+    </section>
+  );
+}
+
 function StatusBadge({ status }: { status: JobStatus }) {
   const meta = STATUS_META[status] ?? { label: status, colorVar: "var(--ink-muted)" };
   return (
@@ -310,6 +380,8 @@ export default function DashboardClient() {
           <RollupCard title="By tool" keyHeader="Tool" rows={toolRows} now={now} />
         </section>
       )}
+
+      <ActivityCard activity={snapshot?.activity} />
 
       <section className="jobs-card" aria-label="Job list">
         {jobs.length === 0 ? (

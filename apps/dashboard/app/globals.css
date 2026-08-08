@@ -137,6 +137,81 @@ main {
   padding: 14px;
 }
 
+.activity-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin: 24px 0;
+}
+
+.activity-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px 10px;
+  overflow-x: auto;
+}
+
+.activity-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  margin: 0 0 12px;
+}
+
+.activity-caption {
+  font-weight: 400;
+  color: var(--ink-muted);
+}
+
+.activity-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 96px;
+}
+
+.activity-col {
+  flex: 1 1 0;
+  min-width: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+}
+
+.activity-track {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  min-height: 0;
+}
+
+.activity-fill {
+  width: 100%;
+  min-height: 2px;
+  background: var(--accent-running);
+  border-radius: 2px 2px 0 0;
+  transition: height 0.3s ease;
+}
+
+/* A zero bucket shows a faint baseline tick instead of a bar. */
+.activity-fill[data-zero="true"] {
+  height: 2px !important;
+  background: var(--hairline);
+  border-radius: 0;
+}
+
+.activity-tick {
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--ink-muted);
+  height: 11px;
+  white-space: nowrap;
+}
+
 .jobs-card {
   background: var(--surface);
   border: 1px solid var(--border);

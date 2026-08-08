@@ -1,6 +1,16 @@
 import { readFileSync } from "node:fs";
-import type { HeartbeatStatus, ProjectsSummary, QueueSummary, RelayJob, ToolsSummary } from "@agentrelay/core";
+import type {
+  HeartbeatStatus,
+  HourlyActivity,
+  ProjectsSummary,
+  QueueSummary,
+  RelayJob,
+  ToolsSummary,
+  WeekdayActivity,
+} from "@agentrelay/core";
 import {
+  computeHourlyDistribution,
+  computeWeekdayDistribution,
   countActiveJobs,
   daemonHeartbeatPath,
   defaultStorePath,
@@ -35,6 +45,21 @@ export interface JobsSnapshot {
    * #1 silent failure: jobs queued to resume with nothing running to resume them.
    */
   heartbeat: HeartbeatStatus;
+  /**
+   * When rate-limits cluster — a mirror of `agentrelay stats --hours`/`--weekday`
+   * so the dashboard shows the same UTC hour-of-day (0–23) and day-of-week
+   * (Sun–Sat) activity patterns. Reuses core's distribution functions, so it
+   * never drifts from the CLI. Both are always full, zero-filled shapes.
+   */
+  activity: ActivitySnapshot;
+}
+
+/** Aggregate activity histograms (UTC) carried in a {@link JobsSnapshot}. */
+export interface ActivitySnapshot {
+  /** Jobs created per UTC hour of day (always 24 entries, hour 0–23). */
+  hours: HourlyActivity[];
+  /** Jobs created per UTC weekday (always 7 entries, Sun–Sat). */
+  weekday: WeekdayActivity[];
 }
 
 /**
@@ -71,5 +96,9 @@ export function readJobsSnapshot(storePath: string = defaultStorePath()): JobsSn
     projects: summarizeProjects(jobs),
     tools: summarizeTools(jobs),
     heartbeat: readHeartbeatStatus(storePath, jobs, nowMs),
+    activity: {
+      hours: computeHourlyDistribution(jobs),
+      weekday: computeWeekdayDistribution(jobs),
+    },
   };
 }
