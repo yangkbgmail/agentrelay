@@ -12,8 +12,9 @@ import type {
   JobStatus,
   RelayStats,
   WeekdayActivity,
+  WeekHourHeatmap,
 } from "@agentrelay/core";
-import { isJobScopeActive } from "@agentrelay/core";
+import { isJobScopeActive, WEEKDAY_NAMES } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
 const BOLD = "\x1b[1m";
@@ -312,6 +313,57 @@ export function renderWeekday(weekdays: WeekdayActivity[], options: { color?: bo
   return lines.join("\n");
 }
 
+/**
+ * Shade ramp for the weekday × hour heatmap, from lightest (fewest jobs) to
+ * darkest (busiest). Index 0 is reserved for the empty-cell baseline dot; a
+ * non-zero cell maps into indices 1..4 by intensity so even a single job shows.
+ */
+const HEATMAP_RAMP = ["·", "░", "▒", "▓", "█"] as const;
+
+/**
+ * Renders a weekday × hour-of-day activity heatmap (jobs created per UTC
+ * weekday+hour) as a compact 7-row × 24-column shade grid. Cells scale to the
+ * busiest single cell so the shape reads regardless of absolute volume; an empty
+ * cell shows a dim baseline dot. A two-line hour header (tens then ones digit)
+ * aligns to the single-char columns, and each row/column carries its own total.
+ * Pure: no I/O, no clock. Callers pass the already-computed heatmap so it stays
+ * testable.
+ */
+export function renderHeatmap(heatmap: WeekHourHeatmap, options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const names = WEEKDAY_NAMES;
+  const lines: string[] = [b("heatmap") + d(" (jobs created per weekday × hour, UTC)")];
+
+  // Two header lines of hour ticks, aligned under the 24 single-char cell
+  // columns: the tens digit (0/1/2) then the ones digit (0–9), each below the
+  // cell it labels. The 5-char left gutter matches the "Sun  " row prefix.
+  const gutter = "     ";
+  const tens = Array.from({ length: 24 }, (_, h) => String(Math.floor(h / 10))).join("");
+  const ones = Array.from({ length: 24 }, (_, h) => String(h % 10)).join("");
+  lines.push(d(`${gutter}${tens}`));
+  lines.push(d(`${gutter}${ones}`));
+
+  const { grid, rowTotals, max, total } = heatmap;
+  for (let weekday = 0; weekday < 7; weekday++) {
+    const cells = grid[weekday]
+      .map((count) => {
+        if (count === 0) return color ? d(HEATMAP_RAMP[0]) : HEATMAP_RAMP[0];
+        // Map a non-zero count into ramp indices 1..4 by its share of the peak
+        // cell, so any activity is visible and the busiest cell is fully dark.
+        const level = max === 0 ? 1 : Math.min(4, Math.max(1, Math.ceil((count / max) * 4)));
+        return HEATMAP_RAMP[level];
+      })
+      .join("");
+    lines.push(`  ${names[weekday]}  ${cells} ${rowTotals[weekday]}`);
+  }
+
+  lines.push(d(`  ${total} job(s) across 7 day(s) × 24 hour(s), UTC — busiest cell ${max}`));
+  return lines.join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,
@@ -322,17 +374,19 @@ export function renderStatsJson(
     trend?: DailyActivity[] | null;
     hours?: HourlyActivity[] | null;
     weekday?: WeekdayActivity[] | null;
+    heatmap?: WeekHourHeatmap | null;
   } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
-  // Only emit `trend`/`hours`/`weekday` when the matching flag was requested;
-  // omit them otherwise so the default JSON shape is unchanged for existing
-  // consumers.
+  // Only emit `trend`/`hours`/`weekday`/`heatmap` when the matching flag was
+  // requested; omit them otherwise so the default JSON shape is unchanged for
+  // existing consumers.
   const trend = options.trend ?? undefined;
   const hours = options.hours ?? undefined;
   const weekday = options.weekday ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, stats }, null, 2);
+  const heatmap = options.heatmap ?? undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, heatmap, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */
