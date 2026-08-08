@@ -1859,3 +1859,34 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 60 — `agentrelay stats --utc-offset` 로컬 시간대 히스토그램] (2026-08-08, 무인 자율 세션, branch `claude/wizardly-pascal-utcoffset`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 직전 두 세션(58 `--hours`, 59 `--weekday`)이 "다음 할 일"로 반복 제안한
+  후보 중 하나를 구현했다 — 시간대/요일/추이 히스토그램이 전부 UTC 고정이라, KST(+09:00)처럼 UTC에서 멀리
+  떨어진 사용자에겐 "몇 시에 throttle되나"가 실제 로컬 시각과 9시간 어긋나 보였다.
+- **한 일 (branch `claude/wizardly-pascal-utcoffset`):** `agentrelay stats --utc-offset <±HH[:MM]>` —
+  `--hours`/`--weekday`/`--trend` 히스토그램을 임의의 UTC 오프셋으로 버킷팅.
+  - core `stats.ts`: 순수 `parseUtcOffset(input)`(`+9`/`-5`/`+09:30`/`+0930`/`UTC`/`Z`/`0` → minutes
+    east of UTC; 범위 −12:00…+14:00[`MIN/MAX_UTC_OFFSET_MINUTES`] 밖·malformed·빈문자열은 null, `-0`→`0`
+    정규화) + `formatUtcOffset(minutes)`(역함수, 0→`UTC`·540→`UTC+09:00`·−330→`UTC-05:30`). 세 histogram
+    함수에 옵셔널 `offsetMinutes` 추가 — 타임스탬프(및 trend의 "오늘")를 `ms + offset*60000`으로 shift한 뒤
+    기존 UTC 버킷팅(getUTCHours/getUTCDay/utcDayStart)을 그대로 재사용해 로컬 시·요일·달력일에 안착.
+    offset 0/미지정은 UTC 동작과 완전 동일(전방호환, 기존 테스트 전부 무변).
+  - CLI `stats.ts`: `renderHours`/`renderWeekday`/`renderTrend`에 옵셔널 `tzLabel`(기본 "UTC")를 추가해
+    헤더·푸터에 어느 시계로 버킷됐는지 표기, `renderStatsJson`에 옵셔널 `utcOffsetMinutes`(non-zero일 때만
+    방출 → 기본 UTC JSON shape 불변).
+  - `cli.ts`: `stats`에 `--utc-offset <offset>` 배선, `parseUtcOffset`로 검증(실패 시 명확한 메시지 + exit 1).
+    일회성·`--json`·`--watch`(watch는 `formatUtcOffset`로 tzLabel 계산 후 매 프레임 재적용) 세 뷰 모두 적용,
+    기존 스코프 필터 및 `--hours`/`--weekday`/`--trend`와 조합 가능. 스코프 필터가 아니라 버킷팅 이동이므로
+    scope에 포함 안 함. addHelpText 예시 1줄 추가, completion은 라이브 프로그램 파생이라 `--utc-offset` 자동 포함.
+    새 파서/스케줄러/스토어 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 563→576, cli 304→308/1skip, dashboard 9). **실제 빌드 CLI e2e**(mock 아님): 2-잡
+  임시 스토어(22:30Z·03:00Z)로 `stats --hours`는 UTC 22/03시, `--hours --utc-offset +9`는 07/12시로 shift,
+  `--weekday`는 22:30Z를 UTC Sun에, `--weekday --utc-offset +9`는 Mon으로 롤오버, `--hours --utc-offset -05:30
+  --json`은 `utcOffsetMinutes: -330` 에코·기본 `--json`은 미포함, `--utc-offset +15`(범위초과)는 exit 1,
+  `--help`·bash completion에 `--utc-offset` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 남은 인접 후보 — 대시보드에 시간대/요일/추이
+  히스토그램 노출(CLI histogram 3종의 대시보드 미러), 또는 `--utc-offset`을 `status`/`export`의 시간 창 표시에도
+  확장. README/ARCHITECTURE(🧭 코워크).

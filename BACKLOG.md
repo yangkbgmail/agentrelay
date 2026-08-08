@@ -750,6 +750,25 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 `agentrelay stats --utc-offset <±HH[:MM]>` — `--hours`/`--weekday`/`--trend` 히스토그램을
+      UTC가 아닌 임의의 UTC 오프셋(로컬 시간대)으로 버킷팅. 세션 58·59의 시간대 히스토그램이 UTC 고정이라
+      KST(+09:00) 등 사용자에겐 몇 시간 밀려 보이던 문제 해결("나는 로컬 시간 언제 throttle 되나").
+      (완료 — core `stats.ts`에 순수 `parseUtcOffset(input)`(`+9`/`-5`/`+09:30`/`+0930`/`UTC`/`Z`/`0` →
+      minutes east of UTC, 범위 −12:00…+14:00 밖·malformed·빈문자열은 null, `-0`은 `0`으로 정규화) +
+      `formatUtcOffset(minutes)`(0→`UTC`, 540→`UTC+09:00`, −330→`UTC-05:30`) + `MIN/MAX_UTC_OFFSET_MINUTES`.
+      `computeHourlyDistribution`/`computeWeekdayDistribution`에 옵셔널 `{offsetMinutes}`, `computeDailyTrend`
+      옵션에 `offsetMinutes` 추가 — 타임스탬프(및 trend의 "오늘")를 오프셋만큼 shift한 뒤 기존 UTC 버킷팅
+      (getUTCHours/getUTCDay/utcDayStart) 재사용해 로컬 시·요일·달력일에 안착. offset 0/미지정은 기존 UTC
+      동작과 완전 동일(전방호환). CLI `stats.ts`의 `renderHours`/`renderWeekday`/`renderTrend`에 옵셔널
+      `tzLabel`(기본 "UTC") 추가해 헤더·푸터가 어느 시계인지 표기, `renderStatsJson`에 옵셔널
+      `utcOffsetMinutes`(non-zero일 때만 방출, 기본 JSON shape 불변). `cli.ts` `stats`에 `--utc-offset <offset>`
+      배선 — `parseUtcOffset`로 검증(실패 시 exit 1), 일회성·`--json`·`--watch` 세 뷰 모두 적용, 기존 스코프
+      필터 및 `--hours`/`--weekday`/`--trend`와 조합. 스코프 필터 아님(버킷팅만 이동). core stats +14
+      (parseUtcOffset/formatUtcOffset + hours/weekday/trend offset) + cli stats +4(tzLabel×3 + utcOffsetMinutes)
+      신규 테스트, 실제 빌드 CLI e2e로 22:30Z→+9=07:00·03:00Z→+9=12:00 시간 shift, Sun→Mon 요일 롤오버,
+      `--json` utcOffsetMinutes=-330 에코·기본 미포함, `+15` 범위초과 exit 1, help/completion `--utc-offset`
+      노출 검증. branch `claude/wizardly-pascal-utcoffset`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
