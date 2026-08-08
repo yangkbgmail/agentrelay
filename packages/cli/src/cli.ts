@@ -17,6 +17,7 @@ import {
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
+  computeActivityHeatmap,
   computeDailyTrend,
   computeErrorBreakdown,
   computeHourlyDistribution,
@@ -88,6 +89,7 @@ import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
   renderGroupedStats,
   renderGroupedStatsJson,
+  renderHeatmap,
   renderHours,
   renderStats,
   renderStatsJson,
@@ -453,7 +455,8 @@ function runStatsWatch(
   groupBy: GroupDimension | undefined,
   trendDays: number | null,
   hours: boolean,
-  weekday: boolean
+  weekday: boolean,
+  heatmap: boolean
 ): void {
   const active = isJobScopeActive(scope);
   startWatchLoop(intervalMs, () => {
@@ -475,6 +478,9 @@ function runStatsWatch(
       }
       if (weekday && stats.total > 0) {
         body += `\n\n${renderWeekday(computeWeekdayDistribution(jobs), { color: true })}`;
+      }
+      if (heatmap && stats.total > 0) {
+        body += `\n\n${renderHeatmap(computeActivityHeatmap(jobs), { color: true })}`;
       }
     }
     const frame = renderStatsWatchFrame(body, store, intervalMs, now);
@@ -998,6 +1004,7 @@ export function buildCli(): Command {
     .option("--trend [days]", "Also show a per-day activity histogram over the last N days, UTC (default 14, max 90)")
     .option("--hours", "Also show an hour-of-day activity histogram (jobs created per UTC hour, 0–23)")
     .option("--weekday", "Also show a day-of-week activity histogram (jobs created per UTC weekday, Sun–Sat)")
+    .option("--heatmap", "Also show a UTC weekday × hour activity heatmap (2-D join of --weekday and --hours)")
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
     .addHelpText(
       "after",
@@ -1011,7 +1018,9 @@ export function buildCli(): Command {
         "  # which UTC hours rate-limits cluster in\n" +
         "  agentrelay stats --hours\n" +
         "  # which UTC weekdays rate-limits cluster on\n" +
-        "  agentrelay stats --weekday"
+        "  agentrelay stats --weekday\n" +
+        "  # when during the week, at weekday × hour resolution\n" +
+        "  agentrelay stats --heatmap"
     )
     .action(
       (opts: {
@@ -1024,6 +1033,7 @@ export function buildCli(): Command {
         trend?: string | boolean;
         hours?: boolean;
         weekday?: boolean;
+        heatmap?: boolean;
         json?: boolean;
         watch?: string | boolean;
       }) => {
@@ -1144,7 +1154,8 @@ export function buildCli(): Command {
             groupBy,
             trendDays,
             Boolean(opts.hours),
-            Boolean(opts.weekday)
+            Boolean(opts.weekday),
+            Boolean(opts.heatmap)
           );
           return; // setInterval keeps the process alive.
         }
@@ -1166,9 +1177,10 @@ export function buildCli(): Command {
         const trend = trendDays !== null ? computeDailyTrend(jobs, { nowMs: now, days: trendDays }) : null;
         const hours = opts.hours ? computeHourlyDistribution(jobs) : null;
         const weekday = opts.weekday ? computeWeekdayDistribution(jobs) : null;
+        const heatmap = opts.heatmap ? computeActivityHeatmap(jobs) : null;
 
         if (opts.json) {
-          console.log(renderStatsJson(stats, store, { scope, trend, hours, weekday }));
+          console.log(renderStatsJson(stats, store, { scope, trend, hours, weekday, heatmap }));
           return;
         }
         // A store with jobs but an empty scoped subset should say "no match",
@@ -1187,6 +1199,10 @@ export function buildCli(): Command {
         if (weekday !== null && stats.total > 0) {
           console.log("");
           console.log(renderWeekday(weekday, { color: Boolean(process.stdout.isTTY) }));
+        }
+        if (heatmap !== null && stats.total > 0) {
+          console.log("");
+          console.log(renderHeatmap(heatmap, { color: Boolean(process.stdout.isTTY) }));
         }
       }
     );

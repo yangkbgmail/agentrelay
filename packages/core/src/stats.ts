@@ -259,6 +259,63 @@ export function computeWeekdayDistribution(jobs: RelayJob[]): WeekdayActivity[] 
   return counts.map((count, weekday) => ({ weekday, name: WEEKDAY_NAMES[weekday], count }));
 }
 
+/** One weekday's row in the activity heatmap: its 24 hourly counts plus the row total. */
+export interface HeatmapRow {
+  /** UTC day of week, 0 (Sunday) – 6 (Saturday), matching `Date.getUTCDay()`. */
+  weekday: number;
+  /** Short UTC weekday name (`Sun`…`Sat`), taken from {@link WEEKDAY_NAMES}. */
+  name: string;
+  /** Jobs created in each UTC hour (index 0–23) on this weekday, across every week. */
+  hours: number[];
+  /** Sum of this row's 24 hourly counts. */
+  total: number;
+}
+
+export interface ActivityHeatmap {
+  /** Exactly 7 rows, Sunday through Saturday, each with exactly 24 hourly counts. */
+  rows: HeatmapRow[];
+  /** Busiest single weekday×hour cell count (0 when the store is empty) — the intensity scale. */
+  max: number;
+  /** Total jobs placed on the grid (jobs with an unparseable/missing `createdAt` are excluded). */
+  total: number;
+}
+
+/**
+ * Buckets jobs into a UTC weekday×hour (7×24) grid by their `createdAt`,
+ * aggregated across every week, so `agentrelay stats --heatmap` can show *when
+ * during the week* rate-limits cluster at two-dimensional resolution ("mostly
+ * Monday mornings around 09:00 UTC"). This is the 2-D join of
+ * {@link computeWeekdayDistribution} (rows) and {@link computeHourlyDistribution}
+ * (columns): summing a row's `hours` gives that weekday's total, and summing a
+ * column across rows gives that hour's total. Like both, it needs no window and
+ * no clock — the cell is an absolute property of each timestamp.
+ *
+ * The grid is always exactly 7 rows (Sun→Sat) × 24 hours (0→23), zero-filled so
+ * the shape is stable. Jobs with a missing or unparseable `createdAt` are
+ * skipped — they can't be placed on the grid. `max` is the busiest cell (the
+ * intensity scale for rendering); `total` counts only the jobs actually placed.
+ */
+export function computeActivityHeatmap(jobs: RelayJob[]): ActivityHeatmap {
+  const grid: number[][] = Array.from({ length: 7 }, () => new Array<number>(24).fill(0));
+  let total = 0;
+  let max = 0;
+  for (const job of jobs) {
+    const created = Date.parse(job.createdAt);
+    if (Number.isNaN(created)) continue;
+    const at = new Date(created);
+    const cell = ++grid[at.getUTCDay()][at.getUTCHours()];
+    if (cell > max) max = cell;
+    total += 1;
+  }
+  const rows: HeatmapRow[] = grid.map((hours, weekday) => ({
+    weekday,
+    name: WEEKDAY_NAMES[weekday],
+    hours,
+    total: hours.reduce((sum, c) => sum + c, 0),
+  }));
+  return { rows, max, total };
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 

@@ -1859,3 +1859,34 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 60 — `agentrelay stats --heatmap` UTC 요일×시간 2D 히트맵] (2026-08-08, 무인 자율 세션, branch `claude/wizardly-pascal-fw8bys`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐 → CLAUDE.md 지침대로 인접 개선 항목을 스스로 발굴. 세션 58(`--hours`, 시간-of-day)·
+  59(`--weekday`, day-of-week)는 각각 하루/한 주의 **단일 축** 분포만 준다. "한 주 중 언제(어느 요일의 어느 시간)에
+  rate-limit이 몰리나"를 보려면 두 축을 동시에 봐야 하는데 그 2D 뷰가 없었다.
+- **한 일 (branch `claude/wizardly-pascal-fw8bys`):** `agentrelay stats --heatmap` — UTC 요일(Sun–Sat)×시간(0–23)
+  7×24 활동 히트맵.
+  - core `stats.ts`: 순수 `computeActivityHeatmap(jobs)` + `ActivityHeatmap`(rows·max·total)·`HeatmapRow`
+    (weekday·name·hours[24]·total) 신설. 각 잡의 `createdAt`을 `getUTCDay()`×`getUTCHours()` 셀로 버킷팅해
+    **모든 주에 걸쳐** 집계, 항상 7행×24열 zero-fill, `createdAt` 누락/파싱불가는 스킵. `max`는 최다 셀(렌더 강도
+    스케일). 행 합은 `computeWeekdayDistribution`, 열 합은 `computeHourlyDistribution`과 lockstep(1D 분포의 2D 조인) —
+    창도 시계도 불필요(셀은 타임스탬프의 절대 속성).
+  - CLI `stats.ts`: 순수 `renderHeatmap(heatmap, {color})` — 7행×24셀 강도 램프 `·░▒▓█`(0셀은 dim 베이스라인 점,
+    비영 셀은 최소 `░`부터 최다 셀에서 `█`까지 `ceil(ratio·4)` 스케일), 상단 시간 눈금 자(0/6/12/18/23, 우측 끝
+    2자리 라벨은 좌측 시프트로 24-lane 안에), 요일 라벨·행 합·범례·합계 푸터. `renderStatsJson`에 옵셔널 `heatmap`
+    필드 추가(요청 시에만 방출, 기존 소비자용 기본 JSON shape 불변).
+  - `cli.ts`: `stats`에 `--heatmap` 플래그 배선. 일회성 뷰(hours/weekday 뒤에 append)·`--json`·`--watch`(fresh `now`로
+    본문 재조합) 세 뷰 모두 적용, 기존 스코프 필터(--status/--tool/--project/--since/--until) 및 `--hours`/`--weekday`/
+    `--trend`와도 조합 가능. addHelpText 예시 1줄, completion은 라이브 프로그램 파생이라 `--heatmap` 자동 포함.
+    새 파서/스케줄러/core 스토어 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 563→568, cli stats +5, dashboard 9). **실제 빌드 CLI e2e**(mock 아님): 3-잡 임시 스토어
+  (web-app 완료 Mon09 ×2·api-svc 실패 Wed14)로 `stats --heatmap`이 Mon09 셀에 `█`(최다=2)·Wed14 셀에 `▒`
+  (0.5비율)·나머지 dim 점·시간 눈금 자·범례·"3 job(s) across 7×24 cell(s), UTC" 푸터 렌더, `--heatmap --json`은
+  `heatmap.rows` 7개·max 2·total 3·Mon09=2, 기본 `--json`은 `heatmap` 미포함, `--heatmap --tool claude-code`는
+  scope note + Mon09만 남고 total 1, 잘못된 `--tool nope`는 render 전에 exit 1, `--hours --weekday --heatmap`은
+  세 히스토그램 동시 렌더, `--help`·bash completion에 `--heatmap` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
+  시간대/요일/히트맵 히스토그램 노출(CLI `--hours`/`--weekday`/`--heatmap`의 대시보드 미러), 또는 활동 분포 뷰들을
+  로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).

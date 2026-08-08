@@ -1,5 +1,6 @@
 import type { DailyActivity, HourlyActivity, RelayJob, WeekdayActivity } from "@agentrelay/core";
 import {
+  computeActivityHeatmap,
   computeDailyTrend,
   computeHourlyDistribution,
   computeStats,
@@ -15,6 +16,7 @@ import {
   NO_STATS_MESSAGE,
   renderGroupedStats,
   renderGroupedStatsJson,
+  renderHeatmap,
   renderHours,
   renderStats,
   renderStatsJson,
@@ -452,6 +454,66 @@ describe("renderStatsJson weekday field", () => {
     expect(withWeekday.weekday).toHaveLength(7);
     expect(withWeekday.weekday[1].count).toBe(1);
     expect(withWeekday.weekday[1].name).toBe("Mon");
+  });
+});
+
+describe("renderHeatmap", () => {
+  it("renders a header, an hour ruler, all 7 weekday rows, a legend, and a footer", () => {
+    // Mon 09 ×2, Wed 14 ×1 → busiest cell is 2.
+    const jobs = [
+      job({ createdAt: "2026-07-20T09:00:00.000Z" }),
+      job({ createdAt: "2026-07-27T09:30:00.000Z" }),
+      job({ createdAt: "2026-07-22T14:00:00.000Z" }),
+    ];
+    const out = renderHeatmap(computeActivityHeatmap(jobs));
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("by heatmap");
+    // Ruler carries hour tick labels.
+    expect(lines[1]).toMatch(/0.*6.*12.*18.*23/);
+    expect(out).toContain("Sun");
+    expect(out).toContain("Mon");
+    expect(out).toContain("Sat");
+    // Header + ruler + 7 rows + legend + footer.
+    expect(lines).toHaveLength(11);
+    expect(out).toContain("legend:");
+    expect(lines[lines.length - 1]).toContain("3 job(s) across 7×24 cell(s), UTC");
+    // Row totals appear at the end of each row.
+    expect(out).toMatch(/Mon .* 2/);
+    expect(out).toMatch(/Wed .* 1/);
+  });
+
+  it("shades the busiest cell with a full block and leaves empty cells as dots", () => {
+    const jobs = [job({ createdAt: "2026-07-20T09:00:00.000Z" })]; // Mon 09
+    const out = renderHeatmap(computeActivityHeatmap(jobs));
+    const rows = out.split("\n");
+    const monRow = rows.find((r) => r.includes("Mon")) ?? "";
+    const sunRow = rows.find((r) => r.includes("Sun")) ?? "";
+    expect(monRow).toContain("█"); // single busiest cell
+    expect((monRow.match(/█/g) ?? []).length).toBe(1);
+    expect(sunRow).not.toContain("█");
+    expect(sunRow).toContain("·"); // baseline dots for a quiet day
+  });
+
+  it("shows a `none` placeholder for an empty store (no rows, no ruler)", () => {
+    const out = renderHeatmap(computeActivityHeatmap([]));
+    expect(out).toContain("by heatmap");
+    expect(out).toContain("none");
+    expect(out).not.toContain("█");
+    expect(out).not.toContain("legend:");
+  });
+});
+
+describe("renderStatsJson heatmap field", () => {
+  it("omits `heatmap` by default but includes the 7×24 grid when provided", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("heatmap" in without).toBe(false);
+    const heatmap = computeActivityHeatmap([job({ createdAt: "2026-07-20T09:00:00.000Z" })]); // Mon 09
+    const withHeatmap = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", heatmap }));
+    expect(withHeatmap.heatmap.rows).toHaveLength(7);
+    expect(withHeatmap.heatmap.rows[1].hours[9]).toBe(1);
+    expect(withHeatmap.heatmap.max).toBe(1);
+    expect(withHeatmap.heatmap.total).toBe(1);
   });
 });
 

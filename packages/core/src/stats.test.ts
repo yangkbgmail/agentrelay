@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  computeActivityHeatmap,
   computeDailyTrend,
   computeHourlyDistribution,
   computeStats,
@@ -570,6 +571,68 @@ describe("computeWeekdayDistribution", () => {
     const jobs = [job({ createdAt: "2026-07-20T05:00:00.000Z" })];
     const before = JSON.stringify(jobs);
     computeWeekdayDistribution(jobs);
+    expect(JSON.stringify(jobs)).toBe(before);
+  });
+});
+
+describe("computeActivityHeatmap", () => {
+  it("returns a zero-filled 7×24 grid, max/total 0 for an empty store", () => {
+    const hm = computeActivityHeatmap([]);
+    expect(hm.rows).toHaveLength(7);
+    expect(hm.rows.map((r) => r.weekday)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(hm.rows.map((r) => r.name)).toEqual(["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]);
+    expect(hm.rows.every((r) => r.hours.length === 24 && r.hours.every((c) => c === 0))).toBe(true);
+    expect(hm.rows.every((r) => r.total === 0)).toBe(true);
+    expect(hm.max).toBe(0);
+    expect(hm.total).toBe(0);
+  });
+
+  it("buckets jobs into the right weekday×hour cell, across all weeks", () => {
+    // 2026-07-20 is a Monday. Two jobs at 09:00 UTC Monday (different weeks) land
+    // in the same cell; one Wednesday 14:00 lands elsewhere.
+    const jobs = [
+      job({ createdAt: "2026-07-20T09:15:00.000Z" }), // Mon 09
+      job({ createdAt: "2026-07-27T09:45:00.000Z" }), // Mon 09, next week
+      job({ createdAt: "2026-07-22T14:00:00.000Z" }), // Wed 14
+    ];
+    const hm = computeActivityHeatmap(jobs);
+    expect(hm.rows[1].hours[9]).toBe(2); // Monday 09:00
+    expect(hm.rows[3].hours[14]).toBe(1); // Wednesday 14:00
+    expect(hm.max).toBe(2); // busiest cell
+    expect(hm.total).toBe(3);
+  });
+
+  it("keeps row totals and the weekday/hour axes consistent with the 1-D distributions", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-20T09:00:00.000Z" }), // Mon 09
+      job({ createdAt: "2026-07-20T23:00:00.000Z" }), // Mon 23
+      job({ createdAt: "2026-07-19T00:00:00.000Z" }), // Sun 00
+    ];
+    const hm = computeActivityHeatmap(jobs);
+    // Row total == that weekday's count.
+    expect(hm.rows[1].total).toBe(2); // Monday
+    expect(hm.rows[0].total).toBe(1); // Sunday
+    const weekday = computeWeekdayDistribution(jobs);
+    expect(hm.rows.map((r) => r.total)).toEqual(weekday.map((w) => w.count));
+    // Column sum across rows == that hour's count.
+    const hours = computeHourlyDistribution(jobs);
+    for (let h = 0; h < 24; h += 1) {
+      const colSum = hm.rows.reduce((sum, r) => sum + r.hours[h], 0);
+      expect(colSum).toBe(hours[h].count);
+    }
+  });
+
+  it("skips jobs with a missing/unparseable createdAt", () => {
+    const jobs = [job({ createdAt: "not-a-date" }), job({ createdAt: "2026-07-22T14:00:00.000Z" })]; // Wed 14
+    const hm = computeActivityHeatmap(jobs);
+    expect(hm.total).toBe(1);
+    expect(hm.rows[3].hours[14]).toBe(1);
+  });
+
+  it("does not mutate its input", () => {
+    const jobs = [job({ createdAt: "2026-07-20T05:00:00.000Z" })];
+    const before = JSON.stringify(jobs);
+    computeActivityHeatmap(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
   });
 });
