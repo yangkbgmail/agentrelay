@@ -173,17 +173,27 @@ function utcDateKey(dayStartMs: number): string {
  * quiet days so the histogram has a stable shape. Jobs with a missing or
  * unparseable `createdAt`, or one that falls outside the window, are skipped —
  * they can't be placed on the timeline. `days` is clamped to at least 1.
+ *
+ * `utcOffsetMinutes` (default 0 = UTC) shifts the day boundaries into a fixed
+ * offset from UTC so `agentrelay stats --trend --utc-offset 540` buckets by
+ * *local* calendar days. It's a plain minute offset, never an ambient timezone,
+ * so the function stays pure: both `nowMs` and each timestamp are shifted by the
+ * same amount, and the resulting `date` key is the local calendar day.
  */
-export function computeDailyTrend(jobs: RelayJob[], options: { nowMs: number; days: number }): DailyActivity[] {
+export function computeDailyTrend(
+  jobs: RelayJob[],
+  options: { nowMs: number; days: number; utcOffsetMinutes?: number }
+): DailyActivity[] {
   const days = Math.max(1, Math.floor(options.days));
-  const todayStart = utcDayStart(options.nowMs);
+  const offsetMs = (options.utcOffsetMinutes ?? 0) * 60_000;
+  const todayStart = utcDayStart(options.nowMs + offsetMs);
   const windowStart = todayStart - (days - 1) * DAY_MS;
 
   const counts = new Map<string, number>();
   for (const job of jobs) {
     const created = Date.parse(job.createdAt);
     if (Number.isNaN(created)) continue;
-    const dayStart = utcDayStart(created);
+    const dayStart = utcDayStart(created + offsetMs);
     if (dayStart < windowStart || dayStart > todayStart) continue;
     const key = utcDateKey(dayStart);
     counts.set(key, (counts.get(key) ?? 0) + 1);
@@ -214,13 +224,22 @@ export interface HourlyActivity {
  * The result is always exactly 24 entries, hour 0 through hour 23, zero-filled
  * for quiet hours so the histogram has a stable shape. Jobs with a missing or
  * unparseable `createdAt` are skipped — they can't be placed on the clock.
+ *
+ * `utcOffsetMinutes` (default 0 = UTC) shifts each timestamp before bucketing so
+ * the histogram reads in a fixed offset from UTC (e.g. 540 for `--utc-offset
+ * 540` / KST). It's a plain minute offset, never an ambient timezone, so the
+ * function stays pure and testable.
  */
-export function computeHourlyDistribution(jobs: RelayJob[]): HourlyActivity[] {
+export function computeHourlyDistribution(
+  jobs: RelayJob[],
+  options: { utcOffsetMinutes?: number } = {}
+): HourlyActivity[] {
+  const offsetMs = (options.utcOffsetMinutes ?? 0) * 60_000;
   const counts = new Array<number>(24).fill(0);
   for (const job of jobs) {
     const created = Date.parse(job.createdAt);
     if (Number.isNaN(created)) continue;
-    counts[new Date(created).getUTCHours()] += 1;
+    counts[new Date(created + offsetMs).getUTCHours()] += 1;
   }
   return counts.map((count, hour) => ({ hour, count }));
 }
@@ -248,13 +267,22 @@ export interface WeekdayActivity {
  * The result is always exactly 7 entries, Sunday through Saturday, zero-filled
  * for quiet days so the histogram has a stable shape. Jobs with a missing or
  * unparseable `createdAt` are skipped — they can't be placed on the calendar.
+ *
+ * `utcOffsetMinutes` (default 0 = UTC) shifts each timestamp before bucketing so
+ * the weekday reads in a fixed offset from UTC (a job created just after
+ * midnight UTC can fall on the previous local weekday). It's a plain minute
+ * offset, never an ambient timezone, so the function stays pure and testable.
  */
-export function computeWeekdayDistribution(jobs: RelayJob[]): WeekdayActivity[] {
+export function computeWeekdayDistribution(
+  jobs: RelayJob[],
+  options: { utcOffsetMinutes?: number } = {}
+): WeekdayActivity[] {
+  const offsetMs = (options.utcOffsetMinutes ?? 0) * 60_000;
   const counts = new Array<number>(7).fill(0);
   for (const job of jobs) {
     const created = Date.parse(job.createdAt);
     if (Number.isNaN(created)) continue;
-    counts[new Date(created).getUTCDay()] += 1;
+    counts[new Date(created + offsetMs).getUTCDay()] += 1;
   }
   return counts.map((count, weekday) => ({ weekday, name: WEEKDAY_NAMES[weekday], count }));
 }

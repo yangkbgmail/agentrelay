@@ -750,6 +750,25 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 `agentrelay stats` 시간축 로컬 타임존 옵션(`--utc-offset <min>` / `--local`) — `--trend`·`--hours`·
+      `--weekday` 히스토그램을 UTC 전용이 아니라 임의 UTC 오프셋/머신 로컬 타임존 기준으로 버킷팅(세션 58·59가
+      "다음 할 일"로 제안한 후속).
+      (완료 — 세 시간축 뷰(`--trend`/`--hours`/`--weekday`)가 전부 UTC 하드코딩이라, 실제 사용자의 하루/주간
+      리듬이 로컬 시간대로 보이지 않았다(예: KST 사용자에게 "09시에 throttle"이 UTC 00시로 표기). core `stats.ts`
+      의 `computeDailyTrend`/`computeHourlyDistribution`/`computeWeekdayDistribution`에 순수 옵셔널
+      `utcOffsetMinutes`(기본 0=UTC) 추가 — 타임스탬프(트렌드는 `nowMs`까지)를 `offset*60_000`ms 만큼 시프트한
+      뒤 기존 UTC 버킷팅을 재사용해, 시프트된 UTC 경계가 곧 로컬 경계가 되도록 함. 앰비언트 타임존이 아닌 순수
+      분(minute) 오프셋이라 함수는 여전히 순수·테스트 가능(nowMs 미주입 유지). CLI `stats.ts`에 순수
+      `formatUtcOffset(min)`(0→"UTC", 540→"UTC+09:00", -480→"UTC-08:00", 330→"UTC+05:30" 반시간·비유한값은
+      "UTC" fallback) + 세 렌더 함수에 옵셔널 `tzLabel`(헤더/푸터의 "UTC"를 라벨로 치환), `renderStatsJson`은
+      비영(non-zero) 오프셋일 때만 `utcOffsetMinutes` 방출(기존 UTC JSON shape 바이트 불변). `cli.ts` `stats`에
+      `--utc-offset <min>`(정수 −720~840[UTC−12:00~+14:00] 검증)·`--local`(`-getTimezoneOffset()`로 머신 오프셋
+      해소) 배선, 상호배타(둘 다 주면 exit 1), 일회성·`--json`·`--watch` 세 뷰 모두 적용, 기존 스코프 필터·
+      `--trend`/`--hours`/`--weekday`와 조합 가능. 새 파서/스케줄러/core 스토어 로직 0줄. core stats +9(=572) +
+      cli stats +8(=45) 신규 테스트, 실제 빌드 CLI e2e로 UTC/UTC+09:00/UTC−08:00 버킷팅·`--local`(TZ=Asia/Seoul→
+      UTC+09:00)·`--json` 오프셋 에코·기본 JSON 미포함·잘못된 오프셋/범위초과/상호배타 exit 1·`--trend` 헤더 라벨·
+      help/completion 노출 검증. branch `claude/wizardly-pascal-p0mtss`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

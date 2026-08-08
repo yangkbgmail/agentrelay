@@ -485,6 +485,34 @@ describe("computeDailyTrend", () => {
     expect(computeDailyTrend([], { nowMs: now, days: -5 })).toHaveLength(1);
     expect(computeDailyTrend([], { nowMs: now, days: 2.9 })).toHaveLength(2);
   });
+
+  it("shifts day boundaries with a positive utcOffsetMinutes (local days)", () => {
+    // 22:30 UTC on Jul 19 is 07:30 on Jul 20 at UTC+09:00 — a job at the UTC
+    // day's tail lands on the *next* local day.
+    const jobs = [job({ createdAt: "2026-07-19T22:30:00.000Z" })];
+    const utc = computeDailyTrend(jobs, { nowMs: now, days: 3 });
+    expect(utc.find((d) => d.date === "2026-07-19")?.count).toBe(1);
+    const local = computeDailyTrend(jobs, { nowMs: now, days: 3, utcOffsetMinutes: 540 });
+    // now (12:34 UTC) shifts to 21:34 → still Jul 20, so the window is stable.
+    expect(local.map((d) => d.date)).toEqual(["2026-07-18", "2026-07-19", "2026-07-20"]);
+    expect(local.find((d) => d.date === "2026-07-20")?.count).toBe(1);
+  });
+
+  it("shifts day boundaries with a negative utcOffsetMinutes (local days)", () => {
+    // 01:00 UTC on Jul 20 is 17:00 on Jul 19 at UTC-08:00 — the job lands on the
+    // previous local day.
+    const jobs = [job({ createdAt: "2026-07-20T01:00:00.000Z" })];
+    const local = computeDailyTrend(jobs, { nowMs: now, days: 3, utcOffsetMinutes: -480 });
+    expect(local.find((d) => d.date === "2026-07-19")?.count).toBe(1);
+    expect(local.find((d) => d.date === "2026-07-20")?.count).toBe(0);
+  });
+
+  it("treats an offset of 0 identically to UTC", () => {
+    const jobs = [job({ createdAt: "2026-07-19T22:30:00.000Z" })];
+    expect(computeDailyTrend(jobs, { nowMs: now, days: 3, utcOffsetMinutes: 0 })).toEqual(
+      computeDailyTrend(jobs, { nowMs: now, days: 3 })
+    );
+  });
 });
 
 describe("computeHourlyDistribution", () => {
@@ -526,6 +554,30 @@ describe("computeHourlyDistribution", () => {
     const before = JSON.stringify(jobs);
     computeHourlyDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
+  });
+
+  it("shifts hours with a positive utcOffsetMinutes", () => {
+    // 23:00 UTC + 9h = 08:00 next local day; the hour bucket rolls to 8.
+    const jobs = [job({ createdAt: "2026-07-20T23:00:00.000Z" })];
+    const dist = computeHourlyDistribution(jobs, { utcOffsetMinutes: 540 });
+    expect(dist[8].count).toBe(1);
+    expect(dist[23].count).toBe(0);
+  });
+
+  it("shifts hours with a negative utcOffsetMinutes and half-hour offsets", () => {
+    // 01:00 UTC - 8h = 17:00 previous local day.
+    expect(
+      computeHourlyDistribution([job({ createdAt: "2026-07-20T01:00:00.000Z" })], { utcOffsetMinutes: -480 })[17].count
+    ).toBe(1);
+    // 10:15 UTC + 5h30m (UTC+05:30) = 15:45 → hour 15.
+    expect(
+      computeHourlyDistribution([job({ createdAt: "2026-07-20T10:15:00.000Z" })], { utcOffsetMinutes: 330 })[15].count
+    ).toBe(1);
+  });
+
+  it("treats an offset of 0 identically to UTC", () => {
+    const jobs = [job({ createdAt: "2026-07-20T23:00:00.000Z" })];
+    expect(computeHourlyDistribution(jobs, { utcOffsetMinutes: 0 })).toEqual(computeHourlyDistribution(jobs));
   });
 });
 
@@ -571,5 +623,27 @@ describe("computeWeekdayDistribution", () => {
     const before = JSON.stringify(jobs);
     computeWeekdayDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
+  });
+
+  it("shifts the weekday with a utcOffsetMinutes that crosses midnight", () => {
+    // 2026-07-19 is a Sunday. 22:30 UTC Sun + 9h = 07:30 Mon at UTC+09:00.
+    const jobs = [job({ createdAt: "2026-07-19T22:30:00.000Z" })];
+    expect(computeWeekdayDistribution(jobs)[0].count).toBe(1); // Sun in UTC
+    const local = computeWeekdayDistribution(jobs, { utcOffsetMinutes: 540 });
+    expect(local[1].count).toBe(1); // Mon locally
+    expect(local[0].count).toBe(0);
+  });
+
+  it("shifts backward across midnight with a negative offset", () => {
+    // 2026-07-20 is a Monday. 01:00 UTC Mon - 8h = 17:00 Sun at UTC-08:00.
+    const jobs = [job({ createdAt: "2026-07-20T01:00:00.000Z" })];
+    const local = computeWeekdayDistribution(jobs, { utcOffsetMinutes: -480 });
+    expect(local[0].count).toBe(1); // Sun locally
+    expect(local[1].count).toBe(0);
+  });
+
+  it("treats an offset of 0 identically to UTC", () => {
+    const jobs = [job({ createdAt: "2026-07-19T22:30:00.000Z" })];
+    expect(computeWeekdayDistribution(jobs, { utcOffsetMinutes: 0 })).toEqual(computeWeekdayDistribution(jobs));
   });
 });

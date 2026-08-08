@@ -1859,3 +1859,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 60 — `agentrelay stats` 시간축 로컬 타임존 옵션(`--utc-offset`/`--local`)] (2026-08-08, 무인 자율 세션, branch `claude/wizardly-pascal-p0mtss`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/경쟁조사/
+  샘플수집/성능분석)뿐. 세션 58(`--hours`)·59(`--weekday`)가 "다음 할 일"로 명시한 후속을 구현했다 — 세 시간축
+  뷰(`--trend`/`--hours`/`--weekday`)가 전부 UTC 하드코딩이라, 실제 사용자의 하루/주간 리듬이 로컬 시간대로 보이지
+  않았다(예: KST 사용자에게 "오전 9시에 throttle"이 UTC 00시 버킷으로 표기돼 오독).
+- **한 일 (branch `claude/wizardly-pascal-p0mtss`):** `agentrelay stats`의 세 히스토그램에 로컬 타임존 옵션 추가.
+  - core `stats.ts`: `computeDailyTrend`/`computeHourlyDistribution`/`computeWeekdayDistribution`에 순수 옵셔널
+    `utcOffsetMinutes`(기본 0=UTC) 파라미터. 타임스탬프(트렌드는 `nowMs`까지)를 `offset*60_000`ms 시프트한 뒤
+    기존 UTC 버킷팅을 재사용 — 시프트된 UTC 경계가 곧 로컬 경계가 됨. 앰비언트 타임존이 아닌 순수 분 오프셋이라
+    함수는 여전히 순수·`nowMs` 미주입 유지(테스트 가능).
+  - CLI `stats.ts`: 순수 `formatUtcOffset(min)`(0→"UTC", 540→"UTC+09:00", -480→"UTC-08:00", 330→"UTC+05:30"
+    반시간·비유한값 "UTC" fallback) 신설 + 세 렌더 함수(`renderTrend`/`renderHours`/`renderWeekday`)에 옵셔널
+    `tzLabel`(헤더/푸터의 "UTC"를 라벨로 치환). `renderStatsJson`은 비영 오프셋일 때만 `utcOffsetMinutes` 방출
+    (기존 UTC JSON shape 바이트 불변).
+  - `cli.ts`: `stats`에 `--utc-offset <min>`(정수 −720~840[UTC−12:00~+14:00] 검증)·`--local`
+    (`-getTimezoneOffset()`로 머신 오프셋 해소) 배선, 상호배타(둘 다 주면 exit 1). 일회성·`--json`·`--watch` 세
+    뷰 모두 적용, 기존 스코프 필터·`--trend`/`--hours`/`--weekday`와 조합 가능. addHelpText 예시 2줄, completion은
+    라이브 프로그램 파생이라 자동 포함. 새 파서/스케줄러/core 스토어 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test` 전 패키지
+  통과(core 563→572, cli stats 37→45=312/1skip, dashboard 9). **실제 빌드 CLI e2e**(mock 아님): 2-잡 임시 스토어
+  (web 완료[2026-07-19T22:30Z]·api 실패[2026-07-20T01:00Z])로 `stats --hours`가 UTC 01/22시, `--hours --utc-offset
+  540`이 07/10시(각 +9h), `--weekday --utc-offset -480`이 둘 다 Sun(각 −8h)로 버킷팅, `--local`(TZ=Asia/Seoul→
+  UTC+09:00 라벨), `--json`이 비영 오프셋만 `utcOffsetMinutes` 에코·기본 JSON 미포함, 잘못된 오프셋/범위초과(900)/
+  상호배타(`--local --utc-offset`) 모두 exit 1, `--trend --utc-offset` 헤더 라벨·help·bash completion에
+  `--utc-offset`/`--local` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에 시간대/요일/
+  추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러, 이제 타임존까지), 또는 `export`에도 동일
+  타임존 옵션 적용. README/ARCHITECTURE(🧭 코워크).
