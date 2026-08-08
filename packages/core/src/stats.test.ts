@@ -485,6 +485,20 @@ describe("computeDailyTrend", () => {
     expect(computeDailyTrend([], { nowMs: now, days: -5 })).toHaveLength(1);
     expect(computeDailyTrend([], { nowMs: now, days: 2.9 })).toHaveLength(2);
   });
+
+  it("shifts day boundaries — and the window's today — by offsetMinutes", () => {
+    // A job at 22:30 UTC on 07-19 is 07:30 on 07-20 in UTC+09:00, so a +540
+    // offset moves it forward one calendar day.
+    const jobs = [job({ createdAt: "2026-07-19T22:30:00.000Z" })];
+    const utc = computeDailyTrend(jobs, { nowMs: now, days: 3 });
+    expect(utc.find((d) => d.date === "2026-07-19")?.count).toBe(1);
+    const kst = computeDailyTrend(jobs, { nowMs: now, days: 3, offsetMinutes: 540 });
+    // now (12:34 UTC 07-20) + 9h is still 07-20, so the window is unchanged, but
+    // the job now lands on 07-20.
+    expect(kst.map((d) => d.date)).toEqual(["2026-07-18", "2026-07-19", "2026-07-20"]);
+    expect(kst.find((d) => d.date === "2026-07-20")?.count).toBe(1);
+    expect(kst.find((d) => d.date === "2026-07-19")?.count).toBe(0);
+  });
 });
 
 describe("computeHourlyDistribution", () => {
@@ -526,6 +540,23 @@ describe("computeHourlyDistribution", () => {
     const before = JSON.stringify(jobs);
     computeHourlyDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
+  });
+
+  it("shifts the hour bucket by offsetMinutes", () => {
+    const jobs = [job({ createdAt: "2026-07-20T23:00:00.000Z" })]; // 23:00 UTC
+    expect(computeHourlyDistribution(jobs)[23].count).toBe(1);
+    // +09:00 → 08:00 next day; -05:00 → 18:00 same day.
+    const kst = computeHourlyDistribution(jobs, { offsetMinutes: 540 });
+    expect(kst[8].count).toBe(1);
+    expect(kst[23].count).toBe(0);
+    const est = computeHourlyDistribution(jobs, { offsetMinutes: -300 });
+    expect(est[18].count).toBe(1);
+  });
+
+  it("handles half-hour offsets", () => {
+    const jobs = [job({ createdAt: "2026-07-20T10:00:00.000Z" })];
+    // +05:30 → 15:30, still hour 15.
+    expect(computeHourlyDistribution(jobs, { offsetMinutes: 330 })[15].count).toBe(1);
   });
 });
 
@@ -571,5 +602,14 @@ describe("computeWeekdayDistribution", () => {
     const before = JSON.stringify(jobs);
     computeWeekdayDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
+  });
+
+  it("shifts the weekday bucket by offsetMinutes across a midnight boundary", () => {
+    // 2026-07-19 is a Sunday; 22:30 UTC + 09:00 = 07:30 Monday (2026-07-20).
+    const jobs = [job({ createdAt: "2026-07-19T22:30:00.000Z" })];
+    expect(computeWeekdayDistribution(jobs)[0].count).toBe(1); // Sun (UTC)
+    const kst = computeWeekdayDistribution(jobs, { offsetMinutes: 540 });
+    expect(kst[1].count).toBe(1); // Mon (UTC+09:00)
+    expect(kst[0].count).toBe(0);
   });
 });

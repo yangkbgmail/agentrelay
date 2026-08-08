@@ -1,5 +1,6 @@
 import { summarizeJobs } from "./summary.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
+import { MS_PER_MINUTE } from "./tz.js";
 
 /** Statuses where the relay is still (or about to be) working the job. */
 export const ACTIVE_STATUSES: JobStatus[] = ["queued", "waiting_for_reset", "resuming"];
@@ -173,17 +174,25 @@ function utcDateKey(dayStartMs: number): string {
  * quiet days so the histogram has a stable shape. Jobs with a missing or
  * unparseable `createdAt`, or one that falls outside the window, are skipped —
  * they can't be placed on the timeline. `days` is clamped to at least 1.
+ *
+ * `offsetMinutes` (default 0 = UTC) shifts every timestamp east of UTC before
+ * bucketing, so day boundaries — and the window's "today" — follow a local
+ * timezone. The date keys are that local calendar date.
  */
-export function computeDailyTrend(jobs: RelayJob[], options: { nowMs: number; days: number }): DailyActivity[] {
+export function computeDailyTrend(
+  jobs: RelayJob[],
+  options: { nowMs: number; days: number; offsetMinutes?: number }
+): DailyActivity[] {
   const days = Math.max(1, Math.floor(options.days));
-  const todayStart = utcDayStart(options.nowMs);
+  const offsetMs = (options.offsetMinutes ?? 0) * MS_PER_MINUTE;
+  const todayStart = utcDayStart(options.nowMs + offsetMs);
   const windowStart = todayStart - (days - 1) * DAY_MS;
 
   const counts = new Map<string, number>();
   for (const job of jobs) {
     const created = Date.parse(job.createdAt);
     if (Number.isNaN(created)) continue;
-    const dayStart = utcDayStart(created);
+    const dayStart = utcDayStart(created + offsetMs);
     if (dayStart < windowStart || dayStart > todayStart) continue;
     const key = utcDateKey(dayStart);
     counts.set(key, (counts.get(key) ?? 0) + 1);
@@ -214,13 +223,21 @@ export interface HourlyActivity {
  * The result is always exactly 24 entries, hour 0 through hour 23, zero-filled
  * for quiet hours so the histogram has a stable shape. Jobs with a missing or
  * unparseable `createdAt` are skipped — they can't be placed on the clock.
+ *
+ * `offsetMinutes` (default 0 = UTC) shifts each timestamp east of UTC before
+ * reading its hour, so the buckets are hours in a local timezone rather than
+ * UTC ("I mostly get throttled around 15:00 my time").
  */
-export function computeHourlyDistribution(jobs: RelayJob[]): HourlyActivity[] {
+export function computeHourlyDistribution(
+  jobs: RelayJob[],
+  options: { offsetMinutes?: number } = {}
+): HourlyActivity[] {
+  const offsetMs = (options.offsetMinutes ?? 0) * MS_PER_MINUTE;
   const counts = new Array<number>(24).fill(0);
   for (const job of jobs) {
     const created = Date.parse(job.createdAt);
     if (Number.isNaN(created)) continue;
-    counts[new Date(created).getUTCHours()] += 1;
+    counts[new Date(created + offsetMs).getUTCHours()] += 1;
   }
   return counts.map((count, hour) => ({ hour, count }));
 }
@@ -248,13 +265,21 @@ export interface WeekdayActivity {
  * The result is always exactly 7 entries, Sunday through Saturday, zero-filled
  * for quiet days so the histogram has a stable shape. Jobs with a missing or
  * unparseable `createdAt` are skipped — they can't be placed on the calendar.
+ *
+ * `offsetMinutes` (default 0 = UTC) shifts each timestamp east of UTC before
+ * reading its weekday, so a job near midnight can land on the local weekday
+ * rather than the UTC one.
  */
-export function computeWeekdayDistribution(jobs: RelayJob[]): WeekdayActivity[] {
+export function computeWeekdayDistribution(
+  jobs: RelayJob[],
+  options: { offsetMinutes?: number } = {}
+): WeekdayActivity[] {
+  const offsetMs = (options.offsetMinutes ?? 0) * MS_PER_MINUTE;
   const counts = new Array<number>(7).fill(0);
   for (const job of jobs) {
     const created = Date.parse(job.createdAt);
     if (Number.isNaN(created)) continue;
-    counts[new Date(created).getUTCDay()] += 1;
+    counts[new Date(created + offsetMs).getUTCDay()] += 1;
   }
   return counts.map((count, weekday) => ({ weekday, name: WEEKDAY_NAMES[weekday], count }));
 }
