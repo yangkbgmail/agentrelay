@@ -197,30 +197,67 @@ export function computeDailyTrend(jobs: RelayJob[], options: { nowMs: number; da
   return trend;
 }
 
+/**
+ * Returns true if `timeZone` is an IANA zone id that `Intl.DateTimeFormat`
+ * accepts (e.g. `"Asia/Seoul"`, `"UTC"`). Lets the CLI validate a `--tz` value
+ * up front so a typo fails fast with a clear message instead of throwing deep
+ * inside a histogram loop. An empty string is rejected.
+ */
+export function isValidTimeZone(timeZone: string): boolean {
+  if (!timeZone) return false;
+  try {
+    // Constructing the formatter throws RangeError for an unknown zone id.
+    new Intl.DateTimeFormat("en-US", { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Builds an extractor that maps a `Date` to its hour-of-day (0–23) in the given
+ * IANA `timeZone`. One formatter is constructed and reused across every call so
+ * a large store doesn't pay the `Intl` setup cost per job.
+ */
+function zoneHourExtractor(timeZone: string): (date: Date) => number {
+  const fmt = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", hour: "2-digit" });
+  return (date) => {
+    const value = fmt.formatToParts(date).find((p) => p.type === "hour")?.value ?? "0";
+    const hour = Number.parseInt(value, 10);
+    // Some engines emit "24" for midnight under h23; fold it back to hour 0.
+    return Number.isNaN(hour) ? 0 : hour % 24;
+  };
+}
+
 export interface HourlyActivity {
-  /** UTC hour of day, 0–23. */
+  /** Hour of day, 0–23, in the requested time zone (UTC by default). */
   hour: number;
-  /** Jobs whose `createdAt` falls in this UTC hour, across every day. */
+  /** Jobs whose `createdAt` falls in this hour, across every day. */
   count: number;
 }
 
 /**
- * Buckets jobs by the UTC hour-of-day (0–23) they were created in, aggregated
+ * Buckets jobs by the hour-of-day (0–23) they were created in, aggregated
  * across every day in the store, so `agentrelay stats --hours` can show which
- * hours rate-limits tend to cluster in ("I mostly get throttled around 15:00
- * UTC"). Unlike {@link computeDailyTrend} this has no window and needs no clock:
- * hour-of-day is an absolute property of each timestamp.
+ * hours rate-limits tend to cluster in ("I mostly get throttled around 15:00").
+ * Unlike {@link computeDailyTrend} this has no window and needs no clock:
+ * hour-of-day is an absolute property of each timestamp once a zone is fixed.
+ *
+ * By default hours are bucketed in UTC (fast path, no `Intl`). Pass an IANA
+ * `timeZone` (e.g. `"Asia/Seoul"`) to bucket in local wall-clock time instead,
+ * which is usually what a human wants to see ("I get throttled around dinner").
  *
  * The result is always exactly 24 entries, hour 0 through hour 23, zero-filled
  * for quiet hours so the histogram has a stable shape. Jobs with a missing or
  * unparseable `createdAt` are skipped — they can't be placed on the clock.
  */
-export function computeHourlyDistribution(jobs: RelayJob[]): HourlyActivity[] {
+export function computeHourlyDistribution(jobs: RelayJob[], timeZone?: string): HourlyActivity[] {
   const counts = new Array<number>(24).fill(0);
+  const hourOf = timeZone ? zoneHourExtractor(timeZone) : (d: Date) => d.getUTCHours();
   for (const job of jobs) {
     const created = Date.parse(job.createdAt);
     if (Number.isNaN(created)) continue;
-    counts[new Date(created).getUTCHours()] += 1;
+    counts[hourOf(new Date(created))] += 1;
   }
   return counts.map((count, hour) => ({ hour, count }));
 }
@@ -229,32 +266,54 @@ export function computeHourlyDistribution(jobs: RelayJob[]): HourlyActivity[] {
 export const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 export interface WeekdayActivity {
-  /** UTC day of week, 0 (Sunday) – 6 (Saturday), matching `Date.getUTCDay()`. */
+  /** Day of week, 0 (Sunday) – 6 (Saturday), in the requested zone (UTC default). */
   weekday: number;
-  /** Short UTC weekday name (`Sun`…`Sat`), taken from {@link WEEKDAY_NAMES}. */
+  /** Short weekday name (`Sun`…`Sat`), taken from {@link WEEKDAY_NAMES}. */
   name: string;
-  /** Jobs whose `createdAt` falls on this UTC weekday, across every week. */
+  /** Jobs whose `createdAt` falls on this weekday, across every week. */
   count: number;
 }
 
 /**
- * Buckets jobs by the UTC day-of-week (0 = Sunday … 6 = Saturday) they were
- * created on, aggregated across every week in the store, so `agentrelay stats
+ * Builds an extractor that maps a `Date` to its day-of-week (0 = Sunday …
+ * 6 = Saturday) in the given IANA `timeZone`. One formatter is constructed and
+ * reused across every call, like {@link zoneHourExtractor}.
+ */
+function zoneWeekdayExtractor(timeZone: string): (date: Date) => number {
+  const fmt = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" });
+  return (date) => {
+    const value = fmt.formatToParts(date).find((p) => p.type === "weekday")?.value ?? "";
+    const idx = WEEKDAY_NAMES.indexOf(value as (typeof WEEKDAY_NAMES)[number]);
+    // en-US short weekday names match WEEKDAY_NAMES exactly; fall back to 0 only
+    // if some engine surprises us so we never write outside the 7-slot array.
+    return idx === -1 ? 0 : idx;
+  };
+}
+
+/**
+ * Buckets jobs by the day-of-week (0 = Sunday … 6 = Saturday) they were created
+ * on, aggregated across every week in the store, so `agentrelay stats
  * --weekday` can show which weekdays rate-limits tend to cluster on ("I mostly
  * get throttled on Mondays"). Like {@link computeHourlyDistribution} this has no
  * window and needs no clock: day-of-week is an absolute property of the
- * timestamp.
+ * timestamp once a zone is fixed.
+ *
+ * By default weekdays are bucketed in UTC (fast path, no `Intl`). Pass an IANA
+ * `timeZone` (e.g. `"Asia/Seoul"`) to bucket in local wall-clock time instead —
+ * a job created just after midnight local can land on a different weekday than
+ * it would in UTC.
  *
  * The result is always exactly 7 entries, Sunday through Saturday, zero-filled
  * for quiet days so the histogram has a stable shape. Jobs with a missing or
  * unparseable `createdAt` are skipped — they can't be placed on the calendar.
  */
-export function computeWeekdayDistribution(jobs: RelayJob[]): WeekdayActivity[] {
+export function computeWeekdayDistribution(jobs: RelayJob[], timeZone?: string): WeekdayActivity[] {
   const counts = new Array<number>(7).fill(0);
+  const weekdayOf = timeZone ? zoneWeekdayExtractor(timeZone) : (d: Date) => d.getUTCDay();
   for (const job of jobs) {
     const created = Date.parse(job.createdAt);
     if (Number.isNaN(created)) continue;
-    counts[new Date(created).getUTCDay()] += 1;
+    counts[weekdayOf(new Date(created))] += 1;
   }
   return counts.map((count, weekday) => ({ weekday, name: WEEKDAY_NAMES[weekday], count }));
 }

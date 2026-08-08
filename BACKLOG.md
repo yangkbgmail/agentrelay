@@ -750,6 +750,22 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 `agentrelay stats --tz <zone>` — `--hours`/`--weekday` 히스토그램을 UTC가 아니라 지정 IANA
+      타임존(또는 `local`)의 벽시계 시각으로 버킷팅. 직전 세션(`--weekday`)이 "다음 할 일"로 제안.
+      (완료 — 사람은 "내가 UTC 몇 시에 throttle되나"보다 "내 로컬 몇 시에 throttle되나"가 궁금하다.
+      core `stats.ts`: `computeHourlyDistribution`/`computeWeekdayDistribution`에 옵셔널 2번째 인자
+      `timeZone?` 추가 — 미지정 시 기존 UTC 고속 경로(`getUTCHours`/`getUTCDay`, `Intl` 미사용, 동작·성능
+      불변), 지정 시 `Intl.DateTimeFormat`(zone당 포매터 1회 생성·재사용)으로 벽시계 시/요일 추출.
+      자정을 넘겨 다른 날/요일로 이동하는 케이스 정확 처리. 순수 `isValidTimeZone(tz)`도 신설(잘못된
+      zone은 CLI에서 즉시 exit 1). CLI `stats.ts`: `renderHours`/`renderWeekday`에 옵셔널 `tzLabel`(기본
+      "UTC")로 헤더·푸터 라벨 치환, `renderStatsJson`에 옵셔널 `timeZone` 필드(요청 시에만 방출, 기존 JSON
+      shape 불변). `cli.ts`: `--tz <zone>` 배선 — `local`은 호스트 zone으로 해소, 유효성 검증 후 exit 1,
+      `--hours`/`--weekday` 없이 단독 사용도 exit 1. 일회성·`--json`·`--watch` 세 뷰 모두 적용. 새
+      파서/스케줄러 로직 0줄. core stats +2 + isValidTimeZone 2케이스(=571) + cli stats +3(=40) 신규 테스트,
+      실제 빌드 CLI e2e로 UTC↔Asia/Seoul 시/요일 버킷팅(자정 넘김)·`local`·잘못된 zone/단독 tz exit 1·
+      `--json` timeZone 필드·기본 JSON 미포함·help/completion `--tz` 노출 검증. branch
+      `claude/wizardly-pascal-vy6kqn`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

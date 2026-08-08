@@ -7,6 +7,7 @@ import {
   GROUP_DIMENSIONS,
   groupStats,
   isJobScopeActive,
+  isValidTimeZone,
   scopeJobs,
 } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
@@ -527,6 +528,16 @@ describe("computeHourlyDistribution", () => {
     computeHourlyDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
   });
+
+  it("buckets by wall-clock hour in a given IANA zone (crossing the date line)", () => {
+    // 23:00 UTC is 08:00 the next day in Asia/Seoul (UTC+9).
+    const jobs = [job({ createdAt: "2026-07-20T23:00:00.000Z" })];
+    expect(computeHourlyDistribution(jobs)[23].count).toBe(1); // UTC default unchanged
+    const seoul = computeHourlyDistribution(jobs, "Asia/Seoul");
+    expect(seoul[8].count).toBe(1);
+    expect(seoul[23].count).toBe(0);
+    expect(seoul.reduce((sum, h) => sum + h.count, 0)).toBe(1);
+  });
 });
 
 describe("computeWeekdayDistribution", () => {
@@ -571,5 +582,29 @@ describe("computeWeekdayDistribution", () => {
     const before = JSON.stringify(jobs);
     computeWeekdayDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
+  });
+
+  it("buckets by wall-clock weekday in a given IANA zone (crossing midnight)", () => {
+    // 2026-07-20 23:00 UTC is a Monday, but 08:00 Tuesday in Asia/Seoul (UTC+9).
+    const jobs = [job({ createdAt: "2026-07-20T23:00:00.000Z" })];
+    expect(computeWeekdayDistribution(jobs)[1].count).toBe(1); // Monday, UTC default
+    const seoul = computeWeekdayDistribution(jobs, "Asia/Seoul");
+    expect(seoul[2].count).toBe(1); // Tuesday
+    expect(seoul[1].count).toBe(0);
+    expect(seoul.reduce((sum, w) => sum + w.count, 0)).toBe(1);
+  });
+});
+
+describe("isValidTimeZone", () => {
+  it("accepts valid IANA zone ids", () => {
+    expect(isValidTimeZone("UTC")).toBe(true);
+    expect(isValidTimeZone("Asia/Seoul")).toBe(true);
+    expect(isValidTimeZone("America/New_York")).toBe(true);
+  });
+
+  it("rejects unknown or empty zone ids", () => {
+    expect(isValidTimeZone("Not/AZone")).toBe(false);
+    expect(isValidTimeZone("local")).toBe(false); // 'local' is a CLI alias, not an IANA id
+    expect(isValidTimeZone("")).toBe(false);
   });
 });
