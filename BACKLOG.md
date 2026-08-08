@@ -750,6 +750,22 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 `agentrelay errors --watch [seconds]` — 실패 브레이크다운을 라이브로 갱신(실패가 쌓이거나
+      깨진 재개 루프를 고칠 때 줄어드는 뷰). watch 계열(status/upcoming/overdue/tools/projects/stats)을
+      진단 커맨드 `errors`로 확장(공용 `startWatchLoop` 재사용).
+      (완료 — `errors`는 status/stats와 동일한 스코프 필터·`--limit`·`--json`을 갖췄지만, "왜 재개가
+      조용히 실패하나?"를 고치는 동안 실패가 실시간으로 쌓이는지 지켜볼 라이브 뷰가 없었다. CLI
+      `errors.ts`에 순수 `renderErrorsWatchFrame(breakdown, storePath, intervalMs, now, {limit?, scopeNote?})`
+      신설(`status`/`tools`/`overdue`의 watch-frame와 동일한 title/meta 라이브 배너 + 항상 컬러인
+      `renderErrorBreakdown` 본문 — 카운트다운 뷰와 달리 본문에 라이브 시계는 없고, 값은 매 프레임
+      스토어 재읽기로 실패가 누적/감소하는 것을 보는 것). 세션 52가 추출한 공용 `startWatchLoop`을
+      재사용하는 `runErrorsWatch`(매 프레임 스토어 재읽기·스코프 재적용·`computeErrorBreakdown` 재계산).
+      `errors`에 `-w, --watch [seconds]` 배선: `--limit`·스코프 검증을 **먼저** 통과시켜 잘못된 값은
+      watch 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프), 인터벌 기본 2s, addHelpText
+      예시 3줄, completion 자동 포함. 새 파서/스케줄러/core 로직 0줄. cli errors watch-frame 3케이스
+      신규(=10), 실제 빌드 CLI e2e로 화면 clear·라이브 배너·스코프 부분집합·--limit 푸터·--json 우선·
+      --tool bogus exit 1·help/completion `--watch` 노출 검증. branch `claude/wizardly-pascal-4rjg4t`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

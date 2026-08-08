@@ -1859,3 +1859,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### 세션 60 — 2026-08-08 · `agentrelay errors --watch` (실패 브레이크다운 라이브 뷰)
+- **한 일:** watch 계열(status/upcoming/overdue/tools/projects/stats)을 진단 커맨드 `errors`로 확장.
+  `errors`는 "왜 재개가 조용히 실패하나?"의 한눈 답이지만, 깨진 재개 루프를 고치는 동안 실패가
+  실시간으로 쌓이는지(또는 줄어드는지) 지켜볼 라이브 뷰가 없었다.
+  - CLI `errors.ts`: 순수 `renderErrorsWatchFrame(breakdown, storePath, intervalMs, now, {limit?, scopeNote?})`
+    신설 — `status`/`tools`/`overdue`의 watch-frame와 동일한 title/meta 라이브 배너(`agentrelay errors
+    (live, every Ns — Ctrl-C to exit)` + `ISO · store`)로 항상 컬러인 `renderErrorBreakdown` 본문을 감쌈.
+    카운트다운 뷰들과 달리 본문에 라이브 시계는 없고, 값은 매 프레임 스토어를 재읽어 실패가 누적/감소하는
+    것을 보는 것. `limit`/`scopeNote`를 전달해 라이브 뷰가 일회성 커맨드와 동일한 `--limit`·스코프를 존중.
+  - `cli.ts`: 세션 52가 추출한 공용 `startWatchLoop`을 재사용하는 `runErrorsWatch`(매 프레임 스토어
+    재읽기·`--status`/`--tool`/`--project`/`--since`/`--until` 스코프 재적용·`computeErrorBreakdown` 재계산·
+    화면 clear). `errors`에 `-w, --watch [seconds]` 배선 — `--limit`·스코프 검증을 **먼저** 통과시켜 잘못된
+    값은 watch 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프), 인터벌 기본 2s, addHelpText
+    예시 3줄, completion은 라이브 프로그램 파생이라 `--watch` 자동 포함. 새 파서/스케줄러/core 로직 0줄 —
+    전부 기존 검증된 `computeErrorBreakdown`/`renderErrorBreakdown`/`startWatchLoop`/`scopeJobs` 재사용.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 563·cli 307/1skip[errors 7→10]·dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  3-잡 임시 스토어(web-app 실패 2[spawn ENOENT]·api-svc 실패 1[connection refused])로 `errors --watch 1`이
+  화면 clear(`\x1b[2J\x1b[H`)+라이브 배너+"3 job(s)…2 distinct reason(s)" 랭킹 브레이크다운 렌더,
+  `--tool codex-cli`는 scope note + connection refused만(spawn 제외), `--limit 1`은 "1 more reason(s) not
+  shown" 푸터, `--tool bogus`는 watch 전에 exit 1, `--json`은 `--watch`보다 우선(one-shot exit 0),
+  `--help`·bash completion에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 후보 — watch 계열의
+  마지막 남은 조회 커맨드 `patterns --watch`(파서 패턴 발화 빈도 라이브), 또는 대시보드에 시간대/요일/추이
+  히스토그램 노출(CLI `--hours`/`--weekday`/`--trend` 대시보드 미러). README/ARCHITECTURE(🧭 코워크).
