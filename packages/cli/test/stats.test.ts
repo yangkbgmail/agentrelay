@@ -4,6 +4,7 @@ import {
   computeHourlyDistribution,
   computeStats,
   computeWeekdayDistribution,
+  computeWeekHourHeatmap,
   groupStats,
 } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
@@ -15,6 +16,7 @@ import {
   NO_STATS_MESSAGE,
   renderGroupedStats,
   renderGroupedStatsJson,
+  renderHeatmap,
   renderHours,
   renderStats,
   renderStatsJson,
@@ -452,6 +454,65 @@ describe("renderStatsJson weekday field", () => {
     expect(withWeekday.weekday).toHaveLength(7);
     expect(withWeekday.weekday[1].count).toBe(1);
     expect(withWeekday.weekday[1].name).toBe("Mon");
+  });
+});
+
+describe("renderHeatmap", () => {
+  it("renders a header, two hour-tick lines, 7 weekday rows, and a footer", () => {
+    // Mon 09:00 (×2) and Wed 14:00 (×1).
+    const hm = computeWeekHourHeatmap([
+      job({ createdAt: "2026-07-20T09:00:00.000Z" }),
+      job({ createdAt: "2026-07-27T09:30:00.000Z" }),
+      job({ createdAt: "2026-07-22T14:00:00.000Z" }),
+    ]);
+    const out = renderHeatmap(hm);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("heatmap");
+    // Header (1) + two hour-tick lines (2) + 7 weekday rows + footer = 11.
+    expect(lines).toHaveLength(11);
+    // The ones-digit tick line spells out 0–9 three times over.
+    expect(out).toContain("012345678901234567890123");
+    for (const name of ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]) {
+      expect(out).toContain(name);
+    }
+    // Row totals land at the end of their row.
+    expect(out).toMatch(/Mon .* 2$/m);
+    expect(out).toMatch(/Wed .* 1$/m);
+    expect(lines[lines.length - 1]).toContain("3 job(s) across 7 day(s) × 24 hour(s), UTC — busiest cell 2");
+  });
+
+  it("draws a filled block for the busiest cell and dots for empty cells", () => {
+    const hm = computeWeekHourHeatmap([
+      job({ createdAt: "2026-07-20T09:00:00.000Z" }),
+      job({ createdAt: "2026-07-27T09:30:00.000Z" }),
+    ]);
+    const out = renderHeatmap(hm);
+    // The peak cell (Mon 09:00, count 2 = max) is fully dark.
+    expect(out).toContain("█");
+    // Sunday has no jobs, so its row is all baseline dots (no shade blocks).
+    const sunRow = out.split("\n").find((r) => r.includes("Sun")) ?? "";
+    expect(sunRow).not.toMatch(/[░▒▓█]/);
+    expect(sunRow).toContain("·");
+  });
+
+  it("handles an all-empty store with no shade blocks", () => {
+    const out = renderHeatmap(computeWeekHourHeatmap([]));
+    expect(out).not.toMatch(/[░▒▓█]/);
+    expect(out).toContain("0 job(s) across 7 day(s) × 24 hour(s), UTC — busiest cell 0");
+  });
+});
+
+describe("renderStatsJson heatmap field", () => {
+  it("omits `heatmap` by default but includes it when provided", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("heatmap" in without).toBe(false);
+    const heatmap = computeWeekHourHeatmap([job({ createdAt: "2026-07-20T09:00:00.000Z" })]); // Mon 09:00
+    const withHeatmap = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", heatmap }));
+    expect(withHeatmap.heatmap.grid).toHaveLength(7);
+    expect(withHeatmap.heatmap.grid[1][9]).toBe(1);
+    expect(withHeatmap.heatmap.total).toBe(1);
+    expect(withHeatmap.heatmap.max).toBe(1);
   });
 });
 
