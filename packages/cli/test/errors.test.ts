@@ -6,6 +6,7 @@ import {
   NO_ERRORS_MESSAGE,
   renderErrorBreakdown,
   renderErrorBreakdownJson,
+  renderErrorsWatchFrame,
 } from "../src/errors.js";
 
 function job(overrides: Partial<RelayJob>): RelayJob {
@@ -75,6 +76,45 @@ describe("renderErrorBreakdown", () => {
     const jobs = Array.from({ length: 5 }, (_, i) => job({ id: `job${i}00000`, lastError: "same boom" }));
     const out = renderErrorBreakdown(breakdownOf(jobs));
     expect(out).toContain("+2 more");
+  });
+});
+
+// A fixed "now" for a stable banner timestamp.
+const NOW = Date.parse("2026-07-12T12:00:00.000Z");
+
+describe("renderErrorsWatchFrame", () => {
+  it("prepends a live title with the store path, timestamp, and interval", () => {
+    const breakdown = breakdownOf([job({ id: "id-a", lastError: "spawn ENOENT" })]);
+    const out = renderErrorsWatchFrame(breakdown, "/tmp/jobs.json", 5000, NOW);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("agentrelay errors");
+    expect(lines[0]).toContain("every 5s");
+    expect(lines[0]).toContain("Ctrl-C to exit");
+    // Metadata line: ISO timestamp (space-separated, trimmed to seconds) + store path.
+    expect(lines[1]).toContain("2026-07-12 12:00:00Z");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+    // Then a blank line, then the breakdown body.
+    expect(lines[2]).toBe("");
+    expect(out).toContain("spawn ENOENT");
+    // Watch frames are always colored (live TTY view).
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting escapes are present.
+    expect(out).toMatch(/\x1b\[/);
+  });
+
+  it("forwards --limit into the frame body", () => {
+    const breakdown = breakdownOf([job({ id: "a", lastError: "err one" }), job({ id: "b", lastError: "err two" })]);
+    const out = renderErrorsWatchFrame(breakdown, "/tmp/jobs.json", 2000, NOW, { limit: 1 });
+    expect(out).toContain("err one");
+    expect(out).not.toContain("err two");
+    expect(out).toContain("1 more reason(s) not shown");
+  });
+
+  it("carries the scope note into the frame body", () => {
+    const out = renderErrorsWatchFrame(breakdownOf([]), "/tmp/jobs.json", 2000, NOW, {
+      scopeNote: "project=ghost",
+    });
+    expect(out).toContain(NO_ERROR_MATCH_MESSAGE);
+    expect(out).toContain("scope: project=ghost");
   });
 });
 
