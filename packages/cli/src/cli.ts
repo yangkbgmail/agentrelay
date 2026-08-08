@@ -30,6 +30,7 @@ import {
   inferImportFormat,
   isCompletionShell,
   isJobScopeActive,
+  isValidTimeZone,
   JOB_CSV_COLUMNS,
   parseCsvColumns,
   parseDuration,
@@ -453,7 +454,9 @@ function runStatsWatch(
   groupBy: GroupDimension | undefined,
   trendDays: number | null,
   hours: boolean,
-  weekday: boolean
+  weekday: boolean,
+  timeZone: string | undefined,
+  tzLabel: string
 ): void {
   const active = isJobScopeActive(scope);
   startWatchLoop(intervalMs, () => {
@@ -471,10 +474,10 @@ function runStatsWatch(
         body += `\n\n${renderTrend(trend, { color: true })}`;
       }
       if (hours && stats.total > 0) {
-        body += `\n\n${renderHours(computeHourlyDistribution(jobs), { color: true })}`;
+        body += `\n\n${renderHours(computeHourlyDistribution(jobs, timeZone), { color: true, tzLabel })}`;
       }
       if (weekday && stats.total > 0) {
-        body += `\n\n${renderWeekday(computeWeekdayDistribution(jobs), { color: true })}`;
+        body += `\n\n${renderWeekday(computeWeekdayDistribution(jobs, timeZone), { color: true, tzLabel })}`;
       }
     }
     const frame = renderStatsWatchFrame(body, store, intervalMs, now);
@@ -996,8 +999,9 @@ export function buildCli(): Command {
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("-g, --group-by <dimension>", `Break down metrics per group: ${GROUP_DIMENSIONS.join(", ")}`)
     .option("--trend [days]", "Also show a per-day activity histogram over the last N days, UTC (default 14, max 90)")
-    .option("--hours", "Also show an hour-of-day activity histogram (jobs created per UTC hour, 0–23)")
-    .option("--weekday", "Also show a day-of-week activity histogram (jobs created per UTC weekday, Sun–Sat)")
+    .option("--hours", "Also show an hour-of-day activity histogram (jobs created per hour, 0–23)")
+    .option("--weekday", "Also show a day-of-week activity histogram (jobs created per weekday, Sun–Sat)")
+    .option("--tz <zone>", "Bucket --hours/--weekday in this IANA zone (e.g. Asia/Seoul) or 'local' instead of UTC")
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
     .addHelpText(
       "after",
@@ -1010,8 +1014,8 @@ export function buildCli(): Command {
         "  agentrelay stats --group-by tool --watch 5\n" +
         "  # which UTC hours rate-limits cluster in\n" +
         "  agentrelay stats --hours\n" +
-        "  # which UTC weekdays rate-limits cluster on\n" +
-        "  agentrelay stats --weekday"
+        "  # which weekdays rate-limits cluster on, in your local time\n" +
+        "  agentrelay stats --weekday --tz local"
     )
     .action(
       (opts: {
@@ -1024,6 +1028,7 @@ export function buildCli(): Command {
         trend?: string | boolean;
         hours?: boolean;
         weekday?: boolean;
+        tz?: string;
         json?: boolean;
         watch?: string | boolean;
       }) => {
@@ -1125,6 +1130,29 @@ export function buildCli(): Command {
           }
         }
 
+        // --tz reshapes the --hours/--weekday histograms into a given IANA zone
+        // (or the host's zone via `local`) instead of UTC. Resolve + validate up
+        // front so a typo exits 1 rather than throwing inside the render. When
+        // unset, timeZone stays undefined → the UTC fast path in core.
+        let timeZone: string | undefined;
+        let tzLabel = "UTC";
+        if (opts.tz !== undefined) {
+          if (!opts.hours && !opts.weekday) {
+            console.error("--tz only applies to --hours and/or --weekday; add one of those flags.");
+            process.exitCode = 1;
+            return;
+          }
+          const requested =
+            opts.tz.toLowerCase() === "local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : opts.tz;
+          if (!isValidTimeZone(requested)) {
+            console.error(`Invalid --tz value: "${opts.tz}". Use an IANA zone id (e.g. Asia/Seoul, UTC) or 'local'.`);
+            process.exitCode = 1;
+            return;
+          }
+          timeZone = requested;
+          tzLabel = requested;
+        }
+
         const active = isJobScopeActive(scope);
         const scopeNote = active ? noteParts.join(" ") : undefined;
 
@@ -1144,7 +1172,9 @@ export function buildCli(): Command {
             groupBy,
             trendDays,
             Boolean(opts.hours),
-            Boolean(opts.weekday)
+            Boolean(opts.weekday),
+            timeZone,
+            tzLabel
           );
           return; // setInterval keeps the process alive.
         }
@@ -1164,11 +1194,11 @@ export function buildCli(): Command {
 
         const stats = computeStats(jobs);
         const trend = trendDays !== null ? computeDailyTrend(jobs, { nowMs: now, days: trendDays }) : null;
-        const hours = opts.hours ? computeHourlyDistribution(jobs) : null;
-        const weekday = opts.weekday ? computeWeekdayDistribution(jobs) : null;
+        const hours = opts.hours ? computeHourlyDistribution(jobs, timeZone) : null;
+        const weekday = opts.weekday ? computeWeekdayDistribution(jobs, timeZone) : null;
 
         if (opts.json) {
-          console.log(renderStatsJson(stats, store, { scope, trend, hours, weekday }));
+          console.log(renderStatsJson(stats, store, { scope, trend, hours, weekday, timeZone }));
           return;
         }
         // A store with jobs but an empty scoped subset should say "no match",
@@ -1182,11 +1212,11 @@ export function buildCli(): Command {
         }
         if (hours !== null && stats.total > 0) {
           console.log("");
-          console.log(renderHours(hours, { color: Boolean(process.stdout.isTTY) }));
+          console.log(renderHours(hours, { color: Boolean(process.stdout.isTTY), tzLabel }));
         }
         if (weekday !== null && stats.total > 0) {
           console.log("");
-          console.log(renderWeekday(weekday, { color: Boolean(process.stdout.isTTY) }));
+          console.log(renderWeekday(weekday, { color: Boolean(process.stdout.isTTY), tzLabel }));
         }
       }
     );

@@ -1859,3 +1859,38 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+## 2026-08-08 (세션 60) — `agentrelay stats --tz <zone>` (로컬/지정 타임존 히스토그램)
+
+- **맥락:** BACKLOG의 명시적 👷 항목은 사실상 전부 완료 상태. CLAUDE.md 지침(§8 무한 개선 백로그 소진,
+  비면 자체 발굴)에 따라, 직전 세션(`--weekday`)이 "다음 할 일"로 제안한 인접 항목을 구현했다 — 세션 58의
+  `--hours`(UTC 시간-of-day)와 세션 59의 `--weekday`(UTC 요일)는 모두 UTC 기준이라, "내 로컬 시각으로 몇 시/
+  무슨 요일에 throttle되나"라는 실사용 질문에 답하지 못했다.
+- **한 일 (branch `claude/wizardly-pascal-vy6kqn`):** `agentrelay stats --tz <zone>` — `--hours`/`--weekday`
+  히스토그램을 UTC가 아닌 지정 IANA 타임존(또는 `local`=호스트 zone)의 벽시계 시각으로 버킷팅.
+  - core `stats.ts`: `computeHourlyDistribution(jobs, timeZone?)`·`computeWeekdayDistribution(jobs, timeZone?)`에
+    옵셔널 2번째 인자 추가. 미지정 시 기존 UTC 고속 경로(`getUTCHours`/`getUTCDay`, `Intl` 미사용 → 기본
+    동작·성능 완전 불변), 지정 시 `Intl.DateTimeFormat`(zone당 포매터 **1회** 생성·재사용 → 대량 큐도
+    per-job `Intl` 셋업 비용 X)으로 벽시계 시/요일 추출. 자정을 넘겨 다른 날/요일로 이동하는 케이스 정확
+    처리(예: 2026-07-20 23:00Z=UTC Mon 23시 → Asia/Seoul Tue 08시). 순수 `isValidTimeZone(tz)`도 신설 —
+    잘못된 zone/빈 문자열은 false, CLI가 렌더 전에 exit 1로 잡음. day-of-week/hour-of-day는 zone만 고정하면
+    타임스탬프의 절대 속성이라 여전히 창(window)도 `nowMs`도 불필요.
+  - CLI `stats.ts`: `renderHours`/`renderWeekday`에 옵셔널 `tzLabel`(기본 "UTC")로 헤더·푸터의 "UTC" 라벨을
+    zone 이름으로 치환. `renderStatsJson`에 옵셔널 `timeZone` 필드 — `--tz`로 버킷팅했을 때만 방출하고
+    기본 JSON shape는 불변(기존 소비자 무영향), 스크립트가 UTC 출력과 zoned 출력을 구분 가능.
+  - `cli.ts`: `stats`에 `--tz <zone>` 배선. `local`은 `Intl.DateTimeFormat().resolvedOptions().timeZone`으로
+    호스트 zone 해소, 유효성 검증 실패 시 exit 1, `--hours`/`--weekday` 없이 단독 `--tz`도 exit 1(가이드
+    메시지). 일회성·`--json`·`--watch`(fresh `now`로 본문 재조합) 세 뷰 모두 적용, 기존 스코프 필터
+    (--status/--tool/--project/--since/--until) 및 `--hours`/`--weekday`/`--trend`와도 조합. addHelpText
+    예시 1줄(`--weekday --tz local`), completion은 라이브 프로그램 파생이라 `--tz` 자동 포함. 새 파서/
+    스케줄러/core 스토어 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 563→567, cli stats 37→40=307/1skip, dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  2-잡 임시 스토어(2026-07-20 23:00Z·15:00Z, 둘 다 UTC Mon)로 `stats --hours`가 UTC 15시·23시 → `--tz
+  Asia/Seoul`에서 00시·08시로 이동, `stats --weekday`가 UTC Mon(2) → Asia/Seoul Tue(2)로 이동, `--json`은
+  `timeZone:"Asia/Seoul"`+시프트된 hours 방출·기본 `--json`은 timeZone 키 없음, `--tz local`(TZ=America/
+  New_York)은 zone 라벨 반영, 잘못된 zone(`Not/AZone`)·`--hours` 없는 단독 `--tz`는 exit 1, `--hours
+  --weekday --tz`는 두 히스토그램 동시 zoned 렌더, `--help`·bash completion에 `--tz` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `--trend`(일별
+  추이)에도 동일 `--tz` 적용(현재 UTC 일자 경계 고정), 또는 대시보드에 시간대/요일/추이 히스토그램 노출
+  (CLI 미러). README/ARCHITECTURE(🧭 코워크).
