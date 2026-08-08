@@ -1,5 +1,6 @@
 import type { DailyActivity, HourlyActivity, RelayJob, WeekdayActivity } from "@agentrelay/core";
 import {
+  computeActivityHeatmap,
   computeDailyTrend,
   computeHourlyDistribution,
   computeStats,
@@ -15,6 +16,7 @@ import {
   NO_STATS_MESSAGE,
   renderGroupedStats,
   renderGroupedStatsJson,
+  renderHeatmap,
   renderHours,
   renderStats,
   renderStatsJson,
@@ -452,6 +454,123 @@ describe("renderStatsJson weekday field", () => {
     expect(withWeekday.weekday).toHaveLength(7);
     expect(withWeekday.weekday[1].count).toBe(1);
     expect(withWeekday.weekday[1].name).toBe("Mon");
+  });
+});
+
+describe("computeActivityHeatmap", () => {
+  it("always returns a stable 7×24 grid, zero-filled for an empty store", () => {
+    const grid = computeActivityHeatmap([]);
+    expect(grid.rows).toHaveLength(7);
+    expect(grid.total).toBe(0);
+    expect(grid.max).toBe(0);
+    for (const row of grid.rows) {
+      expect(row.hours).toHaveLength(24);
+      expect(row.total).toBe(0);
+    }
+    expect(grid.rows.map((r) => r.name)).toEqual(["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]);
+  });
+
+  it("buckets jobs by UTC weekday and hour, tracking row/grid totals and the busiest cell", () => {
+    // 2026-07-20 is a Monday. Two jobs at 14:00Z land in the same cell; one on
+    // Wednesday (2026-07-22) at 09:00Z lands elsewhere.
+    const jobs = [
+      job({ createdAt: "2026-07-20T14:00:00.000Z" }),
+      job({ createdAt: "2026-07-20T14:30:00.000Z" }),
+      job({ createdAt: "2026-07-22T09:15:00.000Z" }),
+    ];
+    const grid = computeActivityHeatmap(jobs);
+    expect(grid.total).toBe(3);
+    expect(grid.max).toBe(2); // the Mon 14:00 cell
+    expect(grid.rows[1].hours[14]).toBe(2); // Mon
+    expect(grid.rows[1].total).toBe(2);
+    expect(grid.rows[3].hours[9]).toBe(1); // Wed
+    expect(grid.rows[3].total).toBe(1);
+    // Untouched cells stay zero.
+    expect(grid.rows[0].total).toBe(0);
+    expect(grid.rows[1].hours[0]).toBe(0);
+  });
+
+  it("skips jobs with a missing or unparseable createdAt", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-20T14:00:00.000Z" }),
+      job({ createdAt: "not-a-date" }),
+      job({ createdAt: "" }),
+    ];
+    const grid = computeActivityHeatmap(jobs);
+    expect(grid.total).toBe(1);
+    expect(grid.rows[1].hours[14]).toBe(1);
+  });
+
+  it("does not mutate the input job list", () => {
+    const jobs = [job({ createdAt: "2026-07-20T14:00:00.000Z" })];
+    const snapshot = JSON.stringify(jobs);
+    computeActivityHeatmap(jobs);
+    expect(JSON.stringify(jobs)).toBe(snapshot);
+  });
+});
+
+describe("renderHeatmap", () => {
+  it("renders a title, an hour axis, 7 weekday rows, and a footer with the ramp", () => {
+    const grid = computeActivityHeatmap([
+      job({ createdAt: "2026-07-20T14:00:00.000Z" }),
+      job({ createdAt: "2026-07-20T14:30:00.000Z" }),
+      job({ createdAt: "2026-07-22T09:00:00.000Z" }),
+    ]);
+    const out = renderHeatmap(grid);
+    const lines = out.split("\n");
+    // title + axis + 7 rows + footer.
+    expect(lines).toHaveLength(10);
+    expect(lines[0]).toContain("by weekday × hour");
+    // Axis labels for 0/6/12/18.
+    expect(lines[1]).toContain("12");
+    expect(lines[1]).toContain("18");
+    // Every weekday name is present, one per row.
+    for (const name of ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]) {
+      expect(out).toContain(name);
+    }
+    // Row totals show at the end of each row.
+    const monRow = lines.find((l) => l.includes("Mon")) ?? "";
+    expect(monRow.trimEnd().endsWith(" 2")).toBe(true);
+    expect(lines[lines.length - 1]).toContain("3 job(s) across 7×24 grid, UTC");
+    expect(lines[lines.length - 1]).toContain("░▒▓█ low→high");
+  });
+
+  it("marks the busiest cell with the top ramp glyph and empty cells with dots", () => {
+    const grid = computeActivityHeatmap([
+      job({ createdAt: "2026-07-20T14:00:00.000Z" }),
+      job({ createdAt: "2026-07-20T14:30:00.000Z" }),
+      job({ createdAt: "2026-07-22T09:00:00.000Z" }),
+    ]);
+    const out = renderHeatmap(grid);
+    // Busiest cell (Mon 14:00, count 2 == max) is a full block.
+    expect(out).toContain("█");
+    // The single Wed 09:00 hit (ratio 0.5) is a mid-ramp glyph, not a full block.
+    expect(out).toContain("▒");
+    // Empty cells render as baseline dots.
+    expect(out).toContain("·");
+  });
+
+  it("renders an all-empty grid without any ramp blocks", () => {
+    const out = renderHeatmap(computeActivityHeatmap([]));
+    for (const glyph of ["░", "▒", "▓", "█"]) {
+      // The ramp legend in the footer is allowed; the grid body must have none.
+      const body = out.split("\n").slice(0, -1).join("\n");
+      expect(body).not.toContain(glyph);
+    }
+    expect(out).toContain("0 job(s) across 7×24 grid, UTC");
+  });
+});
+
+describe("renderStatsJson heatmap field", () => {
+  it("omits `heatmap` by default but includes the 7×24 grid when provided", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("heatmap" in without).toBe(false);
+    const heatmap = computeActivityHeatmap([job({ createdAt: "2026-07-20T14:00:00.000Z" })]); // Mon 14:00
+    const withHeatmap = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", heatmap }));
+    expect(withHeatmap.heatmap.rows).toHaveLength(7);
+    expect(withHeatmap.heatmap.rows[1].hours[14]).toBe(1);
+    expect(withHeatmap.heatmap.total).toBe(1);
   });
 });
 
