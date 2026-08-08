@@ -236,22 +236,39 @@ export function renderTrend(trend: DailyActivity[], options: { color?: boolean }
   return lines.join("\n");
 }
 
+/**
+ * Formats a fixed UTC offset (in minutes) as a compact timezone label for the
+ * histogram headers/footers: `0` → "UTC", `540` → "UTC+09:00", `-300` →
+ * "UTC-05:00", `330` → "UTC+05:30". A non-finite offset falls back to "UTC".
+ * Pure — used to label `--hours`/`--weekday` when `--local` shifts the buckets.
+ */
+export function formatUtcOffsetLabel(minutes: number): string {
+  if (!Number.isFinite(minutes) || minutes === 0) return "UTC";
+  const sign = minutes > 0 ? "+" : "-";
+  const abs = Math.abs(minutes);
+  const hh = String(Math.floor(abs / 60)).padStart(2, "0");
+  const mm = String(abs % 60).padStart(2, "0");
+  return `UTC${sign}${hh}:${mm}`;
+}
+
 /** Max width (chars) of a full-scale bar in the hour-of-day histogram. */
 const HOURS_BAR_WIDTH = 24;
 
 /**
- * Renders an hour-of-day activity histogram (jobs created per UTC hour, 0–23,
+ * Renders an hour-of-day activity histogram (jobs created per hour, 0–23,
  * aggregated across all days) as a compact ASCII bar chart. Bars scale to the
  * busiest hour so the shape reads regardless of absolute volume; a zero hour
  * shows a dim baseline dot. Pure: no I/O, no clock. Callers pass the already-
- * computed distribution so it stays testable.
+ * computed distribution so it stays testable. `tzLabel` names the timezone the
+ * hours are bucketed in (default "UTC"; e.g. "UTC+09:00" under `--local`).
  */
-export function renderHours(hours: HourlyActivity[], options: { color?: boolean } = {}): string {
+export function renderHours(hours: HourlyActivity[], options: { color?: boolean; tzLabel?: string } = {}): string {
   const color = options.color ?? false;
+  const tzLabel = options.tzLabel ?? "UTC";
   const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
   const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
 
-  const lines: string[] = [b("by hour") + d(" (jobs created per hour of day, UTC)")];
+  const lines: string[] = [b("by hour") + d(` (jobs created per hour of day, ${tzLabel})`)];
   if (hours.length === 0) {
     lines.push("  none");
     return lines.join("\n");
@@ -270,7 +287,7 @@ export function renderHours(hours: HourlyActivity[], options: { color?: boolean 
     const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
     lines.push(`  ${String(hour).padStart(2, "0")}:00  ${shown} ${count}`);
   }
-  lines.push(d(`  ${total} job(s) across 24 hour(s), UTC`));
+  lines.push(d(`  ${total} job(s) across 24 hour(s), ${tzLabel}`));
   return lines.join("\n");
 }
 
@@ -278,18 +295,23 @@ export function renderHours(hours: HourlyActivity[], options: { color?: boolean 
 const WEEKDAY_BAR_WIDTH = 24;
 
 /**
- * Renders a day-of-week activity histogram (jobs created per UTC weekday,
- * Sun–Sat, aggregated across all weeks) as a compact ASCII bar chart. Bars
- * scale to the busiest weekday so the shape reads regardless of absolute
- * volume; a zero day shows a dim baseline dot. Pure: no I/O, no clock. Callers
- * pass the already-computed distribution so it stays testable.
+ * Renders a day-of-week activity histogram (jobs created per weekday, Sun–Sat,
+ * aggregated across all weeks) as a compact ASCII bar chart. Bars scale to the
+ * busiest weekday so the shape reads regardless of absolute volume; a zero day
+ * shows a dim baseline dot. Pure: no I/O, no clock. Callers pass the already-
+ * computed distribution so it stays testable. `tzLabel` names the timezone the
+ * weekdays are bucketed in (default "UTC"; e.g. "UTC+09:00" under `--local`).
  */
-export function renderWeekday(weekdays: WeekdayActivity[], options: { color?: boolean } = {}): string {
+export function renderWeekday(
+  weekdays: WeekdayActivity[],
+  options: { color?: boolean; tzLabel?: string } = {}
+): string {
   const color = options.color ?? false;
+  const tzLabel = options.tzLabel ?? "UTC";
   const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
   const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
 
-  const lines: string[] = [b("by weekday") + d(" (jobs created per day of week, UTC)")];
+  const lines: string[] = [b("by weekday") + d(` (jobs created per day of week, ${tzLabel})`)];
   if (weekdays.length === 0) {
     lines.push("  none");
     return lines.join("\n");
@@ -308,7 +330,7 @@ export function renderWeekday(weekdays: WeekdayActivity[], options: { color?: bo
     const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
     lines.push(`  ${name}  ${shown} ${count}`);
   }
-  lines.push(d(`  ${total} job(s) across 7 day(s), UTC`));
+  lines.push(d(`  ${total} job(s) across 7 day(s), ${tzLabel}`));
   return lines.join("\n");
 }
 
@@ -322,6 +344,7 @@ export function renderStatsJson(
     trend?: DailyActivity[] | null;
     hours?: HourlyActivity[] | null;
     weekday?: WeekdayActivity[] | null;
+    utcOffsetMinutes?: number | null;
   } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
@@ -332,7 +355,11 @@ export function renderStatsJson(
   const trend = options.trend ?? undefined;
   const hours = options.hours ?? undefined;
   const weekday = options.weekday ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, stats }, null, 2);
+  // `utcOffsetMinutes` is emitted only when `--local` shifted the hour/weekday
+  // buckets, so consumers can tell which timezone those histograms are in; the
+  // default (UTC) shape omits it entirely.
+  const utcOffsetMinutes = options.utcOffsetMinutes ?? undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, utcOffsetMinutes, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */

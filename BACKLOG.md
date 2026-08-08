@@ -750,6 +750,20 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 `agentrelay stats --local` — `--hours`/`--weekday`를 UTC 대신 로컬(현재 UTC 오프셋) 기준으로 버킷팅.
+      UTC와 로컬이 다른 사용자가 "몇 시에/무슨 요일에 throttle되나"를 자기 벽시계로 읽게 함(직전 세션이
+      "다음 할 일"로 제안).
+      (완료 — core `computeHourlyDistribution`/`computeWeekdayDistribution`에 옵셔널 `{ utcOffsetMinutes }`
+      추가 — 타임스탬프를 오프셋만큼 시프트 후 `getUTCHours()`/`getUTCDay()` 판독, 기본 0=UTC 하위호환 불변,
+      균일 시프트라 과거 DST 미추적(JSDoc 명시). CLI `formatUtcOffsetLabel`(0→"UTC"·540→"UTC+09:00"·
+      -300→"UTC-05:00"·330→"UTC+05:30") 신설, `renderHours`/`renderWeekday`에 `tzLabel`(기본 "UTC") 헤더·푸터
+      반영, `renderStatsJson`에 옵셔널 `utcOffsetMinutes`(--local이 실제 시프트 시에만 방출, 기본 shape 불변).
+      `cli.ts`에 `--local` 배선 — `-new Date().getTimezoneOffset()`로 host 오프셋, 일회성·`--json`·`--watch`
+      세 뷰 모두 적용, 스코프 필터 및 `--trend`와 조합 가능. 새 파서/스케줄러/스토어 로직 0줄. core stats +3(=566)
+      + cli stats +9(=46) 신규 테스트, 실제 빌드 CLI e2e로 `TZ=Asia/Seoul`(UTC+9)·`TZ=America/New_York`(UTC-4)
+      시간·요일 시프트(일 경계 넘김 포함)·JSON `utcOffsetMinutes`·기본 JSON 미포함·help/completion `--local`
+      노출 검증. branch `claude/wizardly-pascal-0y3ce6`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

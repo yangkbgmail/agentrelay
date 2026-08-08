@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatDurationMs,
   formatSuccessRate,
+  formatUtcOffsetLabel,
   NO_GROUP_MESSAGE,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
@@ -375,6 +376,33 @@ describe("renderHours", () => {
     expect(out).toMatch(/14:00 .* 1/);
     expect(out).toContain("3 job(s) across 24 hour(s), UTC");
   });
+
+  it("labels the header and footer with a custom tzLabel", () => {
+    const out = renderHours(distFrom({ 8: 1 }), { tzLabel: "UTC+09:00" });
+    expect(out).toContain("per hour of day, UTC+09:00)");
+    expect(out).toContain("1 job(s) across 24 hour(s), UTC+09:00");
+    expect(out).not.toContain(", UTC)"); // no bare UTC leaked into the header
+  });
+});
+
+describe("formatUtcOffsetLabel", () => {
+  it("returns bare UTC for a zero or non-finite offset", () => {
+    expect(formatUtcOffsetLabel(0)).toBe("UTC");
+    expect(formatUtcOffsetLabel(Number.NaN)).toBe("UTC");
+    expect(formatUtcOffsetLabel(Number.POSITIVE_INFINITY)).toBe("UTC");
+  });
+
+  it("formats whole-hour offsets with a sign and zero-padded HH:MM", () => {
+    expect(formatUtcOffsetLabel(540)).toBe("UTC+09:00"); // UTC+9
+    expect(formatUtcOffsetLabel(-300)).toBe("UTC-05:00"); // UTC-5
+    expect(formatUtcOffsetLabel(60)).toBe("UTC+01:00");
+  });
+
+  it("formats half/quarter-hour offsets", () => {
+    expect(formatUtcOffsetLabel(330)).toBe("UTC+05:30"); // India
+    expect(formatUtcOffsetLabel(-270)).toBe("UTC-04:30"); // Venezuela (historical)
+    expect(formatUtcOffsetLabel(345)).toBe("UTC+05:45"); // Nepal
+  });
 });
 
 describe("renderStatsJson hours field", () => {
@@ -440,6 +468,22 @@ describe("renderWeekday", () => {
     expect(out).toMatch(/Wed .* 1/);
     expect(out).toContain("3 job(s) across 7 day(s), UTC");
   });
+
+  it("labels the header and footer with a custom tzLabel", () => {
+    const out = renderWeekday(distFrom({ 1: 1 }), { tzLabel: "UTC-05:00" });
+    expect(out).toContain("per day of week, UTC-05:00)");
+    expect(out).toContain("1 job(s) across 7 day(s), UTC-05:00");
+  });
+
+  it("round-trips a local-timezone subset through compute + render (UTC+9 shifts the day)", () => {
+    // 23:00 UTC Monday + 9h = 08:00 Tuesday local → the bar lands on Tue.
+    const jobs = [job({ createdAt: "2026-07-20T23:00:00.000Z" })];
+    const out = renderWeekday(computeWeekdayDistribution(jobs, { utcOffsetMinutes: 540 }), {
+      tzLabel: formatUtcOffsetLabel(540),
+    });
+    expect(out).toMatch(/Tue .* 1/);
+    expect(out).toContain("1 job(s) across 7 day(s), UTC+09:00");
+  });
 });
 
 describe("renderStatsJson weekday field", () => {
@@ -452,6 +496,29 @@ describe("renderStatsJson weekday field", () => {
     expect(withWeekday.weekday).toHaveLength(7);
     expect(withWeekday.weekday[1].count).toBe(1);
     expect(withWeekday.weekday[1].name).toBe("Mon");
+  });
+});
+
+describe("renderStatsJson utcOffsetMinutes field", () => {
+  it("omits `utcOffsetMinutes` by default", () => {
+    const stats = computeStats([job()]);
+    const json = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("utcOffsetMinutes" in json).toBe(false);
+  });
+
+  it("includes `utcOffsetMinutes` when --local shifted the histograms", () => {
+    const stats = computeStats([job()]);
+    const hours = computeHourlyDistribution([job({ createdAt: "2026-07-20T23:00:00.000Z" })], {
+      utcOffsetMinutes: 540,
+    });
+    const json = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", hours, utcOffsetMinutes: 540 }));
+    expect(json.utcOffsetMinutes).toBe(540);
+  });
+
+  it("emits a zero offset when the local timezone is UTC (explicitly requested)", () => {
+    const stats = computeStats([job()]);
+    const json = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", utcOffsetMinutes: 0 }));
+    expect(json.utcOffsetMinutes).toBe(0);
   });
 });
 
