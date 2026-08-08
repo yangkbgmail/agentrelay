@@ -1859,3 +1859,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 60 — `agentrelay diff` 스냅샷 대비 변경분] (2026-08-08, 무인 자율 세션, branch `claude/wizardly-pascal-e0sbj2`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유뿐이라, CLAUDE.md
+  지침대로 **새 개선 항목을 발굴**했다. 오픈 PR이 50개+로 stats(--tz/--heatmap/--durations)·파서·
+  completion·summary·search·recent·drain 등 대부분 영역이 포화 상태였는데, backup/restore 계열에 공백이
+  있었다 — `restore --dry-run`(세션 27)은 복원 시 몇 개 잡이 몇 개를 대체하는지 **카운트만** 주고,
+  *어떤* 잡이 나타나거나 사라지거나 바뀌는지는 알 수 없었다. "마지막 백업 이후 스토어가 어떻게
+  변했나"를 답하는 read-only 진단이 없었다.
+- **한 일 (branch `claude/wizardly-pascal-e0sbj2`):** `agentrelay diff [snapshot]` — 스냅샷 → 현재 스토어 diff.
+  - core `diff.ts` 신설(순수·파일시스템/시계 미접촉): `diffJobs(base, target, fields?)` + `JobsDiff`
+    (added/removed/changed/unchanged) + `ChangedJob`/`JobFieldChange` + `DIFF_TRACKED_FIELDS`
+    (status·attempts·resetAt·updatedAt·lastError·lastOutputTail — id/createdAt/project/tool/command/cwd는
+    식별·enqueue 고정값이라 제외해 노이즈 방지) + `isEmptyDiff`. id로 매칭, 중복 id는 마지막 우선(스토어
+    load 의미와 일치), added/removed/changed는 `compareJobsNewestFirst`로 newest-first 정렬(status와 동일
+    순서). `fields`로 추적 필드 좁히기 가능.
+  - CLI `diff.ts` 신설(순수 렌더): `renderDiff`(요약 라인 `+N added -N removed ~N changed =N unchanged` +
+    섹션별 상세, changed는 `field: before → after`, null은 `∅`, no-diff는 `NO_DIFF_MESSAGE`)·`renderDiffJson`
+    (--json: from·generatedAt·full JobsDiff). 색상은 옵트인(added=녹/removed=적/changed=황).
+  - CLI `commands.ts` `diffStore`(read-only): `resolveRestoreSource` 재사용(직접 경로/`.backup-*` selector/
+    `latest`, 미매칭은 명확한 에러) → 스냅샷 읽기+JSON 배열 검증 → `queue.listAll()`와 `diffJobs`. 스토어
+    미변경. `cli.ts` `diff [snapshot] [--json]` 배선(기본 selector `latest`, 에러는 exit 1, addHelpText 예시,
+    completion 자동 포함).
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 563→574[+11], cli 304→310[+6]=310/1skip, dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  스냅샷 2잡(a=queued/c=waiting) vs 현재(a=completed·attempts2, c 제거, e 추가)로 `diff`가 added(e)·removed(c)·
+  changed(a: status/attempts/updatedAt) 정확히 렌더, `--json`은 full shape, 미매칭 selector는 exit 1,
+  `backup`→변경→`diff`(기본 latest)로 no-diff/changed 라운드트립, `--help`·bash completion에 `diff` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `diff`에
+  스코프 필터(--status/--tool/--project) 또는 두 임의 스냅샷 간 diff(`diff <a> <b>`), 대시보드에 시간대/요일/
+  추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend` 미러). README/ARCHITECTURE(🧭 코워크).

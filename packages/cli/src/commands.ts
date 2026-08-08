@@ -38,6 +38,7 @@ import {
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
+  diffJobs,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
   type ExportFormat,
@@ -55,6 +56,7 @@ import {
   isJobScopeActive,
   type JobCsvColumn,
   type JobScope,
+  type JobsDiff,
   type LocationReport,
   listBackups,
   loadConfigFile,
@@ -998,6 +1000,55 @@ export function previewRestoreStore(options: RestoreStoreOptions = {}): RestoreP
   const queue = openQueue(storePath);
   try {
     return queue.previewRestore({ from, backupCurrent: options.backupCurrent });
+  } finally {
+    queue.close();
+  }
+}
+
+export interface DiffStoreOptions {
+  storePath?: string;
+  /**
+   * Which snapshot to diff against. Either a filesystem path to any snapshot
+   * file (absolute or relative to cwd), or — for this store's own rotating
+   * snapshots — `"latest"`, a snapshot basename, or its sortable stamp.
+   * Defaults to `"latest"`.
+   */
+  selector?: string;
+}
+
+export interface DiffStoreResult {
+  /** Absolute path of the snapshot the current store was compared against. */
+  from: string;
+  /** The comparison (snapshot → current store). */
+  diff: JobsDiff;
+}
+
+/**
+ * Compares the current store against a snapshot — the read-only companion to
+ * `restore`/`backup`. Resolves the selector the same way {@link restoreStore}
+ * does (direct path or this store's rotating `.backup-*`), reads and validates
+ * the snapshot (must be a JSON array of jobs), then diffs snapshot → current so
+ * `added`/`removed`/`changed` read as "what happened since the backup". The live
+ * store is only read, never written.
+ */
+export function diffStore(options: DiffStoreOptions = {}): DiffStoreResult {
+  const storePath = options.storePath ?? defaultStorePath();
+  const from = resolveRestoreSource(storePath, options.selector ?? "latest");
+  const raw = readFileSync(from, "utf8");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`snapshot ${from} is not valid JSON`);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`snapshot ${from} is not a JSON array of jobs`);
+  }
+  const snapshotJobs = parsed as RelayJob[];
+  const queue = openQueue(storePath);
+  try {
+    const current = queue.listAll();
+    return { from, diff: diffJobs(snapshotJobs, current) };
   } finally {
     queue.close();
   }
