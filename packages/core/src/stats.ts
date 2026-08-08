@@ -205,22 +205,34 @@ export interface HourlyActivity {
 }
 
 /**
- * Buckets jobs by the UTC hour-of-day (0–23) they were created in, aggregated
+ * Buckets jobs by the hour-of-day (0–23) they were created in, aggregated
  * across every day in the store, so `agentrelay stats --hours` can show which
- * hours rate-limits tend to cluster in ("I mostly get throttled around 15:00
- * UTC"). Unlike {@link computeDailyTrend} this has no window and needs no clock:
+ * hours rate-limits tend to cluster in ("I mostly get throttled around 15:00").
+ * Unlike {@link computeDailyTrend} this has no window and needs no clock:
  * hour-of-day is an absolute property of each timestamp.
+ *
+ * By default the hour is the UTC hour. Pass `utcOffsetMinutes` to bucket by a
+ * fixed wall-clock offset instead (e.g. 540 for UTC+9, -300 for UTC-5), so
+ * `agentrelay stats --hours --local` reflects the operator's own day. The offset
+ * is applied uniformly to every timestamp — a fixed shift, not a per-timestamp
+ * DST calculation — so historical daylight-saving transitions aren't tracked.
  *
  * The result is always exactly 24 entries, hour 0 through hour 23, zero-filled
  * for quiet hours so the histogram has a stable shape. Jobs with a missing or
  * unparseable `createdAt` are skipped — they can't be placed on the clock.
  */
-export function computeHourlyDistribution(jobs: RelayJob[]): HourlyActivity[] {
+export function computeHourlyDistribution(
+  jobs: RelayJob[],
+  options: { utcOffsetMinutes?: number } = {}
+): HourlyActivity[] {
+  const offsetMs = (options.utcOffsetMinutes ?? 0) * 60_000;
   const counts = new Array<number>(24).fill(0);
   for (const job of jobs) {
     const created = Date.parse(job.createdAt);
     if (Number.isNaN(created)) continue;
-    counts[new Date(created).getUTCHours()] += 1;
+    // Shift the instant by the offset, then read the UTC hour of the shifted
+    // instant — that's the local wall-clock hour at `utcOffsetMinutes`.
+    counts[new Date(created + offsetMs).getUTCHours()] += 1;
   }
   return counts.map((count, hour) => ({ hour, count }));
 }
@@ -238,23 +250,33 @@ export interface WeekdayActivity {
 }
 
 /**
- * Buckets jobs by the UTC day-of-week (0 = Sunday … 6 = Saturday) they were
- * created on, aggregated across every week in the store, so `agentrelay stats
- * --weekday` can show which weekdays rate-limits tend to cluster on ("I mostly
- * get throttled on Mondays"). Like {@link computeHourlyDistribution} this has no
+ * Buckets jobs by the day-of-week (0 = Sunday … 6 = Saturday) they were created
+ * on, aggregated across every week in the store, so `agentrelay stats --weekday`
+ * can show which weekdays rate-limits tend to cluster on ("I mostly get
+ * throttled on Mondays"). Like {@link computeHourlyDistribution} this has no
  * window and needs no clock: day-of-week is an absolute property of the
  * timestamp.
+ *
+ * By default the weekday is the UTC weekday. Pass `utcOffsetMinutes` to bucket
+ * by a fixed wall-clock offset instead, so `agentrelay stats --weekday --local`
+ * reflects the operator's own week — a job at 23:00 UTC Monday lands on Tuesday
+ * for a UTC+9 operator. The offset is applied uniformly (a fixed shift, not a
+ * per-timestamp DST calculation).
  *
  * The result is always exactly 7 entries, Sunday through Saturday, zero-filled
  * for quiet days so the histogram has a stable shape. Jobs with a missing or
  * unparseable `createdAt` are skipped — they can't be placed on the calendar.
  */
-export function computeWeekdayDistribution(jobs: RelayJob[]): WeekdayActivity[] {
+export function computeWeekdayDistribution(
+  jobs: RelayJob[],
+  options: { utcOffsetMinutes?: number } = {}
+): WeekdayActivity[] {
+  const offsetMs = (options.utcOffsetMinutes ?? 0) * 60_000;
   const counts = new Array<number>(7).fill(0);
   for (const job of jobs) {
     const created = Date.parse(job.createdAt);
     if (Number.isNaN(created)) continue;
-    counts[new Date(created).getUTCDay()] += 1;
+    counts[new Date(created + offsetMs).getUTCDay()] += 1;
   }
   return counts.map((count, weekday) => ({ weekday, name: WEEKDAY_NAMES[weekday], count }));
 }
