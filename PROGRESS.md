@@ -1859,3 +1859,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 60 — `agentrelay next --watch` 라이브 단일 라인 카운트다운] (2026-08-08, 무인 자율 세션, branch `claude/wizardly-pascal-z4wz7k`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 시작 시 열린 PR이 ~30개 쌓여 있었는데(heatmap·tz/utc-offset·
+  대시보드 히스토그램·여러 파서 추가 등 상당수가 서로 중복), 그 제목을 전부 스캔해 **어떤 열린 PR과도
+  겹치지 않는 신규 항목**을 골랐다. watch 계열(status/upcoming/overdue/tools/projects/stats)은 카운트다운을
+  가진 조회 명령마다 라이브 모드를 갖췄지만, 정작 "다음에 무엇이 언제 재개되나"를 상태바용 단일 라인으로
+  주는 `next`에는 `--watch`가 없었다.
+- **한 일 (branch `claude/wizardly-pascal-z4wz7k`):** `agentrelay next --watch [seconds]` — 다음 재개 잡의
+  단일 라인을 라이브로 갱신(전용 상태 페인에서 카운트다운이 째깍째깍 줄어드는 뷰).
+  - CLI `next.ts`: 순수 `renderNextWatchFrame(next, storePath, intervalMs, now)` 신설 — `status`/`upcoming`/
+    `overdue`/`tools`/`projects`의 watch-frame와 동일한 title/meta 라이브 배너로 감싸고, 항상 컬러인
+    `renderNext` 본문(짧은 id·프로젝트·카운트다운·절대 리셋 시각 + 뒤에 대기 중인 잡 수 note)을 삽입.
+  - `cli.ts`: 세션 52가 추출한 공용 `startWatchLoop`을 재사용하는 `runNextWatch`(매 프레임 스토어 재읽기 +
+    `selectNextResume`를 fresh `now`로 재계산 → 카운트다운 live, 잡이 재개되면 next 대상 자동 갱신·화면 clear).
+    `next`에 `-w, --watch [seconds]` 배선 — `--json`이 `--watch`보다 우선(일회성 기계 덤프), `--exit-code`는
+    종료하지 않는 루프엔 무의미하므로 watch 경로에서 무시, 인터벌 기본 2s, addHelpText 예시 4줄, completion은
+    라이브 프로그램 파생이라 `--watch` 자동 포함. 새 파서/스케줄러/core 스토어 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(cli next 8→11=307/1skip, core·dashboard 불변). **실제 빌드 CLI e2e**(mock 아님):
+  대기 잡 1건(web-app, resetAt +90m) 임시 스토어로 `next`가 "abcdef12 web-app resets in 1h 30m (…절대시각)"
+  일회성 출력, `next --json`은 `.next.job.project=web-app`·`due=false`, `next --watch 5`는 화면 clear 후
+  "agentrelay next (live, every 5s — Ctrl-C to exit)" 배너 + timestamp/store 메타 라인 + "resets in 1h 30m"
+  카운트다운 프레임 렌더, `next --watch --json`은 --json 우선(기계 덤프), `--help`·completion에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 참고 — 세션 시작 시 열린 PR ~30개 중
+  다수가 `--tz`/`--utc-offset`/`--local`(#514·515·518·520·521·522·524·525·526·529)과 `--heatmap`
+  (#516·517·519·528·530)로 **거의 동일 기능 중복**이라, 다음 세션은 신규 구현 전에 이 중복 PR 정리를
+  먼저 고려할 것. README/ARCHITECTURE(🧭 코워크).

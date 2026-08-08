@@ -750,6 +750,22 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 `agentrelay next --watch [seconds]` — 다음 재개 잡의 단일 라인을 라이브로 갱신(카운트다운이
+      째깍째깍 줄어드는 상태바용 뷰). watch 계열(status/upcoming/overdue/tools/projects/stats)의
+      마지막 카운트다운 명령까지 확장.
+      (완료 — `next`는 상태바/스크립트용 단일 라인(가장 임박한 재개 하나)을 주지만, watch 형제들과 달리
+      라이브 카운트다운 모드가 없어 전용 상태 페인에서 째깍째깍 줄어드는 뷰를 못 봤다. CLI `next.ts`에
+      순수 `renderNextWatchFrame(next, storePath, intervalMs, now)` 신설(`status`/`upcoming`/`overdue`/
+      `tools`/`projects`의 watch-frame와 동일 title/meta 배너 + 항상 컬러인 `renderNext` 본문).
+      세션 52가 추출한 공용 `startWatchLoop`을 재사용하는 `runNextWatch`(매 프레임 스토어 재읽기 +
+      `selectNextResume`를 fresh `now`로 재계산 → 카운트다운 live·화면 clear; 재개된 잡이 리스트에서
+      빠지면 next 대상도 자동 갱신). `next`에 `-w, --watch [seconds]` 배선: `--json`이 `--watch`보다
+      우선(일회성 기계 덤프), `--exit-code`는 종료하지 않는 루프엔 무의미하므로 watch 경로에서 무시,
+      인터벌 기본 2s, addHelpText 예시 4줄, completion 자동 포함. 새 파서/스케줄러/core 로직 0줄 — 전부
+      기존 검증된 `selectNextResume`/`renderNext` 재사용. cli next watch-frame 3케이스 신규, 실제 빌드
+      CLI e2e로 화면 clear·라이브 배너·1h30m 카운트다운·--json 우선·help/completion `--watch` 노출 검증.
+      branch `claude/wizardly-pascal-z4wz7k`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
