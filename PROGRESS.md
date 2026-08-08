@@ -1859,3 +1859,18 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 — 파서: 상대 요일 표현 인식] (2026-08-08, 무인 스케줄 세션)
+- **한 일:** 파서에 `clock-time-day-offset` 패턴 신설 — `resets tomorrow at 9am` /
+  `reset today at 15:30` / `resets tomorrow at 9:00pm`처럼 "reset(s)"와 "at" 사이에
+  `today`/`tomorrow`가 끼는 사람이 읽는 리셋 메시지를 인식. 기존 `clock-time`/`clock-time-meridiem`은
+  "reset(s) at <time>"가 인접해야 매칭돼 이 형식들을 전부 놓쳤고, 사전 필터
+  `LOOKS_LIKE_RATE_LIMIT`도 통과시키지 못했음 → 필터에 `today|tomorrow` 대안 추가.
+  `tomorrow`는 항상 다음 날(시각 무관), `today`는 당일. 12시간제 유효성(예: `13pm` 거부)은
+  12→24시 변환 *전*에 검사(변환 후 검사 시 9pm→21이 오탐으로 null 되는 버그를 개발 중 발견·수정).
+  파일: `packages/core/src/parser.ts`. 새 스케줄러/스토어 로직 0줄.
+- **검증:** `pnpm build` 클린(Next.js 포함)·`pnpm test` 전 패키지 통과(core 563→567=+4,
+  cli parse 10→11=305/1skip, dashboard 9). **실제 빌드 CLI**로 `agentrelay parse
+  "…Resets tomorrow at 9am."`가 `pattern: clock-time-day-offset`·다음 날 09:00 리셋·카운트다운 렌더 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 인접 후속 후보 —
+  요일 이름 기반(`resets on Monday`) 또는 공백 구분 날짜-시각(`2026-07-13 05:00`, T 없음) 인식.

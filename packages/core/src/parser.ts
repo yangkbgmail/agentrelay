@@ -43,6 +43,38 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // "resets tomorrow at 9am" / "reset today at 15:30" / "resets tomorrow at 9:00pm"
+    // Human-readable messages that name the day relative to now. The plain
+    // clock-time patterns below require "reset(s) at <time>" with nothing in
+    // between, so the intervening "tomorrow"/"today" word makes them miss these
+    // strings entirely (and the pre-filter would drop them too — hence the
+    // "today|tomorrow" alternative added to LOOKS_LIKE_RATE_LIMIT). "tomorrow"
+    // always lands on the next calendar day; "today" stays on the current day
+    // (a reset already in the past just resumes immediately, which is safe).
+    // The hour is interpreted in local time, same known limitation as the other
+    // clock-time patterns. Kept before clock-time so intent reads top-down; the
+    // patterns are disjoint in practice so ordering doesn't change results.
+    name: "clock-time-day-offset",
+    regex: /reset[s]?\s+(today|tomorrow)\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i,
+    resolve: (m, now) => {
+      const day = m[1].toLowerCase();
+      let hour = parseInt(m[2], 10);
+      const minute = m[3] ? parseInt(m[3], 10) : 0;
+      const meridiem = m[4]?.toLowerCase();
+      // Reject impossible clock readings *before* 12h→24h conversion: a meridiem
+      // implies a 12-hour clock, so "13pm" is invalid; without one we allow a
+      // 24-hour reading up to 23:59.
+      if (meridiem && hour > 12) return null;
+      if (hour > 23 || minute > 59) return null;
+      if (meridiem === "pm" && hour < 12) hour += 12;
+      if (meridiem === "am" && hour === 12) hour = 0;
+      const candidate = new Date(now);
+      candidate.setHours(hour, minute, 0, 0);
+      if (day === "tomorrow") candidate.setDate(candidate.getDate() + 1);
+      return candidate;
+    },
+  },
+  {
     // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
     name: "clock-time",
     regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
@@ -136,7 +168,8 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|try again|resets?\s+(at|in|today|tomorrow)|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);

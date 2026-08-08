@@ -56,6 +56,49 @@ describe("parseRateLimitMessage", () => {
     expect(noon.getHours()).toBe(12);
   });
 
+  it("parses 'resets tomorrow at 9am' and lands on the next calendar day", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage(
+      "Claude usage limit reached. Resets tomorrow at 9am.",
+      { now }
+    );
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time-day-offset");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(9);
+    expect(resetDate.getMinutes()).toBe(0);
+    // "tomorrow" is always the day after `now`, regardless of the clock time.
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    expect(resetDate.getDate()).toBe(tomorrow.getDate());
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'reset today at 15:30' on the current day with minute precision", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Rate limit — reset today at 15:30.", { now });
+    expect(result?.pattern).toBe("clock-time-day-offset");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(15);
+    expect(resetDate.getMinutes()).toBe(30);
+    expect(resetDate.getDate()).toBe(now.getDate());
+  });
+
+  it("parses 'resets tomorrow at 9:00pm' with minutes + meridiem", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Usage limit. Resets tomorrow at 9:00pm.", { now });
+    expect(result?.pattern).toBe("clock-time-day-offset");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(21);
+    expect(resetDate.getMinutes()).toBe(0);
+  });
+
+  it("rejects an impossible day-offset clock reading like 'reset tomorrow at 13pm'", () => {
+    // A meridiem implies a 12-hour clock, so 13pm is not a valid reading and
+    // must not fall through to a bogus reset. No other pattern claims it either.
+    expect(parseRateLimitMessage("Usage limit. reset tomorrow at 13pm.")).toBeNull();
+  });
+
   it("still prefers minute-precise clock-time over the meridiem-only pattern", () => {
     const now = new Date("2026-07-12T08:00:00Z");
     const result = parseRateLimitMessage("Resets at 5:30pm.", { now });

@@ -48,6 +48,12 @@ describe("buildParseReport", () => {
     expect(report.tool).toBe("generic");
     expect(report.pattern).toBe("clock-time");
   });
+
+  it("surfaces the day-offset pattern for 'resets tomorrow at 9am'", () => {
+    const report = buildParseReport("Usage limit. Resets tomorrow at 9am.", { now: NOW });
+    expect(report.pattern).toBe("clock-time-day-offset");
+    expect(report.resetAt).not.toBeNull();
+  });
 });
 
 describe("renderParseReport", () => {
