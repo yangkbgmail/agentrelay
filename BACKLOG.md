@@ -734,6 +734,22 @@
       테스트, 실제 빌드 CLI e2e로 시간 버킷팅·최다시간 풀바·스코프 부분집합·`--json` hours 필드·기본 JSON
       미포함·help/completion `--hours` 노출 검증. branch `claude/wizardly-pascal-hours`)
 
+- [x] 👷 `agentrelay stats --weekday` — 하루 중이 아니라 한 주 중 어느 요일(Sun–Sat, UTC)에 rate-limit이
+      몰리는지 요일 분포 히스토그램. 세션 58의 `--hours`(시간-of-day)를 요일 축으로 확장(직전 세션이
+      "다음 할 일"로 제안).
+      (완료 — core `stats.ts`에 순수 `computeWeekdayDistribution(jobs)` + `WeekdayActivity`(weekday 0–6·
+      name Sun–Sat·count) + `WEEKDAY_NAMES` 상수 신설 — 각 잡의 `createdAt`을 `Date.getUTCDay()`로 버킷팅해
+      **모든 주에 걸쳐** 집계, 항상 정확히 7 슬롯(Sun→Sat) zero-fill, `createdAt` 누락/파싱불가는 스킵.
+      `computeHourlyDistribution`과 동일하게 창도 시계도 불필요(day-of-week는 타임스탬프의 절대 속성).
+      CLI `stats.ts`에 순수 `renderWeekday`(7행 ASCII 막대, `--hours`와 동일 스케일 관례 — 최다 요일에
+      스케일·비영일 최소 1블록·0일 dim 베이스라인 점·`Sun`…`Sat` 라벨 + 합계 푸터)·`renderStatsJson`에
+      옵셔널 `weekday` 필드(요청 시에만 방출, 기존 JSON shape 불변). `cli.ts` `stats`에 `--weekday` 배선 —
+      일회성·`--json`·`--watch` 세 뷰 모두 적용, 기존 스코프 필터(--status/--tool/--project/--since/--until)와
+      `--hours`/`--trend`와도 조합 가능. 새 파서/스케줄러 로직 0줄. core stats +5(=563) + cli stats +5(=37)
+      신규 테스트, 실제 빌드 CLI e2e로 요일 버킷팅(Mon 풀바)·스코프 부분집합·`--json` weekday 필드·기본 JSON
+      미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
+      `claude/wizardly-pascal-k411rs`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
