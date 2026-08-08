@@ -389,6 +389,55 @@ describe("renderStatsJson hours field", () => {
   });
 });
 
+describe("renderHours/renderWeekday with a tz label", () => {
+  function hourDist(counts: Record<number, number>): HourlyActivity[] {
+    return Array.from({ length: 24 }, (_, hour) => ({ hour, count: counts[hour] ?? 0 }));
+  }
+  function weekDist(counts: Record<number, number>): WeekdayActivity[] {
+    const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    return Array.from({ length: 7 }, (_, weekday) => ({ weekday, name: names[weekday], count: counts[weekday] ?? 0 }));
+  }
+
+  it("uses the provided label in the hours header and footer", () => {
+    const out = renderHours(hourDist({ 9: 2 }), { label: "UTC+09:00" });
+    expect(out).toContain("jobs created per hour of day, UTC+09:00");
+    expect(out).toContain("2 job(s) across 24 hour(s), UTC+09:00");
+    expect(out).not.toContain(", UTC)");
+  });
+
+  it("uses the provided label in the weekday header and footer", () => {
+    const out = renderWeekday(weekDist({ 1: 2 }), { label: "UTC-05:30" });
+    expect(out).toContain("jobs created per day of week, UTC-05:30");
+    expect(out).toContain("2 job(s) across 7 day(s), UTC-05:30");
+  });
+
+  it("defaults the label to UTC when omitted", () => {
+    expect(renderHours(hourDist({ 9: 1 }))).toContain("24 hour(s), UTC");
+    expect(renderWeekday(weekDist({ 1: 1 }))).toContain("7 day(s), UTC");
+  });
+});
+
+describe("renderStatsJson tzOffsetMinutes field", () => {
+  it("is omitted when the offset is 0 or no histogram is requested", () => {
+    const stats = computeStats([job()]);
+    const hours = computeHourlyDistribution([job({ createdAt: "2026-07-20T05:00:00.000Z" })]);
+    const utc = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", hours, tzOffsetMinutes: 0 }));
+    expect("tzOffsetMinutes" in utc).toBe(false);
+    const noHist = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", tzOffsetMinutes: 540 }));
+    expect("tzOffsetMinutes" in noHist).toBe(false);
+  });
+
+  it("is included when a histogram is bucketed into a non-UTC offset", () => {
+    const stats = computeStats([job()]);
+    const hours = computeHourlyDistribution([job({ createdAt: "2026-07-20T23:00:00.000Z" })], 540);
+    const shifted = JSON.parse(
+      renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", hours, tzOffsetMinutes: 540 })
+    );
+    expect(shifted.tzOffsetMinutes).toBe(540);
+    expect(shifted.hours[8].count).toBe(1); // 23:00 UTC → 08:00 at +540
+  });
+});
+
 describe("renderWeekday", () => {
   function distFrom(counts: Record<number, number>): WeekdayActivity[] {
     const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
