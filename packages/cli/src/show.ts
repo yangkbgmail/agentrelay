@@ -116,6 +116,35 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
   return lines.join("\n");
 }
 
+/**
+ * One frame of the live `agentrelay show <id> --watch` view: a title/meta banner
+ * (matching the shape of `status`/`tools`/`stats --watch`) plus the full colored
+ * detail block. Separated out so the watch loop only has to clear the screen and
+ * print this. The "resets in" countdown ticks down in place because the loop
+ * re-reads the store and re-renders with a fresh `now` each pass.
+ *
+ * `job` is nullable so the loop can keep running gracefully if the job later
+ * leaves the store (e.g. gets pruned) — in that case a dim note is shown with
+ * the id/prefix the user was watching instead of a crash.
+ */
+export function renderJobDetailWatchFrame(
+  job: RelayJob | null,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now(),
+  watchedId?: string
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay show${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  const body = job
+    ? renderJobDetail(job, { color: true, now })
+    : `${DIM}job ${watchedId ?? ""} is no longer in the store (pruned or removed).${RESET}`;
+  return [title, meta, "", body].join("\n");
+}
+
 /** Machine-readable single-job snapshot for `--json` (scripts, jq, tooling). */
 export function renderJobDetailJson(
   job: RelayJob,

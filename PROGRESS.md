@@ -1859,3 +1859,35 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 60 — `agentrelay show <id> --watch` 단일 잡 라이브 상세] (2026-08-08, 무인 자율 세션, branch `claude/wizardly-pascal-vbpp2q`)
+- **배경:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/
+  ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. 열린 PR 30건은 대부분 `stats --tz/--heatmap/--local`류·
+  파서·`next/errors --watch`·`diff`·`schedule` 등으로 서로 겹쳐 있어, 중복을 피해 CLAUDE.md 지침대로
+  **새 개선 항목을 발굴**했다 — `status`/`upcoming`/`overdue`/`tools`/`projects`/`stats` 등 인덱스·집계 뷰는
+  전부 `--watch` 라이브 모드가 있는데, **단일 잡 상세 뷰인 `show`만 유일하게 `--watch`가 없었다**. 잡을
+  큐잉한 뒤 리셋 카운트다운과 상태 전환(waiting→resuming→completed)을 명령을 반복 실행하지 않고 지켜보는
+  자연스러운 수요가 있는데도.
+- **한 일 (branch `claude/wizardly-pascal-vbpp2q`):** `agentrelay show <id> --watch [seconds]` — 단일 잡 상세 라이브 뷰.
+  - CLI `show.ts`: 순수 `renderJobDetailWatchFrame(job|null, storePath, intervalMs, now, watchedId)` 신설 —
+    `status`/`tools`/`stats --watch`와 동일한 title/meta 라이브 배너 + 컬러 상세 블록(`renderJobDetail` 재사용,
+    새 렌더 로직 최소화). `job`이 nullable라, 감시 중 잡이 스토어를 떠나면(prune 등) 크래시 대신 감시하던
+    id와 함께 dim 안내를 표시. 배너의 `now`는 주입식이라 카운트다운이 결정적·테스트 가능.
+  - `cli.ts`: `show`에 `-w, --watch [seconds]` 옵션 + `runShowWatch`(공용 `startWatchLoop` 재사용). 매 프레임
+    `showJob`으로 잡을 **재해소** — daemon 쓰기·새 상태가 반영되고 짧은 id prefix가 계속 동작, `renderJobDetailWatchFrame`
+    를 fresh `now`로 재렌더해 `resets in` 카운트다운이 제자리에서 tick. `--json`이 `--watch`보다 우선(일회성
+    기계 덤프), 인터벌 기본 2s, **시작 시 id가 해소 안 되면 watch 진입 전에 exit 1**(일회성 경로와 동일
+    엄격성 — 감시 루프는 최초 존재를 확인한 뒤에만 시작). addHelpText 예시 3줄, completion은 라이브 프로그램
+    파생이라 `--watch` 자동 포함.
+  - 새 파서/스케줄러/core 스토어 로직 0줄 — 전부 기존 검증된 `renderJobDetail`(show.ts)·`showJob`/`resolveJobId`
+    (commands.ts)·`startWatchLoop`(cli.ts) 재사용.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고/0 에러**·`pnpm test`
+  전 패키지 통과(core 563, cli 306/1skip[show +3=watch-frame 라이브 배너+컬러 상세·injected now로 카운트다운
+  tick·잡 부재 dim 안내], dashboard 9). **실제 빌드 CLI e2e**(mock 아님): waiting_for_reset 잡(리셋 90m 후)
+  임시 스토어로 `show 1a2b3c`(prefix) 일회성 상세, `show … --json`(prefix) 기계 스냅샷, `show … --watch 1`이
+  화면 clear + 라이브 배너("every 1s — Ctrl-C to exit") + `Job …` + "resets in 1h 30m" 프레임을 1초마다 재렌더,
+  미존재 id `ffffffff --watch`는 "no job matches" + exit 1(watch 미진입), `show --help`에 `-w, --watch [seconds]`
+  노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `show --watch`가
+  잡이 종료(completed/failed/cancelled)에 도달하면 자동 종료하는 `--until-done` 모드, 또는 대시보드에 단일 잡
+  상세 딥링크. README/ARCHITECTURE(🧭 코워크).

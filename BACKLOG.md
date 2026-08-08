@@ -750,6 +750,20 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 `agentrelay show <id> --watch` — 단일 잡 상세를 라이브로 갱신(리셋 카운트다운이 제자리에서
+      줄어들고, waiting→resuming→completed 상태 전환도 명령 재실행 없이 바로 보임). `show`는 모든
+      인덱스/상세 뷰 중 `--watch`가 없던 유일한 커맨드였다.
+      (완료 — CLI `show.ts`에 순수 `renderJobDetailWatchFrame(job|null, storePath, intervalMs, now, watchedId)`
+      신설 — `status`/`tools`/`stats --watch`와 동일한 title/meta 라이브 배너 + 컬러 상세 블록(`renderJobDetail`
+      재사용). `job`이 nullable라, 감시 중 잡이 스토어를 떠나면(prune 등) 크래시 대신 감시하던 id와 함께
+      dim 안내를 표시. `cli.ts` `show`에 `-w, --watch [seconds]` 배선 + `runShowWatch`(공용 `startWatchLoop`
+      재사용, 매 프레임 `showJob`으로 잡을 **재해소**해 daemon 쓰기·짧은 prefix가 계속 반영되고 카운트다운이
+      fresh `now`로 tick). `--json`이 `--watch`보다 우선(일회성 기계 덤프), 인터벌 기본 2s, 시작 시 id가
+      해소 안 되면 watch 진입 전에 exit 1(일회성과 동일), addHelpText 예시 3줄. 새 파서/스케줄러/core 로직
+      0줄. show.test.ts에 watch-frame 3케이스(라이브 배너+컬러 상세·injected now로 카운트다운 tick·잡 부재
+      dim 안내) 신규, 실제 빌드 CLI e2e로 화면 clear·라이브 배너·1h30m 카운트다운·id prefix·미존재 id exit 1·
+      help `--watch` 노출 검증. branch `claude/wizardly-pascal-vbpp2q`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

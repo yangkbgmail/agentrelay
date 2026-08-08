@@ -1,6 +1,6 @@
 import type { RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { formatCommand, renderJobDetail, renderJobDetailJson } from "../src/show.js";
+import { formatCommand, renderJobDetail, renderJobDetailJson, renderJobDetailWatchFrame } from "../src/show.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -114,6 +114,36 @@ describe("renderJobDetail", () => {
   it("emits ANSI codes only when color is enabled", () => {
     expect(renderJobDetail(job(), { now: NOW, color: false })).not.toContain("\x1b[");
     expect(renderJobDetail(job(), { now: NOW, color: true })).toContain("\x1b[");
+  });
+});
+
+describe("renderJobDetailWatchFrame", () => {
+  it("wraps the colored detail block in a live banner with the store path and interval", () => {
+    const out = renderJobDetailWatchFrame(job(), "/store/jobs.json", 2000, NOW, "abcdef");
+    expect(out).toContain("agentrelay show");
+    expect(out).toContain("live, every 2s");
+    expect(out).toContain("/store/jobs.json");
+    // The banner stamps the frame's `now` (UTC, seconds precision).
+    expect(out).toContain("2026-07-13 00:00:00Z");
+    // Body is the full colored detail block for the job.
+    expect(out).toContain("Job abcdef1234567890");
+    expect(out).toContain("resets in");
+    expect(out).toContain("\x1b["); // watch frames are always colored
+  });
+
+  it("keeps the reset countdown live by honoring the injected now", () => {
+    const later = renderJobDetailWatchFrame(job(), "/store/jobs.json", 2000, NOW + 60 * 60_000, "abcdef");
+    // 90m reset, 60m elapsed → 30m left. (Watch frames are colored, so the dim
+    // label and the value aren't adjacent substrings — assert on the value.)
+    expect(later).toContain("resets in");
+    expect(later).toContain("30m");
+  });
+
+  it("shows a dim note (not a crash) when the watched job has left the store", () => {
+    const out = renderJobDetailWatchFrame(null, "/store/jobs.json", 5000, NOW, "abcdef");
+    expect(out).toContain("agentrelay show");
+    expect(out).toContain("job abcdef is no longer in the store");
+    expect(out).not.toContain("Job abcdef1234567890");
   });
 });
 
