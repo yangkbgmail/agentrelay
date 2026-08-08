@@ -197,30 +197,75 @@ export function computeDailyTrend(jobs: RelayJob[], options: { nowMs: number; da
   return trend;
 }
 
+/**
+ * Parses a fixed UTC offset like `+09:00`, `-0530`, `+5`, `Z`, `UTC`, or
+ * `GMT+9` into minutes east of UTC (so `+09:00` → 540, `-05:30` → -330,
+ * `UTC`/`Z` → 0). Named IANA zones (`America/New_York`) are intentionally NOT
+ * supported — those need DST rules and `Intl`, whereas a fixed offset keeps the
+ * hour/weekday bucketing pure and clock-free. Returns null for anything
+ * unparseable or outside the real-world ±14:00 range.
+ */
+export function parseUtcOffsetMinutes(input: string): number | null {
+  const upper = input.trim().toUpperCase();
+  if (upper === "") return null;
+  if (upper === "Z" || upper === "UTC" || upper === "GMT") return 0;
+  // Allow an optional leading UTC/GMT prefix: `UTC+9`, `GMT-0530`.
+  const body = upper.replace(/^(?:UTC|GMT)/, "");
+  const m = /^([+-])(\d{1,2})(?::?(\d{2}))?$/.exec(body);
+  if (m === null) return null;
+  const sign = m[1] === "-" ? -1 : 1;
+  const hours = Number(m[2]);
+  const minutes = m[3] !== undefined ? Number(m[3]) : 0;
+  if (minutes > 59) return null;
+  const total = sign * (hours * 60 + minutes);
+  if (total < -14 * 60 || total > 14 * 60) return null;
+  return total;
+}
+
+/**
+ * Formats an offset (minutes east of UTC) back into a display label: `0` →
+ * `UTC`, `540` → `UTC+09:00`, `-330` → `UTC-05:30`. Used to annotate the
+ * hour/weekday histograms so a shifted view says which frame it's in.
+ */
+export function formatUtcOffsetLabel(offsetMinutes: number): string {
+  if (offsetMinutes === 0) return "UTC";
+  const sign = offsetMinutes < 0 ? "-" : "+";
+  const abs = Math.abs(offsetMinutes);
+  const hh = String(Math.floor(abs / 60)).padStart(2, "0");
+  const mm = String(abs % 60).padStart(2, "0");
+  return `UTC${sign}${hh}:${mm}`;
+}
+
 export interface HourlyActivity {
-  /** UTC hour of day, 0–23. */
+  /** Hour of day, 0–23, in the requested offset (UTC by default). */
   hour: number;
-  /** Jobs whose `createdAt` falls in this UTC hour, across every day. */
+  /** Jobs whose `createdAt` falls in this hour, across every day. */
   count: number;
 }
 
 /**
- * Buckets jobs by the UTC hour-of-day (0–23) they were created in, aggregated
+ * Buckets jobs by the hour-of-day (0–23) they were created in, aggregated
  * across every day in the store, so `agentrelay stats --hours` can show which
- * hours rate-limits tend to cluster in ("I mostly get throttled around 15:00
- * UTC"). Unlike {@link computeDailyTrend} this has no window and needs no clock:
+ * hours rate-limits tend to cluster in ("I mostly get throttled around 15:00").
+ * Unlike {@link computeDailyTrend} this has no window and needs no clock:
  * hour-of-day is an absolute property of each timestamp.
+ *
+ * `offsetMinutes` (minutes east of UTC, default 0) shifts the bucketing into a
+ * fixed local offset so `--tz +09:00` shows the user's own daily rhythm rather
+ * than the UTC one; the shift is applied to the timestamp before reading the
+ * hour, keeping the function pure.
  *
  * The result is always exactly 24 entries, hour 0 through hour 23, zero-filled
  * for quiet hours so the histogram has a stable shape. Jobs with a missing or
  * unparseable `createdAt` are skipped — they can't be placed on the clock.
  */
-export function computeHourlyDistribution(jobs: RelayJob[]): HourlyActivity[] {
+export function computeHourlyDistribution(jobs: RelayJob[], offsetMinutes = 0): HourlyActivity[] {
   const counts = new Array<number>(24).fill(0);
+  const shiftMs = offsetMinutes * 60_000;
   for (const job of jobs) {
     const created = Date.parse(job.createdAt);
     if (Number.isNaN(created)) continue;
-    counts[new Date(created).getUTCHours()] += 1;
+    counts[new Date(created + shiftMs).getUTCHours()] += 1;
   }
   return counts.map((count, hour) => ({ hour, count }));
 }
@@ -229,32 +274,38 @@ export function computeHourlyDistribution(jobs: RelayJob[]): HourlyActivity[] {
 export const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 export interface WeekdayActivity {
-  /** UTC day of week, 0 (Sunday) – 6 (Saturday), matching `Date.getUTCDay()`. */
+  /** Day of week, 0 (Sunday) – 6 (Saturday), in the requested offset (UTC by default). */
   weekday: number;
-  /** Short UTC weekday name (`Sun`…`Sat`), taken from {@link WEEKDAY_NAMES}. */
+  /** Short weekday name (`Sun`…`Sat`), taken from {@link WEEKDAY_NAMES}. */
   name: string;
-  /** Jobs whose `createdAt` falls on this UTC weekday, across every week. */
+  /** Jobs whose `createdAt` falls on this weekday, across every week. */
   count: number;
 }
 
 /**
- * Buckets jobs by the UTC day-of-week (0 = Sunday … 6 = Saturday) they were
- * created on, aggregated across every week in the store, so `agentrelay stats
+ * Buckets jobs by the day-of-week (0 = Sunday … 6 = Saturday) they were created
+ * on, aggregated across every week in the store, so `agentrelay stats
  * --weekday` can show which weekdays rate-limits tend to cluster on ("I mostly
  * get throttled on Mondays"). Like {@link computeHourlyDistribution} this has no
  * window and needs no clock: day-of-week is an absolute property of the
  * timestamp.
  *
+ * `offsetMinutes` (minutes east of UTC, default 0) shifts the bucketing into a
+ * fixed local offset so `--tz +09:00` attributes each job to the user's local
+ * weekday rather than the UTC one (a Sunday-evening UTC job can be Monday
+ * locally); the shift is applied before reading the weekday, keeping it pure.
+ *
  * The result is always exactly 7 entries, Sunday through Saturday, zero-filled
  * for quiet days so the histogram has a stable shape. Jobs with a missing or
  * unparseable `createdAt` are skipped — they can't be placed on the calendar.
  */
-export function computeWeekdayDistribution(jobs: RelayJob[]): WeekdayActivity[] {
+export function computeWeekdayDistribution(jobs: RelayJob[], offsetMinutes = 0): WeekdayActivity[] {
   const counts = new Array<number>(7).fill(0);
+  const shiftMs = offsetMinutes * 60_000;
   for (const job of jobs) {
     const created = Date.parse(job.createdAt);
     if (Number.isNaN(created)) continue;
-    counts[new Date(created).getUTCDay()] += 1;
+    counts[new Date(created + shiftMs).getUTCDay()] += 1;
   }
   return counts.map((count, weekday) => ({ weekday, name: WEEKDAY_NAMES[weekday], count }));
 }

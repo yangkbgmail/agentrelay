@@ -375,6 +375,13 @@ describe("renderHours", () => {
     expect(out).toMatch(/14:00 .* 1/);
     expect(out).toContain("3 job(s) across 24 hour(s), UTC");
   });
+
+  it("labels the header/footer with a custom tzLabel", () => {
+    const out = renderHours(distFrom({ 8: 1 }), { tzLabel: "UTC+09:00" });
+    expect(out).toContain("(jobs created per hour of day, UTC+09:00)");
+    expect(out).toContain("1 job(s) across 24 hour(s), UTC+09:00");
+    expect(out).not.toContain(", UTC)");
+  });
 });
 
 describe("renderStatsJson hours field", () => {
@@ -439,6 +446,12 @@ describe("renderWeekday", () => {
     expect(out).toMatch(/Mon .* 2/);
     expect(out).toMatch(/Wed .* 1/);
     expect(out).toContain("3 job(s) across 7 day(s), UTC");
+  });
+
+  it("labels the header/footer with a custom tzLabel", () => {
+    const out = renderWeekday(distFrom({ 1: 1 }), { tzLabel: "UTC-05:00" });
+    expect(out).toContain("(jobs created per day of week, UTC-05:00)");
+    expect(out).toContain("1 job(s) across 7 day(s), UTC-05:00");
   });
 });
 
