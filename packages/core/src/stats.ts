@@ -143,6 +143,48 @@ export function scopeJobs(jobs: RelayJob[], scope: JobScope = {}): RelayJob[] {
 /** Milliseconds in a UTC calendar day. Epoch day boundaries are UTC-aligned. */
 const DAY_MS = 86_400_000;
 
+/** Milliseconds in one minute — used to shift instants by a timezone offset. */
+const MINUTE_MS = 60_000;
+
+/**
+ * Parses a fixed UTC offset into minutes east of UTC (so KST `+09:00` → `540`,
+ * US Eastern `-05:00` → `-300`). Accepts the common wall-clock offset forms:
+ * `Z`/`z`/`UTC`/`GMT` → 0, and a signed `±HH`, `±HH:MM`, or `±HHMM` (a missing
+ * sign is treated as `+`). Hours are clamped to the real 0–14 range and minutes
+ * to 0–59; anything else — a bare minute count, garbage, an out-of-range field —
+ * returns `null` so the caller can reject it instead of silently mis-bucketing.
+ * Pure: no clock, no DST (a fixed offset by design — histograms bucket by an
+ * absolute instant, and a single moving DST rule can't apply across all of
+ * history anyway).
+ */
+export function parseUtcOffset(input: string): number | null {
+  const trimmed = input.trim();
+  if (trimmed === "") return null;
+  const upper = trimmed.toUpperCase();
+  if (upper === "Z" || upper === "UTC" || upper === "GMT") return 0;
+
+  const match = /^([+-]?)(\d{1,2})(?::?(\d{2}))?$/.exec(trimmed);
+  if (!match) return null;
+  const sign = match[1] === "-" ? -1 : 1;
+  const hours = Number(match[2]);
+  const minutes = match[3] !== undefined ? Number(match[3]) : 0;
+  if (hours > 14 || minutes > 59) return null;
+  return sign * (hours * 60 + minutes);
+}
+
+/**
+ * Formats a UTC offset (minutes east of UTC) as a stable label for histogram
+ * headers/footers: `0` → `"UTC"`, `540` → `"UTC+09:00"`, `-330` → `"UTC-05:30"`.
+ */
+export function formatUtcOffsetLabel(offsetMinutes: number): string {
+  if (offsetMinutes === 0) return "UTC";
+  const sign = offsetMinutes < 0 ? "-" : "+";
+  const abs = Math.abs(offsetMinutes);
+  const hh = String(Math.floor(abs / 60)).padStart(2, "0");
+  const mm = String(abs % 60).padStart(2, "0");
+  return `UTC${sign}${hh}:${mm}`;
+}
+
 /** One day's slot in a {@link computeDailyTrend} activity histogram. */
 export interface DailyActivity {
   /** UTC calendar day, "YYYY-MM-DD". */
@@ -174,16 +216,23 @@ function utcDateKey(dayStartMs: number): string {
  * unparseable `createdAt`, or one that falls outside the window, are skipped —
  * they can't be placed on the timeline. `days` is clamped to at least 1.
  */
-export function computeDailyTrend(jobs: RelayJob[], options: { nowMs: number; days: number }): DailyActivity[] {
+export function computeDailyTrend(
+  jobs: RelayJob[],
+  options: { nowMs: number; days: number; utcOffsetMinutes?: number }
+): DailyActivity[] {
   const days = Math.max(1, Math.floor(options.days));
-  const todayStart = utcDayStart(options.nowMs);
+  // Shift every instant by the offset before flooring to a day boundary so the
+  // buckets are calendar days at that offset (KST, US Eastern, …) instead of
+  // UTC. Offset 0 (the default) reproduces the original UTC behaviour exactly.
+  const offsetMs = (options.utcOffsetMinutes ?? 0) * MINUTE_MS;
+  const todayStart = utcDayStart(options.nowMs + offsetMs);
   const windowStart = todayStart - (days - 1) * DAY_MS;
 
   const counts = new Map<string, number>();
   for (const job of jobs) {
     const created = Date.parse(job.createdAt);
     if (Number.isNaN(created)) continue;
-    const dayStart = utcDayStart(created);
+    const dayStart = utcDayStart(created + offsetMs);
     if (dayStart < windowStart || dayStart > todayStart) continue;
     const key = utcDateKey(dayStart);
     counts.set(key, (counts.get(key) ?? 0) + 1);
@@ -214,13 +263,21 @@ export interface HourlyActivity {
  * The result is always exactly 24 entries, hour 0 through hour 23, zero-filled
  * for quiet hours so the histogram has a stable shape. Jobs with a missing or
  * unparseable `createdAt` are skipped — they can't be placed on the clock.
+ *
+ * `utcOffsetMinutes` shifts each instant before reading the hour, so the buckets
+ * are the wall-clock hour at that offset (e.g. `540` for KST). It defaults to 0,
+ * reproducing the original UTC bucketing exactly.
  */
-export function computeHourlyDistribution(jobs: RelayJob[]): HourlyActivity[] {
+export function computeHourlyDistribution(
+  jobs: RelayJob[],
+  options: { utcOffsetMinutes?: number } = {}
+): HourlyActivity[] {
+  const offsetMs = (options.utcOffsetMinutes ?? 0) * MINUTE_MS;
   const counts = new Array<number>(24).fill(0);
   for (const job of jobs) {
     const created = Date.parse(job.createdAt);
     if (Number.isNaN(created)) continue;
-    counts[new Date(created).getUTCHours()] += 1;
+    counts[new Date(created + offsetMs).getUTCHours()] += 1;
   }
   return counts.map((count, hour) => ({ hour, count }));
 }
@@ -248,13 +305,22 @@ export interface WeekdayActivity {
  * The result is always exactly 7 entries, Sunday through Saturday, zero-filled
  * for quiet days so the histogram has a stable shape. Jobs with a missing or
  * unparseable `createdAt` are skipped — they can't be placed on the calendar.
+ *
+ * `utcOffsetMinutes` shifts each instant before reading the weekday, so the
+ * buckets are the wall-clock weekday at that offset (a late-night UTC job can
+ * land on the next local day). It defaults to 0, reproducing the original UTC
+ * bucketing exactly.
  */
-export function computeWeekdayDistribution(jobs: RelayJob[]): WeekdayActivity[] {
+export function computeWeekdayDistribution(
+  jobs: RelayJob[],
+  options: { utcOffsetMinutes?: number } = {}
+): WeekdayActivity[] {
+  const offsetMs = (options.utcOffsetMinutes ?? 0) * MINUTE_MS;
   const counts = new Array<number>(7).fill(0);
   for (const job of jobs) {
     const created = Date.parse(job.createdAt);
     if (Number.isNaN(created)) continue;
-    counts[new Date(created).getUTCDay()] += 1;
+    counts[new Date(created + offsetMs).getUTCDay()] += 1;
   }
   return counts.map((count, weekday) => ({ weekday, name: WEEKDAY_NAMES[weekday], count }));
 }
