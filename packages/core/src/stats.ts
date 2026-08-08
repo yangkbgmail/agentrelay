@@ -205,22 +205,29 @@ export interface HourlyActivity {
 }
 
 /**
- * Buckets jobs by the UTC hour-of-day (0–23) they were created in, aggregated
- * across every day in the store, so `agentrelay stats --hours` can show which
- * hours rate-limits tend to cluster in ("I mostly get throttled around 15:00
- * UTC"). Unlike {@link computeDailyTrend} this has no window and needs no clock:
+ * Buckets jobs by the hour-of-day (0–23) they were created in, aggregated across
+ * every day in the store, so `agentrelay stats --hours` can show which hours
+ * rate-limits tend to cluster in ("I mostly get throttled around 15:00").
+ * Unlike {@link computeDailyTrend} this has no window and needs no clock:
  * hour-of-day is an absolute property of each timestamp.
+ *
+ * `offsetMinutes` shifts every timestamp by a fixed offset east of UTC before
+ * the hour is read, so callers can view the histogram in a local timezone
+ * (e.g. `540` = UTC+9 / KST, `-480` = UTC-8 / PST). The default `0` keeps the
+ * original UTC behaviour, so existing callers are unaffected. A non-finite
+ * offset is treated as `0` rather than corrupting every bucket into NaN.
  *
  * The result is always exactly 24 entries, hour 0 through hour 23, zero-filled
  * for quiet hours so the histogram has a stable shape. Jobs with a missing or
  * unparseable `createdAt` are skipped — they can't be placed on the clock.
  */
-export function computeHourlyDistribution(jobs: RelayJob[]): HourlyActivity[] {
+export function computeHourlyDistribution(jobs: RelayJob[], offsetMinutes = 0): HourlyActivity[] {
+  const shiftMs = (Number.isFinite(offsetMinutes) ? offsetMinutes : 0) * 60_000;
   const counts = new Array<number>(24).fill(0);
   for (const job of jobs) {
     const created = Date.parse(job.createdAt);
     if (Number.isNaN(created)) continue;
-    counts[new Date(created).getUTCHours()] += 1;
+    counts[new Date(created + shiftMs).getUTCHours()] += 1;
   }
   return counts.map((count, hour) => ({ hour, count }));
 }
@@ -238,25 +245,48 @@ export interface WeekdayActivity {
 }
 
 /**
- * Buckets jobs by the UTC day-of-week (0 = Sunday … 6 = Saturday) they were
- * created on, aggregated across every week in the store, so `agentrelay stats
- * --weekday` can show which weekdays rate-limits tend to cluster on ("I mostly
- * get throttled on Mondays"). Like {@link computeHourlyDistribution} this has no
+ * Buckets jobs by the day-of-week (0 = Sunday … 6 = Saturday) they were created
+ * on, aggregated across every week in the store, so `agentrelay stats --weekday`
+ * can show which weekdays rate-limits tend to cluster on ("I mostly get
+ * throttled on Mondays"). Like {@link computeHourlyDistribution} this has no
  * window and needs no clock: day-of-week is an absolute property of the
  * timestamp.
+ *
+ * `offsetMinutes` shifts every timestamp by a fixed offset east of UTC before
+ * the weekday is read (same convention as {@link computeHourlyDistribution}), so
+ * a late-night-UTC job can correctly land on the previous/next local day. The
+ * default `0` keeps the original UTC behaviour; a non-finite offset is treated
+ * as `0`.
  *
  * The result is always exactly 7 entries, Sunday through Saturday, zero-filled
  * for quiet days so the histogram has a stable shape. Jobs with a missing or
  * unparseable `createdAt` are skipped — they can't be placed on the calendar.
  */
-export function computeWeekdayDistribution(jobs: RelayJob[]): WeekdayActivity[] {
+export function computeWeekdayDistribution(jobs: RelayJob[], offsetMinutes = 0): WeekdayActivity[] {
+  const shiftMs = (Number.isFinite(offsetMinutes) ? offsetMinutes : 0) * 60_000;
   const counts = new Array<number>(7).fill(0);
   for (const job of jobs) {
     const created = Date.parse(job.createdAt);
     if (Number.isNaN(created)) continue;
-    counts[new Date(created).getUTCDay()] += 1;
+    counts[new Date(created + shiftMs).getUTCDay()] += 1;
   }
   return counts.map((count, weekday) => ({ weekday, name: WEEKDAY_NAMES[weekday], count }));
+}
+
+/**
+ * Formats a fixed UTC offset in minutes (east-positive, matching the
+ * `offsetMinutes` arg of {@link computeHourlyDistribution}) as a short label for
+ * histogram headers/footers: `0` → `"UTC"`, `540` → `"UTC+09:00"`, `-480` →
+ * `"UTC-08:00"`, `330` → `"UTC+05:30"` (offsets need not be whole hours). A
+ * non-finite offset falls back to `"UTC"`.
+ */
+export function formatUtcOffsetLabel(offsetMinutes: number): string {
+  if (!Number.isFinite(offsetMinutes) || offsetMinutes === 0) return "UTC";
+  const sign = offsetMinutes > 0 ? "+" : "-";
+  const abs = Math.abs(offsetMinutes);
+  const hh = Math.floor(abs / 60);
+  const mm = abs % 60;
+  return `UTC${sign}${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */

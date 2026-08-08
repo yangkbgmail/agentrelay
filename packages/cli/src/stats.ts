@@ -13,7 +13,7 @@ import type {
   RelayStats,
   WeekdayActivity,
 } from "@agentrelay/core";
-import { isJobScopeActive } from "@agentrelay/core";
+import { formatUtcOffsetLabel, isJobScopeActive } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
 const BOLD = "\x1b[1m";
@@ -246,12 +246,16 @@ const HOURS_BAR_WIDTH = 24;
  * shows a dim baseline dot. Pure: no I/O, no clock. Callers pass the already-
  * computed distribution so it stays testable.
  */
-export function renderHours(hours: HourlyActivity[], options: { color?: boolean } = {}): string {
+export function renderHours(
+  hours: HourlyActivity[],
+  options: { color?: boolean; offsetMinutes?: number } = {}
+): string {
   const color = options.color ?? false;
   const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
   const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+  const tz = formatUtcOffsetLabel(options.offsetMinutes ?? 0);
 
-  const lines: string[] = [b("by hour") + d(" (jobs created per hour of day, UTC)")];
+  const lines: string[] = [b("by hour") + d(` (jobs created per hour of day, ${tz})`)];
   if (hours.length === 0) {
     lines.push("  none");
     return lines.join("\n");
@@ -270,7 +274,7 @@ export function renderHours(hours: HourlyActivity[], options: { color?: boolean 
     const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
     lines.push(`  ${String(hour).padStart(2, "0")}:00  ${shown} ${count}`);
   }
-  lines.push(d(`  ${total} job(s) across 24 hour(s), UTC`));
+  lines.push(d(`  ${total} job(s) across 24 hour(s), ${tz}`));
   return lines.join("\n");
 }
 
@@ -284,12 +288,16 @@ const WEEKDAY_BAR_WIDTH = 24;
  * volume; a zero day shows a dim baseline dot. Pure: no I/O, no clock. Callers
  * pass the already-computed distribution so it stays testable.
  */
-export function renderWeekday(weekdays: WeekdayActivity[], options: { color?: boolean } = {}): string {
+export function renderWeekday(
+  weekdays: WeekdayActivity[],
+  options: { color?: boolean; offsetMinutes?: number } = {}
+): string {
   const color = options.color ?? false;
   const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
   const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+  const tz = formatUtcOffsetLabel(options.offsetMinutes ?? 0);
 
-  const lines: string[] = [b("by weekday") + d(" (jobs created per day of week, UTC)")];
+  const lines: string[] = [b("by weekday") + d(` (jobs created per day of week, ${tz})`)];
   if (weekdays.length === 0) {
     lines.push("  none");
     return lines.join("\n");
@@ -308,7 +316,7 @@ export function renderWeekday(weekdays: WeekdayActivity[], options: { color?: bo
     const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
     lines.push(`  ${name}  ${shown} ${count}`);
   }
-  lines.push(d(`  ${total} job(s) across 7 day(s), UTC`));
+  lines.push(d(`  ${total} job(s) across 7 day(s), ${tz}`));
   return lines.join("\n");
 }
 
@@ -322,6 +330,7 @@ export function renderStatsJson(
     trend?: DailyActivity[] | null;
     hours?: HourlyActivity[] | null;
     weekday?: WeekdayActivity[] | null;
+    utcOffsetMinutes?: number;
   } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
@@ -332,7 +341,13 @@ export function renderStatsJson(
   const trend = options.trend ?? undefined;
   const hours = options.hours ?? undefined;
   const weekday = options.weekday ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, stats }, null, 2);
+  // Echo the applied UTC offset only when a histogram is present and it's a real
+  // (non-zero, finite) shift — the default UTC view keeps the original shape.
+  const utcOffsetMinutes =
+    (hours || weekday) && options.utcOffsetMinutes && Number.isFinite(options.utcOffsetMinutes)
+      ? options.utcOffsetMinutes
+      : undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, utcOffsetMinutes, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */
