@@ -4,6 +4,7 @@ import {
   computeHourlyDistribution,
   computeStats,
   computeWeekdayDistribution,
+  computeWeekdayHourHeatmap,
   groupStats,
 } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
@@ -15,6 +16,7 @@ import {
   NO_STATS_MESSAGE,
   renderGroupedStats,
   renderGroupedStatsJson,
+  renderHeatmap,
   renderHours,
   renderStats,
   renderStatsJson,
@@ -452,6 +454,78 @@ describe("renderStatsJson weekday field", () => {
     expect(withWeekday.weekday).toHaveLength(7);
     expect(withWeekday.weekday[1].count).toBe(1);
     expect(withWeekday.weekday[1].name).toBe("Mon");
+  });
+});
+
+describe("renderHeatmap", () => {
+  it("renders a header, two stacked hour-digit axis rows, 7 weekday rows, legend, and totals", () => {
+    // 2026-07-20 Mon 09, 2026-07-22 Wed 23.
+    const jobs = [
+      job({ createdAt: "2026-07-20T09:00:00.000Z" }),
+      job({ createdAt: "2026-07-20T09:30:00.000Z" }),
+      job({ createdAt: "2026-07-22T23:00:00.000Z" }),
+    ];
+    const out = renderHeatmap(computeWeekdayHourHeatmap(jobs));
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("by weekday × hour");
+    // Two axis-label rows carry the tens then ones digit for hours 0–23.
+    expect(lines[1]).toContain("000000000011111111112222"); // tens digit of 0..23
+    expect(lines[2]).toContain("012345678901234567890123"); // ones digit of 0..23
+    // Header(1) + two axis rows(2) + 7 weekday rows + legend(1) + total(1) = 12.
+    expect(lines).toHaveLength(12);
+    expect(out).toContain("Sun");
+    expect(out).toContain("Mon");
+    expect(out).toContain("Sat");
+    expect(out).toContain("legend:");
+    expect(lines[lines.length - 1]).toContain("3 job(s), busiest cell 2");
+  });
+
+  it("marks non-zero cells with intensity glyphs and empty cells with the baseline dot", () => {
+    const jobs = [
+      job({ createdAt: "2026-07-20T09:00:00.000Z" }), // Mon 09 (busiest)
+      job({ createdAt: "2026-07-20T09:30:00.000Z" }), // Mon 09
+      job({ createdAt: "2026-07-22T23:00:00.000Z" }), // Wed 23 (fainter)
+    ];
+    const out = renderHeatmap(computeWeekdayHourHeatmap(jobs));
+    const rows = out.split("\n");
+    const monRow = rows.find((r) => r.startsWith("  Mon")) ?? "";
+    const sunRow = rows.find((r) => r.startsWith("  Sun")) ?? "";
+    // The busiest cell (Mon 09, count 2 == max) shows the heaviest glyph.
+    expect(monRow).toContain("█");
+    // An all-empty weekday row is only baseline dots — no intensity blocks.
+    expect(sunRow).not.toMatch(/[░▒▓█]/);
+    expect(sunRow).toContain("·");
+    // Mon's row total (2) is echoed at the end of its row.
+    expect(monRow).toMatch(/ 2$/);
+  });
+
+  it("handles an all-zero store: grid rows are only baseline dots, busiest cell 0", () => {
+    const out = renderHeatmap(computeWeekdayHourHeatmap([]));
+    // The glyphs still appear in the legend line, so assert per weekday grid row.
+    const gridRows = out.split("\n").filter((r) => /^ {2}(Sun|Mon|Tue|Wed|Thu|Fri|Sat)/.test(r));
+    expect(gridRows).toHaveLength(7);
+    for (const row of gridRows) {
+      expect(row).not.toMatch(/[░▒▓█]/);
+      expect(row).toContain("·");
+    }
+    expect(out).toContain("0 job(s), busiest cell 0");
+  });
+});
+
+describe("renderStatsJson heatmap field", () => {
+  it("omits `heatmap` by default but includes the full grid + totals when provided", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("heatmap" in without).toBe(false);
+    const heatmap = computeWeekdayHourHeatmap([job({ createdAt: "2026-07-20T09:00:00.000Z" })]); // Mon 09
+    const withHeatmap = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", heatmap }));
+    expect(withHeatmap.heatmap.grid).toHaveLength(7);
+    expect(withHeatmap.heatmap.grid[1]).toHaveLength(24);
+    expect(withHeatmap.heatmap.grid[1][9]).toBe(1); // Mon 09
+    expect(withHeatmap.heatmap.total).toBe(1);
+    expect(withHeatmap.heatmap.max).toBe(1);
+    expect(withHeatmap.heatmap.weekdayTotals[1]).toBe(1);
+    expect(withHeatmap.heatmap.hourTotals[9]).toBe(1);
   });
 });
 
