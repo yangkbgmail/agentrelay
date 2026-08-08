@@ -375,6 +375,13 @@ describe("renderHours", () => {
     expect(out).toMatch(/14:00 .* 1/);
     expect(out).toContain("3 job(s) across 24 hour(s), UTC");
   });
+
+  it("labels the header and footer with a custom tzLabel", () => {
+    const out = renderHours(distFrom({ 9: 1 }), { tzLabel: "UTC+09:00" });
+    expect(out).toContain("jobs created per hour of day, UTC+09:00");
+    expect(out).toContain("1 job(s) across 24 hour(s), UTC+09:00");
+    expect(out).not.toContain(", UTC)");
+  });
 });
 
 describe("renderStatsJson hours field", () => {
@@ -440,6 +447,12 @@ describe("renderWeekday", () => {
     expect(out).toMatch(/Wed .* 1/);
     expect(out).toContain("3 job(s) across 7 day(s), UTC");
   });
+
+  it("labels the header and footer with a custom tzLabel", () => {
+    const out = renderWeekday(distFrom({ 1: 1 }), { tzLabel: "UTC-05:00" });
+    expect(out).toContain("jobs created per day of week, UTC-05:00");
+    expect(out).toContain("1 job(s) across 7 day(s), UTC-05:00");
+  });
 });
 
 describe("renderStatsJson weekday field", () => {
@@ -452,6 +465,16 @@ describe("renderStatsJson weekday field", () => {
     expect(withWeekday.weekday).toHaveLength(7);
     expect(withWeekday.weekday[1].count).toBe(1);
     expect(withWeekday.weekday[1].name).toBe("Mon");
+  });
+});
+
+describe("renderStatsJson utcOffsetMinutes field", () => {
+  it("omits the offset at UTC but emits it when non-zero", () => {
+    const stats = computeStats([job()]);
+    const utc = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", utcOffsetMinutes: 0 }));
+    expect("utcOffsetMinutes" in utc).toBe(false);
+    const shifted = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", utcOffsetMinutes: 540 }));
+    expect(shifted.utcOffsetMinutes).toBe(540);
   });
 });
 

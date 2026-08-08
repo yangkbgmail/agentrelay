@@ -1859,3 +1859,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 60 — `agentrelay stats --hours/--weekday --utc-offset` 로컬 타임존 버킷] (2026-08-08, 무인 자율 세션, branch `claude/wizardly-pascal-tzoffset`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 59가 "다음 할 일"로 명시한 두 후보 중 하나를 구현했다 —
+  `--hours`(세션 58)와 `--weekday`(세션 59)는 `createdAt`을 **UTC** 시/요일로만 버킷팅해서, UTC가 아닌
+  타임존 사용자는 "나는 몇 시/무슨 요일에 throttle되나"를 자기 벽시계 기준으로 볼 수 없었다. 이 뷰는
+  로컬 사용 리듬 파악에 직접적으로 유용하다.
+- **한 일 (branch `claude/wizardly-pascal-tzoffset`):** `agentrelay stats --hours/--weekday --utc-offset <±HH:MM>` —
+  고정 UTC 오프셋 기준 로컬 시간/요일 분포. IANA/DST 전체 타임존 DB(의존성·복잡도) 대신 순수·의존성 0인
+  **고정 오프셋 시프트**로 해결(JSON 스토어가 이미 UTC를 고정하는 결정과 결이 같음).
+  - core `stats.ts`: 순수 `parseUtcOffset(spec)` 신설 — `Z`/`UTC`/`GMT`→0, `±HH`·`±HH:MM`·`±HHMM`
+    (부호 생략 시 +, 분 00–59), ±14:00 초과·형식 불량은 null, `-1*0=-0`은 0으로 정규화. `formatUtcOffsetLabel(min)`
+    (`UTC` 또는 `UTC±HH:MM`) + `OffsetOptions` 추가. 기존 `computeHourlyDistribution`/`computeWeekdayDistribution`이
+    optional `utcOffsetMinutes`를 받아 타임스탬프를 시프트한 뒤 `getUTCHours`/`getUTCDay`를 읽음 —
+    오프셋이 잡을 이웃 시/요일로 넘길 수 있음(일요일 23:00 UTC가 +09:00에서 월요일).
+  - CLI `stats.ts`: `renderHours`/`renderWeekday`에 optional `tzLabel`(헤더·푸터의 "UTC"를 대체),
+    `renderStatsJson`에 옵셔널 `utcOffsetMinutes`(0이면 미방출 → 기존 JSON shape 불변).
+  - `cli.ts`: `stats`에 `--utc-offset <offset>` 배선 — 파싱/검증을 histogram 렌더 **전에** 선행해 잘못된
+    스펙(`+25:00`/garbage)은 histogram 요청 여부와 무관하게 exit 1, 일회성·`--json`·`--watch` 세 뷰 모두 적용.
+    새 파서/스케줄러/core 스토어 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 563→575, cli stats 37→40=307/1skip, dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  4-잡 임시 스토어(Sun 23:00·Mon 02:00·Wed 12:00·Sat 14:00 UTC)로 `--hours`가 UTC/+09:00(23→08·02→11·
+  12→21·14→23)/반시간 +05:30(→04·07·17·19) 시프트, `--weekday`가 +09:00에서 Sun23:00→Mon(=2)·-05:00에서
+  Mon02:00→Sun(=2) 경계 넘김, `--json --utc-offset +05:30`가 `utcOffsetMinutes:330`+시프트 버킷 방출·기본
+  JSON은 미포함, `Z`=UTC 라벨, `+25:00`/garbage exit 1, `--watch`가 라이브 `UTC+09:00` 라벨 렌더,
+  `--help`·bash completion에 `--utc-offset` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 나머지 세션 59
+  제안(대시보드에 `--hours`/`--weekday`/`--trend` 히스토그램 미러), 또는 `--utc-offset`을 `--trend`(일별)에도
+  적용해 일 경계를 로컬 자정 기준으로. README/ARCHITECTURE(🧭 코워크).

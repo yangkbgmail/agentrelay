@@ -246,12 +246,13 @@ const HOURS_BAR_WIDTH = 24;
  * shows a dim baseline dot. Pure: no I/O, no clock. Callers pass the already-
  * computed distribution so it stays testable.
  */
-export function renderHours(hours: HourlyActivity[], options: { color?: boolean } = {}): string {
+export function renderHours(hours: HourlyActivity[], options: { color?: boolean; tzLabel?: string } = {}): string {
   const color = options.color ?? false;
+  const tzLabel = options.tzLabel ?? "UTC";
   const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
   const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
 
-  const lines: string[] = [b("by hour") + d(" (jobs created per hour of day, UTC)")];
+  const lines: string[] = [b("by hour") + d(` (jobs created per hour of day, ${tzLabel})`)];
   if (hours.length === 0) {
     lines.push("  none");
     return lines.join("\n");
@@ -270,7 +271,7 @@ export function renderHours(hours: HourlyActivity[], options: { color?: boolean 
     const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
     lines.push(`  ${String(hour).padStart(2, "0")}:00  ${shown} ${count}`);
   }
-  lines.push(d(`  ${total} job(s) across 24 hour(s), UTC`));
+  lines.push(d(`  ${total} job(s) across 24 hour(s), ${tzLabel}`));
   return lines.join("\n");
 }
 
@@ -284,12 +285,16 @@ const WEEKDAY_BAR_WIDTH = 24;
  * volume; a zero day shows a dim baseline dot. Pure: no I/O, no clock. Callers
  * pass the already-computed distribution so it stays testable.
  */
-export function renderWeekday(weekdays: WeekdayActivity[], options: { color?: boolean } = {}): string {
+export function renderWeekday(
+  weekdays: WeekdayActivity[],
+  options: { color?: boolean; tzLabel?: string } = {}
+): string {
   const color = options.color ?? false;
+  const tzLabel = options.tzLabel ?? "UTC";
   const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
   const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
 
-  const lines: string[] = [b("by weekday") + d(" (jobs created per day of week, UTC)")];
+  const lines: string[] = [b("by weekday") + d(` (jobs created per day of week, ${tzLabel})`)];
   if (weekdays.length === 0) {
     lines.push("  none");
     return lines.join("\n");
@@ -308,7 +313,7 @@ export function renderWeekday(weekdays: WeekdayActivity[], options: { color?: bo
     const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
     lines.push(`  ${name}  ${shown} ${count}`);
   }
-  lines.push(d(`  ${total} job(s) across 7 day(s), UTC`));
+  lines.push(d(`  ${total} job(s) across 7 day(s), ${tzLabel}`));
   return lines.join("\n");
 }
 
@@ -322,6 +327,8 @@ export function renderStatsJson(
     trend?: DailyActivity[] | null;
     hours?: HourlyActivity[] | null;
     weekday?: WeekdayActivity[] | null;
+    /** Offset (minutes) the hours/weekday buckets used; emitted only when non-zero. */
+    utcOffsetMinutes?: number;
   } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
@@ -332,7 +339,10 @@ export function renderStatsJson(
   const trend = options.trend ?? undefined;
   const hours = options.hours ?? undefined;
   const weekday = options.weekday ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, stats }, null, 2);
+  // Emit the clock offset only when a non-UTC one was in effect, so the default
+  // JSON shape stays byte-identical for existing consumers.
+  const utcOffsetMinutes = options.utcOffsetMinutes ? options.utcOffsetMinutes : undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, utcOffsetMinutes, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */
