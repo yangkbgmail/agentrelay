@@ -375,6 +375,19 @@ describe("renderHours", () => {
     expect(out).toMatch(/14:00 .* 1/);
     expect(out).toContain("3 job(s) across 24 hour(s), UTC");
   });
+
+  it("labels the header and footer with the applied UTC offset", () => {
+    const out = renderHours(distFrom({ 9: 1 }), { offsetMinutes: 540 });
+    expect(out).toContain("UTC+09:00");
+    expect(out).not.toMatch(/, UTC\b(?!\+)/);
+    expect(out).toContain("1 job(s) across 24 hour(s), UTC+09:00");
+  });
+
+  it("keeps the plain 'UTC' label when the offset is 0", () => {
+    const out = renderHours(distFrom({ 9: 1 }), { offsetMinutes: 0 });
+    expect(out).toContain("hour of day, UTC)");
+    expect(out).not.toContain("UTC+");
+  });
 });
 
 describe("renderStatsJson hours field", () => {
@@ -440,6 +453,12 @@ describe("renderWeekday", () => {
     expect(out).toMatch(/Wed .* 1/);
     expect(out).toContain("3 job(s) across 7 day(s), UTC");
   });
+
+  it("labels the header and footer with the applied UTC offset", () => {
+    const out = renderWeekday(distFrom({ 1: 1 }), { offsetMinutes: -480 });
+    expect(out).toContain("UTC-08:00");
+    expect(out).toContain("1 job(s) across 7 day(s), UTC-08:00");
+  });
 });
 
 describe("renderStatsJson weekday field", () => {
@@ -452,6 +471,31 @@ describe("renderStatsJson weekday field", () => {
     expect(withWeekday.weekday).toHaveLength(7);
     expect(withWeekday.weekday[1].count).toBe(1);
     expect(withWeekday.weekday[1].name).toBe("Mon");
+  });
+});
+
+describe("renderStatsJson utcOffsetMinutes field", () => {
+  it("echoes a non-zero offset only when a histogram is present", () => {
+    const stats = computeStats([job()]);
+    const hours = computeHourlyDistribution([job({ createdAt: "2026-07-20T05:00:00.000Z" })], 540);
+    const withOffset = JSON.parse(
+      renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", hours, utcOffsetMinutes: 540 })
+    );
+    expect(withOffset.utcOffsetMinutes).toBe(540);
+  });
+
+  it("omits the offset for the default UTC view and when no histogram is requested", () => {
+    const stats = computeStats([job()]);
+    const zero = JSON.parse(
+      renderStatsJson(stats, "/tmp/s.json", {
+        generatedAt: "x",
+        hours: computeHourlyDistribution([job()]),
+        utcOffsetMinutes: 0,
+      })
+    );
+    expect("utcOffsetMinutes" in zero).toBe(false);
+    const noHistogram = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", utcOffsetMinutes: 540 }));
+    expect("utcOffsetMinutes" in noHistogram).toBe(false);
   });
 });
 

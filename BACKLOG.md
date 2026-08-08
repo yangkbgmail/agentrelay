@@ -750,6 +750,23 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 `agentrelay stats --hours/--weekday` 로컬 타임존(UTC 오프셋) 옵션 — 시간대별/요일별 분포를
+      UTC뿐 아니라 사용자의 로컬 타임존으로도 볼 수 있게(세션 59가 명시한 후속).
+      (완료 — core `stats.ts`의 `computeHourlyDistribution`/`computeWeekdayDistribution`에 옵셔널
+      `offsetMinutes = 0`(동쪽 양수) 인자 추가 — 타임스탬프를 `offsetMinutes*60000`만큼 시프트한 뒤
+      `getUTCHours`/`getUTCDay`를 읽어 순수·클럭 미주입 유지, 기본 0은 기존 UTC 동작 불변(하위호환),
+      비유한 오프셋은 0으로 폴백해 전 버킷 NaN 오염 방지. 요일은 자정 넘김도 시프트로 정확 처리. 순수
+      `formatUtcOffsetLabel(min)`(0/비유한→"UTC", 540→"UTC+09:00", -480→"UTC-08:00", 330→"UTC+05:30")
+      신설. CLI `stats.ts` `renderHours`/`renderWeekday`에 `offsetMinutes` 옵션 → 헤더·푸터 라벨을
+      오프셋으로 치환, `renderStatsJson`에 `utcOffsetMinutes` 필드(히스토그램 있고 non-zero일 때만 방출,
+      기본 JSON shape 불변). `cli.ts` `stats`에 `--utc-offset <분>`(부호 정수, ±1440 검증)·`--local`
+      (이 머신의 현재 오프셋=`-getTimezoneOffset()`) 배선 — 상호배타·히스토그램 없는 오프셋은 exit 1,
+      오프셋은 명령 시작 시 1회 고정(--watch도 안정), 일회성·`--json`·`--watch` 세 뷰 모두 적용.
+      completion은 라이브 프로그램 파생이라 자동 포함. 새 파서/스케줄러 로직 0줄. core stats +11 +
+      formatUtcOffsetLabel 3 신규, cli stats +5(=42) 신규 테스트, 실제 빌드 CLI e2e로 UTC+9/−2h 버킷
+      시프트·라벨·`--local`·`--json` utcOffsetMinutes·에러 exit(오프셋만/양쪽/불량값) 검증.
+      branch `claude/wizardly-pascal-fv1yqq`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

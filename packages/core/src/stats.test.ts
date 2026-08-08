@@ -4,6 +4,7 @@ import {
   computeHourlyDistribution,
   computeStats,
   computeWeekdayDistribution,
+  formatUtcOffsetLabel,
   GROUP_DIMENSIONS,
   groupStats,
   isJobScopeActive,
@@ -527,6 +528,36 @@ describe("computeHourlyDistribution", () => {
     computeHourlyDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
   });
+
+  it("shifts hour buckets by a positive UTC offset (east)", () => {
+    // 23:00 UTC + 9h (UTC+9) = 08:00 the next local day → hour 8.
+    const jobs = [job({ createdAt: "2026-07-20T23:00:00.000Z" })];
+    const dist = computeHourlyDistribution(jobs, 540);
+    expect(dist[8].count).toBe(1);
+    expect(dist[23].count).toBe(0);
+  });
+
+  it("shifts hour buckets by a negative UTC offset (west), wrapping across midnight", () => {
+    // 02:00 UTC − 8h (UTC-8) = 18:00 the previous local day → hour 18.
+    const jobs = [job({ createdAt: "2026-07-20T02:00:00.000Z" })];
+    const dist = computeHourlyDistribution(jobs, -480);
+    expect(dist[18].count).toBe(1);
+    expect(dist[2].count).toBe(0);
+  });
+
+  it("supports fractional-hour offsets (e.g. UTC+05:30)", () => {
+    // 00:00 UTC + 5h30m = 05:30 → hour 5.
+    const jobs = [job({ createdAt: "2026-07-20T00:00:00.000Z" })];
+    const dist = computeHourlyDistribution(jobs, 330);
+    expect(dist[5].count).toBe(1);
+  });
+
+  it("treats a non-finite offset as 0 (UTC) rather than corrupting buckets", () => {
+    const jobs = [job({ createdAt: "2026-07-20T09:00:00.000Z" })];
+    const dist = computeHourlyDistribution(jobs, Number.NaN);
+    expect(dist[9].count).toBe(1);
+    expect(dist.reduce((sum, h) => sum + h.count, 0)).toBe(1);
+  });
 });
 
 describe("computeWeekdayDistribution", () => {
@@ -571,5 +602,46 @@ describe("computeWeekdayDistribution", () => {
     const before = JSON.stringify(jobs);
     computeWeekdayDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
+  });
+
+  it("rolls a late-UTC job onto the next local weekday with a positive offset", () => {
+    // 2026-07-20 23:00 UTC is a Monday; +2h stays Monday, but +2h on 23:00 → 01:00
+    // Tuesday. Use +2h (120m) to cross midnight into Tuesday (weekday 2).
+    const jobs = [job({ createdAt: "2026-07-20T23:00:00.000Z" })];
+    const dist = computeWeekdayDistribution(jobs, 120);
+    expect(dist[2].count).toBe(1); // Tuesday
+    expect(dist[1].count).toBe(0);
+  });
+
+  it("rolls an early-UTC job onto the previous local weekday with a negative offset", () => {
+    // 2026-07-20 01:00 UTC is a Monday; −2h → 23:00 Sunday (weekday 0).
+    const jobs = [job({ createdAt: "2026-07-20T01:00:00.000Z" })];
+    const dist = computeWeekdayDistribution(jobs, -120);
+    expect(dist[0].count).toBe(1); // Sunday
+    expect(dist[1].count).toBe(0);
+  });
+
+  it("treats a non-finite offset as 0 (UTC)", () => {
+    const jobs = [job({ createdAt: "2026-07-22T14:00:00.000Z" })]; // Wed
+    const dist = computeWeekdayDistribution(jobs, Number.POSITIVE_INFINITY);
+    expect(dist[3].count).toBe(1);
+  });
+});
+
+describe("formatUtcOffsetLabel", () => {
+  it("returns 'UTC' for a zero or non-finite offset", () => {
+    expect(formatUtcOffsetLabel(0)).toBe("UTC");
+    expect(formatUtcOffsetLabel(Number.NaN)).toBe("UTC");
+    expect(formatUtcOffsetLabel(Number.POSITIVE_INFINITY)).toBe("UTC");
+  });
+
+  it("formats whole-hour offsets east and west", () => {
+    expect(formatUtcOffsetLabel(540)).toBe("UTC+09:00");
+    expect(formatUtcOffsetLabel(-480)).toBe("UTC-08:00");
+  });
+
+  it("formats fractional-hour offsets", () => {
+    expect(formatUtcOffsetLabel(330)).toBe("UTC+05:30");
+    expect(formatUtcOffsetLabel(-30)).toBe("UTC-00:30");
   });
 });
