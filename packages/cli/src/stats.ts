@@ -208,12 +208,13 @@ const TREND_BAR_WIDTH = 24;
  * regardless of absolute volume; a zero day shows a dim baseline dot. Pure: no
  * I/O, no clock. Callers pass the already-computed trend so it stays testable.
  */
-export function renderTrend(trend: DailyActivity[], options: { color?: boolean } = {}): string {
+export function renderTrend(trend: DailyActivity[], options: { color?: boolean; tzLabel?: string } = {}): string {
   const color = options.color ?? false;
+  const tz = options.tzLabel ?? "UTC";
   const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
   const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
 
-  const lines: string[] = [b("activity") + d(" (jobs created per day, UTC)")];
+  const lines: string[] = [b("activity") + d(` (jobs created per day, ${tz})`)];
   if (trend.length === 0) {
     lines.push("  none");
     return lines.join("\n");
@@ -246,12 +247,13 @@ const HOURS_BAR_WIDTH = 24;
  * shows a dim baseline dot. Pure: no I/O, no clock. Callers pass the already-
  * computed distribution so it stays testable.
  */
-export function renderHours(hours: HourlyActivity[], options: { color?: boolean } = {}): string {
+export function renderHours(hours: HourlyActivity[], options: { color?: boolean; tzLabel?: string } = {}): string {
   const color = options.color ?? false;
+  const tz = options.tzLabel ?? "UTC";
   const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
   const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
 
-  const lines: string[] = [b("by hour") + d(" (jobs created per hour of day, UTC)")];
+  const lines: string[] = [b("by hour") + d(` (jobs created per hour of day, ${tz})`)];
   if (hours.length === 0) {
     lines.push("  none");
     return lines.join("\n");
@@ -270,7 +272,7 @@ export function renderHours(hours: HourlyActivity[], options: { color?: boolean 
     const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
     lines.push(`  ${String(hour).padStart(2, "0")}:00  ${shown} ${count}`);
   }
-  lines.push(d(`  ${total} job(s) across 24 hour(s), UTC`));
+  lines.push(d(`  ${total} job(s) across 24 hour(s), ${tz}`));
   return lines.join("\n");
 }
 
@@ -284,12 +286,16 @@ const WEEKDAY_BAR_WIDTH = 24;
  * volume; a zero day shows a dim baseline dot. Pure: no I/O, no clock. Callers
  * pass the already-computed distribution so it stays testable.
  */
-export function renderWeekday(weekdays: WeekdayActivity[], options: { color?: boolean } = {}): string {
+export function renderWeekday(
+  weekdays: WeekdayActivity[],
+  options: { color?: boolean; tzLabel?: string } = {}
+): string {
   const color = options.color ?? false;
+  const tz = options.tzLabel ?? "UTC";
   const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
   const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
 
-  const lines: string[] = [b("by weekday") + d(" (jobs created per day of week, UTC)")];
+  const lines: string[] = [b("by weekday") + d(` (jobs created per day of week, ${tz})`)];
   if (weekdays.length === 0) {
     lines.push("  none");
     return lines.join("\n");
@@ -308,7 +314,7 @@ export function renderWeekday(weekdays: WeekdayActivity[], options: { color?: bo
     const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
     lines.push(`  ${name}  ${shown} ${count}`);
   }
-  lines.push(d(`  ${total} job(s) across 7 day(s), UTC`));
+  lines.push(d(`  ${total} job(s) across 7 day(s), ${tz}`));
   return lines.join("\n");
 }
 
@@ -322,6 +328,7 @@ export function renderStatsJson(
     trend?: DailyActivity[] | null;
     hours?: HourlyActivity[] | null;
     weekday?: WeekdayActivity[] | null;
+    tzOffsetMinutes?: number;
   } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
@@ -332,7 +339,13 @@ export function renderStatsJson(
   const trend = options.trend ?? undefined;
   const hours = options.hours ?? undefined;
   const weekday = options.weekday ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, stats }, null, 2);
+  // Echo the offset only when a non-UTC one was applied to a histogram, so the
+  // default JSON shape stays unchanged and scripts can see which zone was used.
+  const tzOffsetMinutes =
+    options.tzOffsetMinutes && (trend !== undefined || hours !== undefined || weekday !== undefined)
+      ? options.tzOffsetMinutes
+      : undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, tzOffsetMinutes, trend, hours, weekday, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */
