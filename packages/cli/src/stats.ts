@@ -4,6 +4,7 @@
 // in cli.ts, so the exact output is unit-testable without a store or a clock.
 
 import type {
+  ActivityHeatmap,
   DailyActivity,
   GroupDimension,
   GroupedStat,
@@ -312,6 +313,55 @@ export function renderWeekday(weekdays: WeekdayActivity[], options: { color?: bo
   return lines.join("\n");
 }
 
+/** Intensity ramp for heatmap cells, from lowest non-zero (░) to busiest (█). */
+const HEATMAP_RAMP = ["░", "▒", "▓", "█"] as const;
+
+/**
+ * Renders a weekday × hour-of-day activity heatmap (7 rows × 24 columns, UTC)
+ * as a compact grid — the 2-D combination of `--hours` and `--weekday`. Each
+ * cell's glyph encodes intensity relative to the busiest cell (a 4-level ░▒▓█
+ * ramp); an empty cell shows a dim baseline dot. A top axis marks hours
+ * 0/6/12/18, aligned to the one-char-wide columns below. Pure: no I/O, no clock.
+ * Callers pass the already-computed heatmap so it stays testable.
+ */
+export function renderHeatmap(heatmap: ActivityHeatmap, options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [b("by weekday × hour") + d(" (jobs created, UTC)")];
+
+  // Row layout: two-space indent + 3-char weekday name + two-space gutter, then
+  // 24 one-char cells. The hour-axis ruler above is padded to match, with labels
+  // written at columns 0/6/12/18 (two-digit labels spill into the next column).
+  const rowPrefix = "  ";
+  const gutter = "  ";
+  const axis = new Array<string>(24).fill(" ");
+  for (const h of [0, 6, 12, 18]) {
+    const label = String(h);
+    for (let i = 0; i < label.length && h + i < 24; i++) axis[h + i] = label[i];
+  }
+  const headerPad = " ".repeat(rowPrefix.length + 3 + gutter.length);
+  lines.push(d(`${headerPad}${axis.join("")}`));
+
+  for (const row of heatmap.rows) {
+    const cells = row.hours
+      .map((count) => {
+        if (count === 0) return color ? d("·") : "·";
+        // Bucket the ratio into the ramp; the lowest glyph is guaranteed for any
+        // non-zero cell so a single hit never renders as empty.
+        const ratio = heatmap.max === 0 ? 0 : count / heatmap.max;
+        const idx = Math.min(HEATMAP_RAMP.length - 1, Math.max(0, Math.ceil(ratio * HEATMAP_RAMP.length) - 1));
+        return HEATMAP_RAMP[idx];
+      })
+      .join("");
+    lines.push(`${rowPrefix}${row.name}${gutter}${cells} ${d(String(row.total))}`);
+  }
+
+  lines.push(d(`  ${heatmap.total} job(s) across 7×24 grid, UTC · ${HEATMAP_RAMP.join("")} low→high`));
+  return lines.join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,
@@ -322,17 +372,19 @@ export function renderStatsJson(
     trend?: DailyActivity[] | null;
     hours?: HourlyActivity[] | null;
     weekday?: WeekdayActivity[] | null;
+    heatmap?: ActivityHeatmap | null;
   } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
-  // Only emit `trend`/`hours`/`weekday` when the matching flag was requested;
-  // omit them otherwise so the default JSON shape is unchanged for existing
-  // consumers.
+  // Only emit `trend`/`hours`/`weekday`/`heatmap` when the matching flag was
+  // requested; omit them otherwise so the default JSON shape is unchanged for
+  // existing consumers.
   const trend = options.trend ?? undefined;
   const hours = options.hours ?? undefined;
   const weekday = options.weekday ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, stats }, null, 2);
+  const heatmap = options.heatmap ?? undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, heatmap, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */

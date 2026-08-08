@@ -750,6 +750,23 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 `agentrelay stats --heatmap` — 요일 × 시간(7×24, UTC) 활동 히트맵. 세션 58의 `--hours`(시간-of-day)와
+      세션 59의 `--weekday`(day-of-week)를 하나의 2D 격자로 결합해 "한 주 중 언제(어느 요일 몇 시)에
+      rate-limit이 몰리나"를 한눈에.
+      (완료 — core `stats.ts`에 순수 `computeActivityHeatmap(jobs)` + `ActivityHeatmap`(rows·max·total)·
+      `HeatmapRow`(weekday·name·hours[24]·total) 신설. 각 잡의 `createdAt`을 `getUTCDay()`×`getUTCHours()`로
+      버킷팅해 **모든 주에 걸쳐** 집계, 항상 정확히 7행(Sun→Sat)×24열(0→23) zero-fill, `createdAt` 누락/
+      파싱불가는 스킵, `max`(최다 셀)·행/격자 total 추적. `--hours`/`--weekday`와 동일하게 창도 시계도
+      불필요(요일·시각은 타임스탬프의 절대 속성). CLI `stats.ts`에 순수 `renderHeatmap(heatmap,{color})`
+      (제목+0/6/12/18 시각 축 룰러+7행 격자[4단계 `░▒▓█` 강도 램프, 최다 셀 대비 비율, 빈 셀은 dim 점]+
+      행 합계+램프 범례 푸터)·`renderStatsJson`에 옵셔널 `heatmap` 필드(요청 시에만 방출, 기존 JSON shape
+      불변). `cli.ts` `stats`에 `--heatmap` 배선 — 일회성·`--json`·`--watch` 세 뷰 모두 적용, 기존 스코프
+      필터(--status/--tool/--project/--since/--until) 및 `--hours`/`--weekday`/`--trend`와도 조합 가능.
+      새 파서/스케줄러 로직 0줄. cli stats +8 신규 테스트(core heatmap 4 + renderHeatmap 3 + JSON 필드 1),
+      실제 빌드 CLI e2e로 격자 버킷팅(Mon 14시 █/Wed 9시 ▒)·축·행 합계·`--json` heatmap 필드·기본 JSON
+      미포함·`--watch` 라이브·`--json`>`--watch`·bogus 스코프 watch 전 exit 1·help/completion `--heatmap`
+      노출 검증. branch `claude/wizardly-pascal-r1yvi5`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

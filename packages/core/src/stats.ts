@@ -259,6 +259,64 @@ export function computeWeekdayDistribution(jobs: RelayJob[]): WeekdayActivity[] 
   return counts.map((count, weekday) => ({ weekday, name: WEEKDAY_NAMES[weekday], count }));
 }
 
+/** One weekday's row in an {@link ActivityHeatmap}: 24 hourly counts (UTC). */
+export interface HeatmapRow {
+  /** UTC day of week, 0 (Sunday) – 6 (Saturday), matching `Date.getUTCDay()`. */
+  weekday: number;
+  /** Short UTC weekday name (`Sun`…`Sat`), taken from {@link WEEKDAY_NAMES}. */
+  name: string;
+  /** 24 counts, index = UTC hour of day (0–23). */
+  hours: number[];
+  /** Row total across all 24 hours. */
+  total: number;
+}
+
+/** A weekday × hour-of-day activity grid (7 rows × 24 columns, UTC). */
+export interface ActivityHeatmap {
+  /** Exactly 7 rows, Sunday through Saturday. */
+  rows: HeatmapRow[];
+  /** Busiest single cell's count, used to scale intensity; 0 when empty. */
+  max: number;
+  /** Total jobs placed on the grid. */
+  total: number;
+}
+
+/**
+ * Buckets jobs into a UTC weekday × hour-of-day grid (7×24), so `agentrelay
+ * stats --heatmap` can show *when in the week* rate-limits cluster — combining
+ * the day-of-week axis of {@link computeWeekdayDistribution} with the
+ * hour-of-day axis of {@link computeHourlyDistribution} into one 2-D view
+ * ("I mostly get throttled on Monday afternoons"). Like both, this needs no
+ * window and no clock: the weekday and hour are absolute properties of each
+ * timestamp.
+ *
+ * The result is always exactly 7 rows (Sun→Sat), each with exactly 24 hourly
+ * slots (0→23), zero-filled so the grid has a stable shape. Jobs with a missing
+ * or unparseable `createdAt` are skipped — they can't be placed on the grid.
+ */
+export function computeActivityHeatmap(jobs: RelayJob[]): ActivityHeatmap {
+  const rows: HeatmapRow[] = WEEKDAY_NAMES.map((name, weekday) => ({
+    weekday,
+    name,
+    hours: new Array<number>(24).fill(0),
+    total: 0,
+  }));
+  let max = 0;
+  let total = 0;
+  for (const job of jobs) {
+    const created = Date.parse(job.createdAt);
+    if (Number.isNaN(created)) continue;
+    const date = new Date(created);
+    const row = rows[date.getUTCDay()];
+    const hour = date.getUTCHours();
+    row.hours[hour] += 1;
+    row.total += 1;
+    total += 1;
+    if (row.hours[hour] > max) max = row.hours[hour];
+  }
+  return { rows, max, total };
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 

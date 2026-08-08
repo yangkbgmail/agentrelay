@@ -1859,3 +1859,36 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 60 — `agentrelay stats --heatmap` 요일 × 시간 활동 히트맵] (2026-08-08, 무인 자율 세션, branch `claude/wizardly-pascal-r1yvi5`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다 — 세션 58의 `--hours`
+  (하루 중 시간)와 세션 59의 `--weekday`(한 주 중 요일)는 각각 1D 히스토그램인데, "한 주 중 언제(어느 요일
+  몇 시)에 rate-limit이 몰리나"는 두 축이 만나는 지점이라 두 1D 뷰로는 보이지 않는다. 이 둘을 하나의 2D
+  격자로 결합한 `--heatmap`을 구현했다.
+- **한 일 (branch `claude/wizardly-pascal-r1yvi5`):** `agentrelay stats --heatmap` — 요일 × 시간(7×24, UTC) 활동 히트맵.
+  - core `stats.ts`: 순수 `computeActivityHeatmap(jobs)` + `ActivityHeatmap`(rows·max·total)·`HeatmapRow`
+    (weekday·name·hours[24]·total) 신설. 각 잡의 `createdAt`을 `getUTCDay()`×`getUTCHours()`로 버킷팅해
+    **모든 주에 걸쳐** 집계, 항상 정확히 7행(Sun→Sat)×24열(0→23) zero-fill, `createdAt` 누락/파싱불가는
+    스킵, `max`(최다 셀)·행/격자 total 추적. `computeHourlyDistribution`/`computeWeekdayDistribution`과
+    동일하게 창도 시계도 불필요(요일·시각은 타임스탬프의 절대 속성이라 순수·`nowMs` 미주입).
+  - CLI `stats.ts`: 순수 `renderHeatmap(heatmap, {color})` — 제목 + 0/6/12/18 시각 축 룰러(1-char 컬럼에
+    정렬) + 7행 격자(4단계 `░▒▓█` 강도 램프, 최다 셀 대비 비율로 버킷팅[비영 셀은 최소 `░` 보장], 빈 셀은
+    dim 점) + 각 행 끝 합계 + 램프 범례 푸터. `renderStatsJson`에 옵셔널 `heatmap` 필드 추가(요청 시에만
+    방출, 기존 소비자용 기본 JSON shape 불변).
+  - `cli.ts`: `stats`에 `--heatmap` 플래그 배선. 일회성 뷰(weekday 뒤에 append)·`--json`·`--watch`
+    (fresh `now`로 본문 재조합, `runStatsWatch`에 heatmap 인자 추가) 세 뷰 모두 적용, 기존 스코프 필터
+    (--status/--tool/--project/--since/--until) 및 `--hours`/`--weekday`/`--trend`와도 조합 가능.
+    addHelpText 예시 1줄, completion은 라이브 프로그램 파생이라 `--heatmap` 자동 포함. 새 파서/스케줄러/
+    core 스토어 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 563·cli stats 37→45=312/1skip·dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  3-잡 임시 스토어(web 완료[Mon 14:00Z]·web 실패[Mon 14:40Z]·api 완료[Wed 09:00Z])로 `stats --heatmap`이
+  Mon 14시 셀 █(최다=2)·Wed 9시 셀 ▒(비율 0.5)·나머지 dim 점·0/6/12/18 시각 축·행 합계·"3 job(s) across
+  7×24 grid, UTC · ░▒▓█ low→high" 푸터 렌더, `--heatmap --json`은 `heatmap.rows`(7)·rows[1].hours[14]=2·
+  rows[3].hours[9]=1·total 3·max 2, 기본 `--json`은 `heatmap` 미포함, `--heatmap --watch 1`은 라이브 배너 +
+  격자 프레임, `--json`이 `--watch`보다 우선, bogus 스코프는 watch 루프 전 exit 1, `--help`·bash completion에
+  `--heatmap` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
+  `--hours`/`--weekday`/`--heatmap` 히스토그램/히트맵 노출, `stats --hours`/`--heatmap`을 로컬 타임존으로도
+  볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
