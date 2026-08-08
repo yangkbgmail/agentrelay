@@ -4,6 +4,7 @@ import {
   computeHourlyDistribution,
   computeStats,
   computeWeekdayDistribution,
+  computeWeekHourHeatmap,
   GROUP_DIMENSIONS,
   groupStats,
   isJobScopeActive,
@@ -570,6 +571,54 @@ describe("computeWeekdayDistribution", () => {
     const jobs = [job({ createdAt: "2026-07-20T05:00:00.000Z" })];
     const before = JSON.stringify(jobs);
     computeWeekdayDistribution(jobs);
+    expect(JSON.stringify(jobs)).toBe(before);
+  });
+});
+
+describe("computeWeekHourHeatmap", () => {
+  it("returns a full 7×24 zero-filled grid with total/max 0 for an empty store", () => {
+    const hm = computeWeekHourHeatmap([]);
+    expect(hm.counts).toHaveLength(7);
+    expect(hm.counts.every((row) => row.length === 24)).toBe(true);
+    expect(hm.counts.every((row) => row.every((c) => c === 0))).toBe(true);
+    expect(hm.total).toBe(0);
+    expect(hm.max).toBe(0);
+  });
+
+  it("buckets jobs into the right weekday×hour cell, across all weeks", () => {
+    // 2026-07-20 is a Monday, 2026-07-27 the next Monday, 2026-07-22 a Wednesday.
+    const jobs = [
+      job({ createdAt: "2026-07-20T09:15:00.000Z" }), // Mon 09:00
+      job({ createdAt: "2026-07-27T09:59:59.000Z" }), // Mon 09:00, following week
+      job({ createdAt: "2026-07-22T23:00:00.000Z" }), // Wed 23:00
+    ];
+    const hm = computeWeekHourHeatmap(jobs);
+    expect(hm.counts[1][9]).toBe(2); // Monday 09:00
+    expect(hm.counts[3][23]).toBe(1); // Wednesday 23:00
+    expect(hm.total).toBe(3);
+    expect(hm.max).toBe(2);
+  });
+
+  it("places corner cells (Sun 00:00 and Sat 23:00) correctly", () => {
+    // 2026-07-19 is a Sunday, 2026-07-25 a Saturday.
+    const jobs = [job({ createdAt: "2026-07-19T00:00:00.000Z" }), job({ createdAt: "2026-07-25T23:59:59.999Z" })];
+    const hm = computeWeekHourHeatmap(jobs);
+    expect(hm.counts[0][0]).toBe(1); // Sunday 00:00
+    expect(hm.counts[6][23]).toBe(1); // Saturday 23:00
+    expect(hm.max).toBe(1);
+  });
+
+  it("skips jobs with a missing/unparseable createdAt", () => {
+    const jobs = [job({ createdAt: "not-a-date" }), job({ createdAt: "2026-07-22T14:00:00.000Z" })]; // Wed 14:00
+    const hm = computeWeekHourHeatmap(jobs);
+    expect(hm.total).toBe(1);
+    expect(hm.counts[3][14]).toBe(1);
+  });
+
+  it("does not mutate its input", () => {
+    const jobs = [job({ createdAt: "2026-07-20T05:00:00.000Z" })];
+    const before = JSON.stringify(jobs);
+    computeWeekHourHeatmap(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
   });
 });

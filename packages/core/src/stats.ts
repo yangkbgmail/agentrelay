@@ -259,6 +259,49 @@ export function computeWeekdayDistribution(jobs: RelayJob[]): WeekdayActivity[] 
   return counts.map((count, weekday) => ({ weekday, name: WEEKDAY_NAMES[weekday], count }));
 }
 
+export interface WeekHourHeatmap {
+  /**
+   * Jobs created per UTC weekday×hour cell, indexed `counts[weekday][hour]`
+   * (weekday 0 = Sunday … 6 = Saturday; hour 0–23). Always a full 7×24 grid,
+   * zero-filled for quiet cells so the shape is stable.
+   */
+  counts: number[][];
+  /** Total jobs placed on the grid (unparseable/missing `createdAt` excluded). */
+  total: number;
+  /** Highest single-cell count, for callers that scale a density ramp to it. */
+  max: number;
+}
+
+/**
+ * Buckets jobs into a UTC weekday×hour grid (7 rows × 24 columns) by the day and
+ * hour their `createdAt` falls on, aggregated across every week, so `agentrelay
+ * stats --heatmap` can show *when in the week* rate-limits cluster — a 2-D
+ * combination of {@link computeWeekdayDistribution} and
+ * {@link computeHourlyDistribution} ("I mostly get throttled Monday mornings").
+ * Like those two this has no window and needs no clock: weekday and hour are
+ * absolute properties of each timestamp.
+ *
+ * The grid is always exactly 7×24, zero-filled for quiet cells so the heatmap
+ * has a stable shape. Jobs with a missing or unparseable `createdAt` are skipped
+ * — they can't be placed on the calendar.
+ */
+export function computeWeekHourHeatmap(jobs: RelayJob[]): WeekHourHeatmap {
+  const counts: number[][] = Array.from({ length: 7 }, () => new Array<number>(24).fill(0));
+  let total = 0;
+  let max = 0;
+  for (const job of jobs) {
+    const created = Date.parse(job.createdAt);
+    if (Number.isNaN(created)) continue;
+    const d = new Date(created);
+    const row = counts[d.getUTCDay()];
+    const hour = d.getUTCHours();
+    row[hour] += 1;
+    total += 1;
+    if (row[hour] > max) max = row[hour];
+  }
+  return { counts, total, max };
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 
