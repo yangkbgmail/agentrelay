@@ -750,6 +750,26 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 `agentrelay stats --hours`/`--weekday`에 `--utc-offset` — UTC 고정이던 시간/요일 분포를
+      **로컬 타임존(고정 UTC 오프셋)** 기준으로도 볼 수 있게. 세션 59가 "다음 할 일"로 제안한 후속.
+      (완료 — `--hours`/`--weekday`는 `createdAt`을 UTC 시/요일로 버킷팅해서, `+09:00` 사용자는
+      "나는 몇 시/무슨 요일에 throttle되나"를 자기 벽시계 기준으로 볼 수 없었다. IANA/DST 전체
+      타임존 DB를 끌어오는 대신, 순수·의존성 0인 **고정 오프셋 시프트**로 해결(JSON 스토어가 이미
+      UTC를 고정하는 것과 결이 같음). core `stats.ts`에 순수 `parseUtcOffset(spec)`(`Z`/`UTC`/`GMT`→0,
+      `±HH`·`±HH:MM`·`±HHMM`, 부호 생략 시 +, 분 00–59, ±14:00 초과·형식 불량은 null; `-0`은 0으로
+      정규화) + `formatUtcOffsetLabel(min)`(`UTC` 또는 `UTC±HH:MM`) + `OffsetOptions` 신설. 기존
+      `computeHourlyDistribution`/`computeWeekdayDistribution`에 optional `utcOffsetMinutes`를 받아
+      타임스탬프를 오프셋만큼 시프트한 뒤 `getUTCHours`/`getUTCDay`를 읽음(오프셋이 잡을 이웃 시/요일로
+      넘길 수 있음 — 예: 일요일 23:00 UTC가 +09:00에서 월요일). CLI `stats.ts`의 `renderHours`/
+      `renderWeekday`에 optional `tzLabel`(헤더·푸터의 "UTC"를 대체), `renderStatsJson`에 옵셔널
+      `utcOffsetMinutes`(0이면 미방출 → 기본 JSON shape 불변). `cli.ts` `stats`에 `--utc-offset <offset>`
+      배선 — 파싱/검증을 선행해 잘못된 스펙은 histogram 요청 여부와 무관하게 exit 1, 일회성·`--json`·
+      `--watch` 세 뷰 모두 적용. 새 파서/스케줄러 로직 0줄. core stats +12(=575) + cli stats +3(=307)
+      신규 테스트, 실제 빌드 CLI e2e로 양/음 오프셋 시프트(23:00 UTC→08:00 +09:00, 02:00 UTC→21:00
+      -05:00)·요일 경계 넘김(Sun→Mon, Mon→Sun)·반시간 오프셋(+05:30)·`--json` `utcOffsetMinutes` 방출/
+      기본 미포함·`Z`=UTC 라벨·`+25:00`/garbage exit 1·`--watch` 라이브 라벨·help/completion 노출 검증.
+      branch `claude/wizardly-pascal-tzoffset`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
