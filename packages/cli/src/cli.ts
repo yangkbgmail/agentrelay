@@ -50,6 +50,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  diffStore,
   exportStore,
   importStore,
   initConfig,
@@ -74,6 +75,7 @@ import {
   waitForJob,
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
+import { renderDiff, renderDiffJson } from "./diff.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderHealth, renderHealthJson } from "./health.js";
@@ -1944,6 +1946,36 @@ export function buildCli(): Command {
         if (result.backedUpTo) {
           console.log(`[agentrelay] Previous store backed up to ${result.backedUpTo}.`);
         }
+      } catch (error) {
+        console.error(`[agentrelay] ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = 1;
+      }
+    });
+
+  program
+    .command("diff")
+    .argument("[snapshot]", 'Snapshot to compare against: "latest" (default), a stamp, a snapshot filename, or a path')
+    .description("Show what changed in the store since a snapshot (added/removed/changed jobs)")
+    .option("--json", "Emit the diff as JSON for scripts/jq")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  agentrelay diff                 # compare the current store to the newest snapshot",
+        "  agentrelay diff --json          # machine-readable diff",
+        "  agentrelay diff ./jobs.json.backup-2026-...Z   # diff against a specific snapshot",
+      ].join("\n")
+    )
+    .action((snapshot: string | undefined, opts: { json?: boolean }) => {
+      const { store } = program.opts();
+      try {
+        const { from, diff } = diffStore({ storePath: store, selector: snapshot ?? "latest" });
+        if (opts.json) {
+          console.log(renderDiffJson(diff, from));
+          return;
+        }
+        console.log(renderDiff(diff, { from, color: Boolean(process.stdout.isTTY) }));
       } catch (error) {
         console.error(`[agentrelay] ${error instanceof Error ? error.message : String(error)}`);
         process.exitCode = 1;
