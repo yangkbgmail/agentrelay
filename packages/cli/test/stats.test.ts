@@ -375,6 +375,13 @@ describe("renderHours", () => {
     expect(out).toMatch(/14:00 .* 1/);
     expect(out).toContain("3 job(s) across 24 hour(s), UTC");
   });
+
+  it("names a non-UTC zone label in the header and footer", () => {
+    const out = renderHours(distFrom({ 9: 1 }), { zoneLabel: "UTC+09:00" });
+    expect(out.split("\n")[0]).toContain("UTC+09:00");
+    expect(out).toContain("1 job(s) across 24 hour(s), UTC+09:00");
+    expect(out).not.toContain(", UTC\n");
+  });
 });
 
 describe("renderStatsJson hours field", () => {
@@ -440,6 +447,12 @@ describe("renderWeekday", () => {
     expect(out).toMatch(/Wed .* 1/);
     expect(out).toContain("3 job(s) across 7 day(s), UTC");
   });
+
+  it("names a non-UTC zone label in the header and footer", () => {
+    const out = renderWeekday(distFrom({ 1: 1 }), { zoneLabel: "UTC-05:30" });
+    expect(out.split("\n")[0]).toContain("UTC-05:30");
+    expect(out).toContain("1 job(s) across 7 day(s), UTC-05:30");
+  });
 });
 
 describe("renderStatsJson weekday field", () => {
@@ -452,6 +465,17 @@ describe("renderStatsJson weekday field", () => {
     expect(withWeekday.weekday).toHaveLength(7);
     expect(withWeekday.weekday[1].count).toBe(1);
     expect(withWeekday.weekday[1].name).toBe("Mon");
+  });
+});
+
+describe("renderStatsJson tz field", () => {
+  it("omits `tz` by default but echoes the zone label when provided", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("tz" in without).toBe(false);
+    const hours = computeHourlyDistribution([job({ createdAt: "2026-07-20T05:00:00.000Z" })], 540);
+    const withTz = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", hours, tz: "UTC+09:00" }));
+    expect(withTz.tz).toBe("UTC+09:00");
   });
 });
 

@@ -4,9 +4,11 @@ import {
   computeHourlyDistribution,
   computeStats,
   computeWeekdayDistribution,
+  formatUtcOffsetLabel,
   GROUP_DIMENSIONS,
   groupStats,
   isJobScopeActive,
+  parseUtcOffset,
   scopeJobs,
 } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
@@ -527,6 +529,29 @@ describe("computeHourlyDistribution", () => {
     computeHourlyDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
   });
+
+  it("shifts buckets by a positive offset, wrapping past midnight to the next day", () => {
+    // 23:00 UTC + 120min = 01:00 the next day.
+    const jobs = [job({ createdAt: "2026-07-20T23:00:00.000Z" })];
+    const utc = computeHourlyDistribution(jobs);
+    expect(utc[23].count).toBe(1);
+    const shifted = computeHourlyDistribution(jobs, 120);
+    expect(shifted[1].count).toBe(1);
+    expect(shifted[23].count).toBe(0);
+  });
+
+  it("shifts buckets by a negative offset, wrapping before midnight to the previous day", () => {
+    // 01:00 UTC - 120min = 23:00 the previous day.
+    const jobs = [job({ createdAt: "2026-07-20T01:00:00.000Z" })];
+    const shifted = computeHourlyDistribution(jobs, -120);
+    expect(shifted[23].count).toBe(1);
+    expect(shifted[1].count).toBe(0);
+  });
+
+  it("treats offset 0 identically to the default UTC bucketing", () => {
+    const jobs = [job({ createdAt: "2026-07-20T09:15:00.000Z" })];
+    expect(computeHourlyDistribution(jobs, 0)).toEqual(computeHourlyDistribution(jobs));
+  });
 });
 
 describe("computeWeekdayDistribution", () => {
@@ -571,5 +596,73 @@ describe("computeWeekdayDistribution", () => {
     const before = JSON.stringify(jobs);
     computeWeekdayDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
+  });
+
+  it("rolls a job across the weekday boundary when the offset pushes it into the next day", () => {
+    // 2026-07-20 23:30 UTC is a Monday; +60min pushes it to Tuesday 00:30.
+    const jobs = [job({ createdAt: "2026-07-20T23:30:00.000Z" })];
+    expect(computeWeekdayDistribution(jobs)[1].count).toBe(1); // Mon under UTC
+    const shifted = computeWeekdayDistribution(jobs, 60);
+    expect(shifted[2].count).toBe(1); // Tue under +60
+    expect(shifted[1].count).toBe(0);
+  });
+
+  it("treats offset 0 identically to the default UTC bucketing", () => {
+    const jobs = [job({ createdAt: "2026-07-22T12:00:00.000Z" })];
+    expect(computeWeekdayDistribution(jobs, 0)).toEqual(computeWeekdayDistribution(jobs));
+  });
+});
+
+describe("parseUtcOffset", () => {
+  it("accepts UTC/Z (case-insensitive) as zero", () => {
+    for (const s of ["UTC", "utc", "Z", "z"]) expect(parseUtcOffset(s)).toBe(0);
+  });
+
+  it("parses ±HH:MM, ±HHMM, and ±HH forms into signed minutes", () => {
+    expect(parseUtcOffset("+09:00")).toBe(540);
+    expect(parseUtcOffset("-05:30")).toBe(-330);
+    expect(parseUtcOffset("+0530")).toBe(330);
+    expect(parseUtcOffset("-08")).toBe(-480);
+    expect(parseUtcOffset("+00:00")).toBe(0);
+  });
+
+  it("trims surrounding whitespace", () => {
+    expect(parseUtcOffset("  +09:00  ")).toBe(540);
+  });
+
+  it("rejects a bare number with no sign (never a minute count)", () => {
+    expect(parseUtcOffset("9")).toBeNull();
+    expect(parseUtcOffset("540")).toBeNull();
+  });
+
+  it("rejects out-of-range hours/minutes and offsets beyond ±14:00", () => {
+    expect(parseUtcOffset("+24:00")).toBeNull(); // hour 24 invalid
+    expect(parseUtcOffset("+10:60")).toBeNull(); // minute 60 invalid
+    expect(parseUtcOffset("+15:00")).toBeNull(); // beyond ±14:00
+    expect(parseUtcOffset("-14:30")).toBeNull(); // beyond ±14:00
+    expect(parseUtcOffset("+14:00")).toBe(840); // exactly the edge is allowed
+  });
+
+  it("rejects empty/garbage input", () => {
+    for (const s of ["", "  ", "abc", "+", "+9h", "PST"]) expect(parseUtcOffset(s)).toBeNull();
+  });
+});
+
+describe("formatUtcOffsetLabel", () => {
+  it("labels zero as plain UTC", () => {
+    expect(formatUtcOffsetLabel(0)).toBe("UTC");
+  });
+
+  it("labels positive and negative offsets as UTC±HH:MM", () => {
+    expect(formatUtcOffsetLabel(540)).toBe("UTC+09:00");
+    expect(formatUtcOffsetLabel(-330)).toBe("UTC-05:30");
+    expect(formatUtcOffsetLabel(60)).toBe("UTC+01:00");
+    expect(formatUtcOffsetLabel(-840)).toBe("UTC-14:00");
+  });
+
+  it("round-trips with parseUtcOffset for representative offsets", () => {
+    for (const m of [0, 540, -330, 60, -480, 840]) {
+      expect(parseUtcOffset(formatUtcOffsetLabel(m).replace(/^UTC/, "") || "Z")).toBe(m);
+    }
   });
 });

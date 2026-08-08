@@ -750,6 +750,24 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 `agentrelay stats --hours/--weekday --tz <offset>` — 시간-of-day·요일 히스토그램을 UTC가
+      아니라 로컬/임의 타임존 기준으로 버킷팅. 세션 58·59의 `--hours`/`--weekday`(UTC 고정)를 확장해
+      "**내** 하루/주 중 언제 rate-limit에 걸리나"를 볼 수 있게 함(직전 세션이 "다음 할 일"로 제안).
+      (완료 — core `stats.ts`의 `computeHourlyDistribution`/`computeWeekdayDistribution`에 옵셔널
+      `offsetMinutes=0` 인자 추가 — 버킷 읽기 전 타임스탬프에 오프셋(분)을 더하므로 23:00 UTC가 `+120`에서
+      익일 01시로 굴러감. 기본 0은 기존 UTC 동작과 **완전 동일**(하위호환). 순수 `parseUtcOffset(input)`
+      신설: `UTC`/`Z`(대소문자 무시)=0, ISO `±HH`/`±HH:MM`/`±HHMM` 파싱(부호 필수 → 맨숫자를 분 카운트로
+      오독 안 함), 분 0–59·시 0–23·총합 ±14:00(실존 최대) 범위 밖은 null. 순수 `formatUtcOffsetLabel`
+      (0→`UTC`, 540→`UTC+09:00`, -330→`UTC-05:30`). CLI `stats.ts`의 `renderHours`/`renderWeekday`에
+      `zoneLabel` 옵션(헤더·푸터에 버킷 존 명시), `renderStatsJson`은 비-UTC 히스토그램이 방출될 때만
+      `tz` 필드 에코(기본 JSON shape 불변). `cli.ts` `stats`에 `--tz <offset>` 배선 + CLI 헬퍼
+      `resolveTzOffset`(`local`=머신 오프셋, 그 외 `parseUtcOffset`), 일회성·`--json`·`--watch` 세 뷰 모두
+      적용, `--hours`/`--weekday` 없으면 무해 no-op이나 잘못된 값은 watch 전 exit 1. `--trend`/plain
+      stats는 UTC 유지(명시적 경계). 새 파서/스케줄러 로직 0줄. core stats +14(=577) + cli stats +3(=40)
+      신규 테스트, 실제 빌드 CLI e2e로 UTC vs +09:00 버킷 shift(23:00→08:00·02:00→11:00)·요일 롤(Mon→Tue)·
+      `--tz local`(TZ=Asia/Seoul→UTC+09:00, America/New_York→UTC-04:00)·`--json` tz 에코·기본 JSON tz 미포함·
+      bogus/맨숫자 exit 1·watch 라이브 존·help/completion `--tz` 노출 검증. branch `claude/wizardly-pascal-u3u457`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
