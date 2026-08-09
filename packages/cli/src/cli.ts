@@ -21,6 +21,7 @@ import {
   computeDailyTrend,
   computeErrorBreakdown,
   computeHourlyDistribution,
+  computeQueueEta,
   computeStats,
   computeWeekdayDistribution,
   EXPORT_FORMATS,
@@ -52,6 +53,7 @@ import {
   bulkControlJobs,
   cancelJob,
   exportStore,
+  getConfigValue,
   importStore,
   initConfig,
   type JobControlResult,
@@ -77,6 +79,7 @@ import {
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
+import { renderEta, renderEtaJson } from "./eta.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
@@ -736,6 +739,39 @@ export function buildCli(): Command {
         else if (!next.due) process.exitCode = 3;
         // due-now → exit 0 (default).
       }
+    });
+
+  program
+    .command("eta")
+    .description("Show when the whole queue is caught up — the countdown to the latest reset among waiting jobs")
+    .option("--json", "Print as JSON (machine-readable, for scripts/jq)")
+    .option(
+      "--exit-code",
+      "Reflect state in the exit code (0 = caught up / nothing waiting, 3 = jobs still waiting for a reset)"
+    )
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # how long until the relay has nothing left to wait on?\n" +
+        "  agentrelay eta\n" +
+        "  # poll until the queue is fully caught up\n" +
+        "  until agentrelay eta --exit-code; do sleep 60; done\n" +
+        "  # read the catch-up moment with jq\n" +
+        "  agentrelay eta --json | jq -r '.eta.lastResetAt'"
+    )
+    .action((opts: { json?: boolean; exitCode?: boolean }) => {
+      const { store } = program.opts();
+      const eta = computeQueueEta(listStatus(store));
+
+      if (opts.json) {
+        console.log(renderEtaJson(eta, store ?? defaultStorePath()));
+      } else {
+        console.log(renderEta(eta, { color: Boolean(process.stdout.isTTY) }));
+      }
+
+      // Opt-in exit code: 0 when caught up (a poll loop can stop), 3 while any
+      // job is still waiting for a reset.
+      if (opts.exitCode && !eta.caughtUp) process.exitCode = 3;
     });
 
   program
@@ -1859,6 +1895,46 @@ export function buildCli(): Command {
       }
       // A broken config file is a real problem worth a non-zero exit, but we
       // still printed the env/default resolution above to aid debugging.
+      if (result.loadError) process.exitCode = 1;
+    });
+  config
+    .command("get")
+    .description(
+      "Print one effective config value (env > file > default) — bare value for scripts, e.g. v=$(agentrelay config get retry.maxAttempts)"
+    )
+    .argument("<key>", `Dotted config key, one of: ${SETTABLE_CONFIG_KEYS.join(", ")}`)
+    .option("--json", "Print { key, envKey, value, source, secret } as JSON instead of the bare value")
+    .option("--exit-code", "Exit 1 when the value is unset (its built-in default applies)")
+    .action((key: string, opts: { json?: boolean; exitCode?: boolean }) => {
+      const { config: configPath } = program.opts();
+      const result = getConfigValue({ key, path: configPath });
+      if (!result.ok) {
+        console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 2;
+        return;
+      }
+      if (opts.json) {
+        console.log(
+          JSON.stringify(
+            {
+              key: result.key,
+              envKey: result.envKey,
+              value: result.value ?? null,
+              source: result.source,
+              secret: Boolean(result.secret),
+            },
+            null,
+            2
+          )
+        );
+      } else if (result.value !== undefined) {
+        // Bare value only: a set value on its own line so `$(...)` captures it
+        // cleanly. An unset (default) value prints nothing, so the capture is
+        // empty — the scriptable signal for "not configured".
+        console.log(result.value);
+      }
+      if (opts.exitCode && result.value === undefined) process.exitCode = 1;
+      // A broken config file is a real problem worth a non-zero exit.
       if (result.loadError) process.exitCode = 1;
     });
   config

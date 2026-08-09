@@ -791,6 +791,14 @@
       위로 리베이스 통합하며 `computeActivityHeatmap`/`renderHeatmap`에도 `offsetMinutes`/`zoneLabel`을 더해
       `--heatmap --local`(로컬 타임존 히트맵)까지 조합 가능하게 확장. branch `claude/wizardly-pascal-kppnrt`)
 
+- [x] 👷 `agentrelay eta` — 큐 전체가 언제 다 따라잡히나(모든 대기 잡 중 가장 늦은 리셋까지의 카운트다운).
+      `next`(가장 이른 하나)·`upcoming`(목록)·`overdue`(지연)의 빠진 짝 — "언제까지 지켜봐야 하나".
+      (완료 — core `eta.ts` 순수 `computeQueueEta(jobs, now)`+`QueueEta`(waiting·dueNow·first/lastResetAt·
+      etaMs·spanMs·caughtUp), `next`/`upcoming`과 동일 필터·최댓값 resetAt=캐치업 시각. CLI `eta.ts`
+      `renderEta`/`renderEtaJson`, `agentrelay eta [--json] [--exit-code]`(캐치업 0/대기 3, 폴링 루프 친화).
+      새 파서/스케줄러 로직 0줄. core 7 + cli 7 신규 테스트, 실제 빌드 CLI e2e 검증. branch
+      `claude/wizardly-pascal-y4hcy6`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
