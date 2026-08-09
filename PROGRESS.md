@@ -2066,3 +2066,25 @@
 - **다음 할 일:** 남은 고유 기능 PR을 같은 방식(최신 main 위 cherry-pick·PROGRESS append 버림)으로
   계속 통합해 파이프 배수: #542(stats --attempts)·#537(exec 알림)·#536(parser week)·#535/#534/#532·
   #531(diff)·#523/#483(대시보드)·파서 계열·#494(자동 백업)·#460(ical). 대형 중복 축은 대표만 남기고 정리.
+
+## 세션 65 (2026-08-09) — 파서 주(week) 단위 인식(#536) 적체 통합
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 64가 "다음 할 일"로 지목한 통합 대상 중 **#536(parser week)**을
+  최신 main 위로 cherry-pick 통합. 세션 60~64의 재발방지 지침("적체 시 신규 빌드가 아니라 통합이 최우선").
+- **한 일:** **파서가 상대 지속시간에서 주(week) 단위를 인식**(#536, branch `claude/parser-relative-weeks`).
+  `relative-duration` 정규식 맨 앞에 옵셔널 주 그룹 `(?:(\d+)\s*w(?:eeks?)?)?`를 추가하고 `resolve`를
+  weeks→days→hours→minutes(그룹 1–4) 순으로 재배선: `(((weeks*7+days)*24+hours)*60+minutes)*60_000`.
+  전 단위 옵셔널이라 bare `"in 1 week"`도 매칭, 전부 0이면 null(오탐 방지). 초는 설계대로 generic 파서
+  미포함(Codex 어댑터 소유) 유지. Claude Code가 강제하는 **주간(weekly) 사용 제한** 문구(`"your weekly
+  limit resets in 1 week"`)를 놓쳐 릴레이가 재개 시점을 못 잡던 빈틈을 메움. 새 core/스케줄러/CLI 로직 0줄.
+- **통합 방식(근본 원인 회피):** #536은 base가 오래되어 **코드는 클린 적용**되고 BACKLOG/PROGRESS append만
+  충돌. 최신 origin/main 위로 커밋만 cherry-pick(`-n`)하고 문서 충돌은 ours로 정리, BACKLOG 완료 항목과
+  이 PROGRESS 로그는 직접 작성 → "기능 PR의 PROGRESS/BACKLOG append 충돌" 재발 방지.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test`
+  전 패키지 통과(**core 584→588** parser +4 / **cli 328/1skip** 불변 / dashboard 9). 실제 빌드 CLI e2e:
+  `parse "…resets in 1 week"`→`relative-duration`·in 7d, `"try again in 2w 3d"`→in 17d,
+  `"try again in 5 minutes"`→in 5m(회귀 안전).
+- **다음 할 일:** 남은 고유 기능 PR을 같은 방식(최신 main 위 cherry-pick·문서 충돌 ours·로그 직접 작성)으로
+  계속 통합. #542(stats --attempts)는 현재 main의 stats.ts/cli.ts가 group-by/weekday/hours 등으로 크게
+  diverge해 **코드 충돌 다수**(cli.ts 8블록 등) — 단순 cherry-pick 불가, 별도 세션에서 수동 리졸브 필요.
+  그 외 #537(exec 알림)·#535/#534/#532·#531(diff)·#523/#483(대시보드)·파서 계열·#494(자동 백업)·#460(ical).

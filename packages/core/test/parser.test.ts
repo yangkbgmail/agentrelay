@@ -94,6 +94,38 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 24 * 60 * 60_000).toISOString());
   });
 
+  it("parses a relative duration expressed in weeks (weekly usage windows)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly usage limit reached. Your limit resets in 1 week.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 7 * 24 * 60 * 60_000).toISOString());
+  });
+
+  it("parses the abbreviated 'in 2w' week form", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit, try again in 2w.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 7 * 24 * 60 * 60_000).toISOString());
+  });
+
+  it("parses a combined week + day relative duration like '1w 3d'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly limit reached — resets in 1w 3d.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    const expected = new Date(now.getTime() + (7 + 3) * 24 * 60 * 60_000).toISOString();
+    expect(result?.resetAt).toBe(expected);
+  });
+
+  it("does not mistake weeks for a shorter unit ('in 5 minutes' still parses as minutes)", () => {
+    // Regression: the new week group must not swallow the leading number of a
+    // minutes-only wait.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in 5 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 5 * 60_000).toISOString());
+  });
+
   it("parses a combined day + hour relative duration like '1d 4h'", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Rate limit hit — resets in 1d 4h.", { now });

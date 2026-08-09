@@ -799,6 +799,17 @@
       새 파서/스케줄러 로직 0줄. core 7 + cli 7 신규 테스트, 실제 빌드 CLI e2e 검증. branch
       `claude/wizardly-pascal-y4hcy6`)
 
+- [x] 👷 파서가 상대 지속시간에서 주(week) 단위를 인식 — `"resets in 1 week"`/`"try again in 2w"`/
+      `"1w 3d"`. Claude Code가 강제하는 주간(weekly) 사용 제한 문구를 놓치지 않도록.
+      (완료 — `parser.ts`의 `relative-duration` 정규식 맨 앞에 옵셔널 주 그룹 `(?:(\d+)\s*w(?:eeks?)?)?`
+      추가, `resolve`를 weeks→days→hours→minutes(그룹 1–4) 순으로 재배선:
+      `(((weeks*7+days)*24+hours)*60+minutes)*60_000`. 전 단위 옵셔널이라 임의 부분집합(bare `"in 1 week"`)도
+      매칭, 전부 0이면 null(오탐 방지). 초(seconds)는 설계대로 generic 파서 미포함(Codex 어댑터 소유) 유지.
+      새 core/스케줄러/CLI 로직 0줄 — 파서 패턴 한 곳만 확장. parser.test.ts +4(1week=+7d·2w=+14d·1w3d=+10d·
+      "5 minutes" 회귀 안전), core 588. 실제 빌드 CLI e2e(`parse`)로 1 week→in 7d·2w 3d→in 17d·5분 회귀
+      확인. 세션 65에서 #536(claude/parser-relative-weeks)을 최신 main 위로 cherry-pick 통합.
+      branch `claude/wizardly-pascal-oasu5s`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
