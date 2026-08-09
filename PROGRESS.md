@@ -2066,3 +2066,26 @@
 - **다음 할 일:** 남은 고유 기능 PR을 같은 방식(최신 main 위 cherry-pick·PROGRESS append 버림)으로
   계속 통합해 파이프 배수: #542(stats --attempts)·#537(exec 알림)·#536(parser week)·#535/#534/#532·
   #531(diff)·#523/#483(대시보드)·파서 계열·#494(자동 백업)·#460(ical). 대형 중복 축은 대표만 남기고 정리.
+
+### [세션 65 — `agentrelay stats` 해결 시간 분산 지표(IQR·표준편차)] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-mzvln3`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR은 tz/heatmap/parser/watch 축으로 포화 상태(세션 60~64)라 그 축을
+  건드리지 않고, 세션 60이 후속 후보로 명시한 "timing 블록에 표준편차/IQR 등 분산 지표"를 골랐다. 기존
+  resolution-time 지표(avg/min/max + median/p50/p90/p95/p99)는 **중심과 꼬리**만 보여주고 "얼마나 들쭉날쭉한가"
+  (퍼짐)를 안 보여줬다 — 릴레이가 일관되게 잡을 돌보는지, 아니면 소수의 이상치가 평균을 끄는지가 안 드러났다.
+- **한 일 (branch `claude/wizardly-pascal-mzvln3`):**
+  - core `stats.ts`: `TimingStats`에 `p25ResolutionMs`·`p75ResolutionMs`·`iqrResolutionMs`(p75−p25, 중앙
+    50%의 폭 — 이상치에 강건한 퍼짐 지표)·`stdevResolutionMs`(모표준편차) 추가. 순수 `populationStdev(values,
+    mean)` 헬퍼 신설(모표준편차 — 관측 전체 집합을 기술하므로 표본이 아닌 모집단이 옳음, 단일 값=0). p25/p75는
+    기존 `percentile`(type-7 선형보간) 재사용해 이미 오름차순 정렬한 배열에서 읽음 → 새 정렬 0줄. resolved
+    0개면 넷 다 null. stdev이 IQR보다 훨씬 크면 소수의 무거운 이상치 신호로 읽는다(문서화).
+  - CLI `stats.ts`: `renderStats`의 resolution-time 블록에 `spread: iqr … (p25 … – p75 …)   stdev …`
+    라인 추가. `renderStatsJson`은 `stats` 전체를 직렬화하므로 네 필드가 기본 JSON shape 변경 없이 자동 노출.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 586** stats +2 / **cli 328/1skip** stats render 단언 확장 / dashboard 9). **실제 빌드 CLI
+  e2e**(mock 아님): spans {1h,3h,9h} 임시 스토어로 `stats`가 `spread: iqr 4h 0m (p25 2h 0m – p75 6h 0m)
+  stdev 3h 23m` 렌더, `stats --json`의 timing이 `p25/p75/iqr/stdevResolutionMs`(7200000/21600000/14400000/
+  12237647)를 정확히 방출함을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `--group-by` per-group
+  요약에 median 외 p90/스프레드 노출, timing 블록에 변동계수(CV=stdev/mean) 등. tz/heatmap/parser/watch는
+  PR 포화라 지양. 적체가 크면 신규 빌드보다 통합 우선(세션 60~64 기조). README/ARCHITECTURE(🧭 코워크).

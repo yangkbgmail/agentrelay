@@ -52,6 +52,30 @@ export interface TimingStats {
    * history it isolates the pathological long-babysat jobs the mean/p90 mask.
    */
   p99ResolutionMs: number | null;
+  /**
+   * 25th-percentile (lower quartile) resolution time (ms), or null when none.
+   * The bottom of the "typical middle" — a quarter of resolutions were faster.
+   */
+  p25ResolutionMs: number | null;
+  /**
+   * 75th-percentile (upper quartile) resolution time (ms), or null when none.
+   * The top of the "typical middle" — a quarter of resolutions were slower.
+   */
+  p75ResolutionMs: number | null;
+  /**
+   * Interquartile range (ms): p75 − p25, or null when none. A robust measure of
+   * spread — the width of the middle 50% of resolutions, unaffected by the one
+   * pathological outlier that inflates the standard deviation. A small IQR next
+   * to a large max says "usually consistent, with rare long tails".
+   */
+  iqrResolutionMs: number | null;
+  /**
+   * Population standard deviation of resolution times (ms), or null when none.
+   * The classic spread measure: how far resolutions typically stray from the
+   * mean. Read alongside {@link iqrResolutionMs} — a stdev much larger than the
+   * IQR is the signature of a few heavy outliers dragging the mean.
+   */
+  stdevResolutionMs: number | null;
 }
 
 export interface RelayStats {
@@ -365,6 +389,17 @@ function percentile(sortedAsc: number[], p: number): number {
 }
 
 /**
+ * Population standard deviation (not sample) over a non-empty list, rounded to
+ * whole ms. Population is the right choice here: `values` is the complete set of
+ * resolved-job spans being described, not a sample drawn to infer a wider
+ * population. A single value yields 0 (no spread). Callers guarantee non-empty.
+ */
+function populationStdev(values: number[], mean: number): number {
+  const variance = values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / values.length;
+  return Math.round(Math.sqrt(variance));
+}
+
+/**
  * Aggregates a job list into headline relay metrics for `agentrelay stats`.
  * Pure and non-mutating: no I/O, no ambient clock. Reuses {@link summarizeJobs}
  * for the per-status counts and next-reset so the two surfaces never drift.
@@ -413,19 +448,30 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p90ResolutionMs: null,
       p95ResolutionMs: null,
       p99ResolutionMs: null,
+      p25ResolutionMs: null,
+      p75ResolutionMs: null,
+      iqrResolutionMs: null,
+      stdevResolutionMs: null,
     };
   } else {
     // Sort once ascending; percentiles read from it, min/max are its ends.
     const sorted = [...resolutionDurations].sort((a, b) => a - b);
+    const mean = sorted.reduce((sum, d) => sum + d, 0) / resolvedCount;
+    const p25 = percentile(sorted, 0.25);
+    const p75 = percentile(sorted, 0.75);
     timing = {
       resolvedCount,
-      avgResolutionMs: Math.round(sorted.reduce((sum, d) => sum + d, 0) / resolvedCount),
+      avgResolutionMs: Math.round(mean),
       minResolutionMs: sorted[0],
       maxResolutionMs: sorted[resolvedCount - 1],
       medianResolutionMs: percentile(sorted, 0.5),
       p90ResolutionMs: percentile(sorted, 0.9),
       p95ResolutionMs: percentile(sorted, 0.95),
       p99ResolutionMs: percentile(sorted, 0.99),
+      p25ResolutionMs: p25,
+      p75ResolutionMs: p75,
+      iqrResolutionMs: p75 - p25,
+      stdevResolutionMs: populationStdev(sorted, mean),
     };
   }
 

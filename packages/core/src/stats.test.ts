@@ -55,6 +55,10 @@ describe("computeStats", () => {
       p90ResolutionMs: null,
       p95ResolutionMs: null,
       p99ResolutionMs: null,
+      p25ResolutionMs: null,
+      p75ResolutionMs: null,
+      iqrResolutionMs: null,
+      stdevResolutionMs: null,
     });
   });
 
@@ -206,6 +210,32 @@ describe("computeStats", () => {
     expect(stats.timing.maxResolutionMs).toBe(3_600_000);
   });
 
+  it("computes quartile spread (p25/p75/iqr) and stdev over resolved jobs", () => {
+    const at = (h: number) => `2026-07-13T${String(h).padStart(2, "0")}:00:00.000Z`;
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(3) }), // 3h (out of order on purpose)
+      job({ status: "failed", createdAt: at(0), updatedAt: at(1) }), // 1h
+    ]);
+    // sorted spans [1h, 3h]
+    // p25: rank=0.25 → 1h + 0.25*(3h-1h) = 1.5h; p75: 1h + 0.75*2h = 2.5h
+    expect(stats.timing.p25ResolutionMs).toBe(Math.round(1.5 * 3_600_000));
+    expect(stats.timing.p75ResolutionMs).toBe(Math.round(2.5 * 3_600_000));
+    // iqr = p75 - p25 = 1h
+    expect(stats.timing.iqrResolutionMs).toBe(3_600_000);
+    // mean 2h; population variance = ((1-2)^2 + (3-2)^2)/2 = 1 h^2 → stdev 1h
+    expect(stats.timing.stdevResolutionMs).toBe(3_600_000);
+  });
+
+  it("collapses spread metrics to zero for a single resolved job", () => {
+    const stats = computeStats([
+      job({ status: "completed", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T01:00:00.000Z" }),
+    ]);
+    expect(stats.timing.p25ResolutionMs).toBe(3_600_000);
+    expect(stats.timing.p75ResolutionMs).toBe(3_600_000);
+    expect(stats.timing.iqrResolutionMs).toBe(0);
+    expect(stats.timing.stdevResolutionMs).toBe(0);
+  });
+
   it("excludes cancelled and still-active jobs from resolution timing", () => {
     const stats = computeStats([
       job({
@@ -258,6 +288,10 @@ describe("computeStats", () => {
       p90ResolutionMs: null,
       p95ResolutionMs: null,
       p99ResolutionMs: null,
+      p25ResolutionMs: null,
+      p75ResolutionMs: null,
+      iqrResolutionMs: null,
+      stdevResolutionMs: null,
     });
   });
 });

@@ -799,6 +799,17 @@
       새 파서/스케줄러 로직 0줄. core 7 + cli 7 신규 테스트, 실제 빌드 CLI e2e 검증. branch
       `claude/wizardly-pascal-y4hcy6`)
 
+- [x] 👷 `agentrelay stats` 해결 시간 분산 지표(IQR·표준편차) — 백분위수(중심·꼬리)에 더해 "얼마나
+      들쭉날쭉한가"(퍼짐)를 노출. 세션 60이 후속 후보로 지목한 항목.
+      (완료 — core `stats.ts`의 `TimingStats`에 `p25ResolutionMs`·`p75ResolutionMs`·`iqrResolutionMs`
+      (p75−p25, 중앙 50% 폭 — 이상치에 강건)·`stdevResolutionMs`(모표준편차) 추가. 순수 `populationStdev`
+      헬퍼 신설, p25/p75는 기존 `percentile`(type-7 보간) 재사용 → 이미 오름차순 정렬한 배열에서 읽어
+      새 정렬 0줄. resolved 0개면 넷 다 null, 단일 잡이면 iqr·stdev 0. stdev이 IQR보다 훨씬 크면 소수의
+      무거운 이상치가 평균을 끄는 신호. CLI `stats.ts` resolution-time 블록에 `spread: iqr … (p25 … –
+      p75 …)   stdev …` 라인 추가, `--json`은 timing 전체 직렬화라 자동 노출. core stats.test +2(3-잡
+      quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
+      {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
