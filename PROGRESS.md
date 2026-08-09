@@ -1859,3 +1859,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 60 — 파서 상대-지속시간에 주(week) 단위 추가] (2026-08-09, 무인 자율 세션, branch `claude/parser-relative-weeks`)
+- **배경:** 세션 시작 시 `claude/wizardly-pascal-85ijzc`의 원격이 삭제(직전 PR 병합)되어 있어 main을 최신화하고
+  새 브랜치에서 작업. BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/
+  ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. **열린 PR이 50여 개** 쌓여 있고 상당수가 서로 중복
+  (타임존 `--tz`/`--utc-offset`/`--local` 변형 10여 개, `--heatmap` 5개, `next/errors/show --watch` 중복 등)
+  이라 중복을 피할 필요가 컸다. CLAUDE.md 지침대로 **어느 열린 PR과도 겹치지 않는 신규 개선 항목을 발굴**했다 —
+  제품 핵심인 rate-limit 파서에서 실제 빈틈을 찾았다: `relative-duration` 패턴이 일/시/분(`d`/`h`/`m`)까지만
+  잡아 Claude Code가 강제하는 **주간 사용 제한**의 "resets in 1 week"/"in 2w"/"1w 3d" 표현을 놓치고 있었다.
+- **한 일 (branch `claude/parser-relative-weeks`):** relative-duration 파서에 주(week) 단위 인식 추가.
+  - `packages/core/src/parser.ts`: relative-duration 정규식 맨 앞에 옵셔널 주 그룹 `(?:(\d+)\s*w(?:eeks?)?)?`
+    추가, resolve를 weeks→days→hours→minutes(그룹 1–4) 순으로 재배선
+    (`(((weeks*7+days)*24+hours)*60+minutes)*60_000`). 단위 전부 옵셔널이라 bare "in 1 week"도 매칭, 전부
+    0이면 null(오탐 방지). 초(seconds)는 기존 결정대로 generic 파서 미포함(Codex 어댑터 소유) 유지. 주석도
+    갱신. 새 core/스케줄러/CLI 로직 0줄 — 파서 패턴 한 곳만 확장.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core parser 33→37, core 총 567, cli 304/1skip, dashboard). parser.test.ts에 4케이스 신규
+  (1 week=+7d·2w=+14d·1w 3d=+10d·"5 minutes" 회귀 안전). **실제 빌드 CLI e2e**(mock 아님): `parse`로
+  "resets in 1 week"→relative-duration·+7d, "try again in 2w 3d"→+17d, "5 minutes"→+5m(회귀 안전) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). **주의: 열린 PR 50여 개가 미병합으로
+  쌓여 있고 중복이 많다** — 사람(경빈)의 병합 게이트 결정 필요(auto-merge 활성화 또는 CI-초록 PR 일괄 정리).
+  후속 인접 파서 후보 — 날짜만 있는 리셋("resets on 2026-08-15", 시각 없음), "resets in about an hour" 등
+  퍼지 표현. README/ARCHITECTURE(🧭 코워크).
