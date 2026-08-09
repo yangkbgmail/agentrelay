@@ -271,6 +271,56 @@ export function computeWeekdayDistribution(jobs: RelayJob[], offsetMinutes = 0):
   return counts.map((count, weekday) => ({ weekday, name: WEEKDAY_NAMES[weekday], count }));
 }
 
+export interface ActivityHeatmap {
+  /**
+   * Job counts as a 7×24 grid: `cells[weekday][hour]`, where `weekday` is the
+   * UTC day of week (0 = Sunday … 6 = Saturday, matching `Date.getUTCDay()`) and
+   * `hour` is the UTC hour of day (0–23). Always fully allocated (7 rows × 24
+   * columns), zero-filled for empty cells so the grid has a stable shape.
+   */
+  cells: number[][];
+  /** Total jobs placed on the grid (excludes skipped/unparseable timestamps). */
+  total: number;
+  /** The busiest single cell's count (0 when the grid is empty). */
+  maxCell: number;
+}
+
+/**
+ * Buckets jobs into a UTC weekday × hour-of-day grid so `agentrelay stats
+ * --heatmap` can show *when in the week* rate-limits cluster — the two axes of
+ * {@link computeWeekdayDistribution} (day of week) and
+ * {@link computeHourlyDistribution} (hour of day) combined into one view
+ * ("I mostly get throttled Monday mornings"). Like those two it has no window
+ * and needs no clock: both coordinates are absolute properties of the timestamp.
+ *
+ * `offsetMinutes` shifts each timestamp before the weekday/hour are read, so
+ * callers can bucket by a local wall clock instead of UTC (e.g. `540` for
+ * UTC+09:00), matching {@link computeHourlyDistribution} /
+ * {@link computeWeekdayDistribution}. It defaults to `0` (UTC), keeping the
+ * pure/testable contract — the caller passes the offset rather than the
+ * function reading the machine clock.
+ *
+ * The grid is always exactly 7 rows (Sun–Sat) × 24 columns (hour 0–23),
+ * zero-filled for quiet cells. Jobs with a missing or unparseable `createdAt`
+ * are skipped — they can't be placed on the calendar.
+ */
+export function computeActivityHeatmap(jobs: RelayJob[], offsetMinutes = 0): ActivityHeatmap {
+  const cells: number[][] = Array.from({ length: 7 }, () => new Array<number>(24).fill(0));
+  const shiftMs = offsetMinutes * 60_000;
+  let total = 0;
+  let maxCell = 0;
+  for (const job of jobs) {
+    const created = Date.parse(job.createdAt);
+    if (Number.isNaN(created)) continue;
+    const date = new Date(created + shiftMs);
+    const next = cells[date.getUTCDay()][date.getUTCHours()] + 1;
+    cells[date.getUTCDay()][date.getUTCHours()] = next;
+    if (next > maxCell) maxCell = next;
+    total += 1;
+  }
+  return { cells, total, maxCell };
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 
