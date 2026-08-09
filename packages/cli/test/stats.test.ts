@@ -1,5 +1,6 @@
-import type { DailyActivity, HourlyActivity, RelayJob, WeekdayActivity } from "@agentrelay/core";
+import type { AttemptActivity, DailyActivity, HourlyActivity, RelayJob, WeekdayActivity } from "@agentrelay/core";
 import {
+  computeAttemptDistribution,
   computeDailyTrend,
   computeHourlyDistribution,
   computeStats,
@@ -13,6 +14,7 @@ import {
   NO_GROUP_MESSAGE,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
+  renderAttempts,
   renderGroupedStats,
   renderGroupedStatsJson,
   renderHours,
@@ -452,6 +454,62 @@ describe("renderStatsJson weekday field", () => {
     expect(withWeekday.weekday).toHaveLength(7);
     expect(withWeekday.weekday[1].count).toBe(1);
     expect(withWeekday.weekday[1].name).toBe("Mon");
+  });
+});
+
+describe("renderAttempts", () => {
+  it("renders a header, one row per attempt bucket, and a footer total", () => {
+    const dist = computeAttemptDistribution([
+      job({ attempts: 0 }),
+      job({ attempts: 1 }),
+      job({ attempts: 1 }),
+      job({ attempts: 3 }),
+    ]);
+    const out = renderAttempts(dist);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("by attempts");
+    // Header + 4 rows (0..3, dense/zero-filled) + footer.
+    expect(lines).toHaveLength(6);
+    // Each bucket's count appears at the end of its row.
+    expect(out).toMatch(/1 .* 2/); // attempt count 1 → 2 jobs
+    expect(out).toMatch(/3 .* 1/); // attempt count 3 → 1 job
+    expect(lines[lines.length - 1]).toContain("4 job(s)");
+  });
+
+  it("labels the overflow bucket as N+ and scales bars to the fullest bucket", () => {
+    const dist = computeAttemptDistribution([job({ attempts: 1 }), job({ attempts: 5 }), job({ attempts: 6 })], {
+      cap: 3,
+    });
+    const out = renderAttempts(dist);
+    const rows = out.split("\n");
+    const overflowRow = rows.find((r) => r.includes("3+")) ?? "";
+    expect(overflowRow).not.toBe("");
+    // The 3+ tail (2 jobs) is the fullest bucket, so it carries the widest bar.
+    const width = (r: string) => (r.match(/█/g) ?? []).length;
+    const oneRow = rows.find((r) => /\s1\s/.test(r)) ?? "";
+    expect(width(overflowRow)).toBeGreaterThanOrEqual(width(oneRow));
+    expect(overflowRow).toMatch(/3\+ .* 2/);
+  });
+
+  it("shows a none placeholder for an empty distribution", () => {
+    const out = renderAttempts(computeAttemptDistribution([]));
+    expect(out).toContain("by attempts");
+    expect(out).toContain("none");
+    expect(out).not.toContain("█");
+  });
+});
+
+describe("renderStatsJson attempts field", () => {
+  it("omits `attempts` by default but includes it when provided", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("attempts" in without).toBe(false);
+    const attempts: AttemptActivity[] = computeAttemptDistribution([job({ attempts: 0 }), job({ attempts: 2 })]);
+    const withAttempts = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", attempts }));
+    expect(withAttempts.attempts).toHaveLength(3); // slots 0,1,2
+    expect(withAttempts.attempts[0].count).toBe(1);
+    expect(withAttempts.attempts[2].count).toBe(1);
+    expect(withAttempts.attempts[2].overflow).toBe(false);
   });
 });
 

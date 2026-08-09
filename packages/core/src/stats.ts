@@ -259,6 +259,74 @@ export function computeWeekdayDistribution(jobs: RelayJob[]): WeekdayActivity[] 
   return counts.map((count, weekday) => ({ weekday, name: WEEKDAY_NAMES[weekday], count }));
 }
 
+export interface AttemptActivity {
+  /**
+   * The resume-attempt count this bucket represents. For a normal bucket this is
+   * the exact attempt count; for the overflow tail bucket it is the lower bound
+   * (every job with `attempts >= attempts` lands here).
+   */
+  attempts: number;
+  /** True for the aggregated "N+" tail bucket, false for an exact-count bucket. */
+  overflow: boolean;
+  /** Jobs whose attempt count falls in this bucket. */
+  count: number;
+}
+
+/**
+ * Default cap on the number of exact attempt buckets. Any job whose `attempts`
+ * reaches the cap is folded into a single overflow ("N+") bucket, so one
+ * pathological store can't produce hundreds of near-empty rows. The default
+ * comfortably exceeds the shipped `DEFAULT_RETRY_POLICY.maxAttempts` (5).
+ */
+export const DEFAULT_ATTEMPT_CAP = 20;
+
+/**
+ * Buckets jobs by their resume-attempt count, so `agentrelay stats --attempts`
+ * can show how hard the relay worked per job — "most jobs resolved on the first
+ * resume, but a tail needed 4+". This is distinct from the resolution-time
+ * percentiles (how *long* jobs sat) and from the time-of-day histograms (*when*
+ * they were created): it measures *how many* resume cycles each job took. Pure
+ * and non-mutating: no I/O, no clock (attempt count is an intrinsic job field).
+ *
+ * Buckets are dense from 0 up to the highest observed count (zero-filled in
+ * between) so the shape is stable and gap-free; any job at or above `cap` folds
+ * into a single trailing overflow bucket labelled "cap+". Returns an empty array
+ * for an empty job list (the renderer shows "none"). A corrupt/negative/NaN
+ * `attempts` value is floored to 0 rather than skipped, so every job is counted.
+ */
+export function computeAttemptDistribution(jobs: RelayJob[], options: { cap?: number } = {}): AttemptActivity[] {
+  const cap = Math.max(1, Math.floor(options.cap ?? DEFAULT_ATTEMPT_CAP));
+  if (jobs.length === 0) return [];
+
+  const exactCounts = new Map<number, number>();
+  let overflowCount = 0;
+  let maxExact = 0;
+  for (const job of jobs) {
+    // Guard a corrupt store: a non-finite or negative attempts value is treated
+    // as 0 (never resumed) so it still contributes to the distribution.
+    const attempts = Number.isFinite(job.attempts) ? Math.max(0, Math.floor(job.attempts)) : 0;
+    if (attempts >= cap) {
+      overflowCount += 1;
+      continue;
+    }
+    exactCounts.set(attempts, (exactCounts.get(attempts) ?? 0) + 1);
+    if (attempts > maxExact) maxExact = attempts;
+  }
+
+  // When any job overflowed, fill exact buckets all the way to cap-1 so the
+  // overflow "cap+" row reads as a continuation of the axis; otherwise stop at
+  // the highest observed count.
+  const top = overflowCount > 0 ? cap - 1 : maxExact;
+  const result: AttemptActivity[] = [];
+  for (let a = 0; a <= top; a++) {
+    result.push({ attempts: a, overflow: false, count: exactCounts.get(a) ?? 0 });
+  }
+  if (overflowCount > 0) {
+    result.push({ attempts: cap, overflow: true, count: overflowCount });
+  }
+  return result;
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 

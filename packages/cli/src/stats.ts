@@ -4,6 +4,7 @@
 // in cli.ts, so the exact output is unit-testable without a store or a clock.
 
 import type {
+  AttemptActivity,
   DailyActivity,
   GroupDimension,
   GroupedStat,
@@ -312,6 +313,53 @@ export function renderWeekday(weekdays: WeekdayActivity[], options: { color?: bo
   return lines.join("\n");
 }
 
+/** Max width (chars) of a full-scale bar in the attempt-count histogram. */
+const ATTEMPTS_BAR_WIDTH = 24;
+
+/** Row label for one attempt bucket: `3` for an exact count, `20+` for the tail. */
+function attemptLabel(bucket: AttemptActivity): string {
+  return bucket.overflow ? `${bucket.attempts}+` : String(bucket.attempts);
+}
+
+/**
+ * Renders a resume-attempt distribution (jobs per attempt count) as a compact
+ * ASCII bar chart: how many jobs took 0, 1, 2, … resume cycles, with a trailing
+ * "N+" bucket for the long tail. Bars scale to the fullest bucket so the shape
+ * reads regardless of absolute volume; an empty bucket shows a dim baseline dot.
+ * Pure: no I/O, no clock. Callers pass the already-computed distribution so it
+ * stays testable.
+ */
+export function renderAttempts(dist: AttemptActivity[], options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [b("by attempts") + d(" (jobs per resume-attempt count)")];
+  if (dist.length === 0) {
+    lines.push("  none");
+    return lines.join("\n");
+  }
+
+  const max = dist.reduce((m, x) => Math.max(m, x.count), 0);
+  const total = dist.reduce((sum, x) => sum + x.count, 0);
+  // Right-align the count labels to the widest one so the bars start in a column.
+  const labelWidth = dist.reduce((w, x) => Math.max(w, attemptLabel(x).length), 0);
+  for (const bucket of dist) {
+    // Scale each bar to the fullest bucket; guarantee at least one block for any
+    // non-empty bucket so a small count doesn't vanish next to a spike.
+    const filled =
+      max === 0 || bucket.count === 0 ? 0 : Math.max(1, Math.round((bucket.count / max) * ATTEMPTS_BAR_WIDTH));
+    // Pad the plain bar to a fixed width so the count column stays aligned; an
+    // empty bucket shows a single baseline dot (dimmed only when color is on).
+    const plain = bucket.count === 0 ? "·" : "█".repeat(filled);
+    const padded = plain.padEnd(ATTEMPTS_BAR_WIDTH);
+    const shown = bucket.count === 0 && color ? padded.replace("·", d("·")) : padded;
+    lines.push(`  ${attemptLabel(bucket).padStart(labelWidth)}  ${shown} ${bucket.count}`);
+  }
+  lines.push(d(`  ${total} job(s)`));
+  return lines.join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,
@@ -322,17 +370,19 @@ export function renderStatsJson(
     trend?: DailyActivity[] | null;
     hours?: HourlyActivity[] | null;
     weekday?: WeekdayActivity[] | null;
+    attempts?: AttemptActivity[] | null;
   } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
-  // Only emit `trend`/`hours`/`weekday` when the matching flag was requested;
-  // omit them otherwise so the default JSON shape is unchanged for existing
-  // consumers.
+  // Only emit `trend`/`hours`/`weekday`/`attempts` when the matching flag was
+  // requested; omit them otherwise so the default JSON shape is unchanged for
+  // existing consumers.
   const trend = options.trend ?? undefined;
   const hours = options.hours ?? undefined;
   const weekday = options.weekday ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, stats }, null, 2);
+  const attempts = options.attempts ?? undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, attempts, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */

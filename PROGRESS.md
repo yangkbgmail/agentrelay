@@ -1859,3 +1859,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 60 — `agentrelay stats --attempts` 재시도 횟수 분포] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-qxkvog`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR 30개가 타임존 버킷팅(`--tz`/`--local`/`--utc-offset` ~14개)·
+  히트맵(요일×시간 ~6개)·watch 뷰·파서·notify command·schedule·diff에 몰려 있어, 이 주제들을 모두 피하고
+  CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다 — 기존 분포 뷰(`--trend` 일별·`--hours` 시간-of-day·
+  `--weekday` 요일)는 잡이 *언제* 생겼나(시간축)만 보여줄 뿐, 릴레이가 잡당 *몇 번* 재개했나(재시도 부담)를
+  드러내는 축이 없었다. "대부분 첫 재개에 해결됐지만 꼬리는 4번+ 걸렸다" 같은 릴레이 효율 질문에 답한다.
+- **한 일 (branch `claude/wizardly-pascal-qxkvog`):** `agentrelay stats --attempts` — 재시도 횟수(resume-attempt) 분포 히스토그램.
+  - core `stats.ts`: 순수 `computeAttemptDistribution(jobs, {cap?})` + `AttemptActivity`(attempts·overflow·count) +
+    `DEFAULT_ATTEMPT_CAP`(20) 신설. 각 잡의 `job.attempts`로 버킷팅 — 0부터 최다 관측값까지 dense·zero-fill,
+    `cap` 이상은 단일 "N+" 오버플로 버킷으로 접어 병리적 스토어가 수백 행을 만들지 않게 방어. 비유한/음수
+    attempts는 스킵 아닌 0으로 floor(모든 잡 카운트). 창도 시계도 불필요 — attempts는 잡의 내재 필드라 순수.
+  - CLI `stats.ts`: 순수 `renderAttempts(dist, {color})`(`--hours`/`--weekday`와 동일 막대 스케일 관례 —
+    최다 버킷에 스케일·비영 최소 1블록·0은 dim 점, 라벨은 `0`/`1`/…/`20+` 우측정렬 + 합계 푸터).
+    `renderStatsJson`에 옵셔널 `attempts` 필드(요청 시에만 방출, 기존 JSON shape 불변).
+  - `cli.ts`: `stats`에 `--attempts` 배선. 일회성(weekday 뒤 append)·`--json`·`--watch`(fresh 스토어 재읽기)
+    세 뷰 모두 적용, 기존 스코프 필터·`--hours`/`--weekday`/`--trend`와 조합 가능. addHelpText 예시 1줄,
+    completion 자동 포함. 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 563→569, cli stats 37→41=308/1skip, dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  6-잡 임시 스토어(attempts 0·1·1·1·3·7)로 `stats --attempts`가 슬롯 0..7 dense·zero-fill(2·4·5·6은 0=dim
+  점)·attempt 1에 풀바(3잡)·"6 job(s)" 푸터 렌더, `--attempts --json`은 `attempts` 8개(overflow:false), 기본
+  `--json`은 `attempts` 미포함, `--help`·bash completion에 `--attempts` 노출 확인. 오버플로("N+") 경로는
+  custom cap 유닛 테스트로 검증(core +6·cli +5 신규 케이스).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
+  각종 분포 히스토그램(시간/요일/추이/attempts) 노출, `stats --attempts`에 요약 인사이트(중앙/최다 attempt)
+  추가. README/ARCHITECTURE(🧭 코워크).
