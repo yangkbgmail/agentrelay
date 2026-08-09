@@ -750,6 +750,22 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 `agentrelay stats --hours/--weekday --local` — 활동 히스토그램을 UTC가 아니라 이 머신의 로컬
+      타임존으로 버킷팅. 세션 58·59가 "다음 할 일"로 반복 제안한 로컬 타임존 옵션(현재 UTC 고정이라
+      KST 사용자 등이 자기 시간대로 패턴을 못 읽던 실사용 갭).
+      (완료 — core `stats.ts`의 `computeHourlyDistribution`/`computeWeekdayDistribution`에 선택적
+      `offsetMinutes = 0` 파라미터 추가 — 각 `createdAt`을 `offsetMinutes*60_000`만큼 시프트한 뒤 UTC 시/요일을
+      읽음(양수=UTC 앞선 지역, 예 KST +540; 음수는 자정 넘겨 전날로 롤). 기본 0 = 기존 UTC 버킷팅과 완전 동일
+      (하위호환), 오프셋을 명시적으로 받으므로 순수·시계 미접촉 유지. CLI `stats.ts`에 순수
+      `formatUtcOffsetLabel(offsetMinutes)`(0/비유한→`UTC`, `540`→`UTC+09:00`, `-330`→`UTC-05:30`) 신설 +
+      `renderHours`/`renderWeekday`에 `zoneLabel`(기본 "UTC") 옵션 추가 → 헤더·푸터가 어느 시계로 버킷팅됐는지
+      표기. `cli.ts` `stats`에 `--local` 플래그 배선 — `-new Date().getTimezoneOffset()`로 머신 오프셋 유도,
+      `local (UTC±HH:MM)` 라벨 구성 후 일회성·`--json`·`--watch` 세 뷰 모두에 offsetMinutes(compute)·zoneLabel
+      (render) 전달. 스코프 검증은 watch 전에 통과시켜 잘못된 값은 여전히 exit 1. 새 파서/스케줄러 로직 0줄.
+      core stats +5(=568) + cli stats +5(=42, formatUtcOffsetLabel 3 + zoneLabel 2) 신규 테스트, 실제 빌드
+      CLI e2e로 Seoul(UTC+09:00) 20:00/23:00→05:00/08:00·NewYork(UTC-04:00) Monday 이동·`--json` 로컬 버킷·
+      help/completion `--local` 노출 검증. branch `claude/wizardly-pascal-ip0xkp`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

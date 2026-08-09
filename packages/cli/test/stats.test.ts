@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatDurationMs,
   formatSuccessRate,
+  formatUtcOffsetLabel,
   NO_GROUP_MESSAGE,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
@@ -375,6 +376,30 @@ describe("renderHours", () => {
     expect(out).toMatch(/14:00 .* 1/);
     expect(out).toContain("3 job(s) across 24 hour(s), UTC");
   });
+
+  it("labels the header and footer with a custom zoneLabel", () => {
+    const out = renderHours(distFrom({ 9: 1 }), { zoneLabel: "local (UTC+09:00)" });
+    expect(out).toContain("(jobs created per hour of day, local (UTC+09:00))");
+    expect(out).toContain("1 job(s) across 24 hour(s), local (UTC+09:00)");
+    expect(out).not.toContain(", UTC)");
+  });
+});
+
+describe("formatUtcOffsetLabel", () => {
+  it("returns plain UTC for a zero or non-finite offset", () => {
+    expect(formatUtcOffsetLabel(0)).toBe("UTC");
+    expect(formatUtcOffsetLabel(Number.NaN)).toBe("UTC");
+  });
+
+  it("formats positive offsets as UTC+HH:MM", () => {
+    expect(formatUtcOffsetLabel(540)).toBe("UTC+09:00");
+    expect(formatUtcOffsetLabel(330)).toBe("UTC+05:30");
+  });
+
+  it("formats negative offsets as UTC-HH:MM", () => {
+    expect(formatUtcOffsetLabel(-300)).toBe("UTC-05:00");
+    expect(formatUtcOffsetLabel(-210)).toBe("UTC-03:30");
+  });
 });
 
 describe("renderStatsJson hours field", () => {
@@ -439,6 +464,13 @@ describe("renderWeekday", () => {
     expect(out).toMatch(/Mon .* 2/);
     expect(out).toMatch(/Wed .* 1/);
     expect(out).toContain("3 job(s) across 7 day(s), UTC");
+  });
+
+  it("labels the header and footer with a custom zoneLabel", () => {
+    const out = renderWeekday(distFrom({ 1: 1 }), { zoneLabel: "local (UTC-05:00)" });
+    expect(out).toContain("(jobs created per day of week, local (UTC-05:00))");
+    expect(out).toContain("1 job(s) across 7 day(s), local (UTC-05:00)");
+    expect(out).not.toContain(", UTC)");
   });
 });
 

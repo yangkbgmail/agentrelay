@@ -527,6 +527,28 @@ describe("computeHourlyDistribution", () => {
     computeHourlyDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
   });
+
+  it("shifts buckets by a positive offset (local wall clock, e.g. UTC+09:00)", () => {
+    // 23:00 UTC + 9h = 08:00 next day, local; 20:00 UTC + 9h = 05:00 local.
+    const jobs = [job({ createdAt: "2026-07-20T23:00:00.000Z" }), job({ createdAt: "2026-07-20T20:00:00.000Z" })];
+    const dist = computeHourlyDistribution(jobs, 540);
+    expect(dist[8].count).toBe(1);
+    expect(dist[5].count).toBe(1);
+    expect(dist[23].count).toBe(0); // no longer UTC-bucketed
+  });
+
+  it("shifts buckets by a negative offset and wraps across midnight (e.g. UTC-05:00)", () => {
+    // 02:00 UTC − 5h = 21:00 the previous day, local.
+    const jobs = [job({ createdAt: "2026-07-20T02:00:00.000Z" })];
+    const dist = computeHourlyDistribution(jobs, -300);
+    expect(dist[21].count).toBe(1);
+    expect(dist[2].count).toBe(0);
+  });
+
+  it("offset 0 matches the default UTC bucketing", () => {
+    const jobs = [job({ createdAt: "2026-07-20T09:15:00.000Z" })];
+    expect(computeHourlyDistribution(jobs, 0)).toEqual(computeHourlyDistribution(jobs));
+  });
 });
 
 describe("computeWeekdayDistribution", () => {
@@ -571,5 +593,21 @@ describe("computeWeekdayDistribution", () => {
     const before = JSON.stringify(jobs);
     computeWeekdayDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
+  });
+
+  it("a positive offset can roll a job onto the next local day", () => {
+    // 2026-07-19T23:00Z is a Sunday; +9h → Mon 08:00 local.
+    const jobs = [job({ createdAt: "2026-07-19T23:00:00.000Z" })];
+    const dist = computeWeekdayDistribution(jobs, 540);
+    expect(dist[1].count).toBe(1); // Monday, local
+    expect(dist[0].count).toBe(0); // no longer Sunday (UTC)
+  });
+
+  it("a negative offset can roll a job onto the previous local day", () => {
+    // 2026-07-20T02:00Z is a Monday; −5h → Sun 21:00 local.
+    const jobs = [job({ createdAt: "2026-07-20T02:00:00.000Z" })];
+    const dist = computeWeekdayDistribution(jobs, -300);
+    expect(dist[0].count).toBe(1); // Sunday, local
+    expect(dist[1].count).toBe(0);
   });
 });
