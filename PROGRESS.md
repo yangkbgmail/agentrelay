@@ -1859,3 +1859,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 60 — `agentrelay stats --hours/--weekday --local` 로컬 타임존 버킷팅] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-ip0xkp`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 58·59가 "다음 할 일"로 **반복 제안**한 로컬 타임존 옵션을 구현했다 —
+  `stats --hours`(세션 58)·`--weekday`(세션 59) 히스토그램은 UTC 고정이라, KST(UTC+09:00) 사용자가 "나는
+  주로 15:00 UTC(=00:00 KST)에 throttle된다"처럼 자기 벽시계로 패턴을 읽을 수 없었다.
+- **한 일 (branch `claude/wizardly-pascal-ip0xkp`):** `agentrelay stats --hours/--weekday --local` — UTC 대신 머신 로컬 타임존 버킷팅.
+  - core `stats.ts`: `computeHourlyDistribution`/`computeWeekdayDistribution`에 선택적 `offsetMinutes = 0`
+    파라미터 추가 — 각 `createdAt`을 `offsetMinutes*60_000`ms 시프트한 뒤 `getUTCHours()`/`getUTCDay()` 읽음
+    (양수=UTC 앞선 지역 KST +540, 음수는 자정 넘겨 전날/다음날로 롤). 기본 0 = **기존 UTC 버킷팅과 완전 동일**
+    (하위호환), 오프셋을 명시적으로 받으므로 순수·시계 미접촉 계약 유지.
+  - CLI `stats.ts`: 순수 `formatUtcOffsetLabel(offsetMinutes)` 신설(`0`/비유한→`UTC`, `540`→`UTC+09:00`,
+    `-330`→`UTC-05:30`) + `renderHours`/`renderWeekday`에 `zoneLabel`(기본 "UTC") 옵션 추가 → 헤더
+    "(jobs created per hour of day, <zone>)"·푸터 "N job(s) across … <zone>"가 어느 시계로 버킷팅됐는지 표기.
+  - `cli.ts`: `stats`에 `--local` 배선 — `-new Date().getTimezoneOffset()`로 머신 오프셋 유도(getTimezoneOffset은
+    "로컬→UTC 분"이라 부호 반전), `local (UTC±HH:MM)` 라벨 구성. 일회성·`--json`·`--watch`(runStatsWatch에
+    `zone` 인자 추가) 세 뷰 모두에 offsetMinutes(compute)·zoneLabel(render) 전달. 스코프/group-by/trend 검증은
+    watch 전에 통과시켜 잘못된 값은 여전히 exit 1. addHelpText에 `--hours --local` 예시 1줄, completion은
+    라이브 프로그램 파생이라 `--local` 자동 포함. 새 파서/스케줄러/core 스토어 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**(포맷 1건 자동
+  정리)·`pnpm test` 전 패키지 통과(core 563→568, cli stats 37→42=309/1skip, dashboard 9). **실제 빌드 CLI e2e**
+  (mock 아님): 2-잡 임시 스토어(20:00·23:00 UTC)로 `stats --hours`가 UTC 20/23시, `--hours --local`(TZ=Asia/Seoul
+  UTC+09:00)이 05/08시 + "local (UTC+09:00)" 라벨, `--weekday --local`(TZ=America/New_York UTC-04:00 DST)이 둘 다
+  Monday + "local (UTC-04:00)", `--hours --local --json`이 hours[8]=1·hours[5]=1·hours[23]=0(로컬 버킷),
+  `--help`/bash completion에 `--local` 노출, 잘못된 `--status`+`--local`이 여전히 exit 1임을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
+  시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 명시적
+  `--tz <±HH:MM>` 오프셋 옵션(로컬뿐 아니라 임의 타임존). README/ARCHITECTURE(🧭 코워크).

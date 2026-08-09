@@ -240,18 +240,36 @@ export function renderTrend(trend: DailyActivity[], options: { color?: boolean }
 const HOURS_BAR_WIDTH = 24;
 
 /**
- * Renders an hour-of-day activity histogram (jobs created per UTC hour, 0–23,
+ * Format a UTC offset (minutes ahead of UTC) as a zone label for the `--hours`
+ * / `--weekday` histograms: `0` → `"UTC"`, `540` → `"UTC+09:00"`, `-330` →
+ * `"UTC-05:30"`. Pure: the caller (cli.ts) reads the machine offset once and
+ * passes it here, so the render/label layer stays clock-free and testable.
+ */
+export function formatUtcOffsetLabel(offsetMinutes: number): string {
+  if (!Number.isFinite(offsetMinutes) || offsetMinutes === 0) return "UTC";
+  const sign = offsetMinutes > 0 ? "+" : "-";
+  const abs = Math.abs(offsetMinutes);
+  const hh = String(Math.floor(abs / 60)).padStart(2, "0");
+  const mm = String(abs % 60).padStart(2, "0");
+  return `UTC${sign}${hh}:${mm}`;
+}
+
+/**
+ * Renders an hour-of-day activity histogram (jobs created per hour, 0–23,
  * aggregated across all days) as a compact ASCII bar chart. Bars scale to the
  * busiest hour so the shape reads regardless of absolute volume; a zero hour
- * shows a dim baseline dot. Pure: no I/O, no clock. Callers pass the already-
- * computed distribution so it stays testable.
+ * shows a dim baseline dot. `zoneLabel` (default "UTC") names the clock the
+ * distribution was bucketed in — pass e.g. `"local (UTC+09:00)"` when the
+ * caller shifted timestamps to a local wall clock. Pure: no I/O, no clock.
+ * Callers pass the already-computed distribution so it stays testable.
  */
-export function renderHours(hours: HourlyActivity[], options: { color?: boolean } = {}): string {
+export function renderHours(hours: HourlyActivity[], options: { color?: boolean; zoneLabel?: string } = {}): string {
   const color = options.color ?? false;
+  const zone = options.zoneLabel ?? "UTC";
   const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
   const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
 
-  const lines: string[] = [b("by hour") + d(" (jobs created per hour of day, UTC)")];
+  const lines: string[] = [b("by hour") + d(` (jobs created per hour of day, ${zone})`)];
   if (hours.length === 0) {
     lines.push("  none");
     return lines.join("\n");
@@ -270,7 +288,7 @@ export function renderHours(hours: HourlyActivity[], options: { color?: boolean 
     const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
     lines.push(`  ${String(hour).padStart(2, "0")}:00  ${shown} ${count}`);
   }
-  lines.push(d(`  ${total} job(s) across 24 hour(s), UTC`));
+  lines.push(d(`  ${total} job(s) across 24 hour(s), ${zone}`));
   return lines.join("\n");
 }
 
@@ -278,18 +296,23 @@ export function renderHours(hours: HourlyActivity[], options: { color?: boolean 
 const WEEKDAY_BAR_WIDTH = 24;
 
 /**
- * Renders a day-of-week activity histogram (jobs created per UTC weekday,
- * Sun–Sat, aggregated across all weeks) as a compact ASCII bar chart. Bars
- * scale to the busiest weekday so the shape reads regardless of absolute
- * volume; a zero day shows a dim baseline dot. Pure: no I/O, no clock. Callers
- * pass the already-computed distribution so it stays testable.
+ * Renders a day-of-week activity histogram (jobs created per weekday, Sun–Sat,
+ * aggregated across all weeks) as a compact ASCII bar chart. Bars scale to the
+ * busiest weekday so the shape reads regardless of absolute volume; a zero day
+ * shows a dim baseline dot. `zoneLabel` (default "UTC") names the clock the
+ * distribution was bucketed in. Pure: no I/O, no clock. Callers pass the
+ * already-computed distribution so it stays testable.
  */
-export function renderWeekday(weekdays: WeekdayActivity[], options: { color?: boolean } = {}): string {
+export function renderWeekday(
+  weekdays: WeekdayActivity[],
+  options: { color?: boolean; zoneLabel?: string } = {}
+): string {
   const color = options.color ?? false;
+  const zone = options.zoneLabel ?? "UTC";
   const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
   const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
 
-  const lines: string[] = [b("by weekday") + d(" (jobs created per day of week, UTC)")];
+  const lines: string[] = [b("by weekday") + d(` (jobs created per day of week, ${zone})`)];
   if (weekdays.length === 0) {
     lines.push("  none");
     return lines.join("\n");
@@ -308,7 +331,7 @@ export function renderWeekday(weekdays: WeekdayActivity[], options: { color?: bo
     const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
     lines.push(`  ${name}  ${shown} ${count}`);
   }
-  lines.push(d(`  ${total} job(s) across 7 day(s), UTC`));
+  lines.push(d(`  ${total} job(s) across 7 day(s), ${zone}`));
   return lines.join("\n");
 }
 
