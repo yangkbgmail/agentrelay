@@ -67,7 +67,7 @@ export function parseCsvColumns(input: string): { columns: JobCsvColumn[]; inval
 }
 
 /** Formats that honor a `--columns` subset (the tabular ones). JSON/NDJSON are lossless full-shape and ignore it. */
-export const COLUMN_AWARE_FORMATS = ["csv", "md", "html"] as const;
+export const COLUMN_AWARE_FORMATS = ["csv", "tsv", "md", "html"] as const;
 
 /**
  * RFC 4180 field escaping: a field is wrapped in double quotes when it contains
@@ -121,6 +121,42 @@ export function jobsToCsv(jobs: RelayJob[], options: CsvOptions = {}): string {
   }
   for (const job of jobs) {
     rows.push(columns.map((col) => escapeCsvField(jobCsvValue(job, col))).join(","));
+  }
+  return rows.join("\n");
+}
+
+/**
+ * Escape a value for a single TSV field. Unlike CSV — which quotes a field when
+ * it contains a delimiter — TSV has no quoting mechanism, so a literal tab or
+ * newline inside a field would silently break the column/row layout. We instead
+ * backslash-escape the four characters that matter (`\` first so the escapes we
+ * add aren't themselves re-escaped, then TAB→`\t`, CR→`\r`, LF→`\n`). This is the
+ * PostgreSQL `COPY`/`cut`/`awk` convention: every record stays exactly one line
+ * and every field is free of literal tabs, so `cut -f`/`awk -F'\t'` pipelines —
+ * TSV's whole reason for existing over CSV — parse it unambiguously, and the
+ * escaping is reversible for a lossless round-trip.
+ */
+export function escapeTsvField(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+}
+
+/**
+ * Serialize jobs to TSV (tab-separated values, LF line endings, no trailing
+ * newline) — the tab-delimited sibling of {@link jobsToCsv}. It shares the same
+ * columns ({@link JOB_CSV_COLUMNS} / {@link jobCsvValue}) and header/columns
+ * options, so the two stay in lockstep; only the delimiter and the per-field
+ * escaping differ ({@link escapeTsvField} instead of RFC-4180 quoting). Handy for
+ * `cut -f`/`awk -F'\t'` and for pasting into a spreadsheet that expects tabs. An
+ * empty job list still yields the header row (unless `header: false`).
+ */
+export function jobsToTsv(jobs: RelayJob[], options: CsvOptions = {}): string {
+  const columns = options.columns ?? JOB_CSV_COLUMNS;
+  const rows: string[] = [];
+  if (options.header !== false) {
+    rows.push(columns.map(escapeTsvField).join("\t"));
+  }
+  for (const job of jobs) {
+    rows.push(columns.map((col) => escapeTsvField(jobCsvValue(job, col))).join("\t"));
   }
   return rows.join("\n");
 }
@@ -294,12 +330,14 @@ export function jobsToHtml(jobs: RelayJob[], options: HtmlOptions = {}): string 
 }
 
 /** Supported export formats. */
-export const EXPORT_FORMATS = ["csv", "json", "md", "ndjson", "html"] as const;
+export const EXPORT_FORMATS = ["csv", "tsv", "json", "md", "ndjson", "html"] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 /** Dispatch to the right serializer for the given format. */
 export function exportJobs(jobs: RelayJob[], format: ExportFormat, options: CsvOptions = {}): string {
   switch (format) {
+    case "tsv":
+      return jobsToTsv(jobs, options);
     case "json":
       return jobsToJson(jobs);
     case "md":

@@ -2118,3 +2118,27 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 67 — `agentrelay export --format tsv`(탭 구분 값 내보내기)] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-ks3z3r`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 60~66이 경고한 포화 축(parser/watch/stats/tz/heatmap)을 피해,
+  **export 축**의 명백한 빈칸을 골랐다. export는 csv/json/md/ndjson/html을 지원하지만 TSV가 없었다 —
+  TSV는 `cut -f`/`awk -F'\t'` 파이프라인과 스프레드시트 탭 붙여넣기의 사실상 표준인데, CSV의 인용
+  규칙은 `awk`/`cut`엔 다루기 번거롭다.
+- **한 일(branch `claude/wizardly-pascal-ks3z3r`):**
+  - core `export.ts`: 순수 `escapeTsvField`(필드 내 `\`·TAB·CR·LF를 백슬래시 이스케이프 — TSV는 CSV와
+    달리 인용 메커니즘이 없어 리터럴 탭/개행이 컬럼·행 레이아웃을 조용히 깨뜨림. `\`를 먼저 이스케이프해
+    이후 추가하는 이스케이프가 재이스케이프되지 않게 한 뒤 `\t`/`\r`/`\n`. PostgreSQL COPY/`cut`/`awk`
+    관례라 각 레코드가 정확히 한 줄로 유지되고 필드에 리터럴 탭이 없으며 왕복 무손실) + `jobsToTsv(jobs,
+    {columns, header})`(CSV와 동일 컬럼·헤더 옵션 공유, 구분자와 per-field 이스케이프만 상이).
+  - `EXPORT_FORMATS`에 `tsv`, `COLUMN_AWARE_FORMATS`에 `tsv` 추가 → `exportJobs` 디스패처와 CLI의
+    `--format`/`--columns` 검증·헬프 문자열이 두 상수를 그대로 참조하므로 자동 반영(새 CLI 액션 코드 0줄).
+    CLI export description(TSV 명시)·`--columns` 헬프를 `COLUMN_AWARE_FORMATS.join("/")` 기반으로 갱신.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 114파일)→`pnpm test`
+  전 패키지 통과(**core 625** export +11 / **cli 337/1skip** export +1 / dashboard 9). **실제 빌드 CLI
+  e2e**(mock 아님): 명령어에 리터럴 탭·개행을 심은 잡을 import→`export -f tsv`가 그 필드를 `\t`/`\n`으로
+  이스케이프해 레코드를 정확히 한 줄로 유지, `awk -F'\t' '{print $9}'`가 command를 단일 필드로 파싱함을
+  확인. `--columns project,tool` 부분집합·헬프의 `csv | tsv | …` 노출·`-f json --columns` 거부(exit 1)도 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — export 파일 출력 시
+  포맷별 확장자 자동 유추, `--columns`에 별칭(예: `all`). 적체가 크면 신규 빌드보다 고유 기능 PR 통합
+  우선(세션 60~66 기조). tz/heatmap/parser/watch/stats는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

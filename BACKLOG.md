@@ -810,6 +810,19 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay export --format tsv` — 탭 구분 값 내보내기. CSV의 탭 구분 형제로,
+      `cut -f`/`awk -F'\t'` 파이프라인·스프레드시트 붙여넣기 친화.
+      (완료 — core `export.ts`에 순수 `escapeTsvField`(필드 내 `\`·TAB·CR·LF를 백슬래시 이스케이프 —
+      TSV는 CSV와 달리 인용이 없어 리터럴 탭/개행이 컬럼·행 레이아웃을 조용히 깨뜨리므로, `\` 먼저
+      이스케이프 후 `\t`/`\r`/`\n`. PostgreSQL COPY/`cut`/`awk` 관례로 각 레코드가 정확히 한 줄·필드에
+      리터럴 탭 없음, 무손실 왕복) + `jobsToTsv(jobs, {columns, header})`(CSV와 동일 컬럼·헤더 옵션 공유,
+      구분자·이스케이프만 상이). `EXPORT_FORMATS`에 `tsv`, `COLUMN_AWARE_FORMATS`에 `tsv` 추가 →
+      `exportJobs` 디스패처·CLI `--format`/`--columns` 검증·헬프가 자동 반영(새 CLI 배선 0줄). CLI export
+      description·`--columns` 헬프를 `COLUMN_AWARE_FORMATS` 기반으로 갱신. core export.test +11(escapeTsvField
+      4·jobsToTsv 5·dispatch 2) + cli export.test +1(tab-separated 헤더·컬럼수), EXPORT_FORMATS/
+      COLUMN_AWARE_FORMATS 단언 갱신. 실제 빌드 CLI e2e로 명령어 내 리터럴 탭·개행이 `\t`/`\n`으로
+      이스케이프돼 `awk -F'\t'`가 command를 단일 필드로 파싱함을 확인. branch `claude/wizardly-pascal-ks3z3r`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -100,6 +100,22 @@ describe("exportStore", () => {
     expect(result.content.split("\n")).toHaveLength(1);
   });
 
+  it("produces TSV with a tab-separated header and one row per job", () => {
+    seed();
+    const result = exportStore({ storePath, format: "tsv" });
+    expect(result.count).toBe(2);
+    const lines = result.content.split("\n");
+    expect(lines).toHaveLength(3); // header + 2 rows
+    expect(lines[0]).toBe(
+      "id\tproject\ttool\tstatus\tattempts\tresetAt\tcreatedAt\tupdatedAt\tcommand\tcwd\tlastError"
+    );
+    // Every data row splits into exactly the header's column count on tab.
+    const cols = lines[0].split("\t").length;
+    for (const row of lines.slice(1)) {
+      expect(row.split("\t")).toHaveLength(cols);
+    }
+  });
+
   it("produces a Markdown table with a header, separator, and one row per job", () => {
     seed();
     const result = exportStore({ storePath, format: "md" });
