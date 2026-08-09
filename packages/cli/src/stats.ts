@@ -105,6 +105,13 @@ export function renderStats(
         `   p95 ${formatDurationMs(timing.p95ResolutionMs ?? 0)}` +
         `   p99 ${formatDurationMs(timing.p99ResolutionMs ?? 0)}`
     );
+    lines.push(
+      `  spread: iqr ${formatDurationMs(timing.iqrResolutionMs ?? 0)} ` +
+        d(
+          `(p25 ${formatDurationMs(timing.p25ResolutionMs ?? 0)} – p75 ${formatDurationMs(timing.p75ResolutionMs ?? 0)})`
+        ) +
+        `   stdev ${formatDurationMs(timing.stdevResolutionMs ?? 0)}`
+    );
   }
 
   const statusParts = STATUS_ORDER.filter((s) => stats.byStatus[s] > 0).map((s) => `${s}:${stats.byStatus[s]}`);

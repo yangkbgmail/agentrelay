@@ -135,6 +135,10 @@ describe("renderStats", () => {
     // p95: 1h + 0.95*(3h-1h) = 2h54m; p99: 1h + 0.99*(3h-1h) = 2h58m.
     expect(out).toContain("p95 2h 54m");
     expect(out).toContain("p99 2h 58m");
+    // spread: p25 1h30m, p75 2h30m, iqr 1h, stdev 1h over {1h,3h}.
+    expect(out).toContain("spread: iqr 1h 0m");
+    expect(out).toContain("p25 1h 30m – p75 2h 30m");
+    expect(out).toContain("stdev 1h 0m");
   });
 
   it("omits the resolution-time block when nothing has resolved", () => {
