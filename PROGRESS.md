@@ -1860,6 +1860,99 @@
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
 
+### [세션 60 — `agentrelay stats --hours/--weekday --local` 로컬 타임존 버킷팅] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-ip0xkp`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 58·59가 "다음 할 일"로 **반복 제안**한 로컬 타임존 옵션을 구현했다 —
+  `stats --hours`(세션 58)·`--weekday`(세션 59) 히스토그램은 UTC 고정이라, KST(UTC+09:00) 사용자가 "나는
+  주로 15:00 UTC(=00:00 KST)에 throttle된다"처럼 자기 벽시계로 패턴을 읽을 수 없었다.
+- **한 일 (branch `claude/wizardly-pascal-ip0xkp`):** `agentrelay stats --hours/--weekday --local` — UTC 대신 머신 로컬 타임존 버킷팅.
+  - core `stats.ts`: `computeHourlyDistribution`/`computeWeekdayDistribution`에 선택적 `offsetMinutes = 0`
+    파라미터 추가 — 각 `createdAt`을 `offsetMinutes*60_000`ms 시프트한 뒤 `getUTCHours()`/`getUTCDay()` 읽음
+    (양수=UTC 앞선 지역 KST +540, 음수는 자정 넘겨 전날/다음날로 롤). 기본 0 = **기존 UTC 버킷팅과 완전 동일**
+    (하위호환), 오프셋을 명시적으로 받으므로 순수·시계 미접촉 계약 유지.
+  - CLI `stats.ts`: 순수 `formatUtcOffsetLabel(offsetMinutes)` 신설(`0`/비유한→`UTC`, `540`→`UTC+09:00`,
+    `-330`→`UTC-05:30`) + `renderHours`/`renderWeekday`에 `zoneLabel`(기본 "UTC") 옵션 추가 → 헤더
+    "(jobs created per hour of day, <zone>)"·푸터 "N job(s) across … <zone>"가 어느 시계로 버킷팅됐는지 표기.
+  - `cli.ts`: `stats`에 `--local` 배선 — `-new Date().getTimezoneOffset()`로 머신 오프셋 유도(getTimezoneOffset은
+    "로컬→UTC 분"이라 부호 반전), `local (UTC±HH:MM)` 라벨 구성. 일회성·`--json`·`--watch`(runStatsWatch에
+    `zone` 인자 추가) 세 뷰 모두에 offsetMinutes(compute)·zoneLabel(render) 전달. 스코프/group-by/trend 검증은
+    watch 전에 통과시켜 잘못된 값은 여전히 exit 1. addHelpText에 `--hours --local` 예시 1줄, completion은
+    라이브 프로그램 파생이라 `--local` 자동 포함. 새 파서/스케줄러/core 스토어 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**(포맷 1건 자동
+  정리)·`pnpm test` 전 패키지 통과(core 563→568, cli stats 37→42=309/1skip, dashboard 9). **실제 빌드 CLI e2e**
+  (mock 아님): 2-잡 임시 스토어(20:00·23:00 UTC)로 `stats --hours`가 UTC 20/23시, `--hours --local`(TZ=Asia/Seoul
+  UTC+09:00)이 05/08시 + "local (UTC+09:00)" 라벨, `--weekday --local`(TZ=America/New_York UTC-04:00 DST)이 둘 다
+  Monday + "local (UTC-04:00)", `--hours --local --json`이 hours[8]=1·hours[5]=1·hours[23]=0(로컬 버킷),
+  `--help`/bash completion에 `--local` 노출, 잘못된 `--status`+`--local`이 여전히 exit 1임을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
+  시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 명시적
+  `--tz <±HH:MM>` 오프셋 옵션(로컬뿐 아니라 임의 타임존). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 60 계속 — `agentrelay stats --heatmap` 요일×시간 히트맵] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-kppnrt`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md의 "비면 스스로 새 개선 항목을 발굴" 지침대로, 세션 58의
+  `--hours`(하루 중 시간 축)와 세션 59의 `--weekday`(한 주 중 요일 축)를 **한 뷰로 결합한** 요일×시간
+  히트맵을 자기 발굴 항목으로 구현했다. 두 1차원 히스토그램은 "몇 시에" 또는 "무슨 요일에"만 답하지만,
+  "월요일 오전"처럼 요일과 시각이 교차하는 패턴은 못 본다. 기존 함수 시그니처를 안 건드리는 순수 추가라
+  회귀 위험이 최소인 인접 확장.
+- **한 일 (branch `claude/wizardly-pascal-kppnrt`):** `agentrelay stats --heatmap` — UTC 요일(Sun–Sat) × 시간(0–23) 활동 히트맵.
+  - core `stats.ts`: 순수 `computeActivityHeatmap(jobs)` + `ActivityHeatmap`(cells[7][24]·total·maxCell)
+    신설. 각 잡의 `createdAt`을 `Date.getUTCDay()`(행)×`getUTCHours()`(열) 셀로 버킷팅해 **모든 주에 걸쳐**
+    집계, 항상 7행×24열 완전 할당·zero-fill, `createdAt` 누락/파싱불가는 스킵. `--hours`/`--weekday`와 동일하게
+    창도 시계도 불필요 — 두 좌표 모두 타임스탬프의 절대 속성이라 순수·`nowMs` 미주입.
+  - CLI `stats.ts`: 순수 `renderHeatmap(heatmap, {color})` — 요일 행 × 시간 열 그리드를 `·░▒▓█` 강도 램프로
+    렌더(최다 셀에 스케일, 비영 셀은 최소 램프 1단계 보장, 0셀은 dim 베이스라인 점), 0/6/12/18 시간축 라벨,
+    행별 요일 합계 suffix, `less ░▒▓█ more` 범례 + `N job(s), UTC (peak M/cell)` 총계 푸터.
+    `renderStatsJson`에 옵셔널 `heatmap` 필드 추가(요청 시에만 방출, 기존 소비자용 기본 JSON shape 불변).
+  - `cli.ts`: `stats`에 `--heatmap` 플래그 배선. 일회성 뷰(weekday 뒤에 append)·`--json`·`--watch`(fresh
+    `now`로 본문 재조합) 세 뷰 모두 적용, 기존 스코프 필터(--status/--tool/--project/--since/--until) 및
+    `--hours`/`--weekday`/`--trend`와도 조합 가능. addHelpText 예시 1줄, completion은 라이브 프로그램 파생이라
+    `--heatmap` 자동 포함. 새 파서/스케줄러/core 스토어 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 563→568, cli stats 37→41=312/1skip, dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  3-잡 임시 스토어(web 완료[Mon 09]·web 실패[Mon 09]·api 완료[Wed 23])로 `stats --heatmap`이 Mon 09에
+  풀바(█, peak 2)·Wed 23에 램프(▒)·나머지 dim 점·0/6/12/18 시간축·"3 job(s), UTC (peak 2/cell)" 푸터 렌더,
+  `--heatmap --json`은 `heatmap.cells[1][9]=2`·`cells[3][23]=1`·total 3·maxCell 2, 기본 `--json`은 `heatmap`
+  미포함, `--heatmap --project web`은 scope note + Mon 09만 2·나머지 0, `--help`·bash completion에 `--heatmap`
+  노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
+  시간대/요일/추이/히트맵 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`/`--heatmap`의 대시보드 미러),
+  또는 `stats`의 시간 축(hours/weekday/heatmap)을 로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+  세션 60에서 #544(`--local`) 위로 리베이스 통합하며 히트맵도 `--local` 조합 지원 추가.
+
+### [세션 60 계속 — PR 적체 통합 + 근본 원인 진단] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-h1otc0`)
+- **배경:** 세션 시작 시 열린 PR이 **30개** 쌓여 있었고(#515–#544), CI는 사실상 전부 초록인데도 병합이
+  안 되고 누적. 그중 **약 14개가 로컬 타임존 히스토그램 버킷팅**(`--tz`/`--local`/`--utc-offset` 명칭만 다른
+  동일 기능), **약 6개가 요일×시간 히트맵**(`--heatmap`)의 **중복**이었다. 무기억 세션이 매시간 인접한
+  같은 아이디어를 반복 구현해 온 것.
+- **근본 원인(중요):** 모든 feature PR이 자기 세션 로그를 `PROGRESS.md`에, 완료 항목을 `BACKLOG.md`에
+  **append**한다. 그래서 **어느 한 PR이 병합되면 나머지 열린 PR 전부가 이 두 문서 파일에서 충돌**한다
+  (코드가 겹치지 않는 parser 전용 PR조차). 결과적으로 시간당 ~1개 생성되는 PR이 시간당 ~1개밖에 병합
+  안 되고, 그 사이 중복이 쌓인다. `--tz`/`--heatmap`처럼 인접 세션이 같은 축을 여러 번 건드리면 중복 폭증.
+- **한 일 (병합 정책 COLLAB.md L41 "CI 초록이면 클로드 코드가 병합"에 근거):**
+  1. **#544 병합** — 로컬 타임존 히스토그램 버킷팅(`stats --hours/--weekday --local`, core에 `offsetMinutes`
+     배관). 타임존 중복 계열의 대표.
+  2. **#540 병합** — 요일×시간 히트맵(`stats --heatmap`). 최신 main(#544) 위로 **로컬 리베이스**해 문서/`cli.ts`
+     충돌을 수동 해소하고, 그 김에 `computeActivityHeatmap`/`renderHeatmap`에 `offsetMinutes`/`zoneLabel`을
+     더해 **`--heatmap --local`**(로컬 타임존 히트맵)까지 조합 가능하게 확장. core stats +2 회귀(offset 시프트).
+     pnpm build/lint(0경고)/test(core 575·cli 313·dashboard 9) 통과 + 실제 CLI e2e로 Asia/Seoul 시프트 검증.
+  3. **중복 PR 18개 정리(닫음)** — 타임존 13개(#541·539·538·533·529·526·525·524·522·521·520·518·515)는 #544로,
+     히트맵 5개(#530·528·519·517·516)는 #540으로 대체됨을 각 PR 코멘트로 안내 후 close. 임의 오프셋(`--tz
+     <±HH:MM>`)이 여전히 필요하면 #544의 `offsetMinutes` 위 작은 후속으로 다시 열 수 있음을 명시.
+  - 순 효과: 열린 PR 30 → **약 12개**(고유 기능만 남김). 병합 2, 정리 18.
+- **다음 세션이 반드시 읽을 것(루프 재발 방지):**
+  1. **새 기능 PR을 열기 전에 먼저 열린 PR을 훑어 중복/인접 여부를 확인**하라. 같은 축(예: 타임존, 히트맵,
+     `--watch` 계열)을 이미 누가 만들었으면 재구현하지 말 것.
+  2. **적체가 보이면 빌드가 아니라 통합(consolidation)이 최우선**이다 — CI 초록 PR을 리베이스·병합하고 중복을
+     닫아 파이프를 비운 뒤 새 작업을 시작하라.
+  3. **구조적 제안(🧭 코워크 검토 요망):** feature PR에서 `PROGRESS.md`/`BACKLOG.md`에 거대한 항목을 append하는
+     관행이 상호 충돌의 원인이다. 세션 로그를 `PROGRESS.d/<branch>.md` 같은 **PR별 개별 파일**로 분리하거나,
+     문서 갱신을 병합 후 별도 커밋으로 미루면 feature PR들이 서로 충돌하지 않아 배치 병합이 가능해진다.
+  - 아직 열려 있는 고유 기능 PR(리베이스+병합 후보): #543(resolution p95/p99), #542(--attempts 히스토그램),
+    #537(exec/command 알림 채널), #536(parser week 단위), #535/#534/#532(show/errors/next --watch), #531(diff),
+    #523(대시보드 히스토그램). #527(parser tomorrow/today)은 CI 실패라 수정 필요. 전부 문서 충돌만 있으니
+    리베이스로 해소 가능. README/ARCHITECTURE(🧭 코워크).
+
 ### [세션 60 — `agentrelay stats` resolution-time 꼬리 지연 p95·p99 추가] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-ynp2y7`)
 - **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
   경쟁조사/샘플수집/성능분석)뿐. 열린 PR 30개를 확인해보니 `stats --tz`/`--local`/`--utc-offset`(≈14개),

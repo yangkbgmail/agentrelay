@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  computeActivityHeatmap,
   computeDailyTrend,
   computeHourlyDistribution,
   computeStats,
@@ -537,6 +538,28 @@ describe("computeHourlyDistribution", () => {
     computeHourlyDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
   });
+
+  it("shifts buckets by a positive offset (local wall clock, e.g. UTC+09:00)", () => {
+    // 23:00 UTC + 9h = 08:00 next day, local; 20:00 UTC + 9h = 05:00 local.
+    const jobs = [job({ createdAt: "2026-07-20T23:00:00.000Z" }), job({ createdAt: "2026-07-20T20:00:00.000Z" })];
+    const dist = computeHourlyDistribution(jobs, 540);
+    expect(dist[8].count).toBe(1);
+    expect(dist[5].count).toBe(1);
+    expect(dist[23].count).toBe(0); // no longer UTC-bucketed
+  });
+
+  it("shifts buckets by a negative offset and wraps across midnight (e.g. UTC-05:00)", () => {
+    // 02:00 UTC − 5h = 21:00 the previous day, local.
+    const jobs = [job({ createdAt: "2026-07-20T02:00:00.000Z" })];
+    const dist = computeHourlyDistribution(jobs, -300);
+    expect(dist[21].count).toBe(1);
+    expect(dist[2].count).toBe(0);
+  });
+
+  it("offset 0 matches the default UTC bucketing", () => {
+    const jobs = [job({ createdAt: "2026-07-20T09:15:00.000Z" })];
+    expect(computeHourlyDistribution(jobs, 0)).toEqual(computeHourlyDistribution(jobs));
+  });
 });
 
 describe("computeWeekdayDistribution", () => {
@@ -581,5 +604,82 @@ describe("computeWeekdayDistribution", () => {
     const before = JSON.stringify(jobs);
     computeWeekdayDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
+  });
+
+  it("a positive offset can roll a job onto the next local day", () => {
+    // 2026-07-19T23:00Z is a Sunday; +9h → Mon 08:00 local.
+    const jobs = [job({ createdAt: "2026-07-19T23:00:00.000Z" })];
+    const dist = computeWeekdayDistribution(jobs, 540);
+    expect(dist[1].count).toBe(1); // Monday, local
+    expect(dist[0].count).toBe(0); // no longer Sunday (UTC)
+  });
+
+  it("a negative offset can roll a job onto the previous local day", () => {
+    // 2026-07-20T02:00Z is a Monday; −5h → Sun 21:00 local.
+    const jobs = [job({ createdAt: "2026-07-20T02:00:00.000Z" })];
+    const dist = computeWeekdayDistribution(jobs, -300);
+    expect(dist[0].count).toBe(1); // Sunday, local
+    expect(dist[1].count).toBe(0);
+  });
+});
+
+describe("computeActivityHeatmap", () => {
+  it("returns a fully-allocated 7×24 grid, zero-filled for an empty store", () => {
+    const heat = computeActivityHeatmap([]);
+    expect(heat.cells).toHaveLength(7);
+    expect(heat.cells.every((row) => row.length === 24)).toBe(true);
+    expect(heat.cells.every((row) => row.every((c) => c === 0))).toBe(true);
+    expect(heat.total).toBe(0);
+    expect(heat.maxCell).toBe(0);
+  });
+
+  it("buckets jobs into the [weekday][hour] cell of their UTC createdAt", () => {
+    // 2026-07-20 is a Monday (weekday 1), 2026-07-22 a Wednesday (weekday 3).
+    const jobs = [
+      job({ createdAt: "2026-07-20T09:15:00.000Z" }), // Mon 09
+      job({ createdAt: "2026-07-27T09:59:59.000Z" }), // Mon 09, following week
+      job({ createdAt: "2026-07-22T23:00:00.000Z" }), // Wed 23
+    ];
+    const heat = computeActivityHeatmap(jobs);
+    expect(heat.cells[1][9]).toBe(2); // Monday 09:00
+    expect(heat.cells[3][23]).toBe(1); // Wednesday 23:00
+    expect(heat.total).toBe(3);
+    expect(heat.maxCell).toBe(2);
+  });
+
+  it("places both axis corners correctly (Sun 00 and Sat 23)", () => {
+    // 2026-07-19 is a Sunday, 2026-07-25 is a Saturday.
+    const jobs = [job({ createdAt: "2026-07-19T00:00:00.000Z" }), job({ createdAt: "2026-07-25T23:59:59.999Z" })];
+    const heat = computeActivityHeatmap(jobs);
+    expect(heat.cells[0][0]).toBe(1); // Sunday 00:00
+    expect(heat.cells[6][23]).toBe(1); // Saturday 23:00
+    expect(heat.maxCell).toBe(1);
+  });
+
+  it("skips jobs with a missing/unparseable createdAt", () => {
+    const jobs = [job({ createdAt: "not-a-date" }), job({ createdAt: "2026-07-22T14:00:00.000Z" })]; // Wed 14
+    const heat = computeActivityHeatmap(jobs);
+    expect(heat.total).toBe(1);
+    expect(heat.cells[3][14]).toBe(1);
+  });
+
+  it("does not mutate its input", () => {
+    const jobs = [job({ createdAt: "2026-07-20T05:00:00.000Z" })];
+    const before = JSON.stringify(jobs);
+    computeActivityHeatmap(jobs);
+    expect(JSON.stringify(jobs)).toBe(before);
+  });
+
+  it("shifts cells by a positive offset, rolling across midnight onto the next local day", () => {
+    // 2026-07-19T23:00Z is a Sunday 23:00; +9h (UTC+09:00) → Mon 08:00 local.
+    const jobs = [job({ createdAt: "2026-07-19T23:00:00.000Z" })];
+    const heat = computeActivityHeatmap(jobs, 540);
+    expect(heat.cells[1][8]).toBe(1); // Monday 08:00, local
+    expect(heat.cells[0][23]).toBe(0); // no longer Sunday 23:00 (UTC)
+  });
+
+  it("offset 0 matches the default UTC bucketing", () => {
+    const jobs = [job({ createdAt: "2026-07-20T09:15:00.000Z" })];
+    expect(computeActivityHeatmap(jobs, 0)).toEqual(computeActivityHeatmap(jobs));
   });
 });
