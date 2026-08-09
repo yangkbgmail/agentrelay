@@ -38,11 +38,15 @@ import {
   canRequeue,
   configToJson,
   countActiveJobs,
+  type DrainOutcome,
+  type DrainSnapshot,
   daemonHeartbeatPath,
   distinctActiveBinaries,
+  drainExitCode,
   type EffectiveConfigEntry,
   type ExportFormat,
   envKeyForConfigKey,
+  evaluateDrain,
   evaluateHealth,
   evaluateHeartbeat,
   evaluateWait,
@@ -1558,6 +1562,111 @@ export async function waitForJob(idOrPrefix: string, options: WaitJobOptions = {
       };
     }
     if (job) options.onPoll?.(job, elapsed);
+    await sleep(intervalMs);
+  }
+}
+
+export interface DrainOptions {
+  storePath?: string;
+  /** Optional scope filter, applied fresh each poll (matches stats/status/export). */
+  scope?: JobScope;
+  /** How often to re-read the store while polling, in ms. Default 2000. */
+  intervalMs?: number;
+  /** Give up after this many ms of waiting. `null`/omitted = wait forever. */
+  timeoutMs?: number | null;
+  /** Exit 1 if the queue drains but any scoped job is `failed`. */
+  failOnError?: boolean;
+  /** Injected clock (ms since epoch). Defaults to `Date.now`. */
+  now?: () => number;
+  /** Injected sleeper. Defaults to a `setTimeout`-based delay. */
+  sleep?: (ms: number) => Promise<void>;
+  /**
+   * Injected store reader (returns all jobs). Defaults to opening the store
+   * fresh on each poll so a *separate* daemon/tick process's writes are
+   * observed. Overridable for tests.
+   */
+  readJobs?: () => RelayJob[];
+  /** Called once per poll with the still-active snapshot (for progress output). */
+  onPoll?: (snapshot: DrainSnapshot, elapsedMs: number) => void;
+}
+
+export interface DrainResult {
+  outcome: DrainOutcome;
+  /** The last snapshot seen (final counts on success, still-active on timeout). */
+  snapshot: DrainSnapshot;
+  /** Human-readable line for the CLI to print. */
+  message: string;
+  exitCode: number;
+}
+
+function drainMessage(outcome: DrainOutcome, snapshot: DrainSnapshot, failOnError: boolean): string {
+  if (outcome === "timeout") {
+    const plural = snapshot.active === 1 ? "job" : "jobs";
+    return `timed out with ${snapshot.active} ${plural} still active`;
+  }
+  const parts = [`${snapshot.completed} completed`];
+  if (snapshot.failed > 0) parts.push(`${snapshot.failed} failed`);
+  if (snapshot.cancelled > 0) parts.push(`${snapshot.cancelled} cancelled`);
+  const suffix = failOnError && snapshot.failed > 0 ? " (failures present)" : "";
+  return `queue drained — ${parts.join(", ")}${suffix}`;
+}
+
+/**
+ * Block until the queue (optionally scoped) has no active jobs left — the relay
+ * has resumed everything it was waiting on. Polls the store as a separate
+ * daemon/tick process drains it, re-applying the scope each interval. Returns
+ * the outcome plus an exit code so the CLI — and any script chaining on it — can
+ * gate on "everything relayed" (and, with `failOnError`, "and succeeded"). Pure
+ * decision logic lives in core's {@link evaluateDrain}/{@link drainExitCode};
+ * this owns only the I/O loop, with the clock/sleeper/reader injectable for
+ * tests.
+ */
+export async function drainQueue(options: DrainOptions = {}): Promise<DrainResult> {
+  const storePath = options.storePath ?? defaultStorePath();
+  const intervalMs = options.intervalMs ?? 2000;
+  const timeoutMs = options.timeoutMs ?? null;
+  const failOnError = options.failOnError ?? false;
+  const now = options.now ?? (() => Date.now());
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  const readJobs =
+    options.readJobs ??
+    ((): RelayJob[] => {
+      const q = openQueue(storePath);
+      try {
+        return q.listAll();
+      } finally {
+        q.close();
+      }
+    });
+
+  const scoped = (jobs: RelayJob[]): RelayJob[] =>
+    options.scope && isJobScopeActive(options.scope) ? scopeJobs(jobs, options.scope) : jobs;
+
+  const start = now();
+  // First check is immediate so an already-caught-up queue returns without a
+  // sleep. The deadline is checked before each sleep so `--timeout` can't be
+  // overshot by more than one interval.
+  while (true) {
+    const { done, snapshot } = evaluateDrain(scoped(readJobs()));
+    if (done) {
+      return {
+        outcome: "drained",
+        snapshot,
+        message: drainMessage("drained", snapshot, failOnError),
+        exitCode: drainExitCode("drained", snapshot, failOnError),
+      };
+    }
+    const elapsed = now() - start;
+    if (timeoutMs !== null && elapsed >= timeoutMs) {
+      return {
+        outcome: "timeout",
+        snapshot,
+        message: drainMessage("timeout", snapshot, failOnError),
+        exitCode: drainExitCode("timeout", snapshot, failOnError),
+      };
+    }
+    options.onPoll?.(snapshot, elapsed);
     await sleep(intervalMs);
   }
 }

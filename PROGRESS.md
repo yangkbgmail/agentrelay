@@ -2118,3 +2118,32 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 67 — `agentrelay drain` 플릿 레벨 blocking wait] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-ryxpmq`)
+- 배경: 세션 시작 시 내 지정 브랜치가 main과 동일(이전 PR 병합 완료)이라 최신 main 기준 새 작업 시작.
+  BACKLOG의 👷 항목은 전부 [x] 완료, 열린 PR 30여 개가 이미 다루는 주제(dedupe·export tsv·parser
+  week/tomorrow/IANA/timezone·stats --attempts/--durations·각종 --watch·summary·schedule·diff 등)를 피해
+  CLAUDE.md 지침대로 **겹치지 않는 새 개선 항목을 발굴**했다 — `wait <id>`(단일 잡)·`eta`(비블록
+  카운트다운)는 있지만 "큐 전체가 캐치업될 때까지 **블록**"하는 짝이 없었다.
+- 한 일: **`agentrelay drain`** — 큐 전체(또는 스코프)에 active 잡(queued/waiting_for_reset/resuming)이
+  0이 될 때까지 블록 후 결과를 exit code로 반환.
+  1. core `drain.ts` 신설(순수·시계/스토어 미접촉): `summarizeDrain`→`DrainSnapshot`(total/active/
+     completed/failed/cancelled, active는 `ACTIVE_STATUSES` 재사용) + `evaluateDrain`(active===0이면 done) +
+     `DrainOutcome`(drained/timeout)·`DRAIN_EXIT_CODES`(0/124[GNU timeout 관례, `wait`와 동일]) + 순수
+     `drainExitCode`(timeout→124, `--fail-on-error`+failed>0→1, 그 외 0). index.ts export.
+  2. CLI `commands.ts` `drainQueue(options)` — `waitForJob` 패턴을 본떠 매 폴링마다 스토어 재오픈해 별도
+     daemon/tick 프로세스의 드레인을 관측, 스코프는 `scopeJobs`로 매 폴링 재적용(경계는 시작 시 고정
+     epoch-ms), 첫 검사 즉시(이미 캐치업이면 sleep 없이 반환), `--timeout`은 sleep 전 데드라인 검사로
+     1인터벌 이상 초과 안 함, now/sleep/readJobs 주입 가능. CLI `drain.ts` `renderDrainJson`(wait/eta와
+     동일 envelope). `agentrelay drain [--timeout][--interval][--fail-on-error][-s/--status][-t/--tool]
+     [-p/--project][--since][--until][--json][-q]` 배선 — 공용 `buildScope` 재사용, 잘못된 값은 폴링 전
+     exit 1, completion 자동 포함(program.commands 파생).
+- 검증: `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 117파일)→`pnpm test`
+  전 패키지 통과(**core 624** drain 10 / **cli 342/1skip** drainQueue 6 / dashboard 9). **실제 빌드 CLI
+  e2e**(mock 아님): 빈 스토어→즉시 drained exit 0, completed+failed→drained exit 0(default)·exit 1
+  (--fail-on-error), `--json` 스냅샷 shape, queued 잡→`--timeout 1s` timeout exit 124, `--project api`
+  (스코프 밖 active 무시)→drained·`--project web`→timeout, 잘못된 --timeout/--tool→exit 1, completion/help
+  에 drain 노출 확인.
+- 다음 할 일: 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 남은 고유 기능 PR 계속 배수 —
+  #557(dedupe)·#556(export tsv)·#537(notify command)·#531(diff)·#508(schedule)·#505(summary) 등.
+  parser/tz/watch 계열은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

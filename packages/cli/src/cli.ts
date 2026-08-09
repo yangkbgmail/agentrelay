@@ -52,6 +52,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  drainQueue,
   exportStore,
   getConfigValue,
   importStore,
@@ -79,6 +80,7 @@ import {
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
+import { renderDrainJson } from "./drain.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderEta, renderEtaJson } from "./eta.js";
 import { renderHealth, renderHealthJson } from "./health.js";
@@ -993,6 +995,91 @@ export function buildCli(): Command {
       }
       process.exitCode = result.exitCode;
     });
+
+  program
+    .command("drain")
+    .description(
+      "Block until the queue is caught up (no active jobs), then report how it settled — the fleet-level `wait`"
+    )
+    .option("--timeout <duration>", "Give up after this long (e.g. 30m, 6h); default: wait forever")
+    .option("--interval <duration>", "How often to poll the store (default 2s)", "2s")
+    .option("--fail-on-error", "Exit 1 if the queue drains but any job failed (otherwise draining always exits 0)")
+    .option("-s, --status <statuses>", "Only include jobs with these comma-separated statuses")
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--json", "Print the final result as JSON (machine-readable, for scripts/jq)")
+    .option("-q, --quiet", "Suppress the human status line (the exit code still reflects the outcome)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # queue a batch, then block until the relay has resumed everything\n" +
+        "  agentrelay drain && echo done\n" +
+        "  # gate a deploy on every job finishing successfully\n" +
+        "  agentrelay drain --fail-on-error --timeout 6h && deploy\n" +
+        "  # wait only on one project's queue\n" +
+        "  agentrelay drain --project my-app"
+    )
+    .action(
+      async (
+        opts: ScopeOpts & {
+          timeout?: string;
+          interval?: string;
+          failOnError?: boolean;
+          json?: boolean;
+          quiet?: boolean;
+        }
+      ) => {
+        const { store } = program.opts();
+
+        const intervalMs = parseDuration(opts.interval ?? "2s");
+        if (intervalMs === null || intervalMs <= 0) {
+          console.error(`[agentrelay] Invalid --interval: ${opts.interval}. Use forms like 500ms, 2s, 1m.`);
+          process.exitCode = 1;
+          return;
+        }
+
+        let timeoutMs: number | null = null;
+        if (opts.timeout !== undefined) {
+          timeoutMs = parseDuration(opts.timeout);
+          if (timeoutMs === null || timeoutMs < 0) {
+            console.error(`[agentrelay] Invalid --timeout: ${opts.timeout}. Use forms like 30m, 6h, 90s.`);
+            process.exitCode = 1;
+            return;
+          }
+        }
+
+        // Validate scope filters up front so a bad value exits 1 instead of
+        // spinning a broken poll loop. Boundaries are fixed at command start.
+        const built = buildScope(opts, Date.now());
+        if ("error" in built) {
+          console.error(built.error);
+          process.exitCode = 1;
+          return;
+        }
+
+        if (!opts.quiet && !opts.json) {
+          const scopeNote = built.active ? ` (${built.note})` : "";
+          console.error(`[agentrelay] draining queue${scopeNote}… (Ctrl-C to stop)`);
+        }
+
+        const result = await drainQueue({
+          storePath: store,
+          scope: built.active ? built.scope : undefined,
+          intervalMs,
+          timeoutMs,
+          failOnError: opts.failOnError,
+        });
+
+        if (opts.json) {
+          console.log(renderDrainJson(result, store ?? defaultStorePath()));
+        } else if (!opts.quiet) {
+          console.log(`[agentrelay] ${result.message}`);
+        }
+        process.exitCode = result.exitCode;
+      }
+    );
 
   program
     .command("paths")
