@@ -9,6 +9,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  getConfigValue,
   importStore,
   initConfig,
   listStatus,
@@ -801,12 +802,82 @@ describe("showConfig", () => {
   });
 });
 
+describe("getConfigValue", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-get-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("fails on an unknown key without guessing", () => {
+    const result = getConfigValue({ key: "retry.nope", cwd: dir, env: {} });
+    expect(result.ok).toBe(false);
+    expect(result.value).toBeUndefined();
+    expect(result.message).toContain("Unknown config key");
+    expect(result.message).toContain("retry.maxAttempts"); // lists valid keys
+  });
+
+  it("resolves an unset key to its default (value undefined, source default)", () => {
+    const result = getConfigValue({ key: "retry.maxAttempts", cwd: dir, env: { HOME: dir } });
+    expect(result.ok).toBe(true);
+    expect(result.envKey).toBe("AGENTRELAY_MAX_ATTEMPTS");
+    expect(result.value).toBeUndefined();
+    expect(result.source).toBe("default");
+  });
+
+  it("reads a value from the config file with source attribution", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ retry: { maxAttempts: 9 } }));
+    const result = getConfigValue({ key: "retry.maxAttempts", path, env: {} });
+    expect(result).toMatchObject({ ok: true, value: "9", source: "config-file" });
+  });
+
+  it("lets an env var win over the file (env precedence)", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ retry: { maxAttempts: 9 } }));
+    const result = getConfigValue({ key: "retry.maxAttempts", path, env: { AGENTRELAY_MAX_ATTEMPTS: "3" } });
+    expect(result).toMatchObject({ ok: true, value: "3", source: "env" });
+  });
+
+  it("returns the full secret value (get is for scripting, unlike masked show)", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ notify: { webhookAuth: "Bearer supersecrettoken" } }));
+    const result = getConfigValue({ key: "notify.webhookAuth", path, env: {} });
+    expect(result).toMatchObject({ ok: true, value: "Bearer supersecrettoken", secret: true });
+  });
+
+  it("projects autoPrune.enabled onto the 1/0 env encoding", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, JSON.stringify({ autoPrune: { enabled: true } }));
+    const result = getConfigValue({ key: "autoPrune.enabled", path, env: {} });
+    expect(result).toMatchObject({ ok: true, envKey: "AGENTRELAY_AUTOPRUNE", value: "1", source: "config-file" });
+  });
+
+  it("surfaces a broken config file's loadError while still resolving env/defaults", () => {
+    const path = join(dir, "agentrelay.config.json");
+    writeFileSync(path, "{ not json");
+    const result = getConfigValue({ key: "retry.maxAttempts", path, env: { AGENTRELAY_MAX_ATTEMPTS: "5" } });
+    expect(result.ok).toBe(true);
+    expect(result.loadError).toBeDefined();
+    // env resolution still works despite the broken file.
+    expect(result).toMatchObject({ value: "5", source: "env" });
+  });
+});
+
 describe("isConfigDiagnosticInvocation", () => {
   const argv = (...rest: string[]) => ["node", "bin.js", ...rest];
 
   it("recognizes plain config validate/show", () => {
     expect(isConfigDiagnosticInvocation(argv("config", "validate"))).toBe(true);
     expect(isConfigDiagnosticInvocation(argv("config", "show"))).toBe(true);
+  });
+
+  it("recognizes config get as a diagnostic (source attribution needs bootstrap skipped)", () => {
+    expect(isConfigDiagnosticInvocation(argv("config", "get", "retry.maxAttempts"))).toBe(true);
   });
 
   it("recognizes them past a global --config <path> (the value is not the command)", () => {

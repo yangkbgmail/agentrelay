@@ -1997,3 +1997,24 @@
      (#462/#463/#498/#502/#504/#479/#487/#496/#527), #494(자동 백업), #501(--continue), #460(ical) 등.
   3. **구조적 제안(🧭 코워크)**: 세션 60이 지적한 PROGRESS/BACKLOG append 충돌이 근본 원인 — 문서 갱신을
      병합 후 별도 커밋으로 분리하거나 PR별 파일로 나누면 배치 병합이 가능해진다.
+
+### [세션 62 — `agentrelay config get <key>` 단일 값 조회(스크립트 친화)] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-i7ii6h`)
+- **왜:** `config set/unset/show/init/validate`는 있었지만 **하나의 유효 설정값만 뽑아 쓰는** 스크립트 친화 커맨드가
+  없었다. `config show`는 사람용 표(마스킹 포함)라 `$(...)`로 값 하나를 캡처하기엔 파싱이 필요했다. 열린 90+ PR 어디에도
+  없는 진짜 신규 항목(중복 없음 확인).
+- **한 일:**
+  - core `config.ts`: `envKeyForConfigKey(dottedKey)` 추가 — 점 표기 키(`retry.maxAttempts`)를 `AGENTRELAY_*` env
+    키로 위치 매핑. `CONFIG_FIELDS`↔`CONFIG_ENV_KEYS` 인덱스 정렬 불변식 위에서 동작(테스트로 보장).
+  - CLI `commands.ts`: `getConfigValue({key,path,cwd,env})` 추가 — `showConfig`의 env > file > default 해석을
+    재사용해 단일 키의 값·출처(source)·secret 여부를 반환. 미지의 키는 실패(추측 금지), 미설정 키는 `value:undefined`/
+    `source:"default"`.
+  - CLI `cli.ts`: `config get <key> [--json] [--exit-code]` 등록. 기본은 **bare 값 한 줄**(미설정이면 무출력→빈 캡처),
+    `--json`은 `{key,envKey,value,source,secret}`, `--exit-code`는 미설정 시 exit 1. secret은 스크립트 용도라 전체 값
+    출력(`show`의 마스킹과 대비). 알 수 없는 키 exit 2, 깨진 설정 파일 exit 1.
+  - `config.ts`: `config get`을 bootstrap-skip 서브커맨드에 추가 — `show`와 동일하게 출처 귀속이 뭉개지지 않도록.
+- **검증:** `pnpm build` 클린 · `pnpm ci:lint`(Biome) **0 에러** · `pnpm test` 전 패키지 통과(core 577, cli 321/1skip,
+  dashboard 9). core config.test에 인덱스 정렬·`envKeyForConfigKey` 단언 추가, cli commands.test에 `getConfigValue` 7케이스
+  추가. **실제 빌드 CLI e2e**(mock 아님): file값 `9`, env우선 `3`, `--json` 출처 정확, secret 전체 출력, 미설정
+  `--exit-code`=1(무출력), 미지 키 exit 2 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 세션 60/61 지침 유지 — 신규 PR 전 적체 확인, 통합 우선.
+  후속 인접 후보: `config get --all`(모든 키를 KEY=VALUE로), 또는 dashboard에도 단일 값 조회 노출.

@@ -9,6 +9,7 @@ import {
   CONFIG_FIELDS,
   configToEnv,
   configToJson,
+  envKeyForConfigKey,
   findConfigField,
   hasConfigErrors,
   loadConfigFile,
@@ -308,6 +309,25 @@ describe("CONFIG_FIELDS / setConfigValue / unsetConfigValue", () => {
 
   it("SETTABLE_CONFIG_KEYS matches CONFIG_FIELDS", () => {
     expect(SETTABLE_CONFIG_KEYS).toEqual(CONFIG_FIELDS.map((f) => f.key));
+  });
+
+  it("CONFIG_FIELDS and CONFIG_ENV_KEYS are index-aligned (envKeyForConfigKey correctness)", () => {
+    // `envKeyForConfigKey` maps positionally, so each dotted field at index i
+    // must project onto the env var at CONFIG_ENV_KEYS[i]. Guard the invariant
+    // so a future reorder can't silently make `config get` read the wrong key.
+    const sample = (f: (typeof CONFIG_FIELDS)[number]): string =>
+      f.type === "boolean" ? "true" : f.type === "number" ? "1" : f.type === "duration" ? "1h" : "x";
+    for (let i = 0; i < CONFIG_FIELDS.length; i++) {
+      const field = CONFIG_FIELDS[i];
+      const projected = Object.keys(configToEnv(setConfigValue({}, field.key, sample(field))));
+      expect(projected).toEqual([CONFIG_ENV_KEYS[i].key]);
+      expect(envKeyForConfigKey(field.key)).toBe(CONFIG_ENV_KEYS[i].key);
+    }
+  });
+
+  it("envKeyForConfigKey returns undefined for an unknown key", () => {
+    expect(envKeyForConfigKey("retry.nope")).toBeUndefined();
+    expect(envKeyForConfigKey("")).toBeUndefined();
   });
 
   it("sets a top-level string field", () => {

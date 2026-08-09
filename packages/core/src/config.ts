@@ -156,6 +156,20 @@ export function findConfigField(key: string): ConfigField | undefined {
 }
 
 /**
+ * Maps a dotted config key (`retry.maxAttempts`) to the `AGENTRELAY_*` env var
+ * it projects onto, or `undefined` when the key is unknown. {@link CONFIG_FIELDS}
+ * and {@link CONFIG_ENV_KEYS} are maintained index-aligned (a test asserts it),
+ * so the lookup is positional. Lets `config get` reuse the effective-config
+ * resolution (keyed by env var) while accepting the same dotted keys as
+ * `config set`/`unset`.
+ */
+export function envKeyForConfigKey(dottedKey: string): string | undefined {
+  const idx = CONFIG_FIELDS.findIndex((f) => f.key === dottedKey);
+  if (idx === -1) return undefined;
+  return CONFIG_ENV_KEYS[idx]?.key;
+}
+
+/**
  * Coerces the raw CLI string for `field` into its typed JSON value, throwing a
  * clear error when the input doesn't fit the field's type. Pure.
  */

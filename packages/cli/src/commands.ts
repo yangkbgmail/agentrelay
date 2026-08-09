@@ -33,6 +33,7 @@ import {
   autoPruneOptionsFromEnv,
   buildLocationReport,
   CONFIG_FILENAME,
+  type ConfigValueSource,
   canCancel,
   canRequeue,
   configToJson,
@@ -41,6 +42,7 @@ import {
   distinctActiveBinaries,
   type EffectiveConfigEntry,
   type ExportFormat,
+  envKeyForConfigKey,
   evaluateHealth,
   evaluateHeartbeat,
   evaluateWait,
@@ -76,6 +78,7 @@ import {
   resolveJobId,
   retryPolicyFromEnv,
   runDiagnostics,
+  SETTABLE_CONFIG_KEYS,
   sampleConfigJson,
   scopeJobs,
   serializeDaemonHeartbeat,
@@ -1139,6 +1142,69 @@ export function showConfig(options: ConfigShowOptions = {}): ConfigShowResult {
   }
   const entries = resolveEffectiveConfig(fileConfig, env);
   return { path, entries, loadError };
+}
+
+export interface ConfigGetOptions {
+  /** Dotted config key to read (e.g. `retry.maxAttempts`), same keys as `config set`. */
+  key: string;
+  /** Explicit file path. When omitted, the usual discovery order is used. */
+  path?: string;
+  /** Directory searched for `agentrelay.config.json`. Defaults to `process.cwd()`. */
+  cwd?: string;
+  /** Environment consulted for precedence + `AGENTRELAY_CONFIG`. Defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
+}
+
+export interface ConfigGetResult {
+  /** False only when the key is unknown (so nothing could be resolved). */
+  ok: boolean;
+  /** The requested dotted key, echoed back. */
+  key: string;
+  /** The `AGENTRELAY_*` env var the key maps to; present when the key is known. */
+  envKey?: string;
+  /** Effective value, or `undefined` when the built-in default applies (unset). */
+  value?: string;
+  /** Which layer supplied the value (env > file > default); undefined for unknown keys. */
+  source?: ConfigValueSource;
+  /** True when the field is a secret (webhook URL / auth token). */
+  secret?: boolean;
+  /** Set when a config file was found but couldn't be parsed (resolution still proceeds). */
+  loadError?: string;
+  /** Human-readable reason set on failure (unknown key). */
+  message?: string;
+}
+
+/**
+ * Resolves a *single* effective config value — the scriptable counterpart to
+ * {@link showConfig}. Where `show` prints the whole table for humans, `get`
+ * returns exactly one setting so a script can capture it (`v=$(agentrelay
+ * config get retry.maxAttempts)`) without parsing. Accepts the same dotted keys
+ * as `config set`/`unset`, mapping each to its env var via
+ * {@link envKeyForConfigKey} and reading the effective value from the shared
+ * env > file > default resolution. An unknown key fails (no guessing); a known
+ * key with no override resolves to `value: undefined`, `source: "default"`.
+ */
+export function getConfigValue(options: ConfigGetOptions): ConfigGetResult {
+  const { key } = options;
+  const envKey = envKeyForConfigKey(key);
+  if (!envKey) {
+    return {
+      ok: false,
+      key,
+      message: `Unknown config key "${key}". Valid keys: ${SETTABLE_CONFIG_KEYS.join(", ")}`,
+    };
+  }
+  const result = showConfig({ path: options.path, cwd: options.cwd, env: options.env });
+  const entry = result.entries.find((e) => e.key === envKey);
+  return {
+    ok: true,
+    key,
+    envKey,
+    value: entry?.value,
+    source: entry?.source,
+    secret: entry?.secret,
+    loadError: result.loadError,
+  };
 }
 
 export interface DoctorOptions {
