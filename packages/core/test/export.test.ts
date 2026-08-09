@@ -6,6 +6,7 @@ import {
   escapeHtml,
   escapeHtmlCell,
   escapeMarkdownCell,
+  escapeTsvField,
   exportJobs,
   isJobCsvColumn,
   JOB_CSV_COLUMNS,
@@ -15,6 +16,7 @@ import {
   jobsToJson,
   jobsToMarkdown,
   jobsToNdjson,
+  jobsToTsv,
   parseCsvColumns,
 } from "../src/export.js";
 import type { RelayJob } from "../src/types.js";
@@ -173,7 +175,7 @@ describe("parseCsvColumns", () => {
 
 describe("COLUMN_AWARE_FORMATS", () => {
   it("lists exactly the tabular formats and is a subset of EXPORT_FORMATS", () => {
-    expect([...COLUMN_AWARE_FORMATS]).toEqual(["csv", "md", "html"]);
+    expect([...COLUMN_AWARE_FORMATS]).toEqual(["csv", "md", "html", "tsv"]);
     for (const f of COLUMN_AWARE_FORMATS) {
       expect(EXPORT_FORMATS).toContain(f);
     }
@@ -314,6 +316,17 @@ describe("exportJobs", () => {
     expect(exportJobs(jobs, "html")).toBe(jobsToHtml(jobs));
   });
 
+  it("dispatches to TSV", () => {
+    const jobs = [job({ id: "d" }), job({ id: "e" })];
+    expect(exportJobs(jobs, "tsv")).toBe(jobsToTsv(jobs));
+  });
+
+  it("passes the column subset through to TSV", () => {
+    const jobs = [job({ id: "d", status: "queued" })];
+    const columns = ["status", "id"] as const;
+    expect(exportJobs(jobs, "tsv", { columns: [...columns] })).toBe(jobsToTsv(jobs, { columns: [...columns] }));
+  });
+
   it("passes the column subset through to HTML", () => {
     const jobs = [job({ id: "d", status: "queued" })];
     const columns = ["status", "id"] as const;
@@ -321,7 +334,77 @@ describe("exportJobs", () => {
   });
 
   it("exposes the supported formats", () => {
-    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md", "ndjson", "html"]);
+    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md", "ndjson", "html", "tsv"]);
+  });
+});
+
+describe("escapeTsvField", () => {
+  it("leaves plain values (including spaces and commas) untouched", () => {
+    expect(escapeTsvField("hello")).toBe("hello");
+    expect(escapeTsvField("")).toBe("");
+    expect(escapeTsvField("a b c")).toBe("a b c");
+    // Commas need no quoting in TSV — only tabs/newlines split fields.
+    expect(escapeTsvField("a,b")).toBe("a,b");
+  });
+
+  it("backslash-escapes tabs and newlines so a field never splits a row/column", () => {
+    expect(escapeTsvField("a\tb")).toBe("a\\tb");
+    expect(escapeTsvField("line1\nline2")).toBe("line1\\nline2");
+    expect(escapeTsvField("line1\r\nline2")).toBe("line1\\r\\nline2");
+    expect(escapeTsvField("line1\rline2")).toBe("line1\\rline2");
+  });
+
+  it("escapes the backslash first so an escaped tab isn't misread", () => {
+    expect(escapeTsvField("a\\tb")).toBe("a\\\\tb");
+    expect(escapeTsvField("a\\\tb")).toBe("a\\\\\\tb");
+  });
+});
+
+describe("jobsToTsv", () => {
+  it("emits a tab-separated header row for an empty store", () => {
+    const tsv = jobsToTsv([]);
+    expect(tsv).toBe(JOB_CSV_COLUMNS.join("\t"));
+  });
+
+  it("emits one tab-separated row per job under the header", () => {
+    const tsv = jobsToTsv([job({ id: "j1", project: "p1", attempts: 2 })]);
+    const lines = tsv.split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toBe(JOB_CSV_COLUMNS.join("\t"));
+    expect(lines[1].split("\t").slice(0, 5)).toEqual(["j1", "p1", "claude-code", "completed", "2"]);
+  });
+
+  it("keeps tab/newline-bearing fields from breaking the column/row layout", () => {
+    const tsv = jobsToTsv([job({ command: ["claude", "-p", "a\tb"], lastError: "boom\nnext" })]);
+    const lines = tsv.split("\n");
+    // Still exactly header + one data row: the embedded newline did not split it.
+    expect(lines).toHaveLength(2);
+    // The data row still has exactly one cell per column (no stray tabs).
+    expect(lines[1].split("\t")).toHaveLength(JOB_CSV_COLUMNS.length);
+    expect(lines[1]).toContain("claude -p a\\tb");
+    expect(lines[1]).toContain("boom\\nnext");
+  });
+
+  it("renders null resetAt/lastError as empty cells (no em dash)", () => {
+    const tsv = jobsToTsv([job({ resetAt: null, lastError: null })]);
+    const cells = tsv.split("\n")[1].split("\t");
+    // resetAt is column index 5, lastError is the last column — both empty strings.
+    expect(cells[JOB_CSV_COLUMNS.indexOf("resetAt")]).toBe("");
+    expect(cells[JOB_CSV_COLUMNS.indexOf("lastError")]).toBe("");
+  });
+
+  it("honors a custom column subset and order", () => {
+    const tsv = jobsToTsv([job({ id: "x", status: "queued" })], { columns: ["status", "id"] });
+    expect(tsv).toBe("status\tid\nqueued\tx");
+  });
+
+  it("omits the header row when header:false", () => {
+    const tsv = jobsToTsv([job({ id: "x" })], { header: false });
+    expect(tsv.split("\n")[0].startsWith("x\t")).toBe(true);
+  });
+
+  it("has no trailing newline", () => {
+    expect(jobsToTsv([job()]).endsWith("\n")).toBe(false);
   });
 });
 

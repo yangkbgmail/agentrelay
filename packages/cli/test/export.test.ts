@@ -165,6 +165,32 @@ describe("exportStore", () => {
     expect(result.content).not.toContain("<th>project</th>");
   });
 
+  it("produces a tab-separated table with a header and one row per job", () => {
+    seed();
+    const result = exportStore({ storePath, format: "tsv" });
+    expect(result.count).toBe(2);
+    const lines = result.content.split("\n");
+    expect(lines).toHaveLength(3); // header + 2 rows
+    expect(lines[0]).toBe(
+      "id\tproject\ttool\tstatus\tattempts\tresetAt\tcreatedAt\tupdatedAt\tcommand\tcwd\tlastError"
+    );
+    // Every row splits into exactly one cell per column on the tab delimiter.
+    for (const row of lines) {
+      expect(row.split("\t")).toHaveLength(11);
+    }
+  });
+
+  it("honors a --columns subset/order for TSV", () => {
+    seed();
+    const result = exportStore({ storePath, format: "tsv", columns: ["status", "project", "tool"] });
+    const lines = result.content.split("\n");
+    expect(lines[0]).toBe("status\tproject\ttool");
+    expect(lines).toHaveLength(3); // header + 2 rows
+    for (const row of lines.slice(1)) {
+      expect(row.split("\t")).toHaveLength(3);
+    }
+  });
+
   // The `export` command applies the same scope filters as `stats`/`status`:
   // the --since/--until time window via core scopeJobs, then
   // --status/--tool/--project/--sort/--reverse via selectJobs. These tests
