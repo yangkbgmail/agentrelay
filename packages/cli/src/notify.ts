@@ -9,7 +9,7 @@ const RESET = "\x1b[0m";
 
 /** Message shown when `notify test` runs but no channels are configured. */
 export const NO_CHANNELS_MESSAGE =
-  "No notification channels configured. Set AGENTRELAY_SLACK_WEBHOOK and/or AGENTRELAY_WEBHOOK_URL (see `agentrelay config show`).";
+  "No notification channels configured. Set AGENTRELAY_SLACK_WEBHOOK, AGENTRELAY_WEBHOOK_URL, and/or AGENTRELAY_NOTIFY_COMMAND (see `agentrelay config show`).";
 
 /**
  * Renders the per-channel test-delivery results as a human-readable checklist.

@@ -199,6 +199,13 @@ describe("runDiagnostics", () => {
     expect(notify.message).toContain("Slack + webhook");
   });
 
+  it("recognizes the exec command channel on its own", () => {
+    const report = runDiagnostics(input({ notify: { command: "notify-send AgentRelay" } }));
+    const notify = find(report, "notify");
+    expect(notify.level).toBe("ok");
+    expect(notify.message).toContain("command");
+  });
+
   it("reports adapters OK (nothing to check) when no job is queued", () => {
     const report = runDiagnostics(input({ adapters: { binaries: [] } }));
     const adapters = find(report, "adapters");
