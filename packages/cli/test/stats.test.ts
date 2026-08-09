@@ -126,9 +126,12 @@ describe("renderStats", () => {
     expect(out).toContain("min 1h 0m");
     expect(out).toContain("max 3h 0m");
     expect(out).toContain("over 2 job(s)");
-    // median of {1h,3h} = 2h; p90 interpolates to 2h48m over the sorted pair.
+    // median of {1h,3h} = 2h; p90/p95/p99 interpolate up the sorted pair.
     expect(out).toContain("median 2h 0m");
     expect(out).toContain("p90 2h 48m");
+    // p95: 1h + 0.95*(3h-1h) = 2h54m; p99: 1h + 0.99*(3h-1h) = 2h58m.
+    expect(out).toContain("p95 2h 54m");
+    expect(out).toContain("p99 2h 58m");
   });
 
   it("omits the resolution-time block when nothing has resolved", () => {

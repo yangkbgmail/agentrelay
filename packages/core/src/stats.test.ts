@@ -52,6 +52,8 @@ describe("computeStats", () => {
       maxResolutionMs: null,
       medianResolutionMs: null,
       p90ResolutionMs: null,
+      p95ResolutionMs: null,
+      p99ResolutionMs: null,
     });
   });
 
@@ -175,6 +177,10 @@ describe("computeStats", () => {
     expect(stats.timing.avgResolutionMs).toBe(3 * 3_600_000);
     // p90 over sorted [1h,2h,6h]: rank=0.9*2=1.8 → 2h + 0.8*(6h-2h) = 2h+3.2h = 5.2h
     expect(stats.timing.p90ResolutionMs).toBe(Math.round(5.2 * 3_600_000));
+    // p95 over sorted [1h,2h,6h]: rank=0.95*2=1.9 → 2h + 0.9*(6h-2h) = 2h+3.6h = 5.6h
+    expect(stats.timing.p95ResolutionMs).toBe(Math.round(5.6 * 3_600_000));
+    // p99 over sorted [1h,2h,6h]: rank=0.99*2=1.98 → 2h + 0.98*(6h-2h) = 2h+3.92h = 5.92h
+    expect(stats.timing.p99ResolutionMs).toBe(Math.round(5.92 * 3_600_000));
   });
 
   it("interpolates the median over an even number of resolved jobs", () => {
@@ -187,12 +193,14 @@ describe("computeStats", () => {
     expect(stats.timing.medianResolutionMs).toBe(3 * 3_600_000);
   });
 
-  it("collapses median and p90 to the single value for one resolved job", () => {
+  it("collapses median and every percentile to the single value for one resolved job", () => {
     const stats = computeStats([
       job({ status: "completed", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T01:00:00.000Z" }),
     ]);
     expect(stats.timing.medianResolutionMs).toBe(3_600_000);
     expect(stats.timing.p90ResolutionMs).toBe(3_600_000);
+    expect(stats.timing.p95ResolutionMs).toBe(3_600_000);
+    expect(stats.timing.p99ResolutionMs).toBe(3_600_000);
     expect(stats.timing.minResolutionMs).toBe(3_600_000);
     expect(stats.timing.maxResolutionMs).toBe(3_600_000);
   });
@@ -247,6 +255,8 @@ describe("computeStats", () => {
       maxResolutionMs: null,
       medianResolutionMs: null,
       p90ResolutionMs: null,
+      p95ResolutionMs: null,
+      p99ResolutionMs: null,
     });
   });
 });

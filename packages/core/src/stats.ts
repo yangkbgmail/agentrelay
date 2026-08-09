@@ -40,6 +40,18 @@ export interface TimingStats {
    * for a relay: it's the near-worst-case time a job sat before resolving.
    */
   p90ResolutionMs: number | null;
+  /**
+   * 95th-percentile resolution time (ms), or null when none. Beyond p90 the tail
+   * can still hide slow outliers; p95 is the standard "how bad does it get for
+   * all but the worst 5%?" latency marker.
+   */
+  p95ResolutionMs: number | null;
+  /**
+   * 99th-percentile resolution time (ms), or null when none. The worst-case tail:
+   * with only a handful of resolved jobs this equals the max, but over a large
+   * history it isolates the pathological long-babysat jobs the mean/p90 mask.
+   */
+  p99ResolutionMs: number | null;
 }
 
 export interface RelayStats {
@@ -337,6 +349,8 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       maxResolutionMs: null,
       medianResolutionMs: null,
       p90ResolutionMs: null,
+      p95ResolutionMs: null,
+      p99ResolutionMs: null,
     };
   } else {
     // Sort once ascending; percentiles read from it, min/max are its ends.
@@ -348,6 +362,8 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       maxResolutionMs: sorted[resolvedCount - 1],
       medianResolutionMs: percentile(sorted, 0.5),
       p90ResolutionMs: percentile(sorted, 0.9),
+      p95ResolutionMs: percentile(sorted, 0.95),
+      p99ResolutionMs: percentile(sorted, 0.99),
     };
   }
 

@@ -1859,3 +1859,25 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 60 — `agentrelay stats` resolution-time 꼬리 지연 p95·p99 추가] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-ynp2y7`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR 30개를 확인해보니 `stats --tz`/`--local`/`--utc-offset`(≈14개),
+  `--heatmap`(6개), `--attempts`, 대시보드 히스토그램, 각종 `--watch` 뷰가 이미 포화 상태였다. 중복을 피하고,
+  세션 45가 도입한 resolution-time 지표(avg/min/max + median/p90)를 자연스럽게 확장한다 — median(p50)·p90은
+  "전형적/근접 최악"을 보여주지만 **p90 너머의 꼬리(worst 10%)가 안 보였다**. 릴레이는 rate-limit을 돌보는
+  도구이므로 "최악의 경우 얼마나 오래 붙잡고 있었나"라는 꼬리 지연이 실질적으로 중요하다.
+- **한 일 (branch `claude/wizardly-pascal-ynp2y7`):** `stats`의 resolution-time 블록에 p95·p99 백분위수 추가.
+  - core `stats.ts`: `TimingStats`에 `p95ResolutionMs`·`p99ResolutionMs`(number|null) 추가. 기존
+    `percentile(sorted, p)`(선형보간 type-7) 재사용해 `percentile(sorted, 0.95)`/`0.99` 계산, resolved 0개면
+    둘 다 null. 새 정렬/로직 0줄 — 이미 오름차순 정렬한 배열에서 읽음.
+  - CLI `stats.ts`: `renderStats`의 percentile 라인을 `median … p90 … p95 … p99`로 확장. `renderStatsJson`은
+    `stats` 전체를 직렬화하므로 두 필드가 자동으로 JSON에 포함(기본 shape 변경 없이 필드만 추가).
+- **검증:** `pnpm install`→`pnpm build` 클린·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test` 전 패키지 통과
+  (core 563, cli 304/1skip, dashboard 9). core stats.test에 p95/p99 단언 추가(홀수 3-잡 보간·단일 잡 collapse·
+  빈 timing null), cli stats.test에 p95/p99 렌더 단언 추가. **실제 빌드 CLI e2e**(mock 아님): spans {1h,2h,6h}
+  임시 스토어로 `stats`가 `median 2h 0m  p90 5h 12m  p95 5h 36m  p99 5h 55m` 렌더, `stats --json`의 timing이
+  `p95ResolutionMs`/`p99ResolutionMs`를 정확히 방출함을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — `--group-by`의
+  per-group 요약에도 p90/p95 노출(현재 median만), 또는 timing 블록에 표준편차/IQR 등 분산 지표. tz/heatmap은
+  이미 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

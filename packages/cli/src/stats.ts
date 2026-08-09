@@ -100,7 +100,9 @@ export function renderStats(
     );
     lines.push(
       `  median ${formatDurationMs(timing.medianResolutionMs ?? 0)}` +
-        `   p90 ${formatDurationMs(timing.p90ResolutionMs ?? 0)}`
+        `   p90 ${formatDurationMs(timing.p90ResolutionMs ?? 0)}` +
+        `   p95 ${formatDurationMs(timing.p95ResolutionMs ?? 0)}` +
+        `   p99 ${formatDurationMs(timing.p99ResolutionMs ?? 0)}`
     );
   }
 
