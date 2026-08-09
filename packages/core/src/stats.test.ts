@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  computeAttemptDistribution,
   computeDailyTrend,
   computeHourlyDistribution,
   computeStats,
   computeWeekdayDistribution,
+  DEFAULT_ATTEMPT_CAP,
   GROUP_DIMENSIONS,
   groupStats,
   isJobScopeActive,
@@ -570,6 +572,59 @@ describe("computeWeekdayDistribution", () => {
     const jobs = [job({ createdAt: "2026-07-20T05:00:00.000Z" })];
     const before = JSON.stringify(jobs);
     computeWeekdayDistribution(jobs);
+    expect(JSON.stringify(jobs)).toBe(before);
+  });
+});
+
+describe("computeAttemptDistribution", () => {
+  it("returns an empty array for an empty store", () => {
+    expect(computeAttemptDistribution([])).toEqual([]);
+  });
+
+  it("buckets jobs by exact attempt count, dense and zero-filled up to the max", () => {
+    const jobs = [job({ attempts: 0 }), job({ attempts: 1 }), job({ attempts: 1 }), job({ attempts: 3 })];
+    const dist = computeAttemptDistribution(jobs);
+    // Dense slots 0..3 even though no job has exactly 2 attempts.
+    expect(dist.map((b) => b.attempts)).toEqual([0, 1, 2, 3]);
+    expect(dist.every((b) => !b.overflow)).toBe(true);
+    expect(dist.map((b) => b.count)).toEqual([1, 2, 0, 1]);
+    expect(dist.reduce((sum, b) => sum + b.count, 0)).toBe(4);
+  });
+
+  it("collapses jobs at or above the cap into a single trailing overflow bucket", () => {
+    const jobs = [job({ attempts: 0 }), job({ attempts: 25 }), job({ attempts: 40 })];
+    const dist = computeAttemptDistribution(jobs);
+    // Overflow fills exact slots to cap-1, then a cap+ bucket for the two tails.
+    expect(dist).toHaveLength(DEFAULT_ATTEMPT_CAP + 1);
+    const overflow = dist[dist.length - 1];
+    expect(overflow.overflow).toBe(true);
+    expect(overflow.attempts).toBe(DEFAULT_ATTEMPT_CAP);
+    expect(overflow.count).toBe(2);
+    expect(dist[0].count).toBe(1);
+  });
+
+  it("honors a custom cap", () => {
+    const jobs = [job({ attempts: 1 }), job({ attempts: 5 }), job({ attempts: 6 })];
+    const dist = computeAttemptDistribution(jobs, { cap: 3 });
+    // slots 0,1,2 then 3+ (holding attempts 5 and 6).
+    expect(dist.map((b) => b.attempts)).toEqual([0, 1, 2, 3]);
+    expect(dist[3].overflow).toBe(true);
+    expect(dist[3].count).toBe(2);
+    expect(dist[1].count).toBe(1);
+  });
+
+  it("floors a corrupt (negative/NaN) attempts value to 0 rather than dropping the job", () => {
+    const jobs = [job({ attempts: -2 }), job({ attempts: Number.NaN }), job({ attempts: 1 })];
+    const dist = computeAttemptDistribution(jobs);
+    expect(dist[0].count).toBe(2); // both bad values counted as 0 attempts
+    expect(dist[1].count).toBe(1);
+    expect(dist.reduce((sum, b) => sum + b.count, 0)).toBe(3);
+  });
+
+  it("does not mutate its input", () => {
+    const jobs = [job({ attempts: 2 }), job({ attempts: 4 })];
+    const before = JSON.stringify(jobs);
+    computeAttemptDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
   });
 });

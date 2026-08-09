@@ -750,6 +750,20 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 `agentrelay stats --attempts` — 잡이 재개(resume)를 몇 번 거쳤는지 재시도 횟수 분포 히스토그램.
+      `--trend`/`--hours`/`--weekday`가 잡이 *언제* 생겼나(시간축)를 보여준다면, 이건 릴레이가 잡당 *몇 번*
+      재개했나(재시도 부담)를 보여줘 "대부분 첫 재개에 해결, 꼬리는 4번+" 같은 릴레이 효율을 드러낸다.
+      (완료 — core `stats.ts`에 순수 `computeAttemptDistribution(jobs, {cap?})` + `AttemptActivity`
+      (attempts·overflow·count) + `DEFAULT_ATTEMPT_CAP`(20) 신설: `job.attempts`로 버킷팅, 0부터 최다
+      관측값까지 dense·zero-fill, `cap` 이상은 단일 "N+" 오버플로 버킷으로 접어 병리적 스토어 방어,
+      비유한/음수 attempts는 0으로 floor. 창·시계 불필요(attempts는 잡 내재 필드). CLI `stats.ts`에 순수
+      `renderAttempts`(`--hours`/`--weekday`와 동일 막대 스케일 관례, `0`/…/`20+` 라벨 우측정렬 + 합계
+      푸터)·`renderStatsJson`에 옵셔널 `attempts` 필드(요청 시에만, 기존 shape 불변). `cli.ts` `stats`에
+      `--attempts` 배선 — 일회성·`--json`·`--watch` 세 뷰 모두, 기존 스코프 필터·`--hours`/`--weekday`/
+      `--trend`와 조합 가능, completion 자동 포함. 새 파서/스케줄러 로직 0줄. core +6 · cli stats +5 신규
+      테스트, 실제 빌드 CLI e2e로 dense/zero-fill 버킷팅·풀바 스케일·`--json` attempts 필드·기본 JSON 미포함·
+      help/completion 노출 검증. branch `claude/wizardly-pascal-qxkvog`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

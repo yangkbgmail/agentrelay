@@ -17,6 +17,7 @@ import {
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
+  computeAttemptDistribution,
   computeDailyTrend,
   computeErrorBreakdown,
   computeHourlyDistribution,
@@ -86,6 +87,7 @@ import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
+  renderAttempts,
   renderGroupedStats,
   renderGroupedStatsJson,
   renderHours,
@@ -453,7 +455,8 @@ function runStatsWatch(
   groupBy: GroupDimension | undefined,
   trendDays: number | null,
   hours: boolean,
-  weekday: boolean
+  weekday: boolean,
+  attempts: boolean
 ): void {
   const active = isJobScopeActive(scope);
   startWatchLoop(intervalMs, () => {
@@ -475,6 +478,9 @@ function runStatsWatch(
       }
       if (weekday && stats.total > 0) {
         body += `\n\n${renderWeekday(computeWeekdayDistribution(jobs), { color: true })}`;
+      }
+      if (attempts && stats.total > 0) {
+        body += `\n\n${renderAttempts(computeAttemptDistribution(jobs), { color: true })}`;
       }
     }
     const frame = renderStatsWatchFrame(body, store, intervalMs, now);
@@ -998,6 +1004,7 @@ export function buildCli(): Command {
     .option("--trend [days]", "Also show a per-day activity histogram over the last N days, UTC (default 14, max 90)")
     .option("--hours", "Also show an hour-of-day activity histogram (jobs created per UTC hour, 0–23)")
     .option("--weekday", "Also show a day-of-week activity histogram (jobs created per UTC weekday, Sun–Sat)")
+    .option("--attempts", "Also show a resume-attempt distribution histogram (jobs per attempt count, 0, 1, 2, …)")
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
     .addHelpText(
       "after",
@@ -1011,7 +1018,9 @@ export function buildCli(): Command {
         "  # which UTC hours rate-limits cluster in\n" +
         "  agentrelay stats --hours\n" +
         "  # which UTC weekdays rate-limits cluster on\n" +
-        "  agentrelay stats --weekday"
+        "  agentrelay stats --weekday\n" +
+        "  # how many resume attempts jobs took\n" +
+        "  agentrelay stats --attempts"
     )
     .action(
       (opts: {
@@ -1024,6 +1033,7 @@ export function buildCli(): Command {
         trend?: string | boolean;
         hours?: boolean;
         weekday?: boolean;
+        attempts?: boolean;
         json?: boolean;
         watch?: string | boolean;
       }) => {
@@ -1144,7 +1154,8 @@ export function buildCli(): Command {
             groupBy,
             trendDays,
             Boolean(opts.hours),
-            Boolean(opts.weekday)
+            Boolean(opts.weekday),
+            Boolean(opts.attempts)
           );
           return; // setInterval keeps the process alive.
         }
@@ -1166,9 +1177,10 @@ export function buildCli(): Command {
         const trend = trendDays !== null ? computeDailyTrend(jobs, { nowMs: now, days: trendDays }) : null;
         const hours = opts.hours ? computeHourlyDistribution(jobs) : null;
         const weekday = opts.weekday ? computeWeekdayDistribution(jobs) : null;
+        const attempts = opts.attempts ? computeAttemptDistribution(jobs) : null;
 
         if (opts.json) {
-          console.log(renderStatsJson(stats, store, { scope, trend, hours, weekday }));
+          console.log(renderStatsJson(stats, store, { scope, trend, hours, weekday, attempts }));
           return;
         }
         // A store with jobs but an empty scoped subset should say "no match",
@@ -1187,6 +1199,10 @@ export function buildCli(): Command {
         if (weekday !== null && stats.total > 0) {
           console.log("");
           console.log(renderWeekday(weekday, { color: Boolean(process.stdout.isTTY) }));
+        }
+        if (attempts !== null && stats.total > 0) {
+          console.log("");
+          console.log(renderAttempts(attempts, { color: Boolean(process.stdout.isTTY) }));
         }
       }
     );
