@@ -1997,3 +1997,27 @@
      (#462/#463/#498/#502/#504/#479/#487/#496/#527), #494(자동 백업), #501(--continue), #460(ical) 등.
   3. **구조적 제안(🧭 코워크)**: 세션 60이 지적한 PROGRESS/BACKLOG append 충돌이 근본 원인 — 문서 갱신을
      병합 후 별도 커밋으로 분리하거나 PR별 파일로 나누면 배치 병합이 가능해진다.
+
+### [세션 63 — `agentrelay eta` 큐 캐치업 카운트다운] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-y4hcy6`)
+- **배경:** 세션 시작 시 열린 PR을 먼저 훑어(세션 60·61 지침) 중복을 피할 신규 항목을 발굴했다. 100개+
+  적체된 PR을 스캔한 결과 `next`(가장 이른 리셋 하나)·`upcoming`(대기 타임라인 목록)·`overdue`(지연 진단)는
+  있지만, **"큐 전체가 언제 다 따라잡히나 — 모든 대기 잡 중 가장 늦은 리셋까지 얼마 남았나"**를 한 줄로
+  답하는 커맨드가 없었다(열린 PR 어디에도 없음). "언제까지 지켜봐야 하나 / 언제 릴레이가 할 일이 없어지나"에
+  답하는 스크립트 친화 진단.
+- **한 일 (branch `claude/wizardly-pascal-y4hcy6`): `agentrelay eta`**
+  1. `@agentrelay/core/eta.ts` 신설(순수·시계/파일시스템 미접촉): `computeQueueEta(jobs, now)` + `QueueEta`
+     (waiting·dueNow·firstResetAt·lastResetAt·etaMs·spanMs·caughtUp). `next`/`upcoming`과 **동일한 필터**
+     (`waiting_for_reset` + 파싱 가능 `resetAt`)로 세 표면이 "릴레이가 실제 무엇을 기다리나"에 일치.
+     캐치업 시각 = 대기 잡의 **최댓값** resetAt(`next`의 최솟값과 대칭), `etaMs`는 그때까지의 ms(전부 지났으면
+     음수), `spanMs`는 최소~최대 리셋 폭. 대기 잡 0개면 `caughtUp: true`(전 필드 null).
+  2. CLI `packages/cli/src/eta.ts`에 순수 `renderEta`(한 줄 요약 + 대기 수/due now/last reset/span,
+     `formatDurationMs` 재사용으로 stats/overdue와 표기 일치, etaMs<=0은 "now (all due)")·`renderEtaJson`
+     (next와 동일 envelope). `agentrelay eta [--json] [--exit-code]` 배선 — `--exit-code`는 캐치업 0 /
+     대기 중 3(`until agentrelay eta --exit-code; do sleep 60; done` 폴링 루프 친화). completion 자동 포함.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**, `pnpm test`
+    **core 582 + cli 320/1skip + dashboard 통과**(core eta 7 + cli eta 7 신규). **실제 빌드 CLI e2e**(mock 아님):
+    대기 2(30m·3h)+완료 1 스토어 시드 → `eta`가 "caught up in 3h 0m / 2 jobs waiting, last resets …, spread
+    over 2h 30m", `--exit-code`=3, `--json`이 first/last/waiting/caughtUp 정확, 빈 스토어→"caught up" + exit 0,
+    completion에 `eta` 포함 확인.
+- **다음 할 일(다음 세션):** 세션 60·61 지침 유지 — **새 PR 전에 열린 PR부터 훑어 중복 확인**, 적체(100+)가
+  최우선 리스크이니 통합/병합을 우선 고려. 남은 고유 기능 PR을 리베이스·병합해 파이프 비우기. README/ARCHITECTURE(🧭).
