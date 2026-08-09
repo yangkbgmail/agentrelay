@@ -2044,3 +2044,25 @@
   4. **구조적 근본 해결(🧭 코워크/소유자)**: 자율 빌더가 병합보다 빠르게 PR을 양산 중 — ① 기능 PR에서
      PROGRESS/BACKLOG append 금지(로그는 병합 후 별도 커밋/세션별 파일), ② 신규 기능 전 중복 검사 강제,
      ③ 적체 임계 초과 시 통합 모드 자동 전환. 이 3가지 없이는 적체가 재발한다.
+
+### [세션 64 — 적체 통합: `eta`(#550) + `config get`(#547) 두 고유 기능 병합] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-qqi24f`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR을 스캔하니 여전히 ~수백 개 적체. 세션 60~63의 재발방지
+  지침("적체 시 신규 빌드가 아니라 통합이 최우선")에 따라 새 기능 0줄로, 이미 검증된 고유 기능 PR을
+  최신 main 위로 통합했다.
+- **한 일(COLLAB.md L41 "CI 초록이면 클로드 코드가 병합" 근거):**
+  1. **`agentrelay eta`(#550 cherry-pick)** — 큐 캐치업 카운트다운. 모든 대기 잡의 **가장 늦은(max)
+     `resetAt`**까지 카운트다운을 한 줄로. `next`(min)·`upcoming`(목록)·`overdue`(진단)와 대칭.
+     core `eta.ts` `computeQueueEta` + CLI `eta.ts` `renderEta`/`--json`/`--exit-code`(캐치업 0·대기 3).
+  2. **`agentrelay config get <key>`(#547 cherry-pick)** — 유효 설정값 하나를 스크립트 친화 조회.
+     core `config.ts` `envKeyForConfigKey` + CLI `getConfigValue`, `config get [--json] [--exit-code]`.
+     미설정은 무출력(`$(...)` 빈 문자열), 미지 키 exit 2, secret 전체 값.
+- **통합 방식(근본 원인 회피):** 두 PR은 base가 오래되어 **PROGRESS.md append만 충돌**(코드는 클린).
+  최신 origin/main 위로 각 커밋만 cherry-pick하고 PROGRESS append는 버린 뒤 이 로그 하나로 통합 →
+  세션 60~63이 진단한 "기능 PR의 PROGRESS append 충돌" 재발 방지.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test`
+  전 패키지 통과(**core 584** eta 7·config +2 / **cli 328/1skip** eta 7). 실제 빌드 CLI e2e로
+  eta 카운트다운·`--exit-code`, config get 기본/`--json`/미지키 exit 2 확인.
+- **다음 할 일:** 남은 고유 기능 PR을 같은 방식(최신 main 위 cherry-pick·PROGRESS append 버림)으로
+  계속 통합해 파이프 배수: #542(stats --attempts)·#537(exec 알림)·#536(parser week)·#535/#534/#532·
+  #531(diff)·#523/#483(대시보드)·파서 계열·#494(자동 백업)·#460(ical). 대형 중복 축은 대표만 남기고 정리.
