@@ -810,6 +810,23 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay drain` — 큐 전체(또는 스코프)가 캐치업될 때까지 블록 후 결과를 exit code로 반환.
+      `wait <id>`(단일 잡)·`eta`(비블록 카운트다운)의 빠진 짝인 **플릿 레벨 blocking wait**.
+      (완료 — core `drain.ts` 신설(순수·시계/스토어 미접촉): `summarizeDrain(jobs)`→`DrainSnapshot`
+      (total/active/completed/failed/cancelled, active=`ACTIVE_STATUSES` 재사용) + `evaluateDrain(jobs)`
+      (active===0이면 done) + `DrainOutcome`(drained/timeout)·`DRAIN_EXIT_CODES`(0/124[GNU timeout 관례,
+      wait와 동일]) + 순수 `drainExitCode(outcome,snapshot,failOnError)`(timeout→124, `--fail-on-error`
+      시 drained+failed>0→1, 그 외 0). CLI `commands.ts` `drainQueue(options)` — `waitForJob` 패턴을
+      본떠 매 폴링마다 스토어 재오픈해 별도 daemon/tick 프로세스의 드레인을 관측, 스코프는 `scopeJobs`로
+      매 폴링 재적용(경계는 시작 시 고정 epoch-ms), 첫 검사 즉시(이미 캐치업이면 sleep 없이 반환),
+      `--timeout`은 sleep 전 데드라인 검사로 1인터벌 이상 초과 안 함, now/sleep/readJobs 주입 가능.
+      CLI `drain.ts` `renderDrainJson`(wait/eta와 동일 envelope). `agentrelay drain [--timeout][--interval]
+      [--fail-on-error][-s/--status][-t/--tool][-p/--project][--since][--until][--json][-q]` 배선 —
+      공용 `buildScope` 재사용, 잘못된 timeout/interval/스코프는 watch 전 exit 1, completion 자동 포함.
+      스크립트/CI가 "배치 큐잉 → drain → 전부 성공 시에만 deploy"로 체인 가능. core drain 10 + cli
+      drainQueue 6 신규 테스트, 실제 빌드 CLI e2e로 빈 스토어→0·drained·--fail-on-error→1·timeout→124·
+      --project 스코프·잘못된 입력 exit 1·completion/help 노출 검증. branch `claude/wizardly-pascal-ryxpmq`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
