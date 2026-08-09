@@ -4,6 +4,7 @@
 // in cli.ts, so the exact output is unit-testable without a store or a clock.
 
 import type {
+  ActivityHeatmap,
   DailyActivity,
   GroupDimension,
   GroupedStat,
@@ -13,7 +14,7 @@ import type {
   RelayStats,
   WeekdayActivity,
 } from "@agentrelay/core";
-import { isJobScopeActive } from "@agentrelay/core";
+import { isJobScopeActive, WEEKDAY_NAMES } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
 const BOLD = "\x1b[1m";
@@ -335,6 +336,72 @@ export function renderWeekday(
   return lines.join("\n");
 }
 
+/** Ramp glyphs for the heatmap, from lightest (few jobs) to heaviest (busiest). */
+const HEATMAP_RAMP = ["░", "▒", "▓", "█"] as const;
+/** Glyph shown for a cell with zero jobs (a dim baseline dot). */
+const HEATMAP_EMPTY = "·";
+
+/**
+ * Picks a heatmap glyph for `count` relative to the busiest cell `max`. Zero
+ * cells get a baseline dot; non-zero cells map into four ramp levels by their
+ * share of the peak, so a single glance shows where activity concentrates.
+ */
+function heatmapGlyph(count: number, max: number): string {
+  if (count <= 0) return HEATMAP_EMPTY;
+  if (max <= 0) return HEATMAP_RAMP[0];
+  // Non-zero cells always get at least the lightest block; the busiest cell
+  // gets the darkest. Four quartile bands in between.
+  const level = Math.min(HEATMAP_RAMP.length - 1, Math.ceil((count / max) * HEATMAP_RAMP.length) - 1);
+  return HEATMAP_RAMP[Math.max(0, level)];
+}
+
+/**
+ * Renders a UTC weekday × hour-of-day activity heatmap (a 7×24 grid) as compact
+ * ASCII, combining the day-of-week and hour-of-day axes into one view so a
+ * glance shows *when in the week* rate-limits cluster ("Monday mornings").
+ * Cells ramp `·░▒▓█` from empty to the busiest cell; an hour axis labels
+ * columns 0/6/12/18 and each row is suffixed with its weekday total. Pure: no
+ * I/O, no clock. Callers pass the already-computed heatmap so it stays testable.
+ */
+export function renderHeatmap(heatmap: ActivityHeatmap, options: { color?: boolean; zoneLabel?: string } = {}): string {
+  const color = options.color ?? false;
+  const zone = options.zoneLabel ?? "UTC";
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [b("heatmap") + d(` (jobs created per ${zone} weekday × hour of day)`)];
+  const { cells, total, maxCell } = heatmap;
+  if (total === 0) {
+    lines.push("  none");
+    return lines.join("\n");
+  }
+
+  // Six-char row prefix ("  Sun ") lines the grid up under the hour axis.
+  const indent = "      ";
+  const axis = new Array<string>(24).fill(" ");
+  for (const h of [0, 6, 12, 18]) {
+    const label = String(h);
+    for (let i = 0; i < label.length && h + i < 24; i++) axis[h + i] = label[i] ?? " ";
+  }
+  lines.push(d(`${indent}${axis.join("")}`));
+
+  for (let weekday = 0; weekday < 7; weekday++) {
+    const row = cells[weekday] ?? [];
+    const rowTotal = row.reduce((sum, c) => sum + c, 0);
+    const grid = row
+      .map((count) => {
+        const g = heatmapGlyph(count, maxCell);
+        return g === HEATMAP_EMPTY && color ? d(g) : g;
+      })
+      .join("");
+    lines.push(`  ${WEEKDAY_NAMES[weekday]} ${grid} ${rowTotal}`);
+  }
+
+  const legend = `less ${HEATMAP_RAMP.join("")} more`;
+  lines.push(d(`  ${legend}    ${total} job(s), ${zone} (peak ${maxCell}/cell)`));
+  return lines.join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,
@@ -345,17 +412,19 @@ export function renderStatsJson(
     trend?: DailyActivity[] | null;
     hours?: HourlyActivity[] | null;
     weekday?: WeekdayActivity[] | null;
+    heatmap?: ActivityHeatmap | null;
   } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
-  // Only emit `trend`/`hours`/`weekday` when the matching flag was requested;
-  // omit them otherwise so the default JSON shape is unchanged for existing
-  // consumers.
+  // Only emit `trend`/`hours`/`weekday`/`heatmap` when the matching flag was
+  // requested; omit them otherwise so the default JSON shape is unchanged for
+  // existing consumers.
   const trend = options.trend ?? undefined;
   const hours = options.hours ?? undefined;
   const weekday = options.weekday ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, stats }, null, 2);
+  const heatmap = options.heatmap ?? undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, heatmap, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */
