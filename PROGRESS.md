@@ -2089,3 +2089,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `--group-by` per-group
   요약에 median 외 p90/스프레드 노출, timing 블록에 변동계수(CV=stdev/mean) 등. tz/heatmap/parser/watch는
   PR 포화라 지양. 적체가 크면 신규 빌드보다 통합 우선(세션 60~64 기조). README/ARCHITECTURE(🧭 코워크).
+
+### [세션 66 — 적체 통합: `verify`(#224) + 바운드 동시 재개(#201) 두 고유 기능 병합] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-npqif6`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR을 스캔하니 여전히 100+ 적체(대부분 파서/watch/stats 축 중복).
+  세션 60~65의 재발방지 기조("적체 시 신규 빌드가 아니라 통합이 최우선")에 따라 **새 기능 코드 0줄 발명**
+  없이, 이미 CI 초록으로 검증된 고유 기능 2개를 최신 origin/main 위로 cherry-pick 통합했다.
+- **한 일(COLLAB.md "CI 초록이면 클로드 코드가 병합" 근거, cherry-pick·문서 append 폐기 방식):**
+  1. **`agentrelay verify`(#224 cherry-pick)** — 잡 스토어 무결성 린터. JSON 파일 스토어의 각 레코드를
+     검증(누락/타입 오류 필드·미지 status/tool·빈 command·음수 attempts 등)해 error/warning으로 리포트.
+     core `verify.ts` `verifyStore`/`VerifyReport`/`VerifyIssue`, CLI `verify.ts` `renderVerify`/`renderVerifyJson`,
+     `agentrelay verify [--json]`(문제 있으면 exit 1 → CI/pre-flight 게이트). 손상 스토어 보존/복구(세션 14)의
+     짝 — 그건 파싱 불가 파일을 살리고, 이건 파싱은 되지만 의미가 깨진 레코드를 잡는다.
+  2. **바운드 동시 재개(#201 cherry-pick)** — `AGENTRELAY_MAX_CONCURRENT`. 한 tick에서 여러 대기 잡이
+     동시에 due일 때, 전부 한꺼번에 spawn하지 않고 지정한 상한만큼만 동시 재개(thundering-herd 완화).
+     core `concurrency.ts` `normalizeMaxConcurrent`/`maxConcurrentFromEnv`/`mapWithConcurrency`,
+     `RelayScheduler`에 `maxConcurrent` 옵션 배선, daemon 배너에 "(max N concurrent)" 표기.
+- **통합 방식(근본 원인 회피):** 두 PR 모두 base가 오래돼 **BACKLOG/PROGRESS append만 충돌**(코드는
+  index.ts/cli.ts의 단순 additive import 충돌 외 클린). 최신 origin/main 위로 각 커밋만 cherry-pick하고
+  문서 append는 폐기, 이 로그 하나로 통합 → 세션 60~64가 진단한 "기능 PR의 PROGRESS append 충돌" 재발 방지.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 114파일)→`pnpm test`
+  전 패키지 통과(**core 614** concurrency 11·verify 14 / **cli 336/1skip** verify 8 / dashboard 9). **실제
+  빌드 CLI e2e**(mock 아님): `verify`가 healthy 스토어→"Store is healthy"·exit 0, 깨진 레코드(빈 command·
+  미지 status·음수 attempts·누락 project)→`error [invalid-record] #0 …`·exit 1, `--json` 머신 출력 확인.
+  concurrency는 daemon 배너·`normalizeMaxConcurrent`/`mapWithConcurrency` 유닛(11케이스)으로 검증.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합) 후 원본 #224·#201 및 그 중복(#171·#224
+  verify, stagger 계열 #158/#161/#162)을 대표 통합을 가리키며 close. 남은 고유 기능 PR 계속 배수 —
+  #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
+  #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
