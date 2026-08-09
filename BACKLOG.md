@@ -750,6 +750,18 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 파서가 상대 지속시간(relative-duration)에서 **주(week)** 단위를 인식 — Claude Code가 강제하는
+      주간 사용 제한("your weekly limit resets in 1 week", "try again in 2w 3d")을 놓치지 않게.
+      (완료 — 기존 `relative-duration` 패턴은 일/시/분(`d`/`h`/`m`)까지만 잡아, 주간 창을 "3 days"처럼 일로
+      환산해 준 경우만 처리하고 "in 1 week"/"in 2w"/"1w 3d"는 놓쳤다. `parser.ts`의 relative-duration 정규식
+      맨 앞에 옵셔널 주 그룹 `(?:(\d+)\s*w(?:eeks?)?)?`를 추가하고 resolve를 weeks→days→hours→minutes(그룹
+      인덱스 1–4) 순으로 재배선(`(((weeks*7+days)*24+hours)*60+minutes)*60_000`). 단위는 전부 옵셔널이라
+      임의 부분집합(bare "in 1 week")도 매칭, 전부 0이면 null(오탐 방지). 초(seconds)는 기존 결정대로 generic
+      파서 미포함(Codex 어댑터 소유) 유지. 새 core/스케줄러/CLI 로직 0줄 — 파서 패턴 한 곳만 확장.
+      parser.test.ts에 4케이스 신규(1 week=+7d·2w=+14d·1w 3d=+10d·"5 minutes" 회귀 안전), 실제 빌드 CLI
+      `parse`로 "resets in 1 week"→+7d·"2w 3d"→+17d·"5 minutes"→+5m e2e 검증. branch
+      `claude/parser-relative-weeks`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
