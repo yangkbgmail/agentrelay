@@ -2118,3 +2118,30 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 67 — 적체 통합: `export --format tsv`(#167) 고유 기능 병합] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-p004oe`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR을 스캔하니 여전히 100+ 적체(파서/watch/stats 축 중복 다수).
+  세션 60~66 재발방지 기조("적체 시 신규 빌드가 아니라 통합이 최우선")에 따라, 세션 66이 후속 후보로
+  명시한 고유 기능 중 가장 작고 자기완결적인 `export --format tsv`(#167)를 골랐다. cherry-pick은 base가
+  오래돼 파일 구조가 diverge(cli.ts export가 L917↔L1577)라 충돌 위험 → **최신 main 위에 동일 코드를 직접
+  구현**해 클린 적용(문서 append 충돌 원천 차단).
+- **한 일 (branch `claude/wizardly-pascal-p004oe`):** **`agentrelay export --format tsv`** — 탭 구분 내보내기.
+  - core `export.ts`: 순수 `escapeTsvField`(`\`·tab·CR·LF를 백슬래시 이스케이프 — 필드가 절대 리터럴 탭/
+    개행을 안 품게 해 `cut -f`/`awk -F'\t'`가 안전하게 슬라이스, 역이스케이프 가능; 백슬래시를 먼저
+    이스케이프해 escaped tab 오독 방지) + `jobsToTsv`(LF·trailing newline 없음, 빈 스토어도 헤더 유지,
+    `header:false` 지원). `EXPORT_FORMATS`에 `tsv`·`COLUMN_AWARE_FORMATS`에 `tsv` 추가 → 컬럼/셀 값은
+    CSV/MD/HTML과 `JOB_CSV_COLUMNS`/`jobCsvValue` 공유(lockstep, 동일 `--columns` 서브셋 존중).
+    `exportJobs` 디스패처에 `tsv` case. CSV가 프롬프트의 콤마를 quote-aware 파싱으로 살리는 반면 TSV는
+    셸에서 자명하게 슬라이스되는 게 차별점.
+  - CLI `cli.ts`: export description·`--columns` 도움말을 `COLUMN_AWARE_FORMATS`(이미 import됨) 파생 문자열로.
+    새 플래그·파서/스케줄러 로직 0줄 — 전부 기존 검증된 export 파이프라인 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 626** escapeTsvField 3·jobsToTsv 7·dispatch 2 / **cli 338/1skip** export tsv 2 / dashboard 9).
+  **실제 빌드 CLI e2e**(mock 아님): 콤마 포함 project(`web,api`)+명령어 내 탭을 가진 잡을 시드 →
+  `export --format tsv`가 탭 헤더/행(11셀)·콤마 비인용·탭→`\t` 이스케이프로 `awk -F'\t'` 정확 슬라이스·
+  null resetAt/lastError 빈 셀 렌더, `--columns project,command` 서브셋, help가 `tsv`·`csv/md/html/tsv` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합) 후 원본 #167 및 그 중복을 대표 통합을
+  가리키며 close. 남은 고유 기능 PR 계속 배수 — #182(report)·#173(diff)·#204/#172(reschedule)·
+  #195(notify events)·#202(notify throttle)·#213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·
+  #228(man)·#230(tail). tz/heatmap/parser/watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
