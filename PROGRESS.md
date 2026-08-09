@@ -1859,3 +1859,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 60 — `agentrelay stats --hours/--weekday --local` 로컬 타임존 뷰] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-hyn9w9`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 58·59가 "다음 할 일"로 명시한 후속 후보 중 하나 — `stats --hours`(세션 58)·
+  `--weekday`(세션 59)가 UTC로만 버킷팅돼, UTC+9 같은 사용자에겐 "내가 몇 시에 throttle되나"가 실제 벽시계와
+  9시간 어긋나 보였다. 로컬 타임존으로 볼 수 있는 옵션을 구현했다.
+- **한 일 (branch `claude/wizardly-pascal-hyn9w9`):** `agentrelay stats --hours/--weekday --local` — 히스토그램을
+  로컬 타임존으로 버킷팅.
+  - core `stats.ts`: `computeHourlyDistribution`·`computeWeekdayDistribution`에 옵셔널 `DistributionOptions`
+    (`utcOffsetMinutes`) 추가. 각 타임스탬프에 오프셋(분)을 더한 뒤 `getUTCHours()`/`getUTCDay()`로 읽어
+    벽시계 버킷을 구한다(shifted-UTC = local). 기본 0 = UTC라 **기존 호출·JSON shape 불변**. 순수 유지 —
+    앰비언트 타임존을 읽지 않고 호출자가 오프셋을 주입(단일 오프셋이라 DST 전환은 미모델링, 라벨이 실제 오프셋 표기).
+  - CLI `stats.ts`: `formatUtcOffsetLabel(offsetMinutes)`(0/비유한→`UTC`, 그 외 `UTC+09:00`/`UTC-05:30`) 신설.
+    `renderHours`/`renderWeekday`에 옵셔널 `tzLabel`(기본 `"UTC"`) 추가 — 헤더·푸터의 존 라벨을 치환.
+    `renderStatsJson`에 옵셔널 `timezone`(`{label, offsetMinutes}`) 필드 추가(`--local` 히스토그램일 때만 방출,
+    기본 JSON shape 불변).
+  - `cli.ts`: `stats`에 `--local` 플래그 배선. `utcOffsetMinutes = -new Date().getTimezoneOffset()`(west-positive를
+    east-positive로 반전)를 일회성 뷰·`--watch`·`--json` 세 경로에 모두 배선. addHelpText 예시 1줄,
+    completion은 라이브 프로그램 파생이라 `--local` 자동 포함. 새 파서/스케줄러/core 스토어 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 563→568, cli stats 37→43=310/1skip, dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  2-잡 임시 스토어(web 완료[2026-07-19 22:00Z=Sun]·web 완료[2026-07-20 15:00Z=Mon])로 기본은 22:00·15:00 UTC/
+  Sun·Mon 버킷, `TZ=Asia/Seoul --local`은 07:00·00:00 UTC+09:00/Mon·Tue로 **시간·요일 롤오버 동시 검증**,
+  `--local --json`은 `timezone {label:"UTC+09:00", offsetMinutes:540}`+시프트된 hours/weekday, 기본 `--json`은
+  `timezone` 미포함, `--help`·bash completion에 `--local` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
+  시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `--local`을 임의
+  `--tz <offset>`로 확장(순수 함수는 이미 오프셋 주입식이라 CLI 파싱만 추가하면 됨). README/ARCHITECTURE(🧭 코워크).

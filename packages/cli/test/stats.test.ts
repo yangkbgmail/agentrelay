@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatDurationMs,
   formatSuccessRate,
+  formatUtcOffsetLabel,
   NO_GROUP_MESSAGE,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
@@ -375,6 +376,31 @@ describe("renderHours", () => {
     expect(out).toMatch(/14:00 .* 1/);
     expect(out).toContain("3 job(s) across 24 hour(s), UTC");
   });
+
+  it("labels the header and footer with a custom tzLabel (local view)", () => {
+    const out = renderHours(distFrom({ 8: 1 }), { tzLabel: "UTC+09:00" });
+    expect(out.split("\n")[0]).toContain("per hour of day, UTC+09:00");
+    expect(out).toContain("1 job(s) across 24 hour(s), UTC+09:00");
+    expect(out).not.toContain(", UTC)"); // the default label is fully replaced
+  });
+});
+
+describe("formatUtcOffsetLabel", () => {
+  it("returns plain UTC for a zero / non-finite offset", () => {
+    expect(formatUtcOffsetLabel(0)).toBe("UTC");
+    expect(formatUtcOffsetLabel(Number.NaN)).toBe("UTC");
+  });
+
+  it("formats whole-hour offsets east and west of UTC", () => {
+    expect(formatUtcOffsetLabel(540)).toBe("UTC+09:00");
+    expect(formatUtcOffsetLabel(-300)).toBe("UTC-05:00");
+  });
+
+  it("formats sub-hour offsets with minutes", () => {
+    expect(formatUtcOffsetLabel(330)).toBe("UTC+05:30");
+    expect(formatUtcOffsetLabel(-330)).toBe("UTC-05:30");
+    expect(formatUtcOffsetLabel(345)).toBe("UTC+05:45");
+  });
 });
 
 describe("renderStatsJson hours field", () => {
@@ -440,6 +466,12 @@ describe("renderWeekday", () => {
     expect(out).toMatch(/Wed .* 1/);
     expect(out).toContain("3 job(s) across 7 day(s), UTC");
   });
+
+  it("labels the header and footer with a custom tzLabel (local view)", () => {
+    const out = renderWeekday(distFrom({ 1: 1 }), { tzLabel: "UTC-05:00" });
+    expect(out.split("\n")[0]).toContain("per day of week, UTC-05:00");
+    expect(out).toContain("1 job(s) across 7 day(s), UTC-05:00");
+  });
 });
 
 describe("renderStatsJson weekday field", () => {
@@ -452,6 +484,18 @@ describe("renderStatsJson weekday field", () => {
     expect(withWeekday.weekday).toHaveLength(7);
     expect(withWeekday.weekday[1].count).toBe(1);
     expect(withWeekday.weekday[1].name).toBe("Mon");
+  });
+});
+
+describe("renderStatsJson timezone field", () => {
+  it("omits `timezone` by default but includes it when provided (local view)", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("timezone" in without).toBe(false);
+    const withTz = JSON.parse(
+      renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", timezone: { label: "UTC+09:00", offsetMinutes: 540 } })
+    );
+    expect(withTz.timezone).toEqual({ label: "UTC+09:00", offsetMinutes: 540 });
   });
 });
 

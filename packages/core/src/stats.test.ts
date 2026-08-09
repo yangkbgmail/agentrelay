@@ -527,6 +527,27 @@ describe("computeHourlyDistribution", () => {
     computeHourlyDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
   });
+
+  it("shifts buckets by a positive utcOffsetMinutes (UTC+09:00)", () => {
+    // 23:00 UTC + 9h = 08:00 next day; 15:00 UTC + 9h = 00:00 next day.
+    const jobs = [job({ createdAt: "2026-07-20T23:00:00.000Z" }), job({ createdAt: "2026-07-20T15:00:00.000Z" })];
+    const dist = computeHourlyDistribution(jobs, { utcOffsetMinutes: 540 });
+    expect(dist[8].count).toBe(1);
+    expect(dist[0].count).toBe(1);
+    expect(dist[23].count).toBe(0); // no longer bucketed at UTC hour
+  });
+
+  it("shifts buckets by a negative utcOffsetMinutes (UTC-05:30) including sub-hour offsets", () => {
+    // 02:00 UTC - 5h30 = 20:30 previous day → hour 20.
+    const jobs = [job({ createdAt: "2026-07-20T02:00:00.000Z" })];
+    const dist = computeHourlyDistribution(jobs, { utcOffsetMinutes: -330 });
+    expect(dist[20].count).toBe(1);
+  });
+
+  it("treats an explicit utcOffsetMinutes of 0 the same as UTC (default)", () => {
+    const jobs = [job({ createdAt: "2026-07-20T09:00:00.000Z" })];
+    expect(computeHourlyDistribution(jobs, { utcOffsetMinutes: 0 })).toEqual(computeHourlyDistribution(jobs));
+  });
 });
 
 describe("computeWeekdayDistribution", () => {
@@ -571,5 +592,23 @@ describe("computeWeekdayDistribution", () => {
     const before = JSON.stringify(jobs);
     computeWeekdayDistribution(jobs);
     expect(JSON.stringify(jobs)).toBe(before);
+  });
+
+  it("can roll a job onto a different weekday with utcOffsetMinutes", () => {
+    // 2026-07-19 22:00 UTC is a Sunday; +9h → 2026-07-20 07:00, a Monday.
+    const jobs = [job({ createdAt: "2026-07-19T22:00:00.000Z" })];
+    const utc = computeWeekdayDistribution(jobs);
+    expect(utc[0].count).toBe(1); // Sunday in UTC
+    const local = computeWeekdayDistribution(jobs, { utcOffsetMinutes: 540 });
+    expect(local[1].count).toBe(1); // Monday at UTC+09:00
+    expect(local[0].count).toBe(0);
+  });
+
+  it("can roll a job back a weekday with a negative offset", () => {
+    // 2026-07-20 02:00 UTC is a Monday; -5h → 2026-07-19 21:00, a Sunday.
+    const jobs = [job({ createdAt: "2026-07-20T02:00:00.000Z" })];
+    const local = computeWeekdayDistribution(jobs, { utcOffsetMinutes: -300 });
+    expect(local[0].count).toBe(1); // Sunday
+    expect(local[1].count).toBe(0);
   });
 });

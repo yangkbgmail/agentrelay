@@ -750,6 +750,21 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 `agentrelay stats --hours/--weekday --local` — 히스토그램을 UTC가 아니라 로컬 타임존으로 버킷팅.
+      세션 58·59의 `--hours`/`--weekday`가 UTC 전용이라 UTC+9 등 사용자에겐 벽시계와 어긋나 보였음
+      (직전 세션들이 "다음 할 일"로 제안).
+      (완료 — core `stats.ts`의 `computeHourlyDistribution`·`computeWeekdayDistribution`에 옵셔널
+      `DistributionOptions`(`utcOffsetMinutes`) 추가 — 타임스탬프에 오프셋(분)을 더한 뒤 `getUTCHours()`/
+      `getUTCDay()`로 읽어 벽시계 버킷 산출, 기본 0=UTC라 기존 호출·JSON shape 불변, 앰비언트 타임존 미읽음
+      (순수 유지, 오프셋 주입식). CLI `stats.ts`에 `formatUtcOffsetLabel`(0/비유한→`UTC`, 그 외 `UTC±HH:MM`) 신설,
+      `renderHours`/`renderWeekday`에 옵셔널 `tzLabel`(기본 `UTC`)로 헤더·푸터 존 라벨 치환, `renderStatsJson`에
+      옵셔널 `timezone`(`{label, offsetMinutes}`) 필드(`--local` 히스토그램일 때만 방출). `cli.ts` `stats`에
+      `--local` 배선 — `-new Date().getTimezoneOffset()`를 일회성·`--watch`·`--json` 세 경로에 적용, 기존 스코프
+      필터·`--hours`/`--weekday`/`--trend`와 조합 가능. 새 파서/스케줄러 로직 0줄. core stats +5(=568) +
+      cli stats +6(=43) 신규 테스트, 실제 빌드 CLI e2e로 `TZ=Asia/Seoul --local`의 시간·요일 롤오버 동시
+      검증(22:00Z Sun→07:00 Mon, 15:00Z Mon→00:00 Tue)·`--local --json` timezone 필드·기본 JSON 미포함·
+      help/completion `--local` 노출 검증. branch `claude/wizardly-pascal-hyn9w9`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
