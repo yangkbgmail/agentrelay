@@ -750,6 +750,22 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 `agentrelay stats --tz <offset>` — `--trend`/`--hours`/`--weekday` 히스토그램을 UTC 대신 로컬
+      타임존(고정 UTC 오프셋) 기준으로 버킷팅. 지금까지 세 히스토그램이 전부 UTC 고정이라, 비-UTC 사용자는
+      "내 로컬 시간 오전 9시에 throttle된다" 같은 리듬을 볼 수 없었다(직전 세션이 "다음 할 일"로 제안).
+      (완료 — core `stats.ts`에 순수 `parseTzOffset(input)`(`+09:00`/`-05:00`/`+9`/`-0530`/`UTC`/`Z`/`GMT`,
+      `UTC+09:00` 접두 형태도 파싱→분 단위 부호 오프셋, ±14:00 범위밖·garbage는 null, `-0`은 `0`으로 정규화) +
+      `formatTzOffsetLabel(minutes)`(0→`UTC`, 그외 `UTC±HH:MM`) 신설. `computeDailyTrend`/
+      `computeHourlyDistribution`/`computeWeekdayDistribution`에 옵셔널 `tzOffsetMinutes`(기본 0=UTC) 추가 —
+      타임스탬프에 오프셋 ms를 더한 뒤 UTC 필드를 읽어 로컬 벽시계 기준 버킷/일자 라벨을 산출(순수 유지, DST
+      미추종 고정 오프셋). CLI `stats.ts`의 `renderTrend`/`renderHours`/`renderWeekday`에 `tzLabel` 옵션(헤더·
+      푸터의 "UTC" 대체), `renderStatsJson`에 옵셔널 `tz` 필드(비-UTC일 때만 방출, 기본 JSON shape 불변).
+      `cli.ts` `stats`에 `--tz <offset>` 배선 — 파싱 실패는 exit 1, 일회성·`--json`·`--watch` 세 뷰 모두 적용,
+      기존 스코프 필터 및 `--hours`/`--weekday`/`--trend`와 조합 가능. 새 파서/스케줄러/스토어 로직 0줄.
+      core stats +9 + cli stats +4 신규 테스트, 실제 빌드 CLI e2e로 UTC vs UTC+9 시간 시프트(23:30 UTC→
+      hour 8)·요일 경계 이동·`--json` `tz` 필드·기본 JSON 미포함·잘못된 오프셋 exit 1 검증. branch
+      `claude/wizardly-pascal-40pa0j`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

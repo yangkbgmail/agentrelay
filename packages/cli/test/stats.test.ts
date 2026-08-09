@@ -275,6 +275,11 @@ describe("renderTrend", () => {
     expect(lines[lines.length - 1]).toContain("6 job(s) over 3 day(s)");
   });
 
+  it("labels the header with UTC by default and a custom tz label when given", () => {
+    expect(renderTrend(trend)).toContain("(jobs created per day, UTC)");
+    expect(renderTrend(trend, { tzLabel: "UTC+09:00" })).toContain("(jobs created per day, UTC+09:00)");
+  });
+
   it("scales bars to the busiest day and draws blocks only for non-zero days", () => {
     const out = renderTrend(trend);
     const rows = out.split("\n");
@@ -323,6 +328,16 @@ describe("renderStatsJson trend field", () => {
     const trend: DailyActivity[] = [{ date: "2026-07-20", count: 1 }];
     const withTrend = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", trend }));
     expect(withTrend.trend).toEqual(trend);
+  });
+
+  it("omits `tz` for UTC/unset but includes it for a non-UTC offset", () => {
+    const stats = computeStats([job()]);
+    const utc = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", tz: "UTC" }));
+    expect("tz" in utc).toBe(false);
+    const unset = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("tz" in unset).toBe(false);
+    const shifted = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", tz: "UTC+09:00" }));
+    expect(shifted.tz).toBe("UTC+09:00");
   });
 });
 
@@ -374,6 +389,13 @@ describe("renderHours", () => {
     expect(out).toMatch(/09:00 .* 2/);
     expect(out).toMatch(/14:00 .* 1/);
     expect(out).toContain("3 job(s) across 24 hour(s), UTC");
+  });
+
+  it("labels the header and footer with a custom tz label", () => {
+    const out = renderHours(distFrom({ 9: 1 }), { tzLabel: "UTC+09:00" });
+    expect(out).toContain("(jobs created per hour of day, UTC+09:00)");
+    expect(out).toContain("1 job(s) across 24 hour(s), UTC+09:00");
+    expect(out).not.toContain(" UTC)");
   });
 });
 
@@ -439,6 +461,12 @@ describe("renderWeekday", () => {
     expect(out).toMatch(/Mon .* 2/);
     expect(out).toMatch(/Wed .* 1/);
     expect(out).toContain("3 job(s) across 7 day(s), UTC");
+  });
+
+  it("labels the header and footer with a custom tz label", () => {
+    const out = renderWeekday(distFrom({ 1: 1 }), { tzLabel: "UTC-05:00" });
+    expect(out).toContain("(jobs created per day of week, UTC-05:00)");
+    expect(out).toContain("1 job(s) across 7 day(s), UTC-05:00");
   });
 });
 

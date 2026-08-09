@@ -23,6 +23,7 @@ import {
   computeStats,
   computeWeekdayDistribution,
   EXPORT_FORMATS,
+  formatTzOffsetLabel,
   GROUP_DIMENSIONS,
   generateCompletion,
   groupStats,
@@ -33,6 +34,7 @@ import {
   JOB_CSV_COLUMNS,
   parseCsvColumns,
   parseDuration,
+  parseTzOffset,
   renderPrometheusMetrics,
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
@@ -453,9 +455,11 @@ function runStatsWatch(
   groupBy: GroupDimension | undefined,
   trendDays: number | null,
   hours: boolean,
-  weekday: boolean
+  weekday: boolean,
+  tzOffsetMinutes: number
 ): void {
   const active = isJobScopeActive(scope);
+  const tzLabel = formatTzOffsetLabel(tzOffsetMinutes);
   startWatchLoop(intervalMs, () => {
     const now = Date.now();
     const all = listStatus(store);
@@ -467,14 +471,14 @@ function runStatsWatch(
       const stats = computeStats(jobs);
       body = renderStats(stats, { color: true, scopeNote, now });
       if (trendDays !== null && stats.total > 0) {
-        const trend = computeDailyTrend(jobs, { nowMs: now, days: trendDays });
-        body += `\n\n${renderTrend(trend, { color: true })}`;
+        const trend = computeDailyTrend(jobs, { nowMs: now, days: trendDays, tzOffsetMinutes });
+        body += `\n\n${renderTrend(trend, { color: true, tzLabel })}`;
       }
       if (hours && stats.total > 0) {
-        body += `\n\n${renderHours(computeHourlyDistribution(jobs), { color: true })}`;
+        body += `\n\n${renderHours(computeHourlyDistribution(jobs, { tzOffsetMinutes }), { color: true, tzLabel })}`;
       }
       if (weekday && stats.total > 0) {
-        body += `\n\n${renderWeekday(computeWeekdayDistribution(jobs), { color: true })}`;
+        body += `\n\n${renderWeekday(computeWeekdayDistribution(jobs, { tzOffsetMinutes }), { color: true, tzLabel })}`;
       }
     }
     const frame = renderStatsWatchFrame(body, store, intervalMs, now);
@@ -998,6 +1002,10 @@ export function buildCli(): Command {
     .option("--trend [days]", "Also show a per-day activity histogram over the last N days, UTC (default 14, max 90)")
     .option("--hours", "Also show an hour-of-day activity histogram (jobs created per UTC hour, 0–23)")
     .option("--weekday", "Also show a day-of-week activity histogram (jobs created per UTC weekday, Sun–Sat)")
+    .option(
+      "--tz <offset>",
+      "Bucket the --trend/--hours/--weekday histograms in a fixed UTC offset instead of UTC (e.g. +09:00, -05:00, +9)"
+    )
     .option("--json", "Print the stats as JSON (machine-readable, for scripts/jq)")
     .addHelpText(
       "after",
@@ -1011,7 +1019,9 @@ export function buildCli(): Command {
         "  # which UTC hours rate-limits cluster in\n" +
         "  agentrelay stats --hours\n" +
         "  # which UTC weekdays rate-limits cluster on\n" +
-        "  agentrelay stats --weekday"
+        "  agentrelay stats --weekday\n" +
+        "  # hour-of-day distribution in your local time (UTC+9)\n" +
+        "  agentrelay stats --hours --tz +09:00"
     )
     .action(
       (opts: {
@@ -1024,6 +1034,7 @@ export function buildCli(): Command {
         trend?: string | boolean;
         hours?: boolean;
         weekday?: boolean;
+        tz?: string;
         json?: boolean;
         watch?: string | boolean;
       }) => {
@@ -1125,6 +1136,20 @@ export function buildCli(): Command {
           }
         }
 
+        // --tz shifts the histogram buckets to a fixed local offset; default is
+        // UTC (0). Reject unparseable/out-of-range offsets before any rendering.
+        let tzOffsetMinutes = 0;
+        if (opts.tz !== undefined) {
+          const parsed = parseTzOffset(opts.tz);
+          if (parsed === null) {
+            console.error(`Invalid --tz offset: "${opts.tz}". Use e.g. +09:00, -05:00, +9, or UTC.`);
+            process.exitCode = 1;
+            return;
+          }
+          tzOffsetMinutes = parsed;
+        }
+        const tzLabel = formatTzOffsetLabel(tzOffsetMinutes);
+
         const active = isJobScopeActive(scope);
         const scopeNote = active ? noteParts.join(" ") : undefined;
 
@@ -1144,7 +1169,8 @@ export function buildCli(): Command {
             groupBy,
             trendDays,
             Boolean(opts.hours),
-            Boolean(opts.weekday)
+            Boolean(opts.weekday),
+            tzOffsetMinutes
           );
           return; // setInterval keeps the process alive.
         }
@@ -1163,12 +1189,13 @@ export function buildCli(): Command {
         }
 
         const stats = computeStats(jobs);
-        const trend = trendDays !== null ? computeDailyTrend(jobs, { nowMs: now, days: trendDays }) : null;
-        const hours = opts.hours ? computeHourlyDistribution(jobs) : null;
-        const weekday = opts.weekday ? computeWeekdayDistribution(jobs) : null;
+        const trend =
+          trendDays !== null ? computeDailyTrend(jobs, { nowMs: now, days: trendDays, tzOffsetMinutes }) : null;
+        const hours = opts.hours ? computeHourlyDistribution(jobs, { tzOffsetMinutes }) : null;
+        const weekday = opts.weekday ? computeWeekdayDistribution(jobs, { tzOffsetMinutes }) : null;
 
         if (opts.json) {
-          console.log(renderStatsJson(stats, store, { scope, trend, hours, weekday }));
+          console.log(renderStatsJson(stats, store, { scope, trend, hours, weekday, tz: tzLabel }));
           return;
         }
         // A store with jobs but an empty scoped subset should say "no match",
@@ -1178,15 +1205,15 @@ export function buildCli(): Command {
         // already handles the empty/no-match messaging on its own).
         if (trend !== null && stats.total > 0) {
           console.log("");
-          console.log(renderTrend(trend, { color: Boolean(process.stdout.isTTY) }));
+          console.log(renderTrend(trend, { color: Boolean(process.stdout.isTTY), tzLabel }));
         }
         if (hours !== null && stats.total > 0) {
           console.log("");
-          console.log(renderHours(hours, { color: Boolean(process.stdout.isTTY) }));
+          console.log(renderHours(hours, { color: Boolean(process.stdout.isTTY), tzLabel }));
         }
         if (weekday !== null && stats.total > 0) {
           console.log("");
-          console.log(renderWeekday(weekday, { color: Boolean(process.stdout.isTTY) }));
+          console.log(renderWeekday(weekday, { color: Boolean(process.stdout.isTTY), tzLabel }));
         }
       }
     );
