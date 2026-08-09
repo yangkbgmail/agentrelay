@@ -1997,3 +1997,25 @@
      (#462/#463/#498/#502/#504/#479/#487/#496/#527), #494(자동 백업), #501(--continue), #460(ical) 등.
   3. **구조적 제안(🧭 코워크)**: 세션 60이 지적한 PROGRESS/BACKLOG append 충돌이 근본 원인 — 문서 갱신을
      병합 후 별도 커밋으로 분리하거나 PR별 파일로 나누면 배치 병합이 가능해진다.
+
+### [세션 62 — 재현 가능한 엔드투엔드 데모 & 스모크 QA(`scripts/demo.mjs`)] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-demo-qa`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)와 공동 항목 `👷🧭 최종 QA + 재현 가능한 데모 스크립트`뿐이었다. 열린 PR이
+  stats/parser/watch 축으로 적체된 상태라(세션 60·61) 그 축을 더 건드리지 않고, 축이 겹치지 않으면서
+  SPEC §3(수용 기준: "가짜 rate-limit 명령으로 파서/큐/재개 흐름이 로컬에서 실제로 동작하는 데모")·
+  §8("재현 가능한 데모 스크립트, GIF용 시나리오")를 직접 충족하는 데모 스크립트를 골랐다.
+- **한 일 (branch `claude/wizardly-pascal-demo-qa`):**
+  - `scripts/demo.mjs` 신설 — run→감지→큐→`tick`→재개→`completed` 전 경로를 실제 rate-limit 없이 몇 초 만에
+    재현하는 엔드투엔드 데모. 스케줄러가 잡 `command`를 그대로 재실행하는 사실(`scheduler.ts`) 위에서,
+    첫 실행만 `Your limit resets at <ISO>`를 내뱉고(exit 1) 재개 실행은 성공하는(exit 0) 상태 기반(카운터
+    파일) 가짜 에이전트를 **격리된 임시 `jobs.json`**에 심어 사용자 실제 큐를 건드리지 않는다.
+  - 단계별 내레이션 + `--reset <초>`/`--keep`/`--quiet` 플래그. 마지막에 `status --json`으로 최종 상태를
+    검증(잡 1개 `completed`)해 어긋나면 exit 1 → 데모이자 스모크 QA(로컬/CI 프리플라이트 게이트) 겸용.
+  - `pnpm demo` 별칭(root `package.json`) + `scripts/README.md`(실행법·플래그·동작 원리).
+- **검증:** `pnpm install`→`pnpm build` 클린, `pnpm ci:lint`(Biome) 이슈 0, `pnpm test` 전 패키지 통과
+  (core 575·cli 313/1skip·dashboard 9). **실제 실행**(mock 아님): `node scripts/demo.mjs --reset 2`가
+  rate-limit 감지→`waiting_for_reset` 큐잉→리셋 대기→`tick` 재개→`completed`·성공률 100%까지 그린으로
+  끝나고 exit 0, `--quiet` 모드도 exit 0 확인. scripts/는 biome 스코프 밖이라 TS 테스트 표면 불변.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 후보 — 데모 시나리오 확장(재시도/
+  백오프·`cancel`/`retry`·다중 잡 큐), asciinema 녹화 스크립트, README에 데모 GIF 임베드(🧭 코워크와 조율).
+  적체된 stats/parser/watch 축은 여전히 통합 우선.

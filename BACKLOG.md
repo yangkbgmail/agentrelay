@@ -16,7 +16,15 @@
       (완료 — `parser.test.ts`에 12케이스 회귀 추가: 빈 문자열/시간없는 rate-limit/24h 시계/
       12am·12pm/타임존 오프셋 ISO/잘못된 ISO fallthrough/시간단위만/JSON `retry_after`/멀티라인.
       파서도 `"retry_after": N` JSON 형식 인식하도록 개선. branch `claude/keen-allen-u5qt1l`)
-- [ ] 👷🧭 최종 QA + 재현 가능한 데모 스크립트.
+- [x] 👷 최종 QA + 재현 가능한 데모 스크립트.
+      (완료 — `scripts/demo.mjs` 신설: 실제 rate-limit을 기다리지 않고 전 경로
+      run→감지→큐→`tick`→재개→`completed`를 로컬 몇 초 만에 재현하는 엔드투엔드 데모.
+      스케줄러가 잡 `command`를 그대로 재실행하는 사실 위에서, 첫 실행만 `resets at <ISO>`로
+      rate-limit을 흉내 내고(exit 1) 재개 실행은 성공하는(exit 0) 상태 기반 가짜 에이전트를
+      격리 임시 스토어에 심는다. 단계별 내레이션 + `--reset/--keep/--quiet` 플래그, 마지막에
+      최종 상태(잡 1개 completed)를 검증해 어긋나면 exit 1 → 스모크 QA/CI 프리플라이트 게이트
+      겸용. `pnpm demo` 별칭 + `scripts/README.md`. 실제 실행으로 그린 확인(core 575·cli 313/1skip·
+      dashboard 9 전 테스트 통과 유지). branch `claude/wizardly-pascal-demo-qa`)
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
