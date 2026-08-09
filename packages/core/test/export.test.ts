@@ -6,6 +6,7 @@ import {
   escapeHtml,
   escapeHtmlCell,
   escapeMarkdownCell,
+  escapeTsvField,
   exportJobs,
   isJobCsvColumn,
   JOB_CSV_COLUMNS,
@@ -15,6 +16,7 @@ import {
   jobsToJson,
   jobsToMarkdown,
   jobsToNdjson,
+  jobsToTsv,
   parseCsvColumns,
 } from "../src/export.js";
 import type { RelayJob } from "../src/types.js";
@@ -173,10 +175,67 @@ describe("parseCsvColumns", () => {
 
 describe("COLUMN_AWARE_FORMATS", () => {
   it("lists exactly the tabular formats and is a subset of EXPORT_FORMATS", () => {
-    expect([...COLUMN_AWARE_FORMATS]).toEqual(["csv", "md", "html"]);
+    expect([...COLUMN_AWARE_FORMATS]).toEqual(["csv", "tsv", "md", "html"]);
     for (const f of COLUMN_AWARE_FORMATS) {
       expect(EXPORT_FORMATS).toContain(f);
     }
+  });
+});
+
+describe("escapeTsvField", () => {
+  it("leaves plain values untouched", () => {
+    expect(escapeTsvField("hello")).toBe("hello");
+    expect(escapeTsvField("")).toBe("");
+    expect(escapeTsvField("a b c")).toBe("a b c");
+  });
+
+  it("backslash-escapes a literal tab so it can't break the column layout", () => {
+    expect(escapeTsvField("a\tb")).toBe("a\\tb");
+  });
+
+  it("backslash-escapes newlines (LF and CR) so a field stays one line", () => {
+    expect(escapeTsvField("line1\nline2")).toBe("line1\\nline2");
+    expect(escapeTsvField("line1\r\nline2")).toBe("line1\\r\\nline2");
+  });
+
+  it("escapes the backslash first so added escapes are not re-escaped", () => {
+    // A pre-existing backslash becomes `\\`; a following tab becomes `\t` — not `\\t`.
+    expect(escapeTsvField("a\\b")).toBe("a\\\\b");
+    expect(escapeTsvField("\\\t")).toBe("\\\\\\t");
+  });
+});
+
+describe("jobsToTsv", () => {
+  it("emits a tab-separated header row plus one row per job, LF-separated, no trailing newline", () => {
+    const out = jobsToTsv([job({ id: "a" }), job({ id: "b" })]);
+    const lines = out.split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe(JOB_CSV_COLUMNS.join("\t"));
+    expect(lines[1].split("\t")[0]).toBe("a");
+    expect(lines[2].split("\t")[0]).toBe("b");
+    expect(out.endsWith("\n")).toBe(false);
+  });
+
+  it("keeps every record on exactly one line and free of literal tabs", () => {
+    const out = jobsToTsv([job({ lastError: "boom\ttab\nnewline" })]);
+    expect(out.split("\n")).toHaveLength(2); // header + one record, nothing split
+    const cells = out.split("\n")[1].split("\t");
+    expect(cells).toHaveLength(JOB_CSV_COLUMNS.length);
+    expect(cells[JOB_CSV_COLUMNS.indexOf("lastError")]).toBe("boom\\ttab\\nnewline");
+  });
+
+  it("honors a column subset in order", () => {
+    const out = jobsToTsv([job({ id: "x", status: "queued" })], { columns: ["status", "id"] });
+    expect(out.split("\n")).toEqual(["status\tid", "queued\tx"]);
+  });
+
+  it("omits the header when header:false", () => {
+    const out = jobsToTsv([job({ id: "x" })], { columns: ["id"], header: false });
+    expect(out).toBe("x");
+  });
+
+  it("still emits the header row for an empty job list", () => {
+    expect(jobsToTsv([])).toBe(JOB_CSV_COLUMNS.join("\t"));
   });
 });
 
@@ -294,6 +353,17 @@ describe("exportJobs", () => {
     expect(exportJobs(jobs, "csv")).toBe(jobsToCsv(jobs));
   });
 
+  it("dispatches to TSV", () => {
+    const jobs = [job({ id: "d" })];
+    expect(exportJobs(jobs, "tsv")).toBe(jobsToTsv(jobs));
+  });
+
+  it("passes the column subset through to TSV", () => {
+    const jobs = [job({ id: "d", status: "queued" })];
+    const columns = ["status", "id"] as const;
+    expect(exportJobs(jobs, "tsv", { columns: [...columns] })).toBe(jobsToTsv(jobs, { columns: [...columns] }));
+  });
+
   it("dispatches to JSON", () => {
     const jobs = [job({ id: "d" })];
     expect(exportJobs(jobs, "json")).toBe(jobsToJson(jobs));
@@ -321,7 +391,7 @@ describe("exportJobs", () => {
   });
 
   it("exposes the supported formats", () => {
-    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md", "ndjson", "html"]);
+    expect(EXPORT_FORMATS).toEqual(["csv", "tsv", "json", "md", "ndjson", "html"]);
   });
 });
 
