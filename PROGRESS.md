@@ -2118,3 +2118,32 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 67 — `agentrelay dedupe` 중복 큐 잡 정리] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-1up18i`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유뿐. 열린 PR을 스캔하니
+  여전히 대량 적체(파서/watch/stats/export 축 중복). 이 축들은 PR이 포화라 지양하고, CLAUDE.md 지침대로
+  **적체와 겹치지 않는 신규 개선 항목을 발굴**했다 — 새 core 모듈(`dedupe.ts`)이라 열린 PR 어디와도
+  파일이 겹치지 않아 통합 충돌 위험이 최소.
+- **문제:** 각 `agentrelay run`은 **새 UUID로 잡을 생성**한다. 같은 rate-limited 명령을 다시 돌리면
+  (더블탭·래퍼 스크립트 2회 실행·두 셸에서 같은 작업 시작) 동일 잡이 큐에 2개 쌓이고, 윈도우가 열리면
+  스케줄러가 **같은 명령을 두 번 spawn**한다. 낭비이자, 비멱등 명령엔 위험. 이를 접을 수단이 없었다.
+- **한 일 (branch `claude/wizardly-pascal-1up18i`): `agentrelay dedupe`** —
+  1. `@agentrelay/core/dedupe.ts` 신설(순수·시계/큐/I/O 미접촉): `dedupeKey(job)`(tool+cwd+command argv를
+     `JSON.stringify` — 실제로 spawn될 것의 정체성) + `planDedupe(jobs, {statuses?})`. 활성 잡(기본
+     `DEDUPE_STATUSES`=queued+waiting_for_reset; `resuming`은 in-flight라, 종료 상태는 spawn 안 하므로 제외)을
+     정체성으로 그룹핑, 2개 이상인 그룹마다 **가장 빨리 재개될 잡 1개를 keep**하고 나머지는 duplicates.
+     keeper 선정=effectiveResume(resetAt; queued=null→now=soonest, 파싱 불가→맨 뒤) 오름차순, 동률은 최신
+     createdAt→id asc(결정론). 그룹은 중복 많은 순 정렬. `DedupePlan`(groups/duplicateCount/scannedCount).
+  2. CLI `dedupe.ts` 순수 렌더러 `renderDedupePlan`(그룹별 명령+keeper+×취소마크, dry-run은 `-`+"no changes
+     made")·`renderDedupePlanJson`(전체 id·keep/duplicates·totals). `commands.ts` `dedupeJobs({scope,dryRun,
+     storePath})`가 `scopeJobs`로 후보 축소→`planDedupe`→`markCancelled`로 duplicates 취소(단일 `cancel`과
+     동일 뮤테이션). `cli.ts` `agentrelay dedupe [-t/-p/--since/--until] [--dry-run] [--json]` 배선 — dedupe는
+     본질상 활성 집합이라 `--status`는 뺌. completion은 program에서 자동 파생.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 118파일)→`pnpm test`
+  전 패키지 통과(**core 628** dedupe 14 / **cli 342/1skip** dedupe render 6 / dashboard 9). **실제 빌드 CLI
+  e2e**(mock 아님): web 프로젝트 동일 명령 3잡(queued+waiting×2)+api codex 잡 → `dedupe --dry-run`이 중복 2개
+  식별·미변경, `dedupe`가 duplicates 2개 cancel하고 soonest(queued) keep·distinct codex 잡 불변, status로
+  keep=queued·2개 cancelled 확인. `--json -p api` 스코프 정확, 잘못된 `-t`는 exit 1, 재실행 시 "No duplicate
+  jobs"(멱등), completion에 `dedupe` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 적체 통합 계속(고유 기능 PR 우선,
+  파서/watch/stats/export/tz 축은 포화라 지양). README/ARCHITECTURE(🧭 코워크).
