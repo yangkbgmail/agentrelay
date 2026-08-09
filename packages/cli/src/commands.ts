@@ -38,6 +38,7 @@ import {
   canRequeue,
   configToJson,
   countActiveJobs,
+  type DedupePlan,
   daemonHeartbeatPath,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
@@ -66,6 +67,7 @@ import {
   parseDaemonHeartbeat,
   parseImportJobs,
   partitionForControl,
+  planDedupe,
   planImport,
   RelayQueue,
   RelayScheduler,
@@ -574,6 +576,55 @@ export function bulkControlJobs(action: BulkControlAction, options: BulkControlO
       dryRun: Boolean(options.dryRun),
       message,
     };
+  } finally {
+    queue.close();
+  }
+}
+
+export interface DedupeJobsOptions {
+  /** Restrict which jobs are considered (tool/project/time). Omit to consider all. */
+  scope?: JobScope;
+  /** When true, report the plan without cancelling anything. */
+  dryRun?: boolean;
+  storePath?: string;
+}
+
+export interface DedupeJobsResult {
+  /** The de-duplication plan (groups of identical active jobs). */
+  plan: DedupePlan;
+  /** Ids actually cancelled (empty on a dry run). */
+  cancelledIds: string[];
+  /** True when this was a preview (no store changes were made). */
+  dryRun: boolean;
+}
+
+/**
+ * Detect and (unless `dryRun`) cancel duplicate active jobs — identical
+ * tool + cwd + command argv that would otherwise resume the same process twice.
+ * The optional scope is applied with the same core `scopeJobs` used by
+ * `stats`/`status`/`export`, so its `--tool`/`--project`/`--since`/`--until`
+ * narrow the candidate set before grouping. Which copy is kept is decided by the
+ * pure {@link planDedupe} (soonest-resuming wins); this function just applies its
+ * verdict via {@link RelayQueue.markCancelled}, mirroring the single-id `cancel`.
+ */
+export function dedupeJobs(options: DedupeJobsOptions = {}): DedupeJobsResult {
+  const queue = openQueue(options.storePath ?? defaultStorePath());
+  try {
+    const all = queue.listAll();
+    const scoped = options.scope && isJobScopeActive(options.scope) ? scopeJobs(all, options.scope) : all;
+    const plan = planDedupe(scoped);
+
+    const cancelledIds: string[] = [];
+    if (!options.dryRun) {
+      for (const group of plan.groups) {
+        for (const dup of group.duplicates) {
+          queue.markCancelled(dup.id);
+          cancelledIds.push(dup.id);
+        }
+      }
+    }
+
+    return { plan, cancelledIds, dryRun: Boolean(options.dryRun) };
   } finally {
     queue.close();
   }

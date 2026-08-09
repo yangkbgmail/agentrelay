@@ -52,6 +52,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  dedupeJobs,
   exportStore,
   getConfigValue,
   importStore,
@@ -78,6 +79,7 @@ import {
   waitForJob,
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
+import { renderDedupePlan, renderDedupePlanJson } from "./dedupe.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderEta, renderEtaJson } from "./eta.js";
@@ -2083,6 +2085,59 @@ export function buildCli(): Command {
         console.error(`[agentrelay] ${error instanceof Error ? error.message : String(error)}`);
         process.exitCode = 1;
       }
+    });
+
+  program
+    .command("dedupe")
+    .description("Cancel duplicate queued jobs — identical tool+cwd+command that would resume twice")
+    .option("-t, --tool <tools>", "Only consider jobs run with these tools (comma-separated)")
+    .option("-p, --project <projects>", "Only consider jobs in these projects (comma-separated)")
+    .option("--since <duration>", "Only consider jobs created within this long ago (e.g. 24h, 7d)")
+    .option("--until <duration>", "Only consider jobs created before this long ago (e.g. 1d)")
+    .option("--dry-run", "Show which duplicates would be cancelled without changing the store")
+    .option("--json", "Output the de-duplication plan as JSON")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  agentrelay dedupe --dry-run        # preview duplicate queued commands\n" +
+        "  agentrelay dedupe                  # cancel the redundant copies\n" +
+        "  agentrelay dedupe -p web --json    # scope to one project, machine-readable"
+    )
+    .action((opts: ScopeOpts & { dryRun?: boolean; json?: boolean }) => {
+      const { store } = program.opts();
+      // Scope by tool/project/time only — dedupe is inherently about the active
+      // (queued/waiting_for_reset) set, so a --status filter would be misleading.
+      const built = buildScope(
+        { tool: opts.tool, project: opts.project, since: opts.since, until: opts.until },
+        Date.now()
+      );
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const result = dedupeJobs({ scope: built.scope, dryRun: opts.dryRun, storePath: store });
+
+      if (opts.json) {
+        console.log(
+          renderDedupePlanJson(result.plan, {
+            storePath: store ?? defaultStorePath(),
+            dryRun: result.dryRun,
+            cancelledIds: result.cancelledIds,
+          })
+        );
+        return;
+      }
+
+      console.log(
+        renderDedupePlan(result.plan, {
+          color: Boolean(process.stdout.isTTY),
+          dryRun: result.dryRun,
+          scopeNote: built.active ? built.note : undefined,
+          cancelledCount: result.cancelledIds.length,
+        })
+      );
     });
 
   program

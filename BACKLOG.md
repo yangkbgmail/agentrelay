@@ -810,6 +810,18 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay dedupe` — 중복 큐 잡 정리. 같은 rate-limited 명령을 재실행하면 동일 잡이
+      여러 개 쌓여 스케줄러가 같은 명령을 두 번 spawn하는 문제를, 정체성(tool+cwd+command argv)이
+      같은 활성 잡을 감지해 가장 빨리 재개될 하나만 남기고 나머지를 취소.
+      (완료 — core `dedupe.ts` 순수 `dedupeKey`/`planDedupe`/`DEDUPE_STATUSES`/`DedupePlan`
+      (활성 잡을 정체성으로 그룹핑, 그룹당 soonest-resuming keeper 선정[resetAt asc·null=now·파싱불가는
+      맨 뒤, 동률은 최신 createdAt→id], resuming·종료 상태 제외, 중복 많은 순 정렬, 완전 순수·비변형).
+      CLI `dedupe.ts` `renderDedupePlan`(그룹별 keeper+×취소마크, dry-run은 미리보기)/`renderDedupePlanJson`,
+      `commands.ts` `dedupeJobs`(scopeJobs로 후보 축소→planDedupe→markCancelled, 단일 cancel과 동일
+      뮤테이션), `cli.ts` `agentrelay dedupe [-t/-p/--since/--until] [--dry-run] [--json]`. core 14 + cli 6
+      신규 테스트, 실제 빌드 CLI e2e 검증(중복 취소·soonest keep·distinct 불변·스코프·멱등·completion).
+      branch `claude/wizardly-pascal-1up18i`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
