@@ -1,11 +1,17 @@
+import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import {
   combineNotifiers,
+  createExecNotifier,
   createSlackNotifier,
   createWebhookNotifier,
+  type ExecSpawnFn,
+  execNotifierFromEnv,
+  formatPlainText,
   formatSlackText,
   listNotifyChannels,
   notifiersFromEnv,
+  parseCommandLine,
   sendTestNotification,
   slackNotifierFromEnv,
   testNotifyPayload,
@@ -239,6 +245,19 @@ describe("notifiersFromEnv", () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(fetchFn.mock.calls[0][0]).toBe("https://hooks.example.test/relay");
   });
+
+  it("includes the exec command channel in the fan-out", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const onError = vi.fn();
+    // Real spawn of a non-existent command surfaces ENOENT through onError
+    // rather than crashing; exec delivery itself is covered with an injected
+    // spawn elsewhere. The point here is that the channel is wired in.
+    const notify = notifiersFromEnv({ AGENTRELAY_NOTIFY_COMMAND: "agentrelay-nonexistent-cmd" }, { fetchFn, onError });
+    expect(notify).not.toBeNull();
+    await expect(notify!(payload)).resolves.toBeUndefined();
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("listNotifyChannels", () => {
@@ -256,6 +275,153 @@ describe("listNotifyChannels", () => {
       { kind: "slack", label: "Slack", url: "https://hooks.slack.test/abc", envVar: "AGENTRELAY_SLACK_WEBHOOK" },
       { kind: "webhook", label: "Webhook", url: "https://hooks.example.test/relay", envVar: "AGENTRELAY_WEBHOOK_URL" },
     ]);
+  });
+
+  it("lists the exec command channel last, after the HTTP channels", () => {
+    const channels = listNotifyChannels({
+      AGENTRELAY_NOTIFY_COMMAND: "notify-send AgentRelay",
+      AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/abc",
+    });
+    expect(channels).toEqual([
+      { kind: "slack", label: "Slack", url: "https://hooks.slack.test/abc", envVar: "AGENTRELAY_SLACK_WEBHOOK" },
+      { kind: "exec", label: "Command", url: "notify-send AgentRelay", envVar: "AGENTRELAY_NOTIFY_COMMAND" },
+    ]);
+  });
+});
+
+/**
+ * A minimal ChildProcess stand-in: an EventEmitter that emits `close` with the
+ * given code on the next microtask, so the exec notifier's promise resolves.
+ * `errorMode` instead emits an `error` event (spawn-time failure like ENOENT).
+ */
+function fakeSpawn(options: { code?: number; error?: Error } = {}): {
+  spawnFn: ExecSpawnFn;
+  calls: Array<{ command: string; args: string[]; env: Record<string, string | undefined> }>;
+} {
+  const calls: Array<{ command: string; args: string[]; env: Record<string, string | undefined> }> = [];
+  const spawnFn: ExecSpawnFn = (command, args, opts) => {
+    calls.push({ command, args, env: opts.env });
+    const child = new EventEmitter();
+    queueMicrotask(() => {
+      if (options.error) child.emit("error", options.error);
+      else child.emit("close", options.code ?? 0);
+    });
+    // The notifier only uses .on("error"/"close"); EventEmitter satisfies that.
+    return child as unknown as ReturnType<ExecSpawnFn>;
+  };
+  return { spawnFn, calls };
+}
+
+describe("parseCommandLine", () => {
+  it("splits plain whitespace-separated tokens", () => {
+    expect(parseCommandLine("notify-send AgentRelay")).toEqual(["notify-send", "AgentRelay"]);
+    expect(parseCommandLine("  osascript   -e  ")).toEqual(["osascript", "-e"]);
+  });
+
+  it("keeps quoted segments (with spaces) as single tokens", () => {
+    expect(parseCommandLine('"/opt/My Tools/notify" --title "Hello World"')).toEqual([
+      "/opt/My Tools/notify",
+      "--title",
+      "Hello World",
+    ]);
+    expect(parseCommandLine("say 'it works'")).toEqual(["say", "it works"]);
+  });
+
+  it("honours backslash escapes inside and outside double quotes", () => {
+    expect(parseCommandLine("a\\ b")).toEqual(["a b"]);
+    expect(parseCommandLine('"a\\"b"')).toEqual(['a"b']);
+  });
+
+  it("returns [] for blank input and tolerates an unterminated quote", () => {
+    expect(parseCommandLine("")).toEqual([]);
+    expect(parseCommandLine("   ")).toEqual([]);
+    expect(parseCommandLine('notify "unclosed')).toEqual(["notify", "unclosed"]);
+  });
+});
+
+describe("formatPlainText", () => {
+  it("is a single markup-free line with project, event, and message", () => {
+    const text = formatPlainText(payload);
+    expect(text).toBe("AgentRelay — my-project (queued): " + payload.message);
+    expect(text).not.toContain("*");
+    expect(text).not.toContain("\n");
+  });
+});
+
+describe("createExecNotifier", () => {
+  it("spawns the executable with base args + appended text and injects event env vars", async () => {
+    const { spawnFn, calls } = fakeSpawn();
+    const notify = createExecNotifier({ command: ["notify-send", "AgentRelay"], spawnFn });
+
+    await notify(payload);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].command).toBe("notify-send");
+    expect(calls[0].args).toEqual(["AgentRelay", formatPlainText(payload)]);
+    expect(calls[0].env.AGENTRELAY_EVENT).toBe("queued");
+    expect(calls[0].env.AGENTRELAY_PROJECT).toBe("my-project");
+    expect(calls[0].env.AGENTRELAY_JOB_ID).toBe("job-123");
+    expect(calls[0].env.AGENTRELAY_MESSAGE).toBe(payload.message);
+    expect(calls[0].env.AGENTRELAY_TEXT).toBe(formatPlainText(payload));
+  });
+
+  it("reports a non-zero exit through onError instead of throwing", async () => {
+    const onError = vi.fn();
+    const { spawnFn } = fakeSpawn({ code: 3 });
+    const notify = createExecNotifier({ command: ["false"], spawnFn, onError });
+
+    await expect(notify(payload)).resolves.toBeUndefined();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(String(onError.mock.calls[0][0])).toContain("code 3");
+  });
+
+  it("swallows a spawn 'error' event (e.g. ENOENT) so the relay loop never crashes", async () => {
+    const onError = vi.fn();
+    const { spawnFn } = fakeSpawn({ error: new Error("spawn nope ENOENT") });
+    const notify = createExecNotifier({ command: ["nope"], spawnFn, onError });
+
+    await expect(notify(payload)).resolves.toBeUndefined();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(String(onError.mock.calls[0][0])).toContain("ENOENT");
+  });
+
+  it("swallows a synchronous spawn throw", async () => {
+    const onError = vi.fn();
+    const spawnFn: ExecSpawnFn = () => {
+      throw new Error("boom");
+    };
+    const notify = createExecNotifier({ command: ["x"], spawnFn, onError });
+
+    await expect(notify(payload)).resolves.toBeUndefined();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(String(onError.mock.calls[0][0])).toContain("boom");
+  });
+
+  it("reports an empty command through onError without spawning", async () => {
+    const onError = vi.fn();
+    const { spawnFn, calls } = fakeSpawn();
+    const notify = createExecNotifier({ command: [], spawnFn, onError });
+
+    await expect(notify(payload)).resolves.toBeUndefined();
+    expect(calls).toHaveLength(0);
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("execNotifierFromEnv", () => {
+  it("returns null when AGENTRELAY_NOTIFY_COMMAND is unset, blank, or all-whitespace", () => {
+    expect(execNotifierFromEnv({})).toBeNull();
+    expect(execNotifierFromEnv({ AGENTRELAY_NOTIFY_COMMAND: "   " })).toBeNull();
+  });
+
+  it("parses the command line and returns a working notifier", async () => {
+    const { spawnFn, calls } = fakeSpawn();
+    const notify = execNotifierFromEnv({ AGENTRELAY_NOTIFY_COMMAND: 'notify-send "My Title"' }, { spawnFn });
+    expect(notify).not.toBeNull();
+
+    await notify!(payload);
+    expect(calls[0].command).toBe("notify-send");
+    expect(calls[0].args).toEqual(["My Title", formatPlainText(payload)]);
   });
 });
 
@@ -336,5 +502,29 @@ describe("sendTestNotification", () => {
     });
     const [, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer t0ken");
+  });
+
+  it("runs the exec channel via the injected spawn and reports it ok on exit 0", async () => {
+    const { spawnFn, calls } = fakeSpawn({ code: 0 });
+    const results = await sendTestNotification({
+      env: { AGENTRELAY_NOTIFY_COMMAND: "notify-send AgentRelay" },
+      spawnFn,
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].channel.kind).toBe("exec");
+    expect(results[0].ok).toBe(true);
+    expect(calls[0].command).toBe("notify-send");
+    expect(calls[0].env.AGENTRELAY_EVENT).toBe("completed");
+  });
+
+  it("reports the exec channel as failed on a non-zero exit", async () => {
+    const { spawnFn } = fakeSpawn({ code: 127 });
+    const results = await sendTestNotification({
+      env: { AGENTRELAY_NOTIFY_COMMAND: "does-not-exist" },
+      spawnFn,
+    });
+    expect(results[0].ok).toBe(false);
+    expect(results[0].error).toContain("127");
   });
 });

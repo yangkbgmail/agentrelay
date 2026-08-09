@@ -1859,3 +1859,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 60 — exec/command 알림 채널(`AGENTRELAY_NOTIFY_COMMAND`)] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-7oyqyv`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/경쟁조사/
+  샘플수집/성능분석)뿐. 열린 PR 30개+가 stats 타임존/히트맵·파서·`--watch`·diff·schedule·dashboard 계열로
+  심하게 중복·점유 중이라, 이들과 **겹치지 않는 새 영역**을 CLAUDE.md 지침대로 발굴했다. 알림 채널은 지금까지
+  Slack + 범용 HTTP 웹훅 두 가지뿐이었는데, **로컬 우선 도구인데 정작 로컬 네이티브 데스크톱 알림 수단이 없었다**
+  (HTTP 서버/웹훅 수신자 없이 `notify-send`/`terminal-notifier`/`osascript`로 잡 재개·완료를 알림).
+- **한 일 (branch `claude/wizardly-pascal-7oyqyv`):** exec/command 알림 채널.
+  - core `notify.ts`: 순수 `parseCommandLine(input)`(따옴표·백슬래시 인식 argv 토크나이저 — `AGENTRELAY_NOTIFY_COMMAND`가
+    공백 포함 경로/인자를 가질 수 있게, 셸 미경유라 인젝션 표면 0) + `formatPlainText(payload)`(마크업 없는 한 줄 요약).
+    `createExecNotifier({command,spawnFn?,onError?})` — 파싱된 argv를 **셸 없이** 직접 spawn(stdio ignore), 이벤트
+    필드를 `AGENTRELAY_EVENT`/`_PROJECT`/`_JOB_ID`/`_MESSAGE`/`_TEXT` 환경변수로 주입 + 평문 요약을 마지막 인자로
+    append(`notify-send AgentRelay` → `notify-send AgentRelay "<text>"`=summary+body 즉시 동작). spawn 실패·비영
+    종료는 `onError`로 보고만 하고 절대 throw 안 함(릴레이 루프 보호), 이벤트당 1회만 정산(`settled` 가드 — ENOENT가
+    error+close 둘 다 emit해도 이중 로그 방지). `execNotifierFromEnv(env)`(미설정/공백/무토큰은 null), `notifiersFromEnv`
+    fan-out에 3번째 채널로 합류, `listNotifyChannels`(kind `exec`·label `Command`, Slack→webhook→exec 순), `sendTestNotification`
+    (exec 분기, 주입 가능 `spawnFn`).
+  - `doctor.ts`: `NotifyFacts.command` 추가 + `notifyCheck`가 command 채널 인식, no-channel 힌트에
+    `AGENTRELAY_NOTIFY_COMMAND` 추가. CLI `commands.ts`가 env에서 사실 수집.
+  - **config 전 계층 배선:** `AgentRelayConfig.notify.command`(→`AGENTRELAY_NOTIFY_COMMAND`) 타입·sampleConfig·
+    CONFIG_FIELDS·parseConfig·configToEnv·CONFIG_ENV_KEYS 동시 추가(드리프트 sync 테스트 통과) → `config set/unset/show`
+    자동 지원. CLI `notify.ts` NO_CHANNELS_MESSAGE도 갱신. 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 563→580 [notify +16, doctor +1], cli 304/1skip, dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  기록용 fake-notify 스크립트로 `notify test`가 base args(`--title MyTitle`)+append된 평문+주입 env(EVENT=completed·
+  PROJECT=agentrelay·JOB=test-notification)로 실제 spawn·"delivered" 확인, `doctor`가 "notifications on via command"·
+  no-channel 힌트에 `AGENTRELAY_NOTIFY_COMMAND` 노출, `notify test --json`이 kind `exec`·ok true, `config set
+  notify.command` 파일 기록·`config show` 마스킹·설정파일→env 투영으로 `notify test`가 config의 command 픽업(delivered) 검증.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — Discord/Telegram 등
+  서비스별 웹훅 `formatBody` 프리셋, 또는 exec 채널을 대시보드 notify 상태에 노출. README/ARCHITECTURE(🧭 코워크).

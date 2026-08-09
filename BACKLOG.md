@@ -750,6 +750,16 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 exec/command 알림 채널(`AGENTRELAY_NOTIFY_COMMAND`) — Slack·HTTP 웹훅에 이어 로컬 명령을
+      이벤트마다 실행해 네이티브 데스크톱 알림(`notify-send`/`terminal-notifier`/`osascript`)을 HTTP 서버 없이 받기.
+      (완료 — core `notify.ts`에 순수 `parseCommandLine`(따옴표·백슬래시 argv 토크나이저)·`formatPlainText` +
+      `createExecNotifier`(셸 미경유 직접 spawn, 이벤트 필드를 `AGENTRELAY_EVENT`/`_PROJECT`/`_JOB_ID`/`_MESSAGE`/
+      `_TEXT` env로 주입 + 평문 요약을 마지막 인자로 append, spawn 실패·비영 종료는 onError로만 보고·이벤트당 1회
+      정산) + `execNotifierFromEnv`. `notifiersFromEnv` fan-out·`listNotifyChannels`(kind `exec`)·`sendTestNotification`
+      exec 분기 합류, `doctor` notify 검사·config 전 계층(`notify.command`)·CLI NO_CHANNELS_MESSAGE 배선. 새 파서/
+      스케줄러 로직 0줄. core notify +16 / doctor +1 신규 테스트, 실제 빌드 CLI e2e로 spawn·env 주입·doctor·notify
+      test --json·config 투영 검증. branch `claude/wizardly-pascal-7oyqyv`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
