@@ -1859,3 +1859,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
   시간대/요일/추이 히스토그램 노출(CLI `--hours`/`--weekday`/`--trend`의 대시보드 미러), 또는 `stats --hours`를
   로컬 타임존으로도 볼 수 있는 옵션. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 60 — `agentrelay stats --hours/--weekday --tz` 로컬 타임존 뷰] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-mhphc7`)
+- **배경:** BACKLOG의 명시적 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 59가 "다음 할 일"로 명시한 후속을 구현했다 — `stats --hours`(세션 58)·
+  `--weekday`(세션 59)는 rate-limit이 하루/한 주 중 언제 몰리는지 보여주지만 **UTC 고정**이라, 사용자가 자기
+  로컬 리듬("나는 주로 오전 9시(KST)에 throttle된다")을 보려면 머릿속으로 오프셋을 더해야 했다.
+- **한 일 (branch `claude/wizardly-pascal-mhphc7`):** `agentrelay stats --hours/--weekday --tz <offset>` — 히스토그램을
+  임의 UTC 오프셋(또는 `local`)으로 버킷팅.
+  - core `stats.ts`: 순수 `parseUtcOffsetMinutes(input)`(`+09:00`/`-0700`/`+9`/`9`/`Z`/`UTC`/`GMT`/`+05:30` 등을
+    분(minute) 오프셋으로, 범위 −12:00…+14:00, 그 밖·빈문자·garbage·`-0`는 null/+0 정규화) + `formatUtcOffset(min)`
+    (`UTC`/`UTC±HH:MM` 라벨, `parse`와 왕복). `computeHourlyDistribution`/`computeWeekdayDistribution`에 optional
+    `offsetMinutes`(기본 0=UTC) 추가 — 타임스탬프를 오프셋만큼 시프트한 뒤 `getUTCHours()`/`getUTCDay()`로 버킷팅해
+    시스템 시계를 안 만지고도 로컬 벽시계 시각/요일을 계산(순수·결정론 유지, 음수 오프셋은 자정 넘어 전날로 wrap).
+  - CLI `stats.ts`: `renderHours`/`renderWeekday`에 optional `tzLabel`(헤더·푸터의 "UTC"를 대체), `renderStatsJson`에
+    optional `tz` 필드(적용 히스토그램이 있고 non-UTC일 때만 방출 — 기존 JSON shape 불변).
+  - `cli.ts`: `stats`에 `--tz <offset>` 배선. `local`은 `-new Date(now).getTimezoneOffset()`로 이 머신의 오프셋 해소,
+    그 외는 `parseUtcOffsetMinutes`. `--hours`/`--weekday` 없이 `--tz`만 주면 조용히 무시하지 않고 exit 1, 파싱 불가
+    오프셋도 exit 1. 일회성·`--json`·`--watch` 세 뷰 모두에 오프셋+라벨 전달. 새 파서/스케줄러/스토어 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build` 클린(Next.js 포함)·`pnpm ci:lint`(Biome) **0 경고**·`pnpm test`
+  전 패키지 통과(core 563→577, cli 304→309/1skip, dashboard 9). **실제 빌드 CLI e2e**(mock 아님): 2-잡 임시 스토어
+  (web 완료[Mon 22:00Z]·api 완료[Mon 02:00Z])로 `--hours`가 UTC에선 02:00/22:00, `--tz +09:00`에선 07:00/11:00로
+  시프트, `--weekday --tz +09:00`은 Mon(api)·Tue(web 22:00Z+9=화요일)로 이동, `--tz local`(TZ=America/Los_Angeles)은
+  `UTC-07:00` 라벨, `--json`은 `tz` 에코 + 버킷 정확, 기본 `--json`은 `tz` 미포함, `--tz` 단독은 "add one of them"
+  exit 1, `+99:00`은 Invalid exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 항목 발굴 후보 — 대시보드에
+  시간대/요일/추이 히스토그램(+tz) 노출, 또는 `--trend`에도 `--tz` 적용(일 경계를 로컬 자정 기준으로).
+  README/ARCHITECTURE(🧭 코워크).

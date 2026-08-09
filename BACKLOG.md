@@ -750,6 +750,19 @@
       미포함·`--hours --weekday` 동시 렌더·help/completion `--weekday` 노출 검증. branch
       `claude/wizardly-pascal-k411rs`)
 
+- [x] 👷 `agentrelay stats --hours/--weekday --tz <offset>` — 시간/요일 히스토그램을 UTC가 아닌 임의
+      UTC 오프셋(또는 `local`)으로 버킷팅해 로컬 리듬으로 보기. 세션 59가 "다음 할 일"로 제안.
+      (완료 — core `stats.ts`에 순수 `parseUtcOffsetMinutes`(`+09:00`/`-0700`/`+9`/`Z`/`+05:30` 등→분
+      오프셋, 범위 −12:00…+14:00, garbage/`-0`는 null/+0 정규화) + `formatUtcOffset`(`UTC±HH:MM` 라벨,
+      parse와 왕복). `computeHourlyDistribution`/`computeWeekdayDistribution`에 optional `offsetMinutes`
+      (기본 0=UTC) — 타임스탬프를 시프트 후 `getUTCHours/Day`로 버킷팅해 시스템 시계 미접촉·순수·결정론
+      유지(음수 오프셋은 자정 넘어 전날로 wrap). CLI `renderHours`/`renderWeekday`에 optional `tzLabel`,
+      `renderStatsJson`에 optional `tz` 필드(non-UTC 히스토그램일 때만 방출, 기존 shape 불변). `cli.ts`
+      `stats --tz <offset>` — `local`은 머신 오프셋 해소, `--hours`/`--weekday` 없이 쓰면 exit 1, 파싱
+      불가도 exit 1, 세 뷰(일회성·--json·--watch) 모두 적용. 새 파서/스케줄러/스토어 로직 0줄. core
+      stats +14(=577) + cli stats +5(=309/1skip) 신규 테스트, 실제 빌드 CLI e2e로 UTC/+09:00 시프트·요일
+      이동·`local` 라벨·JSON tz 에코·기본 JSON 무 tz·에러 exit 1 검증. branch `claude/wizardly-pascal-mhphc7`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

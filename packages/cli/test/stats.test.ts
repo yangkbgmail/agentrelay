@@ -375,6 +375,13 @@ describe("renderHours", () => {
     expect(out).toMatch(/14:00 .* 1/);
     expect(out).toContain("3 job(s) across 24 hour(s), UTC");
   });
+
+  it("captions the header and footer with a custom tz label", () => {
+    const out = renderHours(distFrom({ 9: 1 }), { tzLabel: "UTC+09:00" });
+    expect(out).toContain("(jobs created per hour of day, UTC+09:00)");
+    expect(out).toContain("1 job(s) across 24 hour(s), UTC+09:00");
+    expect(out).not.toContain(", UTC)");
+  });
 });
 
 describe("renderStatsJson hours field", () => {
@@ -440,6 +447,12 @@ describe("renderWeekday", () => {
     expect(out).toMatch(/Wed .* 1/);
     expect(out).toContain("3 job(s) across 7 day(s), UTC");
   });
+
+  it("captions the header and footer with a custom tz label", () => {
+    const out = renderWeekday(distFrom({ 1: 1 }), { tzLabel: "UTC-07:00" });
+    expect(out).toContain("(jobs created per day of week, UTC-07:00)");
+    expect(out).toContain("1 job(s) across 7 day(s), UTC-07:00");
+  });
 });
 
 describe("renderStatsJson weekday field", () => {
@@ -452,6 +465,26 @@ describe("renderStatsJson weekday field", () => {
     expect(withWeekday.weekday).toHaveLength(7);
     expect(withWeekday.weekday[1].count).toBe(1);
     expect(withWeekday.weekday[1].name).toBe("Mon");
+  });
+});
+
+describe("renderStatsJson tz field", () => {
+  const stats = computeStats([job()]);
+  const hours = computeHourlyDistribution([job({ createdAt: "2026-07-20T05:00:00.000Z" })], 540);
+
+  it("echoes the tz label when a histogram it applies to is present", () => {
+    const out = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", hours, tz: "UTC+09:00" }));
+    expect(out.tz).toBe("UTC+09:00");
+  });
+
+  it("omits tz when no histogram was requested (default shape unchanged)", () => {
+    const out = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", tz: "UTC+09:00" }));
+    expect("tz" in out).toBe(false);
+  });
+
+  it("omits tz for UTC (null label) even with a histogram", () => {
+    const out = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", hours, tz: null }));
+    expect("tz" in out).toBe(false);
   });
 });
 
