@@ -10,6 +10,7 @@
     "lint:fix": "biome check --write",
     "format": "biome format --write",
     "ci:lint": "biome ci",
+    "demo": "node scripts/demo.mjs",
     "dev:dashboard": "pnpm --filter @agentrelay/dashboard dev"
   },
   "devDependencies": {
