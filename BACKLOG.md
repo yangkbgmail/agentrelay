@@ -810,6 +810,20 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay metrics`(Prometheus) 큐-드레인·분포 게이지 보강 — 대기 큐의 다음 리셋을
+      절대 타임스탬프로 노출하고, 이미 계산되는 해결시간 분포(p25/p75/p95/p99/IQR/표준편차)를
+      Prometheus에도 완전히 방출. 자기 발굴 항목(파서/watch/tsv/search PR 포화와 무겹침, metrics.ts
+      순수-추가라 회귀 위험 최소).
+      (완료 — `metrics.ts`에 두 게이지 추가: (1) `agentrelay_next_reset_timestamp_seconds` — 가장 이른
+      대기 잡 리셋의 **절대 Unix 초**(node_boot_time_seconds식 관용구 — 스크레이퍼가 절대시각을 저장하고
+      PromQL `metric - time()`로 카운트다운 계산 → pure 유지, 클럭 불필요). 대기 없음/파싱 불가면 시리즈
+      자체 생략(기존 null-생략 관례). (2) `agentrelay_resolution_seconds` 패밀리를 avg/min/median/p90/max에서
+      **p25·p75·p95·p99·iqr·stdev까지** 확장 — `computeStats`가 이미 내는 `TimingStats` 전체를 stat 라벨로
+      노출(전부 초 단위 duration이라 한 패밀리 공유). CLI 무변경(stats 객체에 이미 존재), 기존 게이지 패밀리
+      불변. core metrics.test +4(=15): 분포 11개 stat 값 검증(두 잡 60/180s→p25 90·p99 178.8·iqr/stdev 60)·
+      가장 이른 대기 리셋 epoch·드레인 시 생략·빈 스토어 생략. 실제 빌드 CLI e2e로 대기 2잡+해결 2잡
+      스토어에서 next_reset epoch(1786417200)·11개 stat 라인 방출 확인. branch `claude/wizardly-pascal-2ygxii`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
