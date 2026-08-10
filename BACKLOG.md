@@ -810,6 +810,23 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay reschedule <id> <when>` — 대기 잡의 재개 시각을 손으로 이동(연기/앞당기기/특정 리셋에 고정).
+      cancel/retry/show와 나란한 수동 잡 제어 계열의 빠진 짝(retry는 지금 재개+attempts 리셋, reschedule는
+      **언제** 재개할지만 옮기고 재시도 이력 보존). 자기 발굴 항목 — 열린 PR #172/#204와 같은 기능이나
+      전부 stale base라, 최신 main 위에 순수 로직 중심으로 새로 구현.
+      (완료 — core `reschedule.ts` 신설: 순수 `resolveResumeTime(when, nowMs)` → `<when>`을 절대 epoch-ms로
+      해소. `now`/`0`=즉시, 지속시간(`2h`/`30m`/`+90s`/`1d`, 기존 `parseDuration` 재사용)=now 기준 오프셋,
+      ISO 타임스탬프=절대. **footgun 방어**: 단위 없는 순수 숫자(`500`)는 `Date.parse`가 연도(500년)로
+      조용히 오독하므로 명시적으로 거부하고 단위를 안내(에러), 과거 시각은 허용(=즉시 due). `control.ts`에
+      순수 `canReschedule`(resuming=레이스 방지·completed/failed/cancelled=종료 상태 거부, queued/
+      waiting_for_reset만 허용). `RelayQueue.reschedule(id, resetAt)`는 requeueNow와 달리 status+resetAt만
+      갱신하고 attempts·lastError 보존(재시도 이력 불변). CLI `commands.ts` `rescheduleJob(id, when, store,
+      nowMs?)`(시각 해소 실패는 스토어 오픈 전 에러, id 해소는 cancel/retry와 동일 `resolveJobId` 재사용),
+      `cli.ts` `agentrelay reschedule <id> <when>` 배선(성공 stdout·실패 exit 1). 새 파서/스케줄러 로직 0줄.
+      core reschedule 11 + control canReschedule 3 + queue 2 신규, cli commands 4 신규 테스트, 실제 빌드
+      CLI e2e로 +2h·ISO·now·단위없는숫자 거부·미존재 id exit 1 및 help/completion 노출 검증. branch
+      `claude/wizardly-pascal-4l498t`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -41,6 +41,21 @@ export function canRequeue(job: RelayJob): ControlResult {
   return { ok: true };
 }
 
+/**
+ * Whether `job`'s resume time may be adjusted by `agentrelay reschedule`.
+ * In-flight (`resuming`) jobs are rejected to avoid racing the running command,
+ * and terminal jobs (`completed`/`failed`/`cancelled`) have no resume left to
+ * move. A `queued` job (created but not yet rate-limited) or one already
+ * `waiting_for_reset` can be pinned to a new time.
+ */
+export function canReschedule(job: RelayJob): ControlResult {
+  if (job.status === "resuming") return { ok: false, reason: "job is currently resuming; wait for it to finish" };
+  if (job.status === "completed") return { ok: false, reason: "job already completed" };
+  if (job.status === "failed") return { ok: false, reason: "job already failed" };
+  if (job.status === "cancelled") return { ok: false, reason: "job is cancelled" };
+  return { ok: true };
+}
+
 /** One job that a bulk-control guard rejected, paired with the reason why. */
 export interface IneligibleJob {
   job: RelayJob;

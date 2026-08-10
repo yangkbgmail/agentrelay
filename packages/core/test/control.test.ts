@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canCancel, canRequeue, partitionForControl, resolveJobId } from "../src/control.js";
+import { canCancel, canRequeue, canReschedule, partitionForControl, resolveJobId } from "../src/control.js";
 import type { JobStatus, RelayJob } from "../src/types.js";
 
 function job(id: string, status: JobStatus): RelayJob {
@@ -47,6 +47,28 @@ describe("canRequeue", () => {
     const result = canRequeue(job("a", "resuming"));
     expect(result.ok).toBe(false);
     expect(result.reason).toContain("resuming");
+  });
+});
+
+describe("canReschedule", () => {
+  it("allows rescheduling pending jobs (queued or waiting_for_reset)", () => {
+    for (const status of ["queued", "waiting_for_reset"] as JobStatus[]) {
+      expect(canReschedule(job("a", status)).ok).toBe(true);
+    }
+  });
+
+  it("rejects rescheduling a job that is currently resuming", () => {
+    const result = canReschedule(job("a", "resuming"));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("resuming");
+  });
+
+  it("rejects rescheduling terminal jobs", () => {
+    for (const status of ["completed", "failed", "cancelled"] as JobStatus[]) {
+      const result = canReschedule(job("a", status));
+      expect(result.ok).toBe(false);
+      expect(result.reason).toBeTruthy();
+    }
   });
 });
 

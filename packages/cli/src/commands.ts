@@ -36,6 +36,7 @@ import {
   type ConfigValueSource,
   canCancel,
   canRequeue,
+  canReschedule,
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
@@ -77,6 +78,7 @@ import {
   resolveConfigWritePath,
   resolveEffectiveConfig,
   resolveJobId,
+  resolveResumeTime,
   retryPolicyFromEnv,
   runDiagnostics,
   SETTABLE_CONFIG_KEYS,
@@ -507,6 +509,42 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
       ok: true,
       job: updated,
       message: `job ${shortId(job.id)} (${job.project}) queued to resume now — run "agentrelay tick" or the daemon to pick it up`,
+    };
+  } finally {
+    queue.close();
+  }
+}
+
+/**
+ * Move a pending job's resume time to `when` (a duration like `2h`, `now`, or
+ * an ISO timestamp) by full id or short prefix. Preserves the job's attempt
+ * history — unlike `retry`, which resets it — since rescheduling only nudges
+ * *when* the existing job resumes. In-flight and terminal jobs are rejected
+ * with an explanatory message.
+ */
+export function rescheduleJob(idOrPrefix: string, when: string, storePath?: string, nowMs?: number): JobControlResult {
+  const resolvedTime = resolveResumeTime(when, nowMs ?? Date.now());
+  if (resolvedTime.error || resolvedTime.atMs === undefined) {
+    return { ok: false, job: null, message: resolvedTime.error ?? "could not parse time" };
+  }
+
+  const queue = openQueue(storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { ok: false, job: null, message: resolved.error ?? "job not found" };
+
+    const job = jobs.find((j) => j.id === resolved.id) as RelayJob;
+    const guard = canReschedule(job);
+    if (!guard.ok) return { ok: false, job, message: `cannot reschedule ${shortId(job.id)}: ${guard.reason}` };
+
+    const resetAt = new Date(resolvedTime.atMs).toISOString();
+    queue.reschedule(job.id, resetAt);
+    const updated = queue.getById(job.id) ?? null;
+    return {
+      ok: true,
+      job: updated,
+      message: `job ${shortId(job.id)} (${job.project}) rescheduled to resume at ${resetAt}`,
     };
   } finally {
     queue.close();

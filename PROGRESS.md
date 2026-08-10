@@ -2118,3 +2118,30 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 67 — `agentrelay reschedule <id> <when>` 수동 재개 시각 조정] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-4l498t`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/경쟁조사/
+  샘플수집/성능분석). 열린 PR 90+ 적체를 스캔하니 대부분 이미 main에 통합된 기능의 중복(config get·stats
+  --watch·파서 변형·completion·tools·upcoming·wait 등이 각 5~10회 재구현). 세션 60~66의 "통합 우선" 기조를
+  존중하되, 이번엔 main에 **없는 고유 상위 명령**을 골라 최신 main 위에 순수 로직 중심으로 새로 구현.
+  main 명령 목록과 대조해 아직 없는 것: reschedule/diff/report/calendar/man/tail. 실용성이 가장 높고 기존
+  cancel/retry/show 제어 계열과 맞물리는 `reschedule`를 선택.
+- **한 일:** `agentrelay reschedule <id> <when>` — 대기 잡의 재개 시각을 손으로 옮김(연기/앞당기기/특정 리셋에 고정).
+  - **core `reschedule.ts`(신설):** 순수 `resolveResumeTime(when, nowMs)` → `<when>`을 절대 epoch-ms로 해소.
+    `now`/`0`=즉시, 지속시간(`2h`/`30m`/`+90s`/`1d`, 기존 `parseDuration` 재사용)=now 기준 오프셋, ISO
+    타임스탬프=절대. **footgun 방어**: 단위 없는 순수 숫자(`500`)는 `Date.parse`가 연도(500년)로 조용히
+    오독 → 명시 거부+단위 안내. 과거 시각은 허용(=즉시 due).
+  - **core `control.ts`:** 순수 `canReschedule`(resuming=레이스 방지·completed/failed/cancelled 거부,
+    queued/waiting_for_reset만 허용). **core `queue.ts`:** `reschedule(id, resetAt)` — requeueNow와 달리
+    status+resetAt만 갱신, attempts·lastError 보존(재시도 이력 불변).
+  - **CLI:** `commands.ts` `rescheduleJob(id, when, store, nowMs?)`(시각 해소 실패는 스토어 오픈 전 에러,
+    id 해소는 cancel/retry와 동일 `resolveJobId`), `cli.ts` `reschedule <id> <when>` 배선(성공 stdout·실패 exit 1).
+  - 새 파서/스케줄러 로직 0줄 — 시간 파싱은 `parseDuration` 재사용, 나머지는 기존 제어 패턴 답습.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 630** reschedule 11·control canReschedule 3·queue 2 / **cli 340/1skip** commands 4 /
+  dashboard 9). **실제 빌드 CLI e2e**(mock 아님): 임시 스토어에 waiting 잡 심고 `reschedule <id> 2h`→resetAt
+  이동·status waiting·attempts 보존, ISO 타임스탬프 고정, `now`→즉시 due, 단위없는 `500`→"ambiguous" exit 1,
+  `whenever`→"could not parse" exit 1, 미존재 id→exit 1, `--help`/`completion bash`에 reschedule 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — main에 아직 없는 고유
+  상위 명령 `diff`(백업 대비 델타)·`report`(종합 스냅샷)·`calendar`(재개 시각 .ics)·`tail`(감지 출력 tail).
+  중복 축(파서/watch/stats/config-get/completion/tools)은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

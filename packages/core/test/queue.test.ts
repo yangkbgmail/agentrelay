@@ -194,6 +194,29 @@ describe("RelayQueue", () => {
     expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(1);
   });
 
+  it("reschedules a waiting job to a new time while preserving attempts", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    // Simulate one failed attempt then a rate-limit wait, so attempts > 0.
+    queue.markResuming(job.id);
+    queue.markRetryScheduled(job.id, "2026-08-10T10:00:00.000Z", "rate limited");
+    expect(queue.getById(job.id)?.attempts).toBe(1);
+
+    const newReset = "2026-08-10T18:00:00.000Z";
+    queue.reschedule(job.id, newReset);
+    const moved = queue.getById(job.id);
+    expect(moved?.status).toBe("waiting_for_reset");
+    expect(moved?.resetAt).toBe(newReset);
+    // Unlike requeueNow, reschedule leaves the retry history intact.
+    expect(moved?.attempts).toBe(1);
+    expect(moved?.lastError).toBe("rate limited");
+  });
+
+  it("reschedule is a no-op for an unknown id", () => {
+    const before = queue.listAll();
+    queue.reschedule("does-not-exist", "2026-08-10T18:00:00.000Z");
+    expect(queue.listAll()).toEqual(before);
+  });
+
   describe("importJobs", () => {
     const historyJob = (id: string, project = "imported"): RelayJob => ({
       id,
