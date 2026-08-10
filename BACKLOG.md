@@ -810,6 +810,21 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay next --watch` / `agentrelay eta --watch [seconds]` — 남은 스크립트용 한 줄 커맨드
+      두 개에도 라이브 카운트다운을 붙여 `--watch` 커버리지를 완성(`status`·`upcoming`·`overdue`·
+      `tools`·`projects`·`stats`엔 이미 있음).
+      (완료 — `next`(가장 이른 재개 하나)와 `eta`(전체 캐치업 시각)는 스크립트/상태바용 one-liner인데
+      유일하게 라이브 뷰가 없었다. CLI `next.ts`에 순수 `renderNextWatchFrame`·`eta.ts`에
+      `renderEtaWatchFrame` 추가(다른 watch 프레임과 동일 배너 셰이프: `agentrelay <cmd> (live, every Ns
+      — Ctrl-C to exit)` + `stamp · storePath` + 컬러 본문, `now`는 주입식이라 순수·테스트 가능).
+      `cli.ts`에 `runNextWatch`/`runEtaWatch`(공용 `startWatchLoop` 재사용, 매 프레임 `listStatus`
+      재읽기 → 데몬 쓰기 반영, `next`는 `selectNextResume`·`eta`는 `computeQueueEta(jobs, now)` 재평가로
+      카운트다운이 제자리에서 째깍) + 두 커맨드에 `-w/--watch [seconds]` 배선(기본 2s). `--json`이
+      `--watch`보다 우선(one-shot 머신 덤프 → 라이브 뷰보다 앞섬), `--exit-code`는 setInterval 루프라
+      결합 불가. 새 core 코드 0줄 — 전부 기존 `selectNextResume`/`computeQueueEta` 재사용. next 2 +
+      eta 2 신규 테스트, 실제 빌드 CLI e2e로 라이브 프레임·`--json --watch` 우선·기본 2s 검증.
+      branch `claude/wizardly-pascal-8o5wcx`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

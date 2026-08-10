@@ -47,3 +47,25 @@ export function renderNextJson(
 ): string {
   return JSON.stringify({ storePath, generatedAt, next }, null, 2);
 }
+
+/**
+ * One frame of the live `agentrelay next --watch` view: a title/header block
+ * (matching the shape of `status`/`upcoming`/`eta --watch`) plus the colored
+ * one-liner. Separated out so the watch loop only has to clear the screen and
+ * print this; the countdown ticks down in place because the loop re-reads the
+ * store and passes a fresh `now` each pass. Pure: `now` is injected, never read
+ * from an ambient clock.
+ */
+export function renderNextWatchFrame(
+  next: NextResume | null,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now()
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay next${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderNext(next, { now, color: true })].join("\n");
+}

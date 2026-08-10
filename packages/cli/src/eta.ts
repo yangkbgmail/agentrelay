@@ -55,3 +55,25 @@ export function renderEtaJson(
 ): string {
   return JSON.stringify({ storePath, generatedAt, eta }, null, 2);
 }
+
+/**
+ * One frame of the live `agentrelay eta --watch` view: a title/header block
+ * (matching the shape of `status`/`upcoming`/`next --watch`) plus the colored
+ * one-liner. Separated out so the watch loop only has to clear the screen and
+ * print this; the catch-up countdown ticks down in place because the loop
+ * recomputes the ETA with a fresh `now` each pass. Pure: `now` is injected here
+ * only to stamp the banner — the countdown itself lives inside `eta.etaMs`.
+ */
+export function renderEtaWatchFrame(
+  eta: QueueEta,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now()
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay eta${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderEta(eta, { color: true })].join("\n");
+}

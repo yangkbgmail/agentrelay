@@ -1,6 +1,6 @@
 import type { NextResume, RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_PENDING_MESSAGE, renderNext, renderNextJson } from "../src/next.js";
+import { NO_PENDING_MESSAGE, renderNext, renderNextJson, renderNextWatchFrame } from "../src/next.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -84,5 +84,22 @@ describe("renderNextJson", () => {
     expect(parsed.next.due).toBe(true);
     expect(parsed.next.dueInMs).toBe(-500);
     expect(parsed.next.waitingBehind).toBe(0);
+  });
+});
+
+describe("renderNextWatchFrame", () => {
+  it("wraps the one-liner in a live banner with the interval, stamp and store path", () => {
+    const frame = renderNextWatchFrame(next(), "/tmp/store.json", 5000, NOW);
+    expect(frame).toContain("agentrelay next");
+    expect(frame).toContain("live, every 5s");
+    expect(frame).toContain("2026-07-13 00:00:00Z");
+    expect(frame).toContain("/tmp/store.json");
+    // The body still shows the injected-`now` countdown, not an ambient clock.
+    expect(frame).toContain("resets in 1h 30m");
+  });
+
+  it("renders the idle message when nothing is waiting", () => {
+    const frame = renderNextWatchFrame(null, "/tmp/store.json", 2000, NOW);
+    expect(frame).toContain(NO_PENDING_MESSAGE);
   });
 });
