@@ -3,9 +3,14 @@ import {
   combineNotifiers,
   createSlackNotifier,
   createWebhookNotifier,
+  filterNotifierByEvents,
   formatSlackText,
+  isNotifyEvent,
   listNotifyChannels,
+  NOTIFY_EVENTS,
   notifiersFromEnv,
+  notifyEventsFromEnv,
+  parseNotifyEvents,
   sendTestNotification,
   slackNotifierFromEnv,
   testNotifyPayload,
@@ -336,5 +341,146 @@ describe("sendTestNotification", () => {
     });
     const [, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer t0ken");
+  });
+});
+
+function makePayload(event: NotifyPayload["event"]): NotifyPayload {
+  return { jobId: "j", project: "p", event, message: `event ${event}` };
+}
+
+describe("parseNotifyEvents", () => {
+  it("returns no filter for blank / whitespace input", () => {
+    expect(parseNotifyEvents("")).toEqual({ events: null, unknown: [] });
+    expect(parseNotifyEvents("   ")).toEqual({ events: null, unknown: [] });
+    expect(parseNotifyEvents(",, ,")).toEqual({ events: null, unknown: [] });
+  });
+
+  it("filters to exactly the named events (case/space-insensitive)", () => {
+    const { events, unknown } = parseNotifyEvents("Failed, completed ");
+    expect(unknown).toEqual([]);
+    expect([...(events ?? [])].sort()).toEqual(["completed", "failed"]);
+  });
+
+  it("dedupes repeated events", () => {
+    const { events } = parseNotifyEvents("failed,failed,failed");
+    expect([...(events ?? [])]).toEqual(["failed"]);
+  });
+
+  it("expands all / * to every event (no filter)", () => {
+    for (const raw of ["all", "ALL", "*"]) {
+      const { events } = parseNotifyEvents(raw);
+      expect([...(events ?? [])].sort()).toEqual([...NOTIFY_EVENTS].sort());
+    }
+  });
+
+  it("mutes everything for none / off (empty set)", () => {
+    expect(parseNotifyEvents("none")).toEqual({ events: new Set(), unknown: [] });
+    expect(parseNotifyEvents("OFF")).toEqual({ events: new Set(), unknown: [] });
+    // an explicit mute wins even alongside real events
+    expect(parseNotifyEvents("failed,none").events?.size).toBe(0);
+  });
+
+  it("fails open (no filter) when only unrecognized tokens are given, reporting them", () => {
+    const { events, unknown } = parseNotifyEvents("faild, oops");
+    expect(events).toBeNull();
+    expect(unknown).toEqual(["faild", "oops"]);
+  });
+
+  it("keeps known events and reports the unknown ones alongside", () => {
+    const { events, unknown } = parseNotifyEvents("failed, bogus");
+    expect([...(events ?? [])]).toEqual(["failed"]);
+    expect(unknown).toEqual(["bogus"]);
+  });
+});
+
+describe("isNotifyEvent", () => {
+  it("recognizes exactly the known events", () => {
+    for (const event of NOTIFY_EVENTS) expect(isNotifyEvent(event)).toBe(true);
+    expect(isNotifyEvent("nope")).toBe(false);
+    expect(isNotifyEvent("Failed")).toBe(false); // case-sensitive guard
+  });
+});
+
+describe("notifyEventsFromEnv", () => {
+  it("reads AGENTRELAY_NOTIFY_EVENTS, defaulting to no filter", () => {
+    expect(notifyEventsFromEnv({}).events).toBeNull();
+    const { events } = notifyEventsFromEnv({ AGENTRELAY_NOTIFY_EVENTS: "failed" });
+    expect([...(events ?? [])]).toEqual(["failed"]);
+  });
+});
+
+describe("filterNotifierByEvents", () => {
+  it("passes the notifier through unchanged when the filter is null", async () => {
+    const seen: string[] = [];
+    const inner = async (p: NotifyPayload) => {
+      seen.push(p.event);
+    };
+    const wrapped = filterNotifierByEvents(inner, null);
+    expect(wrapped).toBe(inner);
+    await wrapped(makePayload("queued"));
+    expect(seen).toEqual(["queued"]);
+  });
+
+  it("forwards only in-set events and drops the rest", async () => {
+    const seen: string[] = [];
+    const wrapped = filterNotifierByEvents(
+      async (p) => {
+        seen.push(p.event);
+      },
+      new Set(["failed"])
+    );
+    await wrapped(makePayload("queued"));
+    await wrapped(makePayload("completed"));
+    await wrapped(makePayload("failed"));
+    expect(seen).toEqual(["failed"]);
+  });
+
+  it("swallows everything for an empty set (mute all)", async () => {
+    const seen: string[] = [];
+    const wrapped = filterNotifierByEvents(async (p) => {
+      seen.push(p.event);
+    }, new Set());
+    for (const event of NOTIFY_EVENTS) await wrapped(makePayload(event));
+    expect(seen).toEqual([]);
+  });
+});
+
+describe("notifiersFromEnv event filtering", () => {
+  it("delivers only the selected events end-to-end", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const notify = notifiersFromEnv(
+      { AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/x", AGENTRELAY_NOTIFY_EVENTS: "failed" },
+      { fetchFn }
+    );
+    expect(notify).not.toBeNull();
+    await notify?.(makePayload("queued"));
+    await notify?.(makePayload("failed"));
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    const [, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(String(init.body)).toContain("failed");
+  });
+
+  it("notifies on every event when the filter is unset", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const notify = notifiersFromEnv({ AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/x" }, { fetchFn });
+    for (const event of NOTIFY_EVENTS) await notify?.(makePayload(event));
+    expect(fetchFn).toHaveBeenCalledTimes(NOTIFY_EVENTS.length);
+  });
+
+  it("mutes all channels for none without silencing configuration", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const notify = notifiersFromEnv(
+      { AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/x", AGENTRELAY_NOTIFY_EVENTS: "none" },
+      { fetchFn }
+    );
+    // A channel IS configured, so the notifier is non-null...
+    expect(notify).not.toBeNull();
+    // ...but every event is dropped before any HTTP call.
+    for (const event of NOTIFY_EVENTS) await notify?.(makePayload(event));
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("returns null when no channel is configured, regardless of the event filter", () => {
+    expect(notifiersFromEnv({ AGENTRELAY_NOTIFY_EVENTS: "failed" })).toBeNull();
   });
 });

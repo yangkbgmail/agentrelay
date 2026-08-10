@@ -55,6 +55,10 @@ describe("configToEnv", () => {
   });
 
   it("encodes autoPrune.enabled:false as '0' so it is representable, and skips unset keys", () => {
+    expect(configToEnv({ notify: { events: "failed,completed" } })).toEqual({
+      AGENTRELAY_NOTIFY_EVENTS: "failed,completed",
+    });
+
     expect(configToEnv({ autoPrune: { enabled: false } })).toEqual({ AGENTRELAY_AUTOPRUNE: "0" });
     // maxAttempts 0 (unlimited) must still be emitted, not dropped as falsy.
     expect(configToEnv({ retry: { maxAttempts: 0 } })).toEqual({ AGENTRELAY_MAX_ATTEMPTS: "0" });
@@ -238,6 +242,20 @@ describe("validateConfig", () => {
   it("warns on an empty store path", () => {
     const issues = validateConfig({ store: "   " });
     expect(issues).toEqual([expect.objectContaining({ level: "warning", path: "store" })]);
+  });
+
+  it("warns (not errors) on unrecognized notify.events tokens, listing them", () => {
+    const issues = validateConfig({ notify: { events: "failed, bogus, faild" } });
+    expect(issues).toEqual([expect.objectContaining({ level: "warning", path: "notify.events" })]);
+    expect(issues[0].message).toContain("bogus");
+    expect(issues[0].message).toContain("faild");
+    expect(hasConfigErrors(issues)).toBe(false);
+  });
+
+  it("accepts valid notify.events selectors (events / all / none / blank)", () => {
+    for (const events of ["failed", "failed,completed", "all", "none", ""]) {
+      expect(validateConfig({ notify: { events } })).toEqual([]);
+    }
   });
 
   it("hasConfigErrors is true only when an error-level issue exists", () => {

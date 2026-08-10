@@ -2142,3 +2142,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — 알림 이벤트 필터(AGENTRELAY_NOTIFY_EVENTS / notify.events)] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-asjsk1`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 [x], 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/경쟁조사/샘플/성능)뿐.
+  열린 PR ~100개가 parser·watch·stats-histogram·search·export-format·completion·drain·reschedule 축에 포화라, 그
+  어느 축에도 없는 **명확한 갭**을 골랐다 — 스케줄러가 발생시키는 4개 라이프사이클 이벤트(queued/resumed/
+  completed/failed)가 **무조건 전 채널로** 발송돼, 실패만 알림받고 싶은 사용자가 큐잉/재개/완료 알림에
+  시달리는 실사용 문제. 열린 notify PR(digest #488, exec 채널 #537)과도 겹치지 않는다.
+- **한 일 (branch `claude/wizardly-pascal-asjsk1`):**
+  - core `notify.ts`: 순수 `NOTIFY_EVENTS`(이벤트 단일 진실원)·`NotifyEvent`·`isNotifyEvent`·
+    `parseNotifyEvents`·`notifyEventsFromEnv`·`filterNotifierByEvents`. 문법: 빈값/`all`/`*`=필터 없음,
+    `none`/`off`=전부 뮤트, 이벤트 나열=그 집합, **미지 토큰만이면 fail-open**(오타가 알림을 조용히
+    끄지 않고 오히려 더 보내는 안전 방향). `notifiersFromEnv`가 combine notifier를 필터로 감싸 run/daemon/
+    tick 세 경로가 CLI 변경 0으로 적용. `notify test`는 필터 우회(명시 테스트는 항상 발송).
+  - config 통합: `notify.events?: string`(콤마 리스트=env var와 동형 → 기존 `string` 필드 타입 재사용),
+    CONFIG_FIELDS/CONFIG_ENV_KEYS 인덱스 정렬 추가, configToEnv 투영, `config get/set/unset/show` 자동
+    지원, validateConfig가 미지 토큰을 warning(error 아님)으로, sampleConfig `events:"all"`(동작 중립).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 632** notify +19·config +2 / **cli 343/1skip** / dashboard 9). **실제 빌드 CLI e2e**
+  (mock 아님): `config set notify.events failed,completed`→파일 기록→`config get`이 값 반환→`config show`가
+  `[config-file]` 출처로 표기, `config validate` 오타(`faild`)→warning·exit 0·유효값→clean, `config init`
+  샘플에 `events:"all"` 포함 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 알림 스로틀/중복 제거
+  (동일 이벤트 연속 발송 완화), `notify test --event <name>`으로 특정 이벤트 페이로드 테스트. parser/watch/
+  stats/tz/heatmap는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
