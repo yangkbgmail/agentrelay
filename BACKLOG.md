@@ -813,3 +813,14 @@
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
+
+## 클로드 코드가 발굴한 신규 항목 (수시 추가)
+
+- [x] 👷 `agentrelay completion fish` — fish 쉘 탭 완성 스크립트 생성(bash·zsh에 이은 세 번째 쉘).
+      (완료 — 기존 `completion`은 bash/zsh만 지원해 fish 사용자가 탭 완성을 못 얻었다. core `completion.ts`에
+      `CompletionShell`+`COMPLETION_SHELLS`에 `"fish"` 추가 + 순수 `generateFish(spec)`/`fishFlagArg` 신설:
+      `__fish_use_subcommand`(전역옵션·톱레벨 커맨드)·`__fish_seen_subcommand_from`(커맨드별 플래그, 부모
+      커맨드는 서브 선택 전까지만 서브명 제공) 조건부 규칙으로 조합, `--json`→`-l json`/`-r`→`-s r` 매핑.
+      기존 `assertSafeToken`/`uniq` 재사용, `CompletionSpec`은 커맨더 파생이라 드리프트 0. CLI는 shell 검증이
+      `COMPLETION_SHELLS` 파생이라 새 코드 0줄로 fish 수용(설명·help 예시만 갱신). core completion.test +8
+      (=20), 실제 빌드 CLI e2e 검증. branch `claude/wizardly-pascal-lh93qt`)

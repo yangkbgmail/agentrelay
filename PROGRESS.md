@@ -2142,3 +2142,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay completion fish` fish 쉘 탭 완성] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-lh93qt`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이라 CLAUDE.md 지침대로 스스로 신규 개선을 발굴했다. `agentrelay completion`
+  (세션에서 이미 존재)은 bash·zsh만 지원해 fish 사용자는 탭 완성을 못 얻었다 — fish는 널리 쓰이는 쉘이고,
+  많은 CLI가 fish 완성을 기본 제공한다. 기존 `CompletionSpec`(커맨더에서 파생, 실제 명령 표면과 절대
+  드리프트 안 함)을 그대로 소비하는 순수 추가라 회귀 위험이 최소인 명확한 갭이었다.
+- **한 일 (branch `claude/wizardly-pascal-lh93qt`):**
+  - core `completion.ts`: `CompletionShell`에 `"fish"` 추가, `COMPLETION_SHELLS`에 등록, `generateCompletion`
+    디스패처에 배선. 순수 `generateFish(spec)` 신설 — bash/zsh의 단일 디스패치 함수와 달리 fish는 조건부
+    독립 규칙(`complete -c … -n <condition>`)으로 완성을 조합하므로, `__fish_use_subcommand`(아직 커맨드
+    선택 중)로 전역 옵션·톱레벨 커맨드명을, `__fish_seen_subcommand_from <name>`으로 각 커맨드의 플래그를
+    제공. 부모 커맨드(config/notify)는 서브커맨드 선택 전까지만 서브명을 제공(`and not
+    __fish_seen_subcommand_from <sub>` 가드)하고 각 서브의 플래그를 별도 규칙으로. 순수 `fishFlagArg`가
+    플래그 토큰을 fish 관례로 변환(`--json`→`-l json`, `-r`→`-s r`), 기존 `assertSafeToken`(쉘 메타문자
+    거부)·`uniq`(first-seen 순서 유지 디듑) 전부 재사용.
+  - CLI `cli.ts`: `completion` 커맨드 설명·`--help` 예시에 fish 추가(설치 경로
+    `~/.config/fish/completions/agentrelay.fish`). shell 인자 검증·배선은 `COMPLETION_SHELLS`/
+    `isCompletionShell` 파생이라 새 코드 0줄로 fish 자동 수용.
+  - core `completion.test.ts`: `isCompletionShell("fish")`·`COMPLETION_SHELLS` 갱신 + fish 8케이스 신규
+    (헤더/`complete -c -f`·톱레벨 커맨드·전역옵션·`-l`/`-s` 매핑·부모 서브커맨드 가드·서브 플래그·디듑).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 621** completion 12→20, cli 343/1skip). **실제 빌드 CLI e2e**(mock 아님):
+  `completion fish`가 `complete -c agentrelay -f` + 전 톱레벨 커맨드 + config/notify 부모 서브커맨드 가드
+  규칙 + `status`의 `-l json`/`-l watch`/`-s r` + `init`의 `-l force`/`-s f`를 정확히 렌더, `completion
+  pwsh`가 exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `completion powershell`
+  (pwsh 완성), fish 완성에 `-d` 설명 부여(커맨더 description 파생). tz/heatmap/parser/watch/stats는 PR
+  포화라 지양. README/ARCHITECTURE(🧭 코워크).
