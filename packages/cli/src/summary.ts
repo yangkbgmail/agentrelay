@@ -1,0 +1,74 @@
+// Rendering for `agentrelay summary` — the smallest at-a-glance view of the
+// queue: how many jobs, how they split across statuses, and how long until the
+// next reset. Where `status` prints the full per-job table and `next` surfaces
+// the single most imminent resume, `summary` answers "what's the queue doing
+// right now?" in one or two lines — ideal for a shell prompt, a `watch`, or a
+// scripted health probe. Kept as pure functions (separate from the commander
+// wiring in cli.ts) so the exact output is unit-testable without a TTY, a
+// clock, or a spawned process.
+
+import type { JobStatus, QueueSummary } from "@agentrelay/core";
+import { ALL_STATUSES } from "@agentrelay/core";
+import { formatCountdown } from "./status.js";
+
+const RESET = "\x1b[0m";
+const DIM = "\x1b[2m";
+const BOLD = "\x1b[1m";
+
+/** ANSI color per status, applied only when the output is going to a TTY. */
+const STATUS_COLOR: Record<JobStatus, string> = {
+  queued: "\x1b[36m", // cyan
+  waiting_for_reset: "\x1b[33m", // yellow
+  resuming: "\x1b[35m", // magenta
+  completed: "\x1b[32m", // green
+  failed: "\x1b[31m", // red
+  cancelled: "\x1b[90m", // gray
+};
+
+/** Shown when the store has no jobs at all. */
+export const EMPTY_MESSAGE = "No jobs yet. Run `agentrelay run -- <your agent command>` to get started.";
+
+/**
+ * Compact human overview: a headline (total jobs + next-reset countdown) and a
+ * per-status breakdown that omits zero-count statuses for scannability. Reuses
+ * `formatCountdown` so the "1h 3m"/"due now" phrasing matches the status table
+ * exactly. Pure: no ambient clock unless `now` is omitted.
+ */
+export function renderSummary(summary: QueueSummary, options: { now?: number; color?: boolean } = {}): string {
+  const now = options.now ?? Date.now();
+  const color = options.color ?? false;
+  const b = (s: string): string => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string): string => (color ? `${DIM}${s}${RESET}` : s);
+
+  if (summary.total === 0) return EMPTY_MESSAGE;
+
+  const jobWord = summary.total === 1 ? "job" : "jobs";
+  const reset =
+    summary.nextResetAt !== null
+      ? `next reset in ${b(formatCountdown(summary.nextResetAt, now))} ${d(`(${summary.nextResetAt})`)}`
+      : d("nothing waiting for a reset");
+  const headline = `${b(`${summary.total} ${jobWord}`)} ${d("·")} ${reset}`;
+
+  // Breakdown: lifecycle order, non-zero only, colored count per status.
+  const parts = ALL_STATUSES.filter((status) => summary.byStatus[status] > 0).map((status) => {
+    const count = summary.byStatus[status];
+    const painted = color ? `${STATUS_COLOR[status]}${status}${RESET}` : status;
+    return `${painted} ${b(String(count))}`;
+  });
+  const breakdown = parts.length > 0 ? `  ${parts.join(d("  "))}` : "";
+
+  return breakdown ? `${headline}\n${breakdown}` : headline;
+}
+
+/**
+ * Machine-readable form for `--json` (scripts/jq). Carries the full
+ * `QueueSummary` (total, per-status counts with every status zero-filled, and
+ * the next reset) plus provenance for where the data came from and when.
+ */
+export function renderSummaryJson(
+  summary: QueueSummary,
+  storePath: string,
+  generatedAt: string = new Date().toISOString()
+): string {
+  return JSON.stringify({ storePath, generatedAt, summary }, null, 2);
+}
