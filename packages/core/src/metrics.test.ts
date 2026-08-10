@@ -72,6 +72,8 @@ describe("renderPrometheusMetrics", () => {
     // No resolution/success-rate samples when nothing has resolved.
     expect(text).not.toContain("agentrelay_success_rate");
     expect(text).not.toContain("agentrelay_resolution_seconds");
+    // No next-reset series when nothing is waiting.
+    expect(text).not.toContain("agentrelay_next_reset_timestamp_seconds");
   });
 
   it("ends with a trailing newline and has a HELP/TYPE header per family", () => {
@@ -118,6 +120,46 @@ describe("renderPrometheusMetrics", () => {
     expect(s.get("agentrelay_resolved_jobs")).toBe(1);
     expect(s.get('agentrelay_resolution_seconds{stat="avg"}')).toBe(60);
     expect(s.get('agentrelay_resolution_seconds{stat="p90"}')).toBe(60);
+  });
+
+  it("exposes the full resolution-time distribution (percentiles + spread)", () => {
+    // Two spans, 60s and 180s. Sorted asc [60000, 180000] ms; type-7 percentiles:
+    // p25=90s, median=120s, p75=150s, p90=168s, p95=174s, p99=178.8s.
+    // iqr = p75 − p25 = 60s; population stdev of ±60000 about the mean = 60s.
+    const jobs = [
+      job({ status: "completed", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:01:00.000Z" }),
+      job({ status: "completed", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:03:00.000Z" }),
+    ];
+    const s = parseSamples(renderPrometheusMetrics(computeStats(jobs)));
+    expect(s.get('agentrelay_resolution_seconds{stat="avg"}')).toBe(120);
+    expect(s.get('agentrelay_resolution_seconds{stat="min"}')).toBe(60);
+    expect(s.get('agentrelay_resolution_seconds{stat="p25"}')).toBe(90);
+    expect(s.get('agentrelay_resolution_seconds{stat="median"}')).toBe(120);
+    expect(s.get('agentrelay_resolution_seconds{stat="p75"}')).toBe(150);
+    expect(s.get('agentrelay_resolution_seconds{stat="p90"}')).toBe(168);
+    expect(s.get('agentrelay_resolution_seconds{stat="p95"}')).toBe(174);
+    expect(s.get('agentrelay_resolution_seconds{stat="p99"}')).toBe(178.8);
+    expect(s.get('agentrelay_resolution_seconds{stat="max"}')).toBe(180);
+    expect(s.get('agentrelay_resolution_seconds{stat="iqr"}')).toBe(60);
+    expect(s.get('agentrelay_resolution_seconds{stat="stdev"}')).toBe(60);
+  });
+
+  it("emits next_reset_timestamp_seconds as the earliest waiting reset (absolute epoch)", () => {
+    const jobs = [
+      job({ status: "waiting_for_reset", resetAt: "2026-07-13T05:00:00.000Z" }),
+      job({ status: "waiting_for_reset", resetAt: "2026-07-13T03:00:00.000Z" }),
+      job({ status: "completed" }),
+    ];
+    const s = parseSamples(renderPrometheusMetrics(computeStats(jobs)));
+    // Earliest of the two waiting resets, in Unix seconds.
+    expect(s.get("agentrelay_next_reset_timestamp_seconds")).toBe(Date.parse("2026-07-13T03:00:00.000Z") / 1000);
+  });
+
+  it("omits next_reset_timestamp_seconds when nothing waits", () => {
+    // A resetAt on a non-waiting job doesn't count — the queue is drained.
+    const jobs = [job({ status: "completed", resetAt: "2026-07-13T05:00:00.000Z" })];
+    const text = renderPrometheusMetrics(computeStats(jobs));
+    expect(text).not.toContain("agentrelay_next_reset_timestamp_seconds");
   });
 
   it("honors a custom prefix and sanitizes it", () => {

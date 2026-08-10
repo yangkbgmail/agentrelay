@@ -102,6 +102,27 @@ export function renderPrometheusMetrics(stats: RelayStats, options: PrometheusOp
     ])
   );
 
+  // Absolute Unix timestamp (seconds) of the soonest waiting job's reset — the
+  // idiomatic Prometheus way to expose a future instant (cf. node_boot_time_seconds):
+  // the scraper stores an absolute time and computes the countdown in PromQL
+  // (`agentrelay_next_reset_timestamp_seconds - time()`), so this stays pure with
+  // no ambient clock. Omitted entirely when nothing is waiting (or the stored
+  // timestamp is unparseable), matching the null-omission convention below — an
+  // absent series reads as "queue is drained", not a misleading 0/epoch.
+  if (stats.nextResetAt !== null) {
+    const resetMs = Date.parse(stats.nextResetAt);
+    if (!Number.isNaN(resetMs)) {
+      const metric = name("next_reset_timestamp_seconds");
+      lines.push(
+        ...metricFamily(
+          metric,
+          "Unix timestamp (seconds) of the earliest waiting job's rate-limit reset; absent when nothing waits.",
+          [`${metric} ${formatValue(resetMs / 1000)}`]
+        )
+      );
+    }
+  }
+
   lines.push(
     ...metricFamily(name("attempts"), "Total resume attempts summed across every job.", [
       `${name("attempts")} ${formatValue(stats.totalAttempts)}`,
@@ -138,16 +159,32 @@ export function renderPrometheusMetrics(stats: RelayStats, options: PrometheusOp
     t.minResolutionMs !== null &&
     t.maxResolutionMs !== null &&
     t.medianResolutionMs !== null &&
-    t.p90ResolutionMs !== null
+    t.p25ResolutionMs !== null &&
+    t.p75ResolutionMs !== null &&
+    t.p90ResolutionMs !== null &&
+    t.p95ResolutionMs !== null &&
+    t.p99ResolutionMs !== null &&
+    t.iqrResolutionMs !== null &&
+    t.stdevResolutionMs !== null
   ) {
+    // One gauge family, `stat`-labeled, exposing the full resolution-time
+    // distribution `computeStats` already computes: central + percentiles
+    // (min…max) plus the two dispersion measures (iqr, stdev). All are durations
+    // in seconds, so they share the family; a scraper picks the series it wants.
     const metric = name("resolution_seconds");
     lines.push(
       ...metricFamily(metric, "Job resolution time (updatedAt - createdAt) over completed + failed jobs, seconds.", [
         `${metric}{${label("stat", "avg")}} ${formatValue(t.avgResolutionMs / 1000)}`,
         `${metric}{${label("stat", "min")}} ${formatValue(t.minResolutionMs / 1000)}`,
+        `${metric}{${label("stat", "p25")}} ${formatValue(t.p25ResolutionMs / 1000)}`,
         `${metric}{${label("stat", "median")}} ${formatValue(t.medianResolutionMs / 1000)}`,
+        `${metric}{${label("stat", "p75")}} ${formatValue(t.p75ResolutionMs / 1000)}`,
         `${metric}{${label("stat", "p90")}} ${formatValue(t.p90ResolutionMs / 1000)}`,
+        `${metric}{${label("stat", "p95")}} ${formatValue(t.p95ResolutionMs / 1000)}`,
+        `${metric}{${label("stat", "p99")}} ${formatValue(t.p99ResolutionMs / 1000)}`,
         `${metric}{${label("stat", "max")}} ${formatValue(t.maxResolutionMs / 1000)}`,
+        `${metric}{${label("stat", "iqr")}} ${formatValue(t.iqrResolutionMs / 1000)}`,
+        `${metric}{${label("stat", "stdev")}} ${formatValue(t.stdevResolutionMs / 1000)}`,
       ])
     );
   }

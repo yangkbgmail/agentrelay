@@ -2142,3 +2142,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay metrics`(Prometheus) 큐-드레인·분포 게이지 보강] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-2ygxii`)
+- **배경:** 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유뿐. 열린 PR 30개가
+  parser/watch/tsv/search/drain 축에 포화된 상태라, **어떤 열린 PR에도 없는** 관측성 계열의 명확한 갭을 골랐다 —
+  `RelayStats`에 `nextResetAt`가 있는데 `metrics`(Prometheus)는 미노출이었고, `TimingStats`가 p25/p75/p95/p99/
+  iqr/stdev까지 계산하는데 `resolution_seconds` 패밀리는 avg/min/median/p90/max만 방출하고 있었다.
+- **한 일 (branch `claude/wizardly-pascal-2ygxii`, `packages/core/src/metrics.ts` 순수-추가):**
+  - `agentrelay_next_reset_timestamp_seconds` 게이지 신설 — 가장 이른 대기 잡 리셋을 **절대 Unix 초**로 노출.
+    node_boot_time_seconds식 관용구라 스크레이퍼가 절대시각을 저장하고 PromQL `metric - time()`로 카운트다운을
+    계산 → 함수가 pure 유지(클럭 주입 불필요). 대기 없음/타임스탬프 파싱 불가면 시리즈 자체를 생략(기존
+    null-생략 관례와 동일 — 부재=큐 드레인, 오해 없는 0/epoch 대신).
+  - `agentrelay_resolution_seconds` 패밀리를 stat 라벨로 **p25·p75·p95·p99·iqr·stdev까지** 확장. `computeStats`가
+    이미 내는 `TimingStats` 전체를 초 단위로 노출(전부 duration이라 한 패밀리 공유), 가드에 새 필드 추가로 TS 내로잉.
+    기존 게이지 패밀리와 CLI(`metrics` 커맨드는 stats 객체를 그대로 전달)는 무변경.
+  - `metrics.test.ts` +4(=15): 두 잡(60/180s) 분포 11개 stat 값 검증(p25 90·median 120·p75 150·p90 168·p95 174·
+    p99 178.8·iqr 60·stdev 60)·가장 이른 대기 리셋 epoch·드레인/빈 스토어 생략.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과
+  (**core 617** metrics +4, cli 343/1skip, dashboard 9). **실제 빌드 CLI e2e**(mock 아님): 대기 2잡+해결 2잡
+  임시 스토어로 `agentrelay metrics`가 `next_reset_timestamp_seconds 1786417200`(더 이른 03:00Z 리셋)과
+  11개 `resolution_seconds{stat=…}` 라인을 방출함을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록 변동계수
+  (CV=stdev/mean) 게이지, `metrics`에 per-project 라벨(현재 aggregate-only). tz/heatmap/parser/watch/tsv/search는
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
