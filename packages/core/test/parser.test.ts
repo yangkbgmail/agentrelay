@@ -118,6 +118,37 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 3 * 60_000).toISOString());
   });
 
+  it("accepts the 'mins' / 'hrs' abbreviations", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const mins = parseRateLimitMessage("Rate limit exceeded, try again in 30 mins.", { now });
+    expect(mins?.pattern).toBe("relative-duration");
+    expect(mins?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+    const hrs = parseRateLimitMessage("Rate limit hit — retry in 2 hrs.", { now });
+    expect(hrs?.pattern).toBe("relative-duration");
+    expect(hrs?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
+  it("does not misread a unit-prefixed word as a duration ('in 2 months')", () => {
+    // Regression: the unit letter (d/h/m) is a prefix of unrelated words, so
+    // "2 months" was parsed as 2 minutes and parked a job on a bogus reset time.
+    // The `(?![a-z])` boundary rejects a trailing letter, so this is no longer a
+    // relative-duration match. No other pattern claims it, so the parse is null.
+    const now = new Date("2026-07-12T10:00:00Z");
+    expect(parseRateLimitMessage("Usage resets in 2 months.", { now })).toBeNull();
+    expect(parseRateLimitMessage("try again in 3 modes", { now })).toBeNull();
+    expect(parseRateLimitMessage("resets in 5 moments", { now })).toBeNull();
+  });
+
+  it("still parses the compact '4h32m' form after the boundary tightening", () => {
+    // The boundary allows a trailing *digit* (only a trailing letter is rejected),
+    // so a unit immediately followed by the next number keeps working.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("try again in 1d2h30m", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    const expected = new Date(now.getTime() + ((24 + 2) * 60 + 30) * 60_000).toISOString();
+    expect(result?.resetAt).toBe(expected);
+  });
+
   it("parses a unix epoch retry_after field", () => {
     const result = parseRateLimitMessage("rate_limit_error retry_after=1752345600");
     expect(result).not.toBeNull();
