@@ -2118,3 +2118,18 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+## 세션 67 (2026-08-10)
+
+- **한 일:** `next`·`eta` 두 스크립트용 one-liner 커맨드에 `--watch [seconds]` 라이브 카운트다운 추가로
+  `--watch` 커버리지 완성(그간 `status`/`upcoming`/`overdue`/`tools`/`projects`/`stats`에만 있었음).
+  CLI `next.ts` `renderNextWatchFrame`·`eta.ts` `renderEtaWatchFrame`(다른 watch 프레임과 동일 배너 셰이프,
+  `now` 주입식 순수 함수), `cli.ts` `runNextWatch`/`runEtaWatch`(공용 `startWatchLoop` 재사용, 매 프레임
+  `listStatus` 재읽기 + `selectNextResume`/`computeQueueEta(jobs, now)` 재평가). `--json`이 `--watch`보다
+  우선(one-shot 덤프), `--exit-code`와는 결합 불가. 새 core 코드 0줄.
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 114파일)→`pnpm test` 전 패키지 통과
+  (core 614 / cli 340·1skip[next 10·eta 9] / dashboard 9). 실제 빌드 CLI e2e로 `next --watch`·`eta --watch`
+  라이브 프레임(배너·stamp·store path·컬러 카운트다운), `--json --watch` 우선(one-shot), 기본 2s 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open. watch 커버리지는 이제 스크립트용 one-liner까지 완결 —
+  다음은 세션 66이 지목한 고유 기능 PR 배수(#182 report·#173 diff·#204/#172 reschedule·#167 export tsv 등)
+  또는 새 개선 발굴. README/ARCHITECTURE는 🧭 코워크.

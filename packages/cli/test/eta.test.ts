@@ -1,6 +1,6 @@
 import type { QueueEta } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { CAUGHT_UP_MESSAGE, renderEta, renderEtaJson } from "../src/eta.js";
+import { CAUGHT_UP_MESSAGE, renderEta, renderEtaJson, renderEtaWatchFrame } from "../src/eta.js";
 
 function caughtUp(): QueueEta {
   return {
@@ -74,5 +74,26 @@ describe("renderEtaJson", () => {
     expect(parsed.eta.dueNow).toBe(1);
     expect(parsed.eta.etaMs).toBe(5 * 60 * 60 * 1000);
     expect(parsed.eta.lastResetAt).toBe("2026-07-30T15:00:00.000Z");
+  });
+});
+
+describe("renderEtaWatchFrame", () => {
+  const NOW = Date.parse("2026-07-30T10:00:00.000Z");
+
+  it("wraps the one-liner in a live banner with the interval, stamp and store path", () => {
+    const frame = renderEtaWatchFrame(eta(), "/tmp/store.json", 5000, NOW);
+    expect(frame).toContain("agentrelay eta");
+    expect(frame).toContain("live, every 5s");
+    expect(frame).toContain("2026-07-30 10:00:00Z");
+    expect(frame).toContain("/tmp/store.json");
+    // The body still shows the catch-up countdown carried by eta.etaMs (the
+    // duration itself is bold-wrapped in color mode, so match the lead-in).
+    expect(frame).toContain("Queue caught up in");
+    expect(frame).toContain("3 jobs waiting");
+  });
+
+  it("renders the caught-up message when nothing is waiting", () => {
+    const frame = renderEtaWatchFrame(caughtUp(), "/tmp/store.json", 2000, NOW);
+    expect(frame).toContain(CAUGHT_UP_MESSAGE);
   });
 });
