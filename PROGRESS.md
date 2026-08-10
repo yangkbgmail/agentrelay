@@ -2118,3 +2118,28 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 67 — `agentrelay completion fish`: 세 번째 쉘 완성 추가] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-pok5as`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 60~66이 진단한 "기능 PR 적체(파서/watch/stats 축 중복)"를 피해,
+  **포화되지 않은 축**에서 회귀 위험이 최소인 순수 추가 하나를 자기 발굴했다: `completion` 커맨드
+  (세션 53, PR #83)가 bash/zsh만 지원해 fish 사용자를 빠뜨린 갭.
+- **한 일:** `agentrelay completion fish` — fish 쉘 탭 완성 스크립트 생성.
+  - core `completion.ts`: `CompletionShell`에 `"fish"` + `COMPLETION_SHELLS`에 `"fish"`(→ `isCompletionShell`·
+    CLI `<shell>` 검증·에러 메시지가 자동 반영). `generateCompletion` 디스패치에 fish 분기, 순수
+    `generateFish(spec)` 신설 — 완성 *함수*가 아니라 fish 관용의 평면 `complete` 지시문 목록을 방출.
+    top-level 커맨드는 `__fish_use_subcommand`(서브커맨드 등장 전에만), 커맨드 플래그는
+    `__fish_seen_subcommand_from <cmd>`, 부모 커맨드(`config`)는 서브커맨드를 고르기 전까지
+    (`; and not __fish_seen_subcommand_from …`) 이름을 제안한 뒤 그 서브커맨드 플래그로 전환.
+    순수 `fishFlagLine`이 `--long`→`-l long`·`-x`→`-s x`로 변환하고 대시 제거 후 토큰을 `assertSafeToken`
+    으로 재검증(불안전 토큰은 throw). 파일 완성은 켠 채 둬 `import`/`restore`의 경로 인자가 계속 완성됨.
+  - CLI `cli.ts`: `completion` 커맨드 설명("bash, zsh, or fish")·help 예시에 fish 라인 추가. 스크립트
+    도출은 기존 `buildCompletionSpec`(라이브 커맨더 파생)이 그대로라 새 배선 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(core completion.test +7 fish 케이스·기존 2 단언 갱신 / cli 336/1skip 유지 / dashboard 9). **실제
+  빌드 CLI e2e**(mock 아님): `completion fish`가 fish 헤더+top-level `-a run`·`__fish_use_subcommand -l store`·
+  config 서브커맨드 predicate(`; and not __fish_seen_subcommand_from init validate show get set unset`)를
+  정확히 방출, 미지 쉘(`tcsh`)은 "Valid: bash, zsh, fish" + exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 인접 후속 — completion에 `-d` 설명 부여
+  (커맨더 description 파생), PowerShell 완성 등. 여전히 적체 크면 세션 66 기조대로 신규 빌드보다 고유
+  기능 PR 통합 우선. README/ARCHITECTURE(🧭 코워크).

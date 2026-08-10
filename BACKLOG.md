@@ -810,6 +810,24 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay completion fish` — 세션 53의 bash/zsh 완성에 fish 쉘을 세 번째로 추가(자기 발굴 항목).
+      (완료 — `completion <bash|zsh>`(세션 53, PR #83)는 fish 사용자를 빠뜨렸다. core `completion.ts`의
+      `CompletionShell`에 `"fish"`, `COMPLETION_SHELLS`에 `"fish"` 추가(→ `isCompletionShell`·CLI
+      `<shell>` 인자 검증·completion 스크립트 자동 반영). `generateCompletion` 디스패치에 fish 분기 +
+      순수 `generateFish(spec)` 신설: 완성 함수가 아니라 fish 관용의 평면 `complete` 지시문 목록을 방출 —
+      top-level 커맨드는 `__fish_use_subcommand`로 서브커맨드 등장 전에만, 각 커맨드 플래그는
+      `__fish_seen_subcommand_from <cmd>`로 해당 커맨드가 라인에 있을 때만, 부모 커맨드(`config`)는
+      서브커맨드 이름을 하나 고르기 전까지(`; and not __fish_seen_subcommand_from <subs…>`) 제안한 뒤
+      그 서브커맨드 플래그로 전환. 순수 `fishFlagLine` 헬퍼가 `--long`→`-l long`·`-x`→`-s x`로 fish
+      네이티브 옵션 종류로 변환하고 대시 제거 후 토큰을 재검증(기존 `assertSafeToken` 재사용 — 불안전
+      토큰은 방출 대신 throw). 파일 완성은 켠 채 둬서 경로 인자를 받는 `import`/`restore`가 계속 파일
+      완성됨. CLI `completion` 커맨드 설명/help 예시에 fish 라인 추가(스크립트 도출은 기존
+      `buildCompletionSpec`가 라이브 커맨더에서 파생하므로 새 배선 0줄). 새 파서/스케줄러/스토어 로직
+      0줄 — 순수 렌더 추가라 회귀 위험 최소. core completion.test +7(fish 헤더·top-level·글로벌 opt·
+      `-l`/`-s` 변환·부모 서브커맨드 predicate·dedupe·unsafe throw) + 기존 2 단언 갱신, 실제 빌드 CLI
+      e2e로 fish 스크립트 생성·config 서브커맨드 predicate·미지 쉘 exit 1 검증. `pnpm ci:lint` 0에러·
+      전 패키지 테스트 통과. branch `claude/wizardly-pascal-pok5as`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
