@@ -810,6 +810,24 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 (버그 수정) `sampleConfig()`의 retry 기본값이 문서화된 "no-op" 계약을 위반 —
+      `agentrelay config init` 산출 파일을 그대로 쓰면 백오프가 조용히 60×/12× 바뀜.
+      (완료 — `config.ts`의 `sampleConfig()` 독스트링은 "값이 프레임워크 기본값을 그대로 반영하므로 이
+      파일을 쓰고 실행해도 사용자가 손대기 전엔 **아무것도 안 바뀐다**"고 명시한다. 그러나 실제 emit 값은
+      `retry.baseDelayMs: 1000`·`maxDelayMs: 300000`으로, 권위 있는 `DEFAULT_RETRY_POLICY`(retry.ts:
+      `60_000`·`3_600_000`)와 불일치했다. 데이터 흐름 추적으로 실제 영향 확인: `config init`이 파일을
+      쓰고 → `configToEnv`가 `retry.baseDelayMs→AGENTRELAY_RETRY_BASE_MS`·`maxDelayMs→_RETRY_MAX_MS`로
+      매핑 → `applyConfigToEnv`가 env 주입 → `retryPolicyFromEnv`가 읽음. 결과적으로 `config init` 후
+      그 파일로 실행하면 전환 실패(transient) 재시도 백오프가 **1s에서 시작(기본 60s의 1/60)**하고
+      **5분에서 캡(기본 1h의 1/12)**됨 — 문서의 "아무것도 안 바뀜" 약속과 정면 배치. autoPrune 블록도
+      비-기본값(keep:50/every:1h)을 쓰지만 `enabled:false` 게이트로 무해한 반면, retry엔 그런 게이트가
+      없어 잘못된 값이 실제로 발효된다. 수정: `sampleConfig()`의 retry 값을 `DEFAULT_RETRY_POLICY`와
+      일치(`baseDelayMs:60000`·`maxDelayMs:3600000`). 드리프트 재발 방지 회귀 테스트 2개 추가
+      (config.test.ts): 샘플 retry가 `DEFAULT_RETRY_POLICY`와 정확히 일치·`configToEnv(sampleConfig())`의
+      retry env가 기본값 문자열과 일치(엔드투엔드 no-op 계약). 실제 빌드 CLI로 `config init` 산출 파일이
+      60000/3600000을 방출하는지 e2e 확인. core 616(+2) 전 통과, biome 0. 서브에이전트 버그 헌트로 발굴.
+      branch `claude/wizardly-pascal-nrbgdq`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

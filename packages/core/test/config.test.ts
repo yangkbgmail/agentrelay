@@ -24,6 +24,7 @@ import {
   unsetConfigValue,
   validateConfig,
 } from "../src/config.js";
+import { DEFAULT_RETRY_POLICY } from "../src/retry.js";
 
 describe("configToEnv", () => {
   it("returns an empty map for an empty config", () => {
@@ -157,6 +158,33 @@ describe("sampleConfig", () => {
     expect(sample.autoPrune).toBeDefined();
     // A brand-new user should not accidentally enable destructive auto-prune.
     expect(sample.autoPrune?.enabled).toBe(false);
+  });
+
+  it("mirrors the framework retry defaults so writing it changes nothing", () => {
+    // The doc contract: the sample spells out the built-in defaults, so a user
+    // who runs `config init` and keeps the file gets identical behavior until
+    // they tweak something. Retry is the one group with no `enabled` gate, so a
+    // drifted value here silently alters the backoff — pin it to the source of
+    // truth to catch any future drift. (Regression: baseDelayMs was 1000 and
+    // maxDelayMs 300000, giving a 60×-faster start and 12×-lower cap.)
+    const sample = sampleConfig();
+    expect(sample.retry).toEqual({
+      maxAttempts: DEFAULT_RETRY_POLICY.maxAttempts,
+      baseDelayMs: DEFAULT_RETRY_POLICY.baseDelayMs,
+      factor: DEFAULT_RETRY_POLICY.factor,
+      maxDelayMs: DEFAULT_RETRY_POLICY.maxDelayMs,
+      jitter: DEFAULT_RETRY_POLICY.jitter,
+    });
+  });
+
+  it("projects to the same env the framework defaults produce (no-op contract)", () => {
+    // End-to-end: sampleConfig -> configToEnv must yield the exact retry env
+    // values retryPolicyFromEnv treats as defaults, so applying the sample file
+    // is a genuine no-op for the retry policy.
+    const env = configToEnv(sampleConfig());
+    expect(env.AGENTRELAY_RETRY_BASE_MS).toBe(String(DEFAULT_RETRY_POLICY.baseDelayMs));
+    expect(env.AGENTRELAY_RETRY_MAX_MS).toBe(String(DEFAULT_RETRY_POLICY.maxDelayMs));
+    expect(env.AGENTRELAY_MAX_ATTEMPTS).toBe(String(DEFAULT_RETRY_POLICY.maxAttempts));
   });
 
   it("renders pretty JSON with a trailing newline that parses back", () => {

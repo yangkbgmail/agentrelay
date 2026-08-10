@@ -2118,3 +2118,27 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 67 — 버그 수정: `config init` 샘플이 retry 백오프를 조용히 60×/12× 바꾸던 결함] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-nrbgdq`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유뿐. 열린 PR을 스캔하니
+  여전히 60+ 적체 — 후속 후보(search·export tsv·drain·reschedule[8개+]·max-wait·tail·notify events·resume
+  buffer·man·run --dry-run 등) **전부** 이미 1~8개씩 열린 PR 존재. 실제로 `run --dry-run`을 깔끔히 구현했다가
+  **열린 PR #213과 완전 중복**(설계까지 동일)임을 발견하고 폐기. 기능 공간이 포화라, 저장소 최우선 원칙
+  ("중복 신규 지양")에 따라 **어느 기능 PR과도 충돌 없는 순수 버그 수정**으로 전환했다.
+- **한 일:** 서브에이전트 버그 헌트(수학/순수 로직 전수 검증)로 실제 결함 1건 발굴·직접 재검증 후 수정.
+  `packages/core/src/config.ts`의 `sampleConfig()` 독스트링은 "값이 프레임워크 기본값을 그대로 반영 → 이
+  파일을 쓰고 실행해도 손대기 전엔 **아무것도 안 바뀐다**"고 명시하나, emit 값 `retry.baseDelayMs:1000`·
+  `maxDelayMs:300000`이 권위 있는 `DEFAULT_RETRY_POLICY`(`60_000`·`3_600_000`)와 불일치했다. 데이터 흐름
+  추적으로 실제 영향 확인: `config init`→파일 쓰기→`configToEnv`가 `AGENTRELAY_RETRY_BASE_MS`/`_RETRY_MAX_MS`로
+  매핑→`applyConfigToEnv` env 주입→`retryPolicyFromEnv` 읽기. 결과 `config init` 후 그 파일로 실행 시 전환
+  실패 재시도 백오프가 **1s 시작(기본 60s의 1/60)·5분 캡(기본 1h의 1/12)** — 문서 약속과 정반대. autoPrune
+  비-기본값은 `enabled:false`로 게이트돼 무해하지만 retry엔 게이트가 없어 잘못된 값이 실제 발효. 수정: 샘플
+  retry를 `DEFAULT_RETRY_POLICY`와 일치(`60000`/`3600000`).
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0, 114파일)→`pnpm test` 전 패키지 통과
+  (**core 616**[+2] / cli 336·1skip / dashboard 9). 드리프트 재발 방지 회귀 2케이스(config.test.ts): 샘플
+  retry가 `DEFAULT_RETRY_POLICY`와 정확 일치·`configToEnv(sampleConfig())`의 retry env가 기본값 문자열과
+  일치(엔드투엔드 no-op 계약). **실제 빌드 CLI e2e**: `config init` 산출 파일이 `baseDelayMs:60000`·
+  `maxDelayMs:3600000` 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 적체 60+ PR은 여전히 통합/중복정리 필요 —
+  대표 통합 후 원본·중복 close 전략(세션 60~66)을 이어갈 것. 신규 기능은 포화라 지양하고, 서브에이전트
+  버그 헌트로 유사한 순수-로직 결함을 계속 발굴하는 것이 저비용·비충돌 고가치 경로.
