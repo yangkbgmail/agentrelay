@@ -1,6 +1,6 @@
 import type { NextResume, RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_PENDING_MESSAGE, renderNext, renderNextJson } from "../src/next.js";
+import { NO_PENDING_MESSAGE, renderNext, renderNextJson, renderNextWatchFrame } from "../src/next.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -67,6 +67,25 @@ describe("renderNext", () => {
   it("emits no ANSI codes when color is off", () => {
     // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting no ANSI escapes leak.
     expect(renderNext(next({ waitingBehind: 2 }), { now: NOW, color: false })).not.toMatch(/\x1b\[/);
+  });
+});
+
+describe("renderNextWatchFrame", () => {
+  it("wraps the next body in a live banner with the interval, timestamp, and store", () => {
+    const frame = renderNextWatchFrame(next(), "/tmp/store.json", 2000, NOW);
+    expect(frame).toContain("agentrelay next");
+    expect(frame).toContain("every 2s");
+    expect(frame).toContain("Ctrl-C to exit");
+    expect(frame).toContain("2026-07-13 00:00:00Z");
+    expect(frame).toContain("/tmp/store.json");
+    // Body keeps a live countdown driven by the injected `now`.
+    expect(frame).toContain("resets in 1h 30m");
+  });
+
+  it("renders the empty message as its body when nothing is waiting", () => {
+    const frame = renderNextWatchFrame(null, "/tmp/store.json", 5000, NOW);
+    expect(frame).toContain("every 5s");
+    expect(frame).toContain(NO_PENDING_MESSAGE);
   });
 });
 

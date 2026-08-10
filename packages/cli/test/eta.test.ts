@@ -1,6 +1,6 @@
 import type { QueueEta } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { CAUGHT_UP_MESSAGE, renderEta, renderEtaJson } from "../src/eta.js";
+import { CAUGHT_UP_MESSAGE, renderEta, renderEtaJson, renderEtaWatchFrame } from "../src/eta.js";
 
 function caughtUp(): QueueEta {
   return {
@@ -56,6 +56,28 @@ describe("renderEta", () => {
   it("emits no ANSI codes when color is off", () => {
     // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting no ANSI escapes leak.
     expect(renderEta(eta(), { color: false })).not.toMatch(/\x1b\[/);
+  });
+});
+
+describe("renderEtaWatchFrame", () => {
+  const now = Date.parse("2026-07-30T10:00:00.000Z");
+
+  it("wraps the eta body in a live banner with the interval, timestamp, and store", () => {
+    const frame = renderEtaWatchFrame(eta(), "/tmp/store.json", 2000, now);
+    expect(frame).toContain("agentrelay eta");
+    expect(frame).toContain("every 2s");
+    expect(frame).toContain("Ctrl-C to exit");
+    expect(frame).toContain("2026-07-30 10:00:00Z");
+    expect(frame).toContain("/tmp/store.json");
+    // Body is the human render — the countdown line is present.
+    expect(frame).toContain("Queue caught up in");
+  });
+
+  it("rounds a sub-second interval to whole seconds in the banner", () => {
+    const frame = renderEtaWatchFrame(caughtUp(), "/tmp/store.json", 1500, now);
+    expect(frame).toContain("every 2s");
+    // The caught-up body renders even when nothing is waiting.
+    expect(frame).toContain(CAUGHT_UP_MESSAGE);
   });
 });
 

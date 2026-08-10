@@ -2118,3 +2118,25 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+## 세션 67 (2026-08-10) — `next --watch` / `eta --watch` 라이브 카운트다운
+
+- **한 일:** `--watch` 패밀리의 마지막 빈 짝을 채웠다. upcoming/overdue/tools/projects/stats/errors는
+  라이브 뷰가 있었지만, **카운트다운이 정체성 그 자체**인 `next`(다음 재개 하나)와 `eta`(큐 전체
+  캐치업)에는 없었다. 두 명령에 `-w,--watch [seconds]`(기본 2s) 추가 — 화면을 지우고 N초마다
+  재렌더해 카운트다운이 제자리에서 째깍인다.
+- **구현:** CLI `next.ts`에 `renderNextWatchFrame`·`eta.ts`에 `renderEtaWatchFrame` — 다른 watch
+  프레임과 동일 배너(타이틀+타임스탬프/스토어 meta+본문), 본문은 각각 기존 사람용 `renderNext`/
+  `renderEta`를 fresh `now`로 렌더. `cli.ts`에 `runNextWatch`/`runEtaWatch`(매 프레임 `listStatus`
+  재읽기 + `selectNextResume`/`computeQueueEta` 재계산, 공용 `startWatchLoop` 재사용). `--json`이
+  `--watch`보다 우선(머신 덤프는 라이브 아님). **새 core 로직 0줄** — 전부 기존 검증된 순수 함수 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test`
+  전 패키지 통과(**core 614** / **cli 340/1skip**[next 10·eta 9, watch-frame 렌더 각 2케이스 추가] /
+  dashboard 9). **실제 빌드 CLI e2e**(mock 아님): 임시 스토어에 대기 잡 심고 `next --watch 5`·
+  `eta --watch 5`가 ANSI 클리어+배너+라이브 카운트다운("resets in 1h 30m"/"Queue caught up in 1h 29m")
+  프레임 방출, `next --json`/`eta --json` 경로 불변 확인.
+- **중복 아님:** 열린 watch PR 20개는 전부 이미 병합된 overdue/tools/projects/stats/errors용 중복 —
+  `next`/`eta --watch`를 대상으로 한 PR은 없어 고유 빈 짝을 채움.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 남은 고유 기능 PR 배수 계속 —
+  #182(report)·#173(diff)·#167(export tsv)·#195(notify events)·#213(run --dry-run)·#228(man)·#230(tail).
+  README/ARCHITECTURE(🧭 코워크).
