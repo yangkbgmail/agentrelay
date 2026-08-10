@@ -810,6 +810,22 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay eta --by-project` — 큐 전체 캐치업 ETA를 프로젝트별로 분해. `eta`(세션 65 #550)가
+      "언제 큐 전체가 따라잡히나"를 답한다면, 이건 여러 프로젝트를 동시에 굴리는 사용자의 실제 질문
+      "**어느 프로젝트가 언제** 풀리나"를 답한다(예: web은 1시간 뒤, infra는 4시간 뒤). 자기 발굴 항목 —
+      기존 `computeQueueEta` 시그니처를 안 건드리는 순수 추가라 회귀 위험 최소.
+      (완료 — core `eta.ts`에 순수 `computeEtaByProject(jobs, now)` + `ProjectEta`(project·eta) 신설:
+      잡을 project로 그룹핑해 각 그룹에 `computeQueueEta`를 그대로 돌려 프로젝트별 ETA를 **전체 큐 리포트와
+      바이트 단위로 일치**시킴. 대기 없는 프로젝트(active/terminal만)는 0-행으로 나열하지 않고 생략, 정렬은
+      "가장 먼저 풀리는 순"(lastResetAt 오름차순, 프로젝트명 tiebreak)이라 맨 위가 다음에 풀릴 프로젝트.
+      `now` 주입만 받는 순수·시계 미접촉. CLI `eta.ts`에 `renderEtaByProject`(프로젝트별 한 줄·이름 정렬
+      패딩·`caught up in <dur>`/`now (all due)`·프로젝트·잡 총계 푸터)·`NO_PROJECTS_WAITING_MESSAGE`,
+      `renderEtaJson`에 옵셔널 `byProject` 인자 추가(요청 시에만 방출, 기존 JSON shape 불변). `cli.ts`
+      `eta`에 `--by-project` 배선 — 일회성·`--json` 모두 적용, `--exit-code`와도 조합 가능. 새 파서/스케줄러
+      로직 0줄. core eta +6(=13) + cli eta(src) +7 신규 테스트, 실제 빌드 CLI e2e로 web(1h)→infra(4h) 정렬·
+      infra "1 due now"·done(completed) 생략·전체 `eta` 불변·`--json` byProject 필드·help `--by-project` 노출
+      검증. branch `claude/wizardly-pascal-tizf7c`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

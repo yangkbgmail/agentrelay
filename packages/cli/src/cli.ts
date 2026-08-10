@@ -20,6 +20,7 @@ import {
   computeActivityHeatmap,
   computeDailyTrend,
   computeErrorBreakdown,
+  computeEtaByProject,
   computeHourlyDistribution,
   computeQueueEta,
   computeStats,
@@ -80,7 +81,7 @@ import {
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
-import { renderEta, renderEtaJson } from "./eta.js";
+import { renderEta, renderEtaByProject, renderEtaJson } from "./eta.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
@@ -747,6 +748,7 @@ export function buildCli(): Command {
     .command("eta")
     .description("Show when the whole queue is caught up — the countdown to the latest reset among waiting jobs")
     .option("--json", "Print as JSON (machine-readable, for scripts/jq)")
+    .option("--by-project", "Break the catch-up ETA down per project (soonest-caught-up first)")
     .option(
       "--exit-code",
       "Reflect state in the exit code (0 = caught up / nothing waiting, 3 = jobs still waiting for a reset)"
@@ -756,17 +758,25 @@ export function buildCli(): Command {
       "\nExamples:\n" +
         "  # how long until the relay has nothing left to wait on?\n" +
         "  agentrelay eta\n" +
+        "  # which project frees up when?\n" +
+        "  agentrelay eta --by-project\n" +
         "  # poll until the queue is fully caught up\n" +
         "  until agentrelay eta --exit-code; do sleep 60; done\n" +
         "  # read the catch-up moment with jq\n" +
-        "  agentrelay eta --json | jq -r '.eta.lastResetAt'"
+        "  agentrelay eta --json | jq -r '.eta.lastResetAt'\n" +
+        "  # per-project catch-up moments with jq\n" +
+        "  agentrelay eta --by-project --json | jq -r '.byProject[] | \"\\(.project): \\(.eta.lastResetAt)\"'"
     )
-    .action((opts: { json?: boolean; exitCode?: boolean }) => {
+    .action((opts: { json?: boolean; byProject?: boolean; exitCode?: boolean }) => {
       const { store } = program.opts();
-      const eta = computeQueueEta(listStatus(store));
+      const jobs = listStatus(store);
+      const eta = computeQueueEta(jobs);
+      const byProject = opts.byProject ? computeEtaByProject(jobs) : undefined;
 
       if (opts.json) {
-        console.log(renderEtaJson(eta, store ?? defaultStorePath()));
+        console.log(renderEtaJson(eta, store ?? defaultStorePath(), new Date().toISOString(), byProject));
+      } else if (byProject !== undefined) {
+        console.log(renderEtaByProject(byProject, { color: Boolean(process.stdout.isTTY) }));
       } else {
         console.log(renderEta(eta, { color: Boolean(process.stdout.isTTY) }));
       }

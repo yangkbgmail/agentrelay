@@ -6,7 +6,7 @@
 // stop watching. Kept as pure functions (separate from the commander wiring) so
 // the output is testable without a TTY, a clock, or a spawned process.
 
-import type { QueueEta } from "@agentrelay/core";
+import type { ProjectEta, QueueEta } from "@agentrelay/core";
 import { formatDurationMs } from "./stats.js";
 
 const DIM = "\x1b[2m";
@@ -44,14 +44,58 @@ export function renderEta(eta: QueueEta, options: { color?: boolean } = {}): str
   return `${head}\n${d(facts.join(", "))}.`;
 }
 
+/** Shown for `--by-project` when no project has a job waiting for a reset. */
+export const NO_PROJECTS_WAITING_MESSAGE = "Queue is caught up — no project is waiting for a reset.";
+
+/**
+ * Per-project catch-up rollup for `agentrelay eta --by-project`: one line per
+ * project still waiting, soonest-caught-up first (matching `computeEtaByProject`
+ * ordering). Each line reuses the same duration formatting as the whole-queue
+ * summary so a project's "in 1h 3m" reads identically. Pure: `now` is only used
+ * to phrase already-due timelines.
+ */
+export function renderEtaByProject(rows: ProjectEta[], options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const b = (s: string): string => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string): string => (color ? `${DIM}${s}${RESET}` : s);
+  const g = (s: string): string => (color ? `${GREEN}${s}${RESET}` : s);
+
+  if (rows.length === 0) return g(NO_PROJECTS_WAITING_MESSAGE);
+
+  // Right-pad project names to a common width so the "in <duration>" column lines up.
+  const nameWidth = Math.max(...rows.map((r) => r.project.length));
+
+  const lines = rows.map((r) => {
+    const { eta } = r;
+    const name = r.project.padEnd(nameWidth);
+    const when = eta.etaMs !== null && eta.etaMs > 0 ? `in ${b(formatDurationMs(eta.etaMs))}` : b("now (all due)");
+    const plural = eta.waiting === 1 ? "job" : "jobs";
+    const facts = [`${eta.waiting} ${plural}`];
+    if (eta.dueNow > 0) facts.push(`${eta.dueNow} due now`);
+    return `${b(name)}  caught up ${when}  ${d(`(${facts.join(", ")})`)}`;
+  });
+
+  const totalWaiting = rows.reduce((sum, r) => sum + r.eta.waiting, 0);
+  const projPlural = rows.length === 1 ? "project" : "projects";
+  const jobPlural = totalWaiting === 1 ? "job" : "jobs";
+  const footer = d(`${rows.length} ${projPlural}, ${totalWaiting} ${jobPlural} waiting.`);
+
+  return `${lines.join("\n")}\n${footer}`;
+}
+
 /**
  * Machine-readable form for `--json` (scripts/jq): the full `QueueEta` plus the
  * store path and generation timestamp, matching the envelope of `next --json`.
+ * When `byProject` is provided (the `--by-project` view) it is included under a
+ * `byProject` key; the base `eta` field stays present so both views share one shape.
  */
 export function renderEtaJson(
   eta: QueueEta,
   storePath: string,
-  generatedAt: string = new Date().toISOString()
+  generatedAt: string = new Date().toISOString(),
+  byProject?: ProjectEta[]
 ): string {
-  return JSON.stringify({ storePath, generatedAt, eta }, null, 2);
+  const payload: Record<string, unknown> = { storePath, generatedAt, eta };
+  if (byProject !== undefined) payload.byProject = byProject;
+  return JSON.stringify(payload, null, 2);
 }

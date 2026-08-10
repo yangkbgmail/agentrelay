@@ -2118,3 +2118,25 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 67 — `agentrelay eta --by-project`: 큐 캐치업 ETA의 프로젝트별 분해] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-tizf7c`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md의 "백로그가 비면 스스로 개선 항목 발굴" 지침에 따라 자기 발굴
+  신규 항목 1개를 구현. 포화 축(stats/watch/parser/tz/heatmap) 및 열린 고유 PR 목록(report/diff/reschedule/
+  export-tsv/notify/run-flags/resume-buffer/man/tail)과 겹치지 않는, 세션 65에서 갓 들어온 `eta`(#550)의
+  자연스러운 확장을 택함.
+- **한 일:** `eta`가 "언제 **큐 전체**가 따라잡히나"를 답한다면, `--by-project`는 여러 프로젝트를 동시에
+  굴리는 사용자의 실제 질문 "**어느 프로젝트가 언제** 풀리나"를 답한다(예: web은 1시간 뒤, infra는 4시간 뒤).
+  - core `eta.ts`: 순수 `computeEtaByProject(jobs, now)` + `ProjectEta`(project·eta). 잡을 project로 그룹핑해
+    각 그룹에 `computeQueueEta`를 그대로 돌려 프로젝트별 ETA를 **전체 큐 리포트와 바이트 단위로 일치**시킴.
+    대기 없는 프로젝트(active/terminal만)는 생략, 정렬은 "가장 먼저 풀리는 순"(lastResetAt↑, 프로젝트명 tiebreak).
+  - CLI `eta.ts`: `renderEtaByProject`(프로젝트별 한 줄·정렬 패딩·`caught up in <dur>`/`now (all due)`·총계 푸터)·
+    `NO_PROJECTS_WAITING_MESSAGE`. `renderEtaJson`에 옵셔널 `byProject` 인자(요청 시에만 방출, 기존 shape 불변).
+  - `cli.ts` `eta`에 `--by-project` 배선 — 일회성·`--json` 모두 적용, `--exit-code`와도 조합 가능.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 115파일)→`pnpm test`
+  전 패키지 통과(**core 620** eta 13 / **cli 343/1skip** eta src 7). **실제 빌드 CLI e2e**(mock 아님):
+  web(1h)→infra(4h) 정렬·infra "1 due now"(과거 리셋 1건)·done(completed) 생략·전체 `eta` 출력 불변·
+  `--json` byProject 필드·help `--by-project` 노출 확인. 새 파서/스케줄러 로직 0줄.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 순수 👷 항목이 계속 고갈 상태이므로
+  다음 세션도 자기 발굴 소진 or 열린 고유 PR 통합 중 택1. `--by-project`의 짝으로 `eta --watch`(라이브
+  캐치업 카운트다운)가 후속 후보지만 watch는 PR 포화라 신중히. README/ARCHITECTURE(🧭 코워크).

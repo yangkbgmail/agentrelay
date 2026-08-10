@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeQueueEta } from "./eta.js";
+import { computeEtaByProject, computeQueueEta } from "./eta.js";
 import type { RelayJob } from "./types.js";
 
 let seq = 0;
@@ -106,5 +106,77 @@ describe("computeQueueEta", () => {
     expect(eta.waiting).toBe(1);
     expect(eta.spanMs).toBe(0);
     expect(eta.firstResetAt).toBe(eta.lastResetAt);
+  });
+});
+
+describe("computeEtaByProject", () => {
+  it("returns an empty list when nothing is waiting", () => {
+    expect(computeEtaByProject([], NOW)).toEqual([]);
+    expect(computeEtaByProject([job({ status: "completed", resetAt: "2026-07-30T20:00:00.000Z" })], NOW)).toEqual([]);
+  });
+
+  it("splits waiting jobs into one row per project", () => {
+    const rows = computeEtaByProject(
+      [
+        job({ project: "web", resetAt: "2026-07-30T11:00:00.000Z" }),
+        job({ project: "infra", resetAt: "2026-07-30T14:00:00.000Z" }),
+      ],
+      NOW
+    );
+    expect(rows).toHaveLength(2);
+    const projects = rows.map((r) => r.project);
+    expect(new Set(projects)).toEqual(new Set(["web", "infra"]));
+  });
+
+  it("computes each project's ETA from just its own jobs", () => {
+    const rows = computeEtaByProject(
+      [
+        job({ project: "web", resetAt: "2026-07-30T11:00:00.000Z" }),
+        job({ project: "web", resetAt: "2026-07-30T13:00:00.000Z" }),
+        job({ project: "infra", resetAt: "2026-07-30T15:00:00.000Z" }),
+      ],
+      NOW
+    );
+    const web = rows.find((r) => r.project === "web");
+    expect(web?.eta.waiting).toBe(2);
+    // web's catch-up is its own latest reset (13:00), not infra's 15:00.
+    expect(web?.eta.lastResetAt).toBe("2026-07-30T13:00:00.000Z");
+    expect(web?.eta.etaMs).toBe(3 * 60 * 60 * 1000); // 13:00 - 10:00
+    expect(web?.eta.spanMs).toBe(2 * 60 * 60 * 1000); // 11:00 → 13:00
+  });
+
+  it("orders soonest-caught-up first, then by project name", () => {
+    const rows = computeEtaByProject(
+      [
+        job({ project: "infra", resetAt: "2026-07-30T15:00:00.000Z" }),
+        job({ project: "web", resetAt: "2026-07-30T11:00:00.000Z" }),
+        // Same lastResetAt as web (11:00) — name breaks the tie, so "api" precedes "web".
+        job({ project: "api", resetAt: "2026-07-30T11:00:00.000Z" }),
+      ],
+      NOW
+    );
+    expect(rows.map((r) => r.project)).toEqual(["api", "web", "infra"]);
+  });
+
+  it("omits projects whose jobs are all active or terminal", () => {
+    const rows = computeEtaByProject(
+      [
+        job({ project: "web", resetAt: "2026-07-30T12:00:00.000Z" }),
+        job({ project: "done", status: "completed", resetAt: "2026-07-30T20:00:00.000Z" }),
+        job({ project: "running", status: "resuming", resetAt: "2026-07-30T22:00:00.000Z" }),
+      ],
+      NOW
+    );
+    expect(rows.map((r) => r.project)).toEqual(["web"]);
+  });
+
+  it("agrees with computeQueueEta when only one project is present", () => {
+    const jobs = [
+      job({ project: "solo", resetAt: "2026-07-30T11:00:00.000Z" }),
+      job({ project: "solo", resetAt: "2026-07-30T15:00:00.000Z" }),
+    ];
+    const rows = computeEtaByProject(jobs, NOW);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].eta).toEqual(computeQueueEta(jobs, NOW));
   });
 });

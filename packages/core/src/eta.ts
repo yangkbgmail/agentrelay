@@ -50,6 +50,21 @@ function waitingResets(jobs: RelayJob[]): number[] {
 }
 
 /**
+ * Per-project catch-up ETA. Where {@link QueueEta} answers "when is the *whole*
+ * queue caught up?", this answers the finer question a multi-project user
+ * actually has — "which project is unblocked *when*?". Each entry is a project's
+ * own catch-up ETA (the countdown to the latest reset among *its* waiting jobs),
+ * so the rollup makes it obvious that, say, `web` frees up in an hour while
+ * `infra` still has four hours to wait.
+ */
+export interface ProjectEta {
+  /** The project name (exact `job.project`). */
+  project: string;
+  /** This project's catch-up ETA — always a non-`caughtUp` report (only projects with waiting jobs appear). */
+  eta: QueueEta;
+}
+
+/**
  * Compute the queue's catch-up ETA: the countdown to the latest reset among all
  * waiting jobs. Returns a `caughtUp` report (all null fields) when nothing is
  * waiting for a reset — an empty queue, or only active/terminal jobs.
@@ -86,4 +101,47 @@ export function computeQueueEta(jobs: RelayJob[], now: number = Date.now()): Que
     spanMs: max - min,
     caughtUp: false,
   };
+}
+
+/**
+ * Break the catch-up ETA down by project: one {@link ProjectEta} per project
+ * that still has a job waiting for a reset, each computed by running
+ * {@link computeQueueEta} over just that project's jobs — so a project's rollup
+ * stays byte-for-byte consistent with what `agentrelay eta` reports for the
+ * whole queue when only that project is present.
+ *
+ * Projects with nothing waiting (only active/terminal jobs) are omitted rather
+ * than listed as a zero row, keeping the report to what a user must actually
+ * keep watching. Ordered by *soonest caught up first* (earliest `lastResetAt`),
+ * with the project name as a deterministic tiebreak — so the top of the list is
+ * always the next project to free up. Pure: no clock or I/O beyond the injected
+ * `now`, mirroring `computeQueueEta`.
+ */
+export function computeEtaByProject(jobs: RelayJob[], now: number = Date.now()): ProjectEta[] {
+  // Group jobs by project, preserving first-seen order (only relevant before the
+  // final sort, which is fully deterministic on its own).
+  const byProject = new Map<string, RelayJob[]>();
+  for (const job of jobs) {
+    const bucket = byProject.get(job.project);
+    if (bucket) bucket.push(job);
+    else byProject.set(job.project, [job]);
+  }
+
+  const rows: ProjectEta[] = [];
+  for (const [project, projectJobs] of byProject) {
+    const eta = computeQueueEta(projectJobs, now);
+    // Skip projects with nothing waiting — the rollup is about what's still pending.
+    if (eta.caughtUp) continue;
+    rows.push({ project, eta });
+  }
+
+  rows.sort((a, b) => {
+    const la = Date.parse(a.eta.lastResetAt as string);
+    const lb = Date.parse(b.eta.lastResetAt as string);
+    if (la !== lb) return la - lb;
+    if (a.project === b.project) return 0;
+    return a.project < b.project ? -1 : 1;
+  });
+
+  return rows;
 }
