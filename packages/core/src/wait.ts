@@ -57,3 +57,58 @@ export function evaluateWait(job: RelayJob | null): { done: boolean; outcome?: W
   if (isTerminalStatus(job.status)) return { done: true, outcome: job.status as WaitOutcome };
   return { done: false };
 }
+
+/**
+ * Snapshot verdict for `agentrelay wait --all`: has a (already scope-filtered)
+ * job list fully drained? Where {@link evaluateWait} follows a single job to its
+ * conclusion, this watches the whole queue empty out — the condition `wait --all`
+ * blocks on so a script can start the daemon, wait for every job to settle, then
+ * proceed:
+ *
+ *   agentrelay daemon &                 # keep resuming jobs as their limits reset
+ *   agentrelay wait --all --timeout 8h  # block until nothing active remains
+ *   ./deploy.sh                         # runs once the queue is caught up
+ */
+export interface QueueDrainState {
+  /** Jobs still in a non-terminal (active) state: queued/waiting_for_reset/resuming. */
+  active: number;
+  /** True when no active jobs remain — the queue is drained. */
+  done: boolean;
+}
+
+/**
+ * Decide whether a job list has fully drained: no job remains in a non-terminal
+ * (active) state. Terminal jobs (completed/failed/cancelled) don't count — a
+ * queue full of finished jobs is drained. The caller passes an already
+ * scope-filtered list, so `wait --all --project foo` can drain just one
+ * project's jobs. Pure: no clock, no store, no loop — those live in the CLI.
+ */
+export function evaluateWaitAll(jobs: RelayJob[]): QueueDrainState {
+  let active = 0;
+  for (const job of jobs) {
+    if (!isTerminalStatus(job.status)) active += 1;
+  }
+  return { active, done: active === 0 };
+}
+
+/**
+ * How a `wait --all` ended: the queue drained, or the deadline passed with jobs
+ * still active. Kept separate from {@link WaitOutcome} (which is per-job) so the
+ * two exit-code tables can't drift into each other.
+ */
+export type WaitAllOutcome = "drained" | "timeout";
+
+/**
+ * Exit code per `wait --all` outcome. `drained` is success (0); `timeout` reuses
+ * 124 (GNU coreutils `timeout(1)`), matching the per-job {@link WAIT_EXIT_CODES}
+ * so scripts branch on the same number regardless of which `wait` form ran.
+ */
+export const WAIT_ALL_EXIT_CODES: Record<WaitAllOutcome, number> = {
+  drained: 0,
+  timeout: 124,
+};
+
+/** Map a `wait --all` outcome to its exit code. */
+export function waitAllExitCode(outcome: WaitAllOutcome): number {
+  return WAIT_ALL_EXIT_CODES[outcome];
+}

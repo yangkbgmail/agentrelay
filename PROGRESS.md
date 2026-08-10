@@ -2142,3 +2142,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay wait --all` 큐 전체 드레인 대기] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-rqpn9w`)
+- **맥락:** BACKLOG의 👷 항목이 전부 완료 상태라(열린 것은 전부 🧭 코워크 소유 문서/리서치) CLAUDE.md
+  지침대로 새 개선 항목을 자기 발굴. `wait <id>`(세션 37)는 잡 하나가 종료될 때까지 블록하지만, "릴레이를
+  켜고 **큐 전체가 다 따라잡힐 때까지** 기다렸다가 다음 단계로"라는 CI/스크립트 게이트가 없었다. `eta`는
+  언제 캐치업되는지 알려줄 뿐 블록하지 않는다. 이 빈 짝을 메우는 순수-추가 항목이라 회귀 위험 최소.
+- **한 일 (branch `claude/wizardly-pascal-rqpn9w`):**
+  - core `wait.ts`: 순수 `evaluateWaitAll(jobs)`(비종료 상태 잡 수를 세어 active/done — 기존
+    `isTerminalStatus` 재사용) + `QueueDrainState`·`WaitAllOutcome`(drained/timeout)·`WAIT_ALL_EXIT_CODES`
+    (drained=0/timeout=124, per-job 테이블과 124 공유)·`waitAllExitCode`. 시계·스토어·루프 없이 순수.
+  - CLI `commands.ts` `waitForAllJobs`(매 폴링마다 스토어 재오픈해 별도 daemon/tick 쓰기 관측, 첫 검사
+    즉시 반환, `--timeout`은 sleep 전 데드라인 검사로 1인터벌 이상 초과 안 함, 선택적 `scope`로 부분집합
+    드레인, now/sleep/readJobs 주입 가능) + `WaitAllOptions`/`WaitAllResult`. CLI `wait.ts`
+    `renderWaitAllJson`(mode:"all"·outcome·exitCode·active).
+  - `cli.ts` `wait` 커맨드: `<id>`→`[id]` 옵셔널로 바꾸고 `--all` + 공용 `buildScope`(--status/--tool/
+    --project/--since/--until) 배선. id+--all 동시=exit 1, 스코프 without --all=exit 1, id·--all 둘 다
+    부재=exit 1. addHelpText 예시 3줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 117파일)→`pnpm test`
+  전 패키지 통과(**core 621** wait +9, **cli 350/1skip** commands +5·wait-render +2). **실제 빌드 CLI
+  e2e**(mock 아님): 빈 스토어 즉시 drain(exit 0)·활성 잡 있는 채 타임아웃(exit 124, "1 active job still
+  pending")·`--project api`(이미 드레인) 부분 드레인·`--json`(drained/timeout 양쪽)·id+--all 조합 에러·
+  잘못된 tool 에러·스코프 without --all 에러·단일 잡 wait 회귀(completed→0)·`--help`/`completion bash`에
+  `--all` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `wait --all`에
+  진행률(주기적 stderr "N active remaining") 표시, `summary --watch`(세션 67 제안), timing 변동계수(CV).
+  tz/heatmap/parser/watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

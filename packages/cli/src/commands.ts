@@ -46,6 +46,7 @@ import {
   evaluateHealth,
   evaluateHeartbeat,
   evaluateWait,
+  evaluateWaitAll,
   exportJobs,
   findConfigField,
   hasConfigErrors,
@@ -88,7 +89,9 @@ import {
   unsetConfigValue,
   validateConfig,
   verifyStore,
+  type WaitAllOutcome,
   type WaitOutcome,
+  waitAllExitCode,
   waitExitCode,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
@@ -1558,6 +1561,103 @@ export async function waitForJob(idOrPrefix: string, options: WaitJobOptions = {
       };
     }
     if (job) options.onPoll?.(job, elapsed);
+    await sleep(intervalMs);
+  }
+}
+
+export interface WaitAllOptions {
+  storePath?: string;
+  /** How often to re-read the store while polling, in ms. Default 2000. */
+  intervalMs?: number;
+  /** Give up after this many ms of waiting. `null`/omitted = wait forever. */
+  timeoutMs?: number | null;
+  /** Injected clock (ms since epoch). Defaults to `Date.now`. */
+  now?: () => number;
+  /** Injected sleeper. Defaults to a `setTimeout`-based delay. */
+  sleep?: (ms: number) => Promise<void>;
+  /**
+   * Optional scope filter applied to each snapshot before counting active jobs,
+   * so `wait --all --project foo` drains only that subset. Same core
+   * {@link scopeJobs} the other filtered commands use.
+   */
+  scope?: JobScope;
+  /**
+   * Injected store reader (returns all jobs). Defaults to opening the store
+   * fresh on each poll so a *separate* daemon/tick process's writes are seen.
+   */
+  readJobs?: () => RelayJob[];
+  /** Called once per poll with the current active count (for progress output). */
+  onPoll?: (active: number, elapsedMs: number) => void;
+}
+
+export interface WaitAllResult {
+  outcome: WaitAllOutcome;
+  /** Active job count at return (0 when drained). */
+  active: number;
+  /** Human-readable line for the CLI to print. */
+  message: string;
+  exitCode: number;
+}
+
+function waitAllMessage(outcome: WaitAllOutcome, active: number): string {
+  if (outcome === "drained") return "queue drained — no active jobs remain";
+  return `timed out; ${active} active job${active === 1 ? "" : "s"} still pending`;
+}
+
+/**
+ * Block until the whole queue drains — no job remains in a non-terminal state —
+ * polling the store as a separate daemon/tick process advances jobs. Where
+ * {@link waitForJob} follows one job, this watches the queue empty out, so a
+ * script can start the relay and gate on "everything caught up" (see the usage
+ * example on core's {@link evaluateWaitAll}). An optional {@link WaitAllOptions.scope}
+ * narrows the wait to a subset. Pure decision logic lives in core; this owns the
+ * I/O loop, with the clock/sleeper/reader injectable for tests.
+ */
+export async function waitForAllJobs(options: WaitAllOptions = {}): Promise<WaitAllResult> {
+  const storePath = options.storePath ?? defaultStorePath();
+  const intervalMs = options.intervalMs ?? 2000;
+  const timeoutMs = options.timeoutMs ?? null;
+  const now = options.now ?? (() => Date.now());
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const scope = options.scope;
+
+  const readJobs =
+    options.readJobs ??
+    ((): RelayJob[] => {
+      const q = openQueue(storePath);
+      try {
+        return q.listAll();
+      } finally {
+        q.close();
+      }
+    });
+
+  const start = now();
+  // First check is immediate so an already-drained queue returns without a
+  // sleep. The deadline is checked before each sleep so `--timeout` can't be
+  // overshot by more than one interval.
+  while (true) {
+    const all = readJobs();
+    const jobs = scope && isJobScopeActive(scope) ? scopeJobs(all, scope) : all;
+    const verdict = evaluateWaitAll(jobs);
+    if (verdict.done) {
+      return {
+        outcome: "drained",
+        active: 0,
+        message: waitAllMessage("drained", 0),
+        exitCode: waitAllExitCode("drained"),
+      };
+    }
+    const elapsed = now() - start;
+    if (timeoutMs !== null && elapsed >= timeoutMs) {
+      return {
+        outcome: "timeout",
+        active: verdict.active,
+        message: waitAllMessage("timeout", verdict.active),
+        exitCode: waitAllExitCode("timeout"),
+      };
+    }
+    options.onPoll?.(verdict.active, elapsed);
     await sleep(intervalMs);
   }
 }

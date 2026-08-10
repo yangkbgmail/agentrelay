@@ -810,6 +810,18 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
-## 코워크가 발굴한 신규 항목 (수시 추가)
-
-- (아직 없음)
+- [x] 👷 `agentrelay wait --all` — 특정 잡 하나가 아니라 큐 전체가 비워질 때까지(활성 잡 0) 블록,
+      exit code로 결과 반환. CI/스크립트 친화(데몬 시작 → `wait --all` → 후속 단계). 자기 발굴 항목.
+      (완료 — `wait <id>`(세션 37)는 한 잡만 따라가지만, "릴레이를 켜고 큐가 다 따라잡힐 때까지 기다렸다가
+      다음 단계로"라는 CI/스크립트 게이트가 없었다. `eta`는 언제인지 알려주지만 블록하진 않음. core
+      `wait.ts`에 순수 `evaluateWaitAll(jobs)`(비종료 상태 잡 수 집계 → active/done, 기존 `isTerminalStatus`
+      재사용) + `QueueDrainState`·`WaitAllOutcome`(drained/timeout)·`WAIT_ALL_EXIT_CODES`(drained=0/
+      timeout=124, per-job 테이블과 124 공유)·`waitAllExitCode` 추가. CLI `commands.ts` `waitForAllJobs`
+      (매 폴링마다 스토어 재오픈해 별도 daemon/tick 쓰기 관측, 첫 검사 즉시, `--timeout`은 sleep 전
+      데드라인 검사, 선택적 `scope`로 부분집합 드레인, now/sleep/readJobs 주입 가능) + `WaitAllOptions`/
+      `WaitAllResult`. CLI `wait.ts` `renderWaitAllJson`(mode:"all"·outcome·exitCode·active). `cli.ts`
+      `wait` 커맨드를 `[id]` 옵셔널로 바꾸고 `--all` + 공용 `buildScope`(--status/--tool/--project/--since/
+      --until) 배선 — id+--all 동시/스코프 without --all/id·--all 둘 다 부재는 exit 1. 새 파서/스케줄러
+      로직 0줄. core wait +9 + cli commands +5 + cli wait-render 2 신규 테스트, 실제 빌드 CLI e2e로 빈
+      스토어 즉시 drain·타임아웃 124·프로젝트 스코프 부분 드레인·--json·조합 에러·단일 잡 회귀·help/
+      completion `--all` 노출 검증. branch `claude/wizardly-pascal-rqpn9w`)

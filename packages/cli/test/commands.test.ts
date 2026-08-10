@@ -24,6 +24,7 @@ import {
   showJob,
   unsetConfigFile,
   validateConfigFile,
+  waitForAllJobs,
   waitForJob,
 } from "../src/commands.js";
 import { isConfigDiagnosticInvocation, renderEffectiveConfig, resolveProjectName } from "../src/config.js";
@@ -1069,5 +1070,108 @@ describe("waitForJob", () => {
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
     expect(result.message).toMatch(/no job matches/);
+  });
+});
+
+describe("waitForAllJobs", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-waitall-cli-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function enqueue(project: string, tool: "claude-code" | "codex-cli" = "claude-code"): string {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project, tool, command: ["claude"], cwd: dir });
+    queue.close();
+    return job.id;
+  }
+
+  it("returns immediately when the queue is already drained (exit 0)", async () => {
+    const id = enqueue("demo");
+    const q = new RelayQueue(storePath);
+    q.markCompleted(id, "done");
+    q.close();
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await waitForAllJobs({ storePath, sleep });
+    expect(result.outcome).toBe("drained");
+    expect(result.active).toBe(0);
+    expect(result.exitCode).toBe(0);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("returns drained for an empty store without sleeping", async () => {
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await waitForAllJobs({ storePath, sleep });
+    expect(result.outcome).toBe("drained");
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("polls until the last active job settles", async () => {
+    // Injected reader: two active jobs, then one settles, then both settle.
+    const active: RelayJob = {
+      id: "a",
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude"],
+      cwd: dir,
+      status: "waiting_for_reset",
+      resetAt: "2026-07-20T00:00:00.000Z",
+      createdAt: "2026-07-20T00:00:00.000Z",
+      updatedAt: "2026-07-20T00:00:00.000Z",
+      attempts: 1,
+      lastError: null,
+      lastOutputTail: null,
+    };
+    const other: RelayJob = { ...active, id: "b", status: "queued", resetAt: null };
+    const snapshots: RelayJob[][] = [
+      [active, other],
+      [{ ...active, status: "completed" }, other],
+      [
+        { ...active, status: "completed" },
+        { ...other, status: "completed" },
+      ],
+    ];
+    let i = 0;
+    const readJobs = () => snapshots[Math.min(i++, snapshots.length - 1)];
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await waitForAllJobs({ storePath, readJobs, sleep, now: () => 0 });
+    expect(result.outcome).toBe("drained");
+    expect(result.exitCode).toBe(0);
+    // Slept for the two not-yet-drained polls before the drained read.
+    expect(sleep).toHaveBeenCalledTimes(2);
+  });
+
+  it("times out while jobs are still active (exit 124)", async () => {
+    enqueue("demo");
+    let clock = 0;
+    const now = () => clock;
+    const sleep = vi.fn().mockImplementation(async (ms: number) => {
+      clock += ms;
+    });
+    const result = await waitForAllJobs({ storePath, intervalMs: 1000, timeoutMs: 2500, now, sleep });
+    expect(result.outcome).toBe("timeout");
+    expect(result.exitCode).toBe(124);
+    expect(result.active).toBe(1);
+    expect(result.message).toMatch(/1 active job still pending/);
+  });
+
+  it("scopes the drain to a subset (a busy other project doesn't block it)", async () => {
+    // web is drained; api still has an active job — scoping to web => drained.
+    const webId = enqueue("web");
+    enqueue("api");
+    const q = new RelayQueue(storePath);
+    q.markCompleted(webId, "done");
+    q.close();
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await waitForAllJobs({ storePath, sleep, scope: { projects: ["web"] } });
+    expect(result.outcome).toBe("drained");
+    expect(sleep).not.toHaveBeenCalled();
   });
 });

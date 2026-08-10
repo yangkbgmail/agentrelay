@@ -3,7 +3,7 @@
 // (it already knows the job/outcome); this keeps the JSON shape consistent with
 // `next --json` / `show --json` and unit-testable without a store or a clock.
 
-import type { RelayJob, WaitOutcome } from "@agentrelay/core";
+import type { RelayJob, WaitAllOutcome, WaitOutcome } from "@agentrelay/core";
 
 /**
  * Machine-readable final result for `--json`. `outcome` is null only when the
@@ -23,6 +23,31 @@ export function renderWaitJson(
       outcome: result.outcome ?? null,
       exitCode: result.exitCode,
       job: result.job,
+    },
+    null,
+    2
+  );
+}
+
+/**
+ * Machine-readable final result for `wait --all --json`. Mirrors {@link renderWaitJson}
+ * but reports the whole-queue drain: `mode: "all"`, the outcome (`drained`/`timeout`),
+ * the exit code a script branches on, and the active-job count still pending
+ * (0 when drained).
+ */
+export function renderWaitAllJson(
+  result: { outcome: WaitAllOutcome; active: number; exitCode: number },
+  storePath: string,
+  generatedAt: string = new Date().toISOString()
+): string {
+  return JSON.stringify(
+    {
+      storePath,
+      generatedAt,
+      mode: "all",
+      outcome: result.outcome,
+      exitCode: result.exitCode,
+      active: result.active,
     },
     null,
     2

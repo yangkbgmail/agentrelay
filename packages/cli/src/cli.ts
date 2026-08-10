@@ -76,6 +76,7 @@ import {
   tickOnce,
   unsetConfigFile,
   validateConfigFile,
+  waitForAllJobs,
   waitForJob,
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
@@ -117,7 +118,7 @@ import { renderSummary, renderSummaryJson } from "./summary.js";
 import { renderTools, renderToolsJson, renderToolsWatchFrame } from "./tools.js";
 import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
 import { renderVerify, renderVerifyJson } from "./verify.js";
-import { renderWaitJson } from "./wait.js";
+import { renderWaitAllJson, renderWaitJson } from "./wait.js";
 
 /**
  * Split a comma-separated CLI option (e.g. `--status completed,failed`) into
@@ -987,54 +988,136 @@ export function buildCli(): Command {
   program
     .command("wait")
     .description(
-      "Block until a job finishes, then exit with a code reflecting the outcome (0 completed, 1 failed, 2 cancelled, 124 timeout)"
+      "Block until a job finishes (or --all: until the whole queue drains), then exit with a code reflecting the outcome (0 completed/drained, 1 failed, 2 cancelled, 124 timeout)"
     )
-    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .argument("[id]", "Job id or a short id prefix (see `agentrelay status`); omit when using --all")
+    .option("--all", "Wait until the whole queue drains (no active jobs remain) instead of a single job")
     .option("--timeout <duration>", "Give up after this long (e.g. 30m, 6h); default: wait forever")
     .option("--interval <duration>", "How often to poll the store (default 2s)", "2s")
+    .option("-s, --status <statuses>", "With --all: only count jobs with these comma-separated statuses")
+    .option("-t, --tool <tools>", "With --all: only count jobs for these comma-separated tools")
+    .option("-p, --project <projects>", "With --all: only count jobs for these comma-separated projects")
+    .option("--since <duration>", "With --all: only count jobs created within this window (e.g. 24h, 7d)")
+    .option("--until <duration>", "With --all: only count jobs created up to this long ago (e.g. 1h)")
     .option("--json", "Print the final result as JSON (machine-readable, for scripts/jq)")
     .option("-q, --quiet", "Suppress the human status line (the exit code still reflects the outcome)")
-    .action(async (id: string, opts: { timeout?: string; interval?: string; json?: boolean; quiet?: boolean }) => {
-      const { store } = program.opts();
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # block until one job finishes, then deploy only if it completed\n" +
+        "  agentrelay wait 1a2b3c4d --timeout 6h && ./deploy.sh\n" +
+        "  # start the relay, then block until every job has settled\n" +
+        "  agentrelay daemon & ; agentrelay wait --all --timeout 8h\n" +
+        "  # drain only one project's jobs\n" +
+        "  agentrelay wait --all --project my-app\n"
+    )
+    .action(
+      async (
+        id: string | undefined,
+        opts: {
+          all?: boolean;
+          timeout?: string;
+          interval?: string;
+          status?: string;
+          tool?: string;
+          project?: string;
+          since?: string;
+          until?: string;
+          json?: boolean;
+          quiet?: boolean;
+        }
+      ) => {
+        const { store } = program.opts();
 
-      const intervalMs = parseDuration(opts.interval ?? "2s");
-      if (intervalMs === null || intervalMs <= 0) {
-        console.error(`[agentrelay] Invalid --interval: ${opts.interval}. Use forms like 500ms, 2s, 1m.`);
-        process.exitCode = 1;
-        return;
-      }
-
-      let timeoutMs: number | null = null;
-      if (opts.timeout !== undefined) {
-        timeoutMs = parseDuration(opts.timeout);
-        if (timeoutMs === null || timeoutMs < 0) {
-          console.error(`[agentrelay] Invalid --timeout: ${opts.timeout}. Use forms like 30m, 6h, 90s.`);
+        const intervalMs = parseDuration(opts.interval ?? "2s");
+        if (intervalMs === null || intervalMs <= 0) {
+          console.error(`[agentrelay] Invalid --interval: ${opts.interval}. Use forms like 500ms, 2s, 1m.`);
           process.exitCode = 1;
           return;
         }
-      }
 
-      // A blocking command with no visible progress is confusing; let the user
-      // know it's waiting (stderr, so --json stdout stays clean).
-      if (!opts.quiet && !opts.json) {
-        console.error(`[agentrelay] waiting for job ${id} to finish… (Ctrl-C to stop)`);
-      }
+        let timeoutMs: number | null = null;
+        if (opts.timeout !== undefined) {
+          timeoutMs = parseDuration(opts.timeout);
+          if (timeoutMs === null || timeoutMs < 0) {
+            console.error(`[agentrelay] Invalid --timeout: ${opts.timeout}. Use forms like 30m, 6h, 90s.`);
+            process.exitCode = 1;
+            return;
+          }
+        }
 
-      const result = await waitForJob(id, { storePath: store, intervalMs, timeoutMs });
+        const scopeGiven =
+          opts.status !== undefined ||
+          opts.tool !== undefined ||
+          opts.project !== undefined ||
+          opts.since !== undefined ||
+          opts.until !== undefined;
 
-      if (!result.ok) {
-        console.error(`[agentrelay] ${result.message}`);
-        process.exitCode = 1;
-        return;
-      }
+        if (opts.all) {
+          if (id !== undefined) {
+            console.error("[agentrelay] Provide a job id or --all, not both.");
+            process.exitCode = 1;
+            return;
+          }
 
-      if (opts.json) {
-        console.log(renderWaitJson(result, store));
-      } else if (!opts.quiet) {
-        console.log(`[agentrelay] ${result.message}`);
+          const built = buildScope(opts, Date.now());
+          if ("error" in built) {
+            console.error(`[agentrelay] ${built.error}`);
+            process.exitCode = 1;
+            return;
+          }
+
+          if (!opts.quiet && !opts.json) {
+            const suffix = built.active ? ` (scope: ${built.note})` : "";
+            console.error(`[agentrelay] waiting for the queue to drain${suffix}… (Ctrl-C to stop)`);
+          }
+
+          const result = await waitForAllJobs({ storePath: store, intervalMs, timeoutMs, scope: built.scope });
+
+          if (opts.json) {
+            console.log(renderWaitAllJson(result, store));
+          } else if (!opts.quiet) {
+            console.log(`[agentrelay] ${result.message}`);
+          }
+          process.exitCode = result.exitCode;
+          return;
+        }
+
+        if (id === undefined) {
+          console.error("[agentrelay] Provide a job id, or use --all to wait for the whole queue.");
+          process.exitCode = 1;
+          return;
+        }
+        if (scopeGiven) {
+          console.error(
+            "[agentrelay] Scope filters (--status/--tool/--project/--since/--until) only apply with --all."
+          );
+          process.exitCode = 1;
+          return;
+        }
+
+        // A blocking command with no visible progress is confusing; let the user
+        // know it's waiting (stderr, so --json stdout stays clean).
+        if (!opts.quiet && !opts.json) {
+          console.error(`[agentrelay] waiting for job ${id} to finish… (Ctrl-C to stop)`);
+        }
+
+        const result = await waitForJob(id, { storePath: store, intervalMs, timeoutMs });
+
+        if (!result.ok) {
+          console.error(`[agentrelay] ${result.message}`);
+          process.exitCode = 1;
+          return;
+        }
+
+        if (opts.json) {
+          console.log(renderWaitJson(result, store));
+        } else if (!opts.quiet) {
+          console.log(`[agentrelay] ${result.message}`);
+        }
+        process.exitCode = result.exitCode;
       }
-      process.exitCode = result.exitCode;
-    });
+    );
 
   program
     .command("paths")
