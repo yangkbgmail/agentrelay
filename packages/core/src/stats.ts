@@ -76,6 +76,18 @@ export interface TimingStats {
    * IQR is the signature of a few heavy outliers dragging the mean.
    */
   stdevResolutionMs: number | null;
+  /**
+   * Coefficient of variation of resolution times (stdev / mean), or null when
+   * none. Unlike every other field here it is **dimensionless** — a relative
+   * measure of spread, not a duration in ms — so it's the one metric that
+   * compares fairly across groups on different time scales: a project that
+   * averages 1h with a 30m stdev and one that averages 10h with a 5h stdev both
+   * have CV 0.5 (equally consistent *relative to their own scale*), a fact the
+   * raw ms stdev hides. Lower is steadier; > 1 means the stdev exceeds the mean
+   * (highly erratic). Rounded to hundredths. A zero mean (all instant
+   * resolutions) yields 0 — perfectly consistent, not undefined.
+   */
+  cvResolution: number | null;
 }
 
 export interface RelayStats {
@@ -452,6 +464,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     };
   } else {
     // Sort once ascending; percentiles read from it, min/max are its ends.
@@ -459,6 +472,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     const mean = sorted.reduce((sum, d) => sum + d, 0) / resolvedCount;
     const p25 = percentile(sorted, 0.25);
     const p75 = percentile(sorted, 0.75);
+    const stdev = populationStdev(sorted, mean);
     timing = {
       resolvedCount,
       avgResolutionMs: Math.round(mean),
@@ -471,7 +485,11 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p25ResolutionMs: p25,
       p75ResolutionMs: p75,
       iqrResolutionMs: p75 - p25,
-      stdevResolutionMs: populationStdev(sorted, mean),
+      stdevResolutionMs: stdev,
+      // Dimensionless relative spread. Guard the zero-mean case (every span is
+      // 0) so 0/0 never yields NaN — all-identical resolutions are perfectly
+      // consistent, so CV is 0. Round to hundredths for a stable, readable ratio.
+      cvResolution: mean === 0 ? 0 : Math.round((stdev / mean) * 100) / 100,
     };
   }
 

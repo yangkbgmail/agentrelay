@@ -36,6 +36,17 @@ export function formatSuccessRate(rate: number | null): string {
 }
 
 /**
+ * Format the dimensionless coefficient of variation (stdev/mean) as a fixed
+ * two-decimal ratio, or "n/a" when no jobs have resolved. Unlike the ms spread
+ * fields this is a bare number (e.g. "0.50"), so it never passes through
+ * {@link formatDurationMs}.
+ */
+export function formatCv(cv: number | null): string {
+  if (cv === null) return "n/a";
+  return cv.toFixed(2);
+}
+
+/**
  * Format an absolute duration (ms) as a compact human string spanning the full
  * range a relay produces: sub-second resolutions up to multi-day windows. Two
  * units of granularity ("4h 12m", "3d 2h", "45m 30s", "8s"). Returns "-" for a
@@ -110,7 +121,8 @@ export function renderStats(
         d(
           `(p25 ${formatDurationMs(timing.p25ResolutionMs ?? 0)} – p75 ${formatDurationMs(timing.p75ResolutionMs ?? 0)})`
         ) +
-        `   stdev ${formatDurationMs(timing.stdevResolutionMs ?? 0)}`
+        `   stdev ${formatDurationMs(timing.stdevResolutionMs ?? 0)}` +
+        `   cv ${formatCv(timing.cvResolution)}`
     );
   }
 

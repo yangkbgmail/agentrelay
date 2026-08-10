@@ -2118,3 +2118,24 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 67 — `stats` 해결 시간 변동계수(CV) 추가] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-sf9j6k`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md "백로그가 비면 스스로 새 개선 항목을 발굴" 지침에 따라,
+  세션 65가 "다음 할 일"로 명시적으로 지목한 인접 후속 후보 중 자체 완결적이고 PR 적체와 중복 없는
+  것(timing 블록의 변동계수 CV)을 골라 신규 구현했다. tz/heatmap/parser/watch 축은 PR 포화라 지양.
+- **한 일:** `agentrelay stats`의 resolution-time 지표에 **변동계수(CV = stdev / mean)** 추가.
+  - core `stats.ts`: `TimingStats`에 `cvResolution: number | null` 추가. 기존 세션 65의 IQR·stdev는
+    절대(ms) 퍼짐이라 평균 1h·stdev 30m 그룹과 평균 10h·stdev 5h 그룹을 "둘 다 CV 0.5"로 보지 못한다.
+    CV는 유일한 **무차원** 필드라, 시간 척도가 다른 프로젝트/툴 간 "상대적 일관성"을 공정하게 비교한다.
+    이미 계산한 `mean`·`populationStdev(stdev)`를 재사용해 새 순회 0줄. 평균 0(전부 즉시 해결)이면 0/0
+    대신 0(완전 일관), resolved 0개면 null. 소수 2자리 반올림.
+  - CLI `stats.ts`: 순수 `formatCv(cv)`(고정 2자리 "0.50" or null→"n/a") + resolution-time `spread:` 라인
+    끝에 `cv 0.50` 추가. `renderStatsJson`은 timing 전체 직렬화라 `cvResolution` 자동 노출.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm format`→`pnpm ci:lint`(Biome 0에러, 114파일)
+  →`pnpm test` 전 패키지 통과(**core 617** stats +4 / **cli stats 48** formatCv 4 + render 단언 / dashboard 9).
+  **실제 빌드 CLI e2e**(mock 아님): spans {1h,3h} 임시 스토어로 `stats`가 `spread: … stdev 1h 0m   cv 0.50`
+  렌더, `stats --json`의 timing이 `cvResolution: 0.5`를 방출함을 확인(mean 2h·stdev 1h → 0.5).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `--group-by` per-group
+  요약에 median 외 CV/스프레드 노출(그룹 간 일관성 랭킹), timing 블록에 MAD(median absolute deviation) 등
+  robust 지표. 적체가 크면 신규 빌드보다 통합 우선(세션 60~66 기조). README/ARCHITECTURE(🧭 코워크).
