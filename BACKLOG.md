@@ -810,6 +810,19 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay search <query>` — 잡을 명령어/프로젝트/id/에러 텍스트로 자유 검색.
+      (완료 — 필터 생태계(status/stats/export/errors/metrics/patterns)는 status/tool/project/시간 창의
+      구조화 차원만 스코프할 뿐, 자유 텍스트 조회가 불가능했다("migrate-db를 돌린 잡이 어느 것?"·
+      "ENOSPC로 죽은 실패가 어느 것?"). `show`는 이미 아는 id가 필요하고 `status`는 명령어 텍스트를
+      검색 키로 못 건다. core `search.ts`(순수·파일시스템/시계 미접촉): `JobSearchField`(command/project/
+      id/error)·`JOB_SEARCH_FIELDS`·`isJobSearchField`·`jobFieldText`(command 공백 조인 = show 에코 shape)·
+      비throw `compileJobMatcher`(빈 query·잘못된 regex는 `{error}`)·`searchJobs`(입력 순서 보존·불변,
+      `scopeJobs`와 조합). CLI `search.ts` `renderSearch`(query preface + `renderStatusTable` 재사용)·
+      `renderSearchJson`(status 스냅샷 + search provenance)·`NO_SEARCH_MATCH_MESSAGE`. `agentrelay search
+      <query> [--field] [--regex] [--case-sensitive] [-n/--limit] [--json]` + 공용 `buildScope`
+      (--status/--tool/--project/--since/--until) 재사용. 빈 query·잘못된 regex/field/status·비정수 limit은
+      exit 1, 무매치는 exit 0. 새 스토어/스케줄러 로직 0줄. branch `claude/wizardly-pascal-pfraey`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
