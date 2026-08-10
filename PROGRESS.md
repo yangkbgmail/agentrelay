@@ -2118,3 +2118,28 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 67 — `stats` 해결 시간 변동계수(CV=stdev/mean) 추가] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-cvspread`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR은 여전히 대량 적체(대부분 파서/watch/stats 축 중복). 세션
+  65가 "다음 할 일"로 명시한 자기 인접 후보 중 **새 커맨드/서브시스템 0개**로 기존 timing 블록에 값
+  하나만 더하는 최소·저위험 항목(변동계수 CV)을 골라, 세션 60~66의 "적체 시 신규 발명 지양" 기조를
+  존중하면서 순수 추가로 구현했다.
+- **한 일:**
+  1. **core `stats.ts`** — `TimingStats`에 `cvResolution: number|null` 추가. 세션 65의 IQR/stdev
+     작업의 자연스러운 연장으로, 절대 퍼짐(stdev·IQR ms)에 더해 **상대 퍼짐**(평균 대비)을 노출한다.
+     CV=stdev÷mean은 무차원 비율이라 "초 단위 잡"과 "시간 단위 잡"의 릴레이 일관성을 규모와 무관하게
+     비교 가능(CV≈0=촘촘, CV≥1=평균에 맞먹는 퍼짐=소수의 긴 babysit이 끄는 신호). 이미 계산한
+     `stdev`/`mean` 재사용 → `mean>0`이면 `stdev/mean`(소수 3자리 반올림), 모든 스팬이 0이라 mean=0이면
+     0/0 대신 0으로 정의(NaN/Infinity 방지), resolved 0개면 null. 새 정렬/집계 0줄.
+  2. **CLI `stats.ts`** — 순수 `formatCv`(2자리 소수, null/비유한은 "n/a") 추가 + `renderStats`의
+     resolution-time spread 라인 끝에 `cv 0.50` 추가. `renderStatsJson`은 `timing` 전체를 직렬화하므로
+     `cvResolution`이 기본 JSON shape 변경 없이 자동 노출.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 114파일)→`pnpm test`
+  전 패키지 통과(**core 615** stats +1[mean-0 엣지 포함] / **cli 338/1skip** stats formatCv 2 + render cv
+  단언 / dashboard 9). **실제 빌드 CLI e2e**(mock 아님): spans {1h,3h} 임시 스토어로 `stats`가
+  `spread: iqr 1h 0m (p25 1h 30m – p75 2h 30m)   stdev 1h 0m   cv 0.50` 렌더, `stats --json`의 timing이
+  `cvResolution: 0.5`를 정확히 방출함을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `--group-by` per-group
+  요약에 median 외 p90/spread/cv 노출, `--json`에만 있는 p95/p99를 사람용 블록에도. tz/heatmap/parser/watch는
+  PR 포화라 지양. 적체가 크면 신규 빌드보다 통합 우선(세션 60~66 기조). README/ARCHITECTURE(🧭 코워크).
