@@ -67,7 +67,7 @@ export function parseCsvColumns(input: string): { columns: JobCsvColumn[]; inval
 }
 
 /** Formats that honor a `--columns` subset (the tabular ones). JSON/NDJSON are lossless full-shape and ignore it. */
-export const COLUMN_AWARE_FORMATS = ["csv", "md", "html"] as const;
+export const COLUMN_AWARE_FORMATS = ["csv", "tsv", "md", "html"] as const;
 
 /**
  * RFC 4180 field escaping: a field is wrapped in double quotes when it contains
@@ -121,6 +121,41 @@ export function jobsToCsv(jobs: RelayJob[], options: CsvOptions = {}): string {
   }
   for (const job of jobs) {
     rows.push(columns.map((col) => escapeCsvField(jobCsvValue(job, col))).join(","));
+  }
+  return rows.join("\n");
+}
+
+/**
+ * Escape a value for a single TSV cell. TSV's field/row delimiters are the tab
+ * and newline characters, so — unlike CSV, which quotes-and-doubles — a field
+ * simply cannot contain them literally. We use the backslash convention shared
+ * by PostgreSQL `COPY` and the `text`/TSV world: backslash itself is doubled
+ * first (so the escapes below are unambiguous), then tab/CR/LF become `\t`/`\r`/
+ * `\n`. This is lossless and reversible, and keeps multi-line `lastError` or
+ * command values on a single physical row so `cut -f`, `awk -F'\t'`, and
+ * `column -t` see a clean grid.
+ */
+export function escapeTsvField(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+}
+
+/**
+ * Serialize jobs to TSV (tab-separated values, LF line endings, no trailing
+ * newline). The tabular sibling of {@link jobsToCsv} — same columns, same cell
+ * values, same "empty list still yields the header row" behavior — but delimited
+ * by tabs instead of commas, which is what Unix text tools (`cut -f`, `paste`,
+ * `sort -t$'\t'`, `column -t`) expect and what spreadsheets paste cleanly. Cells
+ * are escaped via {@link escapeTsvField}, so tabs/newlines inside a value never
+ * break the grid.
+ */
+export function jobsToTsv(jobs: RelayJob[], options: CsvOptions = {}): string {
+  const columns = options.columns ?? JOB_CSV_COLUMNS;
+  const rows: string[] = [];
+  if (options.header !== false) {
+    rows.push(columns.map(escapeTsvField).join("\t"));
+  }
+  for (const job of jobs) {
+    rows.push(columns.map((col) => escapeTsvField(jobCsvValue(job, col))).join("\t"));
   }
   return rows.join("\n");
 }
@@ -294,12 +329,14 @@ export function jobsToHtml(jobs: RelayJob[], options: HtmlOptions = {}): string 
 }
 
 /** Supported export formats. */
-export const EXPORT_FORMATS = ["csv", "json", "md", "ndjson", "html"] as const;
+export const EXPORT_FORMATS = ["csv", "tsv", "json", "md", "ndjson", "html"] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 /** Dispatch to the right serializer for the given format. */
 export function exportJobs(jobs: RelayJob[], format: ExportFormat, options: CsvOptions = {}): string {
   switch (format) {
+    case "tsv":
+      return jobsToTsv(jobs, options);
     case "json":
       return jobsToJson(jobs);
     case "md":

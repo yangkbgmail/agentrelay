@@ -6,6 +6,7 @@ import {
   escapeHtml,
   escapeHtmlCell,
   escapeMarkdownCell,
+  escapeTsvField,
   exportJobs,
   isJobCsvColumn,
   JOB_CSV_COLUMNS,
@@ -15,6 +16,7 @@ import {
   jobsToJson,
   jobsToMarkdown,
   jobsToNdjson,
+  jobsToTsv,
   parseCsvColumns,
 } from "../src/export.js";
 import type { RelayJob } from "../src/types.js";
@@ -122,6 +124,66 @@ describe("jobsToCsv", () => {
   });
 });
 
+describe("escapeTsvField", () => {
+  it("passes plain values (including commas) through untouched", () => {
+    expect(escapeTsvField("hello world")).toBe("hello world");
+    expect(escapeTsvField("")).toBe("");
+    // A comma forces CSV quoting but is a perfectly ordinary TSV character.
+    expect(escapeTsvField("a,b,c")).toBe("a,b,c");
+  });
+
+  it("escapes tab, CR, and LF so they never break the grid", () => {
+    expect(escapeTsvField("a\tb")).toBe("a\\tb");
+    expect(escapeTsvField("line1\nline2")).toBe("line1\\nline2");
+    expect(escapeTsvField("line1\r\nline2")).toBe("line1\\r\\nline2");
+  });
+
+  it("doubles backslashes first so the escapes stay unambiguous", () => {
+    // A literal backslash-t must not be confused with an escaped tab.
+    expect(escapeTsvField("a\\tb")).toBe("a\\\\tb");
+    expect(escapeTsvField("a\\b")).toBe("a\\\\b");
+  });
+});
+
+describe("jobsToTsv", () => {
+  it("emits just the tab-joined header row for an empty store", () => {
+    expect(jobsToTsv([])).toBe(JOB_CSV_COLUMNS.join("\t"));
+  });
+
+  it("emits nothing when both empty and header:false", () => {
+    expect(jobsToTsv([], { header: false })).toBe("");
+  });
+
+  it("emits a header plus one tab-separated row per job", () => {
+    const tsv = jobsToTsv([
+      job({ id: "j1", project: "p1", attempts: 2 }),
+      job({ id: "j2", project: "p2", status: "failed" }),
+    ]);
+    const lines = tsv.split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe(JOB_CSV_COLUMNS.join("\t"));
+    expect(lines[1].startsWith("j1\tp1\tclaude-code\tcompleted\t2\t")).toBe(true);
+    expect(lines[2].startsWith("j2\tp2\tclaude-code\tfailed\t1\t")).toBe(true);
+  });
+
+  it("keeps a multi-line lastError on a single physical row via backslash escapes", () => {
+    const tsv = jobsToTsv([job({ status: "failed", lastError: "boom\nsecond line" })], { header: false });
+    expect(tsv.split("\n")).toHaveLength(1);
+    expect(tsv).toContain("boom\\nsecond line");
+  });
+
+  it("leaves comma-bearing values bare where CSV would quote them", () => {
+    const j = job({ command: ["claude", "-p", "refactor, please"] });
+    expect(jobsToTsv([j], { header: false })).toContain("claude -p refactor, please");
+    expect(jobsToTsv([j], { header: false })).not.toContain('"');
+  });
+
+  it("honors a custom column subset and order", () => {
+    const tsv = jobsToTsv([job({ id: "x", status: "queued" })], { columns: ["status", "id"] });
+    expect(tsv).toBe("status\tid\nqueued\tx");
+  });
+});
+
 describe("isJobCsvColumn", () => {
   it("accepts every declared column and rejects unknown names", () => {
     for (const col of JOB_CSV_COLUMNS) {
@@ -173,7 +235,7 @@ describe("parseCsvColumns", () => {
 
 describe("COLUMN_AWARE_FORMATS", () => {
   it("lists exactly the tabular formats and is a subset of EXPORT_FORMATS", () => {
-    expect([...COLUMN_AWARE_FORMATS]).toEqual(["csv", "md", "html"]);
+    expect([...COLUMN_AWARE_FORMATS]).toEqual(["csv", "tsv", "md", "html"]);
     for (const f of COLUMN_AWARE_FORMATS) {
       expect(EXPORT_FORMATS).toContain(f);
     }
@@ -309,6 +371,14 @@ describe("exportJobs", () => {
     expect(exportJobs(jobs, "ndjson")).toBe(jobsToNdjson(jobs));
   });
 
+  it("dispatches to TSV", () => {
+    const jobs = [job({ id: "d" })];
+    expect(exportJobs(jobs, "tsv")).toBe(jobsToTsv(jobs));
+    // The tab delimiter is present, and (unlike CSV) commas never force quoting.
+    expect(exportJobs(jobs, "tsv")).toContain("\t");
+    expect(exportJobs(jobs, "csv")).not.toContain("\t");
+  });
+
   it("dispatches to HTML", () => {
     const jobs = [job({ id: "d" })];
     expect(exportJobs(jobs, "html")).toBe(jobsToHtml(jobs));
@@ -321,7 +391,7 @@ describe("exportJobs", () => {
   });
 
   it("exposes the supported formats", () => {
-    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md", "ndjson", "html"]);
+    expect(EXPORT_FORMATS).toEqual(["csv", "tsv", "json", "md", "ndjson", "html"]);
   });
 });
 
