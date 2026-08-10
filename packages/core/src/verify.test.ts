@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RelayJob } from "./types.js";
-import { verifyStore } from "./verify.js";
+import { repairStore, verifyStore } from "./verify.js";
 
 function job(overrides: Partial<RelayJob> = {}): RelayJob {
   return {
@@ -123,5 +123,79 @@ describe("verifyStore", () => {
     const result = verifyStore([job({ attempts: -1 })]);
     expect(result.errorCount).toBe(1);
     expect(result.issues[0].code).toBe("invalid-record");
+  });
+});
+
+describe("repairStore", () => {
+  it("leaves a clean store unchanged", () => {
+    const repair = repairStore([job({ id: "a" }), job({ id: "b", status: "failed" })]);
+    expect(repair.changed).toBe(false);
+    expect(repair.actions).toEqual([]);
+    expect(repair.kept).toHaveLength(2);
+    expect(repair.verification.ok).toBe(true);
+  });
+
+  it("treats an empty store as an unchanged no-op", () => {
+    const repair = repairStore([]);
+    expect(repair.changed).toBe(false);
+    expect(repair.kept).toEqual([]);
+    expect(repair.actions).toEqual([]);
+  });
+
+  it("drops structurally invalid records", () => {
+    const repair = repairStore([job({ id: "ok" }), { id: "bad", tool: "claude-code" }]);
+    expect(repair.changed).toBe(true);
+    expect(repair.kept.map((j) => j.id)).toEqual(["ok"]);
+    expect(repair.actions).toHaveLength(1);
+    expect(repair.actions[0].kind).toBe("drop-invalid");
+    expect(repair.actions[0].index).toBe(1);
+    expect(repair.actions[0].jobId).toBe("bad");
+  });
+
+  it("keeps the LAST occurrence of a duplicate id (matching queue load semantics)", () => {
+    const repair = repairStore([job({ id: "dup", status: "queued" }), job({ id: "dup", status: "completed" })]);
+    expect(repair.changed).toBe(true);
+    expect(repair.kept).toHaveLength(1);
+    // The kept record is the LAST write, so its status is "completed".
+    expect(repair.kept[0].status).toBe("completed");
+    expect(repair.actions).toHaveLength(1);
+    expect(repair.actions[0].kind).toBe("drop-duplicate");
+    expect(repair.actions[0].index).toBe(0); // the earlier one is dropped
+  });
+
+  it("preserves original order minus earlier duplicates", () => {
+    const repair = repairStore([
+      job({ id: "a" }),
+      job({ id: "dup", status: "queued" }),
+      job({ id: "b" }),
+      job({ id: "dup", status: "failed" }),
+      job({ id: "c" }),
+    ]);
+    // "dup" collapses to its last occurrence; everything else keeps file order.
+    expect(repair.kept.map((j) => j.id)).toEqual(["a", "b", "dup", "c"]);
+    expect(repair.kept.find((j) => j.id === "dup")?.status).toBe("failed");
+  });
+
+  it("does not repair warning-level problems (keeps the record verbatim)", () => {
+    const repair = repairStore([job({ id: "w", status: "waiting_for_reset", resetAt: null })]);
+    expect(repair.changed).toBe(false);
+    expect(repair.kept).toHaveLength(1);
+    // The read-only verification still surfaces the warning for the user.
+    expect(repair.verification.warningCount).toBe(1);
+    expect(repair.verification.issues[0].code).toBe("waiting-without-reset");
+  });
+
+  it("repairs invalid + duplicate together while carrying the full verification", () => {
+    const repair = repairStore([
+      job({ id: "ok" }),
+      { id: "bad", tool: "claude-code" },
+      job({ id: "dup" }),
+      job({ id: "dup", status: "waiting_for_reset", resetAt: null }),
+    ]);
+    expect(repair.kept.map((j) => j.id)).toEqual(["ok", "dup"]);
+    expect(repair.actions.map((a) => a.kind)).toEqual(["drop-invalid", "drop-duplicate"]);
+    // The verification mirrors verifyStore: 2 errors (invalid + dup) + 1 warning.
+    expect(repair.verification.errorCount).toBe(2);
+    expect(repair.verification.warningCount).toBe(1);
   });
 });

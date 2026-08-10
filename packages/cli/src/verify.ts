@@ -3,7 +3,7 @@
 // turns a StoreVerification (plus the CLI's file-level state) into human and
 // JSON output. Pure so the exact wording is unit-testable without a store.
 
-import type { StoreIssue, StoreVerification } from "@agentrelay/core";
+import type { RepairAction, StoreIssue, StoreRepair, StoreVerification } from "@agentrelay/core";
 
 const BOLD = "\x1b[1m";
 const DIM = "\x1b[2m";
@@ -108,6 +108,137 @@ export function renderVerifyJson(report: VerifyReport): string {
       kind: report.kind,
       ...(report.kind === "corrupt" ? { corruptReason: report.corruptReason ?? null } : {}),
       ...(report.kind === "verified" && report.verification ? { verification: report.verification } : {}),
+    },
+    null,
+    2
+  );
+}
+
+/**
+ * Result of `agentrelay verify --fix` — the file-level shape plus, for a verified
+ * store, the computed repair and what was actually done with it. Lives here (not
+ * in `commands.ts`) so both the runner and the renderer share one type.
+ */
+export interface VerifyFixReport {
+  kind: "missing" | "corrupt" | "verified";
+  /** The resolved store path. */
+  store: string;
+  /** Present when `kind === "corrupt"`. */
+  corruptReason?: string;
+  /** Present when `kind === "verified"` — the plan (see core `repairStore`). */
+  repair?: StoreRepair;
+  /** True when this was a preview (`--dry-run`). */
+  dryRun?: boolean;
+  /** True when the store file was rewritten (false on a clean store or dry run). */
+  wrote?: boolean;
+  /** The raw pre-repair backup written before rewriting, when one was made. */
+  backupPath?: string;
+}
+
+const ACTION_LABEL: Record<RepairAction["kind"], string> = {
+  "drop-invalid": "drop invalid",
+  "drop-duplicate": "drop dup   ",
+};
+
+function renderAction(action: RepairAction, color: boolean): string {
+  const dim = color ? DIM : "";
+  const reset = color ? RESET : "";
+  const tag = color ? RED : "";
+  const where = action.jobId ? `#${action.index} ${action.jobId}` : `#${action.index}`;
+  return `  ${tag}${ACTION_LABEL[action.kind]}${reset} ${dim}[${action.kind}]${reset} ${where}: ${action.reason}`;
+}
+
+export const REPAIR_MISSING_MESSAGE = "Job store not found — nothing to repair (it's created on first run).";
+export const REPAIR_CLEAN_MESSAGE = "Store is healthy — no error-level problems to repair.";
+
+/**
+ * Render a `verify --fix` report as a multi-line block. Pure: no I/O. `color`
+ * gates ANSI codes. Shows every dropped record, then a footer stating whether the
+ * store was rewritten (and to where the pre-repair backup went) or, for a dry
+ * run, that nothing was changed. Warnings are intentionally *not* repaired, so a
+ * cleaned store may still carry warnings — the footer points at plain `verify`.
+ */
+export function renderVerifyFix(report: VerifyFixReport, options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const bold = color ? BOLD : "";
+  const dim = color ? DIM : "";
+  const red = color ? RED : "";
+  const green = color ? GREEN : "";
+  const yellow = color ? YELLOW : "";
+  const reset = color ? RESET : "";
+
+  const lines: string[] = [];
+  lines.push(`${bold}Store repair${report.dryRun ? " (dry run)" : ""}${reset}`);
+  lines.push(`${dim}store: ${report.store}${reset}`);
+  lines.push("");
+
+  if (report.kind === "missing") {
+    lines.push(REPAIR_MISSING_MESSAGE);
+    return lines.join("\n");
+  }
+  if (report.kind === "corrupt") {
+    lines.push(`${red}error${reset} store file is not a readable JSON array: ${report.corruptReason ?? "unknown"}`);
+    lines.push(`${dim}whole-file damage can't be repaired record-by-record; restore from a backup.${reset}`);
+    return lines.join("\n");
+  }
+
+  const repair = report.repair;
+  if (!repair) return lines.join("\n");
+
+  const v = repair.verification;
+  if (!repair.changed) {
+    lines.push(`${dim}${v.total} record(s) inspected${reset}`);
+    lines.push("");
+    lines.push(`${green}${REPAIR_CLEAN_MESSAGE}${reset}`);
+    if (v.warningCount > 0) {
+      lines.push(`${dim}(${v.warningCount} warning(s) remain — run \`agentrelay verify\` to see them.)${reset}`);
+    }
+    return lines.join("\n");
+  }
+
+  const invalid = repair.actions.filter((a) => a.kind === "drop-invalid").length;
+  const dups = repair.actions.filter((a) => a.kind === "drop-duplicate").length;
+  lines.push(
+    `${dim}${v.total} record(s) — ${repair.kept.length} kept, ${repair.actions.length} dropped ` +
+      `(${invalid} invalid, ${dups} duplicate)${reset}`
+  );
+  lines.push("");
+  lines.push(repair.actions.map((a) => renderAction(a, color)).join("\n"));
+  lines.push("");
+
+  if (report.wrote) {
+    lines.push(`${green}Repaired.${reset} Wrote ${repair.kept.length} record(s) back to the store.`);
+    if (report.backupPath) lines.push(`${dim}Pre-repair backup: ${report.backupPath}${reset}`);
+  } else {
+    lines.push(
+      `${yellow}Dry run — no changes written.${reset} Re-run without ${bold}--dry-run${reset} to drop ${repair.actions.length} record(s).`
+    );
+  }
+  if (v.warningCount > 0) {
+    lines.push(`${dim}(${v.warningCount} warning(s) not repaired — run \`agentrelay verify\` to see them.)${reset}`);
+  }
+  return lines.join("\n");
+}
+
+/** Machine-readable form of the `verify --fix` report for scripts/CI. */
+export function renderVerifyFixJson(report: VerifyFixReport): string {
+  return JSON.stringify(
+    {
+      store: report.store,
+      kind: report.kind,
+      dryRun: Boolean(report.dryRun),
+      wrote: Boolean(report.wrote),
+      ...(report.backupPath ? { backupPath: report.backupPath } : {}),
+      ...(report.kind === "corrupt" ? { corruptReason: report.corruptReason ?? null } : {}),
+      ...(report.kind === "verified" && report.repair
+        ? {
+            changed: report.repair.changed,
+            kept: report.repair.kept.length,
+            dropped: report.repair.actions.length,
+            actions: report.repair.actions,
+            verification: report.repair.verification,
+          }
+        : {}),
     },
     null,
     2

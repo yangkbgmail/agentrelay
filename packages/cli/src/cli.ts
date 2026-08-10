@@ -69,6 +69,7 @@ import {
   runCommand,
   runDoctor,
   runVerify,
+  runVerifyFix,
   setConfigFile,
   showConfig,
   showJob,
@@ -116,7 +117,7 @@ import {
 import { renderSummary, renderSummaryJson } from "./summary.js";
 import { renderTools, renderToolsJson, renderToolsWatchFrame } from "./tools.js";
 import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
-import { renderVerify, renderVerifyJson } from "./verify.js";
+import { renderVerify, renderVerifyFix, renderVerifyFixJson, renderVerifyJson } from "./verify.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -1580,9 +1581,31 @@ export function buildCli(): Command {
   program
     .command("verify")
     .description("Lint the job store for integrity problems: invalid records, duplicate ids, unresumable jobs")
-    .option("--json", "Print the verification report as JSON (machine-readable, for scripts/CI)")
-    .action((opts: { json?: boolean }) => {
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/CI)")
+    .option("--fix", "Repair error-level problems: drop invalid records and earlier duplicate ids (backs up first)")
+    .option("--dry-run", "With --fix, preview which records would be dropped without writing")
+    .action((opts: { json?: boolean; fix?: boolean; dryRun?: boolean }) => {
       const { store } = program.opts();
+
+      if (opts.fix) {
+        const report = runVerifyFix(store, { dryRun: opts.dryRun });
+        if (opts.json) {
+          console.log(renderVerifyFixJson(report));
+        } else {
+          console.log(renderVerifyFix(report, { color: Boolean(process.stdout.isTTY) }));
+        }
+        // Corruption can't be auto-repaired → exit 1. A successful repair (or a
+        // clean/dry-run store) exits 0 so `--fix` is scriptable in a pipeline.
+        if (report.kind === "corrupt") process.exitCode = 1;
+        return;
+      }
+
+      if (opts.dryRun) {
+        console.error("--dry-run only applies with --fix");
+        process.exitCode = 1;
+        return;
+      }
+
       const report = runVerify(store);
       if (opts.json) {
         console.log(renderVerifyJson(report));

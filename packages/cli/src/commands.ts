@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import {
   accessSync,
   constants,
+  copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -31,6 +32,7 @@ import {
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
+  backupFilePath,
   buildLocationReport,
   CONFIG_FILENAME,
   type ConfigValueSource,
@@ -71,6 +73,7 @@ import {
   RelayScheduler,
   type RestorePreview,
   type RestoreResult,
+  repairStore,
   resolveAdapter,
   resolveBackup,
   resolveConfigPath,
@@ -92,7 +95,7 @@ import {
   waitExitCode,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
-import type { VerifyReport } from "./verify.js";
+import type { VerifyFixReport, VerifyReport } from "./verify.js";
 
 /**
  * Constructs a {@link RelayQueue} that, if the store file turns out to be
@@ -1142,6 +1145,80 @@ export function runVerify(storePath?: string): VerifyReport {
   }
 
   return { kind: "verified", store, verification: verifyStore(parsed) };
+}
+
+export interface VerifyFixOptions {
+  /** Preview the repair without touching the store (no backup, no write). */
+  dryRun?: boolean;
+  /** Injected clock for the backup filename (tests). Defaults to now. */
+  now?: Date;
+}
+
+/**
+ * Repair the on-disk store's error-level integrity problems (see core
+ * `repairStore`): drop records the queue can't load (invalid) or already
+ * discards (earlier duplicate ids), keeping the file honest about what the
+ * scheduler will actually run.
+ *
+ * Owns only the filesystem edge; the decision of what to drop is the pure core
+ * function. A missing store is a clean no-op, and whole-file corruption can't be
+ * repaired record-by-record (reported as `corrupt`, same as `runVerify`). When
+ * there is nothing to fix, the store is left untouched. Otherwise — and unless
+ * `dryRun` — the **raw** current bytes are copied to a `.backup-<ts>` snapshot
+ * first (so nothing is truly lost), then the repaired array is written
+ * atomically (temp file + rename). Never throws for store-state reasons; a
+ * genuine write failure is allowed to surface.
+ */
+export function runVerifyFix(storePath?: string, options: VerifyFixOptions = {}): VerifyFixReport {
+  const store = storePath ?? defaultStorePath();
+  const dryRun = options.dryRun ?? false;
+
+  if (!existsSync(store)) {
+    return { kind: "missing", store, dryRun, wrote: false };
+  }
+
+  let raw: string;
+  try {
+    raw = readFileSync(store, "utf8");
+  } catch (error) {
+    return { kind: "corrupt", store, corruptReason: (error as Error).message, dryRun, wrote: false };
+  }
+
+  const parsed: unknown = raw.trim() === "" ? [] : safeJsonParse(raw);
+  if (parsed === PARSE_FAILED) {
+    return { kind: "corrupt", store, corruptReason: "invalid JSON", dryRun, wrote: false };
+  }
+  if (!Array.isArray(parsed)) {
+    return { kind: "corrupt", store, corruptReason: "root is not a JSON array of jobs", dryRun, wrote: false };
+  }
+
+  const repair = repairStore(parsed);
+
+  // Nothing to change, or just previewing: never write.
+  if (!repair.changed || dryRun) {
+    return { kind: "verified", store, repair, dryRun, wrote: false };
+  }
+
+  // Back up the *raw* current bytes (preserving the dropped records verbatim)
+  // before overwriting, so a repair is always reversible.
+  const backupPath = backupFilePath(store, options.now ?? new Date());
+  copyFileSync(store, backupPath);
+
+  const tmpPath = `${store}.tmp-fix-${process.pid}-${Date.now()}`;
+  writeFileSync(tmpPath, JSON.stringify(repair.kept, null, 2), "utf8");
+  renameSync(tmpPath, store);
+
+  return { kind: "verified", store, repair, dryRun, wrote: true, backupPath };
+}
+
+/** Sentinel distinguishing a genuine JSON parse failure from a parsed `null`. */
+const PARSE_FAILED = Symbol("parse-failed");
+function safeJsonParse(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return PARSE_FAILED;
+  }
 }
 
 export interface ConfigShowOptions {

@@ -2142,3 +2142,35 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay verify --fix` 스토어 무결성 자동 복구] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-2pg3v1`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고, 열린 PR이 60개로 parser/watch/stats/tz/heatmap/
+  search/export/completion/notify 등 대부분의 축이 포화 상태. 어떤 열린 PR도 건드리지 않은 **명확한 갭**을
+  골랐다 — `verify`(무결성 린터)는 문제를 *보고*만 하고 복구 수단이 없어, 손상된 `jobs.json`(무효 레코드·
+  중복 id)을 사용자가 손으로 편집해야 했다. verify 축은 열린 PR이 하나도 없어 충돌 위험도 없다.
+- **한 일 (branch `claude/wizardly-pascal-2pg3v1`):**
+  - core `verify.ts`에 순수 `repairStore(records)` + `StoreRepair`/`RepairAction`/`RepairActionKind` 신설.
+    **보수적** 복구 — error 레벨만, 그것도 큐가 로드 시 이미 하는 동작만 반영: 무효 레코드
+    (`validateJobRecord` 실패)는 드롭, 중복 id는 **마지막** 쓰기를 남기고 앞선 것을 드롭(큐의 Map
+    last-wins 시맨틱과 정확히 일치 → 앞선 레코드는 로드 시점에 이미 죽어 있음). warning(파싱 불가 날짜·
+    resetAt 없는 waiting·시계 스큐)은 올바른 값을 알 수 없어 손대지 않음. 원본 파일 순서 보존(앞선 중복만
+    제거), 읽기 전용 `verifyStore` 결과를 함께 실어 사용자가 남은 warning을 볼 수 있게 함.
+  - CLI `runVerifyFix`(commands.ts)가 fs 엣지만 소유: 미존재=무해 no-op, 전체 파일 손상은 레코드 단위
+    복구 불가(`corrupt`, exit 1). 변경이 있을 때만 — 그리고 `--dry-run`이 아닐 때만 — 쓰기 전 **원본
+    바이트를 그대로** `.backup-<ts>`로 복사(큐 경유 백업은 이미 dedupe·정렬돼 드롭된 레코드를 잃으므로
+    `copyFileSync`로 raw 스냅샷) 후 원자적(temp+rename) 재기록. `renderVerifyFix`/`renderVerifyFixJson`
+    (verify.ts)로 드롭 목록·백업 경로·write 여부를 사람/기계 양쪽으로 출력.
+  - `agentrelay verify --fix [--dry-run] [--json]` 배선. `--dry-run`은 무write 프리뷰(단독 사용 시
+    "--dry-run only applies with --fix" exit 1 가드). `--fix`는 corrupt만 exit 1, 성공/클린/dry-run은
+    exit 0으로 파이프라인 친화.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 621** verify +7 repairStore / **cli 351/1skip** verify +8 render·JSON / dashboard 9).
+  **실제 빌드 CLI e2e**(mock 아님): 무효 레코드+중복 id+resetAt 없는 waiting을 섞은 5레코드 임시 스토어로
+  ① dry-run이 "3 kept, 2 dropped" 프리뷰 + 무변경(records 5 유지), ② `--fix`가 3레코드 유지(중복은
+  마지막 completed를 남김)·원본 5레코드를 `.backup-<ts>`에 보존·원자적 재기록, ③ 이후 `verify`가 error 0·
+  warning 1(waiting-without-reset 미복구)·exit 0, ④ 재실행 no-op(changed:false), ⑤ corrupt 스토어 exit 1,
+  ⑥ 미존재 no-op, ⑦ `--dry-run` 단독 exit 1 가드, ⑧ `--help`에 두 플래그 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `verify --fix`가
+  warning 중 안전 복구 가능한 것(예: resetAt 없는 waiting → queued로 강등)까지 opt-in 확장, `doctor`가
+  error 감지 시 `verify --fix` 안내. tz/heatmap/parser/watch/stats/search는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
