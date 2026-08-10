@@ -2142,3 +2142,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — 파서 상대 시간 단위 경계 하드닝(false-positive 수정)] (2026-08-10, 무인 자율 세션, branch `claude/parser-unit-word-boundary`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유뿐이고 열린 PR은 200개
+  이상으로 극도 포화(거의 모든 신규 커맨드/포맷/watch 축이 이미 열림). 새 기능 추가는 중복이 되므로
+  포화 축을 피해 **실제 정확성 버그**를 골랐다 — `relative-duration` 파서의 단위 문자(d/h/m)가 무관한
+  단어의 **접두사**로 오매칭되던 문제. `resets in 2 months`가 `2 minutes`로 파싱돼(단위 뒤 경계 부재)
+  잡을 엉뚱한 리셋 시각에 park시켰다. 파서는 노이즈 CLI 출력을 스캔하므로(`the cache resets in 3 modes`
+  같은 라인도 pre-filter 통과) 방어적으로 잡아야 하는 실제 오탐이다.
+- **한 일 (branch `claude/parser-unit-word-boundary`):**
+  - `packages/core/src/parser.ts`의 `relative-duration` 정규식에 각 단위 뒤 `(?![a-z])`("문자 아님"
+    경계)를 추가하고, 경계를 넣어도 실제 약어가 깨지지 않도록 단위 접미사를 넓힘: 시간
+    `h(?:ours?|rs?)?`(h/hr/hrs/hour/hours), 분 `m(?:in(?:ute)?s?)?`(m/min/mins/minute/minutes),
+    일 `d(?:ays?)?`(d/day/days). 경계는 **후행 문자만** 거부하고 **후행 숫자는 허용**하므로 컴팩트
+    `4h32m`(단위 바로 뒤 다음 숫자) 포맷은 그대로 동작.
+  - `packages/core/test/parser.test.ts`에 회귀 3케이스 추가: (1) `mins`/`hrs` 약어 파싱, (2)
+    `2 months`/`3 modes`/`5 moments`가 null(오탐 제거), (3) `1d2h30m` 컴팩트 폼 유지.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 617**, parser 33→36 / **cli 343/1skip** / dashboard 9). **실제 빌드 CLI e2e**
+  (`agentrelay parse`): `resets in 2 months`→"No rate-limit detected"(오탐 제거 확인), `30 mins`→
+  relative-duration 30m, `4h32m`→relative-duration 4h32m(컴팩트 유지) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 파서/watch/stats/tz/heatmap 축은
+  PR 포화라 신규 기능은 지양 — 남은 가치는 이런 소규모 정확성/방어 수정 또는 대시보드(PR 상대적 희소).
+  README/ARCHITECTURE(🧭 코워크).

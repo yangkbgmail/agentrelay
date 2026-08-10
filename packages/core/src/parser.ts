@@ -90,9 +90,17 @@ const PATTERNS: RateLimitPattern[] = [
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
     // are OpenAI/Codex-style wording that the Codex adapter contributes).
+    //
+    // Each unit accepts its common abbreviations (d/day/days, h/hr/hrs/hour/hours,
+    // m/min/mins/minute/minutes) and is followed by `(?![a-z])` — a "not a letter"
+    // boundary. Without it the bare unit letter is a *prefix* of unrelated words,
+    // so noisy agent output like "resets in 2 months" or "…in 3 modes" was misread
+    // as 2/3 minutes and silently parked a job on a bogus reset time. The boundary
+    // rejects a following letter but still allows a following digit, so the compact
+    // "4h32m" form (unit immediately followed by the next number) keeps working.
     name: "relative-duration",
     regex:
-      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
+      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?(?![a-z]))?\s*(?:(\d+)\s*h(?:ours?|rs?)?(?![a-z]))?\s*(?:(\d+)\s*m(?:in(?:ute)?s?)?(?![a-z]))?/i,
     resolve: (m, now) => {
       const days = m[1] ? parseInt(m[1], 10) : 0;
       const hours = m[2] ? parseInt(m[2], 10) : 0;
