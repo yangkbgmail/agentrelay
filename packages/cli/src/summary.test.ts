@@ -1,7 +1,13 @@
 import type { QueueSummary, RelayJob } from "@agentrelay/core";
 import { summarizeJobs } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { EMPTY_MESSAGE, renderSummary, renderSummaryJson } from "./summary.js";
+import {
+  EMPTY_MESSAGE,
+  NO_SCOPE_MATCH_MESSAGE,
+  renderSummary,
+  renderSummaryJson,
+  renderSummaryWatchFrame,
+} from "./summary.js";
 
 /** Zero-filled QueueSummary with the given overrides — mirrors summarizeJobs' shape. */
 function summary(overrides: Partial<QueueSummary> = {}): QueueSummary {
@@ -70,6 +76,20 @@ describe("renderSummary", () => {
     expect(renderSummary(s, { now: NOW, color: true })).toContain("\x1b[");
   });
 
+  it("appends a scope line when a scopeNote is supplied", () => {
+    const out = renderSummary(summary({ total: 1, byStatus: { ...summary().byStatus, queued: 1 } }), {
+      now: NOW,
+      scopeNote: "project=web",
+    });
+    expect(out).toContain("queued 1");
+    expect(out).toContain("scope: project=web");
+  });
+
+  it("reads as no-match (not the first-run hint) when a filter is active but nothing matches", () => {
+    expect(renderSummary(summary(), { now: NOW })).toBe(EMPTY_MESSAGE);
+    expect(renderSummary(summary(), { now: NOW, scopeNote: "status=failed" })).toBe(NO_SCOPE_MATCH_MESSAGE);
+  });
+
   it("matches summarizeJobs output end-to-end", () => {
     const jobs: RelayJob[] = [
       makeJob({ status: "waiting_for_reset", resetAt: new Date(NOW + 30 * 60_000).toISOString() }),
@@ -92,6 +112,35 @@ describe("renderSummaryJson", () => {
     expect(parsed.summary.total).toBe(2);
     expect(parsed.summary.byStatus).toMatchObject({ queued: 1, completed: 1, failed: 0, cancelled: 0 });
     expect(parsed.summary.nextResetAt).toBeNull();
+  });
+});
+
+describe("renderSummaryWatchFrame", () => {
+  it("wraps the overview in a live banner with the interval, timestamp, and store path", () => {
+    const s = summary({
+      total: 3,
+      byStatus: { ...summary().byStatus, waiting_for_reset: 1, completed: 2 },
+      nextResetAt: new Date(NOW + 63 * 60_000).toISOString(),
+    });
+    const frame = renderSummaryWatchFrame(s, "/x/jobs.json", 5000, NOW);
+    expect(frame).toContain("agentrelay summary");
+    expect(frame).toContain("live, every 5s");
+    expect(frame).toContain("Ctrl-C to exit");
+    expect(frame).toContain("/x/jobs.json");
+    expect(frame).toContain("2026-08-10 12:00:00");
+    // Body reuses renderSummary (always colored in a frame), so ANSI codes sit
+    // between labels and counts — assert on the pieces, not contiguous strings.
+    expect(frame).toContain("3 jobs");
+    expect(frame).toContain("next reset in");
+    expect(frame).toContain("1h 3m");
+    expect(frame).toContain("waiting_for_reset");
+    expect(frame).toContain("\x1b["); // colored body
+  });
+
+  it("echoes the scope note in the frame when a filter is active", () => {
+    const s = summary({ total: 1, byStatus: { ...summary().byStatus, queued: 1 } });
+    const frame = renderSummaryWatchFrame(s, "/x/jobs.json", 2000, NOW, "tool=codex-cli");
+    expect(frame).toContain("scope: tool=codex-cli");
   });
 });
 

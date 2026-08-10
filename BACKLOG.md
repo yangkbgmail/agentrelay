@@ -813,3 +813,19 @@
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
+
+- [x] 👷 `agentrelay summary --watch [seconds]` — 세션 67에 추가된 `summary`(한눈 큐 개요)에는
+      형제 명령(status/stats/tools/projects/next/eta/show/errors)이 모두 가진 라이브 `--watch` 뷰가
+      빠져 있었다. 큐 개요를 화면에 고정한 채 다음-리셋 카운트다운이 째깍째깍 줄고 상태별 카운트가
+      데몬의 쓰기를 반영하도록 갱신.
+      (완료 — CLI `summary.ts`에 순수 `renderSummaryWatchFrame`(status/stats/tools와 동일한 라이브
+      배너 셰이프: 제목·간격·타임스탬프·스토어 경로 + 컬러 본문) 신설, `renderSummary`에 optional
+      `scopeNote` 추가 → 필터 활성 시 dim `scope: …` 라인 부착·빈 결과는 온보딩 힌트 대신 새
+      `NO_SCOPE_MATCH_MESSAGE`. `cli.ts`에 `runSummaryWatch`(매 프레임 스토어 재읽기+scope 재적용,
+      시간창 경계는 시작 시 고정) + summary 커맨드에 `-w/--watch [seconds]` 배선(다른 watch 명령과
+      동일하게 `--json`이 watch보다 우선, 기본 2s). 부수 개선: 일회성 summary도 필터 활성 시 scope
+      note를 에코(형제 명령과 일관). 새 core 코드 0줄 — 전부 기존 `summarizeJobs`/`scopeJobs`/
+      `buildScope`/`formatCountdown` 재사용. summary.test.ts +4(watch 프레임 배너/scope 에코 +
+      scope note 라인/no-match). `pnpm build`+`biome ci`(116파일 0에러)+전 패키지 테스트 통과
+      (cli 347/1skip, +4). 실제 빌드 CLI e2e로 라이브 프레임·scope note·`--json` 우선·bogus status
+      exit 1 검증. branch `claude/wizardly-pascal-ckix0v`)

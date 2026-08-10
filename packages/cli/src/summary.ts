@@ -28,19 +28,30 @@ const STATUS_COLOR: Record<JobStatus, string> = {
 /** Shown when the store has no jobs at all. */
 export const EMPTY_MESSAGE = "No jobs yet. Run `agentrelay run -- <your agent command>` to get started.";
 
+/** Shown when a scope filter is active but nothing in the store matches it. */
+export const NO_SCOPE_MATCH_MESSAGE = "No jobs match the current filter.";
+
 /**
  * Compact human overview: a headline (total jobs + next-reset countdown) and a
  * per-status breakdown that omits zero-count statuses for scannability. Reuses
  * `formatCountdown` so the "1h 3m"/"due now" phrasing matches the status table
  * exactly. Pure: no ambient clock unless `now` is omitted.
+ *
+ * When a `scopeNote` is supplied (a filter is active), an empty result reads as
+ * "nothing matched the filter" rather than the first-run onboarding hint, and a
+ * dim `scope: …` line is appended so a live `--watch` frame shows what subset it
+ * is counting.
  */
-export function renderSummary(summary: QueueSummary, options: { now?: number; color?: boolean } = {}): string {
+export function renderSummary(
+  summary: QueueSummary,
+  options: { now?: number; color?: boolean; scopeNote?: string } = {}
+): string {
   const now = options.now ?? Date.now();
   const color = options.color ?? false;
   const b = (s: string): string => (color ? `${BOLD}${s}${RESET}` : s);
   const d = (s: string): string => (color ? `${DIM}${s}${RESET}` : s);
 
-  if (summary.total === 0) return EMPTY_MESSAGE;
+  if (summary.total === 0) return options.scopeNote ? NO_SCOPE_MATCH_MESSAGE : EMPTY_MESSAGE;
 
   const jobWord = summary.total === 1 ? "job" : "jobs";
   const reset =
@@ -57,7 +68,31 @@ export function renderSummary(summary: QueueSummary, options: { now?: number; co
   });
   const breakdown = parts.length > 0 ? `  ${parts.join(d("  "))}` : "";
 
-  return breakdown ? `${headline}\n${breakdown}` : headline;
+  const lines = breakdown ? [headline, breakdown] : [headline];
+  if (options.scopeNote) lines.push(d(`scope: ${options.scopeNote}`));
+  return lines.join("\n");
+}
+
+/**
+ * One frame of the live `agentrelay summary --watch` view: a title/header block
+ * (matching the shape of `status`/`stats`/`tools --watch`) plus the compact
+ * overview. Separated out so the watch loop only has to clear the screen and
+ * print this. The next-reset countdown ticks down in place because the loop
+ * re-reads the store and rebuilds the summary with a fresh `now` each pass.
+ */
+export function renderSummaryWatchFrame(
+  summary: QueueSummary,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now(),
+  scopeNote?: string
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay summary${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderSummary(summary, { color: true, now, scopeNote })].join("\n");
 }
 
 /**
