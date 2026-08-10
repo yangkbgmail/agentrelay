@@ -799,6 +799,16 @@
       새 파서/스케줄러 로직 0줄. core 7 + cli 7 신규 테스트, 실제 빌드 CLI e2e 검증. branch
       `claude/wizardly-pascal-y4hcy6`)
 
+- [x] 👷 `agentrelay drain` — 큐 전체가 소진(모든 활성 잡이 종료 상태 도달)될 때까지 블록한 뒤 exit
+      code로 결과 반환. `eta`(언제 따라잡히나)의 블록형 짝이자 `wait <id>`(잡 하나)의 큐 전체 버전 —
+      `agentrelay drain --timeout 8h && ./deploy.sh` 같은 CI 게이트를 손 폴 루프 없이 가능케 함. 자기 발굴 항목.
+      (완료 — core `drain.ts` 순수 `summarizeDrain`/`DrainSnapshot`(active/completed/failed/cancelled 분할)·
+      `isQueueDrained`·`evaluateDrain(jobs,{failOnError})`·`DRAIN_EXIT_CODES`(drained 0·failed 1·timeout 124).
+      CLI `commands.ts` `drainQueue`(waitForJob 미러 폴 루프, 매 인터벌 스토어 재오픈·즉시 첫 검사·주입
+      가능 now/sleep/readJobs), CLI `drain.ts` `drainMessage`/`renderDrainJson`(wait/eta와 동일 envelope),
+      `agentrelay drain [--timeout][--interval][--fail-on-error][--json][-q]`. core drain 13 + cli drain 10
+      신규 테스트, 실제 빌드 CLI e2e로 빈 큐/전 종료/--fail-on-error/timeout 124/--json/에러 exit/completion
+      검증. branch `claude/wizardly-pascal-drain`)
 - [x] 👷 `agentrelay stats` 해결 시간 분산 지표(IQR·표준편차) — 백분위수(중심·꼬리)에 더해 "얼마나
       들쭉날쭉한가"(퍼짐)를 노출. 세션 60이 후속 후보로 지목한 항목.
       (완료 — core `stats.ts`의 `TimingStats`에 `p25ResolutionMs`·`p75ResolutionMs`·`iqrResolutionMs`
