@@ -799,6 +799,21 @@
       새 파서/스케줄러 로직 0줄. core 7 + cli 7 신규 테스트, 실제 빌드 CLI e2e 검증. branch
       `claude/wizardly-pascal-y4hcy6`)
 
+- [x] 👷 `agentrelay forecast` — 용량(capacity) 인지 큐 배수(drain) 예측. `eta`는 "가장 늦은 리셋
+      시각"만 답하고 각 재개가 실제 시간(런타임)을 쓴다는 점과 `AGENTRELAY_MAX_CONCURRENT` 동시성
+      한계로 인한 직렬화를 무시한다 — 리셋이 몰린 "재개 무리(herd)"가 슬롯 뒤에 줄 서면 실제 배수는
+      마지막 리셋보다 한참 늦어진다. `forecast`는 그 공백을 메운다.
+      (완료 — core `forecast.ts` 순수 `computeQueueForecast(jobs, {now, maxConcurrent, jobDurationMs})`
+      +`QueueForecast`/`JobForecast`: K개 슬롯 위 결정적 이산사건 시뮬레이션(각 잡 release=max(reset,now),
+      가장 먼저 비는 슬롯(동률 최소 인덱스)에 배정, start=max(release,slotFree), finish=start+D). drainMs/At
+      (마지막 finish)·naiveEtaMs(=`eta`의 값)·contentionMs(=drain−(max(naiveEta,0)+D), 슬롯 경합 순수 페널티,
+      K 충분하면 0)·maxQueuedMs·per-job start/finish/queuedMs/slot. `next`/`upcoming`/`eta`와 동일 필터·
+      재개 순서(reset→createdAt→id) 재사용, `normalizeMaxConcurrent` 재사용. CLI `forecast.ts`
+      `renderForecast`/`renderForecastJson`, `agentrelay forecast [-c N] [-d 90s] [-n N] [--json] [--exit-code]`.
+      duration은 `--duration`→과거 해결시간 중앙값(`computeStats().timing.medianResolutionMs`)→기본 2분,
+      출처를 출력에 표기. 새 파서/스케줄러 로직 0줄. core 13 + cli 10 신규 테스트, 실제 빌드 CLI e2e 검증
+      (동일 리셋 3잡을 -c 1은 직렬·-c 3은 병렬로 배수). branch `claude/capacity-forecast`)
+
 - [x] 👷 `agentrelay stats` 해결 시간 분산 지표(IQR·표준편차) — 백분위수(중심·꼬리)에 더해 "얼마나
       들쭉날쭉한가"(퍼짐)를 노출. 세션 60이 후속 후보로 지목한 항목.
       (완료 — core `stats.ts`의 `TimingStats`에 `p25ResolutionMs`·`p75ResolutionMs`·`iqrResolutionMs`

@@ -8,6 +8,7 @@ export * from "./doctor.js";
 export * from "./errors.js";
 export * from "./eta.js";
 export * from "./export.js";
+export * from "./forecast.js";
 export * from "./health.js";
 export * from "./heartbeat.js";
 export * from "./import.js";
