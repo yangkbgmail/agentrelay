@@ -2118,3 +2118,32 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 67 — 적체 통합: `agentrelay search`(#482) 자유 텍스트 잡 검색] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-230jov`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR을 스캔하니 여전히 100+ 적체. 세션 60~66의 재발방지 기조
+  ("적체 시 신규 기능 발명이 아니라 통합이 최우선")에 따라, 이미 검증된 고유 기능 PR #482(`search`)를
+  최신 origin/main 위로 **코드만** 통합했다(PR base가 오래돼 diff에 이미 병합된 eta/verify/concurrency가
+  섞여 있어 전체 cherry-pick은 회귀 위험 → search 관련 신규 파일 4개만 추출 + index/cli 배선을 손으로 재적용,
+  문서 충돌 회피).
+- **한 일 — `agentrelay search <query>`:** 잡을 명령어·프로젝트·id·에러 텍스트로 자유 검색하는 읽기 전용
+  커맨드. 필터 생태계(status/stats/export/errors/metrics/patterns/cancel/retry)는 status/tool/project/시간
+  창의 구조화 차원만 스코프할 뿐 "migrate-db를 돌린 잡이 어느 것?"·"ENOSPC로 죽은 실패가 어느 것?"에
+  답할 수단이 없던 갭을 메운다.
+  - core `search.ts`(순수·파일시스템/시계 미접촉): `JobSearchField`(command/project/id/error)·
+    `JOB_SEARCH_FIELDS`·`isJobSearchField`·`jobFieldText`·비throw `compileJobMatcher`(빈 query·잘못된
+    regex는 `{error}`)·`searchJobs`(입력 순서 보존·불변, `scopeJobs`와 조합).
+  - CLI `search.ts`: `renderSearch`(query preface + `renderStatusTable` 재사용)·`searchHeaderLine`·
+    `renderSearchJson`(status 스냅샷 + `search` provenance)·`NO_SEARCH_MATCH_MESSAGE`.
+  - `search <query> [--field] [--regex] [--case-sensitive] [-n/--limit] [--json]` + 공용 `buildScope`
+    (--status/--tool/--project/--since/--until) 재사용. 빈 query·잘못된 regex/field/status·비정수 limit은
+    exit 1, 무매치는 exit 0. 새 스토어/스케줄러 로직 0줄.
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 118파일)→`pnpm test` 전 패키지 통과
+  (**core 626** search 12 / **cli 342/1skip** search 6 / dashboard 9). **실제 빌드 CLI e2e**(mock 아님, 3-잡
+  임시 스토어): 전-필드 `migrate` 매치·`--field error ENOSPC`·regex `migrate|tests`(2매치)·`--project
+  web-app` 스코프 조합(scope note)·`--json` provenance(returned/search)·무매치 exit 0·잘못된 field/regex
+  exit 1·`completion bash`에 `search` 자동 포함 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합) 후 원본 #482를 통합 대표로 close.
+  남은 고유 기능 PR 계속 배수 — dedupe(#557)·drain(#558)·diff(#531)·summary(#505)·recent(#475)·
+  overview(#464)·ical(#460)·schedule(#508). 파서/watch/stats/export-format 계열은 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
