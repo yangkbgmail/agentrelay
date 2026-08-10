@@ -113,7 +113,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
-import { renderSummary, renderSummaryJson } from "./summary.js";
+import { renderSummary, renderSummaryJson, renderSummaryWatchFrame } from "./summary.js";
 import { renderTools, renderToolsJson, renderToolsWatchFrame } from "./tools.js";
 import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
 import { renderVerify, renderVerifyJson } from "./verify.js";
@@ -445,6 +445,26 @@ function runProjectsWatch(store: string, intervalMs: number, window: JobScope, s
 }
 
 /**
+ * Live `agentrelay summary --watch`: clears the screen and re-renders the
+ * one-glance overview on an interval so the "next reset in" countdown ticks down
+ * in place and the per-status counts reflect a running daemon's writes. Like the
+ * other watch loops, `listStatus` re-reads the JSON store each pass and the
+ * scope filter is re-applied every frame (time-window boundaries stay fixed at
+ * the absolute epoch-ms captured when the command started). Runs until interrupted.
+ */
+function runSummaryWatch(store: string, intervalMs: number, window: JobScope, scopeNote?: string): void {
+  const active = isJobScopeActive(window);
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const all = listStatus(store);
+    const jobs = active ? scopeJobs(all, window) : all;
+    const summary = summarizeJobs(jobs);
+    const frame = renderSummaryWatchFrame(summary, store, intervalMs, now, scopeNote);
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
  * Live `agentrelay stats --watch`: clears the screen and re-renders the aggregate
  * metrics on an interval so the "next reset in" countdown ticks down in place and
  * the success rate / breakdowns reflect a running daemon's writes. Like the other
@@ -754,6 +774,7 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("-w, --watch [seconds]", "Continuously refresh the overview with a live countdown (Ctrl-C to exit)")
     .addHelpText(
       "after",
       "\nExamples:\n" +
@@ -761,10 +782,12 @@ export function buildCli(): Command {
         "  agentrelay summary\n" +
         "  # just the waiting jobs, for one project\n" +
         "  agentrelay summary --status waiting_for_reset --project my-app\n" +
+        "  # watch the next-reset countdown tick down live\n" +
+        "  agentrelay summary --watch\n" +
         "  # read the per-status counts with jq\n" +
         "  agentrelay summary --json | jq '.summary.byStatus'"
     )
-    .action((opts: ScopeOpts & { json?: boolean }) => {
+    .action((opts: ScopeOpts & { json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
       const built = buildScope(opts, now);
@@ -774,15 +797,32 @@ export function buildCli(): Command {
         return;
       }
 
+      // --json is a one-shot machine dump and takes precedence over --watch (a
+      // live TTY view), mirroring the other watchable commands.
+      if (opts.json) {
+        const allJobs = listStatus(store);
+        const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+        console.log(renderSummaryJson(summarizeJobs(jobs), store ?? defaultStorePath()));
+        return;
+      }
+
+      if (opts.watch !== undefined) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        runSummaryWatch(store, intervalMs, built.scope, built.active ? built.note : undefined);
+        return; // setInterval keeps the process alive.
+      }
+
       const allJobs = listStatus(store);
       const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
       const summary = summarizeJobs(jobs);
-
-      if (opts.json) {
-        console.log(renderSummaryJson(summary, store ?? defaultStorePath()));
-      } else {
-        console.log(renderSummary(summary, { color: Boolean(process.stdout.isTTY), now }));
-      }
+      console.log(
+        renderSummary(summary, {
+          color: Boolean(process.stdout.isTTY),
+          now,
+          scopeNote: built.active ? built.note : undefined,
+        })
+      );
     });
 
   program

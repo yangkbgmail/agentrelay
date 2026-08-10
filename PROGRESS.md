@@ -2142,3 +2142,25 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay summary --watch` 라이브 뷰] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-ckix0v`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이고 열린 PR이 60개로 파서/watch/stats/export/notify 축이 포화. 그 60개
+  어디에도 없는 명확한 갭을 골랐다 — 세션 67에 병합된 `summary`(한눈 큐 개요)만 형제 명령(status/stats/
+  tools/projects/next/eta/show/errors)이 다 가진 라이브 `--watch` 뷰가 없었다.
+- **한 일 (branch `claude/wizardly-pascal-ckix0v`):**
+  - CLI `summary.ts`: 순수 `renderSummaryWatchFrame`(status/stats/tools와 동일한 라이브 배너 —
+    제목·간격·타임스탬프·스토어 경로 + 컬러 본문) 신설. `renderSummary`에 optional `scopeNote` 추가 →
+    필터 활성 시 dim `scope: …` 라인 부착, 빈 결과는 온보딩 힌트 대신 새 `NO_SCOPE_MATCH_MESSAGE`.
+  - `cli.ts`: `runSummaryWatch`(매 프레임 스토어 재읽기+scope 재적용, 시간창 경계는 시작 시 고정
+    epoch-ms) + summary 커맨드에 `-w/--watch [seconds]` 배선. 다른 watch 명령과 동일하게 `--json`이
+    watch보다 우선(일회성 머신 덤프), 기본 2s. 부수: 일회성 summary도 필터 활성 시 scope note 에코(형제 일관).
+  - `summary.test.ts` +4: watch 프레임 배너/scope 에코, scope note 라인, no-match 메시지.
+  - 새 core 코드 0줄 — 전부 기존 `summarizeJobs`/`scopeJobs`/`buildScope`/`formatCountdown` 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 116파일 0에러)→`pnpm test`
+  전 패키지 통과(**cli 347/1skip**, +4). 실제 빌드 CLI e2e: 2잡 임시 스토어로 `summary --watch 5`가
+  라이브 배너+컬러 본문+1h 3m 카운트다운 렌더, `--watch --status waiting_for_reset`가 `scope:` 에코,
+  `--json --watch`가 watch 없이 JSON 한 번만(무행), `--project web`가 scope note 표시, `--status nope`가
+  exit 1, `summary --help`·`completion bash`에 `--watch`/summary 등록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). tz/heatmap/parser/watch는 PR 포화라
+  신규 축 지양. README/ARCHITECTURE(🧭 코워크).
