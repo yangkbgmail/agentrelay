@@ -193,3 +193,98 @@ export function verifyStore(records: unknown[]): StoreVerification {
     issues,
   };
 }
+
+/** What kind of record a repair dropped. Both restore the store to what the
+ *  queue would actually load — see {@link repairStore}. */
+export type RepairActionKind = "drop-invalid" | "drop-duplicate";
+
+/** One change a repair made (or, in a dry run, would make) to the store. */
+export interface RepairAction {
+  kind: RepairActionKind;
+  /** 0-based position of the dropped record in the original store array. */
+  index: number;
+  /** The dropped record's `id` when it has a string one, else null. */
+  jobId: string | null;
+  /** Human-readable explanation of why the record was dropped. */
+  reason: string;
+}
+
+/** Outcome of computing an error-level repair for a whole store array. */
+export interface StoreRepair {
+  /** The read-only lint of the *original* store (same as {@link verifyStore}). */
+  verification: StoreVerification;
+  /** The records to keep — every structurally-valid, non-duplicate job, in the
+   *  store's original order (with earlier duplicates removed). Safe to write back. */
+  kept: RelayJob[];
+  /** Every record the repair dropped, ordered by original index. */
+  actions: RepairAction[];
+  /** True when the repair would change the store (i.e. `actions` is non-empty). */
+  changed: boolean;
+}
+
+/**
+ * Compute the error-level repair of a raw store array: the safe subset the queue
+ * would actually keep, plus a record of what was dropped. Pure — no I/O — so the
+ * CLI can preview a plan (`--dry-run`) with the exact same logic it later writes.
+ *
+ * Repair is **conservative and non-destructive of usable data**. It only touches
+ * `error`-level problems, and only in ways that mirror what the live queue does
+ * on load anyway:
+ *
+ *  - **invalid-record** → dropped. A record that fails {@link validateJobRecord}
+ *    can't be represented as a `RelayJob`; the renderers/scheduler can't reason
+ *    about it. (The CLI backs up the raw store before writing, so the bytes are
+ *    never truly lost.)
+ *  - **duplicate-id** → the **last** occurrence is kept, earlier ones dropped.
+ *    This is exactly the queue's own load semantics (it keys jobs by id in a
+ *    `Map`, so the last write wins); the earlier records are *already* dead on
+ *    load, so removing them only makes the file match reality.
+ *
+ * `warning`-level issues (unparseable dates, `waiting_for_reset` with no
+ * `resetAt`, clock skew) are **left untouched**: the correct value is unknown, so
+ * guessing could hide a real problem. Records are kept byte-for-byte as parsed.
+ */
+export function repairStore(records: unknown[]): StoreRepair {
+  const verification = verifyStore(records);
+
+  // First pass: the last array index that each id validly claims. The queue keeps
+  // the last write per id, so that's the occurrence a repair preserves.
+  const lastIndexForId = new Map<string, number>();
+  for (let index = 0; index < records.length; index++) {
+    const result = validateJobRecord(records[index]);
+    if (result.ok) lastIndexForId.set(result.job.id, index);
+  }
+
+  const kept: RelayJob[] = [];
+  const actions: RepairAction[] = [];
+
+  for (let index = 0; index < records.length; index++) {
+    const record = records[index];
+    const result = validateJobRecord(record);
+
+    if (!result.ok) {
+      actions.push({
+        kind: "drop-invalid",
+        index,
+        jobId: rawId(record),
+        reason: result.reason,
+      });
+      continue;
+    }
+
+    const job = result.job;
+    if (lastIndexForId.get(job.id) !== index) {
+      actions.push({
+        kind: "drop-duplicate",
+        index,
+        jobId: job.id,
+        reason: `duplicate id "${job.id}"; the queue keeps the last write (record ${lastIndexForId.get(job.id)})`,
+      });
+      continue;
+    }
+
+    kept.push(job);
+  }
+
+  return { verification, kept, actions, changed: actions.length > 0 };
+}

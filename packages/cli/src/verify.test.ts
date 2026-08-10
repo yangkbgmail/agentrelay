@@ -1,10 +1,15 @@
-import type { StoreVerification } from "@agentrelay/core";
+import type { RelayJob, RepairAction, StoreRepair, StoreVerification } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
+  REPAIR_CLEAN_MESSAGE,
+  REPAIR_MISSING_MESSAGE,
   renderVerify,
+  renderVerifyFix,
+  renderVerifyFixJson,
   renderVerifyJson,
   STORE_CLEAN_MESSAGE,
   STORE_MISSING_MESSAGE,
+  type VerifyFixReport,
   type VerifyReport,
 } from "./verify.js";
 
@@ -114,5 +119,150 @@ describe("renderVerifyJson", () => {
   it("emits kind only for a missing store", () => {
     const parsed = JSON.parse(renderVerifyJson({ kind: "missing", store: "/x/jobs.json" }));
     expect(parsed).toEqual({ store: "/x/jobs.json", kind: "missing" });
+  });
+});
+
+function job(overrides: Partial<RelayJob> = {}): RelayJob {
+  return {
+    id: "11111111-1111-1111-1111-111111111111",
+    project: "demo",
+    tool: "claude-code",
+    command: ["claude", "-p", "continue"],
+    cwd: "/home/user/demo",
+    status: "completed",
+    resetAt: null,
+    createdAt: "2026-07-24T10:00:00.000Z",
+    updatedAt: "2026-07-24T10:05:00.000Z",
+    attempts: 1,
+    lastError: null,
+    lastOutputTail: null,
+    ...overrides,
+  };
+}
+
+function repair(overrides: Partial<StoreRepair> = {}): StoreRepair {
+  return {
+    verification: verification(),
+    kept: [],
+    actions: [],
+    changed: false,
+    ...overrides,
+  };
+}
+
+const dropInvalid: RepairAction = { kind: "drop-invalid", index: 1, jobId: "bad", reason: "missing project" };
+const dropDup: RepairAction = { kind: "drop-duplicate", index: 0, jobId: "dup", reason: 'duplicate id "dup"' };
+
+describe("renderVerifyFix", () => {
+  it("reports a missing store as nothing to repair", () => {
+    const out = renderVerifyFix({ kind: "missing", store: "/x/jobs.json" });
+    expect(out).toContain("Store repair");
+    expect(out).toContain(REPAIR_MISSING_MESSAGE);
+  });
+
+  it("reports whole-file corruption as unrepairable", () => {
+    const out = renderVerifyFix({ kind: "corrupt", store: "/x/jobs.json", corruptReason: "invalid JSON" });
+    expect(out).toContain("invalid JSON");
+    expect(out).toContain("restore from a backup");
+  });
+
+  it("reports a clean store with nothing to repair", () => {
+    const out = renderVerifyFix({
+      kind: "verified",
+      store: "/x/jobs.json",
+      repair: repair({ verification: verification({ total: 3 }), changed: false }),
+    });
+    expect(out).toContain(REPAIR_CLEAN_MESSAGE);
+  });
+
+  it("notes remaining warnings even on a clean-of-errors store", () => {
+    const out = renderVerifyFix({
+      kind: "verified",
+      store: "/x/jobs.json",
+      repair: repair({ verification: verification({ total: 1, warningCount: 1 }), changed: false }),
+    });
+    expect(out).toContain(REPAIR_CLEAN_MESSAGE);
+    expect(out).toContain("1 warning(s) remain");
+  });
+
+  it("lists dropped records and confirms a write", () => {
+    const report: VerifyFixReport = {
+      kind: "verified",
+      store: "/x/jobs.json",
+      wrote: true,
+      backupPath: "/x/jobs.json.backup-20260724",
+      repair: repair({
+        verification: verification({ total: 3, errorCount: 2 }),
+        kept: [job({ id: "ok" })],
+        actions: [dropDup, dropInvalid],
+        changed: true,
+      }),
+    };
+    const out = renderVerifyFix(report);
+    expect(out).toContain("1 kept, 2 dropped");
+    expect(out).toContain("drop invalid");
+    expect(out).toContain("drop dup");
+    expect(out).toContain("Repaired.");
+    expect(out).toContain("Pre-repair backup: /x/jobs.json.backup-20260724");
+  });
+
+  it("marks a dry run as not written and points at the real run", () => {
+    const report: VerifyFixReport = {
+      kind: "verified",
+      store: "/x/jobs.json",
+      dryRun: true,
+      wrote: false,
+      repair: repair({
+        verification: verification({ total: 2, errorCount: 1 }),
+        kept: [job({ id: "ok" })],
+        actions: [dropInvalid],
+        changed: true,
+      }),
+    };
+    const out = renderVerifyFix(report);
+    expect(out).toContain("(dry run)");
+    expect(out).toContain("Dry run — no changes written.");
+    expect(out).not.toContain("Repaired.");
+  });
+});
+
+describe("renderVerifyFixJson", () => {
+  it("emits the plan + verification for a repaired store", () => {
+    const parsed = JSON.parse(
+      renderVerifyFixJson({
+        kind: "verified",
+        store: "/x/jobs.json",
+        wrote: true,
+        backupPath: "/x/b",
+        repair: repair({
+          verification: verification({ total: 2, errorCount: 1 }),
+          kept: [job({ id: "ok" })],
+          actions: [dropInvalid],
+          changed: true,
+        }),
+      })
+    );
+    expect(parsed.kind).toBe("verified");
+    expect(parsed.wrote).toBe(true);
+    expect(parsed.backupPath).toBe("/x/b");
+    expect(parsed.changed).toBe(true);
+    expect(parsed.kept).toBe(1);
+    expect(parsed.dropped).toBe(1);
+    expect(parsed.actions).toEqual([dropInvalid]);
+  });
+
+  it("emits dryRun/wrote flags and no backup for a preview", () => {
+    const parsed = JSON.parse(
+      renderVerifyFixJson({
+        kind: "verified",
+        store: "/x/jobs.json",
+        dryRun: true,
+        wrote: false,
+        repair: repair({ changed: false }),
+      })
+    );
+    expect(parsed.dryRun).toBe(true);
+    expect(parsed.wrote).toBe(false);
+    expect(parsed.backupPath).toBeUndefined();
   });
 });

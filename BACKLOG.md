@@ -810,6 +810,19 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay verify --fix` — 무결성 린터를 넘어 스토어의 error 레벨 문제를 자동 복구.
+      (완료 — 세션 68이 자체 발굴. `verify`는 지금까지 문제를 *보고*만 하고 사용자가 손으로 고쳐야 했다.
+      core `verify.ts`에 순수 `repairStore(records)` 신설: error 레벨만, 그것도 큐가 로드 시 이미 하는
+      동작만 반영해 보수적으로 복구 — 무효 레코드(`validateJobRecord` 실패)는 드롭, 중복 id는 **마지막**
+      쓰기를 남기고 앞선 것을 드롭(큐의 Map last-wins 시맨틱과 동일). warning(파싱 불가 날짜·resetAt 없는
+      waiting·시계 스큐)은 올바른 값을 알 수 없어 손대지 않음. 원본 순서 보존(앞선 중복만 제거). CLI
+      `runVerifyFix`가 fs 엣지만 소유: 미존재=무해 no-op, 전체 파일 손상은 레코드 단위 복구 불가(corrupt),
+      쓰기 전 **원본 바이트를 그대로** `.backup-<ts>`로 복사(무엇도 진짜로 잃지 않음) 후 원자적(temp+rename)
+      재기록. `agentrelay verify --fix [--dry-run] [--json]`, `--dry-run`은 무write 프리뷰(단독 사용 시
+      exit 1 가드). core verify.test +7(repairStore), cli verify.test +8(render/JSON). 실제 빌드 CLI e2e:
+      무효+중복+warning 섞인 5레코드 스토어 → dry-run 무변경, --fix가 3레코드 유지(중복은 completed 남김)·
+      원본 5레코드 백업·재실행 no-op·corrupt exit 1 검증. branch `claude/wizardly-pascal-2pg3v1`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
