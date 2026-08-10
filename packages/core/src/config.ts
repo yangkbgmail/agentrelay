@@ -76,9 +76,9 @@ export function sampleConfig(): AgentRelayConfig {
     },
     retry: {
       maxAttempts: 5,
-      baseDelayMs: 1000,
+      baseDelayMs: 60000,
       factor: 2,
-      maxDelayMs: 300000,
+      maxDelayMs: 3600000,
       jitter: 0,
     },
     autoPrune: {
