@@ -37,6 +37,27 @@ export function renderNext(next: NextResume | null, options: { now?: number; col
 }
 
 /**
+ * Live-frame wrapper for `agentrelay next --watch`: the same banner shape as the
+ * other `--watch` loops (title + timestamp/store meta + a blank line + body),
+ * with the human-friendly next-resume line as its body so the countdown ticks
+ * down in place. Pure: `now` is injected (used both for the timestamp and to
+ * keep the body countdown live), never read from an ambient clock.
+ */
+export function renderNextWatchFrame(
+  next: NextResume | null,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now()
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay next${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderNext(next, { color: true, now })].join("\n");
+}
+
+/**
  * Machine-readable form for `--json` (scripts/jq). `next` is null when nothing
  * is waiting; otherwise it carries the full job plus the derived due state.
  */

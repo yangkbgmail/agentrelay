@@ -810,6 +810,18 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay next --watch` / `agentrelay eta --watch [seconds]` — 카운트다운이 핵심인 두
+      명령의 빠진 라이브 뷰. upcoming/overdue/tools/projects/stats(세션 55~62)가 채운 `--watch`
+      패밀리에서 유일하게 빠져 있던 짝을 완성.
+      (완료 — CLI `next.ts`에 `renderNextWatchFrame`·`eta.ts`에 `renderEtaWatchFrame` 신설:
+      다른 watch 루프와 동일 배너(타이틀+타임스탬프/스토어 meta+본문), 본문은 각각 사람용
+      `renderNext`/`renderEta`를 fresh `now`로 렌더해 카운트다운이 제자리에서 째깍. `cli.ts`에
+      `runNextWatch`/`runEtaWatch`(매 프레임 `listStatus` 재읽기 + `selectNextResume`/`computeQueueEta`
+      재계산, 공용 `startWatchLoop` 재사용) + 두 커맨드에 `-w,--watch [seconds]` 옵션(기본 2s,
+      `--json`이 `--watch`보다 우선). 새 core 로직 0줄 — 전부 기존 순수 함수 재사용. next.test/eta.test에
+      watch-frame 렌더 각 2케이스 추가, 실제 빌드 CLI e2e로 라이브 프레임 렌더·`--json`/`--exit-code`
+      경로 불변 검증. branch `claude/wizardly-pascal-oyou80`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
