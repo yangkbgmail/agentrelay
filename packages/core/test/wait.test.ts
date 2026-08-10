@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { JobStatus, RelayJob } from "../src/types.js";
-import { evaluateWait, isTerminalStatus, WAIT_EXIT_CODES, waitExitCode } from "../src/wait.js";
+import {
+  evaluateWait,
+  evaluateWaitAll,
+  isTerminalStatus,
+  WAIT_ALL_EXIT_CODES,
+  WAIT_EXIT_CODES,
+  waitAllExitCode,
+  waitExitCode,
+} from "../src/wait.js";
 
 function job(status: JobStatus): RelayJob {
   return {
@@ -61,5 +69,41 @@ describe("evaluateWait", () => {
 
   it("treats a null (vanished) job as done/missing", () => {
     expect(evaluateWait(null)).toEqual({ done: true, outcome: "missing" });
+  });
+});
+
+describe("waitAllExitCode", () => {
+  it("maps drained to 0 and timeout to 124", () => {
+    expect(waitAllExitCode("drained")).toBe(0);
+    expect(waitAllExitCode("timeout")).toBe(124);
+  });
+
+  it("WAIT_ALL_EXIT_CODES has an entry for every outcome", () => {
+    expect(Object.keys(WAIT_ALL_EXIT_CODES).sort()).toEqual(["drained", "timeout"].sort());
+  });
+
+  it("shares the 124 timeout code with the per-job table", () => {
+    expect(WAIT_ALL_EXIT_CODES.timeout).toBe(WAIT_EXIT_CODES.timeout);
+  });
+});
+
+describe("evaluateWaitAll", () => {
+  it("is drained for an empty list", () => {
+    expect(evaluateWaitAll([])).toEqual({ active: 0, done: true });
+  });
+
+  it("is drained when every job is terminal", () => {
+    const jobs = [job("completed"), job("failed"), job("cancelled")];
+    expect(evaluateWaitAll(jobs)).toEqual({ active: 0, done: true });
+  });
+
+  it("counts non-terminal jobs as active and is not done", () => {
+    const jobs = [job("queued"), job("waiting_for_reset"), job("resuming"), job("completed")];
+    expect(evaluateWaitAll(jobs)).toEqual({ active: 3, done: false });
+  });
+
+  it("becomes done once the last active job settles", () => {
+    expect(evaluateWaitAll([job("resuming")]).done).toBe(false);
+    expect(evaluateWaitAll([job("completed")]).done).toBe(true);
   });
 });
