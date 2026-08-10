@@ -22,6 +22,7 @@ import {
   computeErrorBreakdown,
   computeHourlyDistribution,
   computeQueueEta,
+  computeQueueForecast,
   computeStats,
   computeWeekdayDistribution,
   EXPORT_FORMATS,
@@ -33,6 +34,7 @@ import {
   isCompletionShell,
   isJobScopeActive,
   JOB_CSV_COLUMNS,
+  maxConcurrentFromEnv,
   parseCsvColumns,
   parseDuration,
   renderPrometheusMetrics,
@@ -81,6 +83,7 @@ import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } fr
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderEta, renderEtaJson } from "./eta.js";
+import { type DurationSource, renderForecast, renderForecastJson } from "./forecast.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
@@ -774,6 +777,90 @@ export function buildCli(): Command {
       // Opt-in exit code: 0 when caught up (a poll loop can stop), 3 while any
       // job is still waiting for a reset.
       if (opts.exitCode && !eta.caughtUp) process.exitCode = 3;
+    });
+
+  // Fallback per-resume duration when neither --duration nor history yields one:
+  // a modest 2 minutes, enough to make the contention penalty visible without
+  // pretending to know the real runtime of the agent CLI being relayed.
+  const FORECAST_FALLBACK_DURATION_MS = 2 * 60_000;
+
+  program
+    .command("forecast")
+    .description(
+      "Forecast when the backlog is actually drained — accounts for resume duration and the concurrency bound, unlike eta"
+    )
+    .option("-c, --concurrency <n>", "Resumes run at once (default: AGENTRELAY_MAX_CONCURRENT, else 1)")
+    .option("-d, --duration <dur>", "Estimated per-resume runtime, e.g. 90s/2m (default: median of past resolutions)")
+    .option("-n, --limit <n>", "Show at most N rows of the per-job timeline")
+    .option("--json", "Print as JSON (machine-readable, for scripts/jq)")
+    .option("--exit-code", "Reflect state in the exit code (0 = drained / nothing waiting, 3 = jobs still draining)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # how long until the backlog is fully drained at 3× concurrency?\n" +
+        "  agentrelay forecast -c 3\n" +
+        "  # assume each resume takes ~90s rather than the historical median\n" +
+        "  agentrelay forecast -d 90s\n" +
+        "  # read the drain moment with jq\n" +
+        "  agentrelay forecast --json | jq -r '.forecast.drainAt'"
+    )
+    .action((opts: { concurrency?: string; duration?: string; limit?: string; json?: boolean; exitCode?: boolean }) => {
+      const { store } = program.opts();
+      const jobs = listStatus(store);
+
+      // Concurrency: explicit flag wins, else the daemon's env default (else 1).
+      let maxConcurrent = maxConcurrentFromEnv();
+      if (opts.concurrency !== undefined) {
+        const parsed = Number(opts.concurrency);
+        if (!Number.isFinite(parsed) || parsed < 1) {
+          console.error(`Invalid --concurrency: ${opts.concurrency}. Expected a positive integer.`);
+          process.exitCode = 2;
+          return;
+        }
+        maxConcurrent = Math.floor(parsed);
+      }
+
+      // Per-resume duration: --duration flag → historical median → fallback.
+      let durationSource: DurationSource = "default";
+      let jobDurationMs = FORECAST_FALLBACK_DURATION_MS;
+      if (opts.duration !== undefined) {
+        const parsed = parseDuration(opts.duration);
+        if (parsed === null) {
+          console.error(`Invalid --duration: ${opts.duration}. Expected e.g. 90s, 2m, 1h.`);
+          process.exitCode = 2;
+          return;
+        }
+        jobDurationMs = parsed;
+        durationSource = "flag";
+      } else {
+        const median = computeStats(jobs).timing.medianResolutionMs;
+        if (median !== null && median > 0) {
+          jobDurationMs = median;
+          durationSource = "history";
+        }
+      }
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const parsed = Number(opts.limit);
+        if (!Number.isFinite(parsed) || parsed < 1) {
+          console.error(`Invalid --limit: ${opts.limit}. Expected a positive integer.`);
+          process.exitCode = 2;
+          return;
+        }
+        limit = Math.floor(parsed);
+      }
+
+      const forecast = computeQueueForecast(jobs, { maxConcurrent, jobDurationMs });
+
+      if (opts.json) {
+        console.log(renderForecastJson(forecast, store ?? defaultStorePath(), { durationSource }));
+      } else {
+        console.log(renderForecast(forecast, { color: Boolean(process.stdout.isTTY), durationSource, limit }));
+      }
+
+      // Opt-in exit code: 0 when drained (nothing waiting), 3 while jobs remain.
+      if (opts.exitCode && !forecast.caughtUp) process.exitCode = 3;
     });
 
   program

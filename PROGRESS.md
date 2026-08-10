@@ -2118,3 +2118,24 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 67 — `agentrelay forecast`: 용량(capacity) 인지 큐 배수 예측] (2026-08-10, 무인 자율 세션, branch `claude/capacity-forecast`)
+- **배경:** BACKLOG의 미완 항목은 전부 🧭 코워크 소유(README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐이라
+  CLAUDE.md 지침대로 새 👷 개선 항목을 발굴했다. `eta`(세션 62 추가)는 "가장 늦은 리셋 시각"만 답하고
+  각 재개가 실제 런타임을 쓴다는 점과 세션 66에서 갓 추가된 `AGENTRELAY_MAX_CONCURRENT` 동시성 한계로 인한
+  직렬화를 무시한다 — `eta.ts` 주석 스스로 "resume이 instant·free라고 가정한다"고 인정하는 공백.
+- **한 일:** core `forecast.ts` 순수 `computeQueueForecast(jobs, {now, maxConcurrent, jobDurationMs})`
+  +`QueueForecast`/`JobForecast`. K개 슬롯 위 결정적 이산사건 시뮬레이션(각 잡 release=max(reset,now), 가장
+  먼저 비는 슬롯[동률 최소 인덱스]에 배정, start=max(release,slotFree), finish=start+D, drain=마지막 finish).
+  지표: drainMs/At·naiveEtaMs(=`eta` 값)·contentionMs(=drain−(max(naiveEta,0)+D) 슬롯 경합 순수 페널티,
+  K 충분하면 0)·maxQueuedMs·per-job start/finish/queuedMs/slot. `next`/`upcoming`/`eta`와 동일 필터·재개
+  순서·`normalizeMaxConcurrent` 재사용으로 새 파서/스케줄러 로직 0줄. CLI `forecast.ts`
+  `renderForecast`/`renderForecastJson`, `agentrelay forecast [-c N] [-d 90s] [-n N] [--json] [--exit-code]`.
+  per-resume duration은 `--duration`→과거 해결시간 중앙값(`computeStats().timing.medianResolutionMs`)→기본
+  2분 순으로 해석하고 출처를 출력에 표기. `eta`/`next`와 동일한 JSON 엔벌로프(storePath·generatedAt).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm test` 전 패키지 그린(core 627·cli 346/1skip·
+  dashboard 9). `pnpm ci:lint`(Biome) 신규 4파일 0에러. core 13 + cli 10 신규 테스트(빈 큐·비대기 잡 필터·
+  충분 슬롯 무경합·단일 슬롯 herd 직렬·2슬롯 2웨이브·엇갈린 리셋·과거리셋 클램프·finish 정렬·불량 동시성
+  직렬화·zero duration). 실제 빌드 CLI로 동일 리셋 3잡을 -c 1은 직렬·-c 3은 병렬로 배수하는 e2e 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드/status에 배수
+  ETA 노출, forecast를 watch 프레임으로(라이브 카운트다운), duration을 프로젝트/툴별 중앙값으로 세분화.
