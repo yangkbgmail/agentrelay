@@ -2118,3 +2118,36 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 67 — 적체 통합: `agentrelay search`(#570/#565/#482) 자유 텍스트 잡 검색] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-pfraey`)
+- **배경:** BACKLOG의 순수 👷 항목은 여전히 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/
+  ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐. 열린 PR 스캔 결과 100+ 적체 지속(search만 #570/#565/#482
+  3중복). 세션 60~66 기조("적체 시 신규 발명이 아니라 이미 CI 검증된 고유 기능 통합이 최우선")를 이어,
+  새 기능 코드 발명 없이 이미 clean 구현·테스트된 PR #570(단일 커밋, base가 현재 origin/main HEAD와
+  정확히 일치)을 이 브랜치 위로 충돌 없이 cherry-pick 통합했다.
+- **한 일: `agentrelay search <query>` — 잡을 명령어/프로젝트/id/에러 텍스트로 자유 검색.**
+  기존 필터 생태계(status/stats/export/errors/metrics/patterns)는 status/tool/project/시간 창의 **구조화
+  차원**만 스코프할 뿐 자유 텍스트 조회가 불가능했다 — "migrate-db를 돌린 잡이 어느 것?"·"ENOSPC로 죽은
+  실패가 어느 것?"에 답할 수단이 없었다. `show`는 이미 아는 id가 필요하고 `status`는 명령어 텍스트를
+  검색 키로 못 건다. `search`가 이 갭을 메운다.
+  - core `search.ts`(순수·파일시스템/시계 미접촉): `JobSearchField`(command/project/id/error)·
+    `JOB_SEARCH_FIELDS`·`isJobSearchField`·`jobFieldText`(command 공백 조인 = show 에코 shape, null error→빈
+    문자열)·비throw `compileJobMatcher`(빈 query·잘못된 regex는 `{error}` 반환 = buildScope 관례)·
+    `searchJobs`(입력 순서=스토어 newest-first 보존·불변, `scopeJobs`와 조합해 구조화 스코프 먼저 거른 뒤
+    텍스트 검색).
+  - CLI `search.ts`: `renderSearch`(query 설명 preface + 기존 `renderStatusTable` **재사용** → status와 출력
+    일관)·`searchHeaderLine`·`renderSearchJson`(status 스냅샷 + `search` provenance 블록)·`NO_SEARCH_MATCH_MESSAGE`.
+  - `agentrelay search <query> [--field] [--regex] [--case-sensitive] [-n/--limit] [--json]` + 공용
+    `buildScope`(--status/--tool/--project/--since/--until) 재사용. 빈 query·잘못된 regex/field/status·비정수
+    limit은 exit 1, 무매치는 온보딩 문구 대신 `NO_SEARCH_MATCH_MESSAGE`(exit 0). 새 스토어/스케줄러 로직 0줄.
+- **통합 방식(근본 원인 회피):** #570의 base가 현재 origin/main HEAD와 정확히 일치 → 코드 파일(core/cli
+  search.ts·index.ts·cli.ts·양쪽 test)은 충돌 없이 clean cherry-pick(`-n`). BACKLOG/PROGRESS append만 이
+  세션 로그로 대체·브랜치명 정정(세션 60~64가 진단한 "기능 PR의 문서 append 충돌" 재발 방지).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 118파일)→`pnpm test`
+  전 패키지 통과(**core 626** search 12 / **cli 342/1skip** search 6 / dashboard 9). **실제 빌드 CLI e2e**
+  (mock 아님, 3-잡 임시 스토어): 기본 전-필드 검색(migrate 1매치)·`--field error ENOSPC`(1매치)·regex
+  `migrate|tests`(2매치)·`--project web-app` 스코프 조합(scope note)·`--json` provenance(query/fields/regex)·
+  무매치 exit 0·잘못된 regex/field exit 1·`completion bash`에 `search` 자동 포함 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합) 후 원본 #570·#565·#482를 대표 통합을 가리키며
+  close. 남은 고유 기능 PR 계속 배수 — #557(dedupe)·#531(diff)·#568(reschedule)·#508(schedule)·#567(drain)·
+  #537(notify exec)·#182(report). tz/heatmap/parser/watch/export-tsv 계열은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

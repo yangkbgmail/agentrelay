@@ -8,6 +8,7 @@ import type {
   ImportFormat,
   JobCsvColumn,
   JobScope,
+  JobSearchField,
   JobStatus,
   RelayJob,
 } from "@agentrelay/core";
@@ -32,12 +33,15 @@ import {
   inferImportFormat,
   isCompletionShell,
   isJobScopeActive,
+  isJobSearchField,
   JOB_CSV_COLUMNS,
+  JOB_SEARCH_FIELDS,
   parseCsvColumns,
   parseDuration,
   renderPrometheusMetrics,
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
+  searchJobs,
   selectNextResume,
   sendTestNotification,
   summarizeProjects,
@@ -89,6 +93,7 @@ import { buildParseReport, renderParseReport, renderParseReportJson } from "./pa
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
+import { renderSearch, renderSearchJson, type SearchRenderContext } from "./search.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
   formatUtcOffsetLabel,
@@ -712,6 +717,101 @@ export function buildCli(): Command {
           return;
         }
         console.log(renderStatusTable(selected, { color: Boolean(process.stdout.isTTY), limit }));
+      }
+    );
+
+  program
+    .command("search")
+    .description("Free-text search jobs by command, project, id, or error text (composes with scope filters)")
+    .argument("<query>", "Text to look for (or a regex with --regex); case-insensitive by default")
+    .option(
+      "--field <fields>",
+      `Restrict the search to these comma-separated fields: ${JOB_SEARCH_FIELDS.join(", ")} (default: all)`
+    )
+    .option("--regex", "Interpret the query as a JavaScript regular expression")
+    .option("--case-sensitive", "Match case-sensitively (default: case-insensitive)")
+    .option("-s, --status <statuses>", "Only search jobs with these comma-separated statuses (e.g. queued,failed)")
+    .option("-t, --tool <tools>", `Only search jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only search jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only search jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only search jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("-n, --limit <n>", "Show at most N matching jobs (the summary/count still reflects all matches)")
+    .option("--json", "Print the matches as JSON (machine-readable, for scripts/jq)")
+    .action(
+      (
+        query: string,
+        opts: ScopeOpts & {
+          field?: string;
+          regex?: boolean;
+          caseSensitive?: boolean;
+          limit?: string;
+          json?: boolean;
+        }
+      ) => {
+        const { store } = program.opts();
+
+        let limit: number | undefined;
+        if (opts.limit !== undefined) {
+          const n = Number.parseInt(opts.limit, 10);
+          if (!Number.isInteger(n) || n < 1) {
+            console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+            process.exitCode = 1;
+            return;
+          }
+          limit = n;
+        }
+
+        let fields: JobSearchField[] | undefined;
+        if (opts.field !== undefined) {
+          const requested = splitList(opts.field);
+          const invalid = requested.filter((f) => !isJobSearchField(f));
+          if (invalid.length > 0) {
+            console.error(`Unknown field(s): ${invalid.join(", ")}. Valid: ${JOB_SEARCH_FIELDS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          if (requested.length === 0) {
+            console.error(`--field needs at least one field. Valid: ${JOB_SEARCH_FIELDS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          fields = requested as JobSearchField[];
+        }
+
+        const built = buildScope(opts, Date.now());
+        if ("error" in built) {
+          console.error(built.error);
+          process.exitCode = 1;
+          return;
+        }
+
+        const all = listStatus(store);
+        const scoped = built.active ? scopeJobs(all, built.scope) : all;
+        const result = searchJobs(scoped, {
+          query,
+          fields,
+          regex: opts.regex,
+          caseSensitive: opts.caseSensitive,
+        });
+        if ("error" in result) {
+          console.error(result.error);
+          process.exitCode = 1;
+          return;
+        }
+
+        const ctx: SearchRenderContext = {
+          query,
+          fields: fields ?? JOB_SEARCH_FIELDS,
+          regex: Boolean(opts.regex),
+          caseSensitive: Boolean(opts.caseSensitive),
+          scopeNote: built.active ? built.note : undefined,
+        };
+
+        if (opts.json) {
+          console.log(renderSearchJson(result.jobs, store, ctx, undefined, limit));
+          return;
+        }
+        console.log(renderSearch(result.jobs, ctx, { color: Boolean(process.stdout.isTTY), limit }));
       }
     );
 
