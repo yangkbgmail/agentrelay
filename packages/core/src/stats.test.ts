@@ -3,6 +3,7 @@ import {
   computeActivityHeatmap,
   computeDailyTrend,
   computeHourlyDistribution,
+  computeRetryDistribution,
   computeStats,
   computeWeekdayDistribution,
   GROUP_DIMENSIONS,
@@ -715,5 +716,40 @@ describe("computeActivityHeatmap", () => {
   it("offset 0 matches the default UTC bucketing", () => {
     const jobs = [job({ createdAt: "2026-07-20T09:15:00.000Z" })];
     expect(computeActivityHeatmap(jobs, 0)).toEqual(computeActivityHeatmap(jobs));
+  });
+});
+
+describe("computeRetryDistribution", () => {
+  it("returns an empty array for an empty store", () => {
+    expect(computeRetryDistribution([])).toEqual([]);
+  });
+
+  it("buckets jobs by attempt count, dense and zero-filled from 0 to the max", () => {
+    const jobs = [job({ attempts: 0 }), job({ attempts: 1 }), job({ attempts: 1 }), job({ attempts: 3 })];
+    const dist = computeRetryDistribution(jobs);
+    // 0..3 all present even though attempts=2 has no jobs (gap-free shape).
+    expect(dist.map((r) => r.attempts)).toEqual([0, 1, 2, 3]);
+    expect(dist.map((r) => r.count)).toEqual([1, 2, 0, 1]);
+    expect(dist.reduce((sum, r) => sum + r.count, 0)).toBe(4);
+  });
+
+  it("collapses to a single bucket when every job is at 0 attempts", () => {
+    const dist = computeRetryDistribution([job({ attempts: 0 }), job({ attempts: 0 })]);
+    expect(dist).toEqual([{ attempts: 0, count: 2 }]);
+  });
+
+  it("floors negative/non-finite attempts to 0 instead of inventing negative buckets", () => {
+    const jobs = [job({ attempts: -2 }), job({ attempts: Number.NaN }), job({ attempts: 2 })];
+    const dist = computeRetryDistribution(jobs);
+    expect(dist).toHaveLength(3); // 0..2
+    expect(dist[0]).toEqual({ attempts: 0, count: 2 }); // both corrupt records land at 0
+    expect(dist[2]).toEqual({ attempts: 2, count: 1 });
+  });
+
+  it("does not mutate its input", () => {
+    const jobs = [job({ attempts: 2 })];
+    const before = JSON.stringify(jobs);
+    computeRetryDistribution(jobs);
+    expect(JSON.stringify(jobs)).toBe(before);
   });
 });

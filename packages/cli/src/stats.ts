@@ -12,6 +12,7 @@ import type {
   JobScope,
   JobStatus,
   RelayStats,
+  RetryBucket,
   WeekdayActivity,
 } from "@agentrelay/core";
 import { isJobScopeActive, WEEKDAY_NAMES } from "@agentrelay/core";
@@ -411,6 +412,44 @@ export function renderHeatmap(heatmap: ActivityHeatmap, options: { color?: boole
   return lines.join("\n");
 }
 
+/** Fixed bar width for the retry-distribution histogram, matching the others. */
+const RETRIES_BAR_WIDTH = 24;
+
+/**
+ * Renders the retry-effort distribution (jobs bucketed by their attempt count)
+ * as an ASCII bar chart, so a glance shows whether most jobs resolve on a single
+ * resume or the relay is chasing a flaky tail across many attempts. Follows the
+ * same scale conventions as {@link renderWeekday}/{@link renderHours}: bars scale
+ * to the busiest bucket, any non-zero bucket keeps at least one block, and an
+ * empty bucket shows a dim baseline dot. Pure: no I/O, no clock — the caller
+ * passes the already-computed distribution so the output stays testable.
+ */
+export function renderRetries(buckets: RetryBucket[], options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [b("by retries") + d(" (jobs per resume-attempt count)")];
+  if (buckets.length === 0) {
+    lines.push("  none");
+    return lines.join("\n");
+  }
+
+  const max = buckets.reduce((m, r) => Math.max(m, r.count), 0);
+  const total = buckets.reduce((sum, r) => sum + r.count, 0);
+  // Right-align the attempt-count label to the widest bucket so bars line up.
+  const labelWidth = String(buckets[buckets.length - 1].attempts).length;
+  for (const { attempts, count } of buckets) {
+    const filled = max === 0 || count === 0 ? 0 : Math.max(1, Math.round((count / max) * RETRIES_BAR_WIDTH));
+    const plain = count === 0 ? "·" : "█".repeat(filled);
+    const padded = plain.padEnd(RETRIES_BAR_WIDTH);
+    const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
+    lines.push(`  ${String(attempts).padStart(labelWidth)}×  ${shown} ${count}`);
+  }
+  lines.push(d(`  ${total} job(s), ${buckets.length} attempt bucket(s)`));
+  return lines.join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,
@@ -422,18 +461,20 @@ export function renderStatsJson(
     hours?: HourlyActivity[] | null;
     weekday?: WeekdayActivity[] | null;
     heatmap?: ActivityHeatmap | null;
+    retries?: RetryBucket[] | null;
   } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
-  // Only emit `trend`/`hours`/`weekday`/`heatmap` when the matching flag was
-  // requested; omit them otherwise so the default JSON shape is unchanged for
+  // Only emit `trend`/`hours`/`weekday`/`heatmap`/`retries` when the matching flag
+  // was requested; omit them otherwise so the default JSON shape is unchanged for
   // existing consumers.
   const trend = options.trend ?? undefined;
   const hours = options.hours ?? undefined;
   const weekday = options.weekday ?? undefined;
   const heatmap = options.heatmap ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, heatmap, stats }, null, 2);
+  const retries = options.retries ?? undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, heatmap, retries, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */

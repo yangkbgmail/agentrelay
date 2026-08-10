@@ -22,6 +22,7 @@ import {
   computeErrorBreakdown,
   computeHourlyDistribution,
   computeQueueEta,
+  computeRetryDistribution,
   computeStats,
   computeWeekdayDistribution,
   EXPORT_FORMATS,
@@ -96,6 +97,7 @@ import {
   renderGroupedStatsJson,
   renderHeatmap,
   renderHours,
+  renderRetries,
   renderStats,
   renderStatsJson,
   renderStatsWatchFrame,
@@ -463,6 +465,7 @@ function runStatsWatch(
   hours: boolean,
   weekday: boolean,
   heatmap: boolean,
+  retries: boolean,
   zone: { offsetMinutes: number; label: string }
 ): void {
   const active = isJobScopeActive(scope);
@@ -488,6 +491,9 @@ function runStatsWatch(
       }
       if (heatmap && stats.total > 0) {
         body += `\n\n${renderHeatmap(computeActivityHeatmap(jobs, zone.offsetMinutes), { color: true, zoneLabel: zone.label })}`;
+      }
+      if (retries && stats.total > 0) {
+        body += `\n\n${renderRetries(computeRetryDistribution(jobs), { color: true })}`;
       }
     }
     const frame = renderStatsWatchFrame(body, store, intervalMs, now);
@@ -1045,6 +1051,7 @@ export function buildCli(): Command {
     .option("--hours", "Also show an hour-of-day activity histogram (jobs created per hour, 0–23)")
     .option("--weekday", "Also show a day-of-week activity histogram (jobs created per weekday, Sun–Sat)")
     .option("--heatmap", "Also show a weekday × hour-of-day activity heatmap (when in the week jobs cluster)")
+    .option("--retries", "Also show a retry-effort histogram (jobs bucketed by their resume-attempt count)")
     .option(
       "--local",
       "Bucket the --hours/--weekday/--heatmap histograms by this machine's local time zone instead of UTC"
@@ -1066,7 +1073,9 @@ export function buildCli(): Command {
         "  # which weekdays rate-limits cluster on\n" +
         "  agentrelay stats --weekday\n" +
         "  # when in the week (weekday × hour) rate-limits cluster\n" +
-        "  agentrelay stats --heatmap"
+        "  agentrelay stats --heatmap\n" +
+        "  # how many resume attempts jobs needed (retry-effort spread)\n" +
+        "  agentrelay stats --retries"
     )
     .action(
       (opts: {
@@ -1080,6 +1089,7 @@ export function buildCli(): Command {
         hours?: boolean;
         weekday?: boolean;
         heatmap?: boolean;
+        retries?: boolean;
         local?: boolean;
         json?: boolean;
         watch?: string | boolean;
@@ -1215,6 +1225,7 @@ export function buildCli(): Command {
             Boolean(opts.hours),
             Boolean(opts.weekday),
             Boolean(opts.heatmap),
+            Boolean(opts.retries),
             zone
           );
           return; // setInterval keeps the process alive.
@@ -1238,9 +1249,10 @@ export function buildCli(): Command {
         const hours = opts.hours ? computeHourlyDistribution(jobs, zone.offsetMinutes) : null;
         const weekday = opts.weekday ? computeWeekdayDistribution(jobs, zone.offsetMinutes) : null;
         const heatmap = opts.heatmap ? computeActivityHeatmap(jobs, zone.offsetMinutes) : null;
+        const retries = opts.retries ? computeRetryDistribution(jobs) : null;
 
         if (opts.json) {
-          console.log(renderStatsJson(stats, store, { scope, trend, hours, weekday, heatmap }));
+          console.log(renderStatsJson(stats, store, { scope, trend, hours, weekday, heatmap, retries }));
           return;
         }
         // A store with jobs but an empty scoped subset should say "no match",
@@ -1263,6 +1275,10 @@ export function buildCli(): Command {
         if (heatmap !== null && stats.total > 0) {
           console.log("");
           console.log(renderHeatmap(heatmap, { color: Boolean(process.stdout.isTTY), zoneLabel: zone.label }));
+        }
+        if (retries !== null && stats.total > 0) {
+          console.log("");
+          console.log(renderRetries(retries, { color: Boolean(process.stdout.isTTY) }));
         }
       }
     );
