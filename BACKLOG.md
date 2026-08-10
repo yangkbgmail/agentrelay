@@ -810,6 +810,25 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 알림 이벤트 필터(`AGENTRELAY_NOTIFY_EVENTS` / `notify.events`) — 어떤 라이프사이클
+      이벤트(queued/resumed/completed/failed)가 실제로 알림을 발생시킬지 제한. 지금은 4개 이벤트가
+      **무조건 전 채널로** 발송돼, 실패만 받고 싶은 사용자도 큐잉/재개/완료 알림에 시달리는 실사용 갭.
+      자기 발굴 항목(열린 PR의 notify digest/exec 채널과 겹치지 않음).
+      (완료 — `@agentrelay/core/notify.ts`에 순수 `NOTIFY_EVENTS`(이벤트 단일 진실원)·`NotifyEvent`·
+      `isNotifyEvent`·`parseNotifyEvents(raw)`·`notifyEventsFromEnv(env)`·`filterNotifierByEvents(notifier,
+      events)` 추가. 파서 문법: 빈값/`all`/`*`=필터 없음(전 이벤트), `none`/`off`=전부 뮤트(빈 Set),
+      알려진 이벤트 나열=정확히 그 집합, **오직 미지 토큰만 있으면 필터 없음으로 fail-open**(오타가
+      알림을 조용히 뮤트하지 않고 오히려 더 보내는 안전한 방향, 미지 토큰은 `unknown`으로 보고).
+      `notifiersFromEnv`가 combine된 notifier를 이 필터로 감싸므로 run/daemon/tick 세 경로가 CLI 변경
+      0으로 필터를 얻음. `notify test`는 sendTestNotification이 채널을 직접 만들어 필터를 우회(명시 테스트는
+      항상 발송). config 통합: `AgentRelayConfig.notify.events?: string`(콤마 리스트=env var와 동일 형태라
+      기존 `string` 필드 타입에 매핑) + CONFIG_FIELDS/CONFIG_ENV_KEYS에 인덱스 정렬 추가 + configToEnv
+      `AGENTRELAY_NOTIFY_EVENTS` 투영 + `config get/set/unset/show` 자동 지원 + validateConfig가 미지
+      토큰을 warning으로(error 아님) 리포트 + sampleConfig `events:"all"`(동작 중립). 새 파서/스케줄러
+      로직 0줄. core notify +19·config +2 신규 테스트(전 632 통과), 실제 빌드 CLI e2e로
+      `config set/get/show`가 `[config-file]` 출처로 값 왕복·`config validate`가 오타(`faild`) warning·
+      exit 0·`config init` 샘플에 `events:"all"` 포함 검증. branch `claude/wizardly-pascal-asjsk1`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
