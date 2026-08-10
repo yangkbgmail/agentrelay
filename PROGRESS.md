@@ -2118,3 +2118,27 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 67 — `agentrelay summary` 한눈 큐 개요 명령] (2026-08-10, 무인 자율 세션, branch `claude/queue-summary-command`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR이 포화된 축(parser/watch/stats/tz/heatmap)을 피해, 어떤 열린 PR에도
+  없는 **명확한 갭**을 골랐다 — core `summarizeJobs`(`QueueSummary`: total·상태별 카운트·nextResetAt)는
+  이미 테스트까지 있는데 전용 CLI 명령이 없었다. `status`는 잡 전체 테이블을, `next`는 가장 임박한 단일
+  재개를 보여주지만, "지금 큐가 뭘 하고 있나"를 한두 줄로 답하는 압축 개요가 없었다.
+- **한 일 (branch `claude/queue-summary-command`):**
+  - CLI `summary.ts` 신설: `renderSummary`(헤드라인=총 잡수·다음 리셋 카운트다운 + 상태별 브레이크다운,
+    0카운트 상태는 스캔성 위해 생략, 상태별 ANSI 색)·`renderSummaryJson`(`QueueSummary` 전체 + storePath/
+    generatedAt provenance). `formatCountdown`(status.ts)·`ALL_STATUSES`(core) 재사용해 "1h 3m"/"due now"
+    표현을 status 테이블과 정확히 일치. 순수 함수(TTY·시계·spawn 없이 단위 테스트 가능).
+  - `cli.ts`에 `agentrelay summary [--json] [-s/-t/-p/--since/--until]` 배선. 다른 집계 명령과 동일한
+    `buildScope`/`scopeJobs` scope 필터 재사용(잘못된 status → exit 1). `--json`은 머신 출력.
+  - `summary.test.ts` 7케이스: 빈 스토어 힌트·단수/복수·nothing waiting·리셋 카운트다운·0카운트 생략·
+    색 토글·`summarizeJobs` 엔드투엔드 일치·JSON provenance/zero-fill.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**cli 343/1skip** summary +7). **실제 빌드 CLI e2e**(mock 아님): 3잡 임시 스토어로
+  `summary`가 `3 jobs · next reset in 1h 3m (…)` + 상태 브레이크다운 렌더, `--json`이 zero-fill된
+  byStatus 방출, `--project web`가 2잡으로 스코프, `--status bogus`가 exit 1, 빈 스토어가 first-run 힌트,
+  `--help`·`completion bash`에 summary 등록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
+  라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
