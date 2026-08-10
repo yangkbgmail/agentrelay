@@ -59,6 +59,7 @@ describe("computeStats", () => {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     });
   });
 
@@ -234,6 +235,48 @@ describe("computeStats", () => {
     expect(stats.timing.p75ResolutionMs).toBe(3_600_000);
     expect(stats.timing.iqrResolutionMs).toBe(0);
     expect(stats.timing.stdevResolutionMs).toBe(0);
+    // A single (or all-identical) resolution has zero spread → CV 0.
+    expect(stats.timing.cvResolution).toBe(0);
+  });
+
+  it("computes the coefficient of variation as stdev / mean (dimensionless)", () => {
+    const at = (h: number) => `2026-07-13T${String(h).padStart(2, "0")}:00:00.000Z`;
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(3) }), // 3h
+      job({ status: "failed", createdAt: at(0), updatedAt: at(1) }), // 1h
+    ]);
+    // mean 2h, stdev 1h → CV = 1h / 2h = 0.5.
+    expect(stats.timing.cvResolution).toBe(0.5);
+  });
+
+  it("reports CV > 1 when the spread exceeds the mean (erratic resolutions)", () => {
+    const at = (h: number, m = 0) => `2026-07-13T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00.000Z`;
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(0, 1) }), // 1m
+      job({ status: "completed", createdAt: at(0), updatedAt: at(0, 1) }), // 1m
+      job({ status: "failed", createdAt: at(0), updatedAt: at(5) }), // 5h — heavy outlier
+    ]);
+    // The lone long job drags the stdev well above the mean.
+    expect(stats.timing.cvResolution).not.toBeNull();
+    expect(stats.timing.cvResolution as number).toBeGreaterThan(1);
+  });
+
+  it("scales CV independently of absolute duration (equal relative spread → equal CV)", () => {
+    const mk = (createdH: number, spanMs: number) => {
+      const created = Date.UTC(2026, 6, 13, createdH);
+      return job({
+        status: "completed",
+        createdAt: new Date(created).toISOString(),
+        updatedAt: new Date(created + spanMs).toISOString(),
+      });
+    };
+    // Fast project: 1h ± 30m. Slow project: 10h ± 5h. Both stdev = half the mean.
+    const fast = computeStats([mk(0, 1_800_000), mk(2, 5_400_000)]); // spans 30m, 90m → mean 60m, stdev 30m
+    const slow = computeStats([mk(0, 18_000_000), mk(6, 54_000_000)]); // spans 5h, 15h → mean 10h, stdev 5h
+    expect(fast.timing.cvResolution).toBe(0.5);
+    expect(slow.timing.cvResolution).toBe(0.5);
+    // …even though the raw ms stdevs differ by an order of magnitude.
+    expect(fast.timing.stdevResolutionMs).not.toBe(slow.timing.stdevResolutionMs);
   });
 
   it("excludes cancelled and still-active jobs from resolution timing", () => {
@@ -292,6 +335,7 @@ describe("computeStats", () => {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     });
   });
 });
