@@ -76,6 +76,18 @@ export interface TimingStats {
    * IQR is the signature of a few heavy outliers dragging the mean.
    */
   stdevResolutionMs: number | null;
+  /**
+   * Coefficient of variation: stdev ÷ mean, a dimensionless ratio, or null when
+   * no jobs resolved. Where {@link stdevResolutionMs} measures spread in absolute
+   * ms, CV measures *relative* spread — it answers "how consistent is the relay,
+   * independent of whether jobs take seconds or hours?". A CV near 0 means
+   * tightly clustered resolution times; a CV ≥ 1 means the spread rivals the mean
+   * (highly erratic, a few very long babysits among many short ones). Because
+   * it's normalized by the mean, CV is comparable across projects/tools whose
+   * absolute durations differ. When every resolved span is 0 the mean is 0 and CV
+   * is defined as 0 (no spread). Rounded to 3 decimals.
+   */
+  cvResolution: number | null;
 }
 
 export interface RelayStats {
@@ -452,6 +464,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     };
   } else {
     // Sort once ascending; percentiles read from it, min/max are its ends.
@@ -459,6 +472,12 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     const mean = sorted.reduce((sum, d) => sum + d, 0) / resolvedCount;
     const p25 = percentile(sorted, 0.25);
     const p75 = percentile(sorted, 0.75);
+    const stdev = populationStdev(sorted, mean);
+    // CV = stdev / mean, a dimensionless relative-spread ratio. When the mean is
+    // 0 (every resolved span is 0), the ratio is undefined; define it as 0 (no
+    // spread) rather than emitting NaN/Infinity. Round to 3 decimals for stable
+    // JSON/test output — CV is a small ratio, not milliseconds.
+    const cv = mean > 0 ? Math.round((stdev / mean) * 1000) / 1000 : 0;
     timing = {
       resolvedCount,
       avgResolutionMs: Math.round(mean),
@@ -471,7 +490,8 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p25ResolutionMs: p25,
       p75ResolutionMs: p75,
       iqrResolutionMs: p75 - p25,
-      stdevResolutionMs: populationStdev(sorted, mean),
+      stdevResolutionMs: stdev,
+      cvResolution: cv,
     };
   }
 
