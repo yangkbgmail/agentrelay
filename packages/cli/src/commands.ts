@@ -122,6 +122,8 @@ export interface RunOptions {
    * meaningful, stable name that the `--project` filters key off.
    */
   project?: string;
+  /** Optional freeform note stored on the job if it gets queued (see {@link RelayJob.note}). */
+  note?: string;
   storePath?: string;
   /** Injected for tests; defaults to real stdout/stderr passthrough. */
   stdout?: NodeJS.WritableStream;
@@ -181,7 +183,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
 
   const queue = openQueue(storePath);
   const project = resolveProjectName(cwd, options.project);
-  const job = queue.enqueue({ project, tool, command: options.command, cwd });
+  const job = queue.enqueue({ project, tool, command: options.command, cwd, note: options.note });
   queue.markWaitingForReset(job.id, rateLimit.resetAt, {
     pattern: rateLimit.pattern,
     rawMatch: rateLimit.rawMatch,
@@ -602,6 +604,60 @@ export function showJob(idOrPrefix: string, storePath?: string): ShowJobResult {
     if (resolved.error || !resolved.id) return { ok: false, job: null, error: resolved.error ?? "job not found" };
     const job = jobs.find((j) => j.id === resolved.id) ?? null;
     return { ok: true, job };
+  } finally {
+    queue.close();
+  }
+}
+
+export interface AnnotateJobResult {
+  /** True when exactly one job matched and its note was written. */
+  ok: boolean;
+  /** The updated job (only when `ok`). */
+  job: RelayJob | null;
+  /** Human-readable outcome (or the resolution error when `!ok`). */
+  message: string;
+  /** Whether the note ended up set (true) or cleared (false) — only when `ok`. */
+  set?: boolean;
+}
+
+/**
+ * Set or clear a job's freeform note (the write side of `agentrelay note`).
+ * Resolves the id/prefix with the same ambiguous/unknown handling as
+ * `show`/`cancel`/`retry`, then delegates to {@link RelayQueue.setNote}. Passing
+ * `null` (or a blank string) clears the note. Never changes a job's status, so
+ * annotating is always safe against the relay loop.
+ */
+export function annotateJob(idOrPrefix: string, note: string | null, storePath?: string): AnnotateJobResult {
+  const queue = openQueue(storePath ?? defaultStorePath());
+  try {
+    const resolved = resolveJobId(queue.listAll(), idOrPrefix);
+    if (resolved.error || !resolved.id) {
+      return { ok: false, job: null, message: resolved.error ?? "job not found" };
+    }
+    const updated = queue.setNote(resolved.id, note);
+    if (!updated) return { ok: false, job: null, message: "job not found" };
+    const set = updated.note !== null;
+    const short = updated.id.slice(0, 8);
+    return {
+      ok: true,
+      job: updated,
+      set,
+      message: set ? `Noted ${short}: ${updated.note}` : `Cleared note on ${short}.`,
+    };
+  } finally {
+    queue.close();
+  }
+}
+
+/**
+ * List every job that currently carries a note — the read side of a bare
+ * `agentrelay note` (no id). Newest-first (the store's natural order), so the
+ * most recently created annotated jobs surface first. Read-only.
+ */
+export function listAnnotatedJobs(storePath?: string): RelayJob[] {
+  const queue = openQueue(storePath ?? defaultStorePath());
+  try {
+    return queue.listAll().filter((job) => typeof job.note === "string" && job.note.length > 0);
   } finally {
     queue.close();
   }

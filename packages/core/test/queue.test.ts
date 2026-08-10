@@ -194,6 +194,58 @@ describe("RelayQueue", () => {
     expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(1);
   });
 
+  describe("setNote", () => {
+    it("enqueues with note null by default", () => {
+      const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+      expect(job.note).toBeNull();
+    });
+
+    it("enqueues with a trimmed note when provided", () => {
+      const job = queue.enqueue({
+        project: "demo",
+        tool: "claude-code",
+        command: ["claude"],
+        cwd: "/tmp",
+        note: "  finish auth refactor  ",
+      });
+      expect(job.note).toBe("finish auth refactor");
+      expect(queue.getById(job.id)?.note).toBe("finish auth refactor");
+    });
+
+    it("treats a blank enqueue note as no note", () => {
+      const job = queue.enqueue({
+        project: "demo",
+        tool: "claude-code",
+        command: ["claude"],
+        cwd: "/tmp",
+        note: "   ",
+      });
+      expect(job.note).toBeNull();
+    });
+
+    it("sets, trims, and persists a note without changing status", () => {
+      const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+      const before = queue.getById(job.id);
+      const updated = queue.setNote(job.id, "  ticket-4521  ");
+      expect(updated?.note).toBe("ticket-4521");
+      expect(updated?.status).toBe(before?.status);
+      // Survives a reload from disk.
+      queue.refresh();
+      expect(queue.getById(job.id)?.note).toBe("ticket-4521");
+    });
+
+    it("clears a note when passed null or a blank string", () => {
+      const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp", note: "x" });
+      expect(queue.setNote(job.id, null)?.note).toBeNull();
+      queue.setNote(job.id, "y");
+      expect(queue.setNote(job.id, "   ")?.note).toBeNull();
+    });
+
+    it("returns undefined for an unknown id and writes nothing", () => {
+      expect(queue.setNote("does-not-exist", "hi")).toBeUndefined();
+    });
+  });
+
   describe("importJobs", () => {
     const historyJob = (id: string, project = "imported"): RelayJob => ({
       id,

@@ -48,6 +48,7 @@ import {
 import { Command } from "commander";
 import {
   ALL_JOB_STATUSES,
+  annotateJob,
   type BulkControlAction,
   type BulkControlResult,
   backupStore,
@@ -58,6 +59,7 @@ import {
   importStore,
   initConfig,
   type JobControlResult,
+  listAnnotatedJobs,
   listStatus,
   listStoreBackups,
   previewRestoreStore,
@@ -541,13 +543,18 @@ export function buildCli(): Command {
       "-p, --project <name>",
       "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
     )
-    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
+    .option(
+      "--note <text>",
+      "Freeform note to attach if the job gets queued (disambiguates same-command jobs; see `agentrelay note`)"
+    )
+    .action(async (command: string[], opts: { tool?: string; project?: string; note?: string }) => {
       const { store } = program.opts();
       const result = await runCommand({
         command,
         storePath: store,
         tool: opts.tool as AgentTool | undefined,
         project: opts.project,
+        note: opts.note,
       });
       process.exitCode = result.exitCode;
     });
@@ -1866,6 +1873,74 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("note")
+    .description(
+      "Attach a freeform note to a job to tell same-command jobs apart; with no id, list every annotated job"
+    )
+    .argument("[id]", "Job id or short id prefix (see `agentrelay status`); omit to list all annotated jobs")
+    .argument("[text...]", "The note to set; omit (with an id) to show the current note, or use --clear to remove it")
+    .option("--clear", "Remove the job's note instead of setting one")
+    .option("--json", "Machine-readable output (the affected job, or the list of annotated jobs)")
+    .action((id: string | undefined, textParts: string[], opts: { clear?: boolean; json?: boolean }) => {
+      const { store } = program.opts();
+
+      // No id: list every job that currently carries a note.
+      if (!id) {
+        if (opts.clear) {
+          console.error("[agentrelay] `--clear` needs a job id.");
+          process.exitCode = 1;
+          return;
+        }
+        const annotated = listAnnotatedJobs(store);
+        if (opts.json) {
+          console.log(JSON.stringify({ storePath: store, jobs: annotated }, null, 2));
+          return;
+        }
+        if (annotated.length === 0) {
+          console.log("No annotated jobs. Add one with `agentrelay note <id> <text>`.");
+          return;
+        }
+        console.log(`${annotated.length} annotated job(s):`);
+        for (const job of annotated) {
+          console.log(`  ${job.id.slice(0, 8)}  ${job.project}  ${job.note}`);
+        }
+        return;
+      }
+
+      const text = (textParts ?? []).join(" ").trim();
+
+      // `note <id>` with neither text nor --clear: read the current note.
+      if (!opts.clear && text === "") {
+        const result = showJob(id, store);
+        if (!result.ok || !result.job) {
+          console.error(`[agentrelay] ${result.error ?? "job not found"}`);
+          process.exitCode = 1;
+          return;
+        }
+        if (opts.json) {
+          console.log(JSON.stringify({ id: result.job.id, note: result.job.note ?? null }, null, 2));
+          return;
+        }
+        console.log(result.job.note ? result.job.note : "(no note)");
+        return;
+      }
+
+      // Set (text given) or clear (--clear). --clear wins if both are present.
+      const note = opts.clear ? null : text;
+      const result = annotateJob(id, note, store);
+      if (!result.ok) {
+        console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 1;
+        return;
+      }
+      if (opts.json) {
+        console.log(JSON.stringify(result.job, null, 2));
+        return;
+      }
+      console.log(`[agentrelay] ${result.message}`);
     });
 
   program

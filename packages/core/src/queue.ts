@@ -177,10 +177,34 @@ export class RelayQueue {
       lastError: null,
       lastOutputTail: null,
       lastRateLimit: null,
+      note: input.note?.trim() ? input.note.trim() : null,
     };
     this.jobs.set(job.id, job);
     this.flush();
     return job;
+  }
+
+  /**
+   * Attach (or clear) the freeform human note on a job — the write side of
+   * `agentrelay note`. Passing a non-empty string sets it (trimmed); passing
+   * `null` (or a blank/whitespace string) clears it back to `null`. Unlike the
+   * status-changing mutators this never touches `status`/`resetAt`, so
+   * annotating a job never disturbs the relay loop. Returns the updated job, or
+   * `undefined` if the id is unknown (callers guard resolution upstream).
+   */
+  setNote(id: string, note: string | null): RelayJob | undefined {
+    this.load();
+    const existing = this.jobs.get(id);
+    if (!existing) return undefined;
+    const trimmed = note?.trim();
+    const updated: RelayJob = {
+      ...existing,
+      note: trimmed ? trimmed : null,
+      updatedAt: new Date().toISOString(),
+    };
+    this.jobs.set(id, updated);
+    this.flush();
+    return updated;
   }
 
   /**
