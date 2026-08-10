@@ -2118,3 +2118,33 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 67 — `agentrelay stats --retries` 재시도-노력 분포 히스토그램(자기 발굴)] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-j25y5p`)
+- **맥락:** BACKLOG의 👷(클로드 코드) 미완료 큐가 **완전히 비었다**(남은 미완료는 전부 🧭 코워크 소유 —
+  README·ARCHITECTURE/ROADMAP·경쟁조사·샘플수집·성능분석). CLAUDE.md "작업 방식" 지침("백로그가 비면
+  스스로 새 개선 항목을 발굴")에 따라 신규 항목을 자기 발굴했다. 세션 60~66이 경고한 "stats/parser/watch
+  축 PR 포화"를 감안해 **기존 함수 시그니처를 전혀 안 건드리는 순수 additive** 항목만 골라 회귀·충돌 위험
+  최소화 — `--hours`(세션 58)·`--weekday`(세션 59)·`--heatmap`(세션 60)이 확립한 히스토그램 패턴의
+  자연스러운 빈칸.
+- **한 일:** `agentrelay stats --retries` — 잡을 `attempts`(재개 시도 횟수)별로 버킷팅한 히스토그램.
+  headline `totalAttempts`/`retriedJobs` 두 숫자가 뭉개는 "분포의 모양"을 드러낸다: 대부분 한 번에
+  재개되는가, 아니면 소수의 flaky 잡을 여러 번 쫓았는가(고-attempt 꼬리 = 불안정 환경/한도 재충돌 신호).
+  - core `stats.ts` 순수 `computeRetryDistribution(jobs)` + `RetryBucket`(attempts·count): 0부터
+    최댓값까지 **dense·zero-fill**(gap-free), 빈 스토어 `[]`, 음수·비유한 attempts는 0으로 floor(음수
+    버킷 발명 방지), I/O·시계 미접촉.
+  - CLI `stats.ts` 순수 `renderRetries`(ASCII 막대, `renderWeekday` 스케일 관례 재사용 — 최다 버킷 스케일·
+    비영 버킷 최소 1블록·0 버킷 dim 점·우측정렬 `N×` 라벨 + 합계 푸터)·`renderStatsJson`에 옵셔널
+    `retries` 필드(요청 시에만 방출 → 기존 JSON shape 불변).
+  - `cli.ts` `stats`에 `--retries` 배선 — 일회성·`--json`·`--watch`(runStatsWatch) 세 뷰 모두, 기존
+    스코프 필터(--status/--tool/--project/--since/--until) 및 `--hours`/`--weekday`/`--heatmap`/`--trend`와
+    조합 가능. 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 114파일)→`pnpm test`
+  전 패키지 통과(**core 619**[+5 computeRetryDistribution] / **cli 340/1skip**[+4 renderRetries 3·json 1] /
+  dashboard 9). **실제 빌드 CLI e2e**(mock 아님): 5-잡 스토어(attempts 0·1·1·1·3)로 `--retries`가 0×~3×
+  dense 버킷(2× gap 포함)·막대·`4 attempt bucket(s)` 푸터 렌더, `--retries --json`이 `[{0,1},{1,3},{2,0},
+  {3,1}]` 방출, 기본 `--json`은 retries 필드 미포함, `--status completed` 스코프 부분집합 반영,
+  completion bash/`--help` `--retries` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 👷 큐가 계속 비어 있으면 동일 방식으로
+  순수 additive 자기발굴 지속 — 후보: `stats --attempts-by-tool`(툴별 재시도 분포), `stats --resets`(리셋
+  시각 도착 분포), export/import 포맷 확장. stats/parser/watch 축 PR이 여전히 포화면 신규 빌드보다 기존
+  고유 PR 통합 우선(세션 60~66 기조). README/ARCHITECTURE(🧭 코워크).

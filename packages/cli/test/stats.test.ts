@@ -3,6 +3,7 @@ import {
   computeActivityHeatmap,
   computeDailyTrend,
   computeHourlyDistribution,
+  computeRetryDistribution,
   computeStats,
   computeWeekdayDistribution,
   groupStats,
@@ -19,6 +20,7 @@ import {
   renderGroupedStatsJson,
   renderHeatmap,
   renderHours,
+  renderRetries,
   renderStats,
   renderStatsJson,
   renderStatsWatchFrame,
@@ -555,6 +557,60 @@ describe("renderStatsJson heatmap field", () => {
     expect(withHeatmap.heatmap.cells[1][9]).toBe(1);
     expect(withHeatmap.heatmap.total).toBe(1);
     expect(withHeatmap.heatmap.maxCell).toBe(1);
+  });
+});
+
+describe("renderRetries", () => {
+  it("renders a header, one row per attempt bucket, and a footer", () => {
+    // 0×(×1), 1×(×2), gap at 2×, 3×(×1); busiest bucket = 2.
+    const dist = computeRetryDistribution([
+      job({ attempts: 0 }),
+      job({ attempts: 1 }),
+      job({ attempts: 1 }),
+      job({ attempts: 3 }),
+    ]);
+    const out = renderRetries(dist);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("by retries");
+    // Header + 4 buckets (0..3) + footer = 6 lines.
+    expect(lines).toHaveLength(6);
+    // Each row is labeled with its attempt count and suffixed with the count.
+    expect(out).toMatch(/0×.* 1/);
+    expect(out).toMatch(/1×.*█.* 2/);
+    // The empty 2× bucket shows a baseline dot, not a block.
+    const twoRow = lines.find((l) => l.includes("2×")) ?? "";
+    expect(twoRow).toContain("·");
+    expect(twoRow).not.toContain("█");
+    expect(lines[lines.length - 1]).toContain("4 job(s), 4 attempt bucket(s)");
+  });
+
+  it("shows nothing but a header/none line for an empty store", () => {
+    const out = renderRetries(computeRetryDistribution([]));
+    expect(out).toContain("by retries");
+    expect(out).toContain("none");
+    expect(out).not.toContain("█");
+  });
+
+  it("round-trips a store subset through computeRetryDistribution + renderRetries", () => {
+    // Distribution stays dense from 0, so two jobs both at 2× still yield 0..2.
+    const out = renderRetries(computeRetryDistribution([job({ attempts: 2 }), job({ attempts: 2 })]));
+    expect(out).toMatch(/2×.*█.* 2/);
+    expect(out).toContain("3 attempt bucket(s)");
+  });
+});
+
+describe("renderStatsJson retries field", () => {
+  it("omits `retries` by default but includes the distribution when provided", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("retries" in without).toBe(false);
+    const retries = computeRetryDistribution([job({ attempts: 0 }), job({ attempts: 2 })]);
+    const withRetries = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", retries }));
+    expect(withRetries.retries).toEqual([
+      { attempts: 0, count: 1 },
+      { attempts: 1, count: 0 },
+      { attempts: 2, count: 1 },
+    ]);
   });
 });
 

@@ -810,6 +810,23 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay stats --retries` — 재시도-노력(retry-effort) 분포 히스토그램(잡을 `attempts`
+      횟수별로 버킷팅). headline `totalAttempts`/`retriedJobs` 두 숫자가 뭉개는 "모양"을 드러냄 — 대부분
+      한 번에 재개되는가, 아니면 소수를 여러 번 쫓았는가(flaky 신호). 자기 발굴 항목(👷 미완료 큐가 비어
+      CLAUDE.md 지침대로 신규 발굴). `--hours`/`--weekday`/`--heatmap` 패턴을 그대로 따르는 순수 추가라
+      회귀 위험 최소.
+      (완료 — core `stats.ts`에 순수 `computeRetryDistribution(jobs)` + `RetryBucket`(attempts·count) 신설:
+      각 잡의 `attempts`를 버킷팅해 0부터 최댓값까지 **dense·zero-fill**(gap-free 히스토그램), 빈 스토어는
+      `[]`, 음수·비유한 attempts(손상 레코드)는 음수 버킷 발명 대신 0으로 floor, 창도 시계도 불필요. CLI
+      `stats.ts`에 순수 `renderRetries`(attempt-count별 ASCII 막대, `renderWeekday`와 동일 스케일 관례 —
+      최다 버킷에 스케일·비영 버킷 최소 1블록·0 버킷 dim 베이스라인 점·우측정렬 `N×` 라벨 + 합계 푸터)·
+      `renderStatsJson`에 옵셔널 `retries` 필드(요청 시에만 방출, 기존 JSON shape 불변). `cli.ts` `stats`에
+      `--retries` 배선 — 일회성·`--json`·`--watch` 세 뷰 모두 적용, 기존 스코프 필터(--status/--tool/
+      --project/--since/--until) 및 `--hours`/`--weekday`/`--heatmap`/`--trend`와도 조합 가능. 새 파서/
+      스케줄러 로직 0줄. core stats +5(=619) + cli stats +4(render 3 + json 1) 신규 테스트, 실제 빌드 CLI
+      e2e로 dense 버킷팅(0×~3× gap 포함)·`--json` retries 필드·기본 JSON 미포함·스코프 부분집합·
+      completion/help `--retries` 노출 검증. branch `claude/wizardly-pascal-j25y5p`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -357,6 +357,48 @@ export function computeActivityHeatmap(jobs: RelayJob[], offsetMinutes = 0): Act
   return { cells, total, maxCell };
 }
 
+/** One attempt-count slot in a {@link computeRetryDistribution} histogram. */
+export interface RetryBucket {
+  /**
+   * Number of resume attempts a job has accumulated. `0` = enqueued but never
+   * resumed yet (or resolved on the first tick without ever needing a retry);
+   * `1` = resumed once; `2+` = actually relayed more than once.
+   */
+  attempts: number;
+  /** Jobs carrying exactly this many attempts. */
+  count: number;
+}
+
+/**
+ * Buckets jobs by their `attempts` count so `agentrelay stats --retries` can show
+ * the retry-effort distribution — how many jobs sailed through on a single resume
+ * versus how many the relay had to chase across many attempts. Where the headline
+ * `totalAttempts`/`retriedJobs` numbers collapse this to two figures, the
+ * histogram reveals the shape: a long tail of high-attempt jobs signals a flaky
+ * environment or a command that keeps re-hitting its limit.
+ *
+ * Pure and non-mutating: no I/O, no clock — `attempts` is a plain property of each
+ * job. The result is dense (zero-filled) from 0 through the busiest attempt count
+ * so the histogram has a stable, gap-free shape; an empty store yields `[]`.
+ * Non-finite or negative `attempts` (corrupt records) are floored to 0 rather than
+ * inventing negative buckets.
+ */
+export function computeRetryDistribution(jobs: RelayJob[]): RetryBucket[] {
+  if (jobs.length === 0) return [];
+  const counts = new Map<number, number>();
+  let max = 0;
+  for (const job of jobs) {
+    const attempts = Number.isFinite(job.attempts) && job.attempts > 0 ? Math.floor(job.attempts) : 0;
+    counts.set(attempts, (counts.get(attempts) ?? 0) + 1);
+    if (attempts > max) max = attempts;
+  }
+  const buckets: RetryBucket[] = [];
+  for (let attempts = 0; attempts <= max; attempts++) {
+    buckets.push({ attempts, count: counts.get(attempts) ?? 0 });
+  }
+  return buckets;
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 
