@@ -2142,3 +2142,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay note` 잡 주석(freeform note)] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-646ujz`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유뿐. 열린 PR ~100개를 제목
+  키워드로 교차 스캔해 **어떤 PR에도 없고** 회피축(parser/watch/stats/tz/heatmap)도 아닌 갭을 골랐다 —
+  큐는 잡을 (project, command)로 식별하는데, 같은 프로젝트에서 `claude -p "continue"`를 여러 개 돌리면
+  `status` 테이블(id 8자·project·status·카운트다운)만으로는 **어느 잡이 무엇인지 사람이 구분할 수단이 없다.**
+  사람이 붙이는 한 줄 주석("finish auth refactor", "ticket-4521")이 그 disambiguator다.
+- **한 일 (branch `claude/wizardly-pascal-646ujz`):**
+  - core `types.ts`: `RelayJob.note?: string | null`(optional=무마이그레이션 로드) + `CreateJobInput.note?`.
+    `queue.ts`: `enqueue`가 note를 trim해 저장(빈 문자열→null), 신규 `setNote(id, note)` — status/resetAt은
+    절대 건드리지 않아 주석이 릴레이 루프를 교란하지 않음, null/공백은 클리어, 미지 id는 undefined 반환.
+  - cli `commands.ts`: `annotateJob(idOrPrefix, note)`(show/cancel/retry와 동일한 `resolveJobId` prefix·모호
+    처리) + `listAnnotatedJobs`(note 보유 잡만, read-only). `runCommand`에 `note?` 옵션 배선.
+  - cli `show.ts`: note가 있을 때만 detail 블록에 `note` 라인 렌더(--json은 job 그대로라 자동 포함).
+  - cli `cli.ts`: `agentrelay note [id] [text...] [--clear] [--json]` — id 없으면 주석 달린 잡 목록, id+text는
+    설정, id+`--clear`는 제거, id만이면 현재 note 조회. `agentrelay run --note <text>`로 enqueue 시 주석 부착.
+    completion은 live program에서 파생돼 자동 등록.
+  - 테스트: core `queue.test.ts` setNote 6케이스(enqueue note/trim/blank/persist-across-reload/clear/미지 id),
+    cli `commands.test.ts` annotate·list 5케이스(prefix set·clear·미지 id no-op·list 필터·`run --note`),
+    cli `show.test.ts` note 렌더 1케이스.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 620** +6 / **cli 349/1skip** +6 / dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  `run --note`로 주석 부착→`note`가 목록 렌더, 다른 잡을 prefix로 `note <id> <text>` 설정, `note <id>` 단건
+  조회, `show`가 note 라인 렌더, `note <id> --clear`로 제거 후 `(no note)`, `note --clear`(id 없음)는 exit 1,
+  `--help`·`completion bash`에 note 등록·`note --json` provenance 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `status`/`export` 컬럼에
+  note 옵트인 노출(핫파일이라 충돌 회피 위해 이번엔 제외), `search`가 note 텍스트도 매칭. tz/heatmap/
+  parser/watch/stats는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

@@ -76,6 +76,12 @@ describe("renderJobDetail", () => {
     expect(out).toContain("(same as created)");
   });
 
+  it("renders the note line only when a note is present", () => {
+    expect(renderJobDetail(job(), { now: NOW })).not.toContain("note ");
+    const out = renderJobDetail(job({ note: "ticket-4521" }), { now: NOW });
+    expect(out).toContain("note       ticket-4521");
+  });
+
   it("renders a last error block only when an error is present", () => {
     expect(renderJobDetail(job(), { now: NOW })).not.toContain("last error");
     const out = renderJobDetail(job({ status: "failed", lastError: "boom\nsecond line" }), { now: NOW });

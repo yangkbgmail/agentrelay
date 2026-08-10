@@ -53,6 +53,15 @@ export interface RelayJob {
    * rate limit has been detected yet.
    */
   lastRateLimit?: RateLimitDetection | null;
+  /**
+   * Freeform human note attached to the job (`agentrelay note <id> <text>`, or
+   * `agentrelay run --note`). The queue keys jobs by (project, command), so a
+   * fleet of jobs all running `claude -p "continue"` in the same project are
+   * otherwise indistinguishable in `status`; a note ("finish auth refactor",
+   * "ticket-4521") is the human-set disambiguator. Optional so stores written
+   * before this field existed load without migration; `null` when unset.
+   */
+  note?: string | null;
 }
 
 export interface CreateJobInput {
@@ -60,6 +69,8 @@ export interface CreateJobInput {
   tool: AgentTool;
   command: string[];
   cwd: string;
+  /** Optional freeform note to attach at creation (see {@link RelayJob.note}). */
+  note?: string;
 }
 
 export interface RetryPolicy {

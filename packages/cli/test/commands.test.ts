@@ -6,12 +6,14 @@ import type { NotifyPayload, RelayJob } from "@agentrelay/core";
 import { parseConfig, RelayQueue, sampleConfigJson } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  annotateJob,
   backupStore,
   bulkControlJobs,
   cancelJob,
   getConfigValue,
   importStore,
   initConfig,
+  listAnnotatedJobs,
   listStatus,
   listStoreBackups,
   previewRestoreStore,
@@ -348,6 +350,78 @@ describe("showJob", () => {
     expect(result.ok).toBe(false);
     expect(result.job).toBeNull();
     expect(result.error).toMatch(/no job matches/);
+  });
+});
+
+describe("annotateJob / listAnnotatedJobs", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-note-cli-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function seed(project: string, note?: string): RelayJob {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project, tool: "claude-code", command: ["claude", "-p", "continue"], cwd: dir, note });
+    queue.close();
+    return job;
+  }
+
+  it("sets a note on a job resolved by short prefix without changing its status", () => {
+    const job = seed("web");
+    const result = annotateJob(job.id.slice(0, 8), "finish auth refactor", storePath);
+    expect(result.ok).toBe(true);
+    expect(result.set).toBe(true);
+    expect(result.job?.note).toBe("finish auth refactor");
+    expect(result.message).toContain("finish auth refactor");
+    // Persisted and status untouched.
+    expect(listStatus(storePath)[0].note).toBe("finish auth refactor");
+    expect(listStatus(storePath)[0].status).toBe("queued");
+  });
+
+  it("clears a note when passed null", () => {
+    const job = seed("web", "old note");
+    const result = annotateJob(job.id, null, storePath);
+    expect(result.ok).toBe(true);
+    expect(result.set).toBe(false);
+    expect(result.job?.note).toBeNull();
+    expect(result.message).toMatch(/cleared/i);
+  });
+
+  it("reports an unknown id as not ok and writes nothing", () => {
+    seed("web", "keep me");
+    const result = annotateJob("deadbeef", "nope", storePath);
+    expect(result.ok).toBe(false);
+    expect(result.job).toBeNull();
+    expect(listStatus(storePath)[0].note).toBe("keep me");
+  });
+
+  it("lists only jobs that carry a note", () => {
+    seed("web", "has note");
+    seed("api"); // no note
+    const annotated = listAnnotatedJobs(storePath);
+    expect(annotated).toHaveLength(1);
+    expect(annotated[0].project).toBe("web");
+    expect(annotated[0].note).toBe("has note");
+  });
+
+  it("run --note attaches the note to a queued job", async () => {
+    const stdout = new PassThrough();
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('resets in 2h'); process.exit(1)"],
+      storePath,
+      note: "nightly batch",
+      stdout,
+      stderr: new PassThrough(),
+      notify: null,
+    });
+    expect(result.queuedJob?.note).toBe("nightly batch");
   });
 });
 
