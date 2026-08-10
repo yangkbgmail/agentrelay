@@ -2118,3 +2118,26 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 67 — export TSV 포맷 신규 구현 (#167 계열, 신규 클린 구현)] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-qs03fu`)
+- **배경:** 순수 👷 BACKLOG 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  리서치)뿐. 열린 PR은 여전히 100+ 적체(파서/watch/stats 축 중복이 대부분). 세션 66의 "다음 할 일"이 남긴
+  고유 기능 후보 중 `#167 export --format tsv`를 골라, 오래된 base의 cherry-pick 충돌을 피하고자 최신
+  main 위에 **깨끗이 신규 구현**했다(export 모듈은 이후 --columns·html 등으로 진화해 원본 PR과 diff가 큼).
+- **한 일 (`@agentrelay/core/export.ts` + CLI 배선):**
+  1. `escapeTsvField` — TSV의 구분자는 탭/개행이라 CSV식 따옴표-감싸기가 아니라 PostgreSQL `COPY`/`text`
+     관례의 백슬래시 이스케이프(`\\`→먼저 이중화, 이후 tab/CR/LF→`\t`/`\r`/`\n`). 무손실·가역이며
+     멀티라인 `lastError`/command를 한 물리 행에 유지 → `cut -f`·`awk -F'\t'`·`column -t`가 깨끗한 그리드.
+  2. `jobsToTsv` — `jobsToCsv`의 탭 구분 형제(동일 컬럼·셀 값·"빈 스토어도 헤더 행" 동작), `--columns`
+     서브셋/순서 동일 지원.
+  3. `EXPORT_FORMATS`에 `tsv` 추가, `COLUMN_AWARE_FORMATS`에 `tsv` 추가, `exportJobs` 디스패치에 케이스
+     추가. CLI `export` 설명/`--columns` 도움말을 `COLUMN_AWARE_FORMATS` 파생으로 정확화(csv/tsv/md/html).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 114파일)→`pnpm test`
+  전 패키지 통과(**core 624** export TSV +10 / **cli 336/1skip** / dashboard 9). **실제 빌드 CLI e2e**(mock
+  아님): 실 스토어로 `export --format tsv`가 탭 구분 헤더+행 방출(`cat -A`로 `^I` 확인), 콤마 포함 command는
+  따옴표 없이 그대로, 멀티라인 `lastError`는 `boom\nsecond line`으로 한 행 유지, `cut -f4,9`로 컬럼 추출
+  정상, `--columns status,project,command` 서브셋·알 수 없는 `--format xml`은 exit 1 가드 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 고유 기능 후보 계속 — #182(report)·
+  #173(diff)·#195(notify events)·#202(notify throttle)·#213(run --dry-run)·#215(run --max-wait)·#228(man)·
+  #230(tail). 원본 #167 및 export tsv 중복 PR은 대표 통합을 가리키며 close. tz/heatmap/parser/watch는 PR
+  포화라 지양. README/ARCHITECTURE(🧭 코워크).
