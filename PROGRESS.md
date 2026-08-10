@@ -2118,3 +2118,34 @@
   #182(report)·#173(diff)·#204/#172(reschedule)·#167(export tsv)·#195(notify events)·#202(notify throttle)·
   #213(run --dry-run)·#215(run --max-wait)·#217(resume buffer)·#228(man)·#230(tail). tz/heatmap/parser/watch는
   PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 67 — `agentrelay drain`: 큐 전체 소진까지 블록하는 CI 게이트] (2026-08-10, 무인 자율 세션, branch `claude/wizardly-pascal-drain`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md의 "비면 스스로 새 개선 항목을 발굴" 지침에 따라 **자기 발굴**
+  항목을 하나 구현했다.
+- **발굴한 갭:** `eta`(세션 64)는 "큐가 **언제** 다 따라잡히나"를 알려주지만 그 시점까지 블록하는 수단이
+  없어, 사용자가 `until agentrelay eta --exit-code; do sleep 60; done` 폴 루프를 손으로 짜야 했다.
+  `wait <id>`(세션 37)는 잡 **하나**만 따라간다. 그 사이 빠진 짝 — "큐 전체가 소진될 때까지 블록"이 없었다.
+- **한 일 — `agentrelay drain`:** 모든 활성 잡(queued/waiting_for_reset/resuming)이 종료 상태에 도달할
+  때까지 블록한 뒤 exit code로 결과를 반환. `agentrelay drain --timeout 8h && ./deploy.sh` 같은 CI 게이트를
+  손 폴 루프 없이 가능케 한다.
+  - **core `drain.ts`(순수·시계/스토어 미접촉):** `summarizeDrain(jobs)`→`DrainSnapshot`(total·active·
+    completed·failed·cancelled, ACTIVE∪TERMINAL이 전 status를 완전 분할), `isQueueDrained`(active 0),
+    `evaluateDrain(jobs,{failOnError})`(활성 남으면 `done:false`, 소진 시 `drained`/failOnError면서 failed>0이면
+    `failed`—취소는 사용자 행위라 실패로 안 봄), `DRAIN_EXIT_CODES`(drained 0·failed 1·timeout 124[GNU
+    timeout 관례, `wait`와 동일])·`drainExitCode`.
+  - **CLI `commands.ts` `drainQueue(options)`:** `waitForJob` 미러 — 매 인터벌 스토어 재오픈해 별도
+    daemon/tick의 쓰기를 관측, 첫 검사 즉시(이미 소진된 큐는 sleep 없이 반환), `--timeout`은 sleep 전
+    데드라인 검사로 1인터벌 이상 초과 안 함, now/sleep/readJobs 주입 가능(테스트 결정성).
+  - **CLI `drain.ts`(순수):** `drainMessage`(빈 큐/소진/failed/timeout별 사람용 한 줄+상태 브레이크다운)·
+    `renderDrainJson`(wait/eta와 동일 envelope: storePath·generatedAt·outcome·exitCode·snapshot).
+  - **CLI `cli.ts`:** `agentrelay drain [--timeout][--interval][--fail-on-error][--json][-q]` 배선, 잘못된
+    기간은 watch/블록 전에 exit 1, addHelpText 예시 3줄, completion 자동 포함.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 118파일)→`pnpm test`
+  전 패키지 통과(**core 627** drain 13 / **cli 346/1skip** drain 10 / dashboard 9). **실제 빌드 CLI e2e**
+  (mock 아님): 빈 스토어→"queue is empty"·exit 0, 전 종료(completed+failed)→"queue drained: 2 jobs
+  settled"·exit 0, `--fail-on-error`→"1 job failed"·exit 1, `--json` 스냅샷 envelope, 활성 잡+`--timeout
+  200ms`→timeout·exit 124, 잘못된 --interval→exit 1, `completion bash`에 `drain` 포함 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 자기 발굴 후보: `drain --project/--tool`
+  스코프(특정 프로젝트/툴만 소진 대기), `eta --watch`(캐치업 카운트다운 라이브). 남은 고유 기능 적체 PR
+  통합도 계속. README/ARCHITECTURE(🧭 코워크).

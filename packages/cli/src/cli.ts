@@ -52,6 +52,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  drainQueue,
   exportStore,
   getConfigValue,
   importStore,
@@ -79,6 +80,7 @@ import {
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
+import { renderDrainJson } from "./drain.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderEta, renderEtaJson } from "./eta.js";
 import { renderHealth, renderHealthJson } from "./health.js";
@@ -993,6 +995,69 @@ export function buildCli(): Command {
       }
       process.exitCode = result.exitCode;
     });
+
+  program
+    .command("drain")
+    .description(
+      "Block until the whole queue is caught up (no active jobs left), then exit 0 (drained), 1 (--fail-on-error and a job failed), or 124 (timeout)"
+    )
+    .option("--timeout <duration>", "Give up after this long (e.g. 30m, 8h); default: wait forever")
+    .option("--interval <duration>", "How often to poll the store (default 2s)", "2s")
+    .option("--fail-on-error", "Exit 1 if any job ended in `failed` (default: drained is success regardless)")
+    .option("--json", "Print the final result as JSON (machine-readable, for scripts/jq)")
+    .option("-q, --quiet", "Suppress the human status line (the exit code still reflects the outcome)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # wait for the relay to catch up, then deploy\n" +
+        "  agentrelay drain --timeout 8h && ./deploy.sh\n" +
+        "  # fail the build if any queued job errored out\n" +
+        "  agentrelay drain --fail-on-error\n" +
+        "  # read the final snapshot with jq\n" +
+        "  agentrelay drain --json | jq '.snapshot'"
+    )
+    .action(
+      async (opts: { timeout?: string; interval?: string; failOnError?: boolean; json?: boolean; quiet?: boolean }) => {
+        const { store } = program.opts();
+
+        const intervalMs = parseDuration(opts.interval ?? "2s");
+        if (intervalMs === null || intervalMs <= 0) {
+          console.error(`[agentrelay] Invalid --interval: ${opts.interval}. Use forms like 500ms, 2s, 1m.`);
+          process.exitCode = 1;
+          return;
+        }
+
+        let timeoutMs: number | null = null;
+        if (opts.timeout !== undefined) {
+          timeoutMs = parseDuration(opts.timeout);
+          if (timeoutMs === null || timeoutMs < 0) {
+            console.error(`[agentrelay] Invalid --timeout: ${opts.timeout}. Use forms like 30m, 8h, 90s.`);
+            process.exitCode = 1;
+            return;
+          }
+        }
+
+        // A blocking command with no visible progress is confusing; announce the
+        // wait on stderr so --json stdout stays clean.
+        if (!opts.quiet && !opts.json) {
+          console.error("[agentrelay] waiting for the queue to drain… (Ctrl-C to stop)");
+        }
+
+        const result = await drainQueue({
+          storePath: store,
+          intervalMs,
+          timeoutMs,
+          failOnError: opts.failOnError,
+        });
+
+        if (opts.json) {
+          console.log(renderDrainJson(result, store ?? defaultStorePath()));
+        } else if (!opts.quiet) {
+          console.log(`[agentrelay] ${result.message}`);
+        }
+        process.exitCode = result.exitCode;
+      }
+    );
 
   program
     .command("paths")

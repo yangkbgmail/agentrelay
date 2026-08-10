@@ -38,11 +38,15 @@ import {
   canRequeue,
   configToJson,
   countActiveJobs,
+  type DrainOutcome,
+  type DrainSnapshot,
   daemonHeartbeatPath,
   distinctActiveBinaries,
+  drainExitCode,
   type EffectiveConfigEntry,
   type ExportFormat,
   envKeyForConfigKey,
+  evaluateDrain,
   evaluateHealth,
   evaluateHeartbeat,
   evaluateWait,
@@ -92,6 +96,7 @@ import {
   waitExitCode,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
+import { drainMessage } from "./drain.js";
 import type { VerifyReport } from "./verify.js";
 
 /**
@@ -1558,6 +1563,86 @@ export async function waitForJob(idOrPrefix: string, options: WaitJobOptions = {
       };
     }
     if (job) options.onPoll?.(job, elapsed);
+    await sleep(intervalMs);
+  }
+}
+
+export interface DrainQueueOptions {
+  storePath?: string;
+  /** How often to re-read the store (ms). Default 2000. */
+  intervalMs?: number;
+  /** Give up after this many ms; null (default) waits forever. */
+  timeoutMs?: number | null;
+  /** Treat a settled queue with any `failed` job as an error (exit 1). */
+  failOnError?: boolean;
+  /** Injectable clock (ms) for tests. */
+  now?: () => number;
+  /** Injectable sleep for tests. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Injectable store read for tests. */
+  readJobs?: () => RelayJob[];
+  /** Called each poll while the queue is still draining (progress hook). */
+  onPoll?: (snapshot: DrainSnapshot, elapsedMs: number) => void;
+}
+
+export interface DrainQueueResult {
+  ok: boolean;
+  outcome?: DrainOutcome;
+  snapshot: DrainSnapshot;
+  message: string;
+  exitCode: number;
+}
+
+/**
+ * Block until the whole queue has drained (no active jobs left), re-reading the
+ * store each interval so a separate daemon/tick process advancing jobs is
+ * observed. The pure settle/outcome decision lives in `evaluateDrain`; this owns
+ * the poll loop, the clock, and the store I/O. The first check is immediate, so
+ * an already-settled queue returns without a sleep; the deadline is checked
+ * before each sleep so `--timeout` is never overshot by more than one interval.
+ */
+export async function drainQueue(options: DrainQueueOptions = {}): Promise<DrainQueueResult> {
+  const storePath = options.storePath ?? defaultStorePath();
+  const intervalMs = options.intervalMs ?? 2000;
+  const timeoutMs = options.timeoutMs ?? null;
+  const now = options.now ?? (() => Date.now());
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const readJobs =
+    options.readJobs ??
+    ((): RelayJob[] => {
+      const q = openQueue(storePath);
+      try {
+        return q.listAll();
+      } finally {
+        q.close();
+      }
+    });
+
+  const start = now();
+  while (true) {
+    const jobs = readJobs();
+    const verdict = evaluateDrain(jobs, { failOnError: options.failOnError });
+    if (verdict.done) {
+      const outcome = verdict.outcome as DrainOutcome;
+      return {
+        ok: true,
+        outcome,
+        snapshot: verdict.snapshot,
+        message: drainMessage(outcome, verdict.snapshot),
+        exitCode: drainExitCode(outcome),
+      };
+    }
+    const elapsed = now() - start;
+    if (timeoutMs !== null && elapsed >= timeoutMs) {
+      return {
+        ok: true,
+        outcome: "timeout",
+        snapshot: verdict.snapshot,
+        message: drainMessage("timeout", verdict.snapshot),
+        exitCode: drainExitCode("timeout"),
+      };
+    }
+    options.onPoll?.(verdict.snapshot, elapsed);
     await sleep(intervalMs);
   }
 }
