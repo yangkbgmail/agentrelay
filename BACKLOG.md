@@ -810,6 +810,19 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 파서: 절대 시각을 `reset at`이 아닌 `try again at` / `available (again) at` 도입구로 표현한
+      rate-limit 문구 인식. 기존 `clock-time`/`clock-time-meridiem` 패턴은 리드인이 `reset[s] at`으로
+      고정돼 `"try again at 3:00pm"`·`"available again at 9am"` 같은 실사용 문구를 놓쳤다(“try again **in**
+      <기간>”만 relative-duration이 잡음). 어떤 열린 PR에도 없는 고유 갭.
+      (완료 — `parser.ts`의 `clock-time`/`clock-time-meridiem` 두 패턴 정규식 리드인을 `reset[s]? at`에서
+      `(?:reset[s]?|try\s+again|available(?:\s+again)?)\s+at`으로 확장 — 절대 벽시계 시각이라는 의미가
+      동일하므로 같은 패턴에 매핑, `resolve` 로직·패턴명 불변(영속된 provenance 하위호환). `at`(절대)과
+      `in`(상대)이 다르므로 relative-duration과 disjoint 유지. `LOOKS_LIKE_RATE_LIMIT` 사전필터에
+      `available(?:\s+again)?\s+at` 추가(`try again`은 이미 매칭) → 다른 rate-limit 키워드 없는 라인도 게이트
+      통과. parser.test +4(try again at 3:00pm→clock-time·try again at 5pm→meridiem·available again at 9am
+      키워드 단독·relative/absolute disjoint). 실제 빌드 CLI `parse`로 매치·리셋 시각·reset at 5pm 회귀·
+      try again in 2h relative 유지 e2e 검증. branch `claude/parser-try-again-at`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

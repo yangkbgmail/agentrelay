@@ -43,9 +43,14 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
-    // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
+    // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past).
+    // The lead-in accepts more than "reset(s) at": agents/proxies also phrase an
+    // absolute reset time as "try again at 3:00pm" or "available (again) at 15:00"
+    // (see RESET_AT_LEAD). Same meaning — an absolute wall-clock time — so it maps
+    // to the same pattern. "try again in <duration>" (relative) stays disjoint
+    // because that uses "in", not "at".
     name: "clock-time",
-    regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
+    regex: /(?:reset[s]?|try\s+again|available(?:\s+again)?)\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       const minute = parseInt(m[2], 10);
@@ -68,9 +73,11 @@ const PATTERNS: RateLimitPattern[] = [
     // colon, no am/pm) is too ambiguous to treat as a clock time. The named
     // timezone in the message is ignored — the hour is interpreted in local
     // time, same known limitation as clock-time (a real reset is a future
-    // instant, so rolling to tomorrow when already past keeps us safe).
+    // instant, so rolling to tomorrow when already past keeps us safe). The
+    // lead-in mirrors clock-time above so "try again at 5pm" / "available again
+    // at 9am" are recognized too.
     name: "clock-time-meridiem",
-    regex: /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b/i,
+    regex: /(?:reset[s]?|try\s+again|available(?:\s+again)?)\s+at\s+(\d{1,2})\s*(am|pm)\b/i,
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       if (hour > 12) return null; // 13pm etc. is not a valid 12-hour clock time
@@ -136,7 +143,8 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|try again|resets?\s+(at|in)|available(?:\s+again)?\s+at|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);
