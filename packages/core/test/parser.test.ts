@@ -249,4 +249,73 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("relative-duration");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
   });
+
+  describe("word-quantity durations", () => {
+    it("parses 'try again in an hour' (article 'an' → 1 hour)", () => {
+      const now = new Date("2026-07-12T10:00:00Z");
+      const result = parseRateLimitMessage("Usage limit reached. Please try again in an hour.", { now });
+      expect(result?.pattern).toBe("word-quantity-duration");
+      expect(result?.resetAt).toBe(new Date(now.getTime() + 60 * 60_000).toISOString());
+    });
+
+    it("parses 'try again in a minute' (article 'a' → 1 minute)", () => {
+      const now = new Date("2026-07-12T10:00:00Z");
+      const result = parseRateLimitMessage("Rate limit exceeded, try again in a minute.", { now });
+      expect(result?.pattern).toBe("word-quantity-duration");
+      expect(result?.resetAt).toBe(new Date(now.getTime() + 60_000).toISOString());
+    });
+
+    it("parses 'resets in half an hour' (→ 30 minutes)", () => {
+      const now = new Date("2026-07-12T10:00:00Z");
+      const result = parseRateLimitMessage("Usage limit hit — resets in half an hour.", { now });
+      expect(result?.pattern).toBe("word-quantity-duration");
+      expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+    });
+
+    it("parses 'a couple of hours' (→ 2 hours)", () => {
+      const now = new Date("2026-07-12T10:00:00Z");
+      const result = parseRateLimitMessage("Rate limit reached. Check back in a couple of hours.", { now });
+      expect(result?.pattern).toBe("word-quantity-duration");
+      expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+    });
+
+    it("parses 'a couple hours' without 'of' (→ 2 hours)", () => {
+      const now = new Date("2026-07-12T10:00:00Z");
+      const result = parseRateLimitMessage("usage limit — try again in a couple hours.", { now });
+      expect(result?.pattern).toBe("word-quantity-duration");
+      expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+    });
+
+    it("parses 'in a day' (weekly/daily window in words)", () => {
+      const now = new Date("2026-07-12T10:00:00Z");
+      const result = parseRateLimitMessage("Weekly usage limit reached, try again in a day.", { now });
+      expect(result?.pattern).toBe("word-quantity-duration");
+      expect(result?.resetAt).toBe(new Date(now.getTime() + 24 * 60 * 60_000).toISOString());
+    });
+
+    it("is case-insensitive ('Try Again In An Hour')", () => {
+      const now = new Date("2026-07-12T10:00:00Z");
+      const result = parseRateLimitMessage("Usage limit. Try Again In An Hour.", { now });
+      expect(result?.pattern).toBe("word-quantity-duration");
+      expect(result?.resetAt).toBe(new Date(now.getTime() + 60 * 60_000).toISOString());
+    });
+
+    it("leaves vague quantities like 'a few minutes' unmatched", () => {
+      // "a few" is not a precise quantity — better no reset than a guessed one.
+      const result = parseRateLimitMessage("Rate limit reached, try again in a few minutes.");
+      expect(result).toBeNull();
+    });
+
+    it("does not match a non-time-unit noun ('try again in a moment')", () => {
+      const result = parseRateLimitMessage("Rate limit reached, try again in a moment.");
+      expect(result).toBeNull();
+    });
+
+    it("still prefers digit durations over word quantities when a number is given", () => {
+      const now = new Date("2026-07-12T10:00:00Z");
+      const result = parseRateLimitMessage("Rate limit exceeded, try again in 2 hours.", { now });
+      expect(result?.pattern).toBe("relative-duration");
+      expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+    });
+  });
 });

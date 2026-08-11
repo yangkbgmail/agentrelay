@@ -2142,3 +2142,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — 파서: 자연어 단어-수량 상대 대기 시간 인식] (2026-08-11, 무인 자율 세션, branch `claude/wizardly-pascal-word-qty`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고, 열린 PR 100+가 summary/stats/watch/parser
+  대부분 축을 포화시킨 상태. 100개 열린 PR 제목을 전수 대조해 **어떤 열린 PR에도 없는 명확한 파서 갭**을
+  골랐다 — 파서는 숫자 상대 시간(`in 2 hours`, `4h32m`)과 소수(`1.5 hours`, 별도 PR)는 인식하지만,
+  실제 에이전트/API 메시지에 흔한 **자연어 단어-수량 표현**(`try again in an hour`, `please try again in
+  a minute`, `resets in half an hour`, `check back in a couple of hours`, `retry in a day`)은
+  digit-only `relative-duration` 패턴이 `\d+`를 못 찾아 전부 놓치고 있었다.
+- **한 일 (branch `claude/wizardly-pascal-word-qty`):**
+  - `packages/core/src/parser.ts`에 `word-quantity-duration` 패턴을 `relative-duration` **바로 앞**에
+    신설. 리드인은 기존과 일관(`try again|resets?|retry|come back|check back` + `in`). 정밀 수량만
+    수용 — `a`/`an`→1, `half a(n)`→0.5, `a couple (of)`→2 — 단위는 minute/min·hour/hr·day(복수 `s?`).
+    `a few`·`a moment` 등 모호/비단위 명사는 의도적으로 미매칭(추측 리셋보다 무(無)리셋이 안전).
+    `relative-duration`은 digit가 없으면 어차피 null을 반환하므로 앞에 두어도 충돌 없음(가독성 목적).
+  - `packages/core/test/parser.test.ts`에 `word-quantity durations` describe 블록 10케이스 추가:
+    an hour/a minute/half an hour/a couple of hours/a couple hours(of 없이)/a day/대소문자 무시 +
+    `a few minutes`·`a moment` 미매칭 2케이스 + 숫자가 있으면 여전히 `relative-duration` 우선.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 624**[parser 43, +10]·**cli 343/1skip**·dashboard 9). 순수 함수라 시계 주입으로
+  결정적 단위 테스트.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 파서/stats/watch는 PR 포화라 지양하고,
+  후속은 아직 미커버된 갭(예: epoch 밀리초 필드, quiet-hours 재개 게이팅 등)을 계속 발굴.
+  README/ARCHITECTURE(🧭 코워크).

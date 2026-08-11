@@ -86,6 +86,28 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Natural-language word quantities before a single time unit, e.g.
+    // "try again in an hour", "please try again in a minute",
+    // "resets in half an hour", "check back in a couple of hours",
+    // "retry in a day". Real agents/APIs phrase short waits in words rather
+    // than digits, which the digit-only `relative-duration` pattern below
+    // misses (it returns null when it finds no `\d+`). Only precise quantities
+    // are accepted — "a"/"an" → 1, "half a(n)" → 0.5, "a couple (of)" → 2 —
+    // so vague forms like "a few minutes" are deliberately left unmatched
+    // (better no reset than a guessed one). Placed before `relative-duration`
+    // (which never consumes these anyway, having no digits) for clarity.
+    name: "word-quantity-duration",
+    regex:
+      /(?:try again|resets?|retry|come back|check back)\s+in\s+(half an|half a|a couple of|a couple|an|a)\s+(minutes?|mins?|hours?|hrs?|days?)\b/i,
+    resolve: (m, now) => {
+      const qty = m[1].toLowerCase();
+      const unit = m[2].toLowerCase();
+      const factor = qty.startsWith("half") ? 0.5 : qty.startsWith("a couple") ? 2 : 1;
+      const unitMs = unit.startsWith("min") ? 60_000 : unit.startsWith("h") ? 60 * 60_000 : 24 * 60 * 60_000; // day(s)
+      return new Date(now.getTime() + factor * unitMs);
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
