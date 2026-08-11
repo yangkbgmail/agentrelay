@@ -163,6 +163,127 @@ describe("runCommand", () => {
     expect(result.queuedJob?.project).toBe(dir.split("/").filter(Boolean).pop());
     expect(result.queuedJob?.project?.trim()).not.toBe("");
   });
+
+  describe("--dry-run", () => {
+    it("previews without spawning the command or writing to the store", async () => {
+      const stdout = new PassThrough();
+      let printed = "";
+      stdout.on("data", (chunk) => {
+        printed += chunk.toString();
+      });
+      // A command that would exit non-zero / print a rate limit if it actually ran;
+      // dry-run must not execute it, so exitCode is 0 and nothing is queued.
+      const result = await runCommand({
+        command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.'); process.exit(3)"],
+        storePath,
+        cwd: dir,
+        dryRun: true,
+        stdout,
+        stderr: new PassThrough(),
+      });
+
+      expect(result.dryRun).toBe(true);
+      expect(result.exitCode).toBe(0);
+      expect(result.queuedJob).toBeNull();
+      // The store file was never created — nothing was written.
+      expect(existsSync(storePath)).toBe(false);
+      expect(printed).toContain("dry run");
+      expect(printed).toContain("nothing was executed");
+    });
+
+    it("reports the explicit --tool source and the project override", async () => {
+      const result = await runCommand({
+        command: ["node", "-e", "console.log('hi')"],
+        storePath,
+        cwd: dir,
+        tool: "codex-cli",
+        project: "my-service",
+        dryRun: true,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+      });
+      expect(result.preview?.tool).toBe("codex-cli");
+      expect(result.preview?.toolSource).toBe("explicit");
+      expect(result.preview?.project).toBe("my-service");
+      expect(result.preview?.cwd).toBe(dir);
+    });
+
+    it("infers the tool from the binary when --tool is omitted", async () => {
+      const result = await runCommand({
+        command: ["claude", "-p", "continue"],
+        storePath,
+        cwd: dir,
+        dryRun: true,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+      });
+      expect(result.preview?.tool).toBe("claude-code");
+      expect(result.preview?.toolSource).toBe("inferred");
+    });
+
+    it("falls back to the generic tool for an unrecognized binary", async () => {
+      const result = await runCommand({
+        command: ["some-unknown-agent", "--go"],
+        storePath,
+        cwd: dir,
+        dryRun: true,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+      });
+      expect(result.preview?.tool).toBe("generic");
+      expect(result.preview?.toolSource).toBe("default");
+    });
+
+    it("resolves the command binary on PATH when it exists", async () => {
+      // Symlink a fake binary into dir and point PATH at dir so resolution succeeds.
+      const fakeBin = join(dir, "myagent");
+      symlinkSync(process.execPath, fakeBin);
+      const result = await runCommand({
+        command: ["myagent", "run"],
+        storePath,
+        cwd: dir,
+        dryRun: true,
+        env: { PATH: dir },
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+      });
+      expect(result.preview?.binary).toBe("myagent");
+      expect(result.preview?.binaryPath).toBe(fakeBin);
+    });
+
+    it("reports a null binaryPath when the command is not on PATH", async () => {
+      const stdout = new PassThrough();
+      let printed = "";
+      stdout.on("data", (chunk) => {
+        printed += chunk.toString();
+      });
+      const result = await runCommand({
+        command: ["definitely-not-a-real-binary-xyz", "go"],
+        storePath,
+        cwd: dir,
+        dryRun: true,
+        env: { PATH: dir },
+        stdout,
+        stderr: new PassThrough(),
+      });
+      expect(result.preview?.binaryPath).toBeNull();
+      expect(printed).toContain("NOT FOUND");
+    });
+
+    it("does not fire notifications on a dry run", async () => {
+      const notify = vi.fn(async (_payload: NotifyPayload) => {});
+      await runCommand({
+        command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+        storePath,
+        cwd: dir,
+        dryRun: true,
+        notify,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+      });
+      expect(notify).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe("cancelJob / retryJob", () => {

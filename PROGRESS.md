@@ -2142,3 +2142,25 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay run --dry-run` 실행 전 배선 미리보기] (2026-08-11, 무인 자율 세션, branch `claude/wizardly-pascal-pb5119`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. SPEC §8의 DX 아이디어 목록에 명시된 `--dry-run`이 control(cancel/retry)·
+  import·restore엔 있었지만 정작 핵심 진입점인 `run`엔 빠져 있었다 — 명확한 갭. `agentrelay run`은 때론
+  며칠 가는 긴 실행이라, 스폰 전에 "어떤 툴로·어떤 프로젝트 라벨로·어떤 command로 배선되는지"를 확인할
+  수단이 필요했다.
+- **한 일 (branch `claude/wizardly-pascal-pb5119`):**
+  - CLI `commands.ts`: `RunOptions`에 `dryRun`·`env`, `RunResult`에 `dryRun`·`preview` 추가, `RunPreview`
+    타입 신설. `runCommand`가 dryRun이면 스폰/스토어 쓰기 전에 조기 반환 — 툴 어댑터·선택 출처
+    (explicit/inferred/default, `resolveAdapter` 우선순위 그대로)·프로젝트·cwd·command·바이너리 PATH
+    해석(기존 doctor용 `resolveOnPath` 재사용)·스토어 경로를 구성. `renderRunPreview`가 공백 포함 argv를
+    재인용해 복붙 가능한 미리보기 블록 출력.
+  - `cli.ts` `run` 커맨드에 `--dry-run` 플래그 + 예시 helpText 배선.
+  - commands.test `--dry-run` describe +7: 스폰/스토어 쓰기 없음(exit 0·store 파일 미생성)·explicit `--tool`
+    출처·바이너리 추론·generic 폴백·PATH 해석 성공(symlink)·미발견 시 null+"NOT FOUND"·dry-run 알림 미발송.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**cli 350/1skip**, +7). **실제 빌드 CLI e2e**(mock 아님): `run --dry-run -- claude …`가
+  claude-code 추론+`claude` PATH 해석 렌더, `--tool codex-cli --project svc -- ./nope`가 explicit 출처+
+  "NOT FOUND" 표기, 두 dry-run 모두 `~/.agentrelay/jobs.json` 미생성 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `run --dry-run --json`
+  머신 출력, `daemon`/`tick` dry-run(무엇을 재개할지 미리보기). README/ARCHITECTURE(🧭 코워크).

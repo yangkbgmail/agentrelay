@@ -810,6 +810,19 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay run --dry-run` — 실제 실행 없이 어떻게 배선되는지 미리보기(SPEC §8 DX 아이디어
+      `--dry-run` 이행). 자식 프로세스를 스폰하지도, 스토어를 건드리지도 않고: 선택될 툴 어댑터(+선택
+      이유: `--tool` 명시 / 바이너리 추론 / generic 폴백), 프로젝트 라벨, cwd, 해석된 command,
+      command 바이너리의 PATH 해석 결과(발견 경로 or "NOT FOUND"), 잡이 들어갈 스토어 경로를 출력.
+      긴(때론 며칠 가는) 실제 run에 들어가기 전에 배선이 기대대로인지 확인하는 용도.
+      (완료 — CLI `commands.ts`의 `runCommand`에 `dryRun` 분기 신설: 스폰/쓰기 전에 조기 반환하며
+      `RunPreview`를 구성·렌더. 툴 선택 출처는 `resolveAdapter` 우선순위(explicit→inferred→default)를
+      그대로 반영, 바이너리 PATH 해석은 기존 `resolveOnPath`(doctor용 which-스타일 헬퍼) 재사용.
+      `renderRunPreview`가 공백 포함 argv를 재인용해 복붙 가능한 라인 출력. `run` 커맨드에 `--dry-run`
+      플래그+예시 helpText 추가. cli commands.test +7(스폰/쓰기 없음·explicit/inferred/default 출처·
+      PATH 해석 성공/실패·dry-run 시 알림 미발송). 실제 빌드 CLI e2e로 `claude` 추론·codex 명시·미발견
+      바이너리 경로 3케이스 검증, 스토어 파일 미생성 확인. Biome 클린. branch `claude/wizardly-pascal-pb5119`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
