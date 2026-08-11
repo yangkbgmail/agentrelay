@@ -1,8 +1,9 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { listBackups } from "../src/backup.js";
 import { RelayQueue } from "../src/queue.js";
 import type { SpawnFn } from "../src/scheduler.js";
 import { RelayScheduler } from "../src/scheduler.js";
@@ -390,6 +391,77 @@ describe("RelayScheduler", () => {
     expect(pruned).toHaveLength(3);
     expect(pruned[2].map((j) => j.id)).toEqual([c.id]);
     expect(queue.listAll()).toHaveLength(0);
+  });
+
+  it("writes a rotating store snapshot after a tick when auto-backup is configured", async () => {
+    const done = queue.enqueue({ project: "done", tool: "claude-code", command: ["x"], cwd: dir });
+    queue.markCompleted(done.id, "done");
+
+    const backups: string[] = [];
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({}),
+      autoBackup: { keepLast: 5 },
+      onBackup: (result) => backups.push(result.path),
+    });
+
+    await scheduler.tick(new Date("2026-07-13T00:00:00Z"));
+
+    expect(backups).toHaveLength(1);
+    const storeName = "test.db";
+    const onDisk = listBackups(readdirSync(dir), storeName);
+    expect(onDisk).toHaveLength(1);
+    expect(join(dir, onDisk[0].name)).toBe(backups[0]);
+  });
+
+  it("does not back up when auto-backup is not configured", async () => {
+    const scheduler = new RelayScheduler({ queue, spawnFn: fakeSpawnFn({}) });
+    await scheduler.tick();
+    expect(listBackups(readdirSync(dir), "test.db")).toHaveLength(0);
+  });
+
+  it("throttles auto-backup to at most once per autoBackupEveryMs window", async () => {
+    const backups: string[] = [];
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({}),
+      autoBackup: { keepLast: 20 },
+      autoBackupEveryMs: 60_000, // at most once a minute
+      onBackup: (result) => backups.push(result.path),
+    });
+
+    const t0 = new Date("2026-07-13T00:00:00Z");
+    // First tick always backs up.
+    await scheduler.tick(t0);
+    expect(backups).toHaveLength(1);
+
+    // Inside the window → skipped.
+    await scheduler.tick(new Date(t0.getTime() + 30_000));
+    expect(backups).toHaveLength(1);
+
+    // Window elapsed → a second snapshot is written.
+    await scheduler.tick(new Date(t0.getTime() + 60_000));
+    expect(backups).toHaveLength(2);
+    expect(listBackups(readdirSync(dir), "test.db")).toHaveLength(2);
+  });
+
+  it("rotates auto-backup snapshots to the configured keepLast", async () => {
+    const backups: string[] = [];
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({}),
+      autoBackup: { keepLast: 2 }, // keep only the 2 newest
+      onBackup: (result) => backups.push(result.path),
+    });
+
+    const t0 = new Date("2026-07-13T00:00:00Z");
+    // Four passes at distinct times (no throttle → every tick).
+    for (let i = 0; i < 4; i++) {
+      await scheduler.tick(new Date(t0.getTime() + i * 1000));
+    }
+    expect(backups).toHaveLength(4);
+    // Rotation keeps only the newest 2 on disk.
+    expect(listBackups(readdirSync(dir), "test.db")).toHaveLength(2);
   });
 
   it("fires onTick after every tick with the reference time, even when nothing is due", async () => {

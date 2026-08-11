@@ -2142,3 +2142,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — 데몬 주기 자동 백업(`AGENTRELAY_AUTOBACKUP`)] (2026-08-11, 무인 자율 세션, branch `claude/wizardly-pascal-t268e8`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료([x])이고, 열린 PR 50개가 이미 대부분의 축(stats/watch/
+  parser/export/completion/search/adapter/notify 등)을 덮고 있었다. 세션 67이 제안한 후속(summary --watch,
+  CV)은 각각 watch 포화·이미 열린 PR(#584/#579, #562/#560)이라 지양. 어떤 열린 PR에도 없는 **명확한 갭**을
+  자기 발굴 — 세션 3의 수동 `backup`(회전 스냅샷)과 세션 15의 `autoPrune`(데몬 주기 정리)은 있지만,
+  그 둘의 자연스러운 짝인 **데몬 주기 자동 백업**은 없어 유일한 데이터(`jobs.json`)의 시점 백업을
+  자동화할 수단이 없었다.
+- **한 일 (branch `claude/wizardly-pascal-t268e8`):**
+  - core `backup.ts`에 순수 헬퍼: `autoBackupOptionsFromEnv`(`AGENTRELAY_AUTOBACKUP` opt-in + `_KEEP`
+    회전 보존 수)·`autoBackupEveryMsFromEnv`(`AGENTRELAY_AUTOBACKUP_EVERY` 기간, 미설정/불량은 null)·
+    `shouldAutoBackup`(스로틀 없음/첫 패스 즉시, 그 외 everyMs 경과 후만; `shouldAutoPrune`과 구조 동일
+    하되 독립)·`DEFAULT_AUTOBACKUP_EVERY_MS`(1h)·`AutoBackupOptions`. auto-prune과 달리 **매 패스가 새
+    파일을 쓰므로** 매 tick 백업은 낭비 → 기본 1h 스로틀(의도적 설계 차이, 문서화).
+  - `RelayScheduler`에 `autoBackup`/`autoBackupEveryMs`/`onBackup` 옵션 + 인메모리 `lastBackupAtMs`.
+    tick이 prune **후** `runAutoBackup`으로 회전 스냅샷 기록(실패 삼킴), 기존 `RelayQueue.backup({keepLast})`
+    재사용(새 직렬화 0줄).
+  - CLI daemon+tick이 env로 배선(tick은 프로세스마다 마커 없어 스로틀 무효=매 tick 스냅샷, prune과 동일
+    문서화), 데몬 배너에 `(auto-backup on, every Ns, keep N)`.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 623** backup+scheduler +9 / **cli 343/1skip** / dashboard 9). **실제 빌드 CLI e2e**:
+  `tick`이 AUTOBACKUP off→스냅샷 없음, on→유효 `[]` 스냅샷+`_KEEP` 회전, 데몬 배너가
+  `(auto-prune on) (auto-backup on, every 1800s, keep 5)` 렌더 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — auto-backup을
+  설정 파일(`agentrelay.config.json`) 스키마에 배선(현재 env-var only; config는 CONFIG_FIELDS/parseConfig/
+  validateConfig/configToEnv/CONFIG_ENV_KEYS 드리프트-sync 지점이 많아 별도 항목으로 분리). tz/heatmap/
+  parser/watch/CV는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

@@ -810,6 +810,24 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 데몬 주기 자동 백업(`AGENTRELAY_AUTOBACKUP`) — 별도 cron 없이 데몬/tick이 주기적으로
+      스토어(`jobs.json`)의 회전 스냅샷을 남겨, 유일한 데이터의 시점 백업을 자동화. 세션 3의
+      수동 `backup`(회전 포함)과 세션 15의 `autoPrune`(데몬 주기 정리)의 자연스러운 짝 — 자기 발굴 항목.
+      (완료 — `@agentrelay/core/backup.ts`에 순수 `autoBackupOptionsFromEnv`(`AGENTRELAY_AUTOBACKUP`
+      opt-in + `_KEEP` 회전 보존 수[기본 `DEFAULT_BACKUP_KEEP`, 음수/비수치는 기본으로 폴백]) +
+      `autoBackupEveryMsFromEnv`(`AGENTRELAY_AUTOBACKUP_EVERY` 기간 파싱, 미설정/파싱불가/비양수는
+      null → CLI가 안전한 기본 1h로 폴백) + `shouldAutoBackup(lastRunMs, nowMs, everyMs?)`(스로틀 없음/
+      첫 패스는 즉시, 그 외 everyMs 경과 후에만 — `shouldAutoPrune`과 구조 동일하되 독립) +
+      `DEFAULT_AUTOBACKUP_EVERY_MS`(1h) + `AutoBackupOptions` 추가. auto-prune과 달리 매 패스가 새
+      스냅샷 파일을 쓰므로 매 tick 백업은 디스크를 낭비 → **기본 1h 스로틀**(auto-prune의 무-스로틀과
+      의도적으로 다른 설계, 문서화). `RelayScheduler`에 `autoBackup`/`autoBackupEveryMs`/`onBackup`
+      옵션 + 인메모리 `lastBackupAtMs` 마커 추가, tick이 prune **후** `runAutoBackup`으로 회전 스냅샷을
+      쓰되(실패는 삼켜 릴레이 루프 보호) 기존 `RelayQueue.backup({keepLast})` 재사용(새 직렬화 0줄).
+      CLI daemon/tick이 env로 배선, 데몬 배너에 `(auto-backup on, every Ns, keep N)`. core backup +6
+      (env/predicate) + scheduler +4(스냅샷 기록·미설정 시 무동작·시간 스로틀·회전) 신규 테스트,
+      실제 빌드 CLI e2e로 tick off→스냅샷 없음·on→유효 `[]` 스냅샷+회전·데몬 배너 검증.
+      branch `claude/wizardly-pascal-t268e8`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

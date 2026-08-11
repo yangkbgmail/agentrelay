@@ -8,6 +8,8 @@
 // they're trivially testable; the actual filesystem writes live on
 // `RelayQueue.backup()`.
 
+import { parseDuration } from "./prune.js";
+
 /**
  * Filename infix marking a rotating store snapshot, e.g.
  * `jobs.json.backup-<ts>`. Deliberately distinct from the `.corrupt-` (recovery)
@@ -134,4 +136,91 @@ export interface RestorePreview {
    * (true only when a safety backup is requested *and* a store file exists).
    */
   wouldBackUp: boolean;
+}
+
+/**
+ * Options a caller applies when auto-backup is enabled: how many rotating
+ * snapshots to keep. Mirrors the `keepLast` knob of the manual `backup` command.
+ */
+export interface AutoBackupOptions {
+  /** Retain the newest N snapshots; older ones are rotated out. */
+  keepLast?: number;
+}
+
+/**
+ * Default minimum interval between auto-backup passes when the daemon opts in
+ * without an explicit `AGENTRELAY_AUTOBACKUP_EVERY`. Unlike auto-prune — which
+ * only rewrites the store when it actually removes something — every auto-backup
+ * pass writes a fresh snapshot file, so backing up on every poll would litter
+ * the store directory. One hour keeps a useful trail of point-in-time snapshots
+ * while sparing the disk.
+ */
+export const DEFAULT_AUTOBACKUP_EVERY_MS = 60 * 60_000;
+
+function parseBool(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+/**
+ * Builds the {@link AutoBackupOptions} the scheduler should apply after a tick,
+ * from environment variables — or `null` when auto-backup is off (the default).
+ * Lets a long-running daemon keep rolling snapshots of the JSON store without a
+ * separate `agentrelay backup` cron:
+ *
+ * - `AGENTRELAY_AUTOBACKUP`       opt-in flag (1/true/yes/on). Off ⇒ returns null.
+ * - `AGENTRELAY_AUTOBACKUP_KEEP`  retain the newest N snapshots (default
+ *                                 {@link DEFAULT_BACKUP_KEEP}). Non-numeric or
+ *                                 negative values fall back to the default.
+ */
+export function autoBackupOptionsFromEnv(env: NodeJS.ProcessEnv = process.env): AutoBackupOptions | null {
+  if (!parseBool(env.AGENTRELAY_AUTOBACKUP)) return null;
+
+  let keepLast = DEFAULT_BACKUP_KEEP;
+  const keepRaw = env.AGENTRELAY_AUTOBACKUP_KEEP?.trim();
+  if (keepRaw) {
+    const n = Number(keepRaw);
+    if (Number.isFinite(n) && n >= 0) keepLast = Math.floor(n);
+  }
+
+  return { keepLast };
+}
+
+/**
+ * Minimum wall-clock interval between auto-backup passes, in milliseconds — or
+ * `null` when unset (the caller then falls back to {@link DEFAULT_AUTOBACKUP_EVERY_MS}).
+ *
+ * - `AGENTRELAY_AUTOBACKUP_EVERY`  duration like `1h`/`30m`/`6h`. Missing,
+ *                                  unparseable, or non-positive values return
+ *                                  `null` so a typo never silently disables the
+ *                                  throttle — the caller keeps its safe default.
+ *
+ * Only meaningful for the long-running `daemon`; a one-shot `agentrelay tick`
+ * process has no memory of the previous pass.
+ */
+export function autoBackupEveryMsFromEnv(env: NodeJS.ProcessEnv = process.env): number | null {
+  const raw = env.AGENTRELAY_AUTOBACKUP_EVERY?.trim();
+  if (!raw) return null;
+  const parsed = parseDuration(raw);
+  if (parsed === null || parsed <= 0) return null;
+  return parsed;
+}
+
+/**
+ * Pure predicate deciding whether an auto-backup pass should run now, given the
+ * timestamp of the last pass (`lastRunMs`, or `null` if none yet), the current
+ * time (`nowMs`), and the configured minimum interval (`everyMs`).
+ *
+ * - No throttle (`everyMs` unset/≤0) ⇒ always run.
+ * - First pass (`lastRunMs === null`) ⇒ always run, so a snapshot is taken
+ *   promptly on daemon start rather than after a full interval.
+ * - Otherwise run only once `everyMs` has elapsed since the last pass.
+ *
+ * Structurally identical to {@link shouldAutoPrune}, kept separate so the two
+ * maintenance loops stay independent and self-documenting.
+ */
+export function shouldAutoBackup(lastRunMs: number | null, nowMs: number, everyMs?: number): boolean {
+  if (!everyMs || everyMs <= 0) return true;
+  if (lastRunMs === null) return true;
+  return nowMs - lastRunMs >= everyMs;
 }

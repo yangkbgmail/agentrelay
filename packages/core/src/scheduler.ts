@@ -1,5 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { resolveAdapter } from "./adapters.js";
+import { type AutoBackupOptions, type BackupResult, shouldAutoBackup } from "./backup.js";
 import { mapWithConcurrency, normalizeMaxConcurrent } from "./concurrency.js";
 import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
 import type { RelayQueue } from "./queue.js";
@@ -63,8 +64,24 @@ export interface SchedulerOptions {
    * store because every queue mutation is synchronous (see `concurrency.ts`).
    */
   maxConcurrent?: number;
+  /**
+   * When set, a rotating snapshot of the JSON store is written after a tick,
+   * keeping a rolling backup trail for a long-running daemon without a separate
+   * `agentrelay backup` cron. `null`/omitted disables auto-backup. Almost always
+   * paired with {@link autoBackupEveryMs} so a fast-polling daemon doesn't write
+   * a snapshot every tick.
+   */
+  autoBackup?: AutoBackupOptions | null;
+  /**
+   * Minimum wall-clock interval (ms) between auto-backup passes. The first tick
+   * always backs up; `undefined`/`0` writes a snapshot every tick. Only affects
+   * the long-running scheduler — a fresh process starts with no prior-pass memory.
+   */
+  autoBackupEveryMs?: number;
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
+  /** Called with the result of each auto-backup pass that actually ran (for logging). */
+  onBackup?: (result: BackupResult) => void;
   /**
    * Called at the end of every tick with the tick's reference time, whether or
    * not any job was due. The daemon uses this to refresh its liveness heartbeat
@@ -92,10 +109,14 @@ export class RelayScheduler {
   private autoPrune: PruneOptions | null;
   private autoPruneEveryMs: number;
   private autoPruneEveryTicks: number;
+  private autoBackup: AutoBackupOptions | null;
+  private autoBackupEveryMs: number;
   private maxConcurrent: number;
   private lastPruneAtMs: number | null = null;
+  private lastBackupAtMs: number | null = null;
   private pruneTickCounter = 0;
   private onPrune?: (pruned: RelayJob[]) => void;
+  private onBackup?: (result: BackupResult) => void;
   private onTick?: (referenceTime: Date) => void | Promise<void>;
   private timer: ReturnType<typeof setInterval> | null = null;
 
@@ -110,8 +131,11 @@ export class RelayScheduler {
     this.autoPrune = options.autoPrune ?? null;
     this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
+    this.autoBackup = options.autoBackup ?? null;
+    this.autoBackupEveryMs = options.autoBackupEveryMs ?? 0;
     this.maxConcurrent = normalizeMaxConcurrent(options.maxConcurrent);
     this.onPrune = options.onPrune;
+    this.onBackup = options.onBackup;
     this.onTick = options.onTick;
   }
 
@@ -134,6 +158,8 @@ export class RelayScheduler {
     // stay in due-order regardless of which resume finishes first.
     const processed = await mapWithConcurrency(due, this.maxConcurrent, (job) => this.resume(job, referenceTime));
     this.runAutoPrune(referenceTime);
+    // Snapshot after pruning so the backup reflects the post-maintenance store.
+    this.runAutoBackup(referenceTime);
     // Refresh liveness last, so a heartbeat write reflects a fully completed
     // tick. Best-effort: a failing hook must never stop the relay loop.
     if (this.onTick) {
@@ -172,6 +198,28 @@ export class RelayScheduler {
       if (pruned.length > 0) this.onPrune?.(pruned);
     } catch {
       // Ignore — bounding the store is best-effort and must not stop relaying.
+    }
+  }
+
+  /**
+   * Write a rotating store snapshot after a tick when auto-backup is configured.
+   * Like auto-prune, this is best-effort store maintenance: any failure is
+   * swallowed so a backup can never break the relay loop. Passes are throttled by
+   * wall-clock time (`autoBackupEveryMs`) so a fast-polling daemon doesn't write a
+   * snapshot on every tick; the first tick always backs up, and the time marker
+   * advances only when a pass actually runs. The tick's `referenceTime` is reused
+   * as the snapshot timestamp so the filename is deterministic alongside the tick.
+   */
+  private runAutoBackup(referenceTime: Date): void {
+    if (!this.autoBackup) return;
+    const nowMs = referenceTime.getTime();
+    if (!shouldAutoBackup(this.lastBackupAtMs, nowMs, this.autoBackupEveryMs)) return;
+    this.lastBackupAtMs = nowMs;
+    try {
+      const result = this.queue.backup({ keepLast: this.autoBackup.keepLast, now: referenceTime });
+      this.onBackup?.(result);
+    } catch {
+      // Ignore — snapshotting is best-effort and must not stop relaying.
     }
   }
 

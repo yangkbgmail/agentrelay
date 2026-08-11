@@ -28,6 +28,9 @@ import type {
   WritableFacts,
 } from "@agentrelay/core";
 import {
+  type AutoBackupOptions,
+  autoBackupEveryMsFromEnv,
+  autoBackupOptionsFromEnv,
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
@@ -38,6 +41,7 @@ import {
   canRequeue,
   configToJson,
   countActiveJobs,
+  DEFAULT_AUTOBACKUP_EVERY_MS,
   daemonHeartbeatPath,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
@@ -358,6 +362,14 @@ function autoPruneBanner(
   return parts.length ? ` (auto-prune on, ${parts.join(" + ")})` : " (auto-prune on)";
 }
 
+/** Human-readable "(auto-backup on, ...)" suffix for the daemon startup banner. */
+function autoBackupBanner(autoBackup: AutoBackupOptions | null, everyMs: number): string {
+  if (!autoBackup) return "";
+  const parts: string[] = [`every ${Math.round(everyMs / 1000)}s`];
+  if (autoBackup.keepLast !== undefined) parts.push(`keep ${autoBackup.keepLast}`);
+  return ` (auto-backup on, ${parts.join(", ")})`;
+}
+
 export function startDaemon(options: DaemonOptions = {}) {
   const storePath = options.storePath ?? defaultStorePath();
   const queue = openQueue(storePath);
@@ -365,6 +377,10 @@ export function startDaemon(options: DaemonOptions = {}) {
   const autoPrune = autoPruneOptionsFromEnv();
   const autoPruneEveryMs = autoPruneEveryMsFromEnv() ?? undefined;
   const autoPruneEveryTicks = autoPruneEveryTicksFromEnv() ?? undefined;
+  const autoBackup = autoBackupOptionsFromEnv();
+  // Unset throttle falls back to the safe hourly default so opting in never
+  // writes a snapshot on every poll (each pass creates a file — see backup.ts).
+  const autoBackupEveryMs = autoBackupEveryMsFromEnv() ?? DEFAULT_AUTOBACKUP_EVERY_MS;
   const maxConcurrent = maxConcurrentFromEnv();
   const pollIntervalMs = options.pollIntervalMs ?? 30_000;
   const logLine = (line: string) => {
@@ -392,7 +408,10 @@ export function startDaemon(options: DaemonOptions = {}) {
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
+    autoBackup,
+    autoBackupEveryMs,
     onPrune: (pruned) => logLine(`[agentrelay] auto-pruned ${pruned.length} finished job(s)`),
+    onBackup: (result) => logLine(`[agentrelay] auto-backup: snapshot of ${result.jobCount} job(s) -> ${result.path}`),
     onTick: (referenceTime) => beat(referenceTime),
     notify: async (payload) => {
       logLine(`[agentrelay] ${payload.event} — ${payload.project}: ${payload.message}`);
@@ -414,7 +433,8 @@ export function startDaemon(options: DaemonOptions = {}) {
     `[agentrelay] daemon started, watching ${storePath} every ${pollIntervalMs / 1000}s` +
       (remoteNotify ? " (notifications on)" : "") +
       (maxConcurrent > 1 ? ` (max ${maxConcurrent} concurrent)` : "") +
-      autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks)
+      autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks) +
+      autoBackupBanner(autoBackup, autoBackupEveryMs)
   );
   return scheduler;
 }
@@ -429,6 +449,9 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent: maxConcurrentFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
+    // A one-shot tick has no prior-pass memory, so the wall-clock throttle is a
+    // no-op here (documented for auto-prune too): each invoked tick snapshots.
+    autoBackup: autoBackupOptionsFromEnv(),
   });
   const processed = await scheduler.tick();
   // Record that a (typically cron-driven) tick ran, so `doctor` can tell the
