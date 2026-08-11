@@ -810,6 +810,23 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay completion fish` — bash·zsh만 지원하던 쉘 탭 완성에 fish 셸 추가(자기 발굴 항목).
+      (완료 — fish는 널리 쓰이는 세 번째 주요 셸인데 completion은 bash/zsh만 방출해, fish 사용자는 탭
+      완성을 전혀 못 썼다. core `completion.ts`의 `CompletionShell` 유니온·`COMPLETION_SHELLS`에 `"fish"`
+      추가 + `generateCompletion` 디스패치에 `generateFish` 배선. bash/zsh는 단일 디스패치 함수(case 문)를
+      쓰지만, fish는 선언적 `complete -c` 규칙 목록을 fish 표준 술어(`__fish_use_subcommand`/
+      `__fish_seen_subcommand_from`)로 가드하는 방식이라 case 문이 없다: 최상위 커맨드명은 서브커맨드
+      선택 전에만, 각 커맨드 플래그는 그 이름이 라인에 있을 때, 부모 커맨드(`config`)는 서브커맨드가
+      골라지기 전까지 서브명을 제안. 순수 `fishFlagFragment`가 플래그 토큰을 fish 형식으로 변환(long
+      `--json`→`-l json`, short `-r`→`-s r`, 그 외 선행 대시는 `-o`). 기존 `assertSafeToken` 안전
+      가드 재사용(쉘 메타문자 커맨드/플래그는 throw). `-f`로 파일 완성 억제. spec은 여전히 라이브
+      커맨더 프로그램에서 파생돼 실제 커맨드 표면과 절대 드리프트 안 함. CLI `cli.ts` completion 커맨드
+      description·help 예시에 fish 추가(기존 `isCompletionShell` 검증·미지 셸 exit 1 로직 재사용).
+      completion.test.ts +7(fish 헤더·최상위 커맨드/글로벌 옵션·long→-l/short→-s 매핑·부모 서브커맨드
+      가드·서브커맨드별 플래그·중복 제거·fish 안전 throw), 기존 "fish는 무효" 단언은 유효로 갱신. 실제
+      빌드 CLI e2e로 `completion fish`가 라이브 커맨드 표면(config get/set/unset 포함) 방출·미지 셸
+      `powershell` exit 1 검증. branch `claude/completion-fish`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

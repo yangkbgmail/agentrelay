@@ -2142,3 +2142,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay completion fish` fish 셸 탭 완성 추가] (2026-08-11, 무인 자율 세션, branch `claude/completion-fish`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR이 포화된 축(parser/watch/stats/tz/heatmap)을 피해, 어떤 열린
+  PR에도 없는 명확한 갭을 자기 발굴했다 — `completion`은 bash/zsh만 방출해 fish(널리 쓰이는 세 번째
+  주요 셸) 사용자는 탭 완성을 전혀 못 썼다.
+- **한 일 (branch `claude/completion-fish`):**
+  - core `completion.ts`: `CompletionShell` 유니온·`COMPLETION_SHELLS`에 `"fish"` 추가, `generateCompletion`
+    디스패치에 `generateFish` 배선. fish는 bash/zsh의 단일 case-문 디스패치와 달리 선언적 `complete -c`
+    규칙을 fish 표준 술어(`__fish_use_subcommand`/`__fish_seen_subcommand_from`)로 가드: 최상위 커맨드명은
+    서브커맨드 선택 전에만, 각 커맨드 플래그는 이름이 라인에 있을 때, 부모 커맨드(`config`)는 서브가
+    골라지기 전까지 서브명 제안. 순수 `fishFlagFragment`가 플래그를 fish 형식으로 변환(long→`-l`, 단문자
+    short→`-s`, 그 외 대시→`-o`). 기존 `assertSafeToken` 안전 가드 재사용, `-f`로 파일 완성 억제. spec은
+    여전히 라이브 커맨더 프로그램 파생이라 실제 표면과 드리프트 없음.
+  - CLI `cli.ts`: completion 커맨드 description·help 예시에 fish 추가. 기존 `isCompletionShell` 검증·
+    미지 셸 exit 1 경로 재사용(신규 배선 최소).
+  - `completion.test.ts` +7(fish 헤더·최상위 커맨드/글로벌 옵션·long→-l/short→-s 매핑·부모 서브커맨드
+    가드·서브커맨드별 플래그·중복 제거·fish 안전 throw). 기존 "fish는 무효" 단언을 유효로 갱신.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 622** completion +7 = 21, **cli 343/1skip**). 실제 빌드 CLI e2e(mock 아님):
+  `completion fish`가 라이브 커맨드 표면(run 플래그·`config get/set/unset` 부모 가드 포함) 방출, 미지 셸
+  `powershell`은 `Unknown shell` + exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
+  라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).

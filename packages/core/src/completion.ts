@@ -11,10 +11,10 @@
 // and deterministic.
 
 /** Shells we can emit a completion script for. */
-export type CompletionShell = "bash" | "zsh";
+export type CompletionShell = "bash" | "zsh" | "fish";
 
 /** Every shell `agentrelay completion` accepts, in a stable order. */
-export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh"] as const;
+export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh", "fish"] as const;
 
 /** Type guard: is `value` one of the shells we support? */
 export function isCompletionShell(value: string): value is CompletionShell {
@@ -86,6 +86,7 @@ export function generateCompletion(shell: CompletionShell, spec: CompletionSpec)
     for (const sub of cmd.subcommands ?? []) assertSafeToken(sub.name, "subcommand name");
   }
   if (shell === "bash") return generateBash(spec);
+  if (shell === "fish") return generateFish(spec);
   return generateZsh(spec);
 }
 
@@ -267,4 +268,89 @@ ${caseArms.join("\n")}
 }
 ${fn} "$@"
 `;
+}
+
+/**
+ * Translate one CLI flag token (`--json`, `-r`, `--show-secrets`) into the
+ * `complete` fragment fish expects: long flags become `-l name`, single-letter
+ * short flags become `-s c`, and any other leading-dash form falls back to the
+ * old-style `-o name`. The token is validated by the caller, so `name` is a bare
+ * word safe to interpolate. Non-flag tokens (defensive) are dropped.
+ */
+function fishFlagFragment(flag: string): string | null {
+  if (flag.startsWith("--")) return `-l ${flag.slice(2)}`;
+  if (flag.startsWith("-")) {
+    const rest = flag.slice(1);
+    return rest.length === 1 ? `-s ${rest}` : `-o ${rest}`;
+  }
+  return null;
+}
+
+/**
+ * Fish: a flat list of `complete -c <program>` rules, guarded by fish's stock
+ * `__fish_use_subcommand` / `__fish_seen_subcommand_from` predicates. Fish drives
+ * completion from these declarative rules rather than a single dispatch function,
+ * so — unlike bash/zsh — there's no case statement: top-level command names are
+ * offered only before a subcommand is chosen, each command's flags appear once
+ * its name is on the line, and parent commands (e.g. `config`) offer their
+ * subcommand names until one is picked.
+ */
+function generateFish(spec: CompletionSpec): string {
+  const prog = spec.program;
+  const lines: string[] = [
+    `# fish completion for ${prog}`,
+    `# Install: place this file at ~/.config/fish/completions/${prog}.fish`,
+    "",
+  ];
+
+  // Top-level subcommands, only offered before any subcommand is present. `-f`
+  // disables file completion so we don't clutter the list with filenames.
+  const topNames = uniq(spec.commands.map((c) => c.name).filter((n) => n.length > 0));
+  for (const n of topNames) assertSafeToken(n, "command name");
+  lines.push("# top-level subcommands");
+  for (const n of topNames) {
+    lines.push(`complete -c ${prog} -f -n __fish_use_subcommand -a ${n}`);
+  }
+  lines.push("");
+
+  // Global options: also offered when no subcommand is present yet.
+  const globalFlags = uniq([...spec.options, "--help", "--version"].filter((o) => o.length > 0));
+  for (const o of globalFlags) assertSafeToken(o, "global option");
+  lines.push("# global options");
+  for (const o of globalFlags) {
+    const frag = fishFlagFragment(o);
+    if (frag) lines.push(`complete -c ${prog} -n __fish_use_subcommand ${frag}`);
+  }
+  lines.push("");
+
+  for (const cmd of spec.commands) {
+    const hasSubs = (cmd.subcommands?.length ?? 0) > 0;
+    lines.push(`# ${cmd.name}`);
+    if (hasSubs) {
+      const subs = cmd.subcommands ?? [];
+      const subNames = uniq(subs.map((s) => s.name).filter((n) => n.length > 0));
+      for (const n of subNames) assertSafeToken(n, "subcommand name");
+      // Offer this parent's subcommand names until one of them is on the line.
+      const guard = `__fish_seen_subcommand_from ${cmd.name}; and not __fish_seen_subcommand_from ${subNames.join(" ")}`;
+      lines.push(`complete -c ${prog} -f -n '${guard}' -a '${subNames.join(" ")}'`);
+      for (const sub of subs) {
+        const subFlags = uniq([...sub.options, "--help"].filter((o) => o.length > 0));
+        for (const o of subFlags) assertSafeToken(o, "subcommand option");
+        for (const o of subFlags) {
+          const frag = fishFlagFragment(o);
+          if (frag) lines.push(`complete -c ${prog} -n '__fish_seen_subcommand_from ${sub.name}' ${frag}`);
+        }
+      }
+    } else {
+      const flags = uniq([...cmd.options, "--help"].filter((o) => o.length > 0));
+      for (const o of flags) assertSafeToken(o, "command option");
+      for (const o of flags) {
+        const frag = fishFlagFragment(o);
+        if (frag) lines.push(`complete -c ${prog} -n '__fish_seen_subcommand_from ${cmd.name}' ${frag}`);
+      }
+    }
+    lines.push("");
+  }
+
+  return `${lines.join("\n")}`;
 }
