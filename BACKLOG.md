@@ -184,6 +184,12 @@
       tick-mode 하트비트 기록(cron 사용자도 생존 신호). `runDoctor`가 `nowMs` 주입 가능(테스트용).
       heartbeat.test.ts 13 + doctor daemon 6 + scheduler onTick 2 + CLI 7케이스, 실제 빌드 CLI로
       before/after·daemon 수명주기·stale 경고 e2e 검증. branch `claude/wizardly-pascal-hb7k2m`)
+- [x] 👷 `agentrelay prompt` — 셸 프롬프트(PS1)/tmux status/starship에 끼워 넣는 초압축 단일 라인
+      큐 상태 세그먼트. `summary`(사람용 개요)·`status`(전체 테이블)와 달리 유휴 시 무출력, 색 기본 OFF,
+      bad scope·읽기 실패도 exit 0으로 절대 프롬프트를 깨지 않음.
+      (완료 — CLI `prompt.ts` 순수 함수(`promptCounts`/`renderPrompt`/`renderPromptJson`), 글리프
+      `⏳3 ▶1 (1h 3m)` + `--plain`/`--zero`/`--color`/`--json` + scope 필터, `formatCountdown` 재사용.
+      prompt.test.ts 14케이스, 실제 빌드 CLI e2e 검증. branch `claude/wizardly-pascal-2w8184`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
