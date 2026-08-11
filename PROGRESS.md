@@ -2142,3 +2142,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — 핵심 스토어 `RelayQueue` 유닛 테스트 신설] (2026-08-11, 무인 자율 세션, branch `claude/wizardly-pascal-yq1l4v`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR이 100개 이상으로 극도로 포화(parser/watch/stats/tz/heatmap/
+  export/notify/completion 등 거의 모든 피처 축이 중복). 그래서 **새 명령을 하나 더 쌓는 대신**, SPEC §8이
+  명시한 "테스트 커버리지 확대(엣지 케이스·실패 주입)"를 골라, 어떤 열린 PR에도 없는 **명확한 갭**을 채웠다 —
+  시스템의 단일 진실원인 JSON 파일 스토어 `RelayQueue`에 **직접 유닛 테스트가 전무**했다(어떤 테스트 파일도
+  `RelayQueue`를 참조하지 않았고, 모든 상태 전이·영속성·손상 복구가 CLI e2e로만 간접 검증됨).
+- **한 일 (branch `claude/wizardly-pascal-yq1l4v`):**
+  - `packages/core/src/queue.test.ts` 신설(31케이스). 목업이 아니라 **실제 임시 디렉터리에 실제 파일을 써서**
+    온-디스크 동작(원자적 쓰기·손상 복구·외부 프로세스 쓰기)을 검증. 각 테스트가 자기 temp dir을 만들고 정리.
+  - 순수 함수: `compareJobsNewestFirst`(createdAt desc·id tiebreak·동일 입력에 정확히 0=반대칭성)·
+    `corruptBackupPath`(파일시스템-safe 타임스탬프, `:`/`.` 부재).
+  - `enqueue`(기본값·원자적 영속 왕복·다중 인스턴스 append 병합), 뮤테이터 전부(markWaitingForReset ±provenance·
+    markRetryScheduled·markResuming attempts 증가·markCompleted/markFailed·markCancelled resetAt 클리어·
+    requeueNow attempts 리셋·미지 id no-op·updatedAt 갱신), `listDue`(상태+경계 포함), `refresh`(외부 쓰기 반영).
+  - 실패 주입/손상 복구: 부재 파일=빈 큐(백업/콜백 없음)·공백 파일=빈 큐(손상 아님)·파싱 불가→`.corrupt-*` 보존 후
+    빈 큐(이후 flush가 백업 파괴 안 함 회귀 방지)·비배열 루트=손상. `prune`/`backup`/`restore`/`previewRestore`/
+    `importJobs` 왕복·안전장치 커버.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 117파일)→`pnpm test` 전
+  패키지 통과(**core 614→645** queue +31 / cli 343/1skip / dashboard 9). 프로덕션 코드 변경 0줄(순수 테스트 추가)
+  이라 회귀 위험 없음.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `scheduler.ts`(재개 루프
+  오케스트레이션)·`adapters.ts` 유닛 테스트 확대(둘 다 직접 테스트 부족). tz/heatmap/parser/watch/신규 명령은
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
