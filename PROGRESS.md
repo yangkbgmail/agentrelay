@@ -2142,3 +2142,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+---
+
+### [세션 68 — `agentrelay eta --watch` 라이브 캐치업 카운트다운] (2026-08-11, 무인 자율 세션, branch `claude/wizardly-pascal-sd6wbv`)
+
+- **왜:** BACKLOG의 👷 항목이 전부 완료라, CLAUDE.md 지침대로 새 개선 항목을 발굴. 직전 세션(67)이
+  "다음 할 일"로 지목한 `summary --watch`를 골랐으나, **동시 실행된 다른 세션이 PR #584에서 이미 `summary
+  --watch`를 구현**(CI 그린, 내 PR보다 먼저 생성)한 것을 발견. 이 저장소의 "통합 우선" 관례(세션 60~65)에
+  따라 중복을 피하고, 같은 watch 갭이 있던 `eta`(큐 캐치업 카운트다운)에만 집중해 고유 가치를 남겼다.
+  watch 계열(status/upcoming/overdue/tools/projects/stats)에 `eta`를 더해, #584의 summary와 합쳐 조회 명령
+  watch 패밀리를 완성한다.
+- **한 일 (branch `claude/wizardly-pascal-sd6wbv`):**
+  - CLI `eta.ts`에 순수 `renderEtaWatchFrame(eta, storePath, intervalMs, now)` 신설 — 다른 watch-frame와
+    동일한 title/meta 라이브 배너 + 항상 컬러인 `renderEta` 본문(`now` 주입식이라 TTY·시계 없이 단위 테스트).
+  - `cli.ts`에 세션 52의 공용 `startWatchLoop`을 재사용하는 `runEtaWatch`(매 프레임 `computeQueueEta`를
+    fresh `now`로 재구성 → 캐치업 카운트다운 인플레이스 감소·화면 clear; eta는 큐 전체 대상이라 스코프 없음).
+    `eta`에 `-w, --watch [seconds]` 배선 — `--json`이 `--watch`보다 우선(일회성 머신 덤프), 인터벌 기본 2s,
+    addHelpText 예시·completion 자동 포함.
+  - 새 파서/스케줄러/core 로직 0줄 — 기존 검증된 `renderEta`/`computeQueueEta` 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 614·cli 347/1skip·dashboard 9**, eta +2). **실제 빌드 CLI e2e**(mock 아님): 대기 1+완료 1
+  임시 스토어로 `eta --watch 1`이 화면 clear·라이브 배너·`1h 30m` 카운트다운을 프레임마다 재렌더,
+  `eta --json --watch`가 json 우선, `--help`·`completion bash`에 `eta --watch` 등록 확인.
+- **비고:** 당초 이 브랜치는 `summary --watch`도 포함했으나, 동시 세션 PR #584가 먼저 커버·CI 그린인 것을
+  확인하고 통합-우선 관례에 따라 summary 부분을 되돌려 중복을 제거(현재 브랜치는 eta --watch만). #584가
+  summary --watch를 담당.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(#585, CI 초록 시 병합). 후속 인접 후보: timing 블록
+  변동계수(CV=stdev/mean), `agentrelay tail <id>`(잡 출력 라이브 팔로우). README/ARCHITECTURE(🧭 코워크).
