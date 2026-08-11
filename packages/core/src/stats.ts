@@ -76,6 +76,15 @@ export interface TimingStats {
    * IQR is the signature of a few heavy outliers dragging the mean.
    */
   stdevResolutionMs: number | null;
+  /**
+   * Sum of every resolved job's lifecycle span (ms), or null when none. Where
+   * avg/percentiles describe a *typical* job, this is the relay's total footprint
+   * — the cumulative wall-clock it spent babysitting jobs from first rate-limit
+   * to terminal state. It's the headline "how much waiting did AgentRelay absorb
+   * for me?" number: equals `avgResolutionMs × resolvedCount` by definition, but
+   * surfaced directly so the aggregate value doesn't have to be back-computed.
+   */
+  totalResolutionMs: number | null;
 }
 
 export interface RelayStats {
@@ -452,11 +461,13 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      totalResolutionMs: null,
     };
   } else {
     // Sort once ascending; percentiles read from it, min/max are its ends.
     const sorted = [...resolutionDurations].sort((a, b) => a - b);
-    const mean = sorted.reduce((sum, d) => sum + d, 0) / resolvedCount;
+    const total = sorted.reduce((sum, d) => sum + d, 0);
+    const mean = total / resolvedCount;
     const p25 = percentile(sorted, 0.25);
     const p75 = percentile(sorted, 0.75);
     timing = {
@@ -472,6 +483,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p75ResolutionMs: p75,
       iqrResolutionMs: p75 - p25,
       stdevResolutionMs: populationStdev(sorted, mean),
+      totalResolutionMs: total,
     };
   }
 

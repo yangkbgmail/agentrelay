@@ -93,6 +93,7 @@ export function renderStats(
   if (timing.resolvedCount > 0) {
     lines.push("");
     lines.push(b("resolution time") + d(" (completed + failed)"));
+    lines.push(`  total babysat: ${formatDurationMs(timing.totalResolutionMs ?? 0)}`);
     lines.push(
       `  avg ${formatDurationMs(timing.avgResolutionMs ?? 0)}` +
         `   min ${formatDurationMs(timing.minResolutionMs ?? 0)}` +

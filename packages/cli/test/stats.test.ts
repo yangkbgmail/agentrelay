@@ -125,6 +125,8 @@ describe("renderStats", () => {
     ]);
     const out = renderStats(stats, { now: NOW });
     expect(out).toContain("resolution time");
+    // total babysat = 1h + 3h = 4h across the two resolved jobs
+    expect(out).toContain("total babysat: 4h 0m");
     expect(out).toContain("avg 2h 0m");
     expect(out).toContain("min 1h 0m");
     expect(out).toContain("max 3h 0m");

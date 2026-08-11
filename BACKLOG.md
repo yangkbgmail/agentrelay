@@ -810,6 +810,17 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay stats` 해결 시간 총합(total babysat) — 중심/꼬리/퍼짐 지표에 더해 "릴레이가
+      돌본 누적 wall-clock"을 노출. 제품 핵심 가치("릴레이 효과 한눈에")에 직결되는 집계 지표.
+      (완료 — core `stats.ts`의 `TimingStats`에 `totalResolutionMs`(resolved 잡 라이프사이클 span의
+      합, resolved 0개면 null) 추가. avg/percentile이 *전형* 잡을 기술한다면 이건 릴레이의 총 발자국 —
+      정의상 `avg × resolvedCount`지만 되계산 없이 직접 노출. 이미 계산한 정렬 배열의 reduce 합을
+      mean 산출과 공유해 새 순회 0줄. CLI `stats.ts` resolution-time 블록 머리에 `total babysat: …`
+      라인 추가, `--json`은 timing 전체 직렬화라 자동 노출. cancelled·active 잡은 avg와 동일 정책으로
+      제외. core stats.test +2(합=avg×count·미해결 스킵, 단일 잡 total 단언), cli stats.test render
+      단언 확장. 실제 빌드 CLI e2e로 completed 1h+failed 3h→`total babysat: 4h 0m`·JSON
+      `totalResolutionMs: 14400000`(cancelled 9h 제외) 검증. branch `claude/wizardly-pascal-yoyt01`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

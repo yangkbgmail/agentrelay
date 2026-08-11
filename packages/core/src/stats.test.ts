@@ -59,6 +59,7 @@ describe("computeStats", () => {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      totalResolutionMs: null,
     });
   });
 
@@ -165,6 +166,22 @@ describe("computeStats", () => {
     expect(stats.timing.minResolutionMs).toBe(3_600_000);
     expect(stats.timing.maxResolutionMs).toBe(10_800_000);
     expect(stats.timing.avgResolutionMs).toBe(7_200_000); // (1h + 3h) / 2 = 2h
+    // total babysat = 1h + 3h = 4h = avg × resolvedCount
+    expect(stats.timing.totalResolutionMs).toBe(14_400_000);
+    expect(stats.timing.totalResolutionMs).toBe((stats.timing.avgResolutionMs ?? 0) * stats.timing.resolvedCount);
+  });
+
+  it("sums total babysat time across resolved jobs, skipping unresolved ones", () => {
+    const at = (h: number) => `2026-07-13T${String(h).padStart(2, "0")}:00:00.000Z`;
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(2) }), // 2h
+      job({ status: "failed", createdAt: at(0), updatedAt: at(5) }), // 5h
+      job({ status: "cancelled", createdAt: at(0), updatedAt: at(9) }), // excluded
+      job({ status: "queued", createdAt: at(0), updatedAt: at(3) }), // excluded (active)
+    ]);
+    // only the 2h + 5h resolved jobs contribute
+    expect(stats.timing.resolvedCount).toBe(2);
+    expect(stats.timing.totalResolutionMs).toBe(7 * 3_600_000);
   });
 
   it("reports median and p90 over an odd number of resolved jobs", () => {
@@ -234,6 +251,8 @@ describe("computeStats", () => {
     expect(stats.timing.p75ResolutionMs).toBe(3_600_000);
     expect(stats.timing.iqrResolutionMs).toBe(0);
     expect(stats.timing.stdevResolutionMs).toBe(0);
+    // a single 1h resolution: total equals that one span
+    expect(stats.timing.totalResolutionMs).toBe(3_600_000);
   });
 
   it("excludes cancelled and still-active jobs from resolution timing", () => {
@@ -292,6 +311,7 @@ describe("computeStats", () => {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      totalResolutionMs: null,
     });
   });
 });
