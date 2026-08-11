@@ -810,6 +810,25 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay calendar` — 재개 스케줄을 iCalendar(.ics, RFC 5545)로 내보내 캘린더 앱(구글/애플/
+      아웃룩)에서 "언제 에이전트가 재개되나"를 보거나 구독. 자기 발굴 항목 — `next`/`upcoming`/`eta`는
+      터미널용, 이건 같은 데이터를 캘린더로 이식하는 빠진 짝(백로그에 calendar/ics 전무).
+      (완료 — core `calendar.ts` 신설(순수·파일시스템/시계 미접촉, 유일한 시계 사용은 주입 `now`→DTSTAMP):
+      `jobsToIcs(jobs, {now?,durationMinutes?,calendarName?,prodId?})`→`CalendarResult`(ics·eventCount).
+      선정은 `buildUpcomingTimeline` 재사용 — `upcoming`/`next`와 **동일 집합·동일 순서**(waiting_for_reset +
+      파싱 가능 resetAt, 가장 이른 리셋 우선)라 세 표면이 절대 어긋나지 않음. 잡마다 VEVENT 1개(UID=
+      `<id>@agentrelay`로 재생성 시 중복 대신 갱신, DTSTART=리셋 순간, DTEND=+durationMinutes[기본 15],
+      SUMMARY/DESCRIPTION/CATEGORIES). 순수 헬퍼 `formatIcsUtc`(epoch→`YYYYMMDDTHHMMSSZ`)·`escapeIcsText`
+      (RFC 5545 §3.3.11: `\`/`;`/`,`/개행 이스케이프)·`foldIcsLine`(§3.1 75옥텟 라인폴딩, 멀티바이트
+      코드포인트 안 쪼갬)로 모든 파서가 받는 유효 .ics 보장(CRLF 종단). 빈 큐도 유효한 event-less VCALENDAR.
+      CLI `commands.ts` `writeCalendar`(스토어 읽기+선택적 파일 쓰기만, 나머지는 core 위임, .ics는 이미
+      CRLF 종단이라 바이트 정확 기록), `cli.ts` `agentrelay calendar [-o/--out] [--duration N] [--name]
+      [-t/--tool] [-p/--project] [--since/--until]`. 파일 출력 시 상태는 stderr(stdout 청정), 잘못된
+      duration은 exit 1, `--status`는 정의상 waiting 집합이라 의도적 미노출. 스코프 필터는 기존 검증된
+      `buildScope`/`scopeJobs` 재사용. core calendar 16 + cli writeCalendar 5 신규 테스트, 실제 빌드 CLI
+      e2e로 정렬(가장 이른 우선)·완료 잡 제외·이스케이핑·라인폴딩·duration/project 필터·파일 쓰기·help/
+      completion 노출 검증. branch `claude/calendar-ics`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
