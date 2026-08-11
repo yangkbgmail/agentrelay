@@ -810,6 +810,20 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay eta --watch [seconds]` — 큐 캐치업 카운트다운을 라이브로 갱신(가장 늦은 리셋까지의
+      "언제 다 따라잡히나"가 째깍째깍 줄어드는 뷰). watch 계열(status/upcoming/overdue/tools/projects/stats)의
+      마지막 남은 조회 명령인 `eta`에 확장 — 이제 watch 가능한 전 조회 명령이 라이브 뷰를 가진다.
+      (완료 — CLI `eta.ts`에 순수 `renderEtaWatchFrame(eta, storePath, intervalMs, now)` 신설
+      (`status`/`overdue`의 watch-frame와 동일 title/meta 블록 + 항상 컬러인 `renderEta` 본문). 세션 52가
+      추출한 공용 `startWatchLoop`을 재사용하는 `runEtaWatch`(매 프레임 스토어 재읽기 + `computeQueueEta`를
+      fresh `now`로 재계산 → 캐치업 카운트다운 live·재개된 잡은 목록에서 빠짐·화면 clear). `eta`는 스코프
+      필터가 없어 watch 계열 중 가장 단순. `eta`에 `-w, --watch [seconds]` 배선: `--json`이 `--watch`보다
+      우선(일회성 기계 덤프), `--exit-code`는 무한 루프에서 무의미하므로 watch가 무시, 인터벌 기본 2s,
+      비양수/비수치는 기본값 폴백, addHelpText 예시 + completion 자동 포함. 새 파서/스케줄러/core 로직 0줄 —
+      전부 기존 검증된 `computeQueueEta`/`renderEta` 재사용. cli eta watch-frame 4케이스 신규(=352 통과),
+      실제 빌드 CLI e2e로 화면 clear·라이브 배너·3h 카운트다운·`--json` 우선·help/completion `--watch` 노출
+      검증. branch `claude/wizardly-pascal-2tg5rt`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
