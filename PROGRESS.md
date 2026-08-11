@@ -2142,3 +2142,24 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay overdue --exit-code` 모니터/알림 게이트] (2026-08-11, 무인 자율 세션, branch `claude/wizardly-pascal-5g0c2o`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이라, 자기 발굴로 명확한 갭을 골랐다. `overdue`는 "재개 루프가 죽어
+  잡이 리셋 시각을 넘겼는데도 재개 안 됨"을 잡는 진단 명령인데, 정작 모니터링에 가장 필요한
+  **exit code 신호**가 없었다. `next`(#64)·`eta`는 이미 `--exit-code`로 폴링 루프/알림에 쓰이는데,
+  진단용 거울인 `overdue`만 빠져 있어 cron/systemd/CI가 알림을 걸려면 `--json | jq`로 출력을 파싱해야 했다.
+- **한 일 (branch `claude/wizardly-pascal-5g0c2o`):**
+  - CLI `cli.ts`의 `overdue` 커맨드에 `--exit-code` 옵션 추가: `report.totalOverdue > 0`이면
+    `process.exitCode = 3`(eta의 "still waiting"과 동일 코드), 지연 없으면 0. `--json` 조기 return
+    **전에** 설정해 사람용·기계용 두 뷰 모두 존중, 플래그 미지정 시 항상 0(opt-in·하위호환).
+  - `--grace`·스코프 필터(--tool/--project/--since/--until)와 조합 유지(유예로 걸러진 잡은 지연 판정 X).
+    addHelpText 예시를 `jq` 파이프 대신 `agentrelay overdue --exit-code || alert '...'`로 교체.
+  - 새 core/파서/스케줄러 로직 0줄 — 기존 검증된 `buildOverdueReport.totalOverdue` 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm lint:fix`+`pnpm ci:lint`(Biome 0에러, 116파일)
+  →`pnpm test` 전 패키지 통과(cli 343/1skip 유지). **실제 빌드 CLI e2e**(mock 아님): 빈 스토어→exit 0·
+  미래 리셋 잡→0·과거 리셋 잡→3·플래그 없음→0(opt-in)·`--json --exit-code`→3(+유효 JSON, totalOverdue=1)·
+  `--grace 2h`→0·`--help`에 `--exit-code` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
+  라이브 갱신, `overdue --exit-code`와 짝이 될 `upcoming --exit-code`(대기 잡 있으면 비-제로). tz/heatmap/
+  parser/watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

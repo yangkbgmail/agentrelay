@@ -810,6 +810,21 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay overdue --exit-code` — 지연 재개 리포트를 모니터/알림 게이트로 쓸 수 있게
+      exit code로 상태 반영(0=지연 없음, 3=하나 이상 지연). `next`(#64)·`eta`의 `--exit-code`를
+      진단용 거울인 `overdue`에도 확장. 자기 발굴 항목.
+      (완료 — `overdue`는 지금까지 "재개 루프가 죽었나?"의 답을 텍스트/JSON으로만 줘서, cron/
+      systemd/CI 모니터가 알림을 걸려면 `--json | jq '.report.entries[]'`로 출력을 파싱해야 했다.
+      `next`/`eta`가 이미 쓰는 opt-in `--exit-code` 관례(비-제로=아직 할 일 남음)를 그대로 적용:
+      `report.totalOverdue > 0`이면 `process.exitCode = 3`(eta의 "still waiting"과 동일 코드), 지연
+      없으면 0. `--json` 조기 return **전에** 설정해 사람용·기계용 두 뷰가 모두 exit code를 존중,
+      플래그 없으면 항상 0(하위호환). `--grace`·스코프 필터(--tool/--project/--since/--until)와도
+      조합(유예로 걸러진 잡은 지연으로 안 침). addHelpText 예시를 jq 파이프 대신
+      `agentrelay overdue --exit-code || alert '...'`로 교체. 새 core/파서 로직 0줄 — 기존
+      `buildOverdueReport.totalOverdue` 재사용. 실제 빌드 CLI e2e로 빈 스토어→0·미래 리셋→0·과거
+      리셋→3·플래그 없음→0·`--json --exit-code`→3(+유효 JSON)·`--grace 2h`→0·`--help` 노출 검증.
+      branch `claude/wizardly-pascal-5g0c2o`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -907,6 +907,10 @@ export function buildCli(): Command {
     .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("--json", "Print the report as JSON (machine-readable, for scripts/jq)")
+    .option(
+      "--exit-code",
+      "Reflect state in the exit code (0 = nothing overdue, 3 = one or more jobs are overdue) — for monitors/alerts"
+    )
     .addHelpText(
       "after",
       "\nExamples:\n" +
@@ -914,75 +918,90 @@ export function buildCli(): Command {
         "  agentrelay overdue\n" +
         "  # flag only jobs stuck for more than 5 minutes\n" +
         "  agentrelay overdue --grace 5m\n" +
-        "  # use as a CI/monitor gate\n" +
-        "  test -z \"$(agentrelay overdue --json | jq '.report.entries[]')\"\n" +
+        "  # use as a CI/monitor gate (no jq needed)\n" +
+        "  agentrelay overdue --exit-code || alert 'relay resume loop is stuck'\n" +
         "  # live view, spans growing every 2s\n" +
         "  agentrelay overdue --watch\n" +
         "\nA non-empty list usually means the resume loop is down — check\n" +
         "`agentrelay health` and `agentrelay doctor`."
     )
-    .action((opts: ScopeOpts & { limit?: string; grace?: string; json?: boolean; watch?: string | boolean }) => {
-      const { store } = program.opts();
-      const now = Date.now();
+    .action(
+      (
+        opts: ScopeOpts & {
+          limit?: string;
+          grace?: string;
+          json?: boolean;
+          watch?: string | boolean;
+          exitCode?: boolean;
+        }
+      ) => {
+        const { store } = program.opts();
+        const now = Date.now();
 
-      let limit: number | undefined;
-      if (opts.limit !== undefined) {
-        const n = Number.parseInt(opts.limit, 10);
-        if (!Number.isInteger(n) || n < 1) {
-          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+        let limit: number | undefined;
+        if (opts.limit !== undefined) {
+          const n = Number.parseInt(opts.limit, 10);
+          if (!Number.isInteger(n) || n < 1) {
+            console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+            process.exitCode = 1;
+            return;
+          }
+          limit = n;
+        }
+
+        let graceMs = 0;
+        if (opts.grace !== undefined) {
+          const ms = parseDuration(opts.grace);
+          if (ms === null || ms < 0) {
+            console.error(`Invalid --grace value "${opts.grace}". Use a duration like 60s, 5m, or 1h.`);
+            process.exitCode = 1;
+            return;
+          }
+          graceMs = ms;
+        }
+
+        const built = buildScope(opts, now);
+        if ("error" in built) {
+          console.error(built.error);
           process.exitCode = 1;
           return;
         }
-        limit = n;
-      }
 
-      let graceMs = 0;
-      if (opts.grace !== undefined) {
-        const ms = parseDuration(opts.grace);
-        if (ms === null || ms < 0) {
-          console.error(`Invalid --grace value "${opts.grace}". Use a duration like 60s, 5m, or 1h.`);
-          process.exitCode = 1;
+        const scopeNote = built.active ? built.note : undefined;
+
+        // Live view: validate flags above (limit/grace/scope) first so a bad value
+        // still exits 1 instead of spinning a broken watch loop. --json takes
+        // precedence over --watch (a one-shot machine dump, not a live TTY view).
+        if (opts.watch !== undefined && !opts.json) {
+          const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+          const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+          runOverdueWatch(store, intervalMs, built.scope, graceMs, limit, scopeNote);
+          return; // setInterval keeps the process alive.
+        }
+
+        const allJobs = listStatus(store);
+        const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+        const report = buildOverdueReport(jobs, now, { graceMs, limit });
+
+        // Opt-in exit code: 0 when nothing is overdue (the resume loop is keeping
+        // up), 3 when one or more jobs are past their reset (a likely-stuck loop).
+        // Set before the --json early return so both views honor it.
+        if (opts.exitCode && report.totalOverdue > 0) process.exitCode = 3;
+
+        if (opts.json) {
+          console.log(
+            renderOverdueJson({
+              storePath: store ?? defaultStorePath(),
+              generatedAt: new Date().toISOString(),
+              scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+              report,
+            })
+          );
           return;
         }
-        graceMs = ms;
+        console.log(renderOverdue(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
       }
-
-      const built = buildScope(opts, now);
-      if ("error" in built) {
-        console.error(built.error);
-        process.exitCode = 1;
-        return;
-      }
-
-      const scopeNote = built.active ? built.note : undefined;
-
-      // Live view: validate flags above (limit/grace/scope) first so a bad value
-      // still exits 1 instead of spinning a broken watch loop. --json takes
-      // precedence over --watch (a one-shot machine dump, not a live TTY view).
-      if (opts.watch !== undefined && !opts.json) {
-        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
-        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
-        runOverdueWatch(store, intervalMs, built.scope, graceMs, limit, scopeNote);
-        return; // setInterval keeps the process alive.
-      }
-
-      const allJobs = listStatus(store);
-      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
-      const report = buildOverdueReport(jobs, now, { graceMs, limit });
-
-      if (opts.json) {
-        console.log(
-          renderOverdueJson({
-            storePath: store ?? defaultStorePath(),
-            generatedAt: new Date().toISOString(),
-            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
-            report,
-          })
-        );
-        return;
-      }
-      console.log(renderOverdue(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
-    });
+    );
 
   program
     .command("wait")
