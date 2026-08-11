@@ -2142,3 +2142,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay summary --watch` 라이브 큐 개요] (2026-08-11, 무인 자율 세션, branch `claude/wizardly-pascal-p2dpzm`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 67이 신설한 `summary`(한눈 큐 개요)에 대해 직전 세션이 "다음 할 일"로
+  지목한 `--watch` 라이브 갱신을 구현했다. `status`/`stats`/`tools`/`projects`는 모두 `--watch`가 있는데
+  `summary`만 없어, 대시보드 대신 터미널 한 구석에 "지금 큐가 뭐하나"를 붙박아 두는 실사용 갭이었다.
+- **한 일 (branch `claude/wizardly-pascal-p2dpzm`):**
+  - CLI `summary.ts` `renderSummary`에 `scopeNote` 옵션 추가 — 활성 필터 시 `scope: …`를 상단에 1회 에코
+    (`tools`/`projects` 렌더러와 동일 관례). 스코프가 비었을 때 first-run 힌트 대신 `NO_SCOPE_MATCH_MESSAGE`
+    ("No jobs match the current filter.")를 반환하도록 분기.
+  - 순수 `renderSummaryWatchFrame(summary, storePath, intervalMs, now, scopeNote)` 신설 — 타이틀
+    `agentrelay summary (live, every Ns — Ctrl-C to exit)` + `HH:MM:SSZ · storePath` 메타 배너 + 컬러
+    개요 본문(다른 `--watch` 프레임과 동일 shape). `now` 주입식이라 TTY·시계 없이 단위 테스트 가능.
+  - `cli.ts`에 `runSummaryWatch`(다른 watch 루프와 동일 — `startWatchLoop` 재사용, active scope 매 tick
+    재적용, fresh `now`로 카운트다운 인플레이스 감소, 스토어 매 pass 재읽기) + `summary`에 `-w, --watch
+    [seconds]` 배선. 스코프 검증을 watch 진입 전에 통과시켜 잘못된 값은 여전히 exit 1, `--json`이
+    `--watch`보다 우선(일회성 머신 덤프). 새 파서/스케줄러 로직 0줄.
+  - `summary.test.ts` +4(=11): scopeNote 상단 에코·스코프 미스 메시지(vs first-run 힌트)·watch 프레임
+    배너/카운트다운 임베드·watch 프레임 scopeNote 전달.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**cli 347/1skip** summary +4). **실제 빌드 CLI e2e**(mock 아님): 3잡 임시 스토어로
+  `summary`가 `3 jobs · next reset in 1h 3m` + 상태 브레이크다운, `--project web`가 2잡으로 스코프(scope
+  라인 포함), `--status failed`가 필터-미스 메시지, `--watch 5`가 라이브 프레임(타이틀·메타·`1h 3m`
+  카운트다운)을 파일 캡처로 렌더, `--watch --json`이 json 우선(루프 안 돎), `--status bogus`가 exit 1,
+  `--help`·`completion bash`에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록 변동계수
+  (CV=stdev/mean), `eta --watch` 라이브 카운트다운. tz/heatmap/parser는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
