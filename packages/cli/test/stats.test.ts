@@ -9,6 +9,7 @@ import {
 } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
+  formatCv,
   formatDurationMs,
   formatSuccessRate,
   formatUtcOffsetLabel,
@@ -81,6 +82,21 @@ describe("formatDurationMs", () => {
   });
 });
 
+describe("formatCv", () => {
+  it("renders the ratio with two fixed decimals", () => {
+    expect(formatCv(0)).toBe("0.00");
+    expect(formatCv(0.5)).toBe("0.50");
+    expect(formatCv(1.2)).toBe("1.20");
+    expect(formatCv(2)).toBe("2.00");
+  });
+
+  it("returns - for negative or non-finite input", () => {
+    expect(formatCv(-0.1)).toBe("-");
+    expect(formatCv(Number.NaN)).toBe("-");
+    expect(formatCv(Number.POSITIVE_INFINITY)).toBe("-");
+  });
+});
+
 describe("renderStats", () => {
   it("shows the onboarding message for an empty store", () => {
     expect(renderStats(computeStats([]))).toBe(NO_STATS_MESSAGE);
@@ -139,6 +155,8 @@ describe("renderStats", () => {
     expect(out).toContain("spread: iqr 1h 0m");
     expect(out).toContain("p25 1h 30m – p75 2h 30m");
     expect(out).toContain("stdev 1h 0m");
+    // cv = stdev/mean = 1h/2h = 0.50 (unitless, shown as a bare ratio).
+    expect(out).toContain("cv 0.50");
   });
 
   it("omits the resolution-time block when nothing has resolved", () => {
