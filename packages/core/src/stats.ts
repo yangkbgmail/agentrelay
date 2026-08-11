@@ -76,6 +76,17 @@ export interface TimingStats {
    * IQR is the signature of a few heavy outliers dragging the mean.
    */
   stdevResolutionMs: number | null;
+  /**
+   * Coefficient of variation: {@link stdevResolutionMs} / {@link avgResolutionMs},
+   * a unitless ratio in [0, ∞), or null when none. Unlike the ms-valued spread
+   * fields it is scale-free, so it compares relative consistency across queues
+   * whose absolute resolution times differ wildly — a queue averaging 1h with a
+   * 30m stdev (cv 0.5) is exactly as jittery, relatively, as one averaging 10m
+   * with a 5m stdev. 0 means every resolution took the same time; > 1 means the
+   * spread exceeds the mean (highly erratic). When the mean is 0 (all spans 0)
+   * this is 0, not a divide-by-zero.
+   */
+  cvResolution: number | null;
 }
 
 export interface RelayStats {
@@ -452,6 +463,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     };
   } else {
     // Sort once ascending; percentiles read from it, min/max are its ends.
@@ -459,6 +471,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     const mean = sorted.reduce((sum, d) => sum + d, 0) / resolvedCount;
     const p25 = percentile(sorted, 0.25);
     const p75 = percentile(sorted, 0.75);
+    const stdev = populationStdev(sorted, mean);
     timing = {
       resolvedCount,
       avgResolutionMs: Math.round(mean),
@@ -471,7 +484,10 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p25ResolutionMs: p25,
       p75ResolutionMs: p75,
       iqrResolutionMs: p75 - p25,
-      stdevResolutionMs: populationStdev(sorted, mean),
+      stdevResolutionMs: stdev,
+      // Scale-free ratio; guard the all-zero-span case (mean 0 ⟹ stdev 0) so the
+      // divide is never 0/0. Round to 2 decimals — cv is a small unitless number.
+      cvResolution: mean === 0 ? 0 : Math.round((stdev / mean) * 100) / 100,
     };
   }
 

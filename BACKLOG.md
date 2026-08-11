@@ -810,6 +810,19 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay stats` 해결 시간 변동계수(CV=stdev/mean) — 절대 ms 퍼짐(IQR·stdev)에 더해
+      스케일-프리(무차원) 상대 변동성을 노출. 세션 67이 후속 후보로 지목한 자기 발굴 항목.
+      (완료 — core `stats.ts`의 `TimingStats`에 `cvResolution`(변동계수, stdev/mean, [0,∞) 무차원 비율)
+      추가. ms 단위 퍼짐 지표들과 달리 스케일에 무관해 절대 해결 시간이 크게 다른 큐들의 상대적 일관성을
+      비교 가능 — 평균 1h·stdev 30m(cv 0.5)와 평균 10m·stdev 5m는 상대적으로 동일하게 들쭉날쭉. 0=모든
+      해결 시간 동일, >1=퍼짐이 평균 초과(매우 불규칙). all-zero-span(mean 0 ⟹ stdev 0) 케이스를 가드해
+      0/0 나눗셈 방지(cv 0), 소수 2자리 반올림. resolved 0개면 null, 단일 잡이면 0. 기존 검증된
+      `populationStdev`/mean 재사용 — 새 정렬·통계 로직 0줄. CLI `stats.ts`에 순수 `formatCv`(고정 2자리
+      비율, 음수·비유한→`-`) + resolution-time spread 라인에 `cv N.NN` 추가, `--json`은 timing 전체
+      직렬화라 자동 노출. core stats.test +3(cv 0.5·단일 잡 0·all-zero-span 0/0 가드), cli stats.test
+      formatCv 2 + render cv 단언. 실제 빌드 CLI e2e로 {1h,3h}→cv 0.50·`--json` cvResolution 방출 검증.
+      branch `claude/wizardly-pascal-renkz3`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

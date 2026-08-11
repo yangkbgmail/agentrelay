@@ -58,6 +58,16 @@ export function formatDurationMs(ms: number): string {
 }
 
 /**
+ * Renders a coefficient of variation as a compact fixed-2-decimal ratio (e.g.
+ * `0.50`, `1.20`). Unlike the ms spread fields cv is unitless, so it is shown as
+ * a bare number, not a duration. Negative/non-finite guards to `-`.
+ */
+export function formatCv(cv: number): string {
+  if (!Number.isFinite(cv) || cv < 0) return "-";
+  return cv.toFixed(2);
+}
+
+/**
  * Renders the stats summary as a multi-line block. Pure: no I/O, no ambient
  * clock unless `now` is omitted. `color` gates ANSI codes (TTY only).
  */
@@ -110,7 +120,8 @@ export function renderStats(
         d(
           `(p25 ${formatDurationMs(timing.p25ResolutionMs ?? 0)} – p75 ${formatDurationMs(timing.p75ResolutionMs ?? 0)})`
         ) +
-        `   stdev ${formatDurationMs(timing.stdevResolutionMs ?? 0)}`
+        `   stdev ${formatDurationMs(timing.stdevResolutionMs ?? 0)}` +
+        `   cv ${formatCv(timing.cvResolution ?? 0)}`
     );
   }
 

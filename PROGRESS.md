@@ -2142,3 +2142,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay stats` 해결 시간 변동계수(CV=stdev/mean)] (2026-08-11, 무인 자율 세션, branch `claude/wizardly-pascal-renkz3`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 67이 후속 인접 후보로 명시한 두 항목(`summary --watch`, timing CV) 중
+  **watch 계열은 열린 PR이 포화**라 지양하고, 어떤 열린 PR에도 없는 **timing 변동계수(CV=stdev/mean)**를
+  골랐다. 세션 65가 절대 ms 퍼짐(IQR·stdev)을 추가했지만, 스케일이 다른 큐 간 상대적 일관성을 비교할
+  무차원 지표는 없었다 — 평균 1h·stdev 30m와 평균 10m·stdev 5m가 상대적으로 똑같이 들쭉날쭉하다는 사실을
+  ms 값으로는 드러낼 수 없다.
+- **한 일 (branch `claude/wizardly-pascal-renkz3`):**
+  - core `stats.ts` `TimingStats`에 `cvResolution`(stdev/mean, [0,∞) 무차원 비율) 추가. 기존 검증된
+    `populationStdev`·mean 재사용 → 새 정렬/통계 로직 0줄. all-zero-span(mean 0 ⟹ stdev 0) 케이스를
+    가드해 0/0 나눗셈 방지(cv 0), 소수 2자리 반올림. resolved 0개면 null, 단일 잡이면 0.
+  - CLI `stats.ts`에 순수 `formatCv`(고정 2자리 비율, 음수·비유한→`-`) 신설 + resolution-time spread
+    라인에 `cv N.NN` 추가. `--json`은 timing 전체 직렬화라 자동 노출(shape 불변, 필드 추가만).
+  - core stats.test +3(cv 0.5·단일 잡 0·all-zero-span 0/0 가드), cli stats.test formatCv 2 + render
+    cv 단언, 기존 timing null 블록 2곳에 cvResolution:null 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 615** stats 66 / **cli 345/1skip** stats 48 / dashboard 9). **실제 빌드 CLI e2e**
+  (mock 아님): 2잡 임시 스토어(spans 1h·3h)로 `stats`가 `spread: … stdev 1h 0m   cv 0.50` 렌더,
+  `--json`이 `timing.cvResolution: 0.5` 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록의
+  다른 스케일-프리/변동 지표(예: MAD=median absolute deviation), `summary` timing 요약 노출.
+  tz/heatmap/parser/watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
