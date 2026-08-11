@@ -810,6 +810,23 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 핵심 스토어(`RelayQueue`) 유닛 테스트 신설 — SPEC §8 "테스트 커버리지 확대(엣지 케이스·실패
+      주입)". 시스템의 단일 진실원(source of truth)인 JSON 파일 스토어에 **직접 유닛 테스트가 전무**했다
+      (어떤 테스트 파일도 `RelayQueue`를 참조하지 않음). 모든 상태 전이·영속성·손상 복구가 CLI e2e를
+      통해 간접적으로만 밟혔다.
+      (완료 — `packages/core/src/queue.test.ts` 신설(31케이스): 실제 임시 디렉터리에 실제 파일을 써서
+      목업이 아닌 온-디스크 동작을 검증. **순수 함수** — `compareJobsNewestFirst`(createdAt desc·id
+      tiebreak·동일 시 정확히 0 반환[반대칭성]), `corruptBackupPath`(파일시스템-safe 타임스탬프,
+      `:`/`.` 부재). **enqueue** — 큐 기본값(uuid·queued·null들·attempts 0)·원자적 영속(재오픈 왕복)·
+      다중 인스턴스 append 병합(clobber 안 함). **뮤테이터** — markWaitingForReset(±provenance 영속)·
+      markRetryScheduled·markResuming(attempts 증가)·markCompleted/markFailed(tail·error)·markCancelled
+      (resetAt 클리어)·requeueNow(attempts 0 리셋+error 클리어)·미지 id no-op·updatedAt 갱신. **listDue**
+      — waiting_for_reset+resetAt≤ref만, 경계 포함. **refresh** — 외부 프로세스 쓰기 반영. **손상 복구/
+      실패 주입** — 부재 파일=빈 큐(백업/콜백 없음)·공백 파일=빈 큐(손상 아님)·파싱 불가→`.corrupt-*`로
+      보존 후 빈 큐(이후 flush가 백업 파괴 안 함)·비배열 루트=손상. **prune/backup/restore/previewRestore/
+      importJobs** 왕복·안전장치. 코드 변경 0줄(순수 테스트 추가), core 614→645(+31), lint 클린.
+      branch `claude/wizardly-pascal-yq1l4v`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
