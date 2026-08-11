@@ -2142,3 +2142,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay summary --watch` 라이브 큐 개요] (2026-08-11, 무인 자율 세션, branch `claude/wizardly-pascal-kjd3li`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 67이 `summary`(한눈 큐 개요) 명령을 추가하며 "다음 할 일"로 명시한
+  후속 `summary --watch`를 골랐다 — status·tools·projects·stats에는 다 있는 라이브 watch 뷰가 summary만
+  빠져 있어, "지금 큐가 뭘 하나"를 화면에 고정해 카운트다운이 제자리에서 흐르게 볼 방법이 없었다.
+  PR 포화 축(parser/watch stats/tz/heatmap)이 아니라 어떤 열린 PR에도 없는 명확한 갭.
+- **한 일 (branch `claude/wizardly-pascal-kjd3li`):**
+  - CLI `summary.ts`에 순수 `renderSummaryWatchFrame(summary, storePath, intervalMs, now, scopeNote?)`
+    신설: `status`/`tools`/`stats --watch`와 동일한 title/meta 라이브 배너("agentrelay summary (live,
+    every Ns — Ctrl-C to exit)" + 타임스탬프·스토어 경로)로 기존 `renderSummary`를 감싸고, scope 활성
+    시 `scope: …` 라인 추가. `now`를 주입받아 시계 미접촉 → 단위 테스트 가능.
+  - `cli.ts`에 `runSummaryWatch`(다른 watch 루프와 동일: 매 프레임 `listStatus`로 스토어 재읽기·scope
+    재적용·fresh `now`로 `summarizeJobs` 재계산 → `\x1b[2J\x1b[H`로 화면 클리어 후 프레임 재페인트,
+    Ctrl-C까지 지속) + `summary`에 `-w, --watch [seconds]` 배선. scope 검증(buildScope)은 watch 진입
+    **전에** 통과시켜 잘못된 status/tool은 여전히 exit 1, `--json`이 `--watch`보다 우선(일회성 기계
+    덤프), 인터벌 기본 2s. addHelpText에 `--watch 5` 예시 추가.
+  - `summary.test.ts` +3케이스: 라이브 배너(interval·타임스탬프·스토어 경로·본문 임베드·색상)·
+    live 카운트다운(주입 now 기준 "1h 30m")·scope 라인 조건부 렌더.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**cli 346/1skip** summary 7→10 / core 614 / dashboard 9). **실제 빌드 CLI e2e**(mock
+  아님): 2잡 임시 스토어로 `summary --watch 3`가 화면 클리어(`\x1b[2J\x1b[H`)+라이브 배너+`2 jobs · next
+  reset in 1h 30m`+상태 브레이크다운 렌더, `--watch --project web`가 `scope: project=web` 라인과 1잡으로
+  스코프, `--watch --json`이 watch 루프 대신 one-shot JSON 방출(--json 우선), `--watch --status bogus`가
+  watch 진입 전 exit 1, `--help`·`completion bash`에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`에
+  `--limit`은 무의미(단일 개요)하나 timing 블록 변동계수(CV=stdev/mean)나 `overdue --watch` 형제 강화
+  여지. tz/heatmap/parser/watch stats는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
