@@ -2,7 +2,18 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { backupFilePath, backupStamp, listBackups, resolveBackup, selectRotatableBackups } from "../src/backup.js";
+import {
+  autoBackupEveryMsFromEnv,
+  autoBackupOptionsFromEnv,
+  backupFilePath,
+  backupStamp,
+  DEFAULT_AUTOBACKUP_EVERY_MS,
+  DEFAULT_BACKUP_KEEP,
+  listBackups,
+  resolveBackup,
+  selectRotatableBackups,
+  shouldAutoBackup,
+} from "../src/backup.js";
 import { RelayQueue } from "../src/queue.js";
 
 describe("backup pure helpers", () => {
@@ -82,6 +93,59 @@ describe("backup pure helpers", () => {
     expect(resolveBackup(names, "jobs.json", "2099-01-01T00-00-00-000Z")).toBeNull();
     expect(resolveBackup(names, "jobs.json", "other.json.backup-2026-07-18T00-00-09-000Z")).toBeNull();
     expect(resolveBackup(["jobs.json"], "jobs.json", "latest")).toBeNull();
+  });
+});
+
+describe("auto-backup env + throttle helpers", () => {
+  it("autoBackupOptionsFromEnv returns null unless opted in", () => {
+    expect(autoBackupOptionsFromEnv({})).toBeNull();
+    expect(autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP: "no" })).toBeNull();
+    // Opt-in defaults keepLast to DEFAULT_BACKUP_KEEP.
+    expect(autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP: "1" })).toEqual({ keepLast: DEFAULT_BACKUP_KEEP });
+    expect(autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP: "true" })).toEqual({ keepLast: DEFAULT_BACKUP_KEEP });
+  });
+
+  it("autoBackupOptionsFromEnv reads AGENTRELAY_AUTOBACKUP_KEEP (floored, non-negative)", () => {
+    expect(autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP: "on", AGENTRELAY_AUTOBACKUP_KEEP: "3" })).toEqual({
+      keepLast: 3,
+    });
+    expect(autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP: "on", AGENTRELAY_AUTOBACKUP_KEEP: "2.9" })).toEqual({
+      keepLast: 2,
+    });
+    expect(autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP: "on", AGENTRELAY_AUTOBACKUP_KEEP: "0" })).toEqual({
+      keepLast: 0,
+    });
+    // Garbage / negative falls back to the default rather than disabling.
+    expect(autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP: "on", AGENTRELAY_AUTOBACKUP_KEEP: "-1" })).toEqual({
+      keepLast: DEFAULT_BACKUP_KEEP,
+    });
+    expect(autoBackupOptionsFromEnv({ AGENTRELAY_AUTOBACKUP: "on", AGENTRELAY_AUTOBACKUP_KEEP: "nope" })).toEqual({
+      keepLast: DEFAULT_BACKUP_KEEP,
+    });
+  });
+
+  it("autoBackupEveryMsFromEnv parses durations, null on missing/garbage/non-positive", () => {
+    expect(autoBackupEveryMsFromEnv({})).toBeNull();
+    expect(autoBackupEveryMsFromEnv({ AGENTRELAY_AUTOBACKUP_EVERY: "30m" })).toBe(30 * 60_000);
+    expect(autoBackupEveryMsFromEnv({ AGENTRELAY_AUTOBACKUP_EVERY: "6h" })).toBe(6 * 3_600_000);
+    expect(autoBackupEveryMsFromEnv({ AGENTRELAY_AUTOBACKUP_EVERY: "nope" })).toBeNull();
+    expect(autoBackupEveryMsFromEnv({ AGENTRELAY_AUTOBACKUP_EVERY: "0s" })).toBeNull();
+  });
+
+  it("shouldAutoBackup: no throttle / first pass always runs, else waits for the interval", () => {
+    // No throttle configured -> always run.
+    expect(shouldAutoBackup(null, 1000, 0)).toBe(true);
+    expect(shouldAutoBackup(500, 1000, undefined)).toBe(true);
+    // First pass (no prior run) -> always run even with a throttle.
+    expect(shouldAutoBackup(null, 1000, 60_000)).toBe(true);
+    // Inside the window -> skip; at/after the boundary -> run.
+    expect(shouldAutoBackup(1000, 1000 + 30_000, 60_000)).toBe(false);
+    expect(shouldAutoBackup(1000, 1000 + 60_000, 60_000)).toBe(true);
+    expect(shouldAutoBackup(1000, 1000 + 90_000, 60_000)).toBe(true);
+  });
+
+  it("DEFAULT_AUTOBACKUP_EVERY_MS is one hour", () => {
+    expect(DEFAULT_AUTOBACKUP_EVERY_MS).toBe(60 * 60_000);
   });
 });
 
