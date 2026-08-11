@@ -1,7 +1,7 @@
 import type { QueueSummary, RelayJob } from "@agentrelay/core";
 import { summarizeJobs } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { EMPTY_MESSAGE, renderSummary, renderSummaryJson } from "./summary.js";
+import { EMPTY_MESSAGE, renderSummary, renderSummaryJson, renderSummaryWatchFrame } from "./summary.js";
 
 /** Zero-filled QueueSummary with the given overrides — mirrors summarizeJobs' shape. */
 function summary(overrides: Partial<QueueSummary> = {}): QueueSummary {
@@ -92,6 +92,49 @@ describe("renderSummaryJson", () => {
     expect(parsed.summary.total).toBe(2);
     expect(parsed.summary.byStatus).toMatchObject({ queued: 1, completed: 1, failed: 0, cancelled: 0 });
     expect(parsed.summary.nextResetAt).toBeNull();
+  });
+});
+
+describe("renderSummaryWatchFrame", () => {
+  it("wraps the summary body in a live banner with interval, timestamp, and store path", () => {
+    const resetAt = new Date(NOW + 63 * 60_000).toISOString(); // 1h 3m out
+    const s = summary({
+      total: 4,
+      byStatus: { ...summary().byStatus, waiting_for_reset: 2, completed: 2 },
+      nextResetAt: resetAt,
+    });
+    const frame = renderSummaryWatchFrame(s, "/x/jobs.json", 2000, NOW);
+    expect(frame).toContain("agentrelay summary");
+    expect(frame).toContain("live, every 2s");
+    expect(frame).toContain("2026-08-10 12:00:00Z");
+    expect(frame).toContain("/x/jobs.json");
+    // The compact summary body is embedded, countdown driven by the same `now`.
+    // The frame is always colored, so assert on the fragments that stay contiguous.
+    expect(frame).toContain("4 jobs");
+    expect(frame).toContain("next reset in");
+    expect(frame).toContain("1h 3m");
+    expect(frame).toContain("waiting_for_reset");
+  });
+
+  it("rounds the interval to whole seconds in the banner", () => {
+    const frame = renderSummaryWatchFrame(summary({ total: 1 }), "/x/jobs.json", 1500, NOW);
+    expect(frame).toContain("live, every 2s");
+  });
+
+  it("shows a scope note line only when a scope is active", () => {
+    const s = summary({ total: 1, byStatus: { ...summary().byStatus, queued: 1 } });
+    expect(renderSummaryWatchFrame(s, "/x/jobs.json", 2000, NOW, "status=queued")).toContain("scope: status=queued");
+    expect(renderSummaryWatchFrame(s, "/x/jobs.json", 2000, NOW)).not.toContain("scope:");
+  });
+
+  it("always renders in color (the frame only draws to a live TTY)", () => {
+    const frame = renderSummaryWatchFrame(
+      summary({ total: 1, byStatus: { ...summary().byStatus, queued: 1 } }),
+      "/x/jobs.json",
+      2000,
+      NOW
+    );
+    expect(frame).toContain("\x1b[");
   });
 });
 

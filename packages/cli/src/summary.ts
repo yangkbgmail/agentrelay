@@ -61,6 +61,32 @@ export function renderSummary(summary: QueueSummary, options: { now?: number; co
 }
 
 /**
+ * One frame of the live `agentrelay summary --watch` view: a title/meta banner
+ * (matching the shape of `status`/`stats`/`tools --watch`) plus the compact
+ * summary body from `renderSummary`. Color is always on here because the frame
+ * only renders to a live TTY. An active scope note (e.g. "status=waiting_for_reset")
+ * is shown under the banner so a filtered watch says what it's counting. Pure:
+ * `now` drives the countdown so each pass can tick down deterministically.
+ */
+export function renderSummaryWatchFrame(
+  summary: QueueSummary,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now(),
+  scopeNote?: string
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay summary${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  const lines = [title, meta];
+  if (scopeNote) lines.push(`${DIM}scope: ${scopeNote}${RESET}`);
+  lines.push("", renderSummary(summary, { now, color: true }));
+  return lines.join("\n");
+}
+
+/**
  * Machine-readable form for `--json` (scripts/jq). Carries the full
  * `QueueSummary` (total, per-status counts with every status zero-filled, and
  * the next reset) plus provenance for where the data came from and when.
