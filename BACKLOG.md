@@ -799,6 +799,20 @@
       새 파서/스케줄러 로직 0줄. core 7 + cli 7 신규 테스트, 실제 빌드 CLI e2e 검증. branch
       `claude/wizardly-pascal-y4hcy6`)
 
+- [x] 👷 `agentrelay summary --watch [seconds]` — 한눈 큐 개요(총 잡수·상태별·다음 리셋 카운트다운)를
+      라이브로 갱신(리셋 카운트다운이 째깍째깍 줄어드는 것을 화면에 고정 표시). 세션 66이 후속
+      후보로 지목한 항목 — `status`/`stats`/`tools`/`projects`/`upcoming`/`overdue`엔 이미 있던
+      `--watch`가 `summary`에만 빠져 있었다.
+      (완료 — CLI `summary.ts`에 순수 `renderSummaryWatchFrame(summary,storePath,intervalMs,now,scopeNote?)`
+      추가: `stats --watch`와 동일한 title/meta 배너(간격·타임스탬프·스토어 경로) + `renderSummary`
+      본문을 감싸고, 활성 스코프면 "scope: …" 라인 표기. 프레임은 라이브 TTY 전용이라 항상 컬러,
+      `now`가 카운트다운을 구동해 순수·테스트 가능. `cli.ts` summary 커맨드에 `-w/--watch [seconds]`
+      옵션 + `runSummaryWatch`(공용 `startWatchLoop` 재사용, 매 프레임 스토어 재읽기 + 스코프 재적용,
+      시간 창 경계는 시작 시 고정) 배선. 다른 watch 명령과 동일 규칙: 스코프 검증을 watch 진입 전에
+      수행(잘못된 status → exit 1), `--json`이 `--watch`보다 우선(일회성 기계 덤프). 기본 간격 2s,
+      `--watch 5`처럼 초 지정. summary.test.ts +4(배너/간격 반올림/스코프 노트 유무/컬러), 실제 빌드
+      CLI e2e로 스코프 watch 프레임·`--json` 우선·bad status exit 1·help/completion 등록 검증.
+      branch `claude/summary-watch`)
 - [x] 👷 `agentrelay stats` 해결 시간 분산 지표(IQR·표준편차) — 백분위수(중심·꼬리)에 더해 "얼마나
       들쭉날쭉한가"(퍼짐)를 노출. 세션 60이 후속 후보로 지목한 항목.
       (완료 — core `stats.ts`의 `TimingStats`에 `p25ResolutionMs`·`p75ResolutionMs`·`iqrResolutionMs`
