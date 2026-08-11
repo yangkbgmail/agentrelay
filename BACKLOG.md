@@ -36,6 +36,16 @@
       초 단위 대기(`try again in 20s`, `1.5s`)를 인식(generic 파서엔 초 패턴 없음).
       `run`이 tool 추론·`--tool` 플래그, 스케줄러가 resume 시 job.tool 어댑터 사용.
       branch `claude/wizardly-pascal-v7euys`)
+- [x] 👷 Gemini CLI 어댑터 — Google API의 `retryDelay` 초 필드 인식.
+      (완료 — `AgentTool` union에 `gemini-cli` 추가, `adapters.ts`에 `GEMINI_CLI_ADAPTER`
+      (binaries `["gemini","gemini-cli"]`) + `gemini-retry-delay` 패턴 신설. Google Gemini API의
+      429 `RESOURCE_EXHAUSTED` 응답은 `RetryInfo`의 `"retryDelay": "56s"` camelCase 필드로 대기
+      시간을 주는데, generic 파서의 `retry_after`(epoch)·HTTP `Retry-After`(hyphen)는 이 형식을
+      못 잡았다 — 어댑터가 `retry[_-]?delay`(snake/kebab/따옴표 허용) 초 값을 ceil로 올림해 인식
+      (조기 재개 방지, 0/음수는 무시). `ALL_TOOLS`에 등록돼 stats/metrics byTool·`run --tool`
+      헬프·tool 필터에 자동 반영. `run --help`의 하드코딩 툴 목록도 `ALL_TOOLS` 기반으로 교정.
+      기존 `test/adapters.test.ts`에 gemini 감지 6케이스 추가(19 tests). SPEC §8 "다른 에이전트
+      툴 어댑터"의 자연스러운 확장. branch `claude/wizardly-pascal-shima5`)
 - [x] 👷 job 재시도 정책 / 지수 백오프 / 최대 시도 횟수.
       (완료 — `@agentrelay/core`에 `RetryPolicy`/`DEFAULT_RETRY_POLICY`/`computeBackoffMs`/
       `isRetryExhausted`/`retryPolicyFromEnv` 추가. 스케줄러가 non-zero 종료·spawn 에러를
