@@ -2142,3 +2142,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay prompt` 셸 프롬프트 상태 세그먼트] (2026-08-11, 무인 자율 세션, branch `claude/wizardly-pascal-2w8184`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR이 50개로 포화(summary --watch·search·export tsv·CV 지표 등
+  중복 다수)라 포화 축(parser/watch/stats/tz/heatmap)을 피하고, 어떤 열린 PR에도 없는 명확한 갭을
+  골랐다 — 큐 상태를 PS1/tmux/starship에 끼워 넣을 **초압축 단일 라인 세그먼트**가 없었다. `summary`는
+  한두 줄 사람용 개요, `status`는 전체 테이블이라 프롬프트 임베드엔 부적합.
+- **한 일 (branch `claude/wizardly-pascal-2w8184`):**
+  - CLI `prompt.ts` 신설(순수 함수): `promptCounts`(waiting=waiting_for_reset, running=queued+resuming,
+    터미널 상태는 제외 — 프롬프트는 *진행 중* 작업만 반영)·`renderPrompt`(글리프 `⏳3 ▶1 (1h 3m)` /
+    `--plain` ASCII `wait:3 run:1` / `--zero` 유휴 마커 / 색은 기본 OFF·`--color` 옵트인)·`renderPromptJson`.
+    `formatCountdown` 재사용해 "1h 3m"/"due now" 표현이 다른 뷰와 정확히 일치.
+  - `cli.ts`에 `agentrelay prompt [--plain] [--zero] [--color] [--json] [-s/-t/-p/--since/--until]` 배선.
+    **프롬프트를 절대 깨지 않는다**: bad scope·읽기 실패는 stdout 비우고 exit 0(에러는 stderr — `$(...)`가
+    캡처 안 함), 유휴 큐는 무출력. 색을 기본 끔으로 둔 이유(PS1 폭 계산 오염 방지)를 도움말에 명시.
+  - `prompt.test.ts` 14케이스: 유휴 무출력/`--zero` 마커·글리프/plain·waiting+running·queued 폴딩·
+    카운트다운 생략·due now·기본 무-ANSI·`--color` ANSI·JSON 스플릿/카운트다운/provenance/null.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm lint:fix`(Biome import 정렬)→`pnpm ci:lint`
+  (0에러, 118파일)→`pnpm test` 전 패키지 통과(**cli 356/1skip** prompt +14 / core 614 / dashboard 9).
+  **실제 빌드 CLI e2e**(mock 아님): 4잡 임시 스토어로 default `⏳2 ▶1 (due now)`·`--plain`·`--json`
+  전체 필드·`--project api`→`run:1` 스코프·`--status waiting_for_reset`·**bad scope→stderr+빈 stdout+exit0**·
+  **없는 스토어→빈 stdout+exit0**·pending 0→무출력·`--status completed --zero`→`✓`, `--help`·`completion bash`
+  자동 등록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — prompt에 fish
+  completion 스니펫 예시, starship `custom.agentrelay` 설정 예시 문서화. tz/heatmap/parser/watch는 PR
+  포화라 지양. README/ARCHITECTURE(🧭 코워크).

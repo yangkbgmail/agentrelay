@@ -90,6 +90,7 @@ import { buildParseReport, renderParseReport, renderParseReportJson } from "./pa
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
+import { renderPrompt, renderPromptJson } from "./prompt.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
   formatUtcOffsetLabel,
@@ -782,6 +783,63 @@ export function buildCli(): Command {
         console.log(renderSummaryJson(summary, store ?? defaultStorePath()));
       } else {
         console.log(renderSummary(summary, { color: Boolean(process.stdout.isTTY), now }));
+      }
+    });
+
+  program
+    .command("prompt")
+    .description("Emit a terse one-line queue segment for a shell prompt (PS1), tmux status, or starship")
+    .option("--plain", "Use ASCII labels (wait:3 run:1) instead of glyphs (⏳3 ▶1)")
+    .option("--zero", "Print an idle marker when nothing is pending, instead of empty output")
+    .option("--color", "Opt into ANSI color (off by default — safe for embedding in PS1)")
+    .option("--json", "Print the segment data as JSON (machine-readable, for scripts/jq)")
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nDesign: never breaks your prompt — a bad flag or unreadable store degrades to empty\n" +
+        "output and exit 0, and color is off by default so ANSI never corrupts PS1 width.\n" +
+        "\nExamples:\n" +
+        "  # bash — append the relay segment to your prompt\n" +
+        "  PS1='\\u@\\h \\w $(agentrelay prompt) \\$ '\n" +
+        "  # tmux — show it in the status bar (refreshes on the tmux interval)\n" +
+        '  set -g status-right "#(agentrelay prompt --plain)"\n' +
+        "  # scope to one project's waiting jobs, ASCII only\n" +
+        "  agentrelay prompt --plain --project my-app"
+    )
+    .action((opts: ScopeOpts & { plain?: boolean; zero?: boolean; color?: boolean; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      // A prompt segment must never wedge the user's shell: any failure (bad
+      // scope, unreadable store) degrades to empty stdout + exit 0. Errors go to
+      // stderr, which `$(...)` command substitution does not capture.
+      let jobs: RelayJob[];
+      try {
+        const built = buildScope(opts, now);
+        if ("error" in built) {
+          console.error(built.error);
+          return;
+        }
+        const allJobs = listStatus(store);
+        jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      } catch (err) {
+        console.error(`[agentrelay] prompt: ${(err as Error).message}`);
+        return;
+      }
+
+      const summary = summarizeJobs(jobs);
+      if (opts.json) {
+        console.log(renderPromptJson(summary, store ?? defaultStorePath(), { now }));
+      } else {
+        const line = renderPrompt(summary, { now, plain: opts.plain, zero: opts.zero, color: opts.color });
+        // Only print when there's something to show, so an idle queue leaves the
+        // prompt untouched (the empty string still needs an explicit newline for
+        // the non-empty case; skip output entirely when empty).
+        if (line !== "") console.log(line);
       }
     });
 
