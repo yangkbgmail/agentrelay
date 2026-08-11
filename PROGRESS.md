@@ -2142,3 +2142,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay calendar` iCalendar(.ics) 재개 스케줄 내보내기] (2026-08-11, 무인 자율 세션, branch `claude/calendar-ics`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이라 CLAUDE.md "비면 스스로 발굴" 지침대로 신규 항목을 발굴했다.
+  `next`(가장 이른 하나)·`upcoming`(목록)·`eta`(전체 캐치업)는 재개 시각을 **터미널**용으로 렌더하지만,
+  같은 데이터를 **캘린더 앱으로 이식**하는 짝이 없었다(백로그 전체에 calendar/ics/ical/vevent 전무 확인).
+- **한 일 (branch `claude/calendar-ics`):**
+  - core `calendar.ts` 신설(순수·파일시스템 미접촉, 유일한 시계 사용은 주입 `now`→DTSTAMP라 테스트 결정적):
+    `jobsToIcs(jobs, options)`→`CalendarResult`. 선정·정렬은 `buildUpcomingTimeline` 재사용 →
+    `upcoming`/`next`와 동일 집합(waiting_for_reset + 파싱 가능 resetAt)·동일 순서라 세 표면이 어긋나지 않음.
+    잡당 VEVENT 1개(UID=`<id>@agentrelay` 안정 → 재싱크 시 갱신, DTSTART=리셋 순간, DTEND=+duration[기본 15분]).
+  - RFC 5545 견고성: 순수 `formatIcsUtc`(`YYYYMMDDTHHMMSSZ`)·`escapeIcsText`(§3.3.11 `\;,`+개행)·
+    `foldIcsLine`(§3.1 75옥텟 폴딩, 멀티바이트 코드포인트 미분할). 전체 CRLF 종단, 빈 큐도 유효한 event-less VCALENDAR.
+  - CLI `commands.ts` `writeCalendar`(스토어 읽기+선택적 파일 쓰기만, 직렬화는 core 위임; .ics가 이미
+    CRLF 종단이라 바이트 정확 기록). `cli.ts` `agentrelay calendar [-o/--out] [--duration N] [--name]
+    [-t/-p/--since/--until]` 배선 — 파일 출력 시 상태는 stderr, 잘못된 duration은 exit 1, `--status`는
+    정의상 waiting 집합이라 미노출. 스코프는 기존 `buildScope`/`scopeJobs` 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 119파일)→`pnpm test`
+  전 패키지 통과(**core 630** calendar +16, **cli 348/1skip** writeCalendar +5). **실제 빌드 CLI e2e**(mock
+  아님): 3잡 임시 스토어로 `calendar`가 가장 이른 리셋 우선 정렬·완료 잡 제외·특수문자 이스케이핑
+  (`refactor\; the\, auth`)·75옥텟 라인폴딩·`--out`/`--duration 30`/`--project` 필터 동작, `--help`·
+  `completion bash`에 calendar 등록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `calendar`에 완료/실패
+  이력 이벤트(`--past`) 옵션, DTSTART에 VALARM(리셋 N분 전 알림) 추가. tz/heatmap/parser/watch는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).

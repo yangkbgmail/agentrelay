@@ -77,6 +77,7 @@ import {
   unsetConfigFile,
   validateConfigFile,
   waitForJob,
+  writeCalendar,
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
@@ -890,6 +891,70 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderUpcoming(timeline, { color: Boolean(process.stdout.isTTY), now, scopeNote }));
+    });
+
+  program
+    .command("calendar")
+    .description(
+      "Export the upcoming-resume schedule as an iCalendar (.ics) feed for Google/Apple/Outlook calendars (stdout or a file)"
+    )
+    .option("-o, --out <file>", "Write the .ics to this file instead of stdout")
+    .option("--duration <minutes>", "Length of each resume event in minutes (default 15)", "15")
+    .option("--name <name>", "Calendar display name (X-WR-CALNAME)", "AgentRelay resumes")
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # print the resume schedule as an .ics document\n" +
+        "  agentrelay calendar\n" +
+        "  # save it so a calendar app can import/subscribe to it\n" +
+        "  agentrelay calendar --out ~/agentrelay.ics\n" +
+        "  # 30-minute blocks, just one project\n" +
+        "  agentrelay calendar --duration 30 --project my-app"
+    )
+    .action((opts: ScopeOpts & { out?: string; duration?: string; name?: string }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let durationMinutes: number | undefined;
+      if (opts.duration !== undefined) {
+        const n = Number.parseInt(opts.duration, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --duration value "${opts.duration}". Use a positive integer (minutes).`);
+          process.exitCode = 1;
+          return;
+        }
+        durationMinutes = n;
+      }
+
+      // Reuse the shared scope filters, but the calendar is definitionally the
+      // waiting-for-reset set (that's what has a reset instant to schedule), so
+      // --status is intentionally not exposed here.
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const result = writeCalendar({
+        storePath: store,
+        jobs,
+        outPath: opts.out,
+        calendar: { now, durationMinutes, calendarName: opts.name },
+      });
+
+      if (result.writtenTo) {
+        // Keep stdout clean for redirection; status goes to stderr.
+        console.error(`[agentrelay] wrote ${result.eventCount} resume event(s) to ${result.writtenTo}`);
+      } else {
+        process.stdout.write(result.content);
+      }
     });
 
   program

@@ -32,6 +32,7 @@ import {
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
   buildLocationReport,
+  type CalendarOptions,
   CONFIG_FILENAME,
   type ConfigValueSource,
   canCancel,
@@ -57,6 +58,7 @@ import {
   isJobScopeActive,
   type JobCsvColumn,
   type JobScope,
+  jobsToIcs,
   type LocationReport,
   listBackups,
   loadConfigFile,
@@ -1052,6 +1054,46 @@ export function exportStore(options: ExportJobsOptions): ExportJobsResult {
     writtenTo = path;
   }
   return { content, count: jobs.length, writtenTo };
+}
+
+export interface CalendarStoreOptions {
+  storePath?: string;
+  /** Already-selected jobs to render. If omitted, the whole store is read. */
+  jobs?: RelayJob[];
+  /** When set, write the `.ics` to this file (parent dirs created) instead of returning it for stdout. */
+  outPath?: string;
+  /** Pure iCalendar options (duration, calendar name, injected now) forwarded to `jobsToIcs`. */
+  calendar?: CalendarOptions;
+}
+
+export interface CalendarStoreResult {
+  /** The serialized iCalendar document (CRLF line endings). */
+  content: string;
+  /** Number of VEVENTs emitted (one per waiting job). */
+  eventCount: number;
+  /** Absolute path written to, or null when the caller should print to stdout. */
+  writtenTo: string | null;
+}
+
+/**
+ * Render the upcoming-resume schedule as an iCalendar (`.ics`) document — the
+ * `agentrelay calendar` command. All the RFC 5545 serialization lives in the
+ * pure `@agentrelay/core` `jobsToIcs`; this wrapper only reads the store and
+ * (optionally) writes the file, mirroring {@link exportStore}. A file write is
+ * byte-exact (the serializer already CRLF-terminates), so the on-disk `.ics`
+ * validates without a trailing-newline fixup.
+ */
+export function writeCalendar(options: CalendarStoreOptions): CalendarStoreResult {
+  const jobs = options.jobs ?? listStatus(options.storePath);
+  const { ics, eventCount } = jobsToIcs(jobs, options.calendar ?? {});
+  let writtenTo: string | null = null;
+  if (options.outPath) {
+    const path = resolve(process.cwd(), options.outPath);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, ics, "utf8");
+    writtenTo = path;
+  }
+  return { content: ics, eventCount, writtenTo };
 }
 
 export interface ImportStoreOptions {
