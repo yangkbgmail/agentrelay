@@ -86,7 +86,14 @@ import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "./overdue.js";
-import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
+import {
+  buildParseReport,
+  buildScanReport,
+  renderParseReport,
+  renderParseReportJson,
+  renderScanReport,
+  renderScanReportJson,
+} from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
@@ -1875,8 +1882,12 @@ export function buildCli(): Command {
     )
     .argument("[text...]", "Message to parse; if omitted, read from stdin (e.g. pipe your agent's output)")
     .option("-t, --tool <tool>", `Use one tool's adapter patterns before the generic ones: ${ALL_TOOLS.join(", ")}`)
+    .option(
+      "--scan",
+      "Scan input line-by-line (report every line that matches, not just the first) — feed a whole agent log"
+    )
     .option("--json", "Print the result as JSON (machine-readable, for scripts/jq)")
-    .action(async (textParts: string[], opts: { tool?: string; json?: boolean }) => {
+    .action(async (textParts: string[], opts: { tool?: string; scan?: boolean; json?: boolean }) => {
       let text = (textParts ?? []).join(" ");
       if (!text) {
         if (process.stdin.isTTY) {
@@ -1890,6 +1901,15 @@ export function buildCli(): Command {
       if (tool !== undefined && !ALL_TOOLS.includes(tool as AgentTool)) {
         console.error(`Unknown tool: ${tool}. Valid: ${ALL_TOOLS.join(", ")}.`);
         process.exitCode = 1;
+        return;
+      }
+      if (opts.scan) {
+        const report = buildScanReport(text, { tool: tool as AgentTool | undefined });
+        if (opts.json) {
+          console.log(renderScanReportJson(report));
+          return;
+        }
+        console.log(renderScanReport(report, { color: Boolean(process.stdout.isTTY) }));
         return;
       }
       const report = buildParseReport(text, { tool: tool as AgentTool | undefined });

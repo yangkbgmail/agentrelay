@@ -810,6 +810,21 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay parse --scan` — 입력을 줄 단위로 스캔해 매치되는 *모든* 줄을 리포트(전체 에이전트
+      로그를 통째로 파이프해 파서 커버리지 검증). 기존 `parse`가 전 입력을 한 메시지로 합쳐 첫 매치만
+      보던 갭을 메움.
+      (완료 — 기존 `agentrelay parse`는 stdin을 읽되 전체를 한 문자열로 join해 파서를 **한 번만** 돌려
+      첫 패턴만 리포트했다 — 여러 줄 로그를 넣으면 어느 줄이 어떤 패턴으로 잡히는지, 몇 건이나 감지되는지
+      알 수 없었다. CLI `parse.ts`에 순수 `buildScanReport(text,{tool,now})`(입력을 `\r?\n`으로 나눠 공백줄은
+      건너뛰고 각 비공백 줄에 어댑터 파서를 돌려 `ScanMatch`[줄번호·패턴·resetAt·rawMatch] 수집 + 패턴별
+      빈도표 `byPattern`[count desc·name asc]) + `renderScanReport`(줄별 `L<n> <pattern> resets <count>
+      "<matched>"` + 요약 푸터·패턴 브레이크다운)·`renderScanReportJson`(각 매치에 `resetInMs` 부가) 신설.
+      `agentrelay parse`에 `--scan` 플래그 배선 — 기본(단일 메시지) 동작은 완전 무변경, `--scan`일 때만
+      줄 단위 경로. tool 어댑터(Codex 초 단위 등) 존중, `--json` 병존. 새 core 로직 0줄 — 기존 검증된
+      `resolveAdapter`/`detectRateLimit`·`formatCountdown` 재사용. `parse.test.ts` 신설 13케이스(공백줄
+      스킵·원본 줄번호·패턴 랭킹·Codex 초·빈 입력·색 토글·JSON resetInMs), 실제 빌드 CLI e2e로
+      5줄 로그→2감지·`--json`·no-match·기본 경로 불변·`--help` 등록 검증. branch `claude/parse-scan-lines`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -2142,3 +2142,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay parse --scan` 줄 단위 로그 스캔] (2026-08-11, 무인 자율 세션, branch `claude/parse-scan-lines`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR이 60건+로 포화(watch/parser/stats/completion/export tsv/search/
+  drain/notify 축은 중복 PR까지 발생)라, **어떤 열린 PR에도 없는** 갭을 골랐다 — `agentrelay parse`는
+  stdin을 읽되 전체 입력을 한 문자열로 join해 파서를 **한 번만** 돌려 첫 패턴만 리포트한다. 여러 줄
+  에이전트 로그를 통째로 파이프하면 어느 줄이 어떤 패턴으로 잡히는지·몇 건이 감지되는지 알 수 없어,
+  실제 로그로 파서 커버리지를 검증하는 워크플로가 막혀 있었다.
+- **한 일 (branch `claude/parse-scan-lines`):**
+  - CLI `parse.ts`에 순수 함수 3종 신설: `buildScanReport(text,{tool,now})`(입력을 `\r?\n`으로 나눠
+    공백줄 스킵, 각 비공백 줄에 어댑터 파서를 돌려 `ScanMatch`[1-indexed 줄번호·패턴·resetAt·rawMatch]
+    수집 + 패턴별 빈도표 `byPattern`[count desc·name asc], `scannedLines`=비공백 줄만)·`renderScanReport`
+    (줄별 `L<n> <pattern> resets <countdown> "<matched>"` + `N detection(s) across M line(s)` 푸터 +
+    `by pattern:` 브레이크다운, 색/무매치/빈입력 분기)·`renderScanReportJson`(각 매치에 `resetInMs` 부가).
+  - `cli.ts` `parse`에 `--scan` 플래그 배선 — 기본(단일 메시지) 동작은 완전 무변경, `--scan`일 때만
+    줄 단위 경로로 분기. tool 어댑터(Codex 초 단위 등) 존중, `--json` 병존. 새 core 로직 0줄 —
+    기존 검증된 `resolveAdapter`/`detectRateLimit`·`formatCountdown` 재사용.
+  - `parse.test.ts` 신설(기존 없던 파일) 13케이스: 공백줄 스킵·원본 줄번호 유지·패턴 랭킹·Codex 초
+    어댑터·빈 입력·무매치·색 토글·JSON resetInMs·기본 파스 불변 회귀.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm format`(Biome)→`pnpm ci:lint`(0에러,
+  117파일)→`pnpm test` 전 패키지 통과(**core 614** / **cli 356/1skip** parse +13 / dashboard 9). **실제
+  빌드 CLI e2e**(mock 아님): 5줄 로그 파이프→L2·L4 2감지 + 패턴 요약, `--json`이 resetInMs 포함 매치
+  배열 방출, 무매치 로그→"No rate limits detected across N line(s)", 기본 `parse`는 여전히 첫 매치만
+  (`"resets in 1h\n"` collapse 확인), `--help`에 `--scan` 등록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `--scan`에 파서가
+  놓친 "rate-limit스러운데 미감지" 줄(false-negative 후보) 플래그, `parse --scan --exit-code`(감지 있으면
+  non-zero). PR 포화 축(watch/parser/stats/completion/export/search/notify)은 지양. README/ARCHITECTURE(🧭 코워크).
