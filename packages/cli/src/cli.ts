@@ -14,6 +14,7 @@ import type {
 import {
   ALL_TOOLS,
   buildOverdueReport,
+  buildStaleReport,
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
@@ -91,6 +92,7 @@ import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
+import { renderStale, renderStaleJson, renderStaleWatchFrame } from "./stale.js";
 import {
   formatUtcOffsetLabel,
   renderGroupedStats,
@@ -396,6 +398,35 @@ function runOverdueWatch(
     const jobs = active ? scopeJobs(all, window) : all;
     const report = buildOverdueReport(jobs, now, { graceMs, limit });
     const frame = renderOverdueWatchFrame(report, store, intervalMs, now, scopeNote);
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
+ * Live `agentrelay stale --watch`: clears the screen and re-renders the wedged-
+ * jobs report on an interval so the stale spans grow in place. Like the other
+ * watch loops, `listStatus` re-reads the JSON store each pass (so a job that gets
+ * cancelled/retried drops off the list) and the `--tool`/`--project`/`--since`/
+ * `--until` scope, the `--grace` window, plus `--limit` are re-applied every
+ * frame. `buildStaleReport` is rebuilt with a fresh `now` each pass so the spans
+ * stay live; the time-window boundaries stay fixed (absolute epoch-ms from when
+ * the command started). Runs until interrupted (Ctrl-C).
+ */
+function runStaleWatch(
+  store: string,
+  intervalMs: number,
+  window: JobScope,
+  graceMs: number,
+  limit?: number,
+  scopeNote?: string
+): void {
+  const active = isJobScopeActive(window);
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const all = listStatus(store);
+    const jobs = active ? scopeJobs(all, window) : all;
+    const report = buildStaleReport(jobs, now, { graceMs, limit });
+    const frame = renderStaleWatchFrame(report, store, intervalMs, now, scopeNote);
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
 }
@@ -982,6 +1013,105 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderOverdue(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
+    });
+
+  program
+    .command("stale")
+    .description(
+      "Show jobs wedged in a non-terminal, non-waiting state (resuming/queued) — an orphan a crashed daemon left behind"
+    )
+    .option("-w, --watch [seconds]", "Continuously refresh the report with live-growing stale spans (Ctrl-C to exit)")
+    .option("-n, --limit <n>", "Show at most N rows (the totals still count all stale jobs)")
+    .option(
+      "--grace <duration>",
+      "Ignore jobs updated within the last <duration> so an in-flight resume isn't flagged (default 15m)",
+      "15m"
+    )
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # is anything wedged mid-resume right now?\n" +
+        "  agentrelay stale\n" +
+        "  # flag only jobs stuck for more than an hour\n" +
+        "  agentrelay stale --grace 1h\n" +
+        "  # use as a CI/monitor gate (exits 1 when anything is wedged)\n" +
+        "  agentrelay stale --json >/dev/null\n" +
+        "  # live view, spans growing every 2s\n" +
+        "  agentrelay stale --watch\n" +
+        "\n`stale` is the complement of `overdue`: `overdue` flags waiting jobs whose\n" +
+        "reset passed, `stale` flags resuming/queued jobs the scheduler will never\n" +
+        "pick up again (a daemon died mid-resume). Exits 1 when the list is non-empty."
+    )
+    .action((opts: ScopeOpts & { limit?: string; grace?: string; json?: boolean; watch?: string | boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      let graceMs = 0;
+      if (opts.grace !== undefined) {
+        const ms = parseDuration(opts.grace);
+        if (ms === null || ms < 0) {
+          console.error(`Invalid --grace value "${opts.grace}". Use a duration like 60s, 5m, or 1h.`);
+          process.exitCode = 1;
+          return;
+        }
+        graceMs = ms;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const scopeNote = built.active ? built.note : undefined;
+
+      // Live view: validate flags above (limit/grace/scope) first so a bad value
+      // still exits 1 instead of spinning a broken watch loop. --json takes
+      // precedence over --watch (a one-shot machine dump, not a live TTY view).
+      if (opts.watch !== undefined && !opts.json) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        runStaleWatch(store, intervalMs, built.scope, graceMs, limit, scopeNote);
+        return; // setInterval keeps the process alive.
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const report = buildStaleReport(jobs, now, { graceMs, limit });
+
+      // A wedged job is a genuine fault that never self-heals, so exit non-zero
+      // when the list is non-empty — this makes `stale` usable as a monitor gate.
+      if (report.totalStale > 0) process.exitCode = 1;
+
+      if (opts.json) {
+        console.log(
+          renderStaleJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            report,
+          })
+        );
+        return;
+      }
+      console.log(renderStale(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
     });
 
   program
