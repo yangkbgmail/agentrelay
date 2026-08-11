@@ -810,6 +810,21 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 대시보드에 릴레이 효과(Relay effectiveness) 패널 노출 — CLI `agentrelay stats`가 계산하는
+      성공률·해결 시간·재시도 지표를 대시보드에서도 한눈에. 자기 발굴 항목: 열린 PR 40개가 전부 core/cli만
+      건드리는 반면 `apps/dashboard`는 무손질 영역이었고, 대시보드는 잡 목록·프로젝트/툴 롤업·하트비트는
+      보여줘도 "릴레이가 실제로 제 값을 하나"(성공률·평균 대기시간)를 답하는 집계 지표가 빠져 있었다.
+      (완료 — `apps/dashboard/lib/jobs.ts`의 `JobsSnapshot`에 `stats: RelayStats` 추가, 매 폴링마다 core
+      `computeStats(jobs)`로 채움(새 집계 로직 0줄 — 이미 테스트된 core 재사용이라 CLI `stats`와 절대 드리프트
+      안 함). 클라이언트 `dashboard-client.tsx`에 `RelayEffectivenessCard` 신설: 성공률(`formatSuccessRate`
+      미러, 미해결 시 `n/a`)·릴레이된 잡 수(attempts>1)·총 재개 시도·해결 시간(avg + median/p90 서브라인,
+      `formatDuration`은 CLI `formatDurationMs` 미러) 4개 metric 셀. **최소 1개 잡이 종료 상태(terminal>0)일
+      때만 렌더** — 아무것도 해결 안 됐을 때 "0%" 타일이 오해를 주지 않도록(CLI가 resolution-time 블록을
+      resolvedCount>0에서만 내는 것과 동일 게이트). `globals.css`에 `.effectiveness-card`/`.effectiveness-grid`/
+      `.metric`(기존 tile 톤 재사용, 라이트/다크 변수 그대로). dashboard `jobs.test.ts` +2(빈 스토어 zero-fill·
+      완료1/실패1→성공률 50%·resolvedCount 2). 새 파서/스케줄러/core 로직 0줄. branch
+      `claude/dashboard-effectiveness`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -137,6 +137,47 @@ main {
   padding: 14px;
 }
 
+.effectiveness-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: 24px 0;
+  overflow: hidden;
+}
+
+.effectiveness-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.effectiveness-grid .metric {
+  padding: 14px;
+  border-right: 1px solid var(--hairline);
+  border-top: 1px solid var(--hairline);
+}
+
+.effectiveness-grid .metric:last-child {
+  border-right: none;
+}
+
+.effectiveness-grid .metric .label {
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.effectiveness-grid .metric .value {
+  font-size: 26px;
+  font-weight: 600;
+  margin: 6px 0 2px;
+  color: var(--ink-primary);
+}
+
+.effectiveness-grid .metric .sub {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
 .jobs-card {
   background: var(--surface);
   border: 1px solid var(--border);

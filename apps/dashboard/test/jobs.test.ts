@@ -81,6 +81,37 @@ describe("readJobsSnapshot", () => {
     expect(claude.nextResetAt).toBe("2099-01-01T00:00:00.000Z");
   });
 
+  it("returns zeroed relay-effectiveness stats for an empty store", () => {
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.stats.total).toBe(0);
+    expect(snapshot.stats.terminal).toBe(0);
+    expect(snapshot.stats.successRate).toBeNull();
+    expect(snapshot.stats.retriedJobs).toBe(0);
+    expect(snapshot.stats.totalAttempts).toBe(0);
+    expect(snapshot.stats.timing.resolvedCount).toBe(0);
+    expect(snapshot.stats.timing.avgResolutionMs).toBeNull();
+  });
+
+  it("computes relay-effectiveness stats mirroring `agentrelay stats`", () => {
+    const queue = new RelayQueue(storePath);
+    // One completed job that took a measurable span to resolve.
+    const done = queue.enqueue({ project: "p", tool: "generic", command: ["echo", "ok"], cwd: dir });
+    queue.markCompleted(done.id, "ok");
+    // One failed job.
+    const bad = queue.enqueue({ project: "p", tool: "generic", command: ["false"], cwd: dir });
+    queue.markFailed(bad.id, "boom");
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    // 1 completed / (1 completed + 1 failed) = 50%.
+    expect(snapshot.stats.terminal).toBe(2);
+    expect(snapshot.stats.successRate).toBeCloseTo(0.5, 5);
+    // Both jobs resolved (completed + failed), so timing has two contributors.
+    expect(snapshot.stats.timing.resolvedCount).toBe(2);
+    expect(snapshot.stats.byStatus.completed).toBe(1);
+    expect(snapshot.stats.byStatus.failed).toBe(1);
+  });
+
   it("survives a corrupt store file instead of crashing the API route", () => {
     writeFileSync(storePath, "{ not json !!", "utf8");
     const snapshot = readJobsSnapshot(storePath);

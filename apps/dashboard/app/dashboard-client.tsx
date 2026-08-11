@@ -1,6 +1,13 @@
 "use client";
 
-import type { HeartbeatStatus, JobStatus, ProjectBreakdown, RelayJob, ToolBreakdown } from "@agentrelay/core";
+import type {
+  HeartbeatStatus,
+  JobStatus,
+  ProjectBreakdown,
+  RelayJob,
+  RelayStats,
+  ToolBreakdown,
+} from "@agentrelay/core";
 import { useEffect, useState } from "react";
 import type { JobsSnapshot } from "../lib/jobs";
 
@@ -48,6 +55,88 @@ function formatAge(ms: number | undefined): string {
   if (hours > 0) return `${hours}h ${minutes}m ago`;
   if (minutes > 0) return `${minutes}m ${seconds}s ago`;
   return `${seconds}s ago`;
+}
+
+/**
+ * Human "success rate" string, mirroring the CLI's `formatSuccessRate`: a whole
+ * percent, or "n/a" before anything has resolved (so the dashboard never shows a
+ * misleading 0% when the queue is simply young).
+ */
+function formatSuccessRate(rate: number | null): string {
+  if (rate === null) return "n/a";
+  return `${Math.round(rate * 100)}%`;
+}
+
+/**
+ * Compact duration for the resolution-time metrics, mirroring the CLI's
+ * `formatDurationMs` (`<1s` / `45s` / `3m 20s` / `2h 05m` / `1d 4h`). Kept
+ * separate from `formatCountdown`/`formatAge` because those pad differently and
+ * carry a "due now"/"ago" sense this one must not.
+ */
+function formatDuration(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return "—";
+  if (ms < 1000) return "<1s";
+  const totalSeconds = Math.round(ms / 1000);
+  const seconds = totalSeconds % 60;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const minutes = totalMinutes % 60;
+  const totalHours = Math.floor(totalMinutes / 60);
+  const hours = totalHours % 24;
+  const days = Math.floor(totalHours / 24);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (totalHours > 0) return `${totalHours}h ${String(minutes).padStart(2, "0")}m`;
+  if (totalMinutes > 0) return `${totalMinutes}m ${String(seconds).padStart(2, "0")}s`;
+  return `${totalSeconds}s`;
+}
+
+/**
+ * Aggregate relay-effectiveness panel (mirror of `agentrelay stats`): is the
+ * relay actually earning its keep? Only rendered once at least one job has
+ * reached a terminal state — with nothing resolved yet, success rate and
+ * resolution time are undefined and a "0%" tile would mislead.
+ */
+function RelayEffectivenessCard({ stats }: { stats: RelayStats | undefined }) {
+  if (!stats || stats.terminal === 0) return null;
+  const timing = stats.timing;
+  const resolved = timing.resolvedCount > 0;
+  return (
+    <section className="effectiveness-card" aria-label="Relay effectiveness">
+      <h2 className="rollup-title">Relay effectiveness</h2>
+      <div className="effectiveness-grid">
+        <div className="metric">
+          <div className="label">Success rate</div>
+          <div className="value numeric">{formatSuccessRate(stats.successRate)}</div>
+          <div className="sub">completed vs. failed</div>
+        </div>
+        <div className="metric">
+          <div className="label">Relayed jobs</div>
+          <div className="value numeric">{stats.retriedJobs}</div>
+          <div className="sub">
+            resumed &gt;1× · of <span className="numeric">{stats.total}</span> total
+          </div>
+        </div>
+        <div className="metric">
+          <div className="label">Resume attempts</div>
+          <div className="value numeric">{stats.totalAttempts}</div>
+          <div className="sub">across every job</div>
+        </div>
+        <div className="metric">
+          <div className="label">Resolution time</div>
+          <div className="value numeric">{resolved ? formatDuration(timing.avgResolutionMs) : "—"}</div>
+          <div className="sub">
+            {resolved ? (
+              <>
+                median <span className="numeric">{formatDuration(timing.medianResolutionMs)}</span> · p90{" "}
+                <span className="numeric">{formatDuration(timing.p90ResolutionMs)}</span>
+              </>
+            ) : (
+              "nothing resolved yet"
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 const HEARTBEAT_META: Record<HeartbeatStatus["state"], { label: string; colorVar: string }> = {
@@ -303,6 +392,8 @@ export default function DashboardClient() {
           <div className="value numeric">{summary?.total ?? "–"}</div>
         </div>
       </section>
+
+      <RelayEffectivenessCard stats={snapshot?.stats} />
 
       {hasRollup && (
         <section className="rollup-grid" aria-label="Rollups by project and tool">
