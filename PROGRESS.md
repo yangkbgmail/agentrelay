@@ -2142,3 +2142,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay summary --watch` 라이브 큐 개요] (2026-08-11, 무인 자율 세션, branch `claude/wizardly-pascal-vqlo6n`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 67이 "다음 할 일"로 지목한 후속 후보 중 `summary --watch`를 골랐다 —
+  `status`/`upcoming`/`overdue`/`projects`/`tools`/`stats`엔 모두 `--watch`가 있는데 세션 67에 새로 추가된
+  `summary`(한눈 큐 개요)에만 빠져 있어, 압축 개요를 두 번째 화면에 띄워 리셋 카운트다운이 실시간으로
+  줄어드는 걸 볼 방법이 없었다. 어떤 열린 PR에도 없는 명확한 갭이라 회귀 위험도 낮다.
+- **한 일 (branch `claude/wizardly-pascal-vqlo6n`):**
+  - CLI `summary.ts`에 순수 `renderSummaryWatchFrame`(다른 watch 명령과 동일한 title/meta 헤더 + compact
+    개요) 신설. `renderSummary`에 `scopeNote` 옵션 추가 — 활성 시 leading `scope: …` dim 라인을 렌더하고,
+    스코프가 스토어를 전부 걸러내면 first-run 힌트(`EMPTY_MESSAGE`) 대신 새 `NO_MATCH_MESSAGE`를 반환
+    (projects/stats의 `NO_SCOPE_MATCH_MESSAGE`와 동일 정책). 순수 함수 유지.
+  - `cli.ts`에 `runSummaryWatch` 루프(`startWatchLoop` 재사용 — 매 프레임 `listStatus`로 스토어 재읽기 +
+    `summarizeJobs` 재집계로 카운트다운 라이브, 시간창 경계는 명령 시작 시 고정된 절대 epoch-ms) + `summary`에
+    `-w/--watch [seconds]` 배선(간격 미지정=2s). `--json`이 `--watch`보다 우선(머신 덤프). 기존 스코프 필터
+    (--status/--tool/--project/--since/--until)의 `built.note`를 watch 프레임 scope note로 전달.
+  - `summary.test.ts` +4케이스: scopeNote leading line·no-match message·watch frame title/meta 헤더·scope
+    passthrough. 새 core/파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm format`+`pnpm ci:lint`(Biome 0에러, 116파일)→
+  `pnpm test` 전 패키지 통과(**core 614** / **cli 347/1skip** summary +4 / dashboard 9). **실제 빌드 CLI e2e**
+  (mock 아님): 3잡 임시 스토어로 `summary --watch 1`이 clear-screen(`\x1b[2J\x1b[H`)+title/meta 헤더+colored
+  상태 브레이크다운 프레임을 1초마다 렌더, `--project web`가 scope note("scope: project=web")와 2잡으로 스코프,
+  `--status failed`가 no-match 메시지, `--json`이 `--watch`보다 우선, `--help`·`completion bash`에 `--watch`
+  노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록 변동계수
+  (CV=stdev/mean), `summary` 히스토리 델타(직전 스냅샷 대비 증감). tz/heatmap/parser/watch는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
