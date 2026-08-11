@@ -810,6 +810,20 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay summary --watch` — 세션 67에 추가된 `summary`(한눈 큐 개요)의 라이브 갱신 뷰.
+      세션 67이 후속 후보로 지목한 항목(자기 발굴). `status`/`upcoming`/`overdue`/`projects`/`tools`/`stats`엔
+      다 있는 `--watch`가 `summary`에만 빠져 있어, 압축 개요를 두 번째 화면에 띄워 리셋 카운트다운이 실시간으로
+      줄어드는 걸 볼 수 없었다.
+      (완료 — CLI `summary.ts`에 순수 `renderSummaryWatchFrame`(다른 watch 명령과 동일한 title/meta 헤더 +
+      compact 개요) 신설, `renderSummary`에 `scopeNote` 옵션 추가(활성 시 leading `scope: …` dim 라인,
+      스코프가 전부 걸러내면 first-run 힌트 대신 새 `NO_MATCH_MESSAGE`). `cli.ts`에 `runSummaryWatch` 루프
+      (`startWatchLoop` 재사용 — 매 프레임 스토어 재读+`summarizeJobs` 재집계로 카운트다운 라이브, 시간창
+      경계는 명령 시작 시 고정) + `summary`에 `-w/--watch [seconds]` 배선. `--json`이 `--watch`보다 우선.
+      기존 스코프 필터(--status/--tool/--project/--since/--until)를 watch 프레임에도 scope note로 반영. 새
+      core/파서/스케줄러 로직 0줄. summary.test +4(scopeNote leading line·no-match·watch frame header·scope
+      passthrough), 실제 빌드 CLI e2e로 watch 프레임(clear-screen+colored breakdown)·scope note·no-match·
+      help/completion `--watch` 노출 검증(cli 347/1skip). branch `claude/wizardly-pascal-vqlo6n`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
