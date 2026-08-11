@@ -2142,3 +2142,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — 파서: API rate-limit 리셋 헤더 인식(`X-RateLimit-Reset`·`anthropic-ratelimit-*-reset`)] (2026-08-11, 무인 자율 세션, branch `claude/parser-ratelimit-reset-header`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유뿐 → 자기 발굴. 파서는
+  이 도구의 핵심 가치(감지)라 실사용 갭을 노렸다. 에이전트 CLI가 429에서 응답 헤더를 콘솔에 덤프하는
+  경로는 기존 `http-retry-after`(RFC 9110 표준 헤더)가 이미 인정했는데, 정작 널리 쓰이는 **rate-limit
+  리셋 헤더**(`X-RateLimit-Reset`, Claude Code 백엔드의 `anthropic-ratelimit-*-reset`)는 어떤 기존
+  패턴도 못 잡아 그런 429가 조용히 무감지로 흘렀다.
+- **한 일 (branch `claude/parser-ratelimit-reset-header`):** `packages/core/src/parser.ts`에 순수 패턴
+  2개 추가(둘 다 기존 pre-filter `rate.?limit`가 이미 통과 → CLI/스케줄러 배선 0줄, `parse`·run·resume이
+  자동 노출).
+  - `anthropic-ratelimit-reset`: `anthropic-ratelimit-<class>-reset: <RFC3339>`(requests/tokens/unified
+    등)를 절대 리셋 시각으로 파싱. `reset at <iso>`(iso-timestamp)와 disjoint — 헤더는 "…-reset: <ts>"라
+    " at "가 없음. malformed 타임스탬프는 fallthrough(null).
+  - `ratelimit-reset`: `(X-)RateLimit-Reset: <숫자>`를 `http-retry-after`와 동일한 자릿수 분기로 해석 —
+    10자리=Unix epoch 초(GitHub식 절대), 그보다 짧으면 now+N초 지연(IETF RateLimit 초안 delta). 후행 `\b`가
+    13자리 epoch-ms를 잘못 절단하지 않고 거부(→null, 오탐 방지). 기존 `unix-epoch`(retry_after)와 비교차.
+  - `parser.test.ts` +6 회귀(anthropic ts·offset·malformed / epoch·delta / epoch-ms 거부).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 620**, parser 33→39). **실제 빌드 CLI e2e**(mock 아님): `parse`가
+  `anthropic-ratelimit-requests-reset: <ts>`→`anthropic-ratelimit-reset` 패턴·절대시각, `X-RateLimit-Reset:
+  1752345600`→epoch, `RateLimit-Reset: 3600`→now+1h delta로 각각 카운트다운과 함께 렌더 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — 주간 한도의
+  요일+시각 리셋 문구("resets Monday at 12am") 인식, `summary --watch` 라이브 갱신(세션 67 제안).
+  README/ARCHITECTURE(🧭 코워크).

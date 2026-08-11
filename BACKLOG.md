@@ -810,6 +810,20 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 파서: API rate-limit **리셋 헤더** 인식 — 에이전트 CLI가 429 응답 헤더를 콘솔에 덤프할 때
+      나오는 `X-RateLimit-Reset`(GitHub식 epoch)·`anthropic-ratelimit-*-reset`(Claude Code 백엔드,
+      RFC 3339)를 놓치지 않고 큐잉. 자기 발굴 항목 — 기존 `http-retry-after`(표준 헤더 인식)와 같은 맥락.
+      (완료 — `parser.ts`에 순수 패턴 2개 추가(둘 다 기존 pre-filter `rate.?limit`가 이미 통과, CLI 변경
+      0줄 — `parse`/run/스케줄러가 자동 노출). ① `anthropic-ratelimit-reset`: `anthropic-ratelimit-
+      <class>-reset: <RFC3339>`(requests/tokens/unified 등)를 절대 리셋 시각으로. `reset at <iso>`
+      (iso-timestamp)와 disjoint — 헤더는 "…-reset: <ts>"라 " at " 없음. ② `ratelimit-reset`:
+      `(X-)RateLimit-Reset: <숫자>`를 http-retry-after와 동일한 자릿수 분기로 해석 — 10자리=Unix epoch
+      초(GitHub식 절대), 그보다 짧으면 now+N초 지연(IETF RateLimit 초안 delta). 후행 `\b`가 13자리
+      epoch-ms를 잘못 절단하지 않고 거부(→null, 오탐 방지). 두 패턴 모두 기존 `unix-epoch`(retry_after)·
+      iso-timestamp와 비교차. parser.test +6 회귀(anthropic ts/offset/malformed·epoch·delta·epoch-ms
+      거부), core 620 통과, 실제 빌드 CLI `parse` e2e로 세 형태 매치·카운트다운 검증. branch
+      `claude/parser-ratelimit-reset-header`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

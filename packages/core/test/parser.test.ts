@@ -236,6 +236,46 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  it("parses an Anthropic ratelimit reset header (RFC 3339 timestamp)", () => {
+    const result = parseRateLimitMessage(
+      "HTTP 429\nanthropic-ratelimit-requests-reset: 2026-07-13T05:00:00Z\nretry later"
+    );
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("anthropic-ratelimit-reset");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses the Anthropic unified reset header with a timezone offset", () => {
+    const result = parseRateLimitMessage("anthropic-ratelimit-unified-reset: 2026-07-13T05:00:00+09:00");
+    expect(result?.pattern).toBe("anthropic-ratelimit-reset");
+    // 05:00 +09:00 == 20:00 UTC the previous day.
+    expect(result?.resetAt).toBe("2026-07-12T20:00:00.000Z");
+  });
+
+  it("falls through a malformed Anthropic reset header instead of an invalid date", () => {
+    expect(parseRateLimitMessage("anthropic-ratelimit-tokens-reset: 2026-13-40T99:99:99Z")).toBeNull();
+  });
+
+  it("parses X-RateLimit-Reset as a Unix epoch (10-digit, GitHub-style)", () => {
+    const result = parseRateLimitMessage("HTTP 429 Too Many Requests\nX-RateLimit-Reset: 1752345600");
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("ratelimit-reset");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("parses a short RateLimit-Reset value as a delay in seconds (IETF draft)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("RateLimit-Reset: 3600", { now });
+    expect(result?.pattern).toBe("ratelimit-reset");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 3600 * 1000).toISOString());
+  });
+
+  it("does not misread an epoch-in-milliseconds ratelimit-reset value", () => {
+    // A 13-digit value has no internal word boundary, so the pattern refuses it
+    // rather than truncating it to a wrong instant.
+    expect(parseRateLimitMessage("x-ratelimit-reset: 1752345600000")).toBeNull();
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [

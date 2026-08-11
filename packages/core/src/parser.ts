@@ -127,6 +127,41 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Anthropic API rate-limit reset headers (what Claude Code's own backend
+    // returns on a 429), e.g. `anthropic-ratelimit-requests-reset`,
+    // `anthropic-ratelimit-tokens-reset`, `anthropic-ratelimit-unified-reset`.
+    // Their value is an RFC 3339 timestamp, so agent CLIs that dump the response
+    // headers verbatim surface an absolute reset instant. Disjoint from the
+    // generic `reset at <iso>` pattern above (that needs "reset" + " at "; this
+    // is a "…-reset: <ts>" header) and from the numeric ratelimit-reset epoch
+    // pattern below (that captures digits, this captures a timestamp).
+    name: "anthropic-ratelimit-reset",
+    regex:
+      /anthropic-ratelimit-[a-z0-9-]*reset"?\s*[:=]\s*"?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/i,
+    resolve: (m) => {
+      const d = new Date(m[1]);
+      return Number.isNaN(d.getTime()) ? null : d;
+    },
+  },
+  {
+    // Generic `RateLimit-Reset` / `X-RateLimit-Reset` header (GitHub, Twitter and
+    // many other APIs an agent tool may proxy). Two real-world semantics share the
+    // name, so we disambiguate by magnitude the same way http-retry-after does:
+    //   - a full 10-digit value is a Unix epoch in seconds (GitHub-style absolute)
+    //   - anything shorter is a delay in seconds from now (IETF RateLimit draft)
+    // The trailing `\b` refuses a longer run of digits (e.g. a 13-digit epoch in
+    // milliseconds) rather than truncating it to a wrong instant. Kept disjoint
+    // from `anthropic-ratelimit-…-reset` (timestamp value) and the `retry_after`
+    // epoch field (different header name).
+    name: "ratelimit-reset",
+    regex: /(?:x-)?ratelimit-reset"?\s*[:=]\s*"?(\d{1,10})\b/i,
+    resolve: (m, now) => {
+      const value = parseInt(m[1], 10);
+      if (m[1].length >= 10) return new Date(value * 1000);
+      return new Date(now.getTime() + value * 1000);
+    },
+  },
+  {
     // Generic "5-hour limit" mention with no explicit time -> assume a full 5h window from now.
     // Kept last and treated as a low-confidence fallback.
     name: "five-hour-window-fallback",
