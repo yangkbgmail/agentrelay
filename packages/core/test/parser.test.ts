@@ -69,6 +69,44 @@ describe("parseRateLimitMessage", () => {
     expect(parseRateLimitMessage("Rate limit hit, reset at 5.")).toBeNull();
   });
 
+  it("parses an absolute clock time introduced by 'try again at' (not just 'reset at')", () => {
+    // Some agents/proxies say "try again at 3:00pm" instead of "resets at 3:00pm".
+    const now = new Date("2026-07-12T20:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Please try again at 3:00pm.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getUTCHours() === 15 || resetDate.getHours() === 15).toBeTruthy();
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses meridiem-only 'try again at 5pm' via the meridiem pattern", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit — try again at 5pm.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(17);
+    expect(resetDate.getMinutes()).toBe(0);
+  });
+
+  it("parses 'available again at 9am' even without other rate-limit keywords in the line", () => {
+    // The pre-filter must admit the "available (again) at" lead-in on its own.
+    const now = new Date("2026-07-12T20:00:00Z");
+    const result = parseRateLimitMessage("Your quota is used up; available again at 9am.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(9);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("keeps 'try again in <duration>' (relative) disjoint from 'try again at <clock>' (absolute)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const relative = parseRateLimitMessage("Rate limit exceeded, try again in 2h.", { now });
+    expect(relative?.pattern).toBe("relative-duration");
+    const absolute = parseRateLimitMessage("Rate limit exceeded, try again at 2:00pm.", { now });
+    expect(absolute?.pattern).toBe("clock-time");
+  });
+
   it("parses a relative duration like '4h32m'", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Rate limit exceeded, try again in 4h32m.", { now });

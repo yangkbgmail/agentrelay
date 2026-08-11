@@ -2142,3 +2142,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — 파서: `try again at` / `available again at` 절대 시각 인식] (2026-08-11, 무인 자율 세션, branch `claude/parser-try-again-at`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]). **열린 PR 20개로 적체 심각 — `summary --watch`만 4개
+  중복 PR**(#594/#593/#584/#579)이 존재해 그 축은 완전 포화. 세션 67이 `summary --watch`를 후속으로 제안했지만
+  이미 중복 포화라 지양하고, **어떤 열린 PR에도 없는 파서 갭**을 발굴했다: `clock-time`/`clock-time-meridiem`
+  패턴 리드인이 `reset[s] at`으로 고정돼 `"try again at 3:00pm"`·`"available again at 9am"` 같은 실사용 절대-
+  시각 문구를 놓쳤다("try again **in** <기간>"만 relative-duration이 잡음). 파서는 이 도구의 핵심 가치이면서
+  가장 경합 적은 영역(열린 PR 중 파서 관련은 #578 word-boundary 하나뿐).
+- **한 일 (branch `claude/parser-try-again-at`):**
+  - `parser.ts`의 `clock-time`(분 정밀)·`clock-time-meridiem`(분 없는 시+meridiem) 두 패턴 정규식 리드인을
+    `reset[s]? at`에서 `(?:reset[s]?|try\s+again|available(?:\s+again)?)\s+at`으로 확장. 절대 벽시계 시각이라는
+    의미가 동일 → 같은 패턴명에 매핑, `resolve` 로직·패턴명 불변(영속된 `lastRateLimit` provenance 하위호환).
+    `at`(절대)/`in`(상대) 구분으로 relative-duration과 disjoint 유지.
+  - `LOOKS_LIKE_RATE_LIMIT` 사전필터에 `available(?:\s+again)?\s+at` 브랜치 추가(`try again`은 기존 매칭) →
+    다른 rate-limit 키워드 없는 라인("available again at 9am")도 게이트 통과.
+  - parser.test +4: try again at 3:00pm→clock-time·try again at 5pm→meridiem·available again at 9am(키워드
+    단독)·relative(in)/absolute(at) disjoint. 새 CLI 코드 0줄 — 기존 `parse` 커맨드가 자동 노출.
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test` 전 패키지 통과
+  (**core 618** parser +4, cli 343/1skip, dashboard 9). **실제 빌드 CLI `parse` e2e**(mock 아님):
+  "try again at 3:00pm"→clock-time+2026-…T15:00, "available again at 9am"→clock-time-meridiem+익일 09:00,
+  "reset at 5pm" 회귀·"try again in 2h" relative 유지 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). **적체 경고**: 열린 PR 20개(summary --watch
+  4중복 포함)로 리뷰/병합 파이프라인 포화 — 신규 빌드보다 코워크의 중복 정리·병합이 시급. 후속 파서 후보 —
+  "come back at"·요일+시각("reset Monday 9am")·타임존 오프셋 벽시계. README/ARCHITECTURE(🧭 코워크).
