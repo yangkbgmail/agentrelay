@@ -2142,3 +2142,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — Gemini CLI 어댑터(`retryDelay` 초 필드 인식)] (2026-08-11, 무인 자율 세션, branch `claude/wizardly-pascal-shima5`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료([x]), 미완은 🧭 코워크 소유(README/ARCHITECTURE/경쟁조사/샘플수집/
+  성능분석)뿐. 열린 PR 100+가 parser/watch/stats/tz/heatmap/export/search/completion 축에 포화. 어떤 열린
+  PR에도 없는 명확한 갭을 골랐다 — SPEC §8 "다른 에이전트 툴 어댑터"는 codex만 추가됐고, 실제 널리 쓰이는
+  Gemini CLI 어댑터가 없었다. Google Gemini API의 429 `RESOURCE_EXHAUSTED` 응답은 `RetryInfo`의
+  `"retryDelay": "56s"` camelCase 필드로 대기 시간을 주는데, generic 파서는 `retry_after`(underscore/epoch)와
+  HTTP `Retry-After`(hyphen)만 알고 이 형식은 놓쳤다 → 조용한 미감지.
+- **한 일 (branch `claude/wizardly-pascal-shima5`):**
+  - `types.ts`: `AgentTool` union에 `gemini-cli` 추가.
+  - `adapters.ts`: `GEMINI_CLI_ADAPTER`(binaries `["gemini","gemini-cli"]`, displayName "Gemini CLI") +
+    `gemini-retry-delay` 패턴 신설. 정규식 `retry[_-]?delay` + 선택적 따옴표/구분자, 초 값을 `Math.ceil`로
+    올림(조기 재개 방지), 0/음수/누락은 무시. `ADAPTERS` 레지스트리(`Record<AgentTool,…>`가 컴파일-강제)에 등록.
+  - `stats.ts`: `ALL_TOOLS`에 `gemini-cli` 등록 → stats/metrics `byTool` zero-fill, `run/status/stats/export
+    --tool` 필터·헬프에 자동 반영.
+  - `cli.ts`: `run --tool` 헬프의 하드코딩된 툴 목록(`claude-code | codex-cli | generic`)을 `ALL_TOOLS.join`
+    기반으로 교정(신규 툴이 자동 노출되도록).
+  - 테스트: 기존 `test/adapters.test.ts`에 gemini 감지 6케이스 추가(retryDelay·snake/kebab·fractional ceil·
+    0무시·retry_after는 generic 소유·generic fallback) + 레지스트리 완전성/키 일치 케이스(19 tests). stats.test의
+    byTool toEqual 3곳에 `gemini-cli: 0` 반영.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 620** adapters 13→19, cli 343/1skip, dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  `parse --tool gemini-cli '{"retryDelay":"56s"}'`가 `gemini-retry-delay` 패턴으로 리셋 시각 산출,
+  `resets in 2h`는 generic `relative-duration`로 fallback, `run --help`가 `gemini-cli`를 툴 목록에 노출.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — Aider/Cursor 등 추가 어댑터,
+  Gemini 일일 쿼터("Quota exceeded ... per day") 무시간 메시지의 리셋 추정. tz/heatmap/parser/watch는 PR 포화라
+  지양. README/ARCHITECTURE(🧭 코워크).
