@@ -54,6 +54,7 @@ import {
   type ImportParseError,
   type ImportResult,
   type IneligibleJob,
+  inferToolFromCommand,
   isJobScopeActive,
   type JobCsvColumn,
   type JobScope,
@@ -123,9 +124,19 @@ export interface RunOptions {
    */
   project?: string;
   storePath?: string;
+  /**
+   * Preview mode: resolve and print exactly what a real run would do (tool
+   * adapter, project label, cwd, resolved command, whether the binary is on
+   * PATH, and the store the job would land in) without spawning the child
+   * process or touching the store. Lets users verify `agentrelay run` is wired
+   * the way they expect before committing to a real, possibly long-lived run.
+   */
+  dryRun?: boolean;
   /** Injected for tests; defaults to real stdout/stderr passthrough. */
   stdout?: NodeJS.WritableStream;
   stderr?: NodeJS.WritableStream;
+  /** Injected for tests; defaults to `process.env`. Used only to resolve the command binary on PATH for the dry-run preview. */
+  env?: Record<string, string | undefined>;
   /**
    * Injected for tests; defaults to the env-configured notifiers
    * (AGENTRELAY_SLACK_WEBHOOK and/or AGENTRELAY_WEBHOOK_URL, or silent skip).
@@ -133,9 +144,68 @@ export interface RunOptions {
   notify?: Notifier | null;
 }
 
+/**
+ * What a `--dry-run` preview of `agentrelay run` resolved to, without executing
+ * anything. Returned on {@link RunResult.preview} so callers/tests can assert on
+ * the wiring the CLI would use.
+ */
+export interface RunPreview {
+  /** Adapter/tool the run would use. */
+  tool: AgentTool;
+  /** Human-readable adapter name (e.g. "Claude Code"). */
+  toolDisplayName: string;
+  /** How the tool was chosen: an explicit --tool, inferred from the binary, or the generic fallback. */
+  toolSource: "explicit" | "inferred" | "default";
+  /** Project label the queued job would carry. */
+  project: string;
+  /** Working directory the command would run in. */
+  cwd: string;
+  /** The resolved command (argv) that would be spawned. */
+  command: string[];
+  /** The bare binary (argv[0]) the run would exec. */
+  binary: string;
+  /** Absolute path the binary resolved to on PATH, or null when nothing executable was found. */
+  binaryPath: string | null;
+  /** Store file a queued job would be written to. */
+  storePath: string;
+}
+
 export interface RunResult {
   exitCode: number;
   queuedJob: RelayJob | null;
+  /** True when this was a `--dry-run` preview — nothing was spawned or written. */
+  dryRun?: boolean;
+  /** Populated on a dry run: the resolved wiring the real run would use. */
+  preview?: RunPreview;
+}
+
+/** Quote an argv token for display when it contains whitespace, so the preview reads back copy-pasteably. */
+function quoteArg(arg: string): string {
+  return /\s/.test(arg) ? JSON.stringify(arg) : arg;
+}
+
+/** Render a `--dry-run` preview block for `agentrelay run` (see {@link RunPreview}). */
+export function renderRunPreview(preview: RunPreview): string {
+  const sourceNote =
+    preview.toolSource === "explicit"
+      ? " (from --tool)"
+      : preview.toolSource === "inferred"
+        ? ` (inferred from "${preview.binary}")`
+        : " (generic fallback)";
+  const pathNote = preview.binaryPath
+    ? preview.binaryPath
+    : `NOT FOUND on PATH — "${preview.binary}" would fail to spawn`;
+  const lines = [
+    "[agentrelay] dry run — nothing was executed and the store was not touched.",
+    `  tool:     ${preview.tool} — ${preview.toolDisplayName}${sourceNote}`,
+    `  project:  ${preview.project}`,
+    `  cwd:      ${preview.cwd}`,
+    `  command:  ${preview.command.map(quoteArg).join(" ")}`,
+    `  binary:   ${pathNote}`,
+    `  store:    ${preview.storePath}`,
+    "  On a real run, output is watched for a rate-limit message; if one is seen the command is queued to auto-resume.",
+  ];
+  return `${lines.join("\n")}\n`;
 }
 
 /**
@@ -153,6 +223,35 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   const storePath = options.storePath ?? defaultStorePath();
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
+
+  if (options.dryRun) {
+    const env = options.env ?? process.env;
+    const project = resolveProjectName(cwd, options.project);
+    const binary = options.command[0] ?? "";
+    const binaryPath = binary ? resolveOnPath(binary, env) : null;
+    // How did we land on this adapter? Explicit --tool wins; else inference from
+    // the binary; else the generic fallback. Mirrors resolveAdapter's priority
+    // so the preview explains *why* this tool was chosen.
+    const toolSource: RunPreview["toolSource"] =
+      options.tool && adapter.tool === options.tool
+        ? "explicit"
+        : inferToolFromCommand(options.command)
+          ? "inferred"
+          : "default";
+    const preview: RunPreview = {
+      tool,
+      toolDisplayName: adapter.displayName,
+      toolSource,
+      project,
+      cwd,
+      command: options.command,
+      binary,
+      binaryPath,
+      storePath,
+    };
+    stdout.write(renderRunPreview(preview));
+    return { exitCode: 0, queuedJob: null, dryRun: true, preview };
+  }
 
   const [exitCode, output] = await new Promise<[number, string]>((resolve) => {
     let buffered = "";

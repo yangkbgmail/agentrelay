@@ -541,13 +541,26 @@ export function buildCli(): Command {
       "-p, --project <name>",
       "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
     )
-    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
+    .option(
+      "--dry-run",
+      "Preview the resolved tool, project, cwd, command, and store without spawning the command or touching the store"
+    )
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # run and auto-queue on a rate limit\n" +
+        '  agentrelay run -- claude -p "continue the refactor"\n' +
+        "  # check how the run would be wired, without executing anything\n" +
+        '  agentrelay run --dry-run -- claude -p "continue the refactor"'
+    )
+    .action(async (command: string[], opts: { tool?: string; project?: string; dryRun?: boolean }) => {
       const { store } = program.opts();
       const result = await runCommand({
         command,
         storePath: store,
         tool: opts.tool as AgentTool | undefined,
         project: opts.project,
+        dryRun: opts.dryRun,
       });
       process.exitCode = result.exitCode;
     });
