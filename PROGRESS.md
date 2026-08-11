@@ -2142,3 +2142,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — 대시보드 릴레이 효과(Relay effectiveness) 패널] (2026-08-11, 무인 자율 세션, branch `claude/dashboard-effectiveness`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유뿐. 열린 PR 40개(560~601)를
+  훑어보니 search/drain/forecast/calendar/savings/stale/note/reschedule/watch 변형/stats 변형/parser 변형/
+  adapters/backup/metrics까지 core·cli 인접 영역이 전부 포화. 반면 **`apps/dashboard`는 어떤 열린 PR도
+  건드리지 않은 무손질 영역**이었고, 대시보드는 잡 목록·프로젝트/툴 롤업·하트비트는 보여주면서도 CLI
+  `agentrelay stats`가 계산하는 집계 지표(성공률·해결 시간·재시도)를 전혀 노출하지 않는 명확한 갭이 있었다.
+- **한 일 (branch `claude/dashboard-effectiveness`):**
+  - `lib/jobs.ts`: `JobsSnapshot`에 `stats: RelayStats` 추가, 매 폴링마다 core `computeStats(jobs)`로 채움.
+    새 집계 로직 0줄 — 이미 테스트된 core 재사용이라 CLI `stats`와 절대 드리프트하지 않음.
+  - `dashboard-client.tsx`: `RelayEffectivenessCard` 신설(성공률·릴레이된 잡 수[attempts>1]·총 재개 시도·
+    해결 시간 avg+median/p90 4개 metric). `formatSuccessRate`(미해결 시 `n/a`)·`formatDuration`은 CLI
+    `formatSuccessRate`/`formatDurationMs`를 미러. **종료 잡(terminal>0)이 하나라도 있을 때만 렌더** —
+    아무것도 해결 안 됐을 때 "0%" 타일이 오해를 주지 않도록(CLI resolution-time 블록과 동일 게이트).
+  - `globals.css`: `.effectiveness-card`/`.effectiveness-grid`/`.metric`(기존 tile 톤·라이트/다크 변수 재사용).
+  - `test/jobs.test.ts` +2: 빈 스토어 zero-fill(successRate null·resolvedCount 0)·완료1/실패1→성공률 50%·
+    resolvedCount 2.
+- **검증:** `pnpm install`→`pnpm build`(Next 정적 생성 포함 클린)→`pnpm ci:lint`(Biome 0에러·116파일)→
+  `pnpm test` 전 패키지 통과(**core 614·cli 343/1skip·dashboard 11**[+2]). **실제 빌드 대시보드 e2e**(mock
+  아님): 완료1/실패1 임시 스토어로 `next start`+`/api/jobs` curl → 응답에 `stats.terminal:2·successRate:0.5·
+  timing.resolvedCount:2` 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드 stats 패널에
+  툴/프로젝트 스코프 토글, `--group-by` 축 시각화. core/cli는 PR 포화라 대시보드 축을 계속 소진 권장.
