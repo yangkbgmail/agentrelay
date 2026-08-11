@@ -2142,3 +2142,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay stats` 해결 시간 총합(total babysat)] (2026-08-11, 무인 자율 세션, branch `claude/wizardly-pascal-yoyt01`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 65·67이 후속 후보로 지목한 timing 블록 변동계수(CV)는 이미 열린
+  PR #560·#562가 점유 중이라 피하고, 어떤 열린 PR에도 없는(검색 0건) **명확한 인접 갭**을 골랐다 —
+  timing 블록은 중심(avg/median), 꼬리(p90~p99), 퍼짐(iqr/stdev)은 다 있는데 **집계 총합**이 없었다.
+  "릴레이가 나 대신 얼마나 오래 기다려줬나"는 이 제품의 핵심 가치 문장인데 stats로 답할 수 없었다.
+- **한 일 (branch `claude/wizardly-pascal-yoyt01`):**
+  - core `stats.ts`: `TimingStats`에 `totalResolutionMs: number | null`(resolved 잡 라이프사이클 span의
+    합, resolved 0개면 null) 추가. `computeStats`가 이미 만드는 오름차순 정렬 배열의 `reduce` 합을 mean
+    산출과 **공유**해 새 순회/정렬 0줄(`total`을 먼저 구하고 `mean = total / resolvedCount`). cancelled·
+    active·음수 span·미파싱 잡은 avg/percentile과 **동일 정책**으로 제외. 정의상 `avg × resolvedCount`지만
+    되계산 없이 직접 노출하는 헤드라인 집계.
+  - CLI `stats.ts`: resolution-time 블록 머리에 `total babysat: <dur>` 라인 추가(avg 라인 위). `formatDurationMs`
+    재사용. `renderStatsJson`은 timing 전체를 직렬화하므로 `totalResolutionMs`가 JSON shape 변경 없이 자동 노출.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 615** stats +2 / **cli 343/1skip** stats render 단언 확장 / dashboard 9). 빈-timing
+  `toEqual` 두 곳에 새 null 필드 반영. **실제 빌드 CLI e2e**(mock 아님): completed 1h + failed 3h +
+  cancelled 9h 임시 스토어로 `stats`가 `total babysat: 4h 0m`(cancelled 제외) 렌더, `stats --json`이
+  `totalResolutionMs: 14400000`(= avg 7200000 × resolvedCount 2)을 정확히 방출함을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `--group-by` per-group
+  요약에 total babysat 노출, timing 블록 CV(단 #560·#562 병합 대기 중이라 지양). tz/heatmap/parser/watch는
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
