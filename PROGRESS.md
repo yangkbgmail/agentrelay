@@ -2142,3 +2142,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay savings` 무인 대기 정량화 명령] (2026-08-11, 무인 자율 세션, branch `claude/relay-savings-report`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md 지침대로 새 개선 항목을 스스로 발굴했다 — 열린 PR 50개가
+  포화된 축(watch/stats 히스토그램/search/export/notify/parser/completion/forecast/reschedule/drain/dedupe/
+  diff/note)을 피해, 어떤 열린 PR에도 없는 **프로젝트의 헤드라인 가치 자체**를 골랐다: "리셋 시점 자동
+  재개로 사람이 대기·재시작할 필요를 없앤다"를 숫자로 답하는 명령이 없었다. 스토어에 이미 영속되는 per-job
+  `lastRateLimit` provenance(`detectedAt`→`resetAt`)가 곧 "릴레이가 무인으로 메운 대기 창"이다.
+- **한 일 (branch `claude/relay-savings-report`):**
+  - core `savings.ts` 신설: 순수 `computeRelaySavings(jobs)` + `RelaySavings`(total·bridged·totalBridgedMs·
+    averageBridgeMs·longestBridgeMs+jobId·byTool 랭킹). bridge 창 = `resetAt − detectedAt`. 각 잡은 최신
+    detection만 들고 있어 보수적 하한(patterns.ts와 동일 현재-상태 집계 철학), 파싱 불가·reset<detect
+    레코드는 스킵해 오염 방지, 0-창은 bridged로 세되 0ms 기여하고 첫 bridged 잡이 longest holder.
+    시계·I/O 없이 완전 순수(injected 값만).
+  - CLI `savings.ts`에 순수 `renderSavings`(헤드라인="AgentRelay waited <총합> for you across N rate-limit(s)"
+    + average/longest window + 툴별 비례 막대)·`renderSavingsJson`(store/generatedAt/scope provenance 봉투,
+    patterns/stats와 동형)·`formatSpan`(경과 시간 2-유닛 표기: 45s / 1m 30s / 2h 34m / 1d 2h). `agentrelay
+    savings [--json] [-s/-t/-p/--since/--until]` 배선, 다른 집계 명령과 동일한 buildScope/scopeJobs 재사용
+    (잘못된 status → exit 1).
+  - core `savings.test.ts` 7케이스(빈 큐·detection 없음·합산+longest 추적·malformed 스킵·0-창·툴별 랭킹·
+    동점 tiebreak), cli `savings.test.ts` 9케이스(formatSpan 범위·빈/스코프미스/무-savings 힌트·헤드라인·
+    툴 분해·색 토글·JSON 봉투).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 120파일)→`pnpm test`
+  전 패키지 통과(**core 621** savings +7 / **cli 352/1skip** savings +9 / dashboard 9). **실제 빌드 CLI
+  e2e**(mock 아님): 3잡 임시 스토어로 `savings`가 "waited 5h 1m … across 2 rate-limit(s)" + 툴별 막대
+  렌더, `--json`이 `totalBridgedMs=18090000`(5h+90s) 방출, `--project api`가 90s 단일 잡으로 스코프,
+  `--tool claude-code`가 5h로 스코프, `--status bogus`가 exit 1, `--help`·`completion bash`에 savings 등록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `savings --watch`
+  라이브 갱신, `savings --since 7d` 대비 이전 창 델타(주간 리포트). tz/heatmap/parser/watch는 PR 포화라
+  지양. README/ARCHITECTURE(🧭 코워크).

@@ -809,6 +809,21 @@
       p75 …)   stdev …` 라인 추가, `--json`은 timing 전체 직렬화라 자동 노출. core stats.test +2(3-잡
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
+- [x] 👷 `agentrelay savings` — 릴레이가 사람 대신 기다려 준 무인 대기 시간을 정량화(자동 재개 페이오프).
+      (자체 발굴 — 👷 순수 백로그가 전부 완료라 CLAUDE.md 지침대로 새 항목 발굴. 스토어에 이미 영속되는
+      per-job `lastRateLimit` provenance의 `resetAt − detectedAt`(감지→리셋 창=릴레이가 무인으로 메운
+      대기 구간)를 큐 전체로 합산 → 프로젝트의 헤드라인 가치("리셋 시점 자동 재개로 사람이 대기·재시작할
+      필요 없앰")를 숫자로 답한다. 어떤 열린 PR에도 없는 명확한 갭.
+      완료 — core `savings.ts` 신설: 순수 `computeRelaySavings(jobs)` + `RelaySavings`(total·bridged·
+      totalBridgedMs·averageBridgeMs·longestBridgeMs+jobId·byTool 랭킹). 각 잡은 최신 detection만 들고
+      있어 보수적 하한(patterns.ts와 동일 현재-상태 집계), 파싱 불가/reset<detect 레코드는 스킵해 오염
+      방지, 0-창은 bridged로 세되 0ms 기여. CLI `savings.ts`에 순수 `renderSavings`(헤드라인=총 대기+
+      bridge 수, average/longest, 툴별 막대)·`renderSavingsJson`(store/generatedAt/scope provenance)·
+      `formatSpan`(경과 시간 2-유닛 표기). `agentrelay savings [--json] [-s/-t/-p/--since/--until]` 배선,
+      다른 집계 명령과 동일 scope 필터 재사용. core savings.test 7케이스·cli savings.test 9케이스.
+      실제 빌드 CLI e2e(mock 아님): 3잡 스토어로 "waited 5h 1m … across 2 rate-limit(s)" + 툴별 분해,
+      `--json` totalBridgedMs=18090000(5h+90s) 방출, `--project`/`--tool` 스코프, `--status bogus` exit 1,
+      `--help`·completion 등록 확인. branch `claude/relay-savings-report`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
