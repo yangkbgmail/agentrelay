@@ -810,6 +810,22 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay summary --watch` — 세션 67이 신설한 한눈 큐 개요를 라이브로. `status`/`stats`/
+      `tools`/`projects`의 `--watch`와 동일한 관례(화면 클리어·타이틀/메타 배너·매 tick 스토어 재읽기·
+      다음 리셋 카운트다운 인플레이스 감소)로 "지금 큐가 뭐하나"를 한 줄로 화면에 붙박아 둠. 직전 세션이
+      "다음 할 일"로 지목한 자기 발굴 항목 — 기존 파서/스케줄러 미접촉 순수 추가.
+      (완료 — CLI `summary.ts` `renderSummary`에 `scopeNote` 옵션(활성 필터 시 상단 1회 에코, `tools`/
+      `projects`와 동일 관례) + 스코프 미스 메시지 `NO_SCOPE_MATCH_MESSAGE`(스코프 비었을 때 first-run
+      힌트 대신) 추가, 순수 `renderSummaryWatchFrame`(타이틀 "agentrelay summary (live, every Ns)" +
+      `HH:MM:SSZ · storePath` 메타 + 컬러 개요 본문) 신설. `cli.ts`에 `runSummaryWatch`(다른 watch 루프와
+      동일 — active scope 재적용·fresh now 매 tick, `startWatchLoop` 재사용) + `summary`에 `-w, --watch
+      [seconds]` 배선(스코프 검증 먼저라 잘못된 값은 여전히 exit 1, `--json`이 `--watch`보다 우선). 새
+      파서/스케줄러 로직 0줄. cli summary.test +4(=11: scopeNote 에코·스코프 미스 메시지·watch 프레임
+      배너/카운트다운·watch 프레임 scopeNote 전달). 실제 빌드 CLI e2e로 3잡 스토어 summary·`--project web`
+      스코프·`--status failed` 미스 메시지·`--watch 5` 라이브 프레임(타이틀/메타/카운트다운) 캡처·`--watch
+      --json` json 우선·`--status bogus` exit 1·help/completion `--watch` 노출 검증. branch
+      `claude/wizardly-pascal-p2dpzm`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

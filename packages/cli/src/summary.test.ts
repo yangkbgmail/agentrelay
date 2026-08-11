@@ -1,7 +1,13 @@
 import type { QueueSummary, RelayJob } from "@agentrelay/core";
 import { summarizeJobs } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { EMPTY_MESSAGE, renderSummary, renderSummaryJson } from "./summary.js";
+import {
+  EMPTY_MESSAGE,
+  NO_SCOPE_MATCH_MESSAGE,
+  renderSummary,
+  renderSummaryJson,
+  renderSummaryWatchFrame,
+} from "./summary.js";
 
 /** Zero-filled QueueSummary with the given overrides — mirrors summarizeJobs' shape. */
 function summary(overrides: Partial<QueueSummary> = {}): QueueSummary {
@@ -70,6 +76,24 @@ describe("renderSummary", () => {
     expect(renderSummary(s, { now: NOW, color: true })).toContain("\x1b[");
   });
 
+  it("echoes the scope note once when a filter is active", () => {
+    const out = renderSummary(summary({ total: 1, byStatus: { ...summary().byStatus, completed: 1 } }), {
+      now: NOW,
+      scopeNote: "project=web",
+    });
+    expect(out).toContain("scope: project=web");
+    expect(out).toContain("1 job");
+  });
+
+  it("shows the filter-miss message (not the first-run hint) when a scoped view is empty", () => {
+    const scoped = renderSummary(summary(), { now: NOW, scopeNote: "status=failed" });
+    expect(scoped).toContain("scope: status=failed");
+    expect(scoped).toContain(NO_SCOPE_MATCH_MESSAGE);
+    expect(scoped).not.toContain(EMPTY_MESSAGE);
+    // Unscoped empty store still shows the first-run hint.
+    expect(renderSummary(summary(), { now: NOW })).toBe(EMPTY_MESSAGE);
+  });
+
   it("matches summarizeJobs output end-to-end", () => {
     const jobs: RelayJob[] = [
       makeJob({ status: "waiting_for_reset", resetAt: new Date(NOW + 30 * 60_000).toISOString() }),
@@ -92,6 +116,32 @@ describe("renderSummaryJson", () => {
     expect(parsed.summary.total).toBe(2);
     expect(parsed.summary.byStatus).toMatchObject({ queued: 1, completed: 1, failed: 0, cancelled: 0 });
     expect(parsed.summary.nextResetAt).toBeNull();
+  });
+});
+
+describe("renderSummaryWatchFrame", () => {
+  it("wraps the overview in a live title/meta banner with the store path and interval", () => {
+    const s = summary({
+      total: 3,
+      byStatus: { ...summary().byStatus, waiting_for_reset: 1, completed: 2 },
+      nextResetAt: new Date(NOW + 63 * 60_000).toISOString(),
+    });
+    const frame = renderSummaryWatchFrame(s, "/x/jobs.json", 5000, NOW);
+    expect(frame).toContain("agentrelay summary");
+    expect(frame).toContain("live, every 5s");
+    expect(frame).toContain("/x/jobs.json");
+    expect(frame).toContain("2026-08-10 12:00:00Z");
+    // The one-glance body is embedded, with a live countdown (the frame renders
+    // in color, so the countdown value itself is ANSI-wrapped).
+    expect(frame).toContain("3 jobs");
+    expect(frame).toContain("next reset in");
+    expect(frame).toContain("1h 3m");
+  });
+
+  it("carries the scope note into the frame body when filtering", () => {
+    const s = summary({ total: 1, byStatus: { ...summary().byStatus, completed: 1 } });
+    const frame = renderSummaryWatchFrame(s, "/x/jobs.json", 2000, NOW, "tool=claude-code");
+    expect(frame).toContain("scope: tool=claude-code");
   });
 });
 
