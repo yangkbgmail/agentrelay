@@ -2142,3 +2142,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay summary --watch` 라이브 개요] (2026-08-11, 무인 자율 세션, branch `claude/wizardly-pascal-fxam19`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이라, 세션 67이 "다음 할 일"로 명시한 인접 후속을 자기 발굴 항목으로 골랐다.
+  `status`/`stats`/`tools`/`projects`/`upcoming`/`overdue`는 모두 `-w, --watch` 라이브 뷰를 갖는데, 세션 67에
+  갓 추가된 최신 명령 `summary`만 watch가 빠져 있어 watch 계열 명령군에 유일한 구멍이었다. 회귀 위험이 거의
+  없는 순수 추가(기존 함수 시그니처 미변경, core 로직 0줄)라 안전하게 소진 가능.
+- **한 일 (branch `claude/wizardly-pascal-fxam19`):**
+  - CLI `summary.ts`에 순수 `renderSummaryWatchFrame(summary, storePath, intervalMs, now, scopeNote?)` 신설:
+    `tools`/`projects --watch`와 동일한 title/meta 라이브 배너(`agentrelay summary (live, every Ns — Ctrl-C to
+    exit)` + `YYYY-MM-DD HH:MM:SSZ · <스토어경로>`)로 감싸고, 필터 활성 시 `scope: …` 라인을 헤더 아래 한 번
+    에코, 본문은 항상 컬러 `renderSummary`(next-reset 카운트다운 live). TTY·시계·spawn 없이 단위 테스트 가능.
+  - `cli.ts`에 `runSummaryWatch`(공용 `startWatchLoop` 재사용 — 매 프레임 스토어 재읽기·스코프 재적용·fresh
+    `now`로 카운트다운 live, 시간 창 경계는 시작 시 고정 epoch-ms) + summary 커맨드에 `-w, --watch [seconds]`
+    배선. 스코프 검증을 watch 진입 전에 통과시켜 잘못된 status/tool은 여전히 exit 1, `--json`이 `--watch`보다
+    우선(일회성 기계 덤프), 인터벌 기본 2s, addHelpText 예시 1줄 추가·completion 자동 포함. 새 파서/스케줄러/
+    core 로직 0줄 — 전부 기존 검증된 `summarizeJobs`/`scopeJobs`/`renderSummary`/`startWatchLoop` 재사용.
+  - `summary.test.ts` watch-frame 3케이스: 라이브 배너(인터벌·타임스탬프·스토어·카운트다운·색)·스코프 노트
+    에코·필터 없을 때 스코프 라인 생략.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**cli 346/1skip**, summary +3). **실제 빌드 CLI e2e**(mock 아님): 3잡 임시 스토어로
+  `summary --watch --project web-app`가 화면 clear 후 라이브 배너·`scope: project=web-app`·`2 jobs · next
+  reset in 1h 30m (…)`·상태 브레이크다운을 렌더, `--watch --json`이 `--json` 우선(1회 JSON 덤프),
+  `--watch --status bogus`가 exit 1, `--help`·`completion bash`에 `--watch` 등록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록 변동계수
+  (CV=stdev/mean), `summary` 대시보드 노출. tz/heatmap/parser/stats-watch는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
