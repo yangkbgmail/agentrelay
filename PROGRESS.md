@@ -2142,3 +2142,38 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay stale` wedged(고아) 잡 감지 명령] (2026-08-11, 무인 자율 세션, branch `claude/stale-wedged-jobs`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR이 포화된 축(parser/watch/stats/summary/export/search/drain/
+  forecast/completion)을 모두 피해, 어떤 열린 PR에도 없는 **명확한 신뢰성 갭**을 골랐다. 스케줄러의
+  `listDue`는 오직 `waiting_for_reset` 잡만 집어들고(queue.ts), `markResuming`이 잡을 `resuming`으로
+  넘긴다. 데몬이 **재개 도중** 죽으면(크래시·SIGKILL·리부트) 잡은 `resuming`에, 파킹되지 못한 잡은
+  `queued`에 영원히 갇힌다 — `listDue`가 다시는 집지 않고, `overdue`(waiting 전용)도 못 보고, 아무것도
+  자가 치유하지 않는다. 즉 **비종료·비대기 상태로 조용히 wedge된 고아 잡**을 감지하는 명령이 없었다.
+- **한 일 (branch `claude/stale-wedged-jobs`):**
+  - core `stale.ts` 신설: `STALE_STATUSES=["resuming","queued"]`, `buildStaleReport(jobs, now, {graceMs, limit})`
+    → `StaleReport`(entries·totalStale·hidden·graceMs·maxStaleForMs·byStatus). `updatedAt`이 `now-graceMs`보다
+    오래된 wedged-상태 잡을 most-stale(오래된 updatedAt)순으로 랭크, createdAt→id 결정적 타이브레이크.
+    `overdue`(waiting_for_reset 전용)의 **정확한 보완** — 둘이 합쳐 스케줄러가 남길 수 있는 모든 비종료
+    상태를 커버. 순수 함수(시계·큐·I/O 없음).
+  - CLI `stale.ts` 신설: `renderStale`(id·project·status·stale-for 테이블 + 상태별 브레이크다운 + 복구
+    가이드 footer)·`renderStaleJson`(provenance + 전체 report)·`renderStaleWatchFrame`(라이브). footer는
+    정확성 반영 — `canRequeue`가 `resuming`을 거부(레이스 방지)하므로 wedged `resuming`은 `cancel`로,
+    `queued`는 `retry`로 복구하도록 안내.
+  - `cli.ts`에 `agentrelay stale [--grace 15m] [--limit N] [--json] [--watch] [-t/-p/--since/--until]` 배선.
+    다른 진단 명령과 동일한 `buildScope`/`scopeJobs` scope·`parseDuration` grace 재사용. **wedged 잡이
+    있으면 exit 1**(overdue와 달리 자가 치유 불가한 실질 결함 → 모니터 게이트로 사용 가능). 완성 스크립트는
+    `program.commands`에서 동적 생성이라 `stale` 자동 등록.
+  - 테스트: core `stale.test.ts` 9케이스(상태 필터·unparseable updatedAt·랭킹·타이브레이크·grace 경계·
+    음수/비유한 grace·limit+byStatus), CLI `stale.test.ts` 7케이스(all-clear·grace 힌트·행 렌더·단복수·
+    hidden·scope note·JSON provenance).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm format`→`pnpm ci:lint`(Biome 0에러, 120파일)→
+  `pnpm test` 전 패키지 통과(**core 623** stale +9 / **cli 350/1skip** stale +7 / dashboard 9). **실제 빌드
+  CLI e2e**(mock 아님): 5잡 임시 스토어로 기본 grace 15m가 2h `resuming`·90m `queued`를 감지하고 **30초 전
+  시작된 in-flight resuming은 grace 내라 제외**(정상 재개 오탐 방지), completed·waiting은 무시, exit 1.
+  `--project web` 스코프 1잡, `--limit 1`이 "1 more not shown"에 totals 정직, `--json`이 byStatus·
+  maxStaleForMs 방출·exit 1, `--grace nope`가 exit 1, `completion bash`에 stale 등록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stale --recover`(wedged
+  resuming 자동 cancel), `doctor`에 stale 카운트 편입. tz/heatmap/parser/watch/stats는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
