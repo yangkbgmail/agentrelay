@@ -2142,3 +2142,24 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay eta --watch` 라이브 캐치업 카운트다운] (2026-08-11, 무인 자율 세션, branch `claude/wizardly-pascal-2tg5rt`)
+- **배경:** 세션 시작 시 미완료 👷 백로그 0개(모두 완료), 미완은 🧭 코워크 소유(README/ARCHITECTURE/리서치)뿐.
+  CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다. watch 계열(status/upcoming/overdue/tools/projects/stats)이
+  라이브 뷰를 갖는데, 캐치업 카운트다운 한 줄 명령인 `eta`만 `--watch`가 없어 유일하게 빠져 있었다.
+- **한 일:** `agentrelay eta --watch [seconds]` — 큐 캐치업 ETA를 라이브로 갱신.
+  - CLI `eta.ts`에 순수 `renderEtaWatchFrame(eta, storePath, intervalMs, now)` 신설(`status`/`overdue`의
+    watch-frame와 동일 title/meta 블록 + 항상 컬러인 `renderEta` 본문).
+  - `cli.ts`에 `runEtaWatch` — 세션 52가 추출한 공용 `startWatchLoop` 재사용, 매 프레임 스토어 재읽기 +
+    `computeQueueEta`를 fresh `now`로 재계산(→ 카운트다운 live·재개된 잡은 목록에서 빠짐·화면 clear).
+    `eta`는 스코프 필터가 없어 watch 계열 중 가장 단순.
+  - `eta`에 `-w, --watch [seconds]` 배선: `--json`이 `--watch`보다 우선, `--exit-code`는 무한 루프에서
+    무의미하므로 watch가 무시, 인터벌 기본 2s, 비양수/비수치는 기본값 폴백, addHelpText 예시 + completion 자동 포함.
+  - 새 파서/스케줄러/core 로직 0줄 — 전부 기존 검증된 `computeQueueEta`/`renderEta` 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 614 · cli 347/1skip[eta watch-frame +4] · dashboard 9**). **실제 빌드 CLI e2e**(mock
+  아님): 2잡 임시 스토어(web +3h·api +1h)로 one-shot `eta`가 `Queue caught up in 3h 0m` 렌더, `--watch 1`이
+  화면 clear + 라이브 배너("every 1s — Ctrl-C to exit") + 3h 카운트다운을 매초 재렌더, `--json`이 `--watch`보다
+  우선, `--help`·`completion bash`에 `--watch`/`eta` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
+  라이브 갱신, timing 변동계수(CV=stdev/mean). README/ARCHITECTURE(🧭 코워크).

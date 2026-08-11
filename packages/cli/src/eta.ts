@@ -45,6 +45,27 @@ export function renderEta(eta: QueueEta, options: { color?: boolean } = {}): str
 }
 
 /**
+ * One frame of the live `eta --watch` view: a title/header block (matching the
+ * shape of `status`/`overdue --watch`) plus the colored one-line ETA. Separated
+ * out so the watch loop only has to clear the screen and print this. The
+ * countdown to the latest reset ticks down in place because the loop re-reads the
+ * store and recomputes the ETA with a fresh `now` each pass.
+ */
+export function renderEtaWatchFrame(
+  eta: QueueEta,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now()
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay eta${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderEta(eta, { color: true })].join("\n");
+}
+
+/**
  * Machine-readable form for `--json` (scripts/jq): the full `QueueEta` plus the
  * store path and generation timestamp, matching the envelope of `next --json`.
  */

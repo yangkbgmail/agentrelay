@@ -81,7 +81,7 @@ import {
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
-import { renderEta, renderEtaJson } from "./eta.js";
+import { renderEta, renderEtaJson, renderEtaWatchFrame } from "./eta.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
@@ -396,6 +396,24 @@ function runOverdueWatch(
     const jobs = active ? scopeJobs(all, window) : all;
     const report = buildOverdueReport(jobs, now, { graceMs, limit });
     const frame = renderOverdueWatchFrame(report, store, intervalMs, now, scopeNote);
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
+ * Live `agentrelay eta --watch`: clears the screen and re-renders the one-line
+ * catch-up ETA on an interval so the countdown to the latest reset ticks down in
+ * place. Like the other watch loops, `listStatus` re-reads the JSON store each
+ * pass (so a running daemon's writes and newly-queued jobs surface, and jobs drop
+ * off as they resume) and `computeQueueEta` is recomputed with a fresh `now` each
+ * pass so the countdown stays live. `eta` has no scope filters, so this is the
+ * simplest of the watch loops. Runs until interrupted (Ctrl-C).
+ */
+function runEtaWatch(store: string, intervalMs: number): void {
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const eta = computeQueueEta(listStatus(store), now);
+    const frame = renderEtaWatchFrame(eta, store ?? defaultStorePath(), intervalMs, now);
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
 }
@@ -793,6 +811,7 @@ export function buildCli(): Command {
       "--exit-code",
       "Reflect state in the exit code (0 = caught up / nothing waiting, 3 = jobs still waiting for a reset)"
     )
+    .option("-w, --watch [seconds]", "Continuously refresh the ETA with a live catch-up countdown (Ctrl-C to exit)")
     .addHelpText(
       "after",
       "\nExamples:\n" +
@@ -801,10 +820,24 @@ export function buildCli(): Command {
         "  # poll until the queue is fully caught up\n" +
         "  until agentrelay eta --exit-code; do sleep 60; done\n" +
         "  # read the catch-up moment with jq\n" +
-        "  agentrelay eta --json | jq -r '.eta.lastResetAt'"
+        "  agentrelay eta --json | jq -r '.eta.lastResetAt'\n" +
+        "  # live view, countdown ticking down every 2s\n" +
+        "  agentrelay eta --watch"
     )
-    .action((opts: { json?: boolean; exitCode?: boolean }) => {
+    .action((opts: { json?: boolean; exitCode?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
+
+      // Live view: --json takes precedence (a one-shot machine dump, not a live
+      // TTY view). --exit-code is meaningless in a loop that never returns, so
+      // --watch ignores it. Interval defaults to 2s; a non-positive/non-numeric
+      // value falls back to the default rather than spinning a broken loop.
+      if (opts.watch !== undefined && !opts.json) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        runEtaWatch(store, intervalMs);
+        return; // setInterval keeps the process alive.
+      }
+
       const eta = computeQueueEta(listStatus(store));
 
       if (opts.json) {
