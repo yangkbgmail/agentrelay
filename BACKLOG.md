@@ -810,6 +810,20 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay summary --watch [seconds]` — 세션 67의 `summary`(한눈 큐 개요)에 라이브 갱신 추가.
+      status·tools·projects·stats의 watch 형제들과 달리 summary만 일회성이라, "지금 큐가 뭘 하나"를
+      화면에 고정해 카운트다운이 제자리에서 흐르게 보는 방법이 없었다(세션 67이 후속으로 지목).
+      (완료 — CLI `summary.ts`에 순수 `renderSummaryWatchFrame`(status/tools/stats --watch와 동일한
+      title/meta 라이브 배너로 `renderSummary`를 감쌈 + scope 활성 시 `scope: …` 라인, `now`는 주입
+      받아 시계 미접촉). `cli.ts`에 `runSummaryWatch`(매 프레임 스토어 재읽기·scope 재적용·fresh `now`로
+      summarizeJobs 재계산 → 화면 클리어 후 재페인트) + `summary`에 `-w, --watch [seconds]` 배선.
+      scope 검증(buildScope)은 watch 전에 통과시켜 잘못된 status/tool은 여전히 exit 1, `--json`이
+      `--watch`보다 우선(일회성 기계 덤프), 인터벌 기본 2s. 새 파서/스케줄러/core 로직 0줄 — 전부 기존
+      검증된 `summarizeJobs`/`scopeJobs`/`renderSummary`/`startWatchLoop` 재사용. summary.test.ts +3
+      (라이브 배너·live 카운트다운·scope 라인 조건부), 실제 빌드 CLI e2e로 화면 clear·라이브 배너·
+      1h30m 카운트다운·`--project` scope 노트·`--json` 우선·`--status bogus` exit 1 검증. branch
+      `claude/wizardly-pascal-kjd3li`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -1,7 +1,7 @@
 import type { QueueSummary, RelayJob } from "@agentrelay/core";
 import { summarizeJobs } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { EMPTY_MESSAGE, renderSummary, renderSummaryJson } from "./summary.js";
+import { EMPTY_MESSAGE, renderSummary, renderSummaryJson, renderSummaryWatchFrame } from "./summary.js";
 
 /** Zero-filled QueueSummary with the given overrides — mirrors summarizeJobs' shape. */
 function summary(overrides: Partial<QueueSummary> = {}): QueueSummary {
@@ -80,6 +80,41 @@ describe("renderSummary", () => {
     expect(out).toContain("next reset in 30m");
     expect(out).toContain("waiting_for_reset 1");
     expect(out).toContain("completed 1");
+  });
+});
+
+describe("renderSummaryWatchFrame", () => {
+  it("wraps the overview in a live banner with the interval, timestamp, and store path", () => {
+    const s = summary({ total: 2, byStatus: { ...summary().byStatus, waiting_for_reset: 2 } });
+    const frame = renderSummaryWatchFrame(s, "/x/jobs.json", 5000, NOW);
+    expect(frame).toContain("agentrelay summary");
+    expect(frame).toContain("live, every 5s");
+    expect(frame).toContain("Ctrl-C to exit");
+    expect(frame).toContain("2026-08-10 12:00:00Z");
+    expect(frame).toContain("/x/jobs.json");
+    // The overview body is embedded (with color, since it's a live TTY view).
+    expect(frame).toContain("2 jobs");
+    expect(frame).toContain("\x1b[");
+  });
+
+  it("keeps the next-reset countdown live off the injected now", () => {
+    const resetAt = new Date(NOW + 90 * 60_000).toISOString(); // 1h 30m out
+    const s = summary({
+      total: 1,
+      byStatus: { ...summary().byStatus, waiting_for_reset: 1 },
+      nextResetAt: resetAt,
+    });
+    // The live frame is colored, so "in " and the bold countdown are separated
+    // by an ANSI code — assert on the (contiguous) countdown text itself.
+    const frame = renderSummaryWatchFrame(s, "/x/jobs.json", 2000, NOW);
+    expect(frame).toContain("next reset in");
+    expect(frame).toContain("1h 30m");
+  });
+
+  it("renders a scope line only when a scope note is provided", () => {
+    const s = summary({ total: 1, byStatus: { ...summary().byStatus, queued: 1 } });
+    expect(renderSummaryWatchFrame(s, "/x/jobs.json", 2000, NOW)).not.toContain("scope:");
+    expect(renderSummaryWatchFrame(s, "/x/jobs.json", 2000, NOW, "project=web")).toContain("scope: project=web");
   });
 });
 
