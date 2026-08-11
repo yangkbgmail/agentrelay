@@ -2142,3 +2142,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay summary --watch` 라이브 개요] (2026-08-11, 무인 자율 세션, branch `claude/summary-watch`)
+
+- **왜 이걸 골랐나:** BACKLOG의 미완료 항목은 전부 🧭(코워크 소유: README/ARCHITECTURE/경쟁조사/
+  파서 샘플/성능분석)라 👷 몫이 남지 않았다. CLAUDE.md 지침대로 인접 갭을 발굴 — 세션 67이 후속
+  후보로 명시한 `summary --watch`가 정확한 빈틈이었다. `status`/`stats`/`tools`/`projects`/
+  `upcoming`/`overdue`엔 이미 `--watch` 라이브 뷰가 있는데, 정작 가장 압축적인 개요인 `summary`에만
+  빠져 있어 "지금 큐 상태를 화면에 띄워두고 리셋 카운트다운이 줄어드는 걸 지켜보기"가 안 됐다.
+- **한 일 (branch `claude/summary-watch`):**
+  - CLI `summary.ts`에 순수 `renderSummaryWatchFrame(summary, storePath, intervalMs, now, scopeNote?)`
+    신설: `stats --watch`와 동일한 title/meta 배너(간격·타임스탬프·스토어 경로) + `renderSummary`
+    본문을 감싸고, 활성 스코프면 "scope: …" 라인 표기. 프레임은 라이브 TTY 전용이라 항상 컬러,
+    `now`가 카운트다운을 구동해 순수·단위 테스트 가능(TTY·시계·spawn 불필요).
+  - `cli.ts` summary 커맨드에 `-w/--watch [seconds]` 옵션 + `runSummaryWatch` 배선: 공용
+    `startWatchLoop` 재사용, 매 프레임 `listStatus`로 스토어 재읽기 + 스코프 재적용(시간 창 경계는
+    시작 시 고정된 절대 epoch-ms). 다른 watch 명령과 동일 규칙 — 스코프 검증을 watch 진입 전에 수행
+    (잘못된 status/tool → exit 1), `--json`이 `--watch`보다 우선(일회성 기계 덤프), 기본 간격 2s.
+    새 core 로직 0줄(전부 기존 검증된 `summarizeJobs`/`scopeJobs`/`startWatchLoop` 재사용).
+  - `summary.test.ts` +4케이스: 배너(간격·타임스탬프·스토어 경로 + 임베드된 본문)·간격 반올림(1.5s→2s)·
+    스코프 노트 유무·항상 컬러.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 614 · dashboard 9 · cli 347/1skip**, summary +4). **실제 빌드 CLI e2e**(mock 아님):
+  2잡 임시 스토어로 일회성 `summary`가 이전과 동일 출력 유지, `summary --watch --project web`가 배너+
+  "scope: project=web"+컬러 본문 프레임 렌더, `summary --watch --json`이 watch 대신 JSON 방출(우선순위),
+  `summary --watch --status bogus`가 exit 1, `--help`·`completion bash`에 watch 옵션 등록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록
+  변동계수(CV=stdev/mean), `eta --watch`(캐치업 카운트다운 라이브). README/ARCHITECTURE는 🧭 코워크 몫.
