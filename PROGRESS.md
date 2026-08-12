@@ -2142,3 +2142,36 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay busiest` 커맨드별 릴레이 부하 랭킹] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-jzterw`)
+- **배경:** BACKLOG의 순수 👷 항목은 모두 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR 50건을 스캔해 포화 축(summary/eta --watch·stats CV·parser·
+  tz/heatmap·watch)을 피하고, 어떤 열린 PR에도 없고 기존 명령과도 겹치지 않는 **명확한 갭**을 골랐다 —
+  `projects`(라벨별)·`tools`(툴별) 집계는 있지만 **커맨드 문자열별** 집계가 없었다. AgentRelay의 본질이
+  "같은 커맨드를 리셋 창마다 재실행"인 만큼, 비용의 자연스러운 단위는 커맨드 자체이고 그 척도는 누적
+  재개 횟수(attempts)다. "지금까지 어떤 커맨드에 릴레이가 손이 제일 많이 갔나?"에 답하는 뷰가 없었다.
+- **한 일 (branch `claude/wizardly-pascal-jzterw`):**
+  - core `busiest.ts` 신설: `summarizeBusiest`(argv를 `JSON.stringify` 키로 정확 그룹핑 → 프로젝트·cwd가
+    달라도 동일 커맨드는 한 행으로 합침, `job.attempts` 합=릴레이 부하, 상태별 active/terminal/waiting·
+    최소 nextResetAt·최대 lastActivityAt 집계) + `formatCommand`(공백/따옴표 토큰만 인용·이스케이프하는
+    표시용 렌더). `BusiestSummary`/`CommandBreakdown` 타입. 랭킹=attempts desc→total desc→active desc→
+    display asc(결정적). 순수·무I/O·무시계로 `summarizeProjects`와 동형.
+  - CLI `busiest.ts` 신설: `renderBusiest`(헤드라인=커맨드수·잡수·총 재개수 + COMMAND/JOBS/ACTIVE/RESUMES/
+    NEXT RESET 테이블, `--limit`로 상위 N만 출력하고 나머지는 "…and N more" 노트, idle/— 구분, ANSI 색
+    토글)/`renderBusiestJson`(projects/tools와 동일한 storePath·generatedAt·scope·summary 봉투, 전체
+    커맨드 — 테이블 limit 영향 없음). `agentrelay busiest [--json] [-n/--limit] [-s/-t/-p/--since/--until]`
+    배선, 기존 buildScope/scopeJobs scope 필터 재사용(잘못된 status/음수 limit → exit 1). completion은
+    program.commands 자동 파생이라 별도 등록 불필요.
+  - 유닛: core `busiest.test.ts` 11케이스(빈 스토어·교차프로젝트 그룹핑·플래그 차이 구분·상태 분류·
+    earliest resetAt·lastActivityAt·비정상 attempts 무시·4단 정렬), cli `busiest.test.ts` 10케이스(빈/
+    스코프 무매치 힌트·단복수 어미·카운트다운·idle/—·limit 절삭 + 노트·limit 0 전체·색 토글·JSON 봉투/
+    limit 무영향).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 120파일)→`pnpm test`
+  전 패키지 통과(**core 625** busiest +11 / **cli 353/1skip** busiest +10 / dashboard 9). **실제 빌드 CLI
+  e2e**(mock 아님): 4잡 임시 스토어로 `busiest`가 `claude -p "build the app"`(web+api 2잡·7재개)을 맨
+  위로 랭킹, `--limit 1`이 상위 1행 + "…and 2 more", `--project web`이 3잡으로 스코프, `--status failed`가
+  codex run 1행, `--limit -3`이 exit 1, `--json`이 전체 커맨드 방출, `--help`·`completion bash`에 busiest
+  등록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — busiest에 커맨드별
+  성공률/평균 해결시간 컬럼, `--sort jobs|attempts` 토글. tz/heatmap/parser/watch/stats는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).

@@ -28,6 +28,15 @@
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
+- [x] 👷 `agentrelay busiest` — 커맨드별 릴레이 부하(effort) 랭킹.
+      (완료 — core `busiest.ts` `summarizeBusiest`/`formatCommand` + `BusiestSummary`/`CommandBreakdown`:
+      `job.command`(argv) 정확 일치로 그룹핑, `job.attempts` 합을 "릴레이 부하"로 집계해 가장 자주
+      재개된(=제일 많이 babysat된) 커맨드가 맨 위로. projects/tools가 라벨·툴로 묶는 데 반해 이건
+      "어떤 커맨드가 가장 손이 많이 갔나"에 답. 프로젝트·cwd 달라도 같은 커맨드는 한 행으로 합침.
+      CLI `busiest.ts` `renderBusiest`(JOBS·ACTIVE·RESUMES·NEXT RESET 테이블, `--limit`로 상위 N만·
+      "…and N more" 노트)/`renderBusiestJson`. `agentrelay busiest [--json] [-n/--limit] [-s/-t/-p/--since/--until]`,
+      기존 buildScope/scopeJobs scope 재사용. 순수 함수 유닛(core 11·cli 10) + 실제 빌드 CLI e2e 검증.
+      branch `claude/wizardly-pascal-jzterw`)
 - [x] 👷 Codex CLI 등 다른 에이전트 툴 어댑터.
       (완료 — `@agentrelay/core`에 `adapters.ts` 신설: `AgentAdapter` 인터페이스 +
       `CLAUDE_CODE_ADAPTER`/`CODEX_CLI_ADAPTER`/`GENERIC_ADAPTER` + `ADAPTERS` 레지스트리.
