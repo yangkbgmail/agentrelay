@@ -2142,3 +2142,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — 파서 버그 수정: 단독 `retry in <기간>` 사전필터 드롭] (2026-08-12, 무인 자율 세션, branch `claude/parser-retry-in-prefilter`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]). **열린 PR 50개로 적체 극심** — `summary --watch`만
+  ~6개 중복(#594/#593/#609/#608/#603/#597/#584/#579), `eta --watch`·`search`·CV 지표도 각각 다중 중복.
+  세션 67이 제안한 `summary --watch`는 이미 6중복 포화라 **또 만들면 순 손해**. 신규 기능 대신 **버그 헌트**로
+  전환 — 어떤 열린 PR에도 없는 진짜 결함을 찾아 회귀 테스트와 함께 고치는 것이 적체 상황에서 가장 가치 있는
+  기여(세션 60~66의 "적체 시 신규 빌드보다 통합/수정 우선" 기조 연장).
+- **발견한 버그:** `parseRateLimitMessage("retry in 2 hours")`가 `null`을 반환 → 그 잡은 리셋 재개가
+  스케줄되지 않고 방치됐다. `relative-duration` 패턴은 `(?:try again|resets?|retry)\s+in`으로 `retry`
+  도입구를 **명시 지원**(패턴 주석에 "retry in 5 hours" 예시)하는데, 그 앞단의 `LOOKS_LIKE_RATE_LIMIT`
+  사전필터가 `try again`·`resets?\s+(at|in)`·`retry.?after`만 통과시키고 `retry\s+in`은 빠뜨려, 그런
+  라인이 패턴에 닿기도 전에 게이트에서 드롭됐다. "Rate limit … retry in 2h"처럼 다른 키워드가 우연히 같이
+  있을 때만 통과해 기존 테스트(parser.test:194)는 초록이었지만, `retry in`만 있는 실사용 라인은 조용히 실패.
+- **한 일 (branch `claude/parser-retry-in-prefilter`):**
+  - `parser.ts`의 `LOOKS_LIKE_RATE_LIMIT`에 `retry\s+in` 브랜치 추가 →
+    `/(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry\s+in|retry.?after)/i`. 이제 사전필터가
+    `relative-duration`이 실제로 매칭하는 세 도입구(try again / resets? in / **retry in**)를 모두 admit.
+    `retry.?after`(HTTP `Retry-After` 헤더 경로)는 그대로 분리 유지. 사전필터 코멘트를 확장해 "패턴이
+    매칭할 수 있는 모든 도입구를 admit해야 한다"는 계약을 명문화(재발 방지).
+  - parser.test +1 회귀: "retry in 2 hours"(→ now+2h)·"retry in 45m"(→ now+45m) **단독 라인**이
+    relative-duration으로 감지되고 resetAt이 정확한지 검증. 새 패턴/스케줄러/CLI 코드 0줄.
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test` 전 패키지 통과
+  (**core 615** parser +1, cli 343/1skip, dashboard 9). 실제 빌드 core로 "retry in 2 hours/45m/1d 4h"
+  감지 확인 + **오탐 0 검증**(일반 로그 라인·"retry after 3600"[미인식 포맷]은 여전히 null), 빌드 CLI
+  `parse "retry in 2 hours"` → `relative-duration` 매치·2h 카운트다운 e2e 확인.
+- **적체 경고:** 열린 PR 50개(summary --watch 6중복·eta --watch·search·CV 등 다중 중복)로 리뷰/병합
+  파이프라인 심각 포화. 신규 빌드보다 **코워크의 중복 정리·병합이 최우선 시급**. 이번엔 그 축을 피해 고유
+  버그를 골랐다. 후속: 다른 사전필터/패턴 정합성 감사, 미인식 실사용 포맷 수집(🧭 코워크). README/ARCHITECTURE(🧭).
