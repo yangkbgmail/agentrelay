@@ -24,6 +24,7 @@ import {
   computeQueueEta,
   computeStats,
   computeWeekdayDistribution,
+  configJsonSchemaJson,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
   generateCompletion,
@@ -1914,6 +1915,19 @@ export function buildCli(): Command {
         console.error(`[agentrelay] ${result.message}`);
         process.exitCode = 1;
       }
+    });
+  config
+    .command("schema")
+    .description("Print a JSON Schema for agentrelay.config.json (editor autocomplete/validation)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # write the schema next to your config, then point the config at it\n" +
+        "  agentrelay config schema > agentrelay.config.schema.json\n" +
+        '  # then add  "$schema": "./agentrelay.config.schema.json"  to agentrelay.config.json'
+    )
+    .action(() => {
+      process.stdout.write(configJsonSchemaJson());
     });
   config
     .command("validate")

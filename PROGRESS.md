@@ -2142,3 +2142,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay config schema` (JSON Schema 방출)] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-rd0bku`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR 50개(#572–#622)가 포화된 축(parser/stats-CV/summary·eta --watch/
+  notify/adapter/completion)을 피해, 어떤 열린 PR에도 없는 **명확한 갭**을 골랐다 — `config` 서브커맨드는
+  init(샘플 작성)·validate(파일 검사)·show/get/set/unset이 있지만, 설정 파일을 에디터에서 자동완성·검증할
+  수 있게 하는 **JSON Schema 방출**이 없었다. 사용자가 `agentrelay.config.json`에 `"$schema"`를 걸면
+  VS Code 등 JSON 언어 서버가 오타/타입 오류를 즉석에서 잡아준다.
+- **한 일 (branch `claude/wizardly-pascal-rd0bku`):**
+  - core `schema.ts` 신설: 순수 `buildConfigJsonSchema()`가 기존 단일 진실 원천 `CONFIG_FIELDS`
+    (모든 settable 키 + 타입)에서 draft-07 스키마를 **생성**한다 → 필드를 추가하면 스키마에 자동 반영,
+    드리프트 구조적으로 불가. 점 키(`retry.maxAttempts`)는 중첩 객체 프로퍼티, 단일 세그먼트(`store`)는
+    루트. 타입 매핑(string/number/boolean; `duration`은 `parseDuration` 문법을 미러링한 `pattern`으로
+    오타를 에디터에서 즉시 표시), 키별 사람 설명(툴팁). `additionalProperties`는 `parseConfig`의
+    전방호환(미지 키 무시)과 일치하도록 관대하게 남김 → 신버전 설정도 구버전 스키마로 검증 통과
+    (+`"$schema"` 포인터 허용). `configJsonSchemaJson()`은 `sampleConfigJson`과 동일한 포맷. `index.ts` export.
+  - CLI `config schema`: `completion`처럼 stdout로 출력(리다이렉션으로 파일화). `--help`에 `$schema`를
+    설정에 거는 예시 포함.
+  - core `schema.test.ts` 6케이스: draft-07 루트/식별 메타·모든 settable 키의 노드/타입·duration 패턴이
+    실제 기간 수용·정크 거부·그룹 중첩+설명·sampleConfig 전 키 커버리지·안정(byte-identical) JSON.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm lint:fix`+`pnpm ci:lint`(Biome 0에러, 118파일)→
+  `pnpm test` 전 패키지 통과(**core 620** schema +6·dashboard 9·cli 343/1skip). **실제 빌드 CLI e2e**
+  (mock 아님): `config schema`가 유효 JSON·`$schema` draft-07·top keys(store/notify/retry/autoPrune)·
+  `retry.jitter`=number·`autoPrune.after` duration 패턴을 방출, `config --help`·`completion bash`에 등록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `config validate`가
+  스키마 대비 검사, 대시보드가 스키마 링크 노출. parser/stats-CV/watch 계열은 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
