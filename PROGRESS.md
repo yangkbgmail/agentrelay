@@ -2142,3 +2142,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — 활성 시간대(active hours) 게이팅 (`AGENTRELAY_ACTIVE_HOURS`)] (2026-08-12, 무인 자율 세션, branch `claude/active-hours-window`)
+- **맥락/선택:** BACKLOG의 👷 항목은 모두 완료 상태(남은 `[ ]`는 🧭 README/ARCHITECTURE/경쟁조사/샘플수집/
+  성능분석뿐). CLAUDE.md 지침("👷 큐 소진 시 §8에서 새 개선 항목 발굴")에 따라 열린 PR ~30개를 스캔하니
+  parser/stats-CV/summary--watch/eta--watch 축이 포화 상태였다. 그 축을 피해, 자율 릴레이 자체의 **재개 정책**에
+  아직 없던 갭을 골랐다 — 지금까지 스케줄러는 리셋만 지나면 새벽 3시든 근무 시간이든 무조건 재개했다.
+- **한 일 (branch `claude/active-hours-window`):**
+  - `@agentrelay/core/window.ts` 신설(순수·타임존프리): `parseActiveHours`(`22:00-06:00`/`9-17`/혼합,
+    범위·제로폭 검증→invalid는 null=게이팅 없음), `isMinuteWithinWindow`(자정 넘김 wrap),
+    `minutesUntilWindowOpens`, `nextWindowOpen`, `formatActiveWindow`, `activeWindowFromEnv`. 실제 Date
+    접점은 로컬시간 `localMinutesOfDay` 한 곳뿐 → 러너 TZ 무관 결정론적 테스트.
+  - `RelayScheduler`에 `activeWindow?` 옵션 추가: tick의 referenceTime이 창 밖이면 `listDue`를 건너뛰어
+    재개 0건(due job은 다음 창 진입 tick에 재개), autoPrune·onTick 하트비트는 그대로 → doctor 생존신호/
+    스토어 바운딩 유지. 기본값 null이라 기존 동작 불변.
+  - CLI `commands.ts` daemon/tick이 `activeWindowFromEnv()` 배선 + daemon 배너에 `(active hours HH:MM-HH:MM)`.
+    config 스키마는 `maxConcurrent`도 미포함(env 전용)이라 같은 선례로 env 전용 유지 — 스키마 churn 없음.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm lint`(Biome 0, 118파일)→`pnpm test` 전 패키지
+  통과(**core 638** window +20, 스케줄러 게이팅 +4 / **cli 343/1skip** / **dashboard 9**). 게이팅 테스트는
+  주입 referenceTime + 로컬시간 기준 Date로 창 안/밖 결정론 검증(재개됨/대기 유지/게이트 중에도 heartbeat 발화/
+  창 미설정 시 새벽에도 재개).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — active-hours를 config 파일
+  스키마(`schedule.activeHours`)로도 노출, `agentrelay status`/`summary`에 "창 밖이라 대기중" 표시.
+  parser/stats-CV/watch 축은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

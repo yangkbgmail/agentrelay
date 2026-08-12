@@ -5,6 +5,7 @@ import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./pr
 import type { RelayQueue } from "./queue.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
 import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
+import { type ActiveWindow, isWithinActiveWindow } from "./window.js";
 
 export type Notifier = (payload: NotifyPayload) => void | Promise<void>;
 
@@ -63,6 +64,15 @@ export interface SchedulerOptions {
    * store because every queue mutation is synchronous (see `concurrency.ts`).
    */
   maxConcurrent?: number;
+  /**
+   * Optional daily active-hours window (local time). When set, a tick whose
+   * reference time falls *outside* the window resumes nothing — due jobs wait
+   * and resume on the first tick after the window opens. Store maintenance
+   * (auto-prune) and the liveness heartbeat still run every tick regardless, so
+   * `doctor` keeps seeing a live loop and the store stays bounded. `null`/omitted
+   * keeps the historical always-on behavior. See `window.ts` / `AGENTRELAY_ACTIVE_HOURS`.
+   */
+  activeWindow?: ActiveWindow | null;
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
   /**
@@ -93,6 +103,7 @@ export class RelayScheduler {
   private autoPruneEveryMs: number;
   private autoPruneEveryTicks: number;
   private maxConcurrent: number;
+  private activeWindow: ActiveWindow | null;
   private lastPruneAtMs: number | null = null;
   private pruneTickCounter = 0;
   private onPrune?: (pruned: RelayJob[]) => void;
@@ -111,6 +122,7 @@ export class RelayScheduler {
     this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
     this.maxConcurrent = normalizeMaxConcurrent(options.maxConcurrent);
+    this.activeWindow = options.activeWindow ?? null;
     this.onPrune = options.onPrune;
     this.onTick = options.onTick;
   }
@@ -129,7 +141,11 @@ export class RelayScheduler {
 
   /** Runs one polling cycle immediately. Exposed for tests and manual `agentrelay tick`. */
   async tick(referenceTime: Date = new Date()): Promise<RelayJob[]> {
-    const due = this.queue.listDue(referenceTime);
+    // Active-hours gating: outside the configured window we resume nothing, so
+    // due jobs wait until it opens. Store maintenance + heartbeat below still
+    // run, keeping the loop observably alive and the store bounded.
+    const gatedByWindow = this.activeWindow !== null && !isWithinActiveWindow(this.activeWindow, referenceTime);
+    const due = gatedByWindow ? [] : this.queue.listDue(referenceTime);
     // Resume with bounded concurrency (default 1 = serial, unchanged). Results
     // stay in due-order regardless of which resume finishes first.
     const processed = await mapWithConcurrency(due, this.maxConcurrent, (job) => this.resume(job, referenceTime));

@@ -28,6 +28,7 @@ import type {
   WritableFacts,
 } from "@agentrelay/core";
 import {
+  activeWindowFromEnv,
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
@@ -48,6 +49,7 @@ import {
   evaluateWait,
   exportJobs,
   findConfigField,
+  formatActiveWindow,
   hasConfigErrors,
   heartbeatStaleAfterMs,
   type ImportFormat,
@@ -366,6 +368,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   const autoPruneEveryMs = autoPruneEveryMsFromEnv() ?? undefined;
   const autoPruneEveryTicks = autoPruneEveryTicksFromEnv() ?? undefined;
   const maxConcurrent = maxConcurrentFromEnv();
+  const activeWindow = activeWindowFromEnv();
   const pollIntervalMs = options.pollIntervalMs ?? 30_000;
   const logLine = (line: string) => {
     // eslint-disable-next-line no-console
@@ -389,6 +392,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     pollIntervalMs,
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent,
+    activeWindow,
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
@@ -414,6 +418,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     `[agentrelay] daemon started, watching ${storePath} every ${pollIntervalMs / 1000}s` +
       (remoteNotify ? " (notifications on)" : "") +
       (maxConcurrent > 1 ? ` (max ${maxConcurrent} concurrent)` : "") +
+      (activeWindow ? ` (active hours ${formatActiveWindow(activeWindow)})` : "") +
       autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks)
   );
   return scheduler;
@@ -428,6 +433,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     notify: notify ?? undefined,
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent: maxConcurrentFromEnv(),
+    activeWindow: activeWindowFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
   });
   const processed = await scheduler.tick();
