@@ -810,6 +810,22 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay stats --resolution-hist` — 해결 시간(resolution time) 분포 히스토그램. 스칼라
+      백분위수(avg/median/p90/IQR/stdev)는 분포의 중심·퍼짐만 요약하는데, "어느 시간대 밴드에 몇 개가
+      몰렸나"라는 **형태**를 보여주는 뷰가 없었다(`--hours`가 평균 시각을 보완하듯). 자기 발굴 항목.
+      (완료 — core `stats.ts`에 순수 `computeResolutionHistogram(jobs)` + `ResolutionHistogram`(buckets·
+      total·maxCount)·`ResolutionBucket`(label·loMs·hiMs[null=무한 상단]·count)·`RESOLUTION_BUCKET_EDGES`
+      상수 신설. 사람 친화·로그성 밴드(<1m/1m–5m/…/6h–12h/12h–24h/≥24h, 서브시·표준 리셋창 1–6h 부근은
+      촘촘·하루 넘으면 성김). `computeStats`와 **동일한 스팬 추출 재사용**(`updatedAt-createdAt`, cancelled
+      제외, 음수/파싱불가 스킵)이라 두 표면이 절대 드리프트 안 함. CLI `stats.ts`에 순수
+      `renderResolutionHistogram`(밴드별 ASCII 막대, 최다 버킷에 스케일·빈 버킷은 dim 베이스라인 점·라벨
+      우측정렬)·`renderStatsJson`에 옵셔널 `resolutionHist` 필드(요청 시에만 방출, 기존 JSON shape 불변).
+      `cli.ts` `stats`에 `--resolution-hist` 배선 — 일회성·`--json`·`--watch` 세 뷰 모두, 기존 스코프 필터
+      (--status/--tool/--project/--since/--until) 및 `--hours`/`--weekday`/`--heatmap`/`--trend`와도 조합.
+      새 파서/스케줄러 로직 0줄. core stats +6 + cli stats +4 신규 테스트, 실제 빌드 CLI e2e로 밴드
+      버킷팅(queued 잡 제외 5 resolved)·`--json` resolutionHist 방출·기본 JSON 미포함·help/completion 노출
+      검증. branch `claude/wizardly-pascal-p8xtgg`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -3,6 +3,7 @@ import {
   computeActivityHeatmap,
   computeDailyTrend,
   computeHourlyDistribution,
+  computeResolutionHistogram,
   computeStats,
   computeWeekdayDistribution,
   groupStats,
@@ -19,6 +20,7 @@ import {
   renderGroupedStatsJson,
   renderHeatmap,
   renderHours,
+  renderResolutionHistogram,
   renderStats,
   renderStatsJson,
   renderStatsWatchFrame,
@@ -555,6 +557,62 @@ describe("renderStatsJson heatmap field", () => {
     expect(withHeatmap.heatmap.cells[1][9]).toBe(1);
     expect(withHeatmap.heatmap.total).toBe(1);
     expect(withHeatmap.heatmap.maxCell).toBe(1);
+  });
+});
+
+describe("renderResolutionHistogram", () => {
+  // Resolved jobs spanning distinct duration bands, plus non-resolved noise.
+  const base = "2026-07-12T00:00:00.000Z";
+  const baseMs = Date.parse(base);
+  const spanMin = (minutes: number, status: RelayJob["status"] = "completed") =>
+    job({ status, createdAt: base, updatedAt: new Date(baseMs + minutes * 60_000).toISOString() });
+
+  it("renders a header, one row per band, and a resolved-count footer", () => {
+    const out = renderResolutionHistogram(
+      computeResolutionHistogram([spanMin(3), spanMin(3), spanMin(90), spanMin(48 * 60)])
+    );
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("resolution distribution");
+    // One header + 10 bands (9 edges + 1) + one footer = 12 lines.
+    expect(lines).toHaveLength(12);
+    // The fullest band (1m–5m, count 2) gets a full block; quiet bands show a dot.
+    expect(out).toMatch(/1m–5m\s+█+\s+2/);
+    expect(out).toMatch(/1h–2h\s+█+\s+1/);
+    expect(out).toMatch(/≥24h\s+█+\s+1/);
+    expect(out).toContain("·"); // empty bands render a baseline dot
+    expect(lines[lines.length - 1]).toContain("4 resolved job(s)");
+  });
+
+  it("shows an empty histogram (no jobs resolved) without any bars", () => {
+    const out = renderResolutionHistogram(computeResolutionHistogram([]));
+    expect(out).toContain("none");
+    expect(out).not.toContain("█");
+  });
+
+  it("ignores active/cancelled jobs when counting resolutions", () => {
+    const out = renderResolutionHistogram(
+      computeResolutionHistogram([spanMin(3, "completed"), spanMin(3, "cancelled"), spanMin(3, "queued")])
+    );
+    expect(out).toContain("1 resolved job(s)");
+  });
+});
+
+describe("renderStatsJson resolutionHist field", () => {
+  it("omits `resolutionHist` by default but includes the buckets when provided", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("resolutionHist" in without).toBe(false);
+
+    const created = "2026-07-12T00:00:00.000Z";
+    const updated = new Date(Date.parse(created) + 3 * 60_000).toISOString(); // 3m → 1m–5m
+    const resolutionHist = computeResolutionHistogram([
+      job({ status: "completed", createdAt: created, updatedAt: updated }),
+    ]);
+    const withHist = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", resolutionHist }));
+    expect(withHist.resolutionHist.total).toBe(1);
+    expect(withHist.resolutionHist.maxCount).toBe(1);
+    const band = withHist.resolutionHist.buckets.find((b: { label: string }) => b.label === "1m–5m");
+    expect(band.count).toBe(1);
   });
 });
 

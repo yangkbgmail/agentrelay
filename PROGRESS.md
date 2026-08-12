@@ -2142,3 +2142,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay stats --resolution-hist` 해결 시간 분포 히스토그램] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-p8xtgg`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐 → CLAUDE.md 지침대로 새 개선 항목을 스스로 발굴. `stats`의 resolution-time
+  블록은 스칼라 지표(avg/min/median/p90/p95/p99/IQR/stdev)로 분포의 **중심·퍼짐만** 요약하는데, "어느 시간
+  밴드에 몇 개가 몰렸나"라는 **형태**를 보여주는 뷰가 없었다 — `--hours`(시간-of-day)가 평균 시각을 보완하듯
+  분포 히스토그램이 백분위수를 보완하는 자연스러운 빈 곳. 기존 함수 시그니처를 안 건드리는 순수 추가라 회귀 최소.
+- **한 일 (branch `claude/wizardly-pascal-p8xtgg`):**
+  - core `stats.ts`에 순수 `computeResolutionHistogram(jobs)` + `ResolutionHistogram`(buckets·total·
+    maxCount)·`ResolutionBucket`(label·loMs·hiMs[null=무한 상단 밴드]·count)·`RESOLUTION_BUCKET_EDGES`
+    (9개 상승 상한 → N+1 버킷) 신설. 사람 친화·로그성 밴드(<1m/1m–5m/5m–15m/15m–30m/30m–1h/1h–2h/2h–6h/
+    6h–12h/12h–24h/≥24h) — 서브시·표준 rate-limit 리셋창(1–6h) 부근은 촘촘, 하루 넘으면 성김. 밴드 라벨은
+    edges에서 한 번 파생(드리프트 방지). `computeStats`와 **동일한 스팬 추출 재사용**(`updatedAt-createdAt`,
+    RESOLVED_STATUSES=completed+failed, cancelled·활성·음수/파싱불가 스킵)이라 두 표면이 절대 안 어긋남.
+  - CLI `stats.ts`에 순수 `renderResolutionHistogram`(밴드별 ASCII 막대, 최다 버킷에 스케일·비영 버킷 최소
+    1블록·빈 버킷 dim 베이스라인 점·라벨 우측정렬로 막대 정렬·resolved-count 푸터, `--hours`/`--heatmap`와
+    동일 관례)·`renderStatsJson`에 옵셔널 `resolutionHist` 필드(요청 시에만 방출, 기본 JSON shape 불변).
+  - `cli.ts` `stats`에 `--resolution-hist` 배선 — 일회성·`--json`·`--watch`(runStatsWatch에 인자 추가) 세
+    뷰 모두 적용, 기존 스코프 필터(--status/--tool/--project/--since/--until) 및 `--hours`/`--weekday`/
+    `--heatmap`/`--trend`와도 조합 가능, addHelpText 예시·completion 자동 포함. 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 620 +6, cli 347/1skip +4**). **실제 빌드 CLI e2e**(mock 아님): 밴드에 걸친
+  resolved 5 + queued 1 임시 스토어로 `--resolution-hist`가 밴드 버킷팅(1m–5m=2·1h–2h=1·6h–12h=1·≥24h=1,
+  queued 제외 "5 resolved job(s)") 렌더, `--json`이 resolutionHist(total 5·maxCount 2) 방출, 기본
+  `stats --json`엔 미포함(하위호환), `--help`에 `--resolution-hist` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — resolution 히스토그램의
+  `--watch` 라이브 이미 지원됨, timing 블록 변동계수(CV=stdev/mean), `stats --resolution-hist --local`
+  불필요(스팬은 절대량). README/ARCHITECTURE(🧭 코워크).
