@@ -2142,3 +2142,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay logs` 최근 활동 피드 명령] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-abun81`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR 100개+가 watch/summary/stats/CV/parser 축에 극도로 포화된 상태라,
+  그 어떤 열린 PR에도 없는 **명확한 갭**을 골랐다 — 큐의 "지금까지 무슨 일이 있었나"를 시간 역순으로 보는
+  뷰가 없었다. `status`는 생성순 테이블, `errors`는 실패를 사유별로 그룹, `upcoming`은 미래 재개만 본다.
+  스토어는 이벤트 로그를 남기지 않지만 잡마다 최신 `lastError`/`lastRateLimit`/`lastOutputTail`/`updatedAt`을
+  보존하므로, 이 필드들로 "무엇이 언제 왜 바뀌었나" 한 줄을 재구성할 수 있다.
+- **한 일 (branch `claude/wizardly-pascal-abun81`):**
+  - core `activity.ts` 신설(순수·파일시스템 미접촉): `ActivityReason`/`ActivityEntry`/`ActivityFeed` 타입 +
+    `activityReason(job)`(사유 우선순위 error 첫줄 > rate-limit 감지(pattern→resetAt) > output 마지막줄 >
+    none, 공백 붕괴+140자 캡) + `buildActivityFeed(jobs,{limit})`(updatedAt 내림차순, 파싱불가 updatedAt은
+    하단, 동일-ms 타이는 id 오름차순으로 결정론화; limit→shown/hidden 집계, 비파괴).
+  - CLI `logs.ts` 신설: 순수 `renderLogs`(제목·scope note·age/status[색]/short id/project/reason 행·
+    shown/hidden 푸터) + `renderLogsJson`(compact 엔트리 뷰 + provenance) + `formatAge`(just now/Nm/Nh/Nd ago,
+    30일 초과는 ISO 날짜, 미래는 클럭스큐 클램프). status/summary와 동일 ANSI 색 팔레트.
+  - `cli.ts`에 `agentrelay logs [-n/--limit] [--json] [-s/-t/-p/--since/--until]` 배선. 다른 집계 명령과 동일한
+    `buildScope`/`scopeJobs` scope 필터 재사용(잘못된 status/tool·limit→exit 1). completion은 라이브 커맨더
+    파생이라 자동 등록.
+  - `activity.test.ts` 12케이스(사유 우선순위·공백/캡·정렬·타이브레이크·파싱불가 하단·limit/hidden·비변형) +
+    `logs.test.ts` 11케이스(formatAge 경계·빈 스토어/no-match·역순+사유·hidden 푸터·색 토글·JSON).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 120파일)→`pnpm test`
+  전 패키지 통과(**core 626** activity +12, **cli 354/1skip** logs +11, dashboard 9). **실제 빌드 CLI e2e**:
+  3잡 임시 스토어로 `logs`가 rate-limit/error/output 사유를 우선순위대로 렌더+역순 정렬, `--limit 1`이 최신 1개+
+  "2 more not shown", `--project web`가 2잡 스코프, `--status bogus`가 exit 1, `--json`이 compact 엔트리 방출,
+  `--help`·`completion bash`에 logs 등록·빈 스토어 first-run 힌트 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `logs --watch` 라이브 갱신,
+  `logs --kind <error|rate-limit|output>` 사유별 필터. tz/heatmap/parser/watch는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
