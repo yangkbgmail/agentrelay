@@ -809,6 +809,21 @@
       p75 …)   stdev …` 라인 추가, `--json`은 timing 전체 직렬화라 자동 노출. core stats.test +2(3-잡
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
+- [x] 👷 `agentrelay config schema` — `agentrelay.config.json`용 JSON Schema 방출(에디터 자동완성/검증).
+      `config init`(샘플 작성)·`config validate`(파일 검사)·`config set`(단일 키 수정) 옆에서 비어 있던
+      "에디터 통합" 조각을 메움. 사용자가 설정 파일에 `"$schema"`를 걸면 VS Code 등이 자동완성·타입
+      검증·오타 경고를 제공.
+      (완료 — core `schema.ts` 신설: 순수 `buildConfigJsonSchema()`가 기존 단일 진실 원천
+      `CONFIG_FIELDS`(모든 설정 키+타입)에서 draft-07 스키마를 **생성** → 필드를 추가하면 스키마에
+      자동 반영, 드리프트 불가. 점(dot) 키(`retry.maxAttempts`)는 중첩 객체 프로퍼티로, 단일 세그먼트
+      (`store`)는 루트로. 타입 매핑(string/number/boolean, `duration`은 `parseDuration` 문법을 미러링한
+      `pattern`으로 오타를 에디터에서 즉시 표시), 키별 사람 설명(툴팁). `additionalProperties`는
+      `parseConfig`의 전방호환(미지 키 무시)과 일치하도록 관대하게 남김 → 신버전 설정도 구버전 스키마로
+      검증됨(+`"$schema"` 포인터 허용). `configJsonSchemaJson()`은 `sampleConfigJson`과 동일 포맷.
+      CLI `config schema`는 `completion`처럼 stdout로 출력(리다이렉션으로 파일화). core schema.test 6케이스
+      (모든 settable 키 노드/타입·duration 패턴 수용·거부·중첩·설명·sampleConfig 커버리지·안정 JSON).
+      실제 빌드 CLI e2e로 `config schema` 출력이 유효 JSON·draft-07·top keys·타입·패턴, `--help`·bash
+      completion 등록 검증. branch `claude/wizardly-pascal-rd0bku`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
