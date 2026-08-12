@@ -2142,3 +2142,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay summary --watch` 라이브 갱신] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-jnhyyz`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 직전 세션 67이 `summary` 명령을 추가하며 "다음 할 일"로 `summary --watch`를
+  명시했다. watch 계열(status/upcoming/overdue/tools/projects/stats)은 이미 완성돼 있는데, 세션 67이 새로
+  추가한 `summary`만 라이브 뷰가 빠져 있던 명확한 갭 — 셸 프롬프트/상태바용 압축 개요를 리셋 카운트다운이
+  째깍째깍 줄어드는 라이브 뷰로도 볼 수 있게 채웠다. 공용 `startWatchLoop` 재사용이라 회귀 위험 최소.
+- **한 일 (branch `claude/wizardly-pascal-jnhyyz`):**
+  - CLI `summary.ts`에 순수 `renderSummaryWatchFrame(summary, storePath, intervalMs, now, scopeNote?)`
+    신설: `status`/`tools`/`projects --watch`와 동일한 title/meta 라이브 배너(간격·타임스탬프·스토어 경로)로
+    항상 컬러인 `renderSummary` 본문을 감싼다. 스코프 필터가 활성이면 배너 아래 `scope: …` 한 줄을 에코
+    (일회성 `renderSummary`는 스코프 라인이 없으므로 프레임에서 표시). 순수 함수(TTY·시계·spawn 없이 단위
+    테스트 가능).
+  - `cli.ts`에 `runSummaryWatch`(세션 52가 추출한 공용 `startWatchLoop` 재사용 — 매 프레임 스토어 재읽기·
+    스코프 재적용·`summarizeJobs`를 fresh `now`로 재구성 → 카운트다운 live·화면 clear). `summary`에
+    `-w, --watch [seconds]` 배선 — 스코프 검증을 **먼저** 통과시켜 잘못된 값은 watch 전에 exit 1, `--json`이
+    `--watch`보다 우선(일회성 기계 덤프), 인터벌 기본 2s. addHelpText 예시 1줄 추가, completion 자동 포함.
+    새 파서/스케줄러/core 로직 0줄.
+  - `summary.test.ts` +3케이스: 라이브 배너(간격·타임스탬프·스토어 경로)+컬러 카운트다운 본문·스코프 노트
+    에코·비활성 시 스코프 라인 생략.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**cli 346/1skip** summary +3). **실제 빌드 CLI e2e**(mock 아님): 3잡 임시 스토어로
+  `summary --watch`가 화면 clear(`\x1b[2J\x1b[H`)+라이브 배너+`3 jobs · next reset in 1h 3m`+상태
+  브레이크다운 렌더, `--watch --project web`가 스코프 노트+2잡, `--json`이 `--watch`보다 우선, `--watch
+  --status bogus`가 watch 전에 exit 1, `--help`·`completion bash`에 `-w, --watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary` timing 블록
+  변동계수(CV=stdev/mean) 노출. tz/heatmap/parser/watch 축은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
