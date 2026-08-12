@@ -810,6 +810,20 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay next --watch [seconds]` — 가장 임박한 재개 하나를 라이브 카운트다운으로(리셋이
+      지나는 순간 "due now"로 뒤집힘). watch 계열(status/upcoming/overdue/tools/projects/stats)에서 조회
+      명령 중 유일하게 `--watch`가 없던 `next`에 확장. 자기 발굴 항목(어떤 열린 PR에도 없는 갭).
+      (완료 — CLI `next.ts`에 순수 `renderNextWatchFrame(next, storePath, intervalMs, now)` 신설(`status`/
+      `tools`/`summary`의 watch-frame와 동일 title/meta 배너 + 항상 컬러인 `renderNext` 본문). 세션 52가
+      추출한 공용 `startWatchLoop`을 재사용하는 `runNextWatch`(매 프레임 스토어 재읽기 + `selectNextResume`을
+      fresh `now`로 재선택 → 카운트다운 live + due 상태 flip·화면 clear; `next`는 스코프 필터가 없어 재적용
+      대상 없음). `next`에 `-w, --watch [seconds]` 배선: `--json`이 `--watch`보다 우선(일회성 기계 덤프),
+      `--exit-code`는 루프엔 무의미해 watch 중 무시, 인터벌 기본 2s, addHelpText 예시. 새 파서/스케줄러/
+      core 로직 0줄 — 전부 기존 검증된 `selectNextResume`/`renderNext`/`startWatchLoop` 재사용. cli next
+      watch-frame 4케이스 신규(배너·live countdown·빈 메시지·인터벌 반올림), 실제 빌드 CLI e2e로 화면
+      clear·라이브 배너·1h 30m 카운트다운·waiting-behind·--json 우선·plain 회귀·help/completion `--watch`
+      노출 검증. branch `claude/next-watch`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -1,6 +1,6 @@
 import type { NextResume, RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { NO_PENDING_MESSAGE, renderNext, renderNextJson } from "../src/next.js";
+import { NO_PENDING_MESSAGE, renderNext, renderNextJson, renderNextWatchFrame } from "../src/next.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -67,6 +67,37 @@ describe("renderNext", () => {
   it("emits no ANSI codes when color is off", () => {
     // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting no ANSI escapes leak.
     expect(renderNext(next({ waitingBehind: 2 }), { now: NOW, color: false })).not.toMatch(/\x1b\[/);
+  });
+});
+
+describe("renderNextWatchFrame", () => {
+  it("wraps the one-liner in a live title/meta banner with the interval and store path", () => {
+    const out = renderNextWatchFrame(next(), "/tmp/store.json", 5000, NOW);
+    expect(out).toContain("agentrelay next");
+    expect(out).toContain("live, every 5s");
+    expect(out).toContain("Ctrl-C to exit");
+    expect(out).toContain("/tmp/store.json");
+    expect(out).toContain("2026-07-13 00:00:00Z");
+    // The body is the colored one-liner.
+    expect(out).toContain("demo");
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: watch frames are always colored.
+    expect(out).toMatch(/\x1b\[/);
+  });
+
+  it("renders the live countdown for the imminent resume", () => {
+    const out = renderNextWatchFrame(next(), "/tmp/store.json", 2000, NOW);
+    expect(out).toContain("resets in");
+    expect(out).toContain("1h 30m");
+  });
+
+  it("shows the empty message inside the frame when nothing is waiting", () => {
+    const out = renderNextWatchFrame(null, "/tmp/store.json", 2000, NOW);
+    expect(out).toContain("agentrelay next");
+    expect(out).toContain(NO_PENDING_MESSAGE);
+  });
+
+  it("rounds the interval label to whole seconds", () => {
+    expect(renderNextWatchFrame(next(), "/tmp/store.json", 1500, NOW)).toContain("every 2s");
   });
 });
 

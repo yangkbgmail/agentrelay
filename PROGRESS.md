@@ -2142,3 +2142,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay next --watch` 라이브 단일 재개 카운트다운] (2026-08-12, 무인 자율 세션, branch `claude/next-watch`)
+- **배경:** 이번 실행이 원래 배정받은 `summary --watch`는 **이전 병렬 실행이 이미 완료·PR(#594)까지** 마친
+  중복임을 push 거부로 확인(원격 `claude/summary-watch`에 동일 커밋 존재). 로컬 중복 커밋은 폐기하고, 열린
+  PR 50건(summary --watch·CV·eta --watch 등 대량 중복 포함)을 스캔해 **어떤 열린 PR에도 없는 갭**을 골랐다 —
+  watch 계열(status/stats/tools/projects/upcoming/overdue/summary·eta[PR진행중])에서 조회 명령 중 유일하게
+  `--watch`가 빠진 것이 `next`였다. `next`는 스크립트/상태바용 한 줄(가장 임박한 재개)이지만 라이브로
+  카운트다운을 지켜볼 수단이 없었다.
+- **한 일 (branch `claude/next-watch`):**
+  - CLI `next.ts`에 순수 `renderNextWatchFrame(next, storePath, intervalMs, now)` 신설 — `status`/`tools`/
+    `summary`의 watch-frame와 동일한 title/meta 라이브 배너 + 항상 컬러인 기존 `renderNext` 본문. TTY·시계
+    없이 단위 테스트 가능.
+  - `cli.ts`에 `runNextWatch`(공용 `startWatchLoop` 재사용) — 매 프레임 스토어 재읽기 + `selectNextResume`을
+    fresh `now`로 재선택 → 카운트다운이 째깍째깍 줄고 리셋이 지나는 순간 "due now"로 flip·화면 clear.
+    `next`는 스코프 필터가 없어 재적용할 창이 없다.
+  - `next`에 `-w, --watch [seconds]` 배선: `--json`이 `--watch`보다 우선(일회성 기계 덤프), `--exit-code`는
+    루프엔 무의미해 watch 중 무시, 인터벌 기본 2s, addHelpText 예시 추가. 새 파서/스케줄러/core 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**cli 347/1skip** next watch-frame +4 / core 614 / dashboard 9). **실제 빌드 CLI e2e**
+  (mock 아님): 2잡 임시 스토어로 `next --watch`가 화면 clear + 라이브 배너 + `web  resets in 1h 30m` +
+  `1 more job waiting behind it.` 렌더, `next --watch --json`이 일회성 JSON으로 종료(watch 안 돎), 일회성
+  `next`가 이전과 동일 출력(회귀 없음), `--help`·`completion bash`에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). **주의:** 오토메이션 플릿이 동일 항목
+  (summary --watch·CV·eta --watch)을 대량 중복 생산 중 — 새 작업 착수 전 반드시 열린 PR을 스캔해 갭만
+  고를 것. 후속 인접 후보 — timing 블록 변동계수(CV, 이미 다수 PR 있음 지양), `summary` 툴/프로젝트 미니
+  롤업. tz/heatmap/parser/watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
