@@ -2142,3 +2142,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay man` roff man 페이지 생성 명령] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-man`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR 50+가 summary --watch·eta --watch·CV·parser 축에서 극심하게
+  중복돼, 그 어느 열린 PR에도 없는 **명확한 갭**을 자기 발굴했다 — `completion`(bash/zsh)은 명령/플래그
+  *이름*만 라이브 커맨더에서 파생하는데, 로컬 설치형 CLI에 정작 진짜 Unix man 페이지가 없었다.
+- **한 일 (branch `claude/wizardly-pascal-man`):**
+  - core `man.ts` 신설(순수·파일시스템/커맨더/시계 미접촉): `generateManPage(spec,{section,date,manual,
+    source})` + `ManSpec`/`ManCommand`/`ManOption`. 순수 `escapeRoff`(백슬래시→`\e` 먼저 → 하이픈→`\-`,
+    이중이스케이프 방지). `.TH`/NAME/SYNOPSIS/DESCRIPTION/GLOBAL OPTIONS/COMMANDS, 명령·서브명령은 `.SS`,
+    옵션은 `.TP`/`.B`, 설명 없는 플래그는 `(no description)`, 본문 선행 `.`/`'`은 `\&`로 control-line
+    오해석 방지, `.TH` 메타 필드(날짜/source/manual)는 하이픈 미escape로 가독 유지. date를 CLI가 주입해
+    core는 결정론·스냅샷 가능.
+  - CLI `buildManSpec(program)`이 라이브 commander에서 name/version/description·옵션(flags+description)·
+    명령·서브명령을 파생(`buildCompletionSpec`처럼 드리프트 0, 설명까지 보존). `agentrelay man
+    [--section 1-9]` 커맨드가 roff를 stdout에 출력(잘못된 섹션 exit 1, `--section` 기본 1, 예시 helpText).
+    help·completion 자동 노출.
+  - core `man.test.ts` 17케이스(escapeRoff·헤더·섹션·서브명령·robustness) + cli `man.test.ts` 6케이스
+    (buildManSpec 라이브 파생·렌더 왕복).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 119파일)→`pnpm test`
+  전 패키지 통과(**core 631**[+17], **cli 349/1skip**[+6], dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  `man`이 40개 최상위 `.SS` 명령 + config 7개 서브명령을 설명과 함께 렌더, `.TH` 날짜 클린, `--section 0`
+  exit 1, `--help`·`completion bash`에 man 등록, 시스템 `man --warnings` 0경고(roff well-formed) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — man 페이지에 EXAMPLES/
+  ENVIRONMENT(AGENTRELAY_* env) 섹션 추가, `--output` 파일 저장 플래그. tz/heatmap/parser/watch/CV는
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
