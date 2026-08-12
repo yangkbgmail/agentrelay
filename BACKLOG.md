@@ -810,6 +810,19 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 파서 — 메시지에 담긴 이름있는 타임존(`reset at 5pm (America/New_York)`)을 그 존으로 해석.
+      자기 발굴 정확성 항목: 기존 `clock-time`/`clock-time-meridiem` 패턴이 존을 **무시하고 로컬 시간으로**
+      해석해(주석에 "known limitation" 명시) KST 사용자 등이 몇 시간 틀린 리셋 시각을 계산하던 버그.
+      (완료 — 의존성 0개 `@agentrelay/core/timezone.ts` 신설: `zoneOffsetMs`(Intl.DateTimeFormat로 존 오프셋
+      복원, 미지 존은 null)·`wallTimeInZoneToUtc`(존 벽시계→절대 UTC, DST 경계 1회 보정)·`nextClockTimeInZone`
+      (존의 다음 hour:minute 발생, 오늘 지났으면 존 기준 내일로 롤). 전부 순수·명시 instant만 받아 프로세스
+      시계/로컬 TZ 미접촉 → `TZ` 무관 결정론. 파서 두 clock 패턴에 선택적 IANA 존 캡처(`(?:\(?…/…\)?)?`,
+      `Region/City` 형태만 — `EST`/`PST` 약어는 Intl이 못 풀어 제외, 괄호 유무 무관) 추가 → 존 있으면
+      `nextClockTimeInZone`, 없거나 무효 존이면 기존 로컬 폴백(완전 하위호환). core 20 신규 테스트(timezone 14 +
+      parser 6), 기존 "5pm local" 단언 테스트를 정확한 `21:00Z`(EDT)로 갱신. 실제 빌드 CLI `parse`로
+      `5pm (America/New_York)`→`21:00Z`(TZ=Asia/Seoul여도 동일)·존 없는 `5pm`→로컬·무효 존→로컬 폴백 검증.
+      branch `claude/wizardly-pascal-li9sgy`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
