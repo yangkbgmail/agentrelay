@@ -810,6 +810,15 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 파서: 다단위 상대 시간의 'and'/쉼표 연결어 인식 (`try again in 1 hour and 30 minutes`) —
+      절삭 버그 수정(자기 발굴).
+      (완료 — `relative-duration` 패턴이 단위 사이 구분자로 `\s*`(공백)만 허용해 실제 rate-limit 문구에서
+      흔한 "and"/쉼표 연결어를 만나면 가장 큰 단위만 잡고 나머지를 버려 잡을 더 일찍 재개시켰다(`1 hour and
+      30 minutes`→`1 hour`, `1 day and 2 hours and 30 minutes`→`1 day`). 구분자 `\s*`를
+      `[\s,]*(?:and[\s,]+)?`로 교체 — 공백/쉼표/"and"(및 조합)를 인식하고 빈 문자열도 매치하므로 컴팩트
+      `4h32m`은 하위호환 유지. 새 패턴/resolve 로직 0줄. parser.test +4 회귀(90분/135분/1590분/`4h32m` 유지),
+      실제 빌드 CLI `parse`로 `in 1h 30m`·`in 2h 15m` e2e 검증. branch `claude/wizardly-pascal-u6yisa`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
