@@ -13,6 +13,7 @@ import type {
 } from "@agentrelay/core";
 import {
   ALL_TOOLS,
+  buildActivityFeed,
   buildOverdueReport,
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
@@ -83,6 +84,7 @@ import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderEta, renderEtaJson } from "./eta.js";
 import { renderHealth, renderHealthJson } from "./health.js";
+import { renderLogs, renderLogsJson } from "./logs.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "./overdue.js";
@@ -1558,6 +1560,74 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderErrorBreakdown(breakdown, { color: Boolean(process.stdout.isTTY), limit, scopeNote }));
+    });
+
+  program
+    .command("logs")
+    .description("Show a reverse-chronological feed of recent job activity: what changed, when, and why")
+    .option("-n, --limit <n>", "Show at most N most-recent rows (the totals still count all)")
+    .option("-s, --status <statuses>", "Only include jobs with these comma-separated statuses (e.g. failed,resuming)")
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--json", "Print the feed as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # what has the relay been doing lately?\n" +
+        "  agentrelay logs\n" +
+        "  # just the last 10 changes\n" +
+        "  agentrelay logs --limit 10\n" +
+        "  # recent activity for one project, failures first to eyeball\n" +
+        "  agentrelay logs --project my-app --status failed\n" +
+        "  # feed the timeline to jq\n" +
+        "  agentrelay logs --json | jq '.entries[] | {id, status, reason: .reason.text}'"
+    )
+    .action((opts: ScopeOpts & { limit?: string; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const feed = buildActivityFeed(jobs, { limit });
+
+      if (opts.json) {
+        console.log(
+          renderLogsJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            feed,
+          })
+        );
+        return;
+      }
+      console.log(
+        renderLogs(feed, {
+          color: Boolean(process.stdout.isTTY),
+          now,
+          scopeNote: built.active ? built.note : undefined,
+        })
+      );
     });
 
   program

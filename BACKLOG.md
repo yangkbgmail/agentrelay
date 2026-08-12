@@ -810,6 +810,18 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay logs` — 큐의 최근 활동을 시간 역순으로 보는 피드(무엇이 언제 왜 바뀌었나).
+      (완료 — `status`(생성순 테이블)·`errors`(사유별 그룹)·`upcoming`(미래 재개)에는 없던 "지금까지 무슨
+      일이 있었나" 타임라인. 스토어는 이벤트 로그를 안 남기지만 잡마다 최신 `lastError`/`lastRateLimit`/
+      `lastOutputTail`/`updatedAt`을 보존하므로 그 필드들로 사유 한 줄을 재구성. `@agentrelay/core/activity.ts`
+      신설(순수): `activityReason`(우선순위 error 첫줄 > rate-limit 감지 > output 마지막줄 > none, 공백붕괴+
+      140자 캡) + `buildActivityFeed`(updatedAt 내림차순, 파싱불가는 하단, 동일-ms 타이는 id 오름차순으로
+      결정론화, limit→shown/hidden). CLI `logs.ts`에 순수 `renderLogs`(age/status[색]/short id/project/reason
+      행 + shown/hidden 푸터)·`renderLogsJson`·`formatAge`(just now/Nm/Nh/Nd ago, 30일 초과 ISO 날짜, 미래
+      클램프). `agentrelay logs [-n/--limit] [--json] [-s/-t/-p/--since/--until]` — 공용 buildScope/scopeJobs
+      재사용, 잘못된 값 exit 1. core activity.test +12, cli logs.test +11, 실제 빌드 CLI e2e 검증.
+      branch `claude/wizardly-pascal-abun81`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

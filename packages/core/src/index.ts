@@ -1,3 +1,4 @@
+export * from "./activity.js";
 export * from "./adapters.js";
 export * from "./backup.js";
 export * from "./completion.js";
