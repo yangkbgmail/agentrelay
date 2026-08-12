@@ -1,4 +1,5 @@
 export * from "./adapters.js";
+export * from "./attempts.js";
 export * from "./backup.js";
 export * from "./completion.js";
 export * from "./concurrency.js";

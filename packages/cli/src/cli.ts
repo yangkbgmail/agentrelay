@@ -40,12 +40,14 @@ import {
   scopeJobs,
   selectNextResume,
   sendTestNotification,
+  summarizeAttempts,
   summarizeJobs,
   summarizeProjects,
   summarizeRateLimitPatterns,
   summarizeTools,
 } from "@agentrelay/core";
 import { Command } from "commander";
+import { renderAttempts, renderAttemptsJson } from "./attempts.js";
 import {
   ALL_JOB_STATUSES,
   type BulkControlAction,
@@ -1381,6 +1383,55 @@ export function buildCli(): Command {
       }
       console.log(
         renderPatterns(summary, {
+          color: Boolean(process.stdout.isTTY),
+          scopeNote: built.active ? built.note : undefined,
+        })
+      );
+    });
+
+  program
+    .command("attempts")
+    .description("Show how many resume cycles jobs took, as a histogram bucketed by attempt count")
+    .option("--json", "Print the distribution as JSON (machine-readable, for scripts/CI)")
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. completed)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # how much retry effort is the relay spending?\n" +
+        "  agentrelay attempts\n" +
+        "  # only for one project's completed jobs\n" +
+        "  agentrelay attempts --project my-app --status completed\n" +
+        "  # feed the histogram to jq\n" +
+        "  agentrelay attempts --json | jq '.distribution.buckets'"
+    )
+    .action((opts: ScopeOpts & { json?: boolean }) => {
+      const { store } = program.opts();
+      const built = buildScope(opts, Date.now());
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const distribution = summarizeAttempts(jobs);
+      if (opts.json) {
+        console.log(
+          renderAttemptsJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            distribution,
+          })
+        );
+        return;
+      }
+      console.log(
+        renderAttempts(distribution, {
           color: Boolean(process.stdout.isTTY),
           scopeNote: built.active ? built.note : undefined,
         })

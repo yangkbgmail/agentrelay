@@ -2142,3 +2142,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay attempts` 재개 사이클 분포 히스토그램] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-hlcokb`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR이 50개로 심하게 포화(summary --watch·eta --watch·CV=stdev/mean·
+  parser 변형·notify 변형·man·calendar·savings·stale·busiest·rm·relabel 등 다수 중복)라, 어떤 열린 PR에도
+  없는 **명확한 갭**을 골랐다 — `stats`는 `totalAttempts`(합)·`retriedJobs`(attempts>1 카운트)를 보여주지만
+  "몇 번의 재개 사이클로 잡이 해결되나"의 **분포 형태**(1회에 끝난 잡 vs 여러 번 nurse한 잡)를 보는 뷰가
+  어디에도 없었다. 릴레이의 핵심 가치(재개 사이클)와 직결된 분석 갭.
+- **한 일 (branch `claude/wizardly-pascal-hlcokb`):**
+  - core `attempts.ts` 신설(순수·파일시스템/시계 미접촉): `summarizeAttempts(jobs)`+`AttemptDistribution`
+    (total·totalAttempts·retriedJobs·neverResumed·maxAttempts·meanAttempts·buckets[])+`AttemptBucket`. 각
+    잡의 `attempts`(매 resume마다 단조 +1, 사용자 `retry`만 리셋)를 버킷팅(오름차순·관측값만), 음수·소수·
+    비유한은 0-이상 정수로 클램프. totalAttempts·retriedJobs는 `computeStats`와 동일 정의로 드리프트 방지.
+  - CLI `attempts.ts` 신설: 순수 `renderAttempts`(헤더=총 잡수·총 시도·mean/job·retried·not-yet-resumed +
+    버킷별 라벨·카운트·비례 막대[BAR_WIDTH 24])·`renderAttemptsJson`(stats/patterns와 동일 envelope).
+  - `cli.ts`에 `agentrelay attempts [--json]` 배선. 공용 `buildScope`/`scopeJobs` scope 필터(--status/
+    --tool/--project/--since/--until) 재사용(잘못된 status/tool → exit 1). completion 자동 포함.
+  - `attempts.test.ts` core 7 + cli 7케이스: 빈 shape·버킷 오름차순·totalAttempts/retried 합산·
+    neverResumed 분리·mean·클램프·stats 정의 일치 / 빈/스코프 no-match 메시지·헤더 렌더·색 토글·
+    summarizeAttempts 엔드투엔드 일치·JSON 버킷/scope.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 120파일)→`pnpm test`
+  전 패키지 통과(**core** attempts +7 / **cli 349/1skip** attempts +7 / dashboard 9). **실제 빌드 CLI e2e**
+  (mock 아님): 4잡 임시 스토어(attempts 1·1·4·0)로 `attempts`가 `6 total resume attempt(s) · mean 1.50/job`
+  헤더 + 버킷 히스토그램(1 resume 풀바) 렌더, `--json`이 buckets/mean/total 방출, `--project web`가 2잡으로
+  스코프, `--status bogus`가 exit 1, 빈 스토어가 first-run 힌트, `--help`·`completion bash`에 attempts 등록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — attempts 분포를
+  대시보드/`stats`에 노출, per-project/tool group-by. tz/heatmap/parser/watch/CV는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
