@@ -810,6 +810,23 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay attempts` — 잡의 재개 사이클 수(`attempts`) 분포 히스토그램. `stats`의
+      `totalAttempts`(합)·`retriedJobs`(attempts>1 카운트)는 있지만 "몇 번의 재개로 잡이 해결되는가"의
+      **분포 형태**(1회에 끝난 잡 vs 여러 번 nurse한 잡)를 보여주는 뷰가 어디에도 없던 갭. 자기 발굴 항목.
+      (완료 — core `attempts.ts` 신설(순수·파일시스템/시계 미접촉): `summarizeAttempts(jobs)`+
+      `AttemptDistribution`(total·totalAttempts·retriedJobs·neverResumed[attempts===0]·maxAttempts·
+      meanAttempts·buckets[])+`AttemptBucket`(attempts·count). `attempts`는 매 resume(`markResuming`)마다
+      +1로 단조 누적되고 반복 rate-limit(`markWaitingForReset`)·전환실패 백오프(`markRetryScheduled`)로도
+      리셋 안 되며 오직 사용자 `retry`(`requeueNow`)만 0으로 → 잡당 재개 사이클 수의 충실한 지표. 각 잡의
+      `attempts`를 버킷팅(오름차순, 관측된 값만 행 생성), 음수·소수·비유한은 0-이상 정수로 클램프(견고).
+      totalAttempts·retriedJobs는 `computeStats`와 동일 정의. CLI `attempts.ts`에 순수 `renderAttempts`
+      (헤더=총 잡수·총 시도·mean/job·retried·not-yet-resumed + 버킷별 라벨["0 (not yet resumed)"/"1 resume"/
+      "N resumes"]·카운트·비례 막대)·`renderAttemptsJson`(stats/patterns와 동일 envelope). `agentrelay
+      attempts [--json]` + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용, completion
+      자동 포함. 새 파서/스케줄러 로직 0줄. core attempts 7 + cli attempts 7 신규 테스트, 실제 빌드 CLI
+      e2e로 버킷팅·mean·스코프 부분집합(--project web)·--json 버킷·--status bogus exit 1·빈 스토어 힌트·
+      help/completion 노출 검증. branch `claude/wizardly-pascal-hlcokb`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
