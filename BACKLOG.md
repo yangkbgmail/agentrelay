@@ -809,6 +809,17 @@
       p75 …)   stdev …` 라인 추가, `--json`은 timing 전체 직렬화라 자동 노출. core stats.test +2(3-잡
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
+- [x] 👷 공정한 재개 순서(fair drain order) — 바운드 동시성으로 herd를 드레인할 때 가장 오래 밀린
+      (리셋이 가장 먼저 열린) 잡부터 재개. 이전에는 `listDue`가 JSON/Map 삽입 순서(먼저 enqueue된 잡)를
+      그대로 반환해, 한 시간 전 창이 열린 잡이 방금 due된 잡 뒤에 설 수 있었다.
+      (완료 — core `due.ts` 신설: 순수·비파괴 `orderDueJobs(jobs)` — resetAt 오름차순(가장 밀린 잡
+      먼저) → createdAt 오름차순(같은 리셋창에 몰린 잡은 오래된 것 먼저) → 안정 정렬로 완전 동률은
+      입력 순서 보존(랜덤 id 의존 X). null/파싱불가 resetAt은 맨 뒤. `RelayQueue.listDue`가 필터 후
+      `orderDueJobs`로 정렬해 반환 → 스케줄러 tick이 자동으로 공정 순서로 드레인(직렬·동시 모두).
+      due.test.ts 6케이스(most-overdue first·createdAt tiebreak·완전동률 안정성·null 후치·비파괴·빈배열),
+      실제 빌드 core e2e로 나중 enqueue된 잡보다 더 밀린 잡이 먼저 나오는 것 검증. 기존 스케줄러
+      due-order 테스트는 listDue 출력 자체를 기대값으로 써서 그린 유지(core 620, cli 343/1skip, biome 0).
+      branch `claude/wizardly-pascal-ppg1qx`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

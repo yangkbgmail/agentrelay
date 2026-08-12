@@ -29,6 +29,7 @@ import {
   type RestoreResult,
   selectRotatableBackups,
 } from "./backup.js";
+import { orderDueJobs } from "./due.js";
 import { type ImportOptions, type ImportResult, planImport, summarizeImportPlan } from "./import.js";
 import { type PruneOptions, selectPrunableJobs } from "./prune.js";
 import type { CreateJobInput, JobStatus, RateLimitDetection, RelayJob } from "./types.js";
@@ -410,12 +411,18 @@ export class RelayQueue {
     return summarizeImportPlan(plan);
   }
 
-  /** Jobs whose reset time has already passed and are ready to be resumed now. */
+  /**
+   * Jobs whose reset time has already passed and are ready to be resumed now,
+   * ordered so the most-overdue job resumes first (see {@link orderDueJobs}).
+   * Fair ordering only becomes observable under a bounded resume loop, but it
+   * costs nothing to make it deterministic for everyone.
+   */
   listDue(referenceTime: Date = new Date()): RelayJob[] {
     this.load();
     const ref = referenceTime.getTime();
-    return Array.from(this.jobs.values()).filter(
+    const due = Array.from(this.jobs.values()).filter(
       (job) => job.status === "waiting_for_reset" && job.resetAt !== null && new Date(job.resetAt).getTime() <= ref
     );
+    return orderDueJobs(due);
   }
 }
