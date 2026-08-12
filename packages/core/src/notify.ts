@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import type { Notifier } from "./scheduler.js";
 import type { NotifyPayload } from "./types.js";
 
@@ -142,24 +143,145 @@ export function webhookNotifierFromEnv(
   return createWebhookNotifier({ url, ...options, headers });
 }
 
+/** Default time budget for an exec-notifier command before it's killed. */
+export const DEFAULT_EXEC_TIMEOUT_MS = 10_000;
+
+/**
+ * A spawn function shaped like `child_process.spawn(command, options)` in shell
+ * mode. Only the two lifecycle events the notifier needs are typed, so tests can
+ * substitute a lightweight fake without a real subprocess.
+ */
+export type ExecSpawnFn = (
+  command: string,
+  options: { env: Record<string, string | undefined>; shell: true; stdio: "ignore"; timeout: number }
+) => {
+  on(event: "error", listener: (error: Error) => void): unknown;
+  on(event: "close", listener: (code: number | null, signal: NodeJS.Signals | null) => void): unknown;
+};
+
+export interface ExecNotifierOptions {
+  /** Shell command run once per queue event (e.g. `notify-send "AgentRelay" "$AGENTRELAY_MESSAGE"`). */
+  command: string;
+  /** Base environment the command inherits. Defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
+  /** Kill the command after this many ms so a hung hook can't wedge the relay. */
+  timeoutMs?: number;
+  /** Injected for tests; defaults to `child_process.spawn` in shell mode. */
+  spawnFn?: ExecSpawnFn;
+  /** Called when the command errors or exits non-zero. Defaults to a stderr warning. */
+  onError?: (error: unknown) => void;
+}
+
+/**
+ * Builds the event-describing environment variables handed to an exec-notifier
+ * command. The payload is passed *only* as env vars — never interpolated into
+ * the command string — so a message full of shell metacharacters can't inject
+ * anything. Exported so the shape is documented and testable.
+ */
+export function execNotifyEnv(payload: NotifyPayload): Record<string, string> {
+  return {
+    AGENTRELAY_EVENT: payload.event,
+    AGENTRELAY_PROJECT: payload.project,
+    AGENTRELAY_JOB_ID: payload.jobId,
+    AGENTRELAY_MESSAGE: payload.message,
+    AGENTRELAY_TEXT: formatSlackText(payload),
+  };
+}
+
+/**
+ * Returns a Notifier that runs a local shell command for every queue event —
+ * the local-first channel HTTP webhooks can't cover (desktop toasts via
+ * `notify-send`/`terminal-notifier`, a `say` announcement, appending to a log,
+ * a custom script). Event data reaches the command through `AGENTRELAY_*`
+ * environment variables (see {@link execNotifyEnv}), so nothing from the
+ * (untrusted) message text is spliced into the command line.
+ *
+ * Like the HTTP notifiers, failures are reported through `onError` but never
+ * thrown: a broken hook, a non-zero exit, or a command that runs past
+ * `timeoutMs` (it's killed) must not take down the relay loop. The returned
+ * promise resolves when the command finishes or fails, so the scheduler can
+ * await delivery without ever hanging on it.
+ */
+export function createExecNotifier(options: ExecNotifierOptions): Notifier {
+  const spawnFn = options.spawnFn ?? (spawn as unknown as ExecSpawnFn);
+  const baseEnv = options.env ?? process.env;
+  const timeout = options.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS;
+  const onError =
+    options.onError ??
+    ((error: unknown) => {
+      console.error(`[agentrelay] Exec notification failed: ${String(error)}`);
+    });
+
+  return (payload: NotifyPayload) =>
+    new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      try {
+        const child = spawnFn(options.command, {
+          env: { ...baseEnv, ...execNotifyEnv(payload) },
+          shell: true,
+          stdio: "ignore",
+          timeout,
+        });
+        child.on("error", (error) => {
+          onError(error);
+          finish();
+        });
+        child.on("close", (code, signal) => {
+          if (signal) {
+            onError(new Error(`Exec notification command killed by signal ${signal}`));
+          } else if (code !== 0 && code !== null) {
+            onError(new Error(`Exec notification command exited with code ${code}`));
+          }
+          finish();
+        });
+      } catch (error) {
+        // A synchronous spawn throw (e.g. an invalid command) is swallowed too.
+        onError(error);
+        finish();
+      }
+    });
+}
+
+/**
+ * Builds an exec notifier from `AGENTRELAY_NOTIFY_EXEC`. Returns null when the
+ * variable is unset/blank so callers can silently skip local-command delivery.
+ */
+export function execNotifierFromEnv(
+  env: Record<string, string | undefined> = process.env,
+  options: Omit<ExecNotifierOptions, "command"> = {}
+): Notifier | null {
+  const command = env.AGENTRELAY_NOTIFY_EXEC?.trim();
+  if (!command) return null;
+  return createExecNotifier({ command, env, ...options });
+}
+
 /**
  * Assembles the notifier configured through the environment: Slack
- * (`AGENTRELAY_SLACK_WEBHOOK`) and/or a generic webhook
- * (`AGENTRELAY_WEBHOOK_URL`), fanned out together. Returns null when neither
- * is configured, so callers can report "notifications off" and skip work.
+ * (`AGENTRELAY_SLACK_WEBHOOK`), a generic webhook (`AGENTRELAY_WEBHOOK_URL`),
+ * and/or a local command (`AGENTRELAY_NOTIFY_EXEC`), fanned out together.
+ * Returns null when none is configured, so callers can report "notifications
+ * off" and skip work.
  */
 export function notifiersFromEnv(
   env: Record<string, string | undefined> = process.env,
-  options: { fetchFn?: typeof fetch; onError?: (error: unknown) => void } = {}
+  options: { fetchFn?: typeof fetch; spawnFn?: ExecSpawnFn; onError?: (error: unknown) => void } = {}
 ): Notifier | null {
-  const configured = [slackNotifierFromEnv(env, options), webhookNotifierFromEnv(env, options)].filter(
-    (n): n is Notifier => typeof n === "function"
-  );
+  const { spawnFn, ...httpOptions } = options;
+  const configured = [
+    slackNotifierFromEnv(env, httpOptions),
+    webhookNotifierFromEnv(env, httpOptions),
+    execNotifierFromEnv(env, { spawnFn, onError: options.onError }),
+  ].filter((n): n is Notifier => typeof n === "function");
   if (configured.length === 0) return null;
   return combineNotifiers(...configured);
 }
 
-export type NotifyChannelKind = "slack" | "webhook";
+export type NotifyChannelKind = "slack" | "webhook" | "exec";
 
 /** A notification channel configured through the environment. */
 export interface NotifyChannel {
@@ -188,6 +310,10 @@ export function listNotifyChannels(env: Record<string, string | undefined> = pro
   const webhook = env.AGENTRELAY_WEBHOOK_URL?.trim();
   if (webhook) {
     channels.push({ kind: "webhook", label: "Webhook", url: webhook, envVar: "AGENTRELAY_WEBHOOK_URL" });
+  }
+  const exec = env.AGENTRELAY_NOTIFY_EXEC?.trim();
+  if (exec) {
+    channels.push({ kind: "exec", label: "Exec", url: exec, envVar: "AGENTRELAY_NOTIFY_EXEC" });
   }
   return channels;
 }
@@ -219,6 +345,8 @@ export interface SendTestNotificationOptions {
   env?: Record<string, string | undefined>;
   /** Injected for tests; defaults to global fetch. */
   fetchFn?: typeof fetch;
+  /** Injected for tests; defaults to `child_process.spawn` (used by the exec channel). */
+  spawnFn?: ExecSpawnFn;
   /** Overrides the synthetic payload (defaults to {@link testNotifyPayload}). */
   payload?: NotifyPayload;
 }
@@ -241,15 +369,7 @@ export async function sendTestNotification(options: SendTestNotificationOptions 
       const onError = (error: unknown) => {
         captured = error;
       };
-      const notifier =
-        channel.kind === "slack"
-          ? createSlackNotifier({ webhookUrl: channel.url, fetchFn: options.fetchFn, onError })
-          : createWebhookNotifier({
-              url: channel.url,
-              headers: webhookAuthHeader(env),
-              fetchFn: options.fetchFn,
-              onError,
-            });
+      const notifier = buildTestNotifier(channel, { env, onError, fetchFn: options.fetchFn, spawnFn: options.spawnFn });
       await notifier(payload);
       if (captured === undefined) return { channel, ok: true };
       const message = captured instanceof Error ? captured.message : String(captured);
@@ -262,4 +382,38 @@ export async function sendTestNotification(options: SendTestNotificationOptions 
 function webhookAuthHeader(env: Record<string, string | undefined>): Record<string, string> | undefined {
   const auth = env.AGENTRELAY_WEBHOOK_AUTH?.trim();
   return auth ? { Authorization: auth } : undefined;
+}
+
+/**
+ * Constructs the production notifier for one channel, wired to capture failures
+ * through `onError`, so {@link sendTestNotification} exercises the exact
+ * delivery path (body shape, auth header, spawned command) a real event takes.
+ */
+function buildTestNotifier(
+  channel: NotifyChannel,
+  deps: {
+    env: Record<string, string | undefined>;
+    onError: (error: unknown) => void;
+    fetchFn?: typeof fetch;
+    spawnFn?: ExecSpawnFn;
+  }
+): Notifier {
+  switch (channel.kind) {
+    case "slack":
+      return createSlackNotifier({ webhookUrl: channel.url, fetchFn: deps.fetchFn, onError: deps.onError });
+    case "webhook":
+      return createWebhookNotifier({
+        url: channel.url,
+        headers: webhookAuthHeader(deps.env),
+        fetchFn: deps.fetchFn,
+        onError: deps.onError,
+      });
+    case "exec":
+      return createExecNotifier({
+        command: channel.url,
+        env: deps.env,
+        spawnFn: deps.spawnFn,
+        onError: deps.onError,
+      });
+  }
 }
