@@ -59,6 +59,7 @@ describe("computeStats", () => {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     });
   });
 
@@ -224,6 +225,8 @@ describe("computeStats", () => {
     expect(stats.timing.iqrResolutionMs).toBe(3_600_000);
     // mean 2h; population variance = ((1-2)^2 + (3-2)^2)/2 = 1 h^2 → stdev 1h
     expect(stats.timing.stdevResolutionMs).toBe(3_600_000);
+    // cv = stdev/mean = 1h/2h = 0.5 (scale-independent, unitless)
+    expect(stats.timing.cvResolution).toBe(0.5);
   });
 
   it("collapses spread metrics to zero for a single resolved job", () => {
@@ -234,6 +237,31 @@ describe("computeStats", () => {
     expect(stats.timing.p75ResolutionMs).toBe(3_600_000);
     expect(stats.timing.iqrResolutionMs).toBe(0);
     expect(stats.timing.stdevResolutionMs).toBe(0);
+    // no spread → cv 0 (mean is nonzero, so the ratio is defined)
+    expect(stats.timing.cvResolution).toBe(0);
+  });
+
+  it("computes the coefficient of variation off the raw (unrounded) mean", () => {
+    const at = (h: number, m = 0) => `2026-07-13T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00.000Z`;
+    // spans of 1h and 2h → mean 1.5h, population stdev 0.5h → cv = 0.5/1.5 = 0.3333…
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "failed", createdAt: at(0), updatedAt: at(2) }), // 2h
+    ]);
+    // rounded to 4 decimals per the documented precision
+    expect(stats.timing.cvResolution).toBe(0.3333);
+  });
+
+  it("reports a null coefficient of variation when the mean span is zero", () => {
+    // two jobs that resolved instantly (updatedAt === createdAt) → mean 0, cv undefined
+    const stats = computeStats([
+      job({ status: "completed", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" }),
+      job({ status: "failed", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" }),
+    ]);
+    expect(stats.timing.resolvedCount).toBe(2);
+    expect(stats.timing.avgResolutionMs).toBe(0);
+    expect(stats.timing.stdevResolutionMs).toBe(0);
+    expect(stats.timing.cvResolution).toBeNull();
   });
 
   it("excludes cancelled and still-active jobs from resolution timing", () => {
@@ -292,6 +320,7 @@ describe("computeStats", () => {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     });
   });
 });

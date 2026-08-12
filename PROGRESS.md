@@ -2142,3 +2142,24 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay stats` 해결시간 변동계수(CV)] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-brjo1p`)
+- **맥락:** BACKLOG의 미완료 항목이 모두 🧭(코워크 소유)라 CLAUDE.md 지침대로 인접 갭을 자기발굴했다.
+  세션 65(IQR·stdev)가 후속 후보로 명시한 **변동계수(CV=stdev/mean)**를 골랐다 — stdev은 평균 옆에 둬야만
+  의미가 있어 평균이 다른 큐/기간의 변동성을 직접 비교하지 못하는데, CV는 스케일 독립적 비율이라 초 단위 큐와
+  시간 단위 큐를 나란히 비교할 수 있다.
+- **한 일 (branch `claude/wizardly-pascal-brjo1p`):**
+  - core `stats.ts`: `TimingStats`에 `cvResolution`(무단위 비율=stdev÷raw mean, 4자리 반올림) 추가.
+    이미 계산한 stdev·mean을 재사용해 새 연산 최소화. resolved 0개 또는 mean=0(모든 잡 즉시 종료)이면
+    null(비율 미정의), 단일/동일 span이면 0. CV는 반올림 전 raw mean 기준으로 계산해 정밀도 유지.
+  - CLI `stats.ts`: `formatCv`(비율→퍼센트, 0<pct<1은 소수1자리 유지로 `0%` 오독 방지) 신설. resolution-time
+    spread 라인에 `   cv NN%` 추가(mean=0이면 cv 항 생략). `--json`은 timing 전체 직렬화라 `cvResolution` 자동 노출.
+  - 테스트: core stats.test +3(0.5 검증·raw mean 기준 0.3333·mean0 null), cli stats.test에 formatCv 단위테스트
+    (퍼센트 반올림·소수1자리·비유한값 `-`)·render `cv 50%`·mean0 cv 생략·JSON provenance 확장.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm test` 전 패키지 통과(**core 616** +6·
+  **cli 347/1skip** +4·dashboard 9)→`pnpm ci:lint`(Biome 116파일 0에러). **실제 빌드 CLI e2e**(mock 아님):
+  임시 JSON 스토어 2잡(spans 1h·3h)으로 `stats`가 `spread: … stdev 1h 0m   cv 50%` 렌더, `--json`이
+  `timing.cvResolution: 0.5` 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록 변동계수의
+  그룹별(`--group-by`) 노출, `summary`에 성공률/해결시간 헤드라인. tz/heatmap/parser/watch는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).

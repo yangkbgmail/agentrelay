@@ -810,6 +810,18 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay stats` 해결 시간 변동계수(CV = stdev/mean) — 세션 65가 후속 후보로 지목한 항목.
+      stdev은 평균 옆에 둬야만 의미가 있어 평균이 다른 큐/기간 간 변동성을 직접 비교하지 못한다. CV는
+      스케일 독립적 비율이라 초 단위 큐와 시간 단위 큐를 나란히 놓고 "얼마나 들쭉날쭉한가"를 비교할 수 있음.
+      (완료 — core `stats.ts`의 `TimingStats`에 `cvResolution`(무단위 비율, stdev÷raw mean, 4자리 반올림)
+      추가. 이미 계산한 stdev·mean 재사용으로 새 연산 최소화. resolved 0개 또는 mean=0(모든 잡 즉시 종료)이면
+      null(비율 미정의), 단일·동일 잡이면 0. CLI `stats.ts`에 `formatCv`(비율→퍼센트, 1%↓는 소수1자리 유지로
+      `0%` 오독 방지) 신설, spread 라인에 `   cv NN%` 추가(mean=0이면 항 생략). `--json`은 timing 전체
+      직렬화라 `cvResolution` 자동 노출. core stats.test +3(0.5 검증·raw mean 기준 0.3333·mean0 null),
+      cli stats.test +formatCv 단위테스트·render `cv 50%`·mean0 생략. 실제 빌드 CLI e2e로 spans{1h,3h}→
+      human `cv 50%`·JSON `0.5` 검증. core 616·cli 347 전 통과, Biome 116파일 0에러.
+      branch `claude/wizardly-pascal-brjo1p`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

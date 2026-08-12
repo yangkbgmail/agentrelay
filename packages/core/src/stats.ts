@@ -76,6 +76,17 @@ export interface TimingStats {
    * IQR is the signature of a few heavy outliers dragging the mean.
    */
   stdevResolutionMs: number | null;
+  /**
+   * Coefficient of variation: {@link stdevResolutionMs} ÷ {@link avgResolutionMs},
+   * a *unitless* ratio (not ms). Unlike stdev — whose magnitude only means
+   * something next to the mean — CV is scale-independent, so a queue whose jobs
+   * take seconds and one whose jobs take hours are directly comparable: 0 means
+   * every job resolved in the same span, ~1 means the spread rivals the typical
+   * duration, >1 means wildly inconsistent babysitting. `null` when nothing has
+   * resolved, or when the mean is 0 (the ratio would be undefined). Rounded to
+   * 4 decimals to tame float noise; render it as a percentage for humans.
+   */
+  cvResolution: number | null;
 }
 
 export interface RelayStats {
@@ -452,6 +463,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     };
   } else {
     // Sort once ascending; percentiles read from it, min/max are its ends.
@@ -459,6 +471,10 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     const mean = sorted.reduce((sum, d) => sum + d, 0) / resolvedCount;
     const p25 = percentile(sorted, 0.25);
     const p75 = percentile(sorted, 0.75);
+    const stdev = populationStdev(sorted, mean);
+    // CV is stdev/mean off the *raw* (unrounded) mean; guard mean === 0 (every
+    // job resolved instantly) where the ratio is undefined, not 0.
+    const cv = mean === 0 ? null : Math.round((stdev / mean) * 1e4) / 1e4;
     timing = {
       resolvedCount,
       avgResolutionMs: Math.round(mean),
@@ -471,7 +487,8 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p25ResolutionMs: p25,
       p75ResolutionMs: p75,
       iqrResolutionMs: p75 - p25,
-      stdevResolutionMs: populationStdev(sorted, mean),
+      stdevResolutionMs: stdev,
+      cvResolution: cv,
     };
   }
 

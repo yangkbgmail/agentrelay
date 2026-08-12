@@ -58,6 +58,18 @@ export function formatDurationMs(ms: number): string {
 }
 
 /**
+ * Renders a coefficient of variation (a unitless stdev/mean ratio) as a
+ * human-friendly percentage — `0.4732` → `47%`. Sub-1% ratios keep one decimal
+ * so a tiny-but-nonzero spread doesn't collapse to a misleading `0%`.
+ */
+export function formatCv(cv: number): string {
+  if (!Number.isFinite(cv) || cv < 0) return "-";
+  const pct = cv * 100;
+  if (pct > 0 && pct < 1) return `${pct.toFixed(1)}%`;
+  return `${Math.round(pct)}%`;
+}
+
+/**
  * Renders the stats summary as a multi-line block. Pure: no I/O, no ambient
  * clock unless `now` is omitted. `color` gates ANSI codes (TTY only).
  */
@@ -110,7 +122,8 @@ export function renderStats(
         d(
           `(p25 ${formatDurationMs(timing.p25ResolutionMs ?? 0)} – p75 ${formatDurationMs(timing.p75ResolutionMs ?? 0)})`
         ) +
-        `   stdev ${formatDurationMs(timing.stdevResolutionMs ?? 0)}`
+        `   stdev ${formatDurationMs(timing.stdevResolutionMs ?? 0)}` +
+        (timing.cvResolution !== null ? `   cv ${formatCv(timing.cvResolution)}` : "")
     );
   }
 

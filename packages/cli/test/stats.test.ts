@@ -9,6 +9,7 @@ import {
 } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
+  formatCv,
   formatDurationMs,
   formatSuccessRate,
   formatUtcOffsetLabel,
@@ -81,6 +82,27 @@ describe("formatDurationMs", () => {
   });
 });
 
+describe("formatCv", () => {
+  it("renders a ratio as a rounded percentage", () => {
+    expect(formatCv(0)).toBe("0%");
+    expect(formatCv(0.5)).toBe("50%");
+    expect(formatCv(0.3333)).toBe("33%");
+    expect(formatCv(1)).toBe("100%");
+    expect(formatCv(1.6)).toBe("160%");
+  });
+
+  it("keeps one decimal for a tiny-but-nonzero ratio so it doesn't read as 0%", () => {
+    expect(formatCv(0.004)).toBe("0.4%");
+    expect(formatCv(0.0099)).toBe("1.0%");
+  });
+
+  it("returns - for negative or non-finite input", () => {
+    expect(formatCv(-0.1)).toBe("-");
+    expect(formatCv(Number.NaN)).toBe("-");
+    expect(formatCv(Number.POSITIVE_INFINITY)).toBe("-");
+  });
+});
+
 describe("renderStats", () => {
   it("shows the onboarding message for an empty store", () => {
     expect(renderStats(computeStats([]))).toBe(NO_STATS_MESSAGE);
@@ -139,6 +161,19 @@ describe("renderStats", () => {
     expect(out).toContain("spread: iqr 1h 0m");
     expect(out).toContain("p25 1h 30m – p75 2h 30m");
     expect(out).toContain("stdev 1h 0m");
+    // cv = stdev/mean = 1h/2h = 0.5 → rendered as a percentage.
+    expect(out).toContain("cv 50%");
+  });
+
+  it("omits the cv term when the mean span is zero (ratio undefined)", () => {
+    // both jobs resolved instantly → mean 0, cv null → no "cv" in the spread line.
+    const stats = computeStats([
+      job({ status: "completed", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" }),
+      job({ status: "failed", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" }),
+    ]);
+    const out = renderStats(stats, { now: NOW });
+    expect(out).toContain("spread: iqr");
+    expect(out).not.toContain(" cv ");
   });
 
   it("omits the resolution-time block when nothing has resolved", () => {
@@ -168,6 +203,10 @@ describe("renderStatsJson", () => {
     // timing block is carried through untouched for scripts/jq.
     expect(parsed.stats.timing.resolvedCount).toBe(2);
     expect(typeof parsed.stats.timing.avgResolutionMs).toBe("number");
+    // cv rides along as a unitless ratio (stdev/mean); here both default jobs
+    // have a zero-length span, so the mean is 0 and the ratio is null.
+    expect("cvResolution" in parsed.stats.timing).toBe(true);
+    expect(parsed.stats.timing.cvResolution).toBeNull();
   });
 
   it("omits scope when inactive and echoes it back when set", () => {
