@@ -9,6 +9,9 @@ import type {
   JobCsvColumn,
   JobScope,
   JobStatus,
+  ManCommand,
+  ManOption,
+  ManSpec,
   RelayJob,
 } from "@agentrelay/core";
 import {
@@ -27,6 +30,7 @@ import {
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
   generateCompletion,
+  generateManPage,
   groupStats,
   IMPORT_FORMATS,
   inferImportFormat,
@@ -321,6 +325,46 @@ export function buildCompletionSpec(program: Command): CompletionSpec {
     return entry;
   });
   return { program: program.name(), options: collectFlags(program), commands };
+}
+
+/** Map a commander command's options into man-page `ManOption` rows (flags + help). */
+function collectManOptions(cmd: Command): ManOption[] {
+  return cmd.options.map((opt) => ({ flags: opt.flags, description: opt.description || undefined }));
+}
+
+/**
+ * Derive a man-page spec from the live commander program, so the rendered `.1`
+ * page always matches the real command surface and carries each command's and
+ * option's real description (no hand-kept `.1` to drift). Mirrors
+ * `buildCompletionSpec` but keeps descriptions and one level of nesting.
+ */
+export function buildManSpec(program: Command): ManSpec {
+  const commands: ManCommand[] = program.commands.map((cmd) => {
+    const entry: ManCommand = {
+      name: cmd.name(),
+      description: cmd.description() || undefined,
+      usage: cmd.usage() || undefined,
+      options: collectManOptions(cmd),
+    };
+    if (cmd.commands.length > 0) {
+      entry.subcommands = cmd.commands.map(
+        (sub): ManCommand => ({
+          name: sub.name(),
+          description: sub.description() || undefined,
+          usage: sub.usage() || undefined,
+          options: collectManOptions(sub),
+        })
+      );
+    }
+    return entry;
+  });
+  return {
+    program: program.name(),
+    version: program.version() || undefined,
+    summary: program.description() || undefined,
+    options: collectManOptions(program),
+    commands,
+  };
 }
 
 /**
@@ -2193,6 +2237,30 @@ export function buildCli(): Command {
         );
       }
       console.log(`${verb} ${pruned.length} job(s). ${remaining} remain.`);
+    });
+
+  program
+    .command("man")
+    .description("Print a roff man page for agentrelay (redirect to a .1 file, then `man ./agentrelay.1`)")
+    .option("--section <n>", "Manual section number", "1")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # write and view the page locally\n" +
+        "  agentrelay man > agentrelay.1 && man ./agentrelay.1\n" +
+        "  # install into a man path so `man agentrelay` works\n" +
+        "  agentrelay man > ~/.local/share/man/man1/agentrelay.1"
+    )
+    .action((opts: { section?: string }) => {
+      const section = Number.parseInt(opts.section ?? "1", 10);
+      if (!Number.isInteger(section) || section < 1 || section > 9) {
+        console.error(`Invalid --section "${opts.section}". Expected an integer 1-9.`);
+        process.exitCode = 1;
+        return;
+      }
+      const spec = buildManSpec(program);
+      const date = new Date().toISOString().slice(0, 10);
+      process.stdout.write(generateManPage(spec, { section, date }));
     });
 
   program

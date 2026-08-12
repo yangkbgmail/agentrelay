@@ -810,6 +810,20 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay man` — 라이브 커맨더 프로그램에서 roff/troff man 페이지 생성(설명 포함). 자기 발굴 항목.
+      `completion`(bash/zsh)은 명령/플래그 *이름*만 파생하는데, 로컬 설치형 CLI에는 진짜 Unix man 페이지가
+      없어 `agentrelay man > agentrelay.1 && man ./agentrelay.1`로 볼 방법이 없었다.
+      (완료 — core `man.ts` 신설(순수·파일시스템/커맨더/시계 미접촉): `generateManPage(spec, {section,date,
+      manual,source})` + `ManSpec`/`ManCommand`/`ManOption` 타입 + 순수 `escapeRoff`(백슬래시→`\e` 먼저 →
+      하이픈→`\-`, 이중이스케이프 방지). `.TH`/NAME/SYNOPSIS/DESCRIPTION/GLOBAL OPTIONS/COMMANDS 섹션,
+      명령·서브명령을 `.SS` + 옵션은 `.TP`/`.B`로 렌더, 설명 없는 플래그는 `(no description)`, 본문
+      선행 `.`/`'`은 `\&`로 control-line 오해석 방지, `.TH` 메타 필드는 하이픈 미escape(날짜 가독).
+      date는 CLI가 주입 → core는 결정론·스냅샷 가능. CLI `buildManSpec(program)`이 라이브 commander에서
+      name/version/description·옵션(flags+description)·명령·서브명령을 파생(completion처럼 드리프트 0),
+      `agentrelay man [--section 1-9]`가 roff를 stdout에 출력(잘못된 섹션 exit 1). help/completion 자동
+      노출. core man 17 + cli man 6 신규 테스트, 실제 빌드 CLI로 40개 `.SS` 명령·config 서브명령·`man
+      --warnings` 0경고 검증. branch `claude/wizardly-pascal-man`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
