@@ -2142,3 +2142,34 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — 로컬 명령 실행 알림자(exec notifier)] (2026-08-12, 무인 자율 세션)
+- **배경:** 세션 시작 시 열린 PR 30개(요약·eta·CV·파서·adapter 등 대부분의 인접 영역이 이미 점유).
+  미완 명시 👷 백로그 항목은 0개라 CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다. AgentRelay는
+  "로컬 우선" 도구인데 알림 채널은 Slack·범용 웹훅(둘 다 HTTP)과 진행 중인 JSONL 로그 파일(PR #610)뿐
+  이었다 — `notify-send`/`terminal-notifier`/`say`/커스텀 스크립트 같은 **로컬 명령**으로 알리는 채널이
+  없었고 열린 PR에도 없었다.
+- **한 일 (branch `claude/wizardly-pascal-l8akhn`):** **exec 알림자 — `AGENTRELAY_NOTIFY_EXEC`**.
+  - `@agentrelay/core/notify.ts`: 순수 `execNotifyEnv(payload)`(이벤트를 `AGENTRELAY_EVENT`/`_PROJECT`/
+    `_JOB_ID`/`_MESSAGE`/`_TEXT` env로 매핑 — 메시지는 **env로만** 전달, 명령 문자열에 절대 삽입하지
+    않아 셸 인젝션 차단) + `createExecNotifier`(shell 모드로 명령 실행, `DEFAULT_EXEC_TIMEOUT_MS`=10s로
+    행 걸린 훅을 kill해 릴레이 루프 보호, non-zero 종료·시그널 kill·spawn throw는 `onError`로 보고만
+    하고 **절대 throw 안 함**, close/error에 정확히 한 번 resolve) + `execNotifierFromEnv`. `spawnFn`
+    주입 가능(테스트용, 기본 `child_process.spawn`). `notifiersFromEnv`에 exec를 3번째 채널로 fan-out,
+    `NotifyChannelKind`에 `"exec"` 추가, `listNotifyChannels`·`sendTestNotification`(공용 `buildTestNotifier`
+    헬퍼로 분기)이 exec 채널을 인식 → `notify test`가 실제 명령 실행 경로를 검증.
+  - `doctor.ts`: `NotifyFacts.execCommand` + `notifyCheck`가 exec 채널 카운트, 힌트에 env var 추가.
+    CLI `commands.ts` `runDoctor`가 `env.AGENTRELAY_NOTIFY_EXEC` 수집.
+  - `config.ts`: `notify.exec` 필드를 스키마/`sampleConfig`/`parseConfig`/`configToEnv`/`CONFIG_ENV_KEYS`/
+    `CONFIG_FIELDS`(settable)에 index-aligned로 추가 → 설정 파일·`config set/get/show/init`에서 관리 가능.
+    CLI `NO_CHANNELS_MESSAGE`도 exec 언급.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 628**[notify +14], cli 343/1skip, dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  `AGENTRELAY_NOTIFY_EXEC`로 페이로드 env를 파일에 쓰는 훅 설정 → rate-limit 명령 `run` → 큐잉 시 훅이
+  `queued|agentrelay|<jobid>`를 실제로 기록 확인, `doctor`가 "notifications on via exec", `notify test`가
+  "Exec … delivered", `config show`가 exec를 `[config-file]` 출처로 표기·`config init`이 `"exec": ""` 방출.
+  신규 테스트: exec notifier 14케이스(env 매핑·shell 스폰·non-zero/시그널/throw onError·clean 무에러·
+  **실제 sh 서브프로세스 왕복**·env null·notifiersFromEnv 3채널 fan-out·listNotifyChannels·sendTestNotification).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — exec 알림자에
+  per-event 필터(특정 이벤트만 실행), 대시보드에 활성 알림 채널 표기. tz/heatmap/parser/watch/CV는 PR
+  포화라 지양. README/ARCHITECTURE(🧭 코워크).

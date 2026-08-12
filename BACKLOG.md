@@ -810,6 +810,17 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 로컬 명령 실행 알림자(`AGENTRELAY_NOTIFY_EXEC`) — HTTP(Slack/웹훅)를 넘어 임의 로컬 셸 명령으로
+      이벤트 알림(로컬 우선: `notify-send`/`terminal-notifier`/`say`/커스텀 스크립트, 오프라인·HTTP 서버 불필요).
+      (완료 — `@agentrelay/core/notify.ts`에 순수 `execNotifyEnv`(이벤트→`AGENTRELAY_EVENT`/`_PROJECT`/`_JOB_ID`/
+      `_MESSAGE`/`_TEXT` env 매핑; 메시지는 env로만 전달해 셸 인젝션 차단) + `createExecNotifier`(shell 모드 실행,
+      10s 타임아웃 kill로 릴레이 보호, non-zero/시그널/throw는 onError로 보고만·절대 throw 안 함) +
+      `execNotifierFromEnv`. `notifiersFromEnv`가 exec를 3번째 채널로 fan-out, `NotifyChannelKind` `"exec"`,
+      `listNotifyChannels`·`sendTestNotification`(공용 `buildTestNotifier`)이 exec 인식. `doctor`가 exec 채널
+      점검. `config.ts` `notify.exec`를 스키마/샘플/파서/env매핑/CONFIG_ENV_KEYS/CONFIG_FIELDS에 index-aligned
+      추가(설정 파일·config set/get/show/init 지원). core notify +14 테스트(실제 sh 서브프로세스 왕복 포함),
+      빌드 CLI e2e로 run 큐잉 시 훅 발화·doctor·notify test·config show 검증. branch `claude/wizardly-pascal-l8akhn`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
