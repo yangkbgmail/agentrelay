@@ -59,6 +59,7 @@ describe("computeStats", () => {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     });
   });
 
@@ -224,6 +225,21 @@ describe("computeStats", () => {
     expect(stats.timing.iqrResolutionMs).toBe(3_600_000);
     // mean 2h; population variance = ((1-2)^2 + (3-2)^2)/2 = 1 h^2 → stdev 1h
     expect(stats.timing.stdevResolutionMs).toBe(3_600_000);
+    // cv = stdev / mean = 1h / 2h = 0.5
+    expect(stats.timing.cvResolution).toBe(0.5);
+  });
+
+  it("computes the coefficient of variation from the unrounded stdev and mean", () => {
+    const at = (h: number) => `2026-07-13T${String(h).padStart(2, "0")}:00:00.000Z`;
+    // spans 1h, 2h, 6h → mean 3h; population variance
+    //   = ((1-3)^2 + (2-3)^2 + (6-3)^2)/3 = (4+1+9)/3 = 14/3 h^2
+    //   → stdev = sqrt(14/3) h ≈ 2.16025 h; cv = stdev/mean ≈ 0.72008 → 0.72
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }),
+      job({ status: "completed", createdAt: at(0), updatedAt: at(2) }),
+      job({ status: "failed", createdAt: at(0), updatedAt: at(6) }),
+    ]);
+    expect(stats.timing.cvResolution).toBe(0.72);
   });
 
   it("collapses spread metrics to zero for a single resolved job", () => {
@@ -234,6 +250,26 @@ describe("computeStats", () => {
     expect(stats.timing.p75ResolutionMs).toBe(3_600_000);
     expect(stats.timing.iqrResolutionMs).toBe(0);
     expect(stats.timing.stdevResolutionMs).toBe(0);
+    // no spread → cv 0 (not a division-by-zero NaN)
+    expect(stats.timing.cvResolution).toBe(0);
+  });
+
+  it("reports cv 0 for identical spans and never divides by zero on zero means", () => {
+    const same = "2026-07-13T02:00:00.000Z";
+    const identical = computeStats([
+      job({ status: "completed", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: same }),
+      job({ status: "failed", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: same }),
+    ]);
+    expect(identical.timing.stdevResolutionMs).toBe(0);
+    expect(identical.timing.cvResolution).toBe(0);
+
+    // Two zero-length spans: mean 0 → cv guarded to 0, not NaN/Infinity.
+    const zeroSpan = computeStats([
+      job({ status: "completed", createdAt: same, updatedAt: same }),
+      job({ status: "failed", createdAt: same, updatedAt: same }),
+    ]);
+    expect(zeroSpan.timing.avgResolutionMs).toBe(0);
+    expect(zeroSpan.timing.cvResolution).toBe(0);
   });
 
   it("excludes cancelled and still-active jobs from resolution timing", () => {
@@ -292,6 +328,7 @@ describe("computeStats", () => {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     });
   });
 });

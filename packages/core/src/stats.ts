@@ -76,6 +76,18 @@ export interface TimingStats {
    * IQR is the signature of a few heavy outliers dragging the mean.
    */
   stdevResolutionMs: number | null;
+  /**
+   * Coefficient of variation: stdev ÷ mean, rounded to two decimals, or null
+   * when none. Unlike {@link stdevResolutionMs} and {@link iqrResolutionMs}
+   * (both in ms), this is a *dimensionless* ratio, so it answers "is this queue
+   * consistent relative to its own scale?" without the reader mentally dividing
+   * by the mean. A CV near 0 means resolutions cluster tightly; ~1 means the
+   * spread rivals the mean; >1 flags an erratic, heavy-tailed queue. Being
+   * scale-free, it's the only spread metric that's comparable across projects
+   * or tools whose typical resolution times differ by orders of magnitude. When
+   * the mean is 0 (every span sub-millisecond) it's 0 — no relative spread.
+   */
+  cvResolution: number | null;
 }
 
 export interface RelayStats {
@@ -389,14 +401,14 @@ function percentile(sortedAsc: number[], p: number): number {
 }
 
 /**
- * Population standard deviation (not sample) over a non-empty list, rounded to
- * whole ms. Population is the right choice here: `values` is the complete set of
- * resolved-job spans being described, not a sample drawn to infer a wider
- * population. A single value yields 0 (no spread). Callers guarantee non-empty.
+ * Population variance (not sample) over a non-empty list. Population is the
+ * right choice here: `values` is the complete set of resolved-job spans being
+ * described, not a sample drawn to infer a wider population. A single value
+ * yields 0 (no spread). Callers guarantee non-empty. Kept unrounded so both the
+ * stdev (rounded to ms) and the CV (a ratio) derive from the same true figure.
  */
-function populationStdev(values: number[], mean: number): number {
-  const variance = values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / values.length;
-  return Math.round(Math.sqrt(variance));
+function populationVariance(values: number[], mean: number): number {
+  return values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / values.length;
 }
 
 /**
@@ -452,6 +464,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     };
   } else {
     // Sort once ascending; percentiles read from it, min/max are its ends.
@@ -459,6 +472,10 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     const mean = sorted.reduce((sum, d) => sum + d, 0) / resolvedCount;
     const p25 = percentile(sorted, 0.25);
     const p75 = percentile(sorted, 0.75);
+    // Derive stdev and CV from the same true (unrounded) figures; the CV is a
+    // dimensionless ratio so it rounds to 2 decimals, not whole ms. A zero mean
+    // (every span sub-ms) has no relative spread → CV 0, sidestepping /0.
+    const stdev = Math.sqrt(populationVariance(sorted, mean));
     timing = {
       resolvedCount,
       avgResolutionMs: Math.round(mean),
@@ -471,7 +488,8 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p25ResolutionMs: p25,
       p75ResolutionMs: p75,
       iqrResolutionMs: p75 - p25,
-      stdevResolutionMs: populationStdev(sorted, mean),
+      stdevResolutionMs: Math.round(stdev),
+      cvResolution: mean === 0 ? 0 : Math.round((stdev / mean) * 100) / 100,
     };
   }
 

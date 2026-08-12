@@ -36,6 +36,16 @@ export function formatSuccessRate(rate: number | null): string {
 }
 
 /**
+ * Format a coefficient of variation (stdev/mean, dimensionless) as a fixed
+ * two-decimal ratio, or "-" for null/non-finite. Unlike the durations it sits
+ * beside it carries no unit — it's a bare ratio (e.g. "0.42").
+ */
+export function formatCv(cv: number | null): string {
+  if (cv === null || !Number.isFinite(cv)) return "-";
+  return cv.toFixed(2);
+}
+
+/**
  * Format an absolute duration (ms) as a compact human string spanning the full
  * range a relay produces: sub-second resolutions up to multi-day windows. Two
  * units of granularity ("4h 12m", "3d 2h", "45m 30s", "8s"). Returns "-" for a
@@ -110,7 +120,8 @@ export function renderStats(
         d(
           `(p25 ${formatDurationMs(timing.p25ResolutionMs ?? 0)} – p75 ${formatDurationMs(timing.p75ResolutionMs ?? 0)})`
         ) +
-        `   stdev ${formatDurationMs(timing.stdevResolutionMs ?? 0)}`
+        `   stdev ${formatDurationMs(timing.stdevResolutionMs ?? 0)}` +
+        `   cv ${formatCv(timing.cvResolution)}`
     );
   }
 

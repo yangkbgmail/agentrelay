@@ -2142,3 +2142,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay stats` 해결 시간 변동계수(CV=stdev/mean)] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-cv-metric`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/경쟁조사/
+  샘플수집/성능분석)뿐. 세션 67이 "다음 할 일"로 직접 지목한 **timing 블록 변동계수(CV)**를 골랐다 — 자기완결적·
+  순수·테스트 가능하고 어떤 열린 PR과도 겹치지 않는 명확한 갭. 기존 spread 지표 iqr·stdev는 둘 다 ms 단위라
+  "이 수치가 이 큐 규모 대비 큰가?"는 사용자가 머릿속으로 mean으로 나눠야 알 수 있었다. CV=stdev/mean은
+  **무차원 비율**이라 그 나눗셈을 미리 해준다 — 0 근처면 일관, ~1이면 spread가 mean에 필적, >1이면 꼬리 무거운
+  들쭉날쭉한 큐. 스케일-프리라 typical 해결 시간이 자릿수 다른 프로젝트/툴 사이 비교가 가능한 유일한 spread 지표.
+- **한 일 (branch `claude/wizardly-pascal-cv-metric`):**
+  - core `stats.ts`의 `TimingStats`에 `cvResolution: number | null`(2소수 반올림 비율) 추가. `populationStdev`를
+    `populationVariance`(미반올림 분산 반환)로 리팩터해 stdev(ms 반올림)와 CV(비율)가 **같은 참값**에서 파생되게
+    함. `computeStats`가 `stdev=sqrt(variance)`, `cv = mean===0 ? 0 : round2(stdev/mean)` 계산 — mean 0(전부
+    sub-ms span)이면 상대 spread 없음 → CV 0으로 가드해 /0(NaN/Infinity) 회피. resolved 0개면 CV도 null.
+  - CLI `stats.ts`에 순수 `formatCv`(2소수 고정 비율, null/비유한은 "-") 추가, resolution-time의 spread 라인에
+    `   cv 0.42` 접미. `--json`은 stats 객체에 자동 노출.
+  - core `stats.test.ts`: 기존 spread 테스트에 cv 0.5 검증 추가, 신규 3케이스(미반올림 stdev/mean에서 cv 0.72 계산,
+    단일 잡 cv 0, 동일 span cv 0 + zero-mean 가드로 NaN 아님). 빈 timing 두 곳 `cvResolution: null` 반영.
+    CLI `test/stats.test.ts`: `formatCv` 6케이스 + spread 라인 `cv 0.50` 렌더 검증.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 616**, **cli 345/1skip**). **실제 빌드 CLI e2e**(mock 아님): 스팬 1h/2h/6h 3잡 임시
+  스토어로 `stats`가 `stdev 2h 9m   cv 0.72`, `--json`이 `{avg:10800000, stdev:7776889, cv:0.72}` 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch` 라이브 갱신,
+  timing 블록 MAD(median absolute deviation, 강건 spread). tz/heatmap/parser/watch는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
