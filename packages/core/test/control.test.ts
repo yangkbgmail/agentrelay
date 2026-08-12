@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canCancel, canRequeue, partitionForControl, resolveJobId } from "../src/control.js";
+import { buildReplayJob, canCancel, canRequeue, partitionForControl, resolveJobId } from "../src/control.js";
 import type { JobStatus, RelayJob } from "../src/types.js";
 
 function job(id: string, status: JobStatus): RelayJob {
@@ -121,5 +121,65 @@ describe("resolveJobId", () => {
     // A short id that is also a prefix of a longer one must still resolve to itself.
     const withCollision = [job("ab", "queued"), job("abc", "failed")];
     expect(resolveJobId(withCollision, "ab")).toEqual({ id: "ab" });
+  });
+});
+
+describe("buildReplayJob", () => {
+  const NOW = "2026-08-01T10:00:00.000Z";
+
+  function finished(overrides: Partial<RelayJob> = {}): RelayJob {
+    return {
+      ...job("src", "completed"),
+      attempts: 3,
+      resetAt: "2026-07-30T17:00:00.000Z",
+      lastError: "boom",
+      lastOutputTail: "some output",
+      lastRateLimit: {
+        pattern: "clock-time",
+        rawMatch: "resets at 5pm",
+        resetAt: "2026-07-30T17:00:00.000Z",
+        detectedAt: "2026-07-30T12:00:00.000Z",
+      },
+      ...overrides,
+    };
+  }
+
+  it("carries over only the reusable fields (project/tool/command/cwd)", () => {
+    const clone = buildReplayJob(finished(), { id: "new-1", now: NOW });
+    expect(clone.project).toBe("demo");
+    expect(clone.tool).toBe("claude-code");
+    expect(clone.command).toEqual(["claude", "-p", "continue"]);
+    expect(clone.cwd).toBe("/tmp/demo");
+  });
+
+  it("gives the clone the injected id and a clean, due-now history", () => {
+    const clone = buildReplayJob(finished(), { id: "new-2", now: NOW });
+    expect(clone.id).toBe("new-2");
+    expect(clone.status).toBe("waiting_for_reset");
+    // resetAt = now so the scheduler's listDue picks it up immediately.
+    expect(clone.resetAt).toBe(NOW);
+    expect(clone.createdAt).toBe(NOW);
+    expect(clone.updatedAt).toBe(NOW);
+    expect(clone.attempts).toBe(0);
+    expect(clone.lastError).toBeNull();
+    expect(clone.lastOutputTail).toBeNull();
+    expect(clone.lastRateLimit).toBeNull();
+  });
+
+  it("copies the command array rather than sharing a reference, and never mutates the source", () => {
+    const source = finished();
+    const snapshot = structuredClone(source);
+    const clone = buildReplayJob(source, { id: "new-3", now: NOW });
+    clone.command.push("--extra");
+    expect(source.command).toEqual(["claude", "-p", "continue"]);
+    expect(source).toEqual(snapshot);
+  });
+
+  it("replays a job in any status the same way (no status is special-cased)", () => {
+    for (const status of ["queued", "waiting_for_reset", "resuming", "failed", "cancelled"] as const) {
+      const clone = buildReplayJob(finished({ status }), { id: `c-${status}`, now: NOW });
+      expect(clone.status).toBe("waiting_for_reset");
+      expect(clone.attempts).toBe(0);
+    }
   });
 });

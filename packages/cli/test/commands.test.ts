@@ -16,6 +16,7 @@ import {
   listStoreBackups,
   previewRestoreStore,
   pruneJobs,
+  replayJob,
   restoreStore,
   retryJob,
   runCommand,
@@ -218,6 +219,38 @@ describe("cancelJob / retryJob", () => {
     expect(result.job?.status).toBe("waiting_for_reset");
     expect(result.job?.attempts).toBe(0);
     expect(result.job?.lastError).toBeNull();
+  });
+
+  it("replays a finished job into a fresh due-now job, keeping the original on record", () => {
+    const id = seed("completed");
+    const result = replayJob(id, storePath);
+    expect(result.ok).toBe(true);
+    expect(result.job).not.toBeNull();
+    expect(result.job?.id).not.toBe(id);
+    expect(result.job?.status).toBe("waiting_for_reset");
+    expect(result.job?.project).toBe("demo");
+    expect(result.message).toContain("replayed job");
+
+    // The original completed job is preserved alongside the new run.
+    const all = listStatus(storePath);
+    expect(all).toHaveLength(2);
+    expect(all.find((j) => j.id === id)?.status).toBe("completed");
+  });
+
+  it("replays a job resolved by short id prefix", () => {
+    const id = seed("completed");
+    const result = replayJob(id.slice(0, 8), storePath);
+    expect(result.ok).toBe(true);
+    expect(result.job?.id).not.toBe(id);
+  });
+
+  it("reports an unknown id for replay without mutating the store", () => {
+    seed("completed");
+    const result = replayJob("deadbeef", storePath);
+    expect(result.ok).toBe(false);
+    expect(result.job).toBeNull();
+    expect(result.message).toContain("no job matches");
+    expect(listStatus(storePath)).toHaveLength(1);
   });
 });
 

@@ -513,6 +513,38 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
   }
 }
 
+/**
+ * Replay a job: clone its command into a brand-new job that runs immediately,
+ * leaving the original job (and its terminal record) untouched. This is the
+ * non-destructive companion to {@link retryJob} — `retry` moves the *same* job
+ * back into the queue (losing its completed/failed record), whereas `replay`
+ * keeps the original on record and enqueues a fresh independent run. Any job
+ * may be replayed regardless of status (there's no guard: a replay never
+ * disturbs the source, it only adds a new run).
+ */
+export function replayJob(idOrPrefix: string, storePath?: string): JobControlResult {
+  const queue = openQueue(storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { ok: false, job: null, message: resolved.error ?? "job not found" };
+
+    const source = jobs.find((j) => j.id === resolved.id) as RelayJob;
+    const created = queue.cloneJob(source.id);
+    if (!created) return { ok: false, job: null, message: `job ${shortId(source.id)} vanished before replay` };
+
+    return {
+      ok: true,
+      job: created,
+      message: `replayed job ${shortId(source.id)} (${source.project}) as ${shortId(
+        created.id
+      )} — queued to resume now; run "agentrelay tick" or the daemon to pick it up`,
+    };
+  } finally {
+    queue.close();
+  }
+}
+
 /** A bulk control action for {@link bulkControlJobs}. */
 export type BulkControlAction = "cancel" | "retry";
 

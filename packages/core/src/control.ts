@@ -77,6 +77,44 @@ export function partitionForControl(jobs: RelayJob[], guard: (job: RelayJob) => 
   return { eligible, ineligible };
 }
 
+/** Injected identity + clock for {@link buildReplayJob} (keeps it pure/testable). */
+export interface ReplayJobParams {
+  /** The new job's id (the queue supplies a fresh UUID). */
+  id: string;
+  /** ISO timestamp used for createdAt/updatedAt/resetAt. */
+  now: string;
+}
+
+/**
+ * Build a brand-new job that re-runs an existing job's command, **without
+ * disturbing the original**. Unlike `requeueNow` (which mutates the existing
+ * job and discards its terminal record), a replay copies only the reusable
+ * fields — project/tool/command/cwd — into a fresh job with a new id and clean
+ * history (attempts 0, no error/output/detection). The new job starts in
+ * `waiting_for_reset` with `resetAt = now` so the scheduler's `listDue` picks
+ * it up on the next tick (a plain `queued` job is never resumed by the daemon).
+ *
+ * Pure: id and clock are injected so this is trivially unit-testable; the
+ * command array is copied so the clone never shares a reference with its source.
+ */
+export function buildReplayJob(source: RelayJob, params: ReplayJobParams): RelayJob {
+  return {
+    id: params.id,
+    project: source.project,
+    tool: source.tool,
+    command: [...source.command],
+    cwd: source.cwd,
+    status: "waiting_for_reset",
+    resetAt: params.now,
+    createdAt: params.now,
+    updatedAt: params.now,
+    attempts: 0,
+    lastError: null,
+    lastOutputTail: null,
+    lastRateLimit: null,
+  };
+}
+
 export interface ResolveIdResult {
   /** The full job id when exactly one job matched. */
   id?: string;
