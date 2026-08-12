@@ -22,6 +22,7 @@ import {
   computeErrorBreakdown,
   computeHourlyDistribution,
   computeQueueEta,
+  computeResolutionHistogram,
   computeStats,
   computeWeekdayDistribution,
   EXPORT_FORMATS,
@@ -97,6 +98,7 @@ import {
   renderGroupedStatsJson,
   renderHeatmap,
   renderHours,
+  renderResolutionHistogram,
   renderStats,
   renderStatsJson,
   renderStatsWatchFrame,
@@ -465,6 +467,7 @@ function runStatsWatch(
   hours: boolean,
   weekday: boolean,
   heatmap: boolean,
+  resolutionHist: boolean,
   zone: { offsetMinutes: number; label: string }
 ): void {
   const active = isJobScopeActive(scope);
@@ -490,6 +493,9 @@ function runStatsWatch(
       }
       if (heatmap && stats.total > 0) {
         body += `\n\n${renderHeatmap(computeActivityHeatmap(jobs, zone.offsetMinutes), { color: true, zoneLabel: zone.label })}`;
+      }
+      if (resolutionHist && stats.total > 0) {
+        body += `\n\n${renderResolutionHistogram(computeResolutionHistogram(jobs), { color: true })}`;
       }
     }
     const frame = renderStatsWatchFrame(body, store, intervalMs, now);
@@ -1088,6 +1094,10 @@ export function buildCli(): Command {
     .option("--weekday", "Also show a day-of-week activity histogram (jobs created per weekday, Sun–Sat)")
     .option("--heatmap", "Also show a weekday × hour-of-day activity heatmap (when in the week jobs cluster)")
     .option(
+      "--resolution-hist",
+      "Also show the resolution-time distribution (how many jobs resolved in each duration band)"
+    )
+    .option(
       "--local",
       "Bucket the --hours/--weekday/--heatmap histograms by this machine's local time zone instead of UTC"
     )
@@ -1108,7 +1118,9 @@ export function buildCli(): Command {
         "  # which weekdays rate-limits cluster on\n" +
         "  agentrelay stats --weekday\n" +
         "  # when in the week (weekday × hour) rate-limits cluster\n" +
-        "  agentrelay stats --heatmap"
+        "  agentrelay stats --heatmap\n" +
+        "  # the shape of how long jobs sat before resolving\n" +
+        "  agentrelay stats --resolution-hist"
     )
     .action(
       (opts: {
@@ -1122,6 +1134,7 @@ export function buildCli(): Command {
         hours?: boolean;
         weekday?: boolean;
         heatmap?: boolean;
+        resolutionHist?: boolean;
         local?: boolean;
         json?: boolean;
         watch?: string | boolean;
@@ -1257,6 +1270,7 @@ export function buildCli(): Command {
             Boolean(opts.hours),
             Boolean(opts.weekday),
             Boolean(opts.heatmap),
+            Boolean(opts.resolutionHist),
             zone
           );
           return; // setInterval keeps the process alive.
@@ -1280,9 +1294,10 @@ export function buildCli(): Command {
         const hours = opts.hours ? computeHourlyDistribution(jobs, zone.offsetMinutes) : null;
         const weekday = opts.weekday ? computeWeekdayDistribution(jobs, zone.offsetMinutes) : null;
         const heatmap = opts.heatmap ? computeActivityHeatmap(jobs, zone.offsetMinutes) : null;
+        const resolutionHist = opts.resolutionHist ? computeResolutionHistogram(jobs) : null;
 
         if (opts.json) {
-          console.log(renderStatsJson(stats, store, { scope, trend, hours, weekday, heatmap }));
+          console.log(renderStatsJson(stats, store, { scope, trend, hours, weekday, heatmap, resolutionHist }));
           return;
         }
         // A store with jobs but an empty scoped subset should say "no match",
@@ -1305,6 +1320,10 @@ export function buildCli(): Command {
         if (heatmap !== null && stats.total > 0) {
           console.log("");
           console.log(renderHeatmap(heatmap, { color: Boolean(process.stdout.isTTY), zoneLabel: zone.label }));
+        }
+        if (resolutionHist !== null && stats.total > 0) {
+          console.log("");
+          console.log(renderResolutionHistogram(resolutionHist, { color: Boolean(process.stdout.isTTY) }));
         }
       }
     );

@@ -3,11 +3,13 @@ import {
   computeActivityHeatmap,
   computeDailyTrend,
   computeHourlyDistribution,
+  computeResolutionHistogram,
   computeStats,
   computeWeekdayDistribution,
   GROUP_DIMENSIONS,
   groupStats,
   isJobScopeActive,
+  RESOLUTION_BUCKET_EDGES,
   scopeJobs,
 } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
@@ -715,5 +717,82 @@ describe("computeActivityHeatmap", () => {
   it("offset 0 matches the default UTC bucketing", () => {
     const jobs = [job({ createdAt: "2026-07-20T09:15:00.000Z" })];
     expect(computeActivityHeatmap(jobs, 0)).toEqual(computeActivityHeatmap(jobs));
+  });
+});
+
+describe("computeResolutionHistogram", () => {
+  // Fixed base day; span jobs relative to it in minutes so buckets are exact.
+  const base = "2026-07-13T00:00:00.000Z";
+  const baseMs = Date.parse(base);
+  const spanMin = (minutes: number, status: JobStatus = "completed") =>
+    job({ status, createdAt: base, updatedAt: new Date(baseMs + minutes * 60_000).toISOString() });
+
+  it("has a stable, fully zero-filled shape on an empty store", () => {
+    const hist = computeResolutionHistogram([]);
+    expect(hist.total).toBe(0);
+    expect(hist.maxCount).toBe(0);
+    // N edges → N+1 buckets, all zero.
+    expect(hist.buckets).toHaveLength(RESOLUTION_BUCKET_EDGES.length + 1);
+    expect(hist.buckets.every((b) => b.count === 0)).toBe(true);
+  });
+
+  it("bucket bounds line up with the edges and the top bucket is unbounded", () => {
+    const hist = computeResolutionHistogram([]);
+    // First bucket starts at 0; each bucket's hi is the next bucket's lo.
+    expect(hist.buckets[0].loMs).toBe(0);
+    for (let i = 0; i < hist.buckets.length - 1; i++) {
+      expect(hist.buckets[i].hiMs).toBe(hist.buckets[i + 1].loMs);
+    }
+    // The last bucket is the unbounded "≥…" band.
+    const last = hist.buckets[hist.buckets.length - 1];
+    expect(last.hiMs).toBeNull();
+    expect(last.label.startsWith("≥")).toBe(true);
+  });
+
+  it("places spans into the right duration bands (upper edge is exclusive)", () => {
+    const hist = computeResolutionHistogram([
+      spanMin(0.5), // 30s → <1m
+      spanMin(1), // exactly 1m → 1–5m (lower edge inclusive)
+      spanMin(3), // 3m → 1–5m
+      spanMin(90), // 90m → 1–2h
+      spanMin(24 * 60), // exactly 24h → ≥24h (edge is exclusive above)
+      spanMin(48 * 60), // 48h → ≥24h
+    ]);
+    const byLabel = Object.fromEntries(hist.buckets.map((b) => [b.label, b.count]));
+    expect(byLabel["<1m"]).toBe(1);
+    expect(byLabel["1m–5m"]).toBe(2);
+    expect(byLabel["1h–2h"]).toBe(1);
+    expect(byLabel["≥24h"]).toBe(2);
+    expect(hist.total).toBe(6);
+    expect(hist.maxCount).toBe(2); // the two fullest bands tie at 2
+  });
+
+  it("counts only resolved (completed + failed) jobs; skips active & cancelled", () => {
+    const hist = computeResolutionHistogram([
+      spanMin(3, "completed"),
+      spanMin(3, "failed"),
+      spanMin(3, "cancelled"), // excluded (user cut, like successRate)
+      spanMin(3, "queued"), // excluded (not resolved)
+      spanMin(3, "waiting_for_reset"), // excluded
+    ]);
+    expect(hist.total).toBe(2);
+    const band = hist.buckets.find((b) => b.label === "1m–5m");
+    expect(band?.count).toBe(2);
+  });
+
+  it("skips negative (clock-skew) and unparseable spans, matching computeStats", () => {
+    const hist = computeResolutionHistogram([
+      job({ status: "completed", createdAt: base, updatedAt: new Date(baseMs - 60_000).toISOString() }), // negative
+      job({ status: "completed", createdAt: "not-a-date", updatedAt: base }),
+      spanMin(3), // the one valid job
+    ]);
+    expect(hist.total).toBe(1);
+  });
+
+  it("does not mutate its input", () => {
+    const jobs = [spanMin(3), spanMin(90)];
+    const before = JSON.stringify(jobs);
+    computeResolutionHistogram(jobs);
+    expect(JSON.stringify(jobs)).toBe(before);
   });
 });

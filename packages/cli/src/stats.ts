@@ -12,6 +12,7 @@ import type {
   JobScope,
   JobStatus,
   RelayStats,
+  ResolutionHistogram,
   WeekdayActivity,
 } from "@agentrelay/core";
 import { isJobScopeActive, WEEKDAY_NAMES } from "@agentrelay/core";
@@ -411,6 +412,48 @@ export function renderHeatmap(heatmap: ActivityHeatmap, options: { color?: boole
   return lines.join("\n");
 }
 
+/** Max width (chars) of a full-scale bar in the resolution-time histogram. */
+const RESOLUTION_HIST_BAR_WIDTH = 24;
+
+/**
+ * Renders the resolution-time distribution (jobs per duration band) as a compact
+ * ASCII bar chart, the *shape* companion to the scalar avg/median/p90 line. Bars
+ * scale to the fullest bucket so the shape reads regardless of absolute volume; an
+ * empty bucket shows a dim baseline dot. Labels are right-aligned so the bars
+ * line up. Pure: no I/O, no clock. Callers pass the already-computed histogram so
+ * it stays testable.
+ */
+export function renderResolutionHistogram(hist: ResolutionHistogram, options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [b("resolution distribution") + d(" (completed + failed)")];
+  if (hist.total === 0) {
+    lines.push("  none");
+    return lines.join("\n");
+  }
+
+  // Right-align labels to the widest so bars start at a common column. Label
+  // glyphs ("–", "≥") are single BMP code units, so `.length` measures display
+  // width correctly here.
+  const labelWidth = hist.buckets.reduce((w, bucket) => Math.max(w, bucket.label.length), 0);
+  for (const { label, count } of hist.buckets) {
+    // Scale each bar to the fullest bucket; guarantee at least one block for any
+    // non-zero bucket so small counts don't vanish next to a spike.
+    const filled =
+      hist.maxCount === 0 || count === 0
+        ? 0
+        : Math.max(1, Math.round((count / hist.maxCount) * RESOLUTION_HIST_BAR_WIDTH));
+    const plain = count === 0 ? "·" : "█".repeat(filled);
+    const padded = plain.padEnd(RESOLUTION_HIST_BAR_WIDTH);
+    const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
+    lines.push(`  ${label.padStart(labelWidth)}  ${shown} ${count}`);
+  }
+  lines.push(d(`  ${hist.total} resolved job(s)`));
+  return lines.join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,
@@ -422,18 +465,24 @@ export function renderStatsJson(
     hours?: HourlyActivity[] | null;
     weekday?: WeekdayActivity[] | null;
     heatmap?: ActivityHeatmap | null;
+    resolutionHist?: ResolutionHistogram | null;
   } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
-  // Only emit `trend`/`hours`/`weekday`/`heatmap` when the matching flag was
-  // requested; omit them otherwise so the default JSON shape is unchanged for
-  // existing consumers.
+  // Only emit `trend`/`hours`/`weekday`/`heatmap`/`resolutionHist` when the
+  // matching flag was requested; omit them otherwise so the default JSON shape
+  // is unchanged for existing consumers.
   const trend = options.trend ?? undefined;
   const hours = options.hours ?? undefined;
   const weekday = options.weekday ?? undefined;
   const heatmap = options.heatmap ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, heatmap, stats }, null, 2);
+  const resolutionHist = options.resolutionHist ?? undefined;
+  return JSON.stringify(
+    { storePath, generatedAt, scope, trend, hours, weekday, heatmap, resolutionHist, stats },
+    null,
+    2
+  );
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */
