@@ -2142,3 +2142,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay summary --watch` 라이브 갱신] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-p2utum`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이라, 세션 67이 직접 "다음 할 일"로 지목한 후속을 골랐다. watch 계열
+  (status/upcoming/overdue/tools/projects/stats)은 전부 `--watch` 라이브 뷰가 있는데, 세션 67이 막 추가한
+  `summary`만 유일하게 빠져 있었다 — 한눈 개요야말로 shell prompt·`watch`·상태바처럼 라이브로 곁눈질하기
+  가장 좋은 뷰인데 정작 자체 `--watch`가 없던 갭.
+- **한 일 (branch `claude/wizardly-pascal-p2utum`):**
+  - CLI `summary.ts`에 순수 `renderSummaryWatchFrame(summary, storePath, intervalMs, now, scopeNote?)` 신설:
+    `status`/`tools`/`projects`/`stats`의 watch-frame와 동일한 title/meta 라이브 배너로 컬러 `renderSummary`
+    본문을 감싸고, 스코프 활성 시 meta·본문 사이에 `scope: …` 라인 삽입. 빈 스토어면 프레임 안에 온보딩
+    힌트 유지. `now` 주입 순수 함수(TTY·시계 없이 단위 테스트 가능).
+  - `cli.ts`에 세션 52가 추출한 공용 `startWatchLoop`을 재사용하는 `runSummaryWatch`(매 프레임 스토어
+    재읽기·스코프 재적용·`summarizeJobs`를 fresh `now`로 재구성 → 다음 리셋 카운트다운 live·화면 clear).
+    `summary`에 `-w, --watch [seconds]` 배선 — scope 검증을 **먼저** 통과시켜 잘못된 값은 watch 전에 exit 1,
+    `--json`이 `--watch`보다 우선(일회성 기계 덤프), 인터벌 기본 2s, help 예시 1줄, completion 자동 포함.
+    새 파서/스케줄러/core 로직 0줄 — 전부 기존 검증된 `summarizeJobs`/`renderSummary`/`buildScope`/`scopeJobs`.
+  - `summary.test.ts` +3케이스(=10): 라이브 배너/타임스탬프/카운트다운 wrap·활성 scope 라인 삽입(+미활성 시
+    미삽입)·빈 스토어 힌트 프레임 내 유지.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일 — 긴 옵션 라인
+  포맷 자동 정규화)→`pnpm test` 전 패키지 통과(**cli 346/1skip** summary +3). **실제 빌드 CLI e2e**(mock 아님):
+  2잡 임시 스토어로 `summary --watch 1`이 1s 간격 2프레임을 화면 clear와 함께 라이브 배너·`2 jobs · next
+  reset in 1h 30m`·상태 브레이크다운으로 렌더, `--watch --project web-app`가 `scope: project=web-app` 라인 +
+  1잡 스코프, `--json --watch`가 JSON 우선(일회성), `--watch --status bogus`가 watch 전 exit 1,
+  `--help`·`completion bash`에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). watch 계열 완성(status/upcoming/overdue/
+  tools/projects/stats/summary 전부 `--watch`). 후속 인접 후보 — timing 블록 변동계수(CV=stdev/mean),
+  `summary`에 `--exit-code`(대기 잡 유무를 exit로). parser/watch/stats/tz/heatmap는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).

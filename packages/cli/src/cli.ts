@@ -113,7 +113,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
-import { renderSummary, renderSummaryJson } from "./summary.js";
+import { renderSummary, renderSummaryJson, renderSummaryWatchFrame } from "./summary.js";
 import { renderTools, renderToolsJson, renderToolsWatchFrame } from "./tools.js";
 import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
 import { renderVerify, renderVerifyJson } from "./verify.js";
@@ -498,6 +498,28 @@ function runStatsWatch(
 }
 
 /**
+ * Live `agentrelay summary --watch`: clears the screen and re-renders the
+ * one-glance overview on an interval so the "next reset in" countdown ticks down
+ * in place and the per-status counts reflect a running daemon's writes. Like the
+ * other watch loops, `listStatus` re-reads the JSON store each pass and the
+ * `--status`/`--tool`/`--project`/`--since`/`--until` scope is re-applied every
+ * frame (time-window boundaries stay fixed at the absolute epoch-ms captured when
+ * the command started). `summarizeJobs` is rebuilt with a fresh `now` each pass.
+ * Runs until interrupted (Ctrl-C).
+ */
+function runSummaryWatch(store: string, intervalMs: number, window: JobScope, scopeNote?: string): void {
+  const active = isJobScopeActive(window);
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const all = listStatus(store);
+    const jobs = active ? scopeJobs(all, window) : all;
+    const summary = summarizeJobs(jobs);
+    const frame = renderSummaryWatchFrame(summary, store, intervalMs, now, scopeNote);
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
  * Shared plumbing for the live `--watch` loops: draw one frame immediately, then
  * re-draw every `intervalMs`, cleaning up the timer and printing a trailing
  * newline on SIGINT/SIGTERM. `setInterval` keeps the process alive, so the
@@ -754,6 +776,10 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option(
+      "-w, --watch [seconds]",
+      "Live-refresh the overview every N seconds (default 2), countdown ticking in place"
+    )
     .addHelpText(
       "after",
       "\nExamples:\n" +
@@ -761,10 +787,12 @@ export function buildCli(): Command {
         "  agentrelay summary\n" +
         "  # just the waiting jobs, for one project\n" +
         "  agentrelay summary --status waiting_for_reset --project my-app\n" +
+        "  # live overview that refreshes every 5s\n" +
+        "  agentrelay summary --watch 5\n" +
         "  # read the per-status counts with jq\n" +
         "  agentrelay summary --json | jq '.summary.byStatus'"
     )
-    .action((opts: ScopeOpts & { json?: boolean }) => {
+    .action((opts: ScopeOpts & { json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
       const built = buildScope(opts, now);
@@ -772,6 +800,18 @@ export function buildCli(): Command {
         console.error(built.error);
         process.exitCode = 1;
         return;
+      }
+
+      // Live view: scope validation has run above, so a bad value still exits 1
+      // instead of spinning a broken watch loop. --json takes precedence over
+      // --watch (a one-shot machine dump, not a live TTY view). The loop re-reads
+      // the store and rebuilds the summary with a fresh `now` each pass.
+      if (opts.watch !== undefined && !opts.json) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        const scopeNote = built.active ? built.note : undefined;
+        runSummaryWatch(store, intervalMs, built.scope, scopeNote);
+        return; // setInterval keeps the process alive.
       }
 
       const allJobs = listStatus(store);
