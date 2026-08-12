@@ -1,7 +1,7 @@
 import type { QueueSummary, RelayJob } from "@agentrelay/core";
 import { summarizeJobs } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { EMPTY_MESSAGE, renderSummary, renderSummaryJson } from "./summary.js";
+import { EMPTY_MESSAGE, renderSummary, renderSummaryJson, renderSummaryWatchFrame } from "./summary.js";
 
 /** Zero-filled QueueSummary with the given overrides — mirrors summarizeJobs' shape. */
 function summary(overrides: Partial<QueueSummary> = {}): QueueSummary {
@@ -80,6 +80,41 @@ describe("renderSummary", () => {
     expect(out).toContain("next reset in 30m");
     expect(out).toContain("waiting_for_reset 1");
     expect(out).toContain("completed 1");
+  });
+});
+
+describe("renderSummaryWatchFrame", () => {
+  it("wraps the overview in a live banner with the interval, timestamp, and store path", () => {
+    const s = summary({
+      total: 2,
+      byStatus: { ...summary().byStatus, waiting_for_reset: 1, completed: 1 },
+      nextResetAt: new Date(NOW + 63 * 60_000).toISOString(),
+    });
+    const frame = renderSummaryWatchFrame(s, "/x/jobs.json", 2000, NOW);
+    expect(frame).toContain("agentrelay summary");
+    expect(frame).toContain("live, every 2s");
+    expect(frame).toContain("Ctrl-C to exit");
+    expect(frame).toContain("2026-08-10 12:00:00Z");
+    expect(frame).toContain("/x/jobs.json");
+    // Body: always colored (so the countdown is bolded away from its label),
+    // with the live countdown from `now`.
+    expect(frame).toContain("2 jobs");
+    expect(frame).toContain("next reset in");
+    expect(frame).toContain("1h 3m");
+    expect(frame).toContain("\x1b[");
+  });
+
+  it("echoes the scope note under the banner when a filter is active", () => {
+    const s = summary({ total: 1, byStatus: { ...summary().byStatus, queued: 1 } });
+    const frame = renderSummaryWatchFrame(s, "/x/jobs.json", 5000, NOW, "project=web");
+    expect(frame).toContain("scope: project=web");
+    expect(frame).toContain("live, every 5s");
+  });
+
+  it("omits the scope line when no filter is active", () => {
+    const s = summary({ total: 1, byStatus: { ...summary().byStatus, queued: 1 } });
+    const frame = renderSummaryWatchFrame(s, "/x/jobs.json", 2000, NOW);
+    expect(frame).not.toContain("scope:");
   });
 });
 
