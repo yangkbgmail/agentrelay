@@ -2142,3 +2142,24 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — 공정한 재개 순서(fair drain order)] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-ppg1qx`)
+- **맥락:** BACKLOG의 👷 항목은 모두 완료, 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE·경쟁조사·샘플수집·
+  성능분석)뿐. 열린 PR 30개가 summary --watch/eta --watch/parser/stats CV 축으로 포화라 그 축은 피하고,
+  아무도 손대지 않은 고유 갭을 골랐다 — 스케줄러의 **재개 순서**. `listDue`는 필터만 하고 JSON/Map 삽입
+  순서(먼저 enqueue된 잡)를 그대로 반환했다. 바운드 동시성(`AGENTRELAY_MAX_CONCURRENT`)이나 기본 직렬
+  루프에서는 앞줄 잡부터 재개되므로, 한 시간 전 창이 열린 잡이 방금 due된 잡 뒤에 서는 불공정이 가능했다.
+- **한 일 (branch `claude/wizardly-pascal-ppg1qx`):**
+  - core `due.ts` 신설: 순수·비파괴 `orderDueJobs(jobs)` — resetAt 오름차순(가장 밀린 잡 먼저) →
+    createdAt 오름차순(같은 리셋창에 몰린 잡은 오래된 것 먼저) → 안정 정렬로 완전 동률은 입력 순서 보존
+    (랜덤 UUID에 순서를 의존하지 않음). null/파싱불가 resetAt은 맨 뒤로.
+  - `RelayQueue.listDue`가 필터 결과를 `orderDueJobs`로 정렬해 반환 → 스케줄러 tick이 별도 변경 없이
+    공정 순서로 herd를 드레인(직렬·동시 모두). index.ts에 export 추가.
+  - due.test.ts 6케이스(most-overdue first·createdAt tiebreak·완전동률 안정성·null 후치·비파괴·빈배열).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 118파일)→`pnpm test`
+  전 패키지 통과(**core 620** +6, **cli 343/1skip**). 실제 빌드 core e2e(mock 아님): `late`를 먼저,
+  더 밀린 `early`를 나중에 enqueue해도 `listDue`가 `early → late`를 반환하는 것 확인. 기존 스케줄러
+  due-order 테스트는 listDue 출력 자체를 기대값으로 써서 그린 유지.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — job 우선순위 필드로
+  공정 순서 위에 명시적 jump-the-queue, `tick --dry-run`이 orderDueJobs로 드레인 순서 미리보기.
+  tz/heatmap/parser/watch/summary는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
