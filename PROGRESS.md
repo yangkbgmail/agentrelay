@@ -2142,3 +2142,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — 로컬 이벤트-로그(JSONL) 알림자] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-vmmqdb`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR(~40개)이 summary/eta/next `--watch`·parser·stats-timing 축에
+  포화 상태라 이를 피해, 어떤 열린 PR에도 없는 **명확한 갭**을 골랐다 — 알림 채널이 Slack·제네릭 웹훅뿐
+  이라 **로컬 우선** 도구인데도 외부 서비스 없이 이벤트를 남길 방법이 없었다.
+- **한 일 (branch `claude/wizardly-pascal-vmmqdb`):**
+  - core `notify.ts`: 순수 `formatLogLine(payload, at)`(JSON Lines 한 줄, 선행 타임스탬프) +
+    `createFileNotifier({path, appendFn?, now?, onError?})`(기본 `fs.appendFile`, 쓰기 실패는 onError로
+    삼켜 릴레이 루프 보호, 절대 throw 안 함) + `fileNotifierFromEnv`(`AGENTRELAY_NOTIFY_LOG`). `NotifyChannelKind`에
+    `"file"` 추가, `notifiersFromEnv`가 Slack+웹훅+이벤트로그를 fan-out, `listNotifyChannels`가 "Event log"
+    채널을 웹훅 뒤에 추가, `sendTestNotification`이 file 채널을 실제 append 경로로 테스트.
+  - config `notify.logFile`↔`AGENTRELAY_NOTIFY_LOG` 1:1 매핑 — CONFIG_FIELDS/CONFIG_ENV_KEYS 인덱스 정렬
+    불변식 유지, parseConfig/configToEnv/sampleConfig/round-trip 전부 반영 → `config get/set/unset/show`
+    지원. doctor `NotifyFacts.logFile`+notifyCheck가 채널로 인식("notifications on via event log").
+    CLI `notify test`는 file 채널 경로를 마스킹 없이 표시(비밀 아님).
+  - 새 파서/스케줄러 로직 0줄 — 기존 notifier 추상화 위 순수 추가라 회귀 위험 최소.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 624**[notify +11=35] / **cli 344+1skip**[notify +1=9] / dashboard 9). **실제 빌드
+  CLI e2e**(mock 아님): `AGENTRELAY_NOTIFY_LOG` 임시 파일로 `notify test`가 Event log에 정확한 JSONL 라인
+  기록, `doctor`가 "notifications on via event log" 인식, `config show`가 AGENTRELAY_NOTIFY_LOG를 [env]
+  출처로 표기 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 알림 이벤트 로그
+  로테이션(크기/나이 기준), `run --detach`류 실행 UX. tz/heatmap/parser/watch/summary는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).

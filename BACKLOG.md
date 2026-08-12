@@ -810,6 +810,22 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 로컬 이벤트-로그(JSONL) 알림자 — 네트워크 없이 모든 큐 이벤트를 로컬 파일에 append(로컬 우선 감사/디버깅용).
+      자기 발굴 항목 — 알림 채널이 Slack·제네릭 웹훅뿐이라 외부 서비스 없이 이벤트를 남길 방법이 없었다.
+      로컬 우선 도구의 철학에 맞게 `tail -f`/`grep`/`jq -c` 가능한 append-only 이벤트 로그를 추가.
+      (완료 — core `notify.ts`에 순수 `formatLogLine(payload, at)`(JSON Lines 한 줄, 선행 타임스탬프) +
+      `createFileNotifier({path, appendFn?, now?, onError?})`(기본 `fs.appendFile`, 쓰기 실패는 onError로
+      삼켜 릴레이 루프 보호, 절대 throw 안 함) + `fileNotifierFromEnv`(`AGENTRELAY_NOTIFY_LOG`, 미설정/공백은
+      null). `NotifyChannelKind`에 `"file"` 추가, `notifiersFromEnv`가 Slack+웹훅+이벤트로그를 fan-out,
+      `listNotifyChannels`가 "Event log" 채널을 웹훅 뒤에 추가(경로는 비밀 아님), `sendTestNotification`이
+      file 채널을 실제 append 경로로 테스트(주입식 `appendFn`). config `notify.logFile`↔`AGENTRELAY_NOTIFY_LOG`
+      1:1 매핑(CONFIG_FIELDS/CONFIG_ENV_KEYS 인덱스 정렬 유지, parseConfig/configToEnv/sampleConfig/설정 검증
+      round-trip) → `config get/set/unset/show`도 지원. doctor `NotifyFacts.logFile` + notifyCheck가 채널로
+      인식("notifications on via event log"). CLI `notify test`는 file 채널 경로를 마스킹 없이 표시. 새 파서/
+      스케줄러 로직 0줄. core notify.test +11(=35)·cli notify.test +1(=9)·config/doctor 기존 불변식 테스트
+      전부 통과, 실제 빌드 CLI e2e로 `notify test`가 JSONL 라인 기록·`doctor`가 채널 인식·`config show`가
+      env 출처 표기 검증. branch `claude/wizardly-pascal-vmmqdb`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

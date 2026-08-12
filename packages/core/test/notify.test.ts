@@ -1,8 +1,14 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   combineNotifiers,
+  createFileNotifier,
   createSlackNotifier,
   createWebhookNotifier,
+  fileNotifierFromEnv,
+  formatLogLine,
   formatSlackText,
   listNotifyChannels,
   notifiersFromEnv,
@@ -185,6 +191,77 @@ describe("createWebhookNotifier", () => {
   });
 });
 
+describe("formatLogLine", () => {
+  it("serializes the payload as one JSON line with a leading timestamp", () => {
+    const line = formatLogLine(payload, "2026-08-12T10:00:00.000Z");
+    expect(line.endsWith("\n")).toBe(true);
+    const parsed = JSON.parse(line);
+    expect(parsed).toEqual({
+      at: "2026-08-12T10:00:00.000Z",
+      jobId: "job-123",
+      project: "my-project",
+      event: "queued",
+      message: payload.message,
+    });
+    // Exactly one record per line (no embedded newlines).
+    expect(line.trimEnd().includes("\n")).toBe(false);
+  });
+});
+
+describe("createFileNotifier", () => {
+  it("appends a JSONL record to the path via the injected appendFn", async () => {
+    const appends: Array<[string, string]> = [];
+    const notify = createFileNotifier({
+      path: "/var/log/agentrelay.jsonl",
+      appendFn: (path, data) => {
+        appends.push([path, data]);
+      },
+      now: () => "2026-08-12T10:00:00.000Z",
+    });
+
+    await notify(payload);
+
+    expect(appends).toHaveLength(1);
+    expect(appends[0][0]).toBe("/var/log/agentrelay.jsonl");
+    expect(JSON.parse(appends[0][1])).toMatchObject({ at: "2026-08-12T10:00:00.000Z", jobId: "job-123" });
+  });
+
+  it("reports a write failure through onError instead of throwing", async () => {
+    const onError = vi.fn();
+    const notify = createFileNotifier({
+      path: "/nope/agentrelay.jsonl",
+      appendFn: () => {
+        throw new Error("ENOSPC");
+      },
+      onError,
+    });
+
+    await expect(notify(payload)).resolves.toBeUndefined();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(String(onError.mock.calls[0][0])).toContain("ENOSPC");
+  });
+});
+
+describe("fileNotifierFromEnv", () => {
+  it("returns null when AGENTRELAY_NOTIFY_LOG is unset or blank", () => {
+    expect(fileNotifierFromEnv({})).toBeNull();
+    expect(fileNotifierFromEnv({ AGENTRELAY_NOTIFY_LOG: "  " })).toBeNull();
+  });
+
+  it("returns a working notifier when the env var is set", async () => {
+    const appends: Array<[string, string]> = [];
+    const notify = fileNotifierFromEnv(
+      { AGENTRELAY_NOTIFY_LOG: "/tmp/relay.jsonl" },
+      { appendFn: (p, d) => void appends.push([p, d]), now: () => "2026-08-12T10:00:00.000Z" }
+    );
+    expect(notify).not.toBeNull();
+
+    await notify!(payload);
+    expect(appends).toHaveLength(1);
+    expect(appends[0][0]).toBe("/tmp/relay.jsonl");
+  });
+});
+
 describe("webhookNotifierFromEnv", () => {
   it("returns null when AGENTRELAY_WEBHOOK_URL is unset or blank", () => {
     expect(webhookNotifierFromEnv({})).toBeNull();
@@ -239,6 +316,34 @@ describe("notifiersFromEnv", () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(fetchFn.mock.calls[0][0]).toBe("https://hooks.example.test/relay");
   });
+
+  it("fans out to the event log alongside the webhook (real fs.appendFile)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agentrelay-notify-"));
+    const logPath = join(dir, "events.jsonl");
+    try {
+      const fetchFn = vi.fn(async () => okResponse());
+      const notify = notifiersFromEnv(
+        { AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay", AGENTRELAY_NOTIFY_LOG: logPath },
+        { fetchFn }
+      );
+      expect(notify).not.toBeNull();
+
+      await notify!(payload);
+      await notify!({ ...payload, event: "completed" });
+
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+      const lines = readFileSync(logPath, "utf8").trimEnd().split("\n");
+      expect(lines).toHaveLength(2);
+      expect(JSON.parse(lines[0])).toMatchObject({ jobId: "job-123", event: "queued" });
+      expect(JSON.parse(lines[1])).toMatchObject({ event: "completed" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("works with only the event log configured", () => {
+    expect(notifiersFromEnv({ AGENTRELAY_NOTIFY_LOG: "/tmp/relay.jsonl" })).not.toBeNull();
+  });
 });
 
 describe("listNotifyChannels", () => {
@@ -255,6 +360,17 @@ describe("listNotifyChannels", () => {
     expect(channels).toEqual([
       { kind: "slack", label: "Slack", url: "https://hooks.slack.test/abc", envVar: "AGENTRELAY_SLACK_WEBHOOK" },
       { kind: "webhook", label: "Webhook", url: "https://hooks.example.test/relay", envVar: "AGENTRELAY_WEBHOOK_URL" },
+    ]);
+  });
+
+  it("appends the event log after the webhook, keyed off AGENTRELAY_NOTIFY_LOG", () => {
+    const channels = listNotifyChannels({
+      AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/abc",
+      AGENTRELAY_NOTIFY_LOG: "/var/log/relay.jsonl",
+    });
+    expect(channels).toEqual([
+      { kind: "slack", label: "Slack", url: "https://hooks.slack.test/abc", envVar: "AGENTRELAY_SLACK_WEBHOOK" },
+      { kind: "file", label: "Event log", url: "/var/log/relay.jsonl", envVar: "AGENTRELAY_NOTIFY_LOG" },
     ]);
   });
 });
@@ -336,5 +452,32 @@ describe("sendTestNotification", () => {
     });
     const [, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer t0ken");
+  });
+
+  it("delivers the test payload to the event-log channel via appendFn", async () => {
+    const appends: Array<[string, string]> = [];
+    const results = await sendTestNotification({
+      env: { AGENTRELAY_NOTIFY_LOG: "/var/log/relay.jsonl" },
+      appendFn: (p, d) => void appends.push([p, d]),
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].channel.kind).toBe("file");
+    expect(results[0].ok).toBe(true);
+    expect(appends).toHaveLength(1);
+    expect(appends[0][0]).toBe("/var/log/relay.jsonl");
+    expect(JSON.parse(appends[0][1])).toMatchObject({ event: "completed", project: "agentrelay" });
+  });
+
+  it("reports an event-log write failure as a per-channel failure", async () => {
+    const results = await sendTestNotification({
+      env: { AGENTRELAY_NOTIFY_LOG: "/nope/relay.jsonl" },
+      appendFn: () => {
+        throw new Error("EACCES");
+      },
+    });
+    expect(results).toHaveLength(1);
+    expect(results[0].ok).toBe(false);
+    expect(results[0].error).toContain("EACCES");
   });
 });
