@@ -2142,3 +2142,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay eta --watch` 라이브 캐치업 카운트다운] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-4osfl0`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. watch 계열(status/upcoming/overdue/tools/projects/stats)은 이미
+  구현됐지만, 세션 66에 추가된 `eta`(큐 전체가 언제 캐치업되나 — 가장 늦은 리셋까지의 카운트다운)만
+  라이브 뷰가 없었다. `eta`는 watch 형제 중 유일하게 `--watch`가 빠진 명령이고, 열린 브랜치 목록에도
+  eta 관련이 전무해(summary-watch/next-watch는 있으나 eta는 없음) 어떤 열린 PR과도 겹치지 않는 명확한
+  갭이었다.
+- **한 일 (branch `claude/wizardly-pascal-4osfl0`):**
+  - CLI `eta.ts`에 순수 `renderEtaWatchFrame(eta, storePath, intervalMs, now)` 신설 — `status`/
+    `upcoming --watch`와 동일한 title/meta 라이브 배너(`agentrelay eta (live, every Ns — Ctrl-C to
+    exit)` + `<stamp>Z · <store>`)로 항상 컬러인 `renderEta` 본문을 감싼다. 순수 함수(TTY·시계·spawn
+    없이 단위 테스트 가능).
+  - `cli.ts`에 `runEtaWatch(store, intervalMs)` 추가 — 세션 52가 추출한 공용 `startWatchLoop` 재사용,
+    매 프레임 `listStatus`로 스토어 재읽기 + fresh `now`로 `computeQueueEta` 재계산 → 캐치업 카운트다운이
+    째깍째깍 줄고 데몬 쓰기(잡 재개·새 리셋)가 자동 반영, 화면 clear. `eta`엔 스코프 필터가 없어 재적용할
+    것도 없음.
+  - `eta` 명령에 `-w, --watch [seconds]` 배선: `--json`이 `--watch`보다 우선(일회성 기계 덤프),
+    `--exit-code`는 무한 루프에선 무의미하므로 watch 시 무시, 인터벌 기본 2s, addHelpText 예시 1줄 추가.
+    새 파서/스케줄러/core 로직 0줄 — 전부 기존 검증된 `computeQueueEta`/`renderEta`/`startWatchLoop` 재사용.
+  - BACKLOG "코워크가 발굴한 신규 항목"에 이 자기 발굴 항목을 [x]로 기록.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**cli 346/1skip**, eta watch-frame +3). **실제 빌드 CLI e2e**(mock 아님): 대기 1잡 +
+  완료 1잡 임시 스토어로 `eta --watch 1`이 화면 clear·라이브 배너·`1h 29m` 컬러 카운트다운·`1 job waiting`
+  렌더, `--json`이 `--watch`를 눌러 일회성 JSON 방출, `--help`·`completion bash`에 `--watch`/`eta` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`(별
+  브랜치 존재)·timing 블록 변동계수(CV=stdev/mean, `cvspread` 브랜치 존재). tz/heatmap/parser/watch·이미
+  브랜치 있는 축은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

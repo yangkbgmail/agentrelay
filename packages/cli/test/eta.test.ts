@@ -1,6 +1,6 @@
 import type { QueueEta } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { CAUGHT_UP_MESSAGE, renderEta, renderEtaJson } from "../src/eta.js";
+import { CAUGHT_UP_MESSAGE, renderEta, renderEtaJson, renderEtaWatchFrame } from "../src/eta.js";
 
 function caughtUp(): QueueEta {
   return {
@@ -56,6 +56,34 @@ describe("renderEta", () => {
   it("emits no ANSI codes when color is off", () => {
     // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting no ANSI escapes leak.
     expect(renderEta(eta(), { color: false })).not.toMatch(/\x1b\[/);
+  });
+});
+
+describe("renderEtaWatchFrame", () => {
+  const now = Date.parse("2026-07-30T10:00:00.000Z");
+
+  it("wraps the eta body in a live banner with the interval, timestamp, and store path", () => {
+    const frame = renderEtaWatchFrame(eta(), "/tmp/store.json", 2000, now);
+    expect(frame).toContain("agentrelay eta");
+    expect(frame).toContain("live, every 2s");
+    expect(frame).toContain("Ctrl-C to exit");
+    expect(frame).toContain("2026-07-30 10:00:00Z");
+    expect(frame).toContain("/tmp/store.json");
+    // The (always-colored) eta line is included in the frame body; the countdown
+    // value is wrapped in ANSI, so assert on the uncolored fragments.
+    expect(frame).toContain("Queue caught up in");
+    expect(frame).toContain("5h 0m");
+    expect(frame).toContain("3 jobs waiting");
+  });
+
+  it("rounds the interval to whole seconds in the banner", () => {
+    const frame = renderEtaWatchFrame(eta(), "/tmp/store.json", 5000, now);
+    expect(frame).toContain("live, every 5s");
+  });
+
+  it("shows the caught-up message in the body when nothing is waiting", () => {
+    const frame = renderEtaWatchFrame(caughtUp(), "/tmp/store.json", 2000, now);
+    expect(frame).toContain(CAUGHT_UP_MESSAGE);
   });
 });
 
