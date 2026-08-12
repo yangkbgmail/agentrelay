@@ -2142,3 +2142,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — 파서 타임존-인지 clock 해석] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-li9sgy`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/경쟁조사/
+  샘플수집/성능분석)뿐. 열린 PR 60+가 summary/eta --watch·CV·export tsv·search·completion fish·파서 변형
+  (retry-in/reset-header/word-qty/try-again-at)·drain/forecast/reschedule 등으로 포화. 이 모두를 피해, 어떤
+  열린 PR에도 없는 **정확성 버그**를 골랐다 — `parser.ts`의 `clock-time`/`clock-time-meridiem` 패턴이 메시지의
+  이름있는 타임존을 **무시하고 로컬 시간으로 해석**(주석에 "known limitation" 두 번 명시)해, `reset at 5pm
+  (America/New_York)`을 KST 머신에서 실행하면 13~14시간 틀린 리셋 시각을 계산했다. 실사용에서 잘못된 시각에
+  재개를 예약하는 조용한 오류.
+- **한 일 (branch `claude/wizardly-pascal-li9sgy`):**
+  - core `timezone.ts` 신설(의존성 0개, 순수): `zoneOffsetMs(zone, at)`(Intl.DateTimeFormat의 존 벽시계
+    분해를 UTC로 되읽어 오프셋 복원, 미지 존은 throw 대신 null)·`wallTimeInZoneToUtc(zone,y,mo,d,h,mi)`(존
+    벽시계→절대 UTC, DST 경계에서 1회 오프셋 보정)·`nextClockTimeInZone(now,h,mi,zone)`(존의 다음 hour:minute
+    발생 순간, 오늘 지났으면 존 기준 내일로 롤). 전부 명시 `at`/`now`만 받아 프로세스 시계·로컬 TZ 미접촉 →
+    `TZ` 무관 결정론. index.ts에서 export.
+  - `parser.ts`의 두 clock 패턴에 공유 `TZ_SUFFIX`(선택적 `(?:\s*\(?\s*([A-Za-z]+(?:/[A-Za-z_]+)+)\s*\)?)?`)
+    추가 — `Region/City` IANA 형태만(약어 `EST`/`PST`는 Intl이 못 풀어 의도적 제외), 괄호 유무 무관.
+    resolve가 존을 잡으면 `nextClockTimeInZone`으로 해석, 없거나 Intl이 거부하는 무효 존이면 기존 로컬
+    폴백 → **완전 하위호환**.
+  - 기존 "5pm (America/New_York) == 17시 로컬" 단언 테스트를 정확한 `2026-07-12T21:00:00Z`(EDT, UTC-4)로 갱신.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 118파일)→`pnpm test`
+  전 패키지 통과(**core 634** timezone 14 + parser 39[+6] / cli 343/1skip / dashboard 9). **실제 빌드 CLI e2e**
+  (mock 아님): `agentrelay parse "…reset at 5pm (America/New_York)" --json`이 `clock-time-meridiem`·
+  `21:00Z`를 방출(`TZ=Asia/Seoul`로 실행해도 동일 = TZ 독립), 존 없는 `5pm`→로컬 `17:00Z`(TZ=UTC), 무효
+  존 `(Not/AZone)`→로컬 폴백 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — clock 패턴이 잡은 존을
+  `RateLimitDetection`에 기록해 `show`/대시보드에 노출, 또는 relative-duration에도 존 표기 인지. tz-display/
+  heatmap/watch/CV/export는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
