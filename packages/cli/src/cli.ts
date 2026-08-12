@@ -64,6 +64,7 @@ import {
   pruneJobs,
   readHealthReport,
   readLocationReport,
+  relabelJob,
   restoreStore,
   retryJob,
   runCommand,
@@ -1866,6 +1867,26 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("relabel")
+    .description("Change a job's project label (the key --project filters, stats, and the projects index all group on)")
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .argument("<project>", "New project label to assign")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # fix a job that took a misleading auto-derived name\n" +
+        "  agentrelay relabel 1a2b3c4d my-app\n" +
+        "  # fold related jobs under one logical project, then view them\n" +
+        "  agentrelay relabel 9f8e7d6c backend && agentrelay status --project backend"
+    )
+    .action((id: string, project: string) => {
+      const { store } = program.opts();
+      const result = relabelJob(id, project, store);
+      console.log(`[agentrelay] ${result.message}`);
+      if (!result.ok) process.exitCode = 1;
     });
 
   program

@@ -513,6 +513,42 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
   }
 }
 
+/**
+ * Change a job's project label by full id or short prefix. The label is the key
+ * the whole `--project` filter/`stats`/`projects` ecosystem groups on, so this
+ * retroactively fixes a job that took a misleading auto-derived name (e.g.
+ * queued from a subdirectory) or folds related jobs under one logical project.
+ * Allowed in any state — relabeling terminal jobs is intentional so historical
+ * grouping can be corrected. A blank/whitespace-only label is rejected rather
+ * than silently clearing the field.
+ */
+export function relabelJob(idOrPrefix: string, project: string, storePath?: string): JobControlResult {
+  const label = project.trim();
+  if (!label) return { ok: false, job: null, message: "project label cannot be empty" };
+
+  const queue = openQueue(storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { ok: false, job: null, message: resolved.error ?? "job not found" };
+
+    const job = jobs.find((j) => j.id === resolved.id) as RelayJob;
+    if (job.project === label) {
+      return { ok: true, job, message: `job ${shortId(job.id)} already labeled "${label}" — no change` };
+    }
+
+    queue.relabel(job.id, label);
+    const updated = queue.getById(job.id) ?? null;
+    return {
+      ok: true,
+      job: updated,
+      message: `relabeled job ${shortId(job.id)}: "${job.project}" → "${label}"`,
+    };
+  } finally {
+    queue.close();
+  }
+}
+
 /** A bulk control action for {@link bulkControlJobs}. */
 export type BulkControlAction = "cancel" | "retry";
 
