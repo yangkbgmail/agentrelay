@@ -243,6 +243,26 @@ export class RelayQueue {
     this.update(id, { status: "waiting_for_reset", resetAt: at, attempts: 0, lastError: null });
   }
 
+  /**
+   * Change a job's project label without touching its status or lifecycle. The
+   * label is the key the whole `--project` filter ecosystem
+   * (`status`/`stats`/`export`/`projects`/`cancel`/…) groups on, so this fixes a
+   * job that picked up a misleading auto-derived name (e.g. queued from a
+   * subdirectory) or folds several related jobs under one logical project after
+   * the fact. Allowed in any state — relabeling terminal jobs is intentional so
+   * historical stats/grouping can be corrected. Returns `false` (a no-op) when
+   * the id is unknown; callers resolve the id first. The caller is responsible
+   * for validating that `project` is non-blank.
+   */
+  relabel(id: string, project: string): boolean {
+    this.load();
+    const existing = this.jobs.get(id);
+    if (!existing) return false;
+    this.jobs.set(id, { ...existing, project, updatedAt: new Date().toISOString() });
+    this.flush();
+    return true;
+  }
+
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {
     this.load();
     const existing = this.jobs.get(id);

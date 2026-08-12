@@ -810,6 +810,15 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay relabel <id> <project>` — 잡의 프로젝트 라벨을 사후에 재지정(`--project` 필터·stats·
+      projects 인덱스가 전부 키로 쓰는 값). `run --project`(세션 41)는 enqueue 시점에만 지정 가능해,
+      하위 디렉터리 실행 시 붙은 `src`/`packages` 같은 무의미한 라벨을 고칠 방법이 없던 갭. 자기 발굴 항목.
+      (완료 — core `queue.ts` `relabel(id, project)`(status 불변, project+updatedAt만 교체, 모든 상태 허용
+      — 종료 잡 재라벨은 히스토리컬 그룹핑 교정용, 미지 id는 no-op). CLI `commands.ts` `relabelJob`
+      (resolveJobId 재사용, trim 후 blank 거부, 이미 같은 라벨이면 no-op) + `cli.ts` `relabel <id> <project>`
+      배선(실패 exit 1). 새 파서/스케줄러 로직 0줄. commands.test.ts +6케이스, 실제 빌드 CLI e2e로 prefix
+      재라벨·종료 잡·blank/미지 id exit 1·status --project 매치·completion 검증. branch `claude/relabel-command`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

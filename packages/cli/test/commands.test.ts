@@ -16,6 +16,7 @@ import {
   listStoreBackups,
   previewRestoreStore,
   pruneJobs,
+  relabelJob,
   restoreStore,
   retryJob,
   runCommand,
@@ -218,6 +219,74 @@ describe("cancelJob / retryJob", () => {
     expect(result.job?.status).toBe("waiting_for_reset");
     expect(result.job?.attempts).toBe(0);
     expect(result.job?.lastError).toBeNull();
+  });
+});
+
+describe("relabelJob", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cli-relabel-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function seed(project: string, status: "waiting_for_reset" | "completed" = "waiting_for_reset") {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project, tool: "claude-code", command: ["claude"], cwd: dir });
+    if (status === "waiting_for_reset") queue.markWaitingForReset(job.id, new Date(Date.now() + 60_000).toISOString());
+    if (status === "completed") queue.markCompleted(job.id, "done");
+    queue.close();
+    return job.id;
+  }
+
+  it("relabels a job by short id prefix, preserving its status", () => {
+    const id = seed("src");
+    const result = relabelJob(id.slice(0, 8), "my-app", storePath);
+    expect(result.ok).toBe(true);
+    expect(result.job?.project).toBe("my-app");
+    expect(result.job?.status).toBe("waiting_for_reset");
+    expect(result.message).toContain('"src" → "my-app"');
+    expect(listStatus(storePath)[0].project).toBe("my-app");
+  });
+
+  it("relabels terminal jobs too, so historical grouping can be corrected", () => {
+    const id = seed("packages", "completed");
+    const result = relabelJob(id, "backend", storePath);
+    expect(result.ok).toBe(true);
+    expect(result.job?.project).toBe("backend");
+    expect(result.job?.status).toBe("completed");
+  });
+
+  it("trims the label and rejects a blank one without mutating the store", () => {
+    const id = seed("web");
+    const trimmed = relabelJob(id, "  spaced  ", storePath);
+    expect(trimmed.ok).toBe(true);
+    expect(trimmed.job?.project).toBe("spaced");
+
+    const blank = relabelJob(id, "   ", storePath);
+    expect(blank.ok).toBe(false);
+    expect(blank.message).toContain("cannot be empty");
+    expect(listStatus(storePath)[0].project).toBe("spaced");
+  });
+
+  it("reports a no-op when the label is unchanged", () => {
+    const id = seed("web");
+    const result = relabelJob(id, "web", storePath);
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain("no change");
+  });
+
+  it("reports an unknown id without mutating the store", () => {
+    seed("web");
+    const result = relabelJob("deadbeef", "x", storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("no job matches");
+    expect(listStatus(storePath)[0].project).toBe("web");
   });
 });
 

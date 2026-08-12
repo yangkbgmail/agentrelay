@@ -2142,3 +2142,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay relabel <id> <project>` 잡 프로젝트 라벨 재지정] (2026-08-12, 무인 자율 세션, branch `claude/relabel-command`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유뿐. 세션 67이 지목한
+  후속(`summary --watch`)은 이미 열린 PR(#594 외 다수)이 포화라 지양. 열린 PR 80+개를 훑어 **어떤 PR에도
+  없는 명확한 갭**을 골랐다 — `run --project`(세션 41)는 enqueue 시점에만 라벨을 지정하고, 이후 잘못
+  붙은(하위 디렉터리 실행 시 `src`/`packages` 같은) 라벨을 **사후에 고칠 방법이 없었다**. 그런데 이
+  라벨은 `status`/`stats`/`export`/`projects`/`cancel`/`retry`/`metrics`/`patterns`/`errors`의 `--project`
+  필터·그룹핑이 전부 키로 쓰는 값이라, 못 고치면 필터·집계 생태계 전체가 오염된다.
+- **한 일 (branch `claude/relabel-command`):**
+  - core `queue.ts`에 `relabel(id, project)` 메서드: status/라이프사이클을 건드리지 않고 `project`(와
+    `updatedAt`)만 교체, 미지 id는 no-op(false). **모든 상태 허용** — 종료 잡 재라벨은 히스토리컬 stats/
+    그룹핑 교정을 위해 의도적. 라벨 유효성(비공백)은 호출자 책임으로 위임.
+  - CLI `commands.ts` `relabelJob(idOrPrefix, project, storePath)`: cancel/retry/show와 동일한 `resolveJobId`
+    (짧은 prefix·모호/미존재 처리) 재사용, 라벨 trim 후 공백뿐이면 거부(필드 무음 삭제 방지), 이미 같은
+    라벨이면 no-op 리포트. `JobControlResult` 반환.
+  - `cli.ts` `agentrelay relabel <id> <project>` 배선(성공/no-op은 exit 0, 실패는 exit 1) + addHelpText
+    예시. completion 자동 포함.
+  - 새 파서/스케줄러 로직 0줄. commands.test.ts에 relabelJob 6케이스(prefix 재라벨·종료 잡·trim/blank 거부·
+    no-op·미지 id) 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**cli 348/1skip** +6, core 614, dashboard 9). **실제 빌드 CLI e2e**(mock 아님): 2잡 임시
+  스토어로 `relabel 1a2b3c4d my-app`이 `"src" → "my-app"` + waiting 상태 보존, 종료 잡 `9f8e7d6c`→`backend`,
+  no-op·blank(exit 1)·미지 id(exit 1), `status --project my-app`/`--project backend`가 새 라벨로 매치,
+  `--help`·`completion bash`에 relabel 등록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대량 재라벨
+  (`relabel --all --project old new` 스코프 재지정), 잡 프로젝트별 벌크 관리. tz/heatmap/parser/watch/CV는
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
