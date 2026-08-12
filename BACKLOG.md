@@ -810,6 +810,20 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay rm <id>` — 특정 job을 스토어에서 완전 삭제(하드 삭제). `cancel`(상태 전이)·
+      `retry`(재큐)·`prune`(나이/상태 벌크)에 이어 단일 job 제거 명령이 없던 대칭성 갭을 메움.
+      (완료 — core `control.ts`에 순수 `canDelete(job)` + `DELETABLE_STATUSES`(종료 3상태
+      completed/failed/cancelled) 추가: `cancel`과 달리 `rm`은 레코드를 스토어에서 아예 지우므로,
+      활성 잡(queued/waiting_for_reset/resuming)은 삭제 시 대기 중이던 재개를 조용히 떨구는 footgun이라
+      기본 거부하고 `--force`로만 강제(가드 이유에 현재 status·`--force` 명시). core `queue.ts`에
+      `RelayQueue.remove(id): boolean`(맵에서 삭제 후 flush, 미존재 id는 false·미기록). CLI
+      `commands.ts` `removeJob(idOrPrefix,{force})` — `resolveJobId` 재사용(짧은 prefix·모호/미존재는
+      cancel/retry/show와 동일 처리), 가드 통과 시 삭제·"deleted job … (was <status>)" 리포트. CLI
+      `agentrelay rm <id> [-f/--force]`(별칭 `delete`), 미존재·모호·가드 차단은 exit 1. core
+      control.test +6(canDelete 상태별·전상태 커버·DELETABLE_STATUSES 집합 + RelayQueue.remove 영속/
+      미존재). 실제 빌드 CLI e2e로 completed 삭제→0/queued 무force 거부→1/`--force` 삭제→0/미존재→1/
+      별칭 `delete` 검증. branch `claude/wizardly-pascal-0jgtji`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

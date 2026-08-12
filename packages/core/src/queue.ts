@@ -257,6 +257,20 @@ export class RelayQueue {
     return this.jobs.get(id);
   }
 
+  /**
+   * Hard-delete a single job by id (user-initiated `rm`). Unlike
+   * {@link markCancelled} — which keeps the record and only flips its status —
+   * this removes the job from the store entirely. Returns `true` when a job was
+   * removed, `false` when the id was unknown (in which case nothing is written).
+   * Callers guard deletability via {@link canDelete}.
+   */
+  remove(id: string): boolean {
+    this.load();
+    if (!this.jobs.delete(id)) return false;
+    this.flush();
+    return true;
+  }
+
   listAll(): RelayJob[] {
     this.load();
     return Array.from(this.jobs.values()).sort(compareJobsNewestFirst);

@@ -2142,3 +2142,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay rm <id>` 단일 job 하드 삭제 명령] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-0jgtji`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 미완은 🧭 코워크 소유뿐. 열린 PR 60개가
+  포화된 축(summary --watch·eta --watch·CV stats·man·search·notify 계열)을 피해, 어떤 열린 PR에도
+  없는 **명확한 대칭성 갭**을 골랐다 — job 제어에 `cancel`(상태 전이)·`retry`(재큐)·`prune`(나이/상태
+  벌크 삭제)은 있는데, "이 잡 하나를 스토어에서 완전히 지워라"는 단일 하드 삭제 명령이 없었다.
+  `cancel`은 레코드를 남기고 상태만 `cancelled`로 바꾸므로 큐가 계속 커지고, `prune`은 id가 아닌
+  나이/상태 벌크라 특정 잡 하나를 골라 지울 수 없었다.
+- **한 일 (branch `claude/wizardly-pascal-0jgtji`):**
+  - core `control.ts`: 순수 `canDelete(job)` + `DELETABLE_STATUSES`(종료 3상태). 활성 잡은 삭제 시
+    대기 중이던 재개를 조용히 떨구는 footgun이라 기본 거부, `--force`로만 강제(가드 이유에 현재
+    status·`--force` 명시). `canCancel`/`canRequeue`와 동일한 가드 계층 패턴.
+  - core `queue.ts`: `RelayQueue.remove(id): boolean` — 맵에서 삭제 후 flush, 미존재 id는 false 반환·
+    미기록. `markCancelled`(상태만 flip)와 달리 레코드 자체 제거.
+  - CLI `commands.ts` `removeJob(idOrPrefix,{force})`: `resolveJobId` 재사용(짧은 prefix·모호/미존재
+    처리 cancel/retry/show와 동일), 가드 통과 시 삭제. CLI `agentrelay rm <id> [-f/--force]`(별칭
+    `delete`), 미존재·모호·가드 차단은 exit 1.
+  - 테스트: core `src/control.test.ts` 신설 6케이스(canDelete 상태별·전상태 xor 커버·집합 단언 +
+    RelayQueue.remove 영속/미존재 no-op).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm lint:fix`+`pnpm ci:lint`(Biome 0에러,
+  117파일)→`pnpm test` 전 패키지 통과(**core 620**, cli 343/1skip, dashboard 9). **실제 빌드 CLI e2e**
+  (mock 아님): 임시 스토어에 completed+queued 잡을 심고 `rm <completed>`→삭제·exit 0, `rm <queued>`
+  무force→거부·exit 1, `rm <queued> --force`→삭제·exit 0, 미존재 id→exit 1, 별칭 `delete --help` 등록
+  확인, 최종 스토어 0잡.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `rm --all`(스코프
+  필터로 벌크 하드 삭제, cancel/retry --all 패턴 재사용), `rm --dry-run`. summary --watch·CV·parser·
+  watch·tz는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
