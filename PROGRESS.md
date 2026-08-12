@@ -2142,3 +2142,25 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay eta --watch` 라이브 카운트다운] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-woqcq1`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐 → CLAUDE.md 지침대로 자기 발굴 항목을 골랐다. watch 계열(status/upcoming/
+  overdue/tools/projects/stats)은 모두 `--watch`가 있는데 `eta`에는 없었다 — "전체 큐가 언제 다 따라잡히나"의
+  카운트다운을 화면에 켜두고 실시간으로 줄어드는 걸 보는 자연스러운 뷰가 빠져 있었다. 열린 PR에도 없는 갭.
+- **한 일 (branch `claude/wizardly-pascal-woqcq1`):**
+  - CLI `eta.ts`에 순수 `renderEtaWatchFrame(eta, storePath, intervalMs, now)` 신설 — `stats`/`status`/
+    `upcoming --watch`와 동일한 title/meta 라이브 배너 블록 + 항상 컬러인 `renderEta` 본문. `now` 주입이라
+    TTY·시계 없이 단위 테스트 가능. 새 core 로직 0줄(기존 `computeQueueEta`/`renderEta` 재사용).
+  - `cli.ts`에 `runEtaWatch(store, intervalMs)`(공용 `startWatchLoop` 재사용 — 매 프레임 스토어 재읽기 +
+    fresh `now`로 `computeQueueEta` 재구성 → 카운트다운 live·화면 clear). `eta`에 `-w, --watch [seconds]`
+    배선: `--json`이 `--watch`보다 우선(일회성 머신 덤프), `--exit-code`는 무한 루프엔 무의미해 무시,
+    인터벌 기본 2s, addHelpText 예시 1줄. `eta`엔 스코프 필터가 없어 재적용할 게 없음.
+  - `eta.test.ts` +3케이스: 라이브 배너 wrap(인터벌·스토어 경로·카운트다운)·caught-up 메시지·항상 컬러(ANSI).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 614 · cli 346/1skip**[eta +3] · dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  대기 잡 1개 임시 스토어로 일회성 `eta` + `--json` + `--watch 1`이 화면 clear(`\x1b[2J\x1b[H`)·라이브 배너·
+  3h→2h 59m 카운트다운·1s 자동 갱신, `--help`·`completion bash`에 `--watch/-w` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `next --watch`(단일 소요
+  재개 라이브)·`summary --watch`(세션 67 지목). tz/heatmap/parser/stats-watch는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
