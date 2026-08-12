@@ -40,12 +40,14 @@ import {
   scopeJobs,
   selectNextResume,
   sendTestNotification,
+  summarizeBusiest,
   summarizeJobs,
   summarizeProjects,
   summarizeRateLimitPatterns,
   summarizeTools,
 } from "@agentrelay/core";
 import { Command } from "commander";
+import { renderBusiest, renderBusiestJson } from "./busiest.js";
 import {
   ALL_JOB_STATUSES,
   type BulkControlAction,
@@ -1513,6 +1515,71 @@ export function buildCli(): Command {
           color: Boolean(process.stdout.isTTY),
           scopeNote,
           now,
+        })
+      );
+    });
+
+  program
+    .command("busiest")
+    .description("Rank the exact commands the relay babysits by relay effort (job count and total resume attempts)")
+    .option("--json", "Print the summary as JSON (machine-readable, for scripts/CI)")
+    .option("-n, --limit <count>", "Show only the top <count> commands in the table (0 = no limit; JSON is unaffected)")
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # which command has the relay worked hardest on?\n" +
+        "  agentrelay busiest\n" +
+        "  # top 5 only\n" +
+        "  agentrelay busiest --limit 5\n" +
+        "  # feed the per-command rollup to jq\n" +
+        "  agentrelay busiest --json | jq '.summary.commands'"
+    )
+    .action((opts: ScopeOpts & { json?: boolean; limit?: string }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const parsed = Number.parseInt(opts.limit, 10);
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          console.error(`Invalid --limit: ${opts.limit}. Use a non-negative integer (0 = no limit).`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = parsed;
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const summary = summarizeBusiest(jobs);
+      if (opts.json) {
+        console.log(
+          renderBusiestJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            summary,
+          })
+        );
+        return;
+      }
+      console.log(
+        renderBusiest(summary, {
+          color: Boolean(process.stdout.isTTY),
+          scopeNote: built.active ? built.note : undefined,
+          now,
+          limit,
         })
       );
     });
