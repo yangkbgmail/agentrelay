@@ -78,6 +78,23 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(expected);
   });
 
+  it("parses a standalone 'retry in <duration>' with no other rate-limit keyword on the line", () => {
+    // Regression: the `relative-duration` pattern leads with a `retry` alternative
+    // ("retry in 5 hours"), but the pre-filter only admitted `try again`,
+    // `resets? in`, and `retry.?after` — never `retry in` — so a bare
+    // "retry in 2 hours" was silently dropped (returned null) unless the line
+    // also happened to contain another keyword like "Rate limit".
+    const now = new Date("2026-07-12T10:00:00Z");
+    const hours = parseRateLimitMessage("retry in 2 hours", { now });
+    expect(hours).not.toBeNull();
+    expect(hours?.pattern).toBe("relative-duration");
+    expect(hours?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+
+    const minutes = parseRateLimitMessage("retry in 45m", { now });
+    expect(minutes?.pattern).toBe("relative-duration");
+    expect(minutes?.resetAt).toBe(new Date(now.getTime() + 45 * 60_000).toISOString());
+  });
+
   it("parses a relative duration with only minutes", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("resets in 45m", { now });

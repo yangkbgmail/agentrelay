@@ -810,6 +810,21 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 파서 버그: 다른 rate-limit 키워드 없이 홀로 등장하는 `retry in <기간>`(예 "retry in 2 hours")을
+      사전필터가 삼켜 감지 실패. `relative-duration` 패턴은 `(?:try again|resets?|retry)\s+in`으로 `retry`
+      도입구를 명시 지원(주석에 "retry in 5 hours" 예시)하는데, `LOOKS_LIKE_RATE_LIMIT` 사전필터는
+      `try again`·`resets? in`·`retry.?after`만 통과시키고 `retry in`은 빠뜨려, 그런 라인이 패턴에 닿기
+      전에 null로 조용히 드롭됐다("Rate limit … retry in 2h"처럼 다른 키워드가 우연히 같이 있을 때만
+      통과). 어떤 열린 PR에도 없는 고유 결함(#596은 같은 라인에 `available again at` 절대-시각 도입구를
+      더할 뿐 `retry in` 상대-시각 갭은 미해결). 자기 발굴(버그 헌트).
+      (완료 — `parser.ts`의 `LOOKS_LIKE_RATE_LIMIT`에 `retry\s+in` 브랜치 추가 → `relative-duration`이
+      실제로 매칭하는 모든 도입구(try again/resets? in/**retry in**)를 사전필터가 admit. `retry.?after`
+      (HTTP `Retry-After` 헤더 경로)는 그대로 분리 유지. 사전필터 코멘트를 확장해 "패턴이 매칭할 수 있는
+      모든 도입구를 admit해야 한다"는 계약을 명문화. parser.test +1 회귀("retry in 2 hours"/"retry in 45m"
+      단독 라인이 relative-duration으로 감지, resetAt 검증). 새 패턴/스케줄러 코드 0줄. 실제 빌드 core로
+      감지 확인 + 비-rate-limit 라인·"retry after"(미인식 포맷)는 여전히 null(오탐 0), 빌드 CLI `parse`로
+      e2e 확인. branch `claude/parser-retry-in-prefilter`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

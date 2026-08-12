@@ -135,8 +135,17 @@ const PATTERNS: RateLimitPattern[] = [
   },
 ];
 
-/** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+/**
+ * Quick pre-filter so we don't run every regex on every line of noisy CLI
+ * output. It MUST admit every lead-in the patterns below can actually match,
+ * or a line is dropped before any pattern is tried. In particular the
+ * `relative-duration` pattern leads with `(?:try again|resets?|retry)\s+in`, so
+ * a bare `retry\s+in` (e.g. "retry in 2 hours", with no other rate-limit
+ * keyword on the line) has to pass here too — `try again` and `resets? in` were
+ * already covered, but the `retry` lead-in was not, silently dropping those
+ * lines. `retry.?after` (the HTTP `Retry-After` header path) stays separate.
+ */
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry\s+in|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);
