@@ -812,4 +812,12 @@
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
-- (아직 없음)
+- [x] 👷 `agentrelay eta --watch [seconds]` — 큐 캐치업 카운트다운(가장 늦은 리셋까지)을 라이브로 갱신.
+      watch 계열(status/upcoming/overdue/tools/projects/stats) 중 유일하게 `--watch`가 빠져 있던 `eta`
+      (세션 66 추가)에 확장. 자기 발굴 항목.
+      (완료 — CLI `eta.ts`에 순수 `renderEtaWatchFrame`(status/upcoming --watch와 동일 title/meta 라이브
+      배너 + 항상 컬러인 `renderEta` 본문), `cli.ts`에 `runEtaWatch`(공용 `startWatchLoop` 재사용, 매 프레임
+      스토어 재읽기 + fresh `now`로 `computeQueueEta` 재계산 → 캐치업 카운트다운 live·화면 clear). `eta`에
+      `-w, --watch [seconds]` 배선(`--json`이 `--watch`보다 우선, watch 시 `--exit-code` 무시, 인터벌 기본
+      2s). 새 파서/스케줄러/core 로직 0줄. cli eta watch-frame +3, 실제 빌드 CLI e2e로 화면 clear·라이브
+      배너·카운트다운·--json 우선·help/completion 노출 검증. branch `claude/wizardly-pascal-4osfl0`)
