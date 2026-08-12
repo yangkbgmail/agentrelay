@@ -188,6 +188,18 @@
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
 
+- [x] 👷 활성 시간대(active hours) 게이팅 — 지정한 로컬 시간창에만 재개(`AGENTRELAY_ACTIVE_HOURS`).
+      (완료 — 자율 릴레이가 아무 때나(예: 새벽 3시) 무인 에이전트 실행을 띄우거나, 사용자가 직접
+      쓰는 근무 시간대에 같은 한도를 재소모하지 않도록 재개를 일일 시간창으로 제한. `@agentrelay/core`에
+      순수·타임존프리 `window.ts` 신설: 분(minute-of-day) 정수로 동작하는 `parseActiveHours`
+      (`22:00-06:00`/`9-17`/혼합, 범위·제로폭 검증→invalid는 null=게이팅 없음),
+      `isMinuteWithinWindow`(자정 넘김 wrap 지원), `minutesUntilWindowOpens`, `nextWindowOpen`,
+      `formatActiveWindow`, `activeWindowFromEnv`. 실제 Date 접점은 로컬시간 `localMinutesOfDay`
+      한 곳뿐이라 러너 TZ에 무관하게 결정론적. 스케줄러에 `activeWindow` 옵션 추가 — tick의
+      referenceTime이 창 밖이면 재개 0건(due job은 대기), autoPrune·onTick 하트비트는 그대로 실행.
+      CLI `commands.ts` daemon/tick이 `activeWindowFromEnv()` 배선 + daemon 배너에 `(active hours …)`.
+      env 전용(maxConcurrent 선례). window.test 20 + 스케줄러 게이팅 4케이스, build/test/lint 그린
+      (core 638·cli 343/1skip·dashboard 9). branch `claude/active-hours-window`)
 - [x] 👷 `agentrelay stats` 해결 시간 백분위수(median/p90) — avg/min/max만으론 안 보이는
       전형 케이스와 꼬리 지연 노출.
       (완료 — `@agentrelay/core/stats.ts`의 `TimingStats`에 `medianResolutionMs`(p50)·

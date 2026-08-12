@@ -503,3 +503,93 @@ describe("RelayScheduler", () => {
     expect(results.every((j) => j.status === "completed")).toBe(true);
   });
 });
+
+describe("RelayScheduler active-hours gating", () => {
+  let dir: string;
+  let queue: RelayQueue;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-window-test-"));
+    queue = new RelayQueue(join(dir, "test.db"));
+  });
+
+  afterEach(() => {
+    queue.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Park a job as due 1s before `refTime`, so it's due relative to the tick's
+  // (injected) reference time regardless of the real wall clock.
+  function seedDueAt(refTime: Date): RelayJob {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(refTime.getTime() - 1000).toISOString());
+    return job;
+  }
+
+  // 09:00-17:00 local. Dates below are built from local components too, so the
+  // inside/outside classification is deterministic across test-runner timezones.
+  const activeWindow = { startMinute: 9 * 60, endMinute: 17 * 60 };
+
+  it("resumes a due job when the tick falls inside the active window", async () => {
+    const refTime = new Date(2026, 0, 2, 10, 0, 0); // 10:00 local — inside
+    seedDueAt(refTime);
+    const scheduler = new RelayScheduler({
+      queue,
+      activeWindow,
+      spawnFn: fakeSpawnFn({ "claude -p continue": "All done, task finished successfully." }),
+    });
+
+    const results = await scheduler.tick(refTime);
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe("completed");
+  });
+
+  it("resumes nothing outside the active window; the job stays waiting_for_reset", async () => {
+    const refTime = new Date(2026, 0, 2, 20, 0, 0); // 20:00 local — outside
+    const job = seedDueAt(refTime);
+    const scheduler = new RelayScheduler({
+      queue,
+      activeWindow,
+      spawnFn: fakeSpawnFn({ "claude -p continue": "All done, task finished successfully." }),
+    });
+
+    const results = await scheduler.tick(refTime);
+    expect(results).toHaveLength(0);
+    expect(queue.getById(job.id)?.status).toBe("waiting_for_reset");
+  });
+
+  it("still fires the onTick heartbeat while gated outside the window", async () => {
+    const refTime = new Date(2026, 0, 2, 20, 0, 0); // outside
+    seedDueAt(refTime);
+    let beats = 0;
+    const scheduler = new RelayScheduler({
+      queue,
+      activeWindow,
+      spawnFn: fakeSpawnFn({ "claude -p continue": "done" }),
+      onTick: () => {
+        beats++;
+      },
+    });
+
+    await scheduler.tick(refTime);
+    expect(beats).toBe(1);
+  });
+
+  it("without an active window, resumes regardless of the wall-clock hour (unchanged default)", async () => {
+    const refTime = new Date(2026, 0, 2, 3, 0, 0); // 03:00 local
+    seedDueAt(refTime);
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({ "claude -p continue": "All done, task finished successfully." }),
+    });
+
+    const results = await scheduler.tick(refTime);
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe("completed");
+  });
+});

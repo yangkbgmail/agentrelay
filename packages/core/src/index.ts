@@ -31,3 +31,4 @@ export * from "./types.js";
 export * from "./upcoming.js";
 export * from "./verify.js";
 export * from "./wait.js";
+export * from "./window.js";
