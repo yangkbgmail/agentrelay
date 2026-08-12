@@ -35,6 +35,16 @@ describe("renderTestNotifyResults", () => {
     expect(out).not.toContain("•");
   });
 
+  it("shows a file channel's path unmasked (a local path is not a secret)", () => {
+    const out = renderTestNotifyResults([
+      result({
+        channel: { kind: "file", label: "Event log", url: "/var/log/relay.jsonl", envVar: "AGENTRELAY_NOTIFY_LOG" },
+      }),
+    ]);
+    expect(out).toContain("/var/log/relay.jsonl");
+    expect(out).not.toContain("•");
+  });
+
   it("renders failures with their error and a failure summary", () => {
     const out = renderTestNotifyResults([
       result({ ok: false, error: "Webhook responded with HTTP 503" }),

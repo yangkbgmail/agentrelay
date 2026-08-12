@@ -1,3 +1,4 @@
+import { appendFile } from "node:fs/promises";
 import type { Notifier } from "./scheduler.js";
 import type { NotifyPayload } from "./types.js";
 
@@ -143,23 +144,90 @@ export function webhookNotifierFromEnv(
 }
 
 /**
+ * Serializes one queue event as a single-line JSON record (JSON Lines) with a
+ * leading timestamp, ready to append to an event log. One event per line keeps
+ * the file `tail -f`-able and `jq -c`-friendly. Pure: `at` is passed in so the
+ * output is deterministic in tests.
+ */
+export function formatLogLine(payload: NotifyPayload, at: string): string {
+  return `${JSON.stringify({ at, ...payload })}\n`;
+}
+
+export interface FileNotifierOptions {
+  /** Path of the append-only event log to write each event to. */
+  path: string;
+  /**
+   * Appends `data` to the file at `path`. Injected for tests; defaults to
+   * `fs.appendFile` (creates the file if missing, never truncates).
+   */
+  appendFn?: (path: string, data: string) => Promise<void> | void;
+  /** Supplies the record timestamp. Injected for tests; defaults to now (ISO). */
+  now?: () => string;
+  /** Called when the append fails. Defaults to a stderr warning. */
+  onError?: (error: unknown) => void;
+}
+
+/**
+ * Returns a Notifier that appends each queue event to a local JSON Lines file —
+ * a network-free, local-first audit trail you can `tail -f`, `grep`, or pipe to
+ * `jq`. Unlike the Slack/webhook notifiers it needs no external service, which
+ * suits AgentRelay's local-first design. Write failures are reported through
+ * `onError` but never thrown, so a full disk or a bad path can't take down the
+ * relay loop.
+ */
+export function createFileNotifier(options: FileNotifierOptions): Notifier {
+  const append = options.appendFn ?? ((path: string, data: string) => appendFile(path, data, "utf8"));
+  const now = options.now ?? (() => new Date().toISOString());
+  const onError =
+    options.onError ??
+    ((error: unknown) => {
+      console.error(`[agentrelay] Event-log notification failed: ${String(error)}`);
+    });
+
+  return async (payload: NotifyPayload) => {
+    try {
+      await append(options.path, formatLogLine(payload, now()));
+    } catch (error) {
+      onError(error);
+    }
+  };
+}
+
+/**
+ * Builds an event-log notifier from `AGENTRELAY_NOTIFY_LOG` (a file path).
+ * Returns null when the variable is unset/blank so callers can silently skip
+ * event-log delivery.
+ */
+export function fileNotifierFromEnv(
+  env: Record<string, string | undefined> = process.env,
+  options: Omit<FileNotifierOptions, "path"> = {}
+): Notifier | null {
+  const path = env.AGENTRELAY_NOTIFY_LOG?.trim();
+  if (!path) return null;
+  return createFileNotifier({ path, ...options });
+}
+
+/**
  * Assembles the notifier configured through the environment: Slack
- * (`AGENTRELAY_SLACK_WEBHOOK`) and/or a generic webhook
- * (`AGENTRELAY_WEBHOOK_URL`), fanned out together. Returns null when neither
- * is configured, so callers can report "notifications off" and skip work.
+ * (`AGENTRELAY_SLACK_WEBHOOK`), a generic webhook (`AGENTRELAY_WEBHOOK_URL`),
+ * and/or a local event log (`AGENTRELAY_NOTIFY_LOG`), fanned out together.
+ * Returns null when none is configured, so callers can report "notifications
+ * off" and skip work.
  */
 export function notifiersFromEnv(
   env: Record<string, string | undefined> = process.env,
   options: { fetchFn?: typeof fetch; onError?: (error: unknown) => void } = {}
 ): Notifier | null {
-  const configured = [slackNotifierFromEnv(env, options), webhookNotifierFromEnv(env, options)].filter(
-    (n): n is Notifier => typeof n === "function"
-  );
+  const configured = [
+    slackNotifierFromEnv(env, options),
+    webhookNotifierFromEnv(env, options),
+    fileNotifierFromEnv(env, { onError: options.onError }),
+  ].filter((n): n is Notifier => typeof n === "function");
   if (configured.length === 0) return null;
   return combineNotifiers(...configured);
 }
 
-export type NotifyChannelKind = "slack" | "webhook";
+export type NotifyChannelKind = "slack" | "webhook" | "file";
 
 /** A notification channel configured through the environment. */
 export interface NotifyChannel {
@@ -188,6 +256,10 @@ export function listNotifyChannels(env: Record<string, string | undefined> = pro
   const webhook = env.AGENTRELAY_WEBHOOK_URL?.trim();
   if (webhook) {
     channels.push({ kind: "webhook", label: "Webhook", url: webhook, envVar: "AGENTRELAY_WEBHOOK_URL" });
+  }
+  const logFile = env.AGENTRELAY_NOTIFY_LOG?.trim();
+  if (logFile) {
+    channels.push({ kind: "file", label: "Event log", url: logFile, envVar: "AGENTRELAY_NOTIFY_LOG" });
   }
   return channels;
 }
@@ -219,6 +291,8 @@ export interface SendTestNotificationOptions {
   env?: Record<string, string | undefined>;
   /** Injected for tests; defaults to global fetch. */
   fetchFn?: typeof fetch;
+  /** Injected for tests; defaults to `fs.appendFile` (used by the file channel). */
+  appendFn?: (path: string, data: string) => Promise<void> | void;
   /** Overrides the synthetic payload (defaults to {@link testNotifyPayload}). */
   payload?: NotifyPayload;
 }
@@ -244,12 +318,14 @@ export async function sendTestNotification(options: SendTestNotificationOptions 
       const notifier =
         channel.kind === "slack"
           ? createSlackNotifier({ webhookUrl: channel.url, fetchFn: options.fetchFn, onError })
-          : createWebhookNotifier({
-              url: channel.url,
-              headers: webhookAuthHeader(env),
-              fetchFn: options.fetchFn,
-              onError,
-            });
+          : channel.kind === "file"
+            ? createFileNotifier({ path: channel.url, appendFn: options.appendFn, onError })
+            : createWebhookNotifier({
+                url: channel.url,
+                headers: webhookAuthHeader(env),
+                fetchFn: options.fetchFn,
+                onError,
+              });
       await notifier(payload);
       if (captured === undefined) return { channel, ok: true };
       const message = captured instanceof Error ? captured.message : String(captured);
