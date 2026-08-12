@@ -1,7 +1,7 @@
 import type { QueueSummary, RelayJob } from "@agentrelay/core";
 import { summarizeJobs } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { EMPTY_MESSAGE, renderSummary, renderSummaryJson } from "./summary.js";
+import { EMPTY_MESSAGE, renderSummary, renderSummaryJson, renderSummaryWatchFrame } from "./summary.js";
 
 /** Zero-filled QueueSummary with the given overrides — mirrors summarizeJobs' shape. */
 function summary(overrides: Partial<QueueSummary> = {}): QueueSummary {
@@ -92,6 +92,38 @@ describe("renderSummaryJson", () => {
     expect(parsed.summary.total).toBe(2);
     expect(parsed.summary.byStatus).toMatchObject({ queued: 1, completed: 1, failed: 0, cancelled: 0 });
     expect(parsed.summary.nextResetAt).toBeNull();
+  });
+});
+
+describe("renderSummaryWatchFrame", () => {
+  it("wraps the overview in a live banner with the store path and a fresh timestamp", () => {
+    const s = summary({
+      total: 4,
+      byStatus: { ...summary().byStatus, waiting_for_reset: 2, completed: 2 },
+      nextResetAt: new Date(NOW + 63 * 60_000).toISOString(),
+    });
+    const frame = renderSummaryWatchFrame(s, "/x/jobs.json", 2000, NOW);
+    expect(frame).toContain("agentrelay summary");
+    expect(frame).toContain("(live, every 2s — Ctrl-C to exit)");
+    expect(frame).toContain("2026-08-10 12:00:00Z");
+    expect(frame).toContain("/x/jobs.json");
+    // Body is the colored summary — countdown driven by the injected `now`.
+    expect(frame).toContain("next reset in");
+    expect(frame).toContain("\x1b["); // watch frame is always colored
+  });
+
+  it("echoes an active scope note between the meta line and the body", () => {
+    const s = summary({ total: 1, byStatus: { ...summary().byStatus, queued: 1 } });
+    const withScope = renderSummaryWatchFrame(s, "/x/jobs.json", 5000, NOW, "status=queued");
+    expect(withScope).toContain("scope: status=queued");
+    expect(withScope).toContain("(live, every 5s");
+    const withoutScope = renderSummaryWatchFrame(s, "/x/jobs.json", 5000, NOW);
+    expect(withoutScope).not.toContain("scope:");
+  });
+
+  it("still shows the empty-store hint inside the frame when there are no jobs", () => {
+    const frame = renderSummaryWatchFrame(summary(), "/x/jobs.json", 2000, NOW);
+    expect(frame).toContain(EMPTY_MESSAGE);
   });
 });
 

@@ -810,6 +810,22 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay summary --watch [seconds]` — 한눈 큐 개요를 라이브로 갱신(다음 리셋 카운트다운이
+      째깍째깍 줄어드는 뷰). watch 계열(status/upcoming/overdue/tools/projects/stats)에서 유일하게 빠져
+      있던 `summary`를 동일 패턴으로 확장(공용 `startWatchLoop` 재사용). 자기 발굴 항목.
+      (완료 — 세션 67이 `summary` 명령을 추가하며 "다음 할 일"로 명시한 후속. CLI `summary.ts`에 순수
+      `renderSummaryWatchFrame(summary, storePath, intervalMs, now, scopeNote?)` 신설(`status`/`tools`/
+      `projects`/`stats`의 watch-frame와 동일 title/meta 라이브 배너 + 활성 시 meta·본문 사이 scope 라인 +
+      항상 컬러인 `renderSummary` 본문, 빈 스토어면 프레임 안에 온보딩 힌트 유지). `cli.ts`에 세션 52가
+      추출한 공용 `startWatchLoop`을 재사용하는 `runSummaryWatch`(매 프레임 스토어 재읽기·스코프 재적용·
+      `summarizeJobs`를 fresh `now`로 재구성 → 다음 리셋 카운트다운 live·화면 clear). `summary`에
+      `-w, --watch [seconds]` 배선: scope 검증을 **먼저** 통과시켜 잘못된 값은 watch 전에 exit 1, `--json`이
+      `--watch`보다 우선(일회성 기계 덤프), 인터벌 기본 2s, help 예시 1줄, completion 자동 포함. 새 파서/
+      스케줄러/core 로직 0줄 — 전부 기존 검증된 `summarizeJobs`/`renderSummary`/`buildScope`/`scopeJobs`
+      재사용. cli summary watch-frame 3케이스 신규(=10), 실제 빌드 CLI e2e로 화면 clear·라이브 배너·1h30m
+      카운트다운·scope 라인·--project 스코프(2→1잡)·--json 우선·--status bogus exit 1·help/completion
+      `--watch` 노출 검증. branch `claude/wizardly-pascal-p2utum`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
