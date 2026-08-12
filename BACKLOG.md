@@ -810,6 +810,23 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay tick --dry-run` — 다음 tick이 **지금** 재개할 잡을 spawn 없이 미리보기(운영 pre-flight).
+      자기 발굴 항목. cancel/retry/import/restore엔 이미 `--dry-run`이 있지만, 정작 릴레이의 핵심 동작인
+      tick(재개 패스)에는 "무엇이 재개될지 실행 전에 보는" 수단이 없었다. `overdue`는 grace 게이트를 건
+      **건강 신호**(이미 재개됐어야 하는데 안 된 것)라 의미가 다르다.
+      (완료 — core `tick.ts` 신설(순수·시계/큐/spawn 미접촉): `planTick(jobs, now)` + `TickPlan`(resumes·
+      total·referenceTimeMs)·`PlannedResume`(job·overdueByMs). 선택 술어를 스케줄러 `listDue`와 **동일**
+      (`waiting_for_reset` && parseable `resetAt` && `resetMs <= now`, grace 없음)하게 맞춰 "이 tick이 정확히
+      무엇을 재개하나"의 충실한 미리보기 — `overdue`(grace 게이트)와 구분. 가장 오래 밀린 순 정렬(resetAt→
+      createdAt→id, overdue와 동일 tie-break). 스케줄러는 한 tick에서 due 잡을 전부 재개(maxConcurrent는
+      동시성만 제한)하므로 plan=due 전체. CLI `commands.ts` `previewTick(store, nowMs?)`(큐 read-only 오픈→
+      listAll→planTick, 스토어 불변), `packages/cli/src/tick.ts`에 순수 `renderTickPlan`(id·project·tool·
+      due-for·resetAt 표 + 총계 푸터, `formatDurationMs` 재사용, `now`는 "now")·`renderTickPlanJson`·
+      `NO_DUE_MESSAGE`. `agentrelay tick --dry-run [--json]`(--json은 --dry-run 암시) 배선, dry-run은
+      절대 spawn/heartbeat/스토어 변경 없음. 새 파서/스케줄러 로직 0줄. core tick.test 9 + cli tick.test 7
+      신규, 실제 빌드 CLI e2e로 due 2잡 정렬 미리보기·future/completed 제외·--json·**dry-run 후 스토어
+      불변** 검증. branch `claude/wizardly-pascal-rhf5al`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

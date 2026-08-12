@@ -2142,3 +2142,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+---
+
+## 세션 67 (2026-08-12) — `agentrelay tick --dry-run`: 재개 패스 미리보기 (자기 발굴)
+
+- **맥락:** BACKLOG의 👷 항목이 전부 완료 상태라 CLAUDE.md 지침대로 새 개선 항목을 자기 발굴.
+  cancel/retry/import/restore엔 `--dry-run`이 있는데, 정작 릴레이의 **핵심 동작인 tick(재개 패스)**에는
+  실행 전 "무엇이 재개될지" 보는 수단이 없었다 — cron/Routines 배선 전 pre-flight의 명확한 갭.
+  `overdue`는 grace 게이트를 건 건강 신호(이미 재개됐어야 하는 것)라 의미가 달라 별도 표면이 필요.
+- **한 일 (branch `claude/wizardly-pascal-rhf5al`):**
+  - core `tick.ts` 신설: 순수 `planTick(jobs, now)` → `TickPlan`(resumes·total·referenceTimeMs) +
+    `PlannedResume`(job·overdueByMs). 선택 술어를 스케줄러 `listDue`와 **동일**하게(`waiting_for_reset`
+    && parseable `resetAt` && `resetMs <= now`, grace 없음) 맞춰 "이 tick이 정확히 뭘 재개하나"의 충실한
+    미리보기. 가장 오래 밀린 순 정렬(resetAt→createdAt→id, overdue와 동일 tie-break). 시계/큐/spawn 미접촉.
+  - CLI `commands.ts` `previewTick(store, nowMs?)`(큐 read-only 오픈→listAll→planTick, 스토어 불변),
+    `packages/cli/src/tick.ts`에 순수 `renderTickPlan`(id·project·tool·due-for·resetAt 표+총계 푸터,
+    `formatDurationMs` 재사용)·`renderTickPlanJson`·`NO_DUE_MESSAGE`. `agentrelay tick --dry-run [--json]`
+    배선(--json은 --dry-run 암시). dry-run은 절대 spawn/heartbeat/스토어 변경 없음.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 120파일)→`pnpm test`
+  전 패키지 통과(**core 623** tick +9 / **cli 350/1skip** tick +7 / dashboard 9). **실제 빌드 CLI e2e**
+  (mock 아님): 4잡 임시 스토어(due 2·future 1·completed 1)로 `tick --dry-run`이 due 2잡만 가장 밀린 순
+  (web-app 2h→api-svc 30m)으로 렌더·future/completed 제외, `--json` plan 방출, **dry-run 후 스토어 상태
+  불변** 확인. `--help`/`completion bash`에 `--dry-run`/`--json` 노출.
+- **비고:** 전역 `--store <path>`를 서브커맨드 앞에 두고 서브커맨드 옵션 2개를 붙이면 commander가 옵션을
+  오귀속하는 **기존 quirk**가 있으나, `status --sort`/모든 커맨드에 동일하게 존재(내 변경 무관). env
+  `AGENTRELAY_STORE`·기본 스토어·`--store X tick --dry-run`은 정상.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `tick --dry-run`의
+  reverse(가장 임박한 미래 재개까지 남은 시간 요약은 `eta`가 이미 커버), scheduler `maxConcurrent`를
+  dry-run 푸터에 노출("N개 중 M개 동시 재개"). README/ARCHITECTURE(🧭 코워크).

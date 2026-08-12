@@ -61,6 +61,7 @@ import {
   listStatus,
   listStoreBackups,
   previewRestoreStore,
+  previewTick,
   pruneJobs,
   readHealthReport,
   readLocationReport,
@@ -114,6 +115,7 @@ import {
   selectJobs,
 } from "./status.js";
 import { renderSummary, renderSummaryJson } from "./summary.js";
+import { renderTickPlan, renderTickPlanJson } from "./tick.js";
 import { renderTools, renderToolsJson, renderToolsWatchFrame } from "./tools.js";
 import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
 import { renderVerify, renderVerifyJson } from "./verify.js";
@@ -565,8 +567,21 @@ export function buildCli(): Command {
   program
     .command("tick")
     .description("Run a single scheduler pass immediately (useful when driven by external cron/Routines)")
-    .action(async () => {
+    .option("--dry-run", "Preview which jobs would be resumed this tick, without spawning anything")
+    .option("--json", "With --dry-run, print the plan as JSON (implies --dry-run)")
+    .action(async (opts: { dryRun?: boolean; json?: boolean }) => {
       const { store } = program.opts();
+      const dryRun = opts.dryRun || opts.json;
+      if (dryRun) {
+        const storePath = store ?? defaultStorePath();
+        const plan = previewTick(store);
+        if (opts.json) {
+          console.log(renderTickPlanJson({ storePath, plan }));
+        } else {
+          console.log(renderTickPlan(plan, { color: process.stdout.isTTY ?? false }));
+        }
+        return;
+      }
       const processed = await tickOnce(store);
       if (processed.length === 0) {
         console.log("[agentrelay] no due jobs.");

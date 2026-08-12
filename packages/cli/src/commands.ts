@@ -67,6 +67,7 @@ import {
   parseImportJobs,
   partitionForControl,
   planImport,
+  planTick,
   RelayQueue,
   RelayScheduler,
   type RestorePreview,
@@ -85,6 +86,7 @@ import {
   serializeDaemonHeartbeat,
   setConfigValue,
   summarizeImportPlan,
+  type TickPlan,
   unsetConfigValue,
   validateConfig,
   verifyStore,
@@ -444,6 +446,20 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
   });
   queue.close();
   return processed;
+}
+
+/**
+ * Read-only preview of the next scheduler tick: which jobs `tick` would resume
+ * *right now*, without spawning anything or touching the store. Opens the queue
+ * (honoring corrupt-file handling like every other command), reads the full job
+ * list, and hands it to the pure `planTick`. The `nowMs` seam keeps this
+ * testable; production passes the wall clock.
+ */
+export function previewTick(storePath?: string, nowMs: number = Date.now()): TickPlan {
+  const queue = openQueue(storePath ?? defaultStorePath());
+  const jobs = queue.listAll();
+  queue.close();
+  return planTick(jobs, nowMs);
 }
 
 export function listStatus(storePath?: string): RelayJob[] {
