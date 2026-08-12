@@ -2142,3 +2142,25 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — 파서: 단위 연결어 'and'/쉼표 인식으로 다단위 상대 시간 절삭 버그 수정] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-u6yisa`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유뿐. 열린 PR이
+  100개 이상으로 극도로 포화(summary --watch·CV·eta --watch·search·drain·각종 파서 변형 다수 선점).
+  어떤 열린 PR에도 없는 **실사용 버그 갭**을 골랐다 — `relative-duration` 패턴이 단위 사이 구분자로
+  `\s*`(공백)만 허용해, 실제 rate-limit 문구에서 흔한 **"and"/쉼표 연결어**(`try again in 1 hour and
+  30 minutes`, `resets in 2 hours, 15 minutes`)를 만나면 가장 큰 단위만 잡고 나머지를 **버려** 잡을
+  더 일찍 재개시켰다. 최악은 `1 day and 2 hours and 30 minutes`가 `1 day`로 잘려 2시간 30분 유실.
+- **한 일 (branch `claude/wizardly-pascal-u6yisa`):**
+  - core `parser.ts`의 `relative-duration` 정규식에서 단위 그룹 사이 `\s*` 구분자를
+    `[\s,]*(?:and[\s,]+)?`로 교체 — 공백/쉼표/"and"(및 조합, `1 hour, and 30 minutes`)를 모두
+    인식하고 **빈 문자열도 매치**하므로 컴팩트 `4h32m` 형식은 완전히 그대로 파싱(하위호환). 새 패턴·
+    새 resolve 로직 0줄 — 기존 days/hours/minutes 재색인 그대로.
+  - `test/parser.test.ts`에 회귀 4케이스 추가: `1 hour and 30 minutes`→90분, `2 hours, 15 minutes`→
+    135분, `1 day and 2 hours and 30 minutes`→1590분, `4h32m` 하위호환 유지.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→
+  `pnpm test` 전 패키지 통과(**core 618** parser 33→37 / cli 343/1skip / dashboard 9). **실제 빌드 CLI
+  e2e**(mock 아님): `parse "Try again in 1 hour and 30 minutes."`가 `relative-duration`·전체 문구
+  매치·`in 1h 30m` 리셋, `parse "resets in 2 hours, 15 minutes."`가 `in 2h 15m` 리셋을 정확히 출력.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 초(second) 단위의
+  and 연결(`1 minute and 30 seconds`, 어댑터 소관), `hr`/`hrs`/`mins` 축약 단위 확장. summary/eta
+  watch·CV·tz/heatmap은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

@@ -102,6 +102,37 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(expected);
   });
 
+  it("parses an 'and'-joined hour + minute duration without truncating the minutes", () => {
+    // Regression: "1 hour and 30 minutes" previously matched only "1 hour" and
+    // dropped the 30 minutes, resuming the job 30 minutes too early.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit reached. Try again in 1 hour and 30 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + (60 + 30) * 60_000).toISOString());
+  });
+
+  it("parses a comma-joined hour + minute duration", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit exceeded, resets in 2 hours, 15 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + (2 * 60 + 15) * 60_000).toISOString());
+  });
+
+  it("parses a full day + hour + minute chain joined by 'and'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Try again in 1 day and 2 hours and 30 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    const expectedMin = (24 + 2) * 60 + 30;
+    expect(result?.resetAt).toBe(new Date(now.getTime() + expectedMin * 60_000).toISOString());
+  });
+
+  it("still parses the compact 'and'-less form unchanged ('4h32m')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Please try again in 4h32m.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + (4 * 60 + 32) * 60_000).toISOString());
+  });
+
   it("parses the singular 'in 1 day' form", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Usage limit reached. Try again in 1 day.", { now });
