@@ -29,6 +29,7 @@ import {
   type RestoreResult,
   selectRotatableBackups,
 } from "./backup.js";
+import { buildReplayJob } from "./control.js";
 import { type ImportOptions, type ImportResult, planImport, summarizeImportPlan } from "./import.js";
 import { type PruneOptions, selectPrunableJobs } from "./prune.js";
 import type { CreateJobInput, JobStatus, RateLimitDetection, RelayJob } from "./types.js";
@@ -241,6 +242,25 @@ export class RelayQueue {
    */
   requeueNow(id: string, at: string = new Date().toISOString()) {
     this.update(id, { status: "waiting_for_reset", resetAt: at, attempts: 0, lastError: null });
+  }
+
+  /**
+   * Create a fresh job that re-runs an existing job's command, leaving the
+   * original untouched. Unlike {@link requeueNow} — which mutates the existing
+   * job back into the queue and discards its terminal (`completed`/`failed`)
+   * record — this produces a brand-new job (fresh id + clean history) so
+   * replaying a finished run keeps the original on record alongside the new one.
+   * The clone is due immediately so the next scheduler tick picks it up.
+   * Returns the new job, or `undefined` if `sourceId` is unknown.
+   */
+  cloneJob(sourceId: string, at: string = new Date().toISOString()): RelayJob | undefined {
+    this.load();
+    const source = this.jobs.get(sourceId);
+    if (!source) return undefined;
+    const job = buildReplayJob(source, { id: randomUUID(), now: at });
+    this.jobs.set(job.id, job);
+    this.flush();
+    return job;
   }
 
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {

@@ -2142,3 +2142,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay replay <id>` 비파괴 재실행 명령] (2026-08-12, 무인 자율 세션, branch `claude/wizardly-pascal-jsntw3`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR 150개(#387~#616)를 전수 조사해 이미 포화된 축(parser/watch/
+  stats CV·durations·attempts/summary --watch/eta --watch/completion/search/drain/ical/forecast/reschedule/
+  dedupe/diff/notify 계열)을 피하고, **어떤 열린 PR에도 없는 명확한 갭**을 자기 발굴했다 — `retry`/
+  `requeueNow`는 기존 잡을 `waiting_for_reset`로 되돌려 그 잡의 완료/실패 종료 기록을 **덮어써 소실**한다.
+  "이 태스크를 한 번 더 돌리되 원래 실행 이력은 남기고 싶다"를 할 방법이 없었다.
+- **한 일 (branch `claude/wizardly-pascal-jsntw3`):**
+  - core `control.ts`에 순수 `buildReplayJob(source, {id, now})` 신설: 원본의 project/tool/command(**배열
+    복사**)/cwd만 승계하고, 새 id·fresh 타임스탬프·attempts 0·에러/출력/detection 전부 초기화. status는
+    `waiting_for_reset`+resetAt=now로 세팅 — `listDue`가 `waiting_for_reset`만 보므로 `queued`가 아닌 이
+    상태여야 데몬이 다음 tick에 픽업(핵심 설계). id·시계 주입이라 순수·단위 테스트 가능, 원본 불변.
+  - `RelayQueue.cloneJob(sourceId, at?)`가 `randomUUID()`+clock으로 순수 빌더를 감싸 삽입·flush,
+    미존재 sourceId는 undefined 반환(무기록). CLI `commands.ts` `replayJob(idOrPrefix, storePath?)`가
+    `resolveJobId` 재사용(짧은 prefix·모호/미존재 처리 cancel/retry와 동일), `cli.ts`에 `agentrelay
+    replay <id> [--json]` 배선 + `retry`와의 차이를 설명하는 addHelpText. 어떤 상태의 잡도 복제 가능
+    (가드 없음 — 새 독립 런을 만들 뿐 원본을 안 건드림). completion은 커맨더 프로그램에서 자동 파생.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 622** buildReplayJob 5·cloneJob 4 / **cli 346/1skip** replayJob 3 / dashboard 9).
+  **실제 빌드 CLI e2e**(mock 아님): completed 잡 시드→`replay <8자prefix>`가 원본(completed) 보존 + 새
+  clone(waiting_for_reset·due now·attempts 0) 생성, `status`가 2잡 표시, `--json`이 새 잡(command 복사·
+  attempts 0) 방출, 미존재 id→`no job matches`·exit 1, `--help`·`completion bash`에 replay 등록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `replay --all`
+  (스코프 대량 복제), `replay <id> --at <when>`(미래 시각 예약 복제). parser/watch/stats/summary는 PR
+  포화라 지양. README/ARCHITECTURE(🧭 코워크).

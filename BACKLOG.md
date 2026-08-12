@@ -810,6 +810,19 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay replay <id>` — 종료된(또는 임의) 잡의 명령을 **원본 기록을 보존한 채** 새 잡으로
+      복제해 다시 실행. `retry`(기존 잡을 변형 → 종료 기록 소실)와 근본적으로 다른 비파괴 재실행.
+      (완료 — `retry`/`requeueNow`는 기존 잡을 `waiting_for_reset`로 되돌려 그 잡의 완료/실패 종료 기록을
+      덮어써 "이 태스크를 한 번 더 돌리되 원래 실행 이력은 남기고 싶다"를 못 했다. core `control.ts`에
+      순수 `buildReplayJob(source, {id, now})` 신설(원본의 project/tool/command[복사]/cwd만 승계, 새 id·
+      fresh 타임스탬프·attempts 0·에러/출력/detection 초기화, status `waiting_for_reset`+resetAt=now로
+      데몬이 다음 tick에 픽업 — `listDue`가 `waiting_for_reset`만 보므로 `queued`가 아닌 이 상태 필수).
+      `RelayQueue.cloneJob(sourceId, at?)`가 randomUUID+clock으로 이 순수 빌더를 감싸 삽입·flush, 원본
+      불변. CLI `commands.ts` `replayJob(idOrPrefix, storePath?)`(resolveJobId 재사용, 짧은 prefix·모호/
+      미존재 처리 cancel/retry와 동일), `cli.ts` `agentrelay replay <id> [--json]` 배선. 어떤 상태의 잡도
+      복제 가능(가드 없음 — 새 독립 런을 만들 뿐 원본을 안 건드림). completion 자동 포함. branch
+      `claude/wizardly-pascal-jsntw3`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

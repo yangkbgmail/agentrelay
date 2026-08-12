@@ -64,6 +64,7 @@ import {
   pruneJobs,
   readHealthReport,
   readLocationReport,
+  replayJob,
   restoreStore,
   retryJob,
   runCommand,
@@ -2045,6 +2046,33 @@ export function buildCli(): Command {
     describe: "Requeue a job to resume immediately (by id), or every matching job with --all",
     allHelp: "Requeue every matching job to resume now (narrow with the scope filters below)",
   });
+
+  program
+    .command("replay")
+    .description("Re-run a job's command as a fresh job, keeping the original on record (unlike retry)")
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .option("--json", "Print the new job as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nUnlike `retry` (which moves the same job back into the queue and loses its\n" +
+        "completed/failed record), `replay` clones the command into a brand-new job\n" +
+        "and leaves the original untouched — use it to run a finished task again while\n" +
+        "keeping its history."
+    )
+    .action((id: string, opts: { json?: boolean }) => {
+      const { store } = program.opts();
+      const result = replayJob(id, store);
+      if (!result.ok || !result.job) {
+        console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 1;
+        return;
+      }
+      if (opts.json) {
+        console.log(JSON.stringify(result.job, null, 2));
+        return;
+      }
+      console.log(`[agentrelay] ${result.message}`);
+    });
 
   program
     .command("backup")

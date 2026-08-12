@@ -194,6 +194,68 @@ describe("RelayQueue", () => {
     expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(1);
   });
 
+  describe("cloneJob", () => {
+    it("creates a fresh due-now job from a completed source, leaving the original intact", () => {
+      const source = queue.enqueue({
+        project: "alpha",
+        tool: "claude-code",
+        command: ["claude", "-p", "go"],
+        cwd: "/work/alpha",
+      });
+      queue.markCompleted(source.id, "done");
+
+      const clone = queue.cloneJob(source.id);
+      expect(clone).toBeDefined();
+      if (!clone) throw new Error("clone missing");
+
+      // Fresh identity + clean, due-now history.
+      expect(clone.id).not.toBe(source.id);
+      expect(clone.status).toBe("waiting_for_reset");
+      expect(clone.resetAt).not.toBeNull();
+      expect(clone.attempts).toBe(0);
+      expect(clone.lastError).toBeNull();
+      // Reusable fields carried over.
+      expect(clone.command).toEqual(["claude", "-p", "go"]);
+      expect(clone.project).toBe("alpha");
+      expect(clone.cwd).toBe("/work/alpha");
+
+      // Original stays completed — its record is preserved.
+      const original = queue.getById(source.id);
+      expect(original?.status).toBe("completed");
+      expect(original?.lastOutputTail).toBe("done");
+
+      // Both jobs now live in the store.
+      expect(queue.listAll()).toHaveLength(2);
+    });
+
+    it("clones a job so listDue picks it up (the daemon will resume it)", () => {
+      const source = queue.enqueue({ project: "p", tool: "generic", command: ["run"], cwd: "/tmp" });
+      queue.markFailed(source.id, "nope");
+
+      const clone = queue.cloneJob(source.id, "2026-08-01T00:00:00.000Z");
+      if (!clone) throw new Error("clone missing");
+
+      const due = queue.listDue(new Date("2026-08-01T00:00:01.000Z"));
+      expect(due.map((j) => j.id)).toContain(clone.id);
+    });
+
+    it("persists the clone so another queue instance sees it", () => {
+      const source = queue.enqueue({ project: "p", tool: "generic", command: ["run"], cwd: "/tmp" });
+      const clone = queue.cloneJob(source.id);
+
+      const reopened = new RelayQueue(join(dir, "test.db"));
+      expect(reopened.getById(clone?.id ?? "")).toBeDefined();
+      expect(reopened.listAll()).toHaveLength(2);
+    });
+
+    it("returns undefined for an unknown source id and writes nothing", () => {
+      queue.enqueue({ project: "p", tool: "generic", command: ["run"], cwd: "/tmp" });
+      const clone = queue.cloneJob("does-not-exist");
+      expect(clone).toBeUndefined();
+      expect(queue.listAll()).toHaveLength(1);
+    });
+  });
+
   describe("importJobs", () => {
     const historyJob = (id: string, project = "imported"): RelayJob => ({
       id,
