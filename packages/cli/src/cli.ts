@@ -64,6 +64,7 @@ import {
   pruneJobs,
   readHealthReport,
   readLocationReport,
+  removeJob,
   restoreStore,
   retryJob,
   runCommand,
@@ -2045,6 +2046,23 @@ export function buildCli(): Command {
     describe: "Requeue a job to resume immediately (by id), or every matching job with --all",
     allHelp: "Requeue every matching job to resume now (narrow with the scope filters below)",
   });
+
+  program
+    .command("rm")
+    .alias("delete")
+    .description("Delete a finished job from the store by id (hard delete; use `cancel` to stop a pending one)")
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .option("-f, --force", "Delete even an active job (queued/waiting/resuming) — this drops a pending resume")
+    .action((id: string, opts: { force?: boolean }) => {
+      const { store } = program.opts();
+      const result = removeJob(id, { force: opts.force, storePath: store });
+      if (result.ok) {
+        console.log(`[agentrelay] ${result.message}`);
+      } else {
+        console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 1;
+      }
+    });
 
   program
     .command("backup")

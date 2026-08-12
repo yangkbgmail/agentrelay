@@ -35,6 +35,7 @@ import {
   CONFIG_FILENAME,
   type ConfigValueSource,
   canCancel,
+  canDelete,
   canRequeue,
   configToJson,
   countActiveJobs,
@@ -508,6 +509,38 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
       job: updated,
       message: `job ${shortId(job.id)} (${job.project}) queued to resume now — run "agentrelay tick" or the daemon to pick it up`,
     };
+  } finally {
+    queue.close();
+  }
+}
+
+export interface RemoveJobOptions {
+  /** Delete even an active (queued/waiting/resuming) job, bypassing the guard. */
+  force?: boolean;
+  storePath?: string;
+}
+
+/**
+ * Hard-delete a job from the store by full id or short prefix — the terminal
+ * companion to {@link cancelJob} (which only changes status). Active jobs are
+ * refused unless `force` is set, because dropping one makes the relay forget a
+ * pending resume; the same {@link canDelete} guard drives that decision.
+ */
+export function removeJob(idOrPrefix: string, options: RemoveJobOptions = {}): JobControlResult {
+  const queue = openQueue(options.storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { ok: false, job: null, message: resolved.error ?? "job not found" };
+
+    const job = jobs.find((j) => j.id === resolved.id) as RelayJob;
+    if (!options.force) {
+      const guard = canDelete(job);
+      if (!guard.ok) return { ok: false, job, message: `cannot delete ${shortId(job.id)}: ${guard.reason}` };
+    }
+
+    queue.remove(job.id);
+    return { ok: true, job, message: `deleted job ${shortId(job.id)} (${job.project}, was ${job.status})` };
   } finally {
     queue.close();
   }

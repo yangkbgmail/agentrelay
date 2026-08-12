@@ -41,6 +41,29 @@ export function canRequeue(job: RelayJob): ControlResult {
   return { ok: true };
 }
 
+/**
+ * Statuses that `rm` deletes without a guard — the terminal ones, whose history
+ * is safe to discard. Active jobs (`queued`/`waiting_for_reset`/`resuming`) are
+ * deliberately excluded: deleting one silently drops a resume the relay was
+ * still going to perform, so it takes an explicit `--force`.
+ */
+export const DELETABLE_STATUSES: readonly JobStatus[] = ["completed", "failed", "cancelled"];
+
+/**
+ * Whether `job` may be hard-deleted from the store *without* `--force`. Unlike
+ * {@link canCancel} (a status *transition* that leaves the job in the store),
+ * `rm` removes the record entirely. Terminal jobs are safe to drop; an active
+ * job is guarded because deleting it makes the relay forget a task it was going
+ * to resume — the CLI surfaces this reason and offers `--force` to override.
+ */
+export function canDelete(job: RelayJob): ControlResult {
+  if ((DELETABLE_STATUSES as readonly string[]).includes(job.status)) return { ok: true };
+  return {
+    ok: false,
+    reason: `job is still active (${job.status}); deleting it drops a pending resume — pass --force to delete anyway`,
+  };
+}
+
 /** One job that a bulk-control guard rejected, paired with the reason why. */
 export interface IneligibleJob {
   job: RelayJob;
