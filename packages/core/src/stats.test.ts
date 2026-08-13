@@ -58,6 +58,7 @@ describe("computeStats", () => {
       p25ResolutionMs: null,
       p75ResolutionMs: null,
       iqrResolutionMs: null,
+      madResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
     });
@@ -227,6 +228,23 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(3_600_000);
     // cv = stdev / mean = 1h / 2h = 0.5 (scale-free ratio)
     expect(stats.timing.cvResolution).toBe(0.5);
+    // median 2h; deviations |1h-2h|=1h, |3h-2h|=1h → median [1h,1h] = 1h
+    expect(stats.timing.madResolutionMs).toBe(3_600_000);
+  });
+
+  it("keeps MAD robust while an outlier inflates the stdev", () => {
+    const at = (h: number) => `2026-07-13T${String(h).padStart(2, "0")}:00:00.000Z`;
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(2) }), // 2h
+      job({ status: "failed", createdAt: at(0), updatedAt: at(10) }), // 10h (heavy outlier)
+    ]);
+    // sorted spans [1h, 2h, 10h]; median 2h.
+    // deviations |1h-2h|=1h, |2h-2h|=0, |10h-2h|=8h → sorted [0, 1h, 8h] → median 1h.
+    expect(stats.timing.madResolutionMs).toBe(3_600_000);
+    // The outlier barely moves the MAD (1h) but blows up the mean-based stdev,
+    // which stays far larger — the exact signature the MAD is here to expose.
+    expect(stats.timing.stdevResolutionMs).toBeGreaterThan(stats.timing.madResolutionMs ?? 0);
   });
 
   it("collapses spread metrics to zero for a single resolved job", () => {
@@ -239,6 +257,8 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(0);
     // single span: stdev 0, nonzero mean → cv 0 (no spread, well-defined)
     expect(stats.timing.cvResolution).toBe(0);
+    // single span: no deviation from the median → mad 0
+    expect(stats.timing.madResolutionMs).toBe(0);
   });
 
   it("excludes cancelled and still-active jobs from resolution timing", () => {
@@ -296,6 +316,7 @@ describe("computeStats", () => {
       p25ResolutionMs: null,
       p75ResolutionMs: null,
       iqrResolutionMs: null,
+      madResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
     });

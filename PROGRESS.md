@@ -2166,3 +2166,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats` 해결 시간 MAD(median absolute deviation)] (2026-08-13, 무인 자율 세션, branch `claude/stats-mad-resolution`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 68이 후속 후보로 명시한 "timing 블록 MAD(median absolute
+  deviation, 이상치에 더 강건한 분산)"를 골랐다 — watch 축(summary --watch 등)은 PR 포화라 지양
+  권고가 반복돼 있었다. 기존 spread 라인은 iqr(견고)·stdev(제곱합 기반)·cv를 냈지만, "중앙값에서
+  전형적으로 얼마나 벗어나는가"를 한 outlier에 끌려가지 않고 보여주는 지표가 없었다. MAD =
+  median(|xᵢ − median|)는 iqr처럼 견고하되 사분위 폭이 아니라 중앙값으로부터의 전형적 거리를 준다.
+- **한 일 (branch `claude/stats-mad-resolution`):**
+  - core `stats.ts`의 `TimingStats`에 `madResolutionMs`(정수 ms, null 가능) 추가 + 순수
+    `medianAbsoluteDeviation(sortedAsc)` 및 반올림 없는 `medianOf(sortedAsc)` 헬퍼. MAD은 반올림
+    안 한 중앙값을 편차 기준으로 써서(medianOf) ms 반올림이 stdev와의 비율을 왜곡하지 않게 함.
+    resolved 0개면 null, 단일 잡(또는 전부 동일)이면 편차 0 → mad 0(잘 정의됨).
+  - CLI `stats.ts` spread 라인에 iqr(+p25–p75) 바로 뒤, stdev 앞에 `mad N` 삽입(둘 다 견고 측도라
+    인접 배치). `--json`은 timing 전체 직렬화라 `madResolutionMs` 자동 노출(기존 shape 불변).
+    새 파서/스케줄러/core 집계 로직 0줄 — 기존 검증된 정렬·median 위에 필드 하나 추가.
+  - core stats.test: [1h,3h] mad 1h·단일 잡 mad 0 단언 + 신규 테스트 "keeps MAD robust while an
+    outlier inflates the stdev"(spans [1h,2h,10h] → mad 1h ≪ stdev, 견고성 시연). null-branch 2곳에
+    `madResolutionMs: null` 추가. cli stats.test render에 `mad 1h 0m` 단언 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 615 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): spans
+  {1h,2h,10h} 임시 스토어로 `stats`가 `spread: iqr 4h 30m (p25 1h 30m – p75 6h 0m)   mad 1h 0m
+  stdev 4h 1m   cv 93%` 렌더 — MAD 1h가 stdev 4h1m보다 훨씬 작아 10h outlier에 견고함을 확인 —
+  + `--json`이 `timing.madResolutionMs: 3600000` 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
+  MAD/median 비율(robust CV 대용) 또는 `stats --group-by` 그룹별 행에 cv/mad 노출. tz/heatmap/parser/
+  watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

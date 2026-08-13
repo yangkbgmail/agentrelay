@@ -154,6 +154,8 @@ describe("renderStats", () => {
     // spread: p25 1h30m, p75 2h30m, iqr 1h, stdev 1h over {1h,3h}.
     expect(out).toContain("spread: iqr 1h 0m");
     expect(out).toContain("p25 1h 30m – p75 2h 30m");
+    // mad: median 2h; |1h-2h|=1h, |3h-2h|=1h → median 1h.
+    expect(out).toContain("mad 1h 0m");
     expect(out).toContain("stdev 1h 0m");
     // cv = stdev / mean = 1h / 2h = 0.5 → "50%".
     expect(out).toContain("cv 50%");

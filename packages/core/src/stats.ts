@@ -70,6 +70,16 @@ export interface TimingStats {
    */
   iqrResolutionMs: number | null;
   /**
+   * Median absolute deviation of resolution times (ms), or null when none: the
+   * median of |xᵢ − median|. Like {@link iqrResolutionMs} it's a robust spread
+   * measure — a single pathological outlier barely moves it, since it's built
+   * from medians not sums-of-squares. Read against {@link stdevResolutionMs}: a
+   * MAD far smaller than the stdev is the signature of a few heavy outliers
+   * inflating the mean-based measure. Where the IQR is the width of the middle
+   * 50%, the MAD is the *typical* distance of a resolution from the median.
+   */
+  madResolutionMs: number | null;
+  /**
    * Population standard deviation of resolution times (ms), or null when none.
    * The classic spread measure: how far resolutions typically stray from the
    * mean. Read alongside {@link iqrResolutionMs} — a stdev much larger than the
@@ -399,6 +409,34 @@ function percentile(sortedAsc: number[], p: number): number {
 }
 
 /**
+ * Unrounded median (p50) of an ascending-sorted, non-empty list: the middle
+ * sample for odd n, the mean of the two straddling samples for even n. Matches
+ * {@link percentile}(sorted, 0.5) but without the whole-ms rounding, so it can
+ * serve as an exact deviation base for {@link medianAbsoluteDeviation}.
+ * Callers guarantee `sortedAsc.length > 0`.
+ */
+function medianOf(sortedAsc: number[]): number {
+  const n = sortedAsc.length;
+  const mid = Math.floor(n / 2);
+  return n % 2 === 1 ? sortedAsc[mid] : (sortedAsc[mid - 1] + sortedAsc[mid]) / 2;
+}
+
+/**
+ * Median absolute deviation (MAD): the median of the absolute deviations from
+ * the median, `median(|xᵢ − median(x)|)`, rounded to whole ms over a non-empty
+ * list. A robust dispersion measure — unlike the standard deviation it isn't
+ * pulled by a single outlier, so a small MAD next to a large stdev exposes a
+ * heavy tail. Uses the unrounded median as the deviation base so ms rounding
+ * never leaks into the ratio between the two measures. A single value (or all
+ * equal) yields 0. Callers guarantee `sortedAsc.length > 0`.
+ */
+function medianAbsoluteDeviation(sortedAsc: number[]): number {
+  const mid = medianOf(sortedAsc);
+  const deviations = sortedAsc.map((v) => Math.abs(v - mid)).sort((a, b) => a - b);
+  return Math.round(medianOf(deviations));
+}
+
+/**
  * Population standard deviation (not sample) over a non-empty list, rounded to
  * whole ms. Population is the right choice here: `values` is the complete set of
  * resolved-job spans being described, not a sample drawn to infer a wider
@@ -473,6 +511,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p25ResolutionMs: null,
       p75ResolutionMs: null,
       iqrResolutionMs: null,
+      madResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
     };
@@ -494,6 +533,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p25ResolutionMs: p25,
       p75ResolutionMs: p75,
       iqrResolutionMs: p75 - p25,
+      madResolutionMs: medianAbsoluteDeviation(sorted),
       stdevResolutionMs: populationStdev(sorted, mean),
       cvResolution: coefficientOfVariation(sorted, mean),
     };
