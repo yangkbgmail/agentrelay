@@ -39,6 +39,7 @@ import {
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
+  diffJobs,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
   type ExportFormat,
@@ -56,6 +57,7 @@ import {
   type IneligibleJob,
   isJobScopeActive,
   type JobCsvColumn,
+  type JobDiff,
   type JobScope,
   type LocationReport,
   listBackups,
@@ -1011,6 +1013,75 @@ export function previewRestoreStore(options: RestoreStoreOptions = {}): RestoreP
   } finally {
     queue.close();
   }
+}
+
+/**
+ * Read a store snapshot file into a job array for diffing. Deliberately does
+ * NOT go through {@link RelayQueue}: opening a queue on a snapshot would let
+ * corrupt-file recovery *move the snapshot aside*, and a read-only diff must
+ * never touch its inputs. So it reads the raw JSON directly and validates it's
+ * an array; anything else throws a clear error.
+ */
+function readSnapshotJobs(path: string): RelayJob[] {
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch (err) {
+    throw new Error(`Could not read snapshot ${path}: ${String(err)}`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`Snapshot ${path} is not valid JSON.`);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Snapshot ${path} is not a job array.`);
+  }
+  return parsed as RelayJob[];
+}
+
+export interface DiffStoresOptions {
+  storePath?: string;
+  /** Earlier side: a backup selector (`latest`/stamp/filename) or a file path. */
+  before: string;
+  /** Later side: a selector/path; when omitted, the current live store is used. */
+  after?: string;
+}
+
+export interface DiffStoresResult {
+  diff: JobDiff;
+  /** Display name of the "before" side (a snapshot basename). */
+  beforeLabel: string;
+  /** Display name of the "after" side (a snapshot basename, or "current store"). */
+  afterLabel: string;
+}
+
+/**
+ * Compare two job-store snapshots (or a snapshot against the current queue) and
+ * report what jobs were added/removed/changed. Resolves each side the same way
+ * `restore` does (a direct file path, or one of this store's rotating
+ * `.backup-*` snapshots), reads them read-only, then hands the two arrays to the
+ * pure `diffJobs`. A missing/broken snapshot throws so a typo never diffs the
+ * wrong thing. The "after" side defaults to the live store.
+ */
+export function diffStores(options: DiffStoresOptions): DiffStoresResult {
+  const storePath = options.storePath ?? defaultStorePath();
+  const beforePath = resolveRestoreSource(storePath, options.before);
+  const beforeJobs = readSnapshotJobs(beforePath);
+
+  let afterJobs: RelayJob[];
+  let afterLabel: string;
+  if (options.after === undefined || options.after === "") {
+    afterJobs = listStatus(storePath);
+    afterLabel = "current store";
+  } else {
+    const afterPath = resolveRestoreSource(storePath, options.after);
+    afterJobs = readSnapshotJobs(afterPath);
+    afterLabel = basename(afterPath);
+  }
+
+  return { diff: diffJobs(beforeJobs, afterJobs), beforeLabel: basename(beforePath), afterLabel };
 }
 
 export interface ExportJobsOptions {

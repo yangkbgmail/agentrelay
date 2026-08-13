@@ -2142,3 +2142,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay diff` 두 스냅샷 비교 진단 명령] (2026-08-13, 무인 자율 세션, branch `claude/wizardly-pascal-uxe5qr`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 미완은 🧭 코워크 소유(README/ARCHITECTURE/경쟁조사/
+  샘플수집/성능분석)뿐. 열린 PR이 60개로 극도로 포화(watch 15건·CV 3건·parser/notify/summary 다수)라, 어떤
+  열린 PR 제목에도 없는 명확한 갭을 골랐다 — `backup`/`restore`/`autobackup`은 스냅샷을 만들고 되돌리지만,
+  "두 시점의 큐가 어떻게 달라졌나"를 답하는 짝이 없었다. 자리를 비운 사이 무엇이 재개됐고 실패했고 새로
+  들어왔나를 두 `status` 덤프를 눈으로 대조하지 않고 한 번에 보는 진단 뷰.
+- **한 일 (branch `claude/wizardly-pascal-uxe5qr`):**
+  - core `diff.ts` 신설(순수·파일시스템/시계 미접촉): `diffJobs(before, after)` → `JobDiff`(added/removed/
+    changed/unchanged). 잡을 id로 매칭, 공통 잡은 추적 필드(`DIFF_TRACKED_FIELDS`: status·attempts·resetAt·
+    project·tool·command[조인]·lastError)만 비교 → 변경 필드가 있으면 `JobChange`(before/after/fields[]),
+    없으면 unchanged 카운트. 노이즈 필드(updatedAt·createdAt·lastOutputTail·lastRateLimit) 의도적 제외.
+    각 그룹 newest-first 정렬(스토어 리스트 관례 일치), 입력 불변. 순수 `isEmptyDiff` 헬퍼.
+  - CLI `diff.ts`: `renderDiff`(헤더 + `+ added`/`- removed`/`~ changed` 섹션[빈 섹션 생략] + 필드별
+    `before → after` 줄 + unchanged 카운트, null은 `∅`, 색 opt-in)·`renderDiffJson`(labels + generatedAt).
+  - `commands.ts` `diffStores`: 스냅샷 셀렉터/경로 해소는 `resolveRestoreSource` 재사용, 스냅샷은
+    **RelayQueue 우회** 직접 읽기(corrupt 복구가 읽기 전용 diff의 입력을 옮기지 못하게 — 비배열/깨진
+    JSON은 명확한 에러). `after` 생략 시 현재 라이브 스토어. `agentrelay diff <before> [after] [--json]`
+    배선, 미매칭 셀렉터·깨진 스냅샷은 exit 1, completion/help 자동 포함. 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 120파일)→`pnpm test`
+  전 패키지 통과(**core 623** diff +9 / **cli 349/1skip** diff +6 / dashboard 9). **실제 빌드 CLI e2e**
+  (mock 아님): 3잡 스냅샷 ↔ 현재 스토어(1 resumed→completed attempts 1→2, 1 removed, 1 unchanged, 1 new)로
+  `diff latest`가 added/removed/changed 섹션·필드별 `→`를 정확히 렌더, `--json`이 labels/generatedAt/diff
+  provenance 방출, 빈↔빈은 "No differences. (0 unchanged)", 미매칭 셀렉터·비배열 JSON은 exit 1, completion
+  bash·`--help`에 `diff` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `diff --status/--tool`
+  스코프 필터(변경 잡만), `diff` 요약 한 줄(`+N -M ~K`) 상태바용, 대시보드에 "since last backup" 델타.
+  watch/parser/stats-히스토그램/CV는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

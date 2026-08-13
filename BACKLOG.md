@@ -810,6 +810,26 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay diff <before> [after]` — 두 스토어 스냅샷(또는 스냅샷 ↔ 현재 큐)을 비교해 추가/
+      제거/변경된 잡을 보여주는 진단 명령. `backup`/`restore`/`autobackup`(스냅샷)의 빠진 짝 — "자리를
+      비운 사이 큐가 어떻게 움직였나"(무엇이 재개됐고, 실패했고, 새로 들어왔나)를 두 `status` 덤프를
+      눈으로 대조하지 않고 한 번에 답함. 자기 발굴 항목.
+      (완료 — core `diff.ts` 신설(순수·파일시스템/시계 미접촉): `diffJobs(before, after)`+`JobDiff`
+      (added/removed/changed/unchanged)·`JobChange`(id·before·after·fields[])·`JobFieldChange`. 잡을 id로
+      매칭해 after에만=added, before에만=removed, 공통 잡은 추적 필드(`DIFF_TRACKED_FIELDS`: status·attempts·
+      resetAt·project·tool·command[조인]·lastError) 비교 → 변경 필드가 있으면 changed, 없으면 unchanged 카운트.
+      노이즈 필드(updatedAt·createdAt·lastOutputTail·lastRateLimit) 의도적 제외. 각 그룹은 newest-first
+      (createdAt desc·id asc tiebreak, 스토어 리스트 관례 일치) 정렬, 입력 불변. 순수 `isEmptyDiff` 헬퍼.
+      CLI `diff.ts` 순수 `renderDiff`(헤더+`+ added`/`- removed`/`~ changed` 섹션[빈 섹션 생략]+필드별
+      `before → after` 줄+unchanged 카운트, null은 `∅`, 색 opt-in)·`renderDiffJson`(labels+generatedAt
+      provenance). `commands.ts` `diffStores`(스냅샷 셀렉터/경로 해소는 `resolveRestoreSource` 재사용,
+      스냅샷은 **RelayQueue 우회** 직접 읽기 — corrupt 복구가 읽기 전용 diff의 입력을 옮기지 못하게,
+      비배열/깨진 JSON은 명확한 에러; after 생략 시 현재 라이브 스토어). `agentrelay diff <before> [after]
+      [--json]`, 미매칭 셀렉터·깨진 스냅샷은 exit 1, completion 자동 포함. 새 파서/스케줄러 로직 0줄.
+      core diff 9 + cli diff 6 신규 테스트, 실제 빌드 CLI e2e로 added/removed/changed 렌더·`∅` null·
+      `--json` provenance·no-diff·미매칭 셀렉터 exit 1·비배열 exit 1·completion/help 노출 검증. branch
+      `claude/wizardly-pascal-uxe5qr`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

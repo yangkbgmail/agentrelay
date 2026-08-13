@@ -53,6 +53,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  diffStores,
   exportStore,
   getConfigValue,
   importStore,
@@ -79,6 +80,7 @@ import {
   waitForJob,
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
+import { renderDiff, renderDiffJson } from "./diff.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderEta, renderEtaJson } from "./eta.js";
@@ -1866,6 +1868,43 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("diff")
+    .description(
+      "Compare two job-store snapshots (or a snapshot vs. the current queue): which jobs were added, removed, or changed"
+    )
+    .argument(
+      "<before>",
+      "Earlier side: `latest`, a backup stamp/filename (see `agentrelay backup --list`), or a snapshot file path"
+    )
+    .argument("[after]", "Later side to compare against (default: the current live store)")
+    .option("--json", "Print the diff as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # what changed since the most recent backup?\n" +
+        "  agentrelay diff latest\n" +
+        "  # compare two specific snapshots\n" +
+        "  agentrelay diff jobs.json.backup-2026-08-13T09-00-00-000Z jobs.json.backup-2026-08-13T12-00-00-000Z\n"
+    )
+    .action((before: string, after: string | undefined, opts: { json?: boolean }) => {
+      const { store } = program.opts();
+      let result: ReturnType<typeof diffStores>;
+      try {
+        result = diffStores({ storePath: store, before, after });
+      } catch (err) {
+        console.error(`[agentrelay] ${err instanceof Error ? err.message : String(err)}`);
+        process.exitCode = 1;
+        return;
+      }
+      const labels = { before: result.beforeLabel, after: result.afterLabel };
+      if (opts.json) {
+        console.log(renderDiffJson(result.diff, labels));
+        return;
+      }
+      console.log(renderDiff(result.diff, labels, { color: Boolean(process.stdout.isTTY) }));
     });
 
   program
