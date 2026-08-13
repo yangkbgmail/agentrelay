@@ -810,6 +810,20 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay stats` 해결 시간 변동계수(CV=stdev/mean) — 절대 ms 지표(stdev·IQR)에 더해
+      "평균 대비 얼마나 들쭉날쭉한가"를 무차원 비율로 노출. 세션 66이 후속 후보로 지목한 항목.
+      (완료 — stdev·IQR·백분위수는 전부 절대 ms라 잡이 분 단위인 큐와 시간 단위인 큐의 변동성을
+      직접 비교할 수 없었다. CV는 스케일 프리(stdev÷mean)라 크기와 무관하게 "평균 대비 상대 분산"을
+      비교 가능하게 한다. core `stats.ts`의 `TimingStats`에 `cvResolution`(4소수 반올림 비율) 추가 +
+      순수 `coefficientOfVariation(values, mean)` 헬퍼(mean=0 → 비율 미정 0/0이라 null; 비음수 span의
+      mean 0은 전부 0을 의미하므로 정확히 null, 절대 0 아님. 반올림 안 한 stdev 사용해 ms 반올림이
+      비율을 왜곡하지 않음). resolved 0개면 null, 단일 잡이면 0(분산 없음, 잘 정의됨). CLI `stats.ts`에
+      순수 `formatCv`(비율→퍼센트, 0.564→"56%", null/비유한→"n/a") + resolution-time spread 라인 끝에
+      `cv N%` 추가, `--json`은 timing 전체 직렬화라 자동 노출. 새 파서/스케줄러 로직 0줄. core stats
+      +2 단언(cv 0.5·단일 잡 0) + cli stats formatCv 2 + render cv 단언 신규. 실제 빌드 CLI e2e로
+      spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
+      `claude/stats-cv-resolution`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

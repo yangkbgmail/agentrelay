@@ -2142,3 +2142,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay stats` 해결 시간 변동계수(CV)] (2026-08-13, 무인 자율 세션, branch `claude/stats-cv-resolution`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 66이 후속 후보로 명시한 "timing 블록 변동계수(CV=stdev/mean)"를
+  골랐다 — watch 축(summary --watch 등)은 PR 포화라 지양 권고가 반복돼 있었다. stdev·IQR·백분위수는
+  전부 절대 ms라, 잡이 분 단위인 큐와 시간 단위인 큐의 변동성을 직접 비교할 수 없었다. CV는 스케일
+  프리(무차원 비율)라 크기와 무관하게 "평균 대비 얼마나 들쭉날쭉한가"를 비교 가능하게 한다.
+- **한 일 (branch `claude/stats-cv-resolution`):**
+  - core `stats.ts`의 `TimingStats`에 `cvResolution`(4소수 반올림 비율, null 가능) 추가 + 순수
+    `coefficientOfVariation(values, mean)` 헬퍼. mean=0이면 비율 미정(0/0)이라 null — 비음수 span에서
+    mean 0은 전부 0을 뜻하므로 정확히 null(절대 0 아님). 반올림 안 한 stdev를 써서 ms 반올림이 비율을
+    왜곡하지 않게 함. resolved 0개면 null, 단일 잡이면 stdev 0·nonzero mean → cv 0(잘 정의됨).
+  - CLI `stats.ts`에 순수 `formatCv`(비율→퍼센트, 0.564→"56%", null/비유한→"n/a") 신설, resolution-time
+    spread 라인 끝에 `cv N%`를 덧붙임. `--json`은 timing 전체 직렬화라 자동 노출(기존 shape 불변).
+    새 파서/스케줄러/core 집계 로직 0줄 — 기존 검증된 정렬·mean 위에 필드 하나 추가.
+  - core stats.test +2 단언(3-잡 cv 0.5·단일 잡 cv 0), cli stats.test formatCv 2케이스 + render `cv 50%`
+    단언 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 614 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): spans {1h,3h} 임시
+  스토어로 `stats`가 `spread: … stdev 1h 0m   cv 50%` 렌더 + `--json`이 `timing.cvResolution: 0.5` 방출,
+  zero-span(createdAt=updatedAt) 스토어로 `cv n/a` + `cvResolution: null` 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
+  MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
+  tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

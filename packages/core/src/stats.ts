@@ -76,6 +76,16 @@ export interface TimingStats {
    * IQR is the signature of a few heavy outliers dragging the mean.
    */
   stdevResolutionMs: number | null;
+  /**
+   * Coefficient of variation: population stdev ÷ mean, a dimensionless ratio of
+   * relative dispersion, or null when none (or when the mean is 0). Unlike the
+   * absolute-ms {@link stdevResolutionMs}, CV is scale-free — it answers "how
+   * variable are resolutions *relative to their own average*", so a queue whose
+   * jobs resolve in minutes and one whose jobs resolve in hours are directly
+   * comparable. Rule of thumb: < 0.5 tight, ~1 spread on the order of the mean,
+   * > 1 heavy-tailed. Rounded to 4 decimals.
+   */
+  cvResolution: number | null;
 }
 
 export interface RelayStats {
@@ -400,6 +410,18 @@ function populationStdev(values: number[], mean: number): number {
 }
 
 /**
+ * Coefficient of variation: population stdev ÷ mean, rounded to 4 decimals.
+ * Returns null when the mean is 0 — for non-negative spans a zero mean means
+ * every span was 0, so the ratio is undefined (0/0) rather than 0. Uses the
+ * unrounded stdev so ms-level rounding never distorts the ratio. Non-empty input.
+ */
+function coefficientOfVariation(values: number[], mean: number): number | null {
+  if (mean === 0) return null;
+  const variance = values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / values.length;
+  return Math.round((Math.sqrt(variance) / mean) * 10_000) / 10_000;
+}
+
+/**
  * Aggregates a job list into headline relay metrics for `agentrelay stats`.
  * Pure and non-mutating: no I/O, no ambient clock. Reuses {@link summarizeJobs}
  * for the per-status counts and next-reset so the two surfaces never drift.
@@ -452,6 +474,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     };
   } else {
     // Sort once ascending; percentiles read from it, min/max are its ends.
@@ -472,6 +495,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p75ResolutionMs: p75,
       iqrResolutionMs: p75 - p25,
       stdevResolutionMs: populationStdev(sorted, mean),
+      cvResolution: coefficientOfVariation(sorted, mean),
     };
   }
 

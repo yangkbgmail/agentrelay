@@ -59,6 +59,7 @@ describe("computeStats", () => {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     });
   });
 
@@ -224,6 +225,8 @@ describe("computeStats", () => {
     expect(stats.timing.iqrResolutionMs).toBe(3_600_000);
     // mean 2h; population variance = ((1-2)^2 + (3-2)^2)/2 = 1 h^2 → stdev 1h
     expect(stats.timing.stdevResolutionMs).toBe(3_600_000);
+    // cv = stdev / mean = 1h / 2h = 0.5 (scale-free ratio)
+    expect(stats.timing.cvResolution).toBe(0.5);
   });
 
   it("collapses spread metrics to zero for a single resolved job", () => {
@@ -234,6 +237,8 @@ describe("computeStats", () => {
     expect(stats.timing.p75ResolutionMs).toBe(3_600_000);
     expect(stats.timing.iqrResolutionMs).toBe(0);
     expect(stats.timing.stdevResolutionMs).toBe(0);
+    // single span: stdev 0, nonzero mean → cv 0 (no spread, well-defined)
+    expect(stats.timing.cvResolution).toBe(0);
   });
 
   it("excludes cancelled and still-active jobs from resolution timing", () => {
@@ -292,6 +297,7 @@ describe("computeStats", () => {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     });
   });
 });

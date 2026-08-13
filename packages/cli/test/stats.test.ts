@@ -9,6 +9,7 @@ import {
 } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
+  formatCv,
   formatDurationMs,
   formatSuccessRate,
   formatUtcOffsetLabel,
@@ -81,6 +82,21 @@ describe("formatDurationMs", () => {
   });
 });
 
+describe("formatCv", () => {
+  it("renders a ratio as a rounded percentage", () => {
+    expect(formatCv(0)).toBe("0%");
+    expect(formatCv(0.5)).toBe("50%");
+    expect(formatCv(0.564)).toBe("56%");
+    expect(formatCv(1.2)).toBe("120%");
+  });
+
+  it("renders n/a for null or non-finite input", () => {
+    expect(formatCv(null)).toBe("n/a");
+    expect(formatCv(Number.NaN)).toBe("n/a");
+    expect(formatCv(Number.POSITIVE_INFINITY)).toBe("n/a");
+  });
+});
+
 describe("renderStats", () => {
   it("shows the onboarding message for an empty store", () => {
     expect(renderStats(computeStats([]))).toBe(NO_STATS_MESSAGE);
@@ -139,6 +155,8 @@ describe("renderStats", () => {
     expect(out).toContain("spread: iqr 1h 0m");
     expect(out).toContain("p25 1h 30m – p75 2h 30m");
     expect(out).toContain("stdev 1h 0m");
+    // cv = stdev / mean = 1h / 2h = 0.5 → "50%".
+    expect(out).toContain("cv 50%");
   });
 
   it("omits the resolution-time block when nothing has resolved", () => {
