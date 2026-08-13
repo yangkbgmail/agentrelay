@@ -4,6 +4,7 @@ export * from "./completion.js";
 export * from "./concurrency.js";
 export * from "./config.js";
 export * from "./control.js";
+export * from "./coverage.js";
 export * from "./doctor.js";
 export * from "./errors.js";
 export * from "./eta.js";

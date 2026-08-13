@@ -2166,3 +2166,34 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay coverage` 릴레이 무인 대기 커버리지 집계] (2026-08-13, 무인 자율 세션, branch `claude/wizardly-pascal-8sgrun`)
+- **왜:** BACKLOG의 미완료 항목은 전부 🧭 코워크 소유(README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐이라
+  CLAUDE.md 지침대로 신규 👷 개선을 발굴했다. 기존 `stats`는 잡의 생성→종료 **전체 수명**(resolution
+  time)을 촘촘히 특성화하지만, 정작 이 툴의 헤드라인 가치인 "릴레이가 나 대신 얼마나 오래 무인으로
+  기다려줬나"는 어디서도 집계되지 않았다. 그 데이터(`lastRateLimit`의 `detectedAt`·`resetAt`)는 이미
+  잡마다 저장돼 있고 `show`/`patterns`에서만 부분 소비되고 있었다.
+- **한 일 (branch `claude/wizardly-pascal-8sgrun`):**
+  - core `coverage.ts` 신설: 순수 `computeRelayCoverage(jobs)` + `RelayCoverage`/`CoveredWindow`/
+    `CoverageByPattern`. 각 창=`max(0, resetAt − detectedAt)`(시계 스큐·과거 리셋은 0 clamp로 음수 방지).
+    유효 detection(비어있지 않은 pattern + 파싱 가능한 양 타임스탬프)만 집계 → detection 없는 스토어는
+    zero·empty 리포트. windowCount·totalWaitMs·avg/min/max·median(p50)·p90(로컬 선형보간 percentile,
+    stats와 동일 "type 7" 방식)·longest 창·pattern별 롤업(totalWait desc, 이름 asc). I/O·wall-clock
+    미접촉으로 완전 결정론적. index.ts에 export 추가.
+  - CLI `coverage.ts` 신설: 순수 `renderCoverage`(헤드라인 총합 + per-window 통계 + longest 콜아웃 +
+    by-pattern 블록, scope note·no-match/온보딩 메시지 분기)·`renderCoverageJson`(--json, stats와 동일
+    envelope: storePath·generatedAt·scope·coverage). `agentrelay coverage [--json] [-s/--status]
+    [-t/--tool] [-p/--project] [--since] [--until]` 커맨드 배선(공용 `buildScope` 재사용, formatDurationMs
+    재사용). 새 파서/스케줄러/queue 로직 0줄 — 이미 저장된 provenance 위의 순수 집계·렌더뿐.
+  - core coverage.test 8케이스(빈 스토어·detection 없음·단일 창·다중 창 min/max/avg/median/p90·음수
+    clamp·불량 pattern/타임스탬프 스킵·pattern 롤업 정렬·longest 타이 결정론) + cli coverage.test
+    8케이스(온보딩/no-match 메시지·헤드라인 렌더·scope note·color on/off·JSON envelope·scope echo).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm lint:fix`+`pnpm ci:lint`(Biome 0에러)→
+  `pnpm test` 전 패키지 통과(**core 622 · cli 353/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  3-잡 스토어(detection 없는 queued 잡은 정확히 제외)로 `coverage`가 `6h 0m … across 2 window(s)` +
+  per-window + longest + by-pattern 렌더, `--json`이 정확한 ms·longest·byPattern 방출, `--project api`
+  scope가 1개 창으로 좁힘, `--project nonexistent`는 no-match, 빈 스토어는 온보딩 문구, `--tool bogus`는
+  exit 1 확인. `--help`에 coverage 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stats` 본문에
+  coverage 요약 1줄 통합, coverage `--group-by project|tool`, Prometheus `metrics`에 coverage 게이지
+  노출. tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
