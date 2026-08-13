@@ -2142,3 +2142,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay notify list` 채널 인벤토리 명령] (2026-08-13, 무인 자율 세션, branch `claude/notify-list-command`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR이 90개+로 포화된 축(summary/eta/next --watch, CV, export tsv,
+  completion fish, search, parser 계열)을 피해, **어떤 열린 PR에도 없고 명확히 비어 있는** 자리를 골랐다 —
+  core `notify.ts`에는 이미 `listNotifyChannels`(env에서 Slack/webhook 채널을 열거하는 "어떤 채널이
+  설정됐나"의 단일 진실 소스)가 있는데, 이를 **전송 없이** 조회하는 CLI 명령이 없었다. `notify test`는
+  실제 페이로드를 보내 엔드포인트가 살아있어야 하고, `config show`는 원시 env값만 보여준다.
+- **한 일 (branch `claude/notify-list-command`):**
+  - CLI `notify.ts`에 순수 `renderNotifyChannels`(채널별 label·마스킹 URL·출처 env var, 빈 목록은 셋업
+    힌트 `NO_CHANNELS_LIST_MESSAGE`, 마지막에 "notify test로 실전송하라" 안내)·`renderNotifyChannelsJson`
+    (kind/label/envVar + configured 카운트, **URL은 시크릿이라 JSON에서 생략** — `notify test` JSON과 동일
+    정책) 추가. 기존 `maskSecret`(마지막 4자만 노출) 재사용, `--show-secrets`로 전체 URL 표시.
+  - `cli.ts`의 기존 `notify` 부모 커맨드에 `notify list [--json] [--show-secrets]` 서브커맨드 배선
+    (`test` 위에 등록, 예시 addHelpText 포함). core `listNotifyChannels` 재사용 — 새 core 코드 0줄.
+  - `notify.test.ts` 9케이스: 빈 목록 힌트·2채널 열거(label/envVar)·기본 마스킹·show-secrets 전체노출·
+    color 토글 2·JSON shape·configured 카운트·URL 미노출.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 117파일)→`pnpm test`
+  전 패키지 통과(**cli 352/1skip** notify render +9). **실제 빌드 CLI e2e**(mock 아님): 무채널→셋업 힌트,
+  Slack+webhook 2채널→마스킹 목록(`•••…9876`/`•••…1234` + env var), `--show-secrets`→전체 URL,
+  `--json`→URL 생략한 kind/label/envVar + configured:2, `notify --help`·`completion bash`에 `list` 등록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `notify list`에
+  webhook `AGENTRELAY_WEBHOOK_AUTH` 설정 여부 표기, exec/log 알림자(열린 PR #620/#610 병합 후) 채널 열거 확장.
+  README/ARCHITECTURE(🧭 코워크). PR 포화 축(watch/CV/parser/export-format)은 계속 지양.

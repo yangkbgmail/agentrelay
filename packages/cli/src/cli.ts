@@ -33,6 +33,7 @@ import {
   isCompletionShell,
   isJobScopeActive,
   JOB_CSV_COLUMNS,
+  listNotifyChannels,
   parseCsvColumns,
   parseDuration,
   renderPrometheusMetrics,
@@ -84,7 +85,12 @@ import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderEta, renderEtaJson } from "./eta.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
-import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
+import {
+  renderNotifyChannels,
+  renderNotifyChannelsJson,
+  renderTestNotifyResults,
+  renderTestNotifyResultsJson,
+} from "./notify.js";
 import { renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "./overdue.js";
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
@@ -1597,6 +1603,30 @@ export function buildCli(): Command {
     });
 
   const notify = program.command("notify").description("Inspect and test notification channels (Slack/webhook)");
+  notify
+    .command("list")
+    .description("List the configured notification channels as a static inventory (no delivery, no network)")
+    .option("--json", "Print the channel list as JSON (machine-readable, for scripts/CI)")
+    .option("--show-secrets", "Reveal masked destination URLs in the human-readable output")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # which channels are wired up?\n" +
+        "  agentrelay notify list\n" +
+        "  # count configured channels in a script\n" +
+        "  agentrelay notify list --json | jq '.configured'\n" +
+        "\nUse `agentrelay notify test` to actually deliver a payload to each channel."
+    )
+    .action((opts: { json?: boolean; showSecrets?: boolean }) => {
+      const channels = listNotifyChannels();
+      if (opts.json) {
+        console.log(renderNotifyChannelsJson(channels));
+      } else {
+        console.log(
+          renderNotifyChannels(channels, { color: Boolean(process.stdout.isTTY), showSecrets: opts.showSecrets })
+        );
+      }
+    });
   notify
     .command("test")
     .description("Send a test notification to every configured channel to verify delivery works end-to-end")
