@@ -810,6 +810,23 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay summary --watch` — 한눈 큐 개요를 라이브로 갱신(다음 리셋 카운트다운이 제자리에서
+      틱다운). 세션 67이 후속 후보로 명시한 항목 — `status`/`stats`/`tools`/`projects`/`upcoming`/`overdue`에는
+      `--watch`가 있는데 세션 67에 새로 생긴 `summary`에만 없던 watch 계열의 마지막 갭.
+      (완료 — CLI `summary.ts`에 순수 `renderSummaryWatchFrame(body, storePath, intervalMs, now)` 신설:
+      `stats`의 `renderStatsWatchFrame`와 동일한 title/meta 라이브 배너(`agentrelay summary (live, every Ns
+      — Ctrl-C to exit)` + 타임스탬프·스토어 경로)로 이미 렌더된 summary 본문을 감쌈. `now` 주입식이라
+      시계·TTY 없이 단위 테스트 가능. `cli.ts`에 `runSummaryWatch(store, intervalMs, scope, active)` —
+      매 프레임 `listStatus`로 스토어 재읽기(데몬 쓰기 자동 반영)·`scopeJobs`로 스코프 재적용·fresh `now`로
+      `renderSummary` 본문 조합(→ "next reset in" 카운트다운 live) 후 화면 clear+프레임 페인트, 다른 watch
+      루프와 동일한 `startWatchLoop` 공유. `summary`에 `-w, --watch [seconds]` 배선 — scope/시간창 검증을
+      **먼저** 통과시켜 잘못된 값은 watch 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프),
+      인터벌 기본 2s, 시간창 경계는 시작 시 고정 epoch-ms. 새 파서/스케줄러/core 로직 0줄 — 전부 기존
+      검증된 `summarizeJobs`/`scopeJobs`/`renderSummary` 재사용. cli summary +3케이스(배너 wrap·소수 인터벌
+      반올림·라이브 카운트다운), 실제 빌드 CLI e2e로 화면 clear·라이브 배너·1h30m 카운트다운·스코프 부분집합·
+      `--watch --tool nope` watch 전 exit 1·help/completion `--watch` 노출 검증. branch
+      `claude/wizardly-pascal-jxyjju`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

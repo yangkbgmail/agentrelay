@@ -2142,3 +2142,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay summary --watch` 라이브 개요] (2026-08-13, 무인 자율 세션, branch `claude/wizardly-pascal-jxyjju`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 67이 "다음 할 일"로 명시한 인접 후속을 골랐다 — 세션 67에서 새로
+  생긴 `summary` 명령이 watch 계열(`status`/`stats`/`tools`/`projects`/`upcoming`/`overdue`는 모두 `--watch`
+  보유) 중 유일하게 라이브 갱신이 없었다. "지금 큐가 뭘 하나"를 한두 줄로 답하는 개요일수록 제자리에서
+  카운트다운이 틱다운하는 라이브 뷰의 가치가 큰데, 그 마지막 갭이었다.
+- **한 일 (branch `claude/wizardly-pascal-jxyjju`):**
+  - CLI `summary.ts`에 순수 `renderSummaryWatchFrame(body, storePath, intervalMs, now)` 신설:
+    `stats`의 `renderStatsWatchFrame`와 동일한 title/meta 라이브 배너(`agentrelay summary (live, every Ns
+    — Ctrl-C to exit)` + 타임스탬프·스토어 경로)로 이미 렌더된 summary 본문을 감쌈. `now` 주입식이라
+    시계·TTY 없이 단위 테스트 가능.
+  - `cli.ts`에 `runSummaryWatch(store, intervalMs, scope, active)` 신설 — 매 프레임 `listStatus`로 스토어
+    재읽기(데몬 쓰기 자동 반영)·`scopeJobs`로 스코프 재적용·fresh `now`로 `renderSummary` 본문 조합(→
+    "next reset in" 카운트다운 live) 후 화면 clear+프레임 페인트, 다른 watch 루프와 동일한 `startWatchLoop`
+    공유. `summary`에 `-w, --watch [seconds]` 배선 — scope/시간창 검증을 **먼저** 통과시켜 잘못된 값은
+    watch 전에 exit 1, `--json`이 `--watch`보다 우선(일회성 기계 덤프), 인터벌 기본 2s, 시간창 경계는 시작
+    시 고정 epoch-ms. 새 파서/스케줄러/core 로직 0줄 — 전부 기존 검증된 `summarizeJobs`/`scopeJobs`/
+    `renderSummary` 재사용.
+  - `summary.test.ts`에 `renderSummaryWatchFrame` 3케이스(배너 wrap+본문 verbatim 포함·소수 인터벌 2.5s→
+    "3s" 반올림·라이브 카운트다운 1h30m).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 614** / **cli 346/1skip** summary +3=10 / dashboard 9). **실제 빌드 CLI e2e**(mock
+  아님): 3잡 임시 스토어로 `summary --watch`가 화면 clear 후 `agentrelay summary (live, every 5s …)` 라이브
+  배너·타임스탬프·스토어 경로 + `1 job · next reset in 1h 30m` 라이브 카운트다운 본문을 그리고, `--watch
+  --tool nope`가 watch 루프 진입 **전에** exit 1, `--project`/`--status`/`--json`/`--help`/`completion bash`
+  기존 동작 불변 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록 변동계수
+  (CV=stdev/mean)로 "해결 시간이 얼마나 안정적인가" 한 지표화, `summary`에 `--tool`/`--project` 롤업 한 줄
+  요약. tz/heatmap/parser/watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

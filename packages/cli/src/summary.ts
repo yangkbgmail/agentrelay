@@ -61,6 +61,28 @@ export function renderSummary(summary: QueueSummary, options: { now?: number; co
 }
 
 /**
+ * One frame of the live `agentrelay summary --watch` view: a title/header block
+ * (matching the shape of `status`/`stats`/`tools`/`projects --watch`) plus the
+ * already-rendered summary body. The loop composes `body` itself each pass with
+ * a fresh `now` so the "next reset in" countdown ticks down live, and this just
+ * wraps it in the live banner. Pure: `now` is injected, never read from an
+ * ambient clock.
+ */
+export function renderSummaryWatchFrame(
+  body: string,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now()
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay summary${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", body].join("\n");
+}
+
+/**
  * Machine-readable form for `--json` (scripts/jq). Carries the full
  * `QueueSummary` (total, per-status counts with every status zero-filled, and
  * the next reset) plus provenance for where the data came from and when.
