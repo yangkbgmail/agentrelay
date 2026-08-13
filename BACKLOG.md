@@ -824,6 +824,22 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 파서: `reset at 5pm (America/New_York)`의 명시 타임존 존중 — Claude Code가 실제로
+      출력하는 괄호 안 IANA 타임존을 무시하고 로컬 시간으로 해석하던 정확도 버그 수정.
+      (완료 — `clock-time`·`clock-time-meridiem` 패턴이 지금까지 "(America/New_York)"를 버리고
+      hour를 **머신 로컬 시간**으로 해석해, 사용자 머신 타임존이 다르면 리셋 시각이 몇 시간씩
+      어긋났다[코드 주석에도 "known limitation"으로 표기]. `parser.ts`에 순수 타임존 헬퍼 추가:
+      `zonedParts`(ICU `Intl.DateTimeFormat`로 존의 wall-clock 관측, 미지 존/ICU 부재는 null →
+      graceful degrade)·`zoneOffsetMinutes`·`zonedWallToUtc`(표준 2-pass 오프셋 보정으로 DST
+      경계도 정확)·`nextZonedClockInstant`(존 기준 오늘 날짜에 앵커, 이미 지났으면 익일 롤)·
+      `nextLocalClockInstant`(기존 로컬 동작)·`resolveClockReset`(존 있고 ICU 인식 시 존, 아니면
+      로컬 폴백). 두 클록 패턴 정규식에 optional `(존)` 캡처(`ZONE_SUFFIX`) 추가 — 존 없으면
+      m[zone] undefined로 기존과 동일한 로컬 동작(회귀 0). `Etc/GMT+5`·`Asia/Kolkata`(UTC+5:30
+      반시간 오프셋)까지 커버, `(local time)` 같은 비-IANA 괄호는 검증 실패 → 로컬 폴백.
+      parser.test에 6케이스(EDT 5pm→21:00Z·EST 5pm→22:00Z DST·Europe/London BST·Kolkata 반시간·
+      존 기준 익일 롤·비존 로컬 폴백) 추가, 실제 빌드 CLI `parse`로 e2e 검증. core 619 전 테스트
+      통과. branch `claude/parser-clock-timezone`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

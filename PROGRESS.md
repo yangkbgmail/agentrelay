@@ -2166,3 +2166,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — 파서: 클록 리셋의 명시 타임존 존중] (2026-08-13, 무인 자율 세션, branch `claude/parser-clock-timezone`)
+- **배경:** 세션 시작 시 남은 👷 미완 항목 0개(모든 미체크는 🧭 코워크 소유 문서/리서치), 열린 PR 30개가
+  stats·export·parser·watch·대시보드 등을 이미 점유. CLAUDE.md 지침대로 **새 개선 항목을 발굴**하되,
+  포화된 stats/watch 영역을 피하고 **핵심 가치 영역인 파서의 실제 정확도 버그**를 골랐다. 코드를 읽다가
+  `clock-time`·`clock-time-meridiem` 패턴이 Claude Code가 실제로 출력하는
+  `"Your limit will reset at 5pm (America/New_York)"`의 **괄호 안 타임존을 버리고 hour를 머신 로컬
+  시간으로 해석**하고 있음을 확인(코드 주석에도 "known limitation"으로 명시). 사용자 머신 타임존이
+  뉴욕과 다르면 리셋 시각이 몇 시간씩 어긋나 릴레이가 잘못된 순간에 재개된다.
+- **한 일 (branch `claude/parser-clock-timezone`):**
+  - `packages/core/src/parser.ts`에 순수 타임존 헬퍼 신설: `zonedParts`(ICU `Intl.DateTimeFormat`로
+    특정 존의 wall-clock 필드 관측, 미지 존·ICU 부재는 try/catch로 null → 호출자가 로컬로 graceful
+    degrade), `zoneOffsetMinutes`(존 wall−UTC 분), `zonedWallToUtc`(**표준 2-pass 오프셋 보정** — DST
+    전환에 걸린 리셋도 올바른 순간으로 해소, Date.UTC가 일/월 오버플로 정규화), `nextZonedClockInstant`
+    (**존 기준** 오늘 날짜에 앵커, 이미 지났으면 익일 롤), `nextLocalClockInstant`(기존 로컬 동작 추출),
+    `resolveClockReset`(존 있고 ICU 인식하면 존 사용, 아니면 로컬 폴백).
+  - 두 클록 패턴 정규식에 optional 괄호 존 캡처(`ZONE_SUFFIX`, IANA류 이름) 추가. 존 없으면 캡처
+    undefined → 기존과 **완전히 동일한 로컬 동작**(회귀 0). `Etc/GMT+5`·`Asia/Kolkata`(UTC+5:30 반시간
+    오프셋)까지 커버, `(local time)` 같은 비-IANA 괄호는 ICU 검증 실패 → 로컬 폴백.
+  - parser.test.ts에 6케이스 추가: EDT 5pm→21:00Z, EST(겨울 DST) 5pm→22:00Z, Europe/London BST 9:30am,
+    Asia/Kolkata 반시간 오프셋, 존 기준 익일 롤, 비-IANA 괄호 로컬 폴백. 기존 "5pm local" 단언 테스트는
+    이 버그 자체였으므로 정확한 UTC 순간 단언으로 교정. 다른 파서/패턴 테스트는 존 없어 무영향.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 619 · cli 345/1skip · dashboard 9**, parser 32→38). **실제 빌드 CLI e2e**(mock 아님):
+  `parse "…reset at 5pm (America/New_York)…" --json`이 오늘(EDT) 기준 `21:00:00.000Z`, 겨울(EST) 기준
+  `22:00:00.000Z` 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — clock-time에 UTC
+  offset 표기("(UTC+9)"/"(GMT-5)") 직접 인식, iso-timestamp 없는 상대 존 약어(PST/JST) 매핑은
+  모호성 때문에 보류. README/ARCHITECTURE(🧭 코워크).
