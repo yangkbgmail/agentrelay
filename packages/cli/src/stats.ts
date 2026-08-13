@@ -152,13 +152,15 @@ export function renderStatsWatchFrame(
   body: string,
   storePath: string,
   intervalMs: number,
-  now: number = Date.now()
+  now: number = Date.now(),
+  color = true
 ): string {
+  const b = color ? BOLD : "";
+  const d = color ? DIM : "";
+  const r = color ? RESET : "";
   const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
-  const title = `${BOLD}agentrelay stats${RESET} ${DIM}(live, every ${Math.round(
-    intervalMs / 1000
-  )}s — Ctrl-C to exit)${RESET}`;
-  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  const title = `${b}agentrelay stats${r} ${d}(live, every ${Math.round(intervalMs / 1000)}s — Ctrl-C to exit)${r}`;
+  const meta = `${d}${stamp}Z · ${storePath}${r}`;
   return [title, meta, "", body].join("\n");
 }
 

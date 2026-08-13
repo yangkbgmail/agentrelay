@@ -2142,3 +2142,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — NO_COLOR/FORCE_COLOR 환경변수 지원] (2026-08-13, 무인 자율 세션, branch `claude/wizardly-pascal-sq477h`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/경쟁조사/
+  샘플수집/성능분석)뿐. 열린 PR ~120개(summary/eta --watch, stats CV, parser 변형, search, tsv, man,
+  calendar 등)를 스캔해 **어떤 PR에도 없는 명확한 갭**을 골랐다 — 지금까지 색상은 오직 `Boolean(process.stdout
+  .isTTY)`로만 결정돼, 사실상 표준인 `NO_COLOR`(https://no-color.org/)도 `FORCE_COLOR`도 전혀 존중하지 않았다.
+  게다가 `stats --watch`와 5개 watch 프레임 렌더러는 파이프해도 `color: true`로 하드코딩된 결함이 있었다.
+- **한 일:**
+  - core `color.ts` 신설(순수·env 주입): `resolveColorPreference(env)`(FORCE_COLOR 우선 — `0`/`false`는 OFF,
+    그 외·빈값은 ON[supports-color 관례]; 다음 NO_COLOR 비어있지 않으면 OFF; 아니면 null=무의견) +
+    `shouldUseColor(env, isTTY)`(오버라이드 없으면 TTY 폴백). 빈 `NO_COLOR`는 미설정 취급(실수로 export된 빈
+    변수가 색을 조용히 끄는 footgun 방지). index.ts에서 재수출.
+  - CLI `cli.ts`에 `stdoutColor()` 헬퍼 신설 → 25개 `Boolean(process.stdout.isTTY)` 호출부를 전부 교체.
+    `stats --watch` 루프의 하드코딩 `color: true` 6곳 + status/upcoming/overdue/tools/projects/stats watch
+    프레임 렌더러(제목·메타 ANSI까지)에 `color` 파라미터를 배선 → `NO_COLOR`가 watch 뷰에서도 존중됨.
+  - 새 파서/스케줄러 로직 0줄. core `color.test.ts` +12(preference·shouldUseColor 전 분기).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 118파일)→`pnpm test`
+  전 패키지 통과(**core 626** color +12 / **cli 343**/1skip / dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  default(non-TTY)→무색·`FORCE_COLOR=1 status/summary`→ANSI 유색·`NO_COLOR=1`→무색·`NO_COLOR=1 FORCE_COLOR=1`
+  →FORCE 우선(유색)·`FORCE_COLOR=0`→무색·빈 `NO_COLOR`→미설정 취급 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — dashboard도 동일 관례 반영,
+  또는 `--color <auto|always|never>` 명시 플래그. tz/heatmap/parser/watch/summary·eta --watch·CV는 PR 포화라
+  지양. README/ARCHITECTURE(🧭 코워크).
