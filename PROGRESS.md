@@ -2090,6 +2090,29 @@
   요약에 median 외 p90/스프레드 노출, timing 블록에 변동계수(CV=stdev/mean) 등. tz/heatmap/parser/watch는
   PR 포화라 지양. 적체가 크면 신규 빌드보다 통합 우선(세션 60~64 기조). README/ARCHITECTURE(🧭 코워크).
 
+### [세션 68 — 파서: 상대 시간 앞 완곡 부사(hedge) 허용] (2026-08-13, 무인 자율 세션, branch `claude/parser-relative-approx`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유뿐. 열린 PR/브랜치가
+  극도로 포화(50+ PR, parser-relative-weeks·parser-try-again-at·word-qty·ratelimit-reset-header 등 파서
+  축도 다수 선점)라 **중복을 반드시 회피**해야 했다. 후보였던 "주(week) 단위"는 이미 `origin/claude/
+  parser-relative-weeks`에 동일 구현돼 있어 폐기. 대신 실제 파싱 실패를 재현해 **어떤 브랜치에도 없는 갭**을
+  확정: 기존 `relative-duration`은 "in" 바로 뒤에 숫자가 없으면 모든 그룹이 빈 매치→null이라,
+  "try again in about 2 hours"·"resets in approximately 30 minutes"·"retry in ~5m"처럼 어림수식(hedge)이
+  낀 실제 문구를 전부 놓쳤다(node 정규식으로 재현 확인). word-qty 브랜치는 어림'수량'(an hour)을 다뤄
+  이 어림'부사'와 상호 보완.
+- **한 일 (branch `claude/parser-relative-approx`):**
+  - `parser.ts` `relative-duration` 정규식 `\s+in\s+` 뒤에 선택적 비캡처 그룹
+    `(?:(?:about|approximately|approx\.?|around|roughly)\s+|~\s*)?` 삽입. **캡처 그룹 미추가**라 resolve
+    인덱스(d/h/m)·기존 동작·다른 패턴 전부 불변, 숫자가 여전히 authoritative(헤지는 폐기). 패턴 주석 갱신.
+  - `parser.test.ts` +6 회귀: about+시간·approximately+분·~+compact·around+복합(h·m)·approx.+마침표·
+    헤지만 있고 숫자 없으면 null(빈 매치가 now로 오해석되지 않음 보증).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 620**[parser 39] · cli 343/1skip · dashboard 9). 사전 node 정규식 harness로 10
+  긍정/2 부정 케이스 전수 PASS 확인 후 코드 반영.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 파서/watch/stats 축은 PR 포화라
+  신규는 지양하고, 적체 시 통합 우선(세션 60~66 기조). 후속 파서 갭 후보 — 어림수식과 별개로 아직
+  미커버인 소수 시간("1.5h" 등 decimal)·"in about a day" 워드+헤지 조합은 word-qty 병합 후 검토.
+  README/ARCHITECTURE(🧭 코워크).
+
 ### [세션 66 — 적체 통합: `verify`(#224) + 바운드 동시 재개(#201) 두 고유 기능 병합] (2026-08-09, 무인 자율 세션, branch `claude/wizardly-pascal-npqif6`)
 - **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
   경쟁조사/샘플수집/성능분석)뿐. 열린 PR을 스캔하니 여전히 100+ 적체(대부분 파서/watch/stats 축 중복).

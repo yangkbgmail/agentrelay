@@ -810,6 +810,18 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 파서 — 상대 시간 앞의 완곡 부사(hedge) 허용("try again in about 2 hours" / "resets in
+      approximately 30 minutes" / "retry in ~5m"). 자기 발굴 항목: 실제 에이전트/API가 대기 시간을
+      "about/approximately/around/roughly ~" 같은 어림수식과 함께 표기하는데, 기존 `relative-duration`
+      패턴은 "in" 바로 뒤에 숫자가 오지 않으면 모든 그룹이 빈 매치가 되어 null을 반환(파싱 실패)했다.
+      (완료 — `parser.ts`의 `relative-duration` 정규식 `\s+in\s+` 뒤에 선택적 비캡처 헤지 그룹
+      `(?:(?:about|approximately|approx\.?|around|roughly)\s+|~\s*)?`를 삽입. 캡처 그룹을 추가하지
+      않아 resolve 인덱스(d/h/m)·기존 동작 전부 불변, 숫자가 여전히 authoritative(헤지는 폐기). word-qty
+      패턴("in an hour")은 어림'수량'을, 이 변경은 어림'부사'를 다뤄 상호 보완. core parser.test +6
+      (about+시간/approximately+분/~+compact/around+복합h·m/approx.+마침표/헤지만 있고 숫자 없으면 null).
+      실제 build+test 통과(core 620·cli 343/1skip·dashboard 9), `biome ci` 0경고. branch
+      `claude/parser-relative-approx`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
