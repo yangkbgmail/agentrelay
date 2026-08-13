@@ -14,6 +14,7 @@ import type {
 import {
   ALL_TOOLS,
   buildOverdueReport,
+  buildStuckReport,
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
@@ -24,6 +25,7 @@ import {
   computeQueueEta,
   computeStats,
   computeWeekdayDistribution,
+  DEFAULT_STUCK_THRESHOLD_MS,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
   generateCompletion,
@@ -113,6 +115,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
+import { renderStuck, renderStuckJson } from "./stuck.js";
 import { renderSummary, renderSummaryJson } from "./summary.js";
 import { renderTools, renderToolsJson, renderToolsWatchFrame } from "./tools.js";
 import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
@@ -982,6 +985,88 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderOverdue(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
+    });
+
+  program
+    .command("stuck")
+    .description(
+      "Show jobs stranded in a transient state (queued/resuming) with no update for a while — a resume that died mid-flight"
+    )
+    .option("-n, --limit <n>", "Show at most N rows (the totals still count all stuck jobs)")
+    .option(
+      "--older-than <duration>",
+      "Only flag jobs untouched for at least this long (e.g. 15m, 1h, 30s) — default 15m",
+      "15m"
+    )
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # what got stranded mid-resume and never finished?\n" +
+        "  agentrelay stuck\n" +
+        "  # only flag jobs idle for more than an hour\n" +
+        "  agentrelay stuck --older-than 1h\n" +
+        "  # use as a CI/monitor gate (exits with rows only when something is stuck)\n" +
+        "  test -z \"$(agentrelay stuck --json | jq '.report.entries[]')\"\n" +
+        "\nUnlike `overdue` (a reset passed but nothing resumed), `stuck` catches the\n" +
+        "quieter failure: a resume was spawned but its process died before the daemon\n" +
+        "recorded an outcome. Inspect one with `agentrelay show <id>`."
+    )
+    .action((opts: ScopeOpts & { limit?: string; olderThan?: string; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      let thresholdMs = DEFAULT_STUCK_THRESHOLD_MS;
+      if (opts.olderThan !== undefined) {
+        const ms = parseDuration(opts.olderThan);
+        if (ms === null || ms < 0) {
+          console.error(`Invalid --older-than value "${opts.olderThan}". Use a duration like 15m, 1h, or 30s.`);
+          process.exitCode = 1;
+          return;
+        }
+        thresholdMs = ms;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const scopeNote = built.active ? built.note : undefined;
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const report = buildStuckReport(jobs, now, { thresholdMs, limit });
+
+      if (opts.json) {
+        console.log(
+          renderStuckJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            report,
+          })
+        );
+        return;
+      }
+      console.log(renderStuck(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
     });
 
   program

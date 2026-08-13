@@ -2142,3 +2142,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay stuck` 중단(stranded) 잡 진단 명령] (2026-08-13, 무인 자율 세션, branch `claude/stuck-jobs-diagnostic`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR 50개(summary/eta --watch·parser·stats CV·overdue 등)가 이미 포화된
+  축을 피해, **어떤 열린 PR에도 없는 명확한 갭**을 골랐다 — `overdue`는 `waiting_for_reset` 잡(리셋이 지났는데
+  재개 안 됨)만 본다. 하지만 `resuming` 상태에서 프로세스가 죽어(크래시·kill·전원차단) 데몬이 completed/failed를
+  기록하기 전에 남은 **반쯤 재개된 고아 레코드**, 또는 `queued`에 방치된 잡은 어떤 명령도 표면화하지 못했다.
+  이 조용한 실패 모드가 `overdue`로는 구조적으로 안 보인다(과거의 `resetAt`가 없어 키가 잡히지 않음).
+- **한 일 (branch `claude/stuck-jobs-diagnostic`):**
+  - core `stuck.ts` 신설: `TRANSIENT_STATUSES`(queued/resuming — 건강한 릴레이가 초~수분만 스쳐가는 in-flight
+    상태)·`DEFAULT_STUCK_THRESHOLD_MS`(15m)·`buildStuckReport(jobs, now, {thresholdMs,limit,statuses})`.
+    `now − updatedAt > threshold`인 transient 잡만 idle 내림차순으로(createdAt→id tie-break) 랭크. resting
+    상태(waiting_for_reset·completed·failed·cancelled)는 아무리 오래돼도 제외. 순수 함수(clock·I/O·spawn 없이
+    단위 테스트 가능), `overdue.ts`의 구조를 그대로 미러.
+  - CLI `stuck.ts`(`renderStuck`/`renderStuckJson`): ID·PROJECT·STATUS·IDLE·LAST UPDATE 테이블 + 총계/threshold/
+    hidden 푸터 + 복구 힌트(`show`/`retry`/`cancel`). `cli.ts`에 `agentrelay stuck [--older-than <dur>] [-n/--limit]
+    [-t/-p/--since/--until] [--json]` 배선. 다른 진단 명령과 동일한 `buildScope`/`scopeJobs` 스코프 재사용,
+    잘못된 값은 exit 1. completion은 program에서 자동 파생.
+  - core `stuck.test.ts` 12케이스 + cli `stuck.test.ts` 7케이스(빈 리포트·transient만 플래그·resting 제외·
+    랭킹/tie-break·custom threshold·fallback·limit/hidden·unparseable updatedAt·status override·렌더/JSON).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm lint:fix`+`pnpm ci:lint`(Biome 0에러, 120파일)→
+  `pnpm test` 전 패키지 통과(**core 626** stuck +12 / **cli 350/1skip** stuck +7 / dashboard 9). **실제 빌드 CLI
+  e2e**(mock 아님): 5잡 임시 스토어(resuming 2h·queued 40m·resuming 1m·waiting·completed)로 `stuck`이 앞의 둘만
+  플래그(fresh/waiting/completed 정확히 제외), `--older-than 1h`가 2h짜리만, `--project web --limit 1`이 스코프+
+  트림, `--json`이 머신 출력, 잘못된 `--older-than`이 exit 1, `completion bash`·`--help`에 등록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stuck --watch` 라이브 갱신,
+  `doctor`에 stuck 카운트 편입. tz/heatmap/parser/watch/summary·eta --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
