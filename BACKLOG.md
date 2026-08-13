@@ -824,6 +824,21 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay wait --all` — 단일 잡이 아니라 큐 전체가 드레인(모든 활성 잡이 종료 상태 도달)될
+      때까지 블록 후, 가장 나쁜 결과를 exit code로 반환. 여러 `run`을 팬아웃한 뒤 릴레이가 전부
+      끝내는 걸 CI/스크립트에서 게이트로 삼는 흔한 패턴(`wait <id>`는 잡 하나만 따라감)의 빈틈을 메움.
+      (완료 — core `wait.ts`에 순수 `evaluateWaitAll(jobs)` + `WaitAllVerdict` 신설: 활성 잡이 하나라도
+      남아 있으면 `done:false`(+`remaining` 카운트), 전부 종료면 **최악 우선** 집계(any failed→failed,
+      else any cancelled→cancelled, else completed)로 `done:true`. 빈 큐는 공허하게 드레인된 것으로
+      보아 completed. exit code는 기존 `WAIT_EXIT_CODES` 재사용(0/1/2/124). CLI `commands.ts`에
+      `waitForAll`(스토어를 매 폴 재오픈해 별도 daemon/tick의 쓰기를 관측, clock/sleeper/reader 주입
+      가능한 I/O 루프 — 순수 판정은 core 위임), `wait.ts`에 `renderWaitAllJson`(큐 레벨 aggregate JSON).
+      `wait` 커맨드의 `<id>`를 `[id]`로 만들고 `--all` 플래그 추가 — id와 --all 상호배타(둘 다/둘 다
+      아님은 exit 1), `--timeout`/`--interval`/`--json`/`-q`는 단일 잡 경로와 동일. core wait +6 +
+      cli waitForAll/renderWaitAllJson +4 신규 테스트. 실제 빌드 CLI e2e로 실패 포함 드레인→exit 1·
+      전부 완료→0·빈 큐→0·활성+timeout→124·상호배타 에러→1 검증. branch
+      `claude/wizardly-pascal-gep265`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
