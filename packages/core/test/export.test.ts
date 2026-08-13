@@ -15,7 +15,9 @@ import {
   jobsToJson,
   jobsToMarkdown,
   jobsToNdjson,
+  jobsToYaml,
   parseCsvColumns,
+  yamlQuoteString,
 } from "../src/export.js";
 import type { RelayJob } from "../src/types.js";
 
@@ -314,6 +316,11 @@ describe("exportJobs", () => {
     expect(exportJobs(jobs, "html")).toBe(jobsToHtml(jobs));
   });
 
+  it("dispatches to YAML", () => {
+    const jobs = [job({ id: "d" }), job({ id: "e" })];
+    expect(exportJobs(jobs, "yaml")).toBe(jobsToYaml(jobs));
+  });
+
   it("passes the column subset through to HTML", () => {
     const jobs = [job({ id: "d", status: "queued" })];
     const columns = ["status", "id"] as const;
@@ -321,7 +328,102 @@ describe("exportJobs", () => {
   });
 
   it("exposes the supported formats", () => {
-    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md", "ndjson", "html"]);
+    expect(EXPORT_FORMATS).toEqual(["csv", "json", "md", "ndjson", "html", "yaml"]);
+  });
+});
+
+describe("yamlQuoteString", () => {
+  it("wraps plain strings in double quotes", () => {
+    expect(yamlQuoteString("hello")).toBe('"hello"');
+    expect(yamlQuoteString("")).toBe('""');
+  });
+
+  it("keeps YAML-special characters safe inside the quotes", () => {
+    // A colon-space, a leading dash, and a '#' would all be special in a plain
+    // scalar, but are harmless once double-quoted.
+    expect(yamlQuoteString("a: b, c # d")).toBe('"a: b, c # d"');
+    expect(yamlQuoteString("- item")).toBe('"- item"');
+  });
+
+  it("escapes embedded double quotes and backslashes", () => {
+    expect(yamlQuoteString('say "hi"')).toBe('"say \\"hi\\""');
+    expect(yamlQuoteString("a\\b")).toBe('"a\\\\b"');
+  });
+
+  it("escapes newlines, tabs, and carriage returns", () => {
+    expect(yamlQuoteString("line1\nline2")).toBe('"line1\\nline2"');
+    expect(yamlQuoteString("a\tb")).toBe('"a\\tb"');
+    expect(yamlQuoteString("a\r\nb")).toBe('"a\\r\\nb"');
+  });
+
+  it("escapes other control characters as \\xNN and leaves UTF-8 verbatim", () => {
+    expect(yamlQuoteString("ab")).toBe('"a\\x01b"');
+    expect(yamlQuoteString("café ☕")).toBe('"café ☕"');
+  });
+});
+
+describe("jobsToYaml", () => {
+  it("emits a block sequence of job mappings with the nested command array", () => {
+    const out = jobsToYaml([job({ id: "a" })]);
+    expect(out).toBe(
+      [
+        '- id: "a"',
+        '  project: "proj"',
+        '  tool: "claude-code"',
+        "  command:",
+        '    - "claude"',
+        '    - "-p"',
+        '    - "go"',
+        '  cwd: "/tmp"',
+        '  status: "completed"',
+        "  resetAt: null",
+        '  createdAt: "2026-07-13T00:00:00.000Z"',
+        '  updatedAt: "2026-07-13T01:00:00.000Z"',
+        "  attempts: 1",
+        "  lastError: null",
+        "  lastOutputTail: null",
+      ].join("\n")
+    );
+  });
+
+  it("emits null for missing resetAt and a bare number for attempts", () => {
+    const out = jobsToYaml([job({ resetAt: "2026-07-13T05:00:00.000Z", attempts: 3 })]);
+    expect(out).toContain('  resetAt: "2026-07-13T05:00:00.000Z"');
+    expect(out).toContain("  attempts: 3");
+  });
+
+  it("keeps a newline-bearing lastError on a single line (LF is escaped)", () => {
+    const out = jobsToYaml([job({ id: "a", lastError: "boom\nagain" })]);
+    expect(out).toContain('  lastError: "boom\\nagain"');
+    // The escaped newline must not split the record into an extra physical line.
+    expect(out.split("\n").filter((l) => l.includes("lastError"))).toHaveLength(1);
+  });
+
+  it("renders the nested lastRateLimit provenance object as an indented mapping", () => {
+    const out = jobsToYaml([
+      job({
+        id: "a",
+        lastRateLimit: {
+          pattern: "clock-time",
+          rawMatch: "resets at 5pm",
+          resetAt: "2026-07-13T05:00:00.000Z",
+          detectedAt: "2026-07-13T00:00:00.000Z",
+        },
+      }),
+    ]);
+    expect(out).toContain("  lastRateLimit:");
+    expect(out).toContain('    pattern: "clock-time"');
+    expect(out).toContain('    rawMatch: "resets at 5pm"');
+  });
+
+  it("concatenates multiple jobs, each starting a new sequence item", () => {
+    const out = jobsToYaml([job({ id: "a" }), job({ id: "b" })]);
+    const itemLines = out.split("\n").filter((l) => l.startsWith("- "));
+    expect(itemLines).toEqual(['- id: "a"', '- id: "b"']);
+  });
+
+  it("yields [] for an empty job list", () => {
+    expect(jobsToYaml([])).toBe("[]");
   });
 });
 

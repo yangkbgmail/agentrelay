@@ -810,6 +810,23 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay export --format yaml` — 잡 이력을 사람이 읽고 손 편집하기 좋은 YAML로 내보내기.
+      JSON/NDJSON처럼 무손실이지만(전체 `RelayJob` 형태 보존) 밀도 높은 JSON보다 훨씬 읽기 쉬운
+      블록 시퀀스. 자기 발굴 항목(열린 PR 중 새 export 포맷은 tsv뿐 — YAML은 빈 갭).
+      (완료 — core `export.ts`에 순수 `jobsToYaml(jobs)` + `yamlQuoteString(value)` 신설. YAML을
+      무손실 계열(json/ndjson)에 편입 — CSV/MD/HTML의 컬럼 평면화가 아니라 중첩 `command` 배열과
+      세션 38의 `lastRateLimit` 프로버넌스 객체까지 그대로 보존. 값 문자열은 전부 **YAML 이중따옴표
+      스칼라**로 방출해 plain 스칼라 특수케이스(선행 `-`/`?`, `true`/`null`/숫자로 보이는 값, 내부
+      `: `/` #`, 콜론·쉼표)와 절대 충돌 안 함 → `keep going: a, b` 같은 명령/에러가 정확 왕복.
+      제어문자(에러 tail의 개행 포함)는 `\n`/`\t`/`\r`/`\xNN` 이스케이프, 출력 가능 UTF-8은 verbatim.
+      제네릭 재귀 이미터(스칼라/배열/중첩객체·빈 배열 `[]`·빈 객체 `{}`)라 필드 추가에도 무손실 유지,
+      빈 스토어는 `[]`. `EXPORT_FORMATS`에 `yaml` 등록해 CLI `-f yaml` 자동 배선(설명 갱신) + `--out`
+      파일 저장. YAML은 컬럼-비인식이라 `COLUMN_AWARE_FORMATS`에 넣지 않아 `--columns yaml`은 기존
+      가드가 exit 1(메시지에 yaml 명시). 새 스케줄러/파서 로직 0줄. core export.test +12(yamlQuoteString
+      escaping 5 + jobsToYaml 6 + dispatch 1) + cli export.test +3(블록 시퀀스·파일 출력·빈 스토어),
+      실제 빌드 CLI e2e로 중첩 command/lastRateLimit 렌더·콜론쉼표 값 안전 인용·`[]`·`--columns` 거부
+      확인 + **pyyaml 실파서로 개행/콜론/탭 포함 값 무손실 왕복 검증**. branch `claude/wizardly-pascal-jn46bd`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

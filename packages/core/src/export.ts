@@ -293,8 +293,140 @@ export function jobsToHtml(jobs: RelayJob[], options: HtmlOptions = {}): string 
   ].join("\n");
 }
 
+/**
+ * A JSON-like value — what a serialized {@link RelayJob} (and its nested
+ * `command` array / `lastRateLimit` object) decomposes into. Used by the YAML
+ * emitter to walk the job shape generically, so it stays lossless as new fields
+ * are added without the serializer needing to know about them.
+ */
+type YamlValue = string | number | boolean | null | YamlValue[] | { [key: string]: YamlValue };
+
+function isYamlScalar(value: YamlValue): value is string | number | boolean | null {
+  return value === null || typeof value !== "object";
+}
+
+/**
+ * Quote a string as a YAML double-quoted scalar with C-style escapes. Double
+ * quoting is the one YAML style that is always unambiguous — it never collides
+ * with YAML's plain-scalar special cases (leading `-`/`?`/`:`, values that look
+ * like `true`/`null`/numbers, embedded `: `/` #`, etc.) — so command lines and
+ * multi-line `lastError`/`lastOutputTail` values round-trip exactly. Control
+ * characters (including the newlines in an error tail) become `\n`/`\t`/`\xNN`
+ * escapes; everything printable (UTF-8 included) is emitted verbatim.
+ */
+export function yamlQuoteString(value: string): string {
+  let out = '"';
+  for (const ch of value) {
+    switch (ch) {
+      case '"':
+        out += '\\"';
+        break;
+      case "\\":
+        out += "\\\\";
+        break;
+      case "\n":
+        out += "\\n";
+        break;
+      case "\t":
+        out += "\\t";
+        break;
+      case "\r":
+        out += "\\r";
+        break;
+      default: {
+        const code = ch.codePointAt(0) ?? 0;
+        out += code < 0x20 ? `\\x${code.toString(16).padStart(2, "0")}` : ch;
+      }
+    }
+  }
+  return `${out}"`;
+}
+
+/** Render a scalar (string/number/boolean/null) as its inline YAML token. */
+function yamlScalarToken(value: string | number | boolean | null): string {
+  if (value === null) return "null";
+  if (typeof value === "boolean") return value ? "true" : "false";
+  // JSON (and thus a serialized RelayJob) has no NaN/Infinity, but guard anyway.
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "null";
+  return yamlQuoteString(value);
+}
+
+/**
+ * Emit a container (object or array) as block-style YAML lines at `indent`.
+ * Nested containers recurse one level deeper. Only reached for values already
+ * known to be non-empty containers.
+ */
+function emitYamlContainer(value: YamlValue[] | { [key: string]: YamlValue }, indent: string, lines: string[]): void {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (isYamlScalar(item)) {
+        lines.push(`${indent}- ${yamlScalarToken(item)}`);
+      } else if (Array.isArray(item) ? item.length === 0 : Object.keys(item).length === 0) {
+        lines.push(`${indent}- ${Array.isArray(item) ? "[]" : "{}"}`);
+      } else {
+        // Non-empty container item: dash on its own line, contents indented under it.
+        lines.push(`${indent}-`);
+        emitYamlContainer(item, `${indent}  `, lines);
+      }
+    }
+    return;
+  }
+  for (const [key, v] of Object.entries(value)) {
+    if (v === undefined) continue; // mirror JSON.stringify, which drops undefined
+    emitYamlKeyed(key, v, indent, lines);
+  }
+}
+
+/** Emit a single `key: value` line (and any block continuation for containers). */
+function emitYamlKeyed(key: string, v: YamlValue, indent: string, lines: string[]): void {
+  if (isYamlScalar(v)) {
+    lines.push(`${indent}${key}: ${yamlScalarToken(v)}`);
+    return;
+  }
+  const empty = Array.isArray(v) ? v.length === 0 : Object.keys(v).length === 0;
+  if (empty) {
+    lines.push(`${indent}${key}: ${Array.isArray(v) ? "[]" : "{}"}`);
+    return;
+  }
+  lines.push(`${indent}${key}:`);
+  emitYamlContainer(v, `${indent}  `, lines);
+}
+
+/**
+ * Serialize jobs to YAML — the human-friendliest of the lossless exports.
+ * Where CSV/Markdown/HTML flatten to a column view and JSON/NDJSON are exact
+ * but dense, YAML preserves the full {@link RelayJob} shape (nested `command`
+ * array and `lastRateLimit` provenance included) while staying easy to read and
+ * hand-edit. Emitted as a block sequence of job mappings with all string values
+ * double-quoted, so it round-trips through any YAML parser back to the same data
+ * (YAML is a JSON superset). An empty job list yields `[]`.
+ */
+export function jobsToYaml(jobs: RelayJob[]): string {
+  if (jobs.length === 0) return "[]";
+  const lines: string[] = [];
+  for (const job of jobs) {
+    const entries = Object.entries(job as unknown as { [key: string]: YamlValue }).filter(([, v]) => v !== undefined);
+    entries.forEach(([key, v], index) => {
+      // First key sits on the `- ` line; the rest align two columns in under it.
+      if (index === 0) {
+        if (isYamlScalar(v)) {
+          lines.push(`- ${key}: ${yamlScalarToken(v)}`);
+        } else if (Array.isArray(v) ? v.length === 0 : Object.keys(v).length === 0) {
+          lines.push(`- ${key}: ${Array.isArray(v) ? "[]" : "{}"}`);
+        } else {
+          lines.push(`- ${key}:`);
+          emitYamlContainer(v, "    ", lines);
+        }
+      } else {
+        emitYamlKeyed(key, v, "  ", lines);
+      }
+    });
+  }
+  return lines.join("\n");
+}
+
 /** Supported export formats. */
-export const EXPORT_FORMATS = ["csv", "json", "md", "ndjson", "html"] as const;
+export const EXPORT_FORMATS = ["csv", "json", "md", "ndjson", "html", "yaml"] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 /** Dispatch to the right serializer for the given format. */
@@ -308,6 +440,8 @@ export function exportJobs(jobs: RelayJob[], format: ExportFormat, options: CsvO
       return jobsToNdjson(jobs);
     case "html":
       return jobsToHtml(jobs, options);
+    case "yaml":
+      return jobsToYaml(jobs);
     default:
       return jobsToCsv(jobs, options);
   }
