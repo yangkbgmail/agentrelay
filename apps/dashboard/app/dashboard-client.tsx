@@ -1,10 +1,14 @@
 "use client";
 
 import type { HeartbeatStatus, JobStatus, ProjectBreakdown, RelayJob, ToolBreakdown } from "@agentrelay/core";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
+import { describeFilter, filterJobsByStatus, isFilterActive, toggleStatus } from "../lib/filter";
 import type { JobsSnapshot } from "../lib/jobs";
 
 const POLL_INTERVAL_MS = 3000;
+
+/** Left-to-right order for describing an active multi-status filter. */
+const STATUS_ORDER: JobStatus[] = ["queued", "waiting_for_reset", "resuming", "completed", "failed", "cancelled"];
 
 const STATUS_META: Record<JobStatus, { label: string; colorVar: string }> = {
   queued: { label: "Queued", colorVar: "var(--ink-muted)" },
@@ -14,6 +18,10 @@ const STATUS_META: Record<JobStatus, { label: string; colorVar: string }> = {
   failed: { label: "Failed", colorVar: "var(--status-critical)" },
   cancelled: { label: "Cancelled", colorVar: "var(--ink-muted)" },
 };
+
+const STATUS_LABELS = Object.fromEntries(
+  (Object.keys(STATUS_META) as JobStatus[]).map((status) => [status, STATUS_META[status].label])
+) as Record<JobStatus, string>;
 
 function formatCountdown(resetAt: string | null, now: number): string {
   if (!resetAt) return "—";
@@ -184,6 +192,44 @@ function StatusBadge({ status }: { status: JobStatus }) {
   );
 }
 
+/**
+ * A summary tile that doubles as a status filter toggle. Clicking it toggles
+ * whether the job list is filtered to `status`; `pressed` drives the active
+ * styling and `aria-pressed` for assistive tech. `sub` renders optional
+ * secondary text (e.g. the next-reset countdown).
+ */
+function FilterTile({
+  status,
+  value,
+  pressed,
+  onToggle,
+  sub,
+}: {
+  status: JobStatus;
+  value: number | string;
+  pressed: boolean;
+  onToggle: (status: JobStatus) => void;
+  sub?: ReactNode;
+}) {
+  const meta = STATUS_META[status];
+  return (
+    <button
+      type="button"
+      className={`tile tile-toggle${pressed ? " is-active" : ""}`}
+      aria-pressed={pressed}
+      onClick={() => onToggle(status)}
+      title={pressed ? `Showing only ${meta.label} — click to clear` : `Filter to ${meta.label}`}
+    >
+      <div className="label">
+        <span className="dot" style={{ background: meta.colorVar }} aria-hidden />
+        {meta.label}
+      </div>
+      <div className="value numeric">{value}</div>
+      {sub !== undefined && <div className="sub">{sub}</div>}
+    </button>
+  );
+}
+
 function JobRow({ job, now }: { job: RelayJob; now: number }) {
   const tail = job.lastError ?? job.lastOutputTail;
   return (
@@ -217,6 +263,10 @@ export default function DashboardClient() {
   const [snapshot, setSnapshot] = useState<JobsSnapshot | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [statusFilter, setStatusFilter] = useState<Set<JobStatus>>(() => new Set());
+
+  const toggleStatusFilter = (status: JobStatus) => setStatusFilter((prev) => toggleStatus(prev, status));
+  const clearStatusFilter = () => setStatusFilter(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -250,6 +300,9 @@ export default function DashboardClient() {
   const projectRows = (snapshot?.projects.projects ?? []).map(projectRow);
   const toolRows = (snapshot?.tools.tools ?? []).map(toolRow);
   const hasRollup = projectRows.length > 0 || toolRows.length > 0;
+  const filtering = isFilterActive(statusFilter);
+  const visibleJobs = filterJobsByStatus(jobs, statusFilter);
+  const filterLabel = describeFilter(statusFilter, STATUS_LABELS, STATUS_ORDER);
 
   return (
     <>
@@ -266,42 +319,47 @@ export default function DashboardClient() {
 
       <ResumeLoopCard heartbeat={snapshot?.heartbeat} />
 
-      <section className="tile-row" aria-label="Queue summary">
-        <div className="tile">
-          <div className="label">
-            <span className="dot" style={{ background: "var(--status-warning)" }} aria-hidden />
-            Waiting for reset
-          </div>
-          <div className="value numeric">{summary?.byStatus.waiting_for_reset ?? "–"}</div>
-          <div className="sub">
-            next reset in <span className="numeric">{formatCountdown(summary?.nextResetAt ?? null, now)}</span>
-          </div>
-        </div>
-        <div className="tile">
-          <div className="label">
-            <span className="dot" style={{ background: "var(--accent-running)" }} aria-hidden />
-            Resuming
-          </div>
-          <div className="value numeric">{summary?.byStatus.resuming ?? "–"}</div>
-        </div>
-        <div className="tile">
-          <div className="label">
-            <span className="dot" style={{ background: "var(--status-good)" }} aria-hidden />
-            Completed
-          </div>
-          <div className="value numeric">{summary?.byStatus.completed ?? "–"}</div>
-        </div>
-        <div className="tile">
-          <div className="label">
-            <span className="dot" style={{ background: "var(--status-critical)" }} aria-hidden />
-            Failed
-          </div>
-          <div className="value numeric">{summary?.byStatus.failed ?? "–"}</div>
-        </div>
-        <div className="tile">
-          <div className="label">Total jobs</div>
+      <section className="tile-row" aria-label="Queue summary — click a status to filter the job list">
+        <FilterTile
+          status="waiting_for_reset"
+          value={summary?.byStatus.waiting_for_reset ?? "–"}
+          pressed={statusFilter.has("waiting_for_reset")}
+          onToggle={toggleStatusFilter}
+          sub={
+            <>
+              next reset in <span className="numeric">{formatCountdown(summary?.nextResetAt ?? null, now)}</span>
+            </>
+          }
+        />
+        <FilterTile
+          status="resuming"
+          value={summary?.byStatus.resuming ?? "–"}
+          pressed={statusFilter.has("resuming")}
+          onToggle={toggleStatusFilter}
+        />
+        <FilterTile
+          status="completed"
+          value={summary?.byStatus.completed ?? "–"}
+          pressed={statusFilter.has("completed")}
+          onToggle={toggleStatusFilter}
+        />
+        <FilterTile
+          status="failed"
+          value={summary?.byStatus.failed ?? "–"}
+          pressed={statusFilter.has("failed")}
+          onToggle={toggleStatusFilter}
+        />
+        <button
+          type="button"
+          className={`tile tile-toggle${filtering ? "" : " is-active"}`}
+          aria-pressed={!filtering}
+          onClick={clearStatusFilter}
+          title={filtering ? "Clear the status filter — show all jobs" : "Showing all jobs"}
+        >
+          <div className="label">All jobs</div>
           <div className="value numeric">{summary?.total ?? "–"}</div>
-        </div>
+          {filtering && <div className="sub">click to clear filter</div>}
+        </button>
       </section>
 
       {hasRollup && (
@@ -312,12 +370,33 @@ export default function DashboardClient() {
       )}
 
       <section className="jobs-card" aria-label="Job list">
+        {filtering && jobs.length > 0 && (
+          <div className="filter-note">
+            <span>
+              Showing <span className="numeric">{visibleJobs.length}</span> of{" "}
+              <span className="numeric">{jobs.length}</span> · filtered to <strong>{filterLabel}</strong>
+            </span>
+            <button type="button" className="filter-clear" onClick={clearStatusFilter}>
+              Show all
+            </button>
+          </div>
+        )}
         {jobs.length === 0 ? (
           <div className="empty">
             <p>No jobs yet.</p>
             <p>
               Wrap an agent call with <code>agentrelay run -- claude -p &quot;...&quot;</code> — when it hits a rate
               limit, the job shows up here and resumes automatically.
+            </p>
+          </div>
+        ) : visibleJobs.length === 0 ? (
+          <div className="empty">
+            <p>No {filterLabel} jobs.</p>
+            <p>
+              Nothing in the queue matches this filter.{" "}
+              <button type="button" className="filter-clear inline" onClick={clearStatusFilter}>
+                Show all jobs
+              </button>
             </p>
           </div>
         ) : (
@@ -334,7 +413,7 @@ export default function DashboardClient() {
               </tr>
             </thead>
             <tbody>
-              {jobs.map((job) => (
+              {visibleJobs.map((job) => (
                 <JobRow key={job.id} job={job} now={now} />
               ))}
             </tbody>

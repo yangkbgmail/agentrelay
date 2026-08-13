@@ -2142,3 +2142,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — 대시보드 job 리스트 상태 필터(클릭형 요약 타일)] (2026-08-13, 무인 자율 세션, branch `claude/wizardly-pascal-1oassg`)
+- **배경:** BACKLOG의 👷 순수 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR이 100+개로 CLI/파서/stats 축이 극도로 포화(summary --watch·
+  eta --watch·CV=stdev/mean 등 동일 기능이 5~6중복). 그래서 상대적으로 미포화인 **대시보드** 표면에서
+  명확한 갭을 골랐다 — CLI엔 `status/stats/export --status` 등 풍부한 상태 필터가 있는데, 대시보드 job
+  리스트는 항상 **모든** job을 렌더해 종료 job이 수십 개 쌓이면 사실상 못 쓴다. 어떤 열린 PR에도 없는 기능.
+- **한 일 (branch `claude/wizardly-pascal-1oassg`):**
+  - `apps/dashboard/lib/filter.ts` 신설(순수·프레임워크 무관, node vitest에서 테스트 가능): `filterJobsByStatus`
+    (빈 set=무필터→원본 그대로 반환, 비어있지 않으면 선택 상태 OR 필터·순서보존)·`toggleStatus`(불변, 새 Set
+    반환 → React state에 안전)·`isFilterActive`·`describeFilter`(고정 순서 라벨 문장, Set 반복순서에 안 흔들림).
+  - `dashboard-client.tsx`: 요약 타일 4개(waiting/resuming/completed/failed)를 클릭형 `FilterTile`(button,
+    `aria-pressed`)로 전환해 클릭 시 job 리스트를 해당 상태로 토글 필터(다중 선택=OR). "All jobs" 타일은
+    필터 클리어 버튼. 필터 활성 시 리스트 상단에 "Showing N of M · filtered to …" 노트 + "Show all", 필터가
+    스토어 전체를 걸러내면 온보딩 문구 대신 "No <상태> jobs" 빈 상태 + 클리어 링크. `globals.css`에
+    `.tile-toggle`(버튼 리셋·hover·focus-visible·is-active 강조)·`.filter-note`·`.filter-clear` 추가.
+  - `apps/dashboard/test/filter.test.ts` 8케이스(빈 set 원본 반환·단일/다중 OR·무매칭·불변·toggle 추가/제거/
+    불변·isFilterActive·describeFilter 순서).
+- **검증:** `pnpm install`→`pnpm build`(Next 타입체크 포함 클린)→`pnpm ci:lint`(Biome 0에러, 118파일)→
+  `pnpm test` 전 패키지 통과(**core 614·cli 343/1skip·dashboard 21**[jobs 13+filter 8]). **실제 빌드 대시보드
+  e2e**(Playwright·mock 아님): 3잡 임시 스토어(failed/completed/waiting)로 `next start` 후 초기 3행 →
+  "Failed" 타일 클릭 시 1행·aria-pressed=true·"Showing 1 of 3 · filtered to Failed" → "+Completed" 다중선택
+  2행(OR) → "All jobs" 클리어 3행·노트 제거 → "Resuming"(무매칭) 시 "No Resuming jobs" 빈 상태 렌더 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드 프로젝트/툴
+  롤업 행 클릭 필터, job 리스트 텍스트 검색, 폴링 간격 토글. CLI 축(watch/stats/parser)은 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).

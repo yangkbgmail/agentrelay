@@ -810,6 +810,17 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 대시보드 job 리스트 상태 필터 — 큐가 커지면 대시보드가 항상 모든 job을 렌더해 사실상 못 쓰던
+      갭. CLI엔 `status/stats/export --status` 필터가 있는데 대시보드엔 없었다(자기 발굴 항목).
+      (완료 — `apps/dashboard/lib/filter.ts` 순수 모듈(`filterJobsByStatus`[빈 set=무필터·비어있지 않으면
+      선택 상태 OR]·`toggleStatus`[불변]·`isFilterActive`·`describeFilter`[고정 순서 라벨]) 신설, node
+      vitest에서 테스트. `dashboard-client.tsx`가 요약 타일 4개(waiting/resuming/completed/failed)를
+      클릭형 `FilterTile`(button·aria-pressed)로 전환해 job 리스트를 토글 필터(다중=OR), "All jobs" 타일=
+      클리어, 필터 활성 시 "Showing N of M · filtered to …" 노트+Show all, 무매칭이면 "No <상태> jobs" 빈
+      상태. `globals.css`에 `.tile-toggle`/`.filter-note`/`.filter-clear`. filter.test.ts 8케이스 + 실제
+      빌드 대시보드 Playwright e2e(초기 3행→Failed 1행→+Completed 2행 OR→클리어 3행→Resuming 무매칭 빈상태)
+      검증. branch `claude/wizardly-pascal-1oassg`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
