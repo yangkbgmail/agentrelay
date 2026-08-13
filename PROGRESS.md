@@ -2142,3 +2142,34 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — 재개 워치독 `AGENTRELAY_RESUME_TIMEOUT`] (2026-08-13, 무인 자율 세션, branch `claude/resume-timeout`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유뿐. 열린 PR이 포화된
+  축(summary/eta --watch, stats CV, 파서 변형, logs/diff/attempts/rm 등 뷰성 명령)을 전부 피해, 어떤 열린
+  PR에도 없는 **실제 기능 갭**을 골랐다 — 스케줄러 `runCommand`가 재개된 자식의 `close`를 **무한정**
+  await했다. 재개된 에이전트 CLI가 wedge(멈춤: 응답 없는 네트워크·아무도 안 답하는 프롬프트·무한 루프)하면
+  그 `resume()`가 영영 resolve되지 않고, 같은 tick에서 due였던 다른 모든 잡이 그 뒤에서 무한 대기했다
+  (`doctor` 하트비트만이 유일한 이상 신호). "조용히 영구 정지"를 "kill 후 재시도 정책대로 재큐잉"으로 바꿔,
+  크래시/spawn 실패 재개가 이미 타는 우아한 경로에 합류시킨다.
+- **한 일 (branch `claude/resume-timeout`):**
+  - core `resume-timeout.ts` 신설(순수, `concurrency.ts`/`maxConcurrent` 선례를 그대로 미러):
+    `DEFAULT_RESUME_TIMEOUT_MS=0`(비활성 기본 — 대부분의 재개는 정당하게 오래 걸리므로), 
+    `normalizeResumeTimeoutMs`(undefined/NaN/Infinity/0/음수→비활성, 소수 floor), `resumeTimeoutFromEnv`
+    (`AGENTRELAY_RESUME_TIMEOUT`을 `parseDuration`로 `30m`/`2h`/`90s`/`500ms` 파싱; 미설정·공백·파싱불가·
+    비양수는 비활성 → 오타가 긴 에이전트 실행을 조용히 죽이지 않음).
+  - `RelayScheduler`에 `resumeTimeoutMs` 옵션 추가 + 생성자 정규화. `runCommand`를 `settled` 가드 +
+    `finish()` 단일 resolve로 재작성: 정상 `close`/`error` 시 워치독 `clearTimeout`, 초과 시 `child.kill()`
+    후 transient 에러(`resume exceeded timeout of Ns and was killed`)로 resolve → 재시도 정책이 백오프
+    재큐잉, maxAttempts 초과 시 failed. 워치독 타이머 `unref()`로 이벤트 루프 단독 점유 방지.
+  - env-only(config 파일 미접촉 — `maxConcurrent`와 동일 정책, config drift 테스트 회피). CLI
+    `commands.ts` daemon/tick이 `resumeTimeoutFromEnv()`로 배선, 데몬 배너에 "(resume timeout Ns)".
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 118파일)→`pnpm test`
+  전 패키지 통과(**core 624** scheduler +3·resume-timeout +7 / **cli 343/1skip** / dashboard 9). **실제
+  빌드 CLI e2e**(mock 아님): `AGENTRELAY_RESUME_TIMEOUT=30m daemon`→배너 "(resume timeout 1800s)",
+  미설정→배너에 없음, `=oops`(오타)→배너에 없음(안전 비활성), `=90s`+`MAX_CONCURRENT=3`→둘 다 표기.
+  kill→재큐잉·maxAttempts→failed·미설정 시 30ms 지연 재개가 완료되는 경로는 스케줄러 유닛(hung fake
+  child + 짧은 워치독)으로 검증.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 워치독을 config 파일
+  키(`scheduler.resumeTimeout`)로 승격(다른 그룹 신설 필요), `doctor`가 wedged 잡(하트비트는 살아있는데
+  같은 잡이 오래 `resuming`) 감지. summary/eta/watch/parser/heatmap 축은 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).

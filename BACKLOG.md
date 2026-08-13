@@ -810,6 +810,23 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 재개 워치독(`AGENTRELAY_RESUME_TIMEOUT`) — 멈춘(hung) 재개가 릴레이 루프를 영구 차단하지
+      못하도록, 재개된 에이전트 프로세스에 하드 벽시계 상한을 두고 초과 시 kill → transient failure로
+      재큐잉.
+      (완료 — 스케줄러 `runCommand`가 자식의 `close`를 **무한정** await했다: 재개된 CLI가 wedge(멈춤)하면
+      그 `resume()`가 영영 resolve되지 않고, due였던 다른 모든 잡이 그 뒤에서 무한 대기했다(하트비트만이
+      유일한 이상 신호). `@agentrelay/core/resume-timeout.ts` 신설(순수·`maxConcurrent` 선례를 따름):
+      `DEFAULT_RESUME_TIMEOUT_MS=0`(비활성=기존 "영원히 대기"), `normalizeResumeTimeoutMs`(undefined/
+      NaN/Infinity/0/음수→비활성, 소수 floor), `resumeTimeoutFromEnv`(`AGENTRELAY_RESUME_TIMEOUT`을
+      `parseDuration`로 `30m`/`2h`/`90s` 파싱; 미설정·공백·파싱불가·비양수는 비활성 → 오타가 긴 에이전트
+      실행을 조용히 죽이지 않음). `RelayScheduler`에 `resumeTimeoutMs` 옵션 배선 — `runCommand`가
+      `settled` 가드 + `finish()`로 정확히 1회 resolve하며 정상 close 시 워치독 clear, 초과 시 `child.kill()`
+      후 transient 에러로 resolve(재시도 정책이 백오프 재큐잉, maxAttempts 초과 시 failed). 워치독 타이머는
+      `unref()`로 이벤트 루프를 홀로 붙잡지 않음. env-only(config 파일 미접촉), CLI daemon/tick이
+      `resumeTimeoutFromEnv()`로 배선, 데몬 배너에 "(resume timeout Ns)". core scheduler.test +3(kill→retry·
+      maxAttempts→failed·미설정 시 느린 재개 완료) + resume-timeout.test 7, 실제 빌드 CLI e2e로 배너
+      표기/미표기/오타 무시 검증. branch `claude/resume-timeout`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
