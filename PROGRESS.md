@@ -2166,3 +2166,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats` 해결 시간 MAD(median absolute deviation)] (2026-08-13, 무인 자율 세션, branch `claude/wizardly-pascal-gsgxwy`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 68이 후속 인접 후보로 명시한 "timing 블록 MAD(이상치에 더 강건한
+  분산)"를 골랐다 — watch 축은 PR 포화라 지양 권고가 반복돼 있었다. stdev는 편차를 제곱해 이상치 하나가
+  지배하지만, MAD는 편차의 중앙값이라 heavy-tail에 흔들리지 않는다. 기존 IQR(강건 스프레드)·stdev(고전
+  스프레드) 옆에 MAD를 더해, "MAD ≪ stdev"라는 heavy-tail 지문을 한눈에 볼 수 있게 한다.
+- **한 일 (branch `claude/wizardly-pascal-gsgxwy`):**
+  - core `stats.ts`의 `TimingStats`에 `madResolutionMs`(ms, null 가능) 추가 + 순수
+    `medianAbsoluteDeviation(sortedAsc, median)` 헬퍼: 각 span의 median 대비 절대편차를 정렬해 그
+    중앙값을 `percentile`로 취함(ms 반올림). resolved 0개면 null, 단일/동일값이면 0(편차 없음, 잘 정의).
+  - `computeStats`가 이미 인라인 계산하던 median을 `const median` 변수로 뽑아 medianResolutionMs·MAD
+    양쪽에 재사용 — 중복 percentile 호출 제거. 새 파서/스케줄러/집계 로직 0줄.
+  - CLI `stats.ts` resolution-time spread 라인에 `mad N`을 stdev와 cv 사이에 삽입. `--json`은 timing
+    전체 직렬화라 자동 노출(기존 shape는 필드 추가만).
+  - core stats.test +2 케이스(2-잡 mad 1h·{1h×4,20h} 이상치 클러스터 mad 0 ≪ stdev), 단일 잡 mad 0
+    단언 + 두 null-timing 스냅샷에 필드 추가. cli stats.test에 render `mad 1h 0m` 단언 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 615 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): {1h×4, 20h} 임시
+  스토어로 `stats`가 `stdev 7h 36m   mad <1s`(이상치가 stdev만 끌어올리고 mad는 클러스터에 고정 — 강건성
+  시연) + `--json`이 `madResolutionMs: 0`·`stdevResolutionMs: 27360000` 방출, unresolved 스토어로
+  `madResolutionMs: null` 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stats --group-by`의
+  그룹별 행에도 cv/mad 노출, timing 블록에 스큐(왜도) 지표. tz/heatmap/parser/watch·summary --watch는
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

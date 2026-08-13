@@ -59,6 +59,7 @@ describe("computeStats", () => {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      madResolutionMs: null,
       cvResolution: null,
     });
   });
@@ -225,8 +226,29 @@ describe("computeStats", () => {
     expect(stats.timing.iqrResolutionMs).toBe(3_600_000);
     // mean 2h; population variance = ((1-2)^2 + (3-2)^2)/2 = 1 h^2 → stdev 1h
     expect(stats.timing.stdevResolutionMs).toBe(3_600_000);
+    // median 2h; deviations |1-2|=1h, |3-2|=1h → median 1h → mad 1h
+    expect(stats.timing.madResolutionMs).toBe(3_600_000);
     // cv = stdev / mean = 1h / 2h = 0.5 (scale-free ratio)
     expect(stats.timing.cvResolution).toBe(0.5);
+  });
+
+  it("keeps the MAD robust to a single far outlier that inflates the stdev", () => {
+    const at = (h: number) => `2026-07-13T${String(h).padStart(2, "0")}:00:00.000Z`;
+    // Four tightly-clustered 1h spans + one 20h outlier. The stdev is dragged
+    // far up by the squared 20h deviation; the MAD (median of deviations) is
+    // anchored to the cluster and barely moves.
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "failed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "failed", createdAt: at(0), updatedAt: at(20) }), // 20h outlier
+    ]);
+    // sorted spans [1h,1h,1h,1h,20h]; median = 1h.
+    // deviations |1-1|×4 = 0, |20-1| = 19h → sorted [0,0,0,0,19h] → median 0.
+    expect(stats.timing.madResolutionMs).toBe(0);
+    // stdev is large (outlier dominates), so mad << stdev — the heavy-tail tell.
+    expect(stats.timing.stdevResolutionMs).toBeGreaterThan(stats.timing.madResolutionMs ?? 0);
   });
 
   it("collapses spread metrics to zero for a single resolved job", () => {
@@ -237,6 +259,8 @@ describe("computeStats", () => {
     expect(stats.timing.p75ResolutionMs).toBe(3_600_000);
     expect(stats.timing.iqrResolutionMs).toBe(0);
     expect(stats.timing.stdevResolutionMs).toBe(0);
+    // single span: deviation from its own median is 0 → mad 0
+    expect(stats.timing.madResolutionMs).toBe(0);
     // single span: stdev 0, nonzero mean → cv 0 (no spread, well-defined)
     expect(stats.timing.cvResolution).toBe(0);
   });
@@ -297,6 +321,7 @@ describe("computeStats", () => {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      madResolutionMs: null,
       cvResolution: null,
     });
   });

@@ -824,6 +824,19 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay stats` 해결 시간 MAD(median absolute deviation, 이상치에 강건한 분산) — stdev는
+      편차를 제곱해 이상치 하나에 지배되지만, MAD는 편차의 중앙값이라 꼬리에 흔들리지 않는다. 둘을 나란히
+      읽으면 "MAD ≪ stdev"가 곧 heavy-tail 신호.
+      (완료 — core `stats.ts`의 `TimingStats`에 `madResolutionMs`(ms, null 가능) 추가 + 순수
+      `medianAbsoluteDeviation(sortedAsc, median)` 헬퍼: 각 span의 중앙값 대비 절대편차를 정렬해 그
+      중앙값을 `percentile`로 취함(ms 반올림). resolved 0개면 null, 단일/동일값이면 0(편차 없음, 잘 정의).
+      `computeStats`가 이미 계산하던 median을 변수로 뽑아 medianResolutionMs·MAD 양쪽에 재사용(중복 percentile
+      호출 제거). CLI `stats.ts` spread 라인에 `mad N` 추가(stdev와 cv 사이), `--json`은 timing 전체
+      직렬화라 자동 노출. 새 파서/스케줄러/집계 로직 0줄 — 기존 검증된 정렬·median 위에 필드 하나. core
+      stats +2 케이스(2-잡 mad 1h·이상치 클러스터 mad 0 ≪ stdev·단일 잡 mad 0) + cli render `mad 1h 0m`
+      단언. 실제 빌드 CLI e2e로 {1h×4, 20h} 스토어에서 `mad <1s` vs `stdev 7h 36m`(강건성 시연)·
+      unresolved 스토어 `madResolutionMs: null` 검증. branch `claude/wizardly-pascal-gsgxwy`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
