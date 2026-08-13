@@ -118,6 +118,47 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 3 * 60_000).toISOString());
   });
 
+  it("tolerates a hedging 'about' before the number ('in about 2 hours')", () => {
+    // Real agents phrase estimates loosely; the digits stay authoritative.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit — try again in about 2 hours.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
+  it("tolerates 'approximately' before a minutes-only wait", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached, resets in approximately 30 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
+
+  it("tolerates a leading '~' before a compact duration ('retry in ~5m')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded — retry in ~5m.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 5 * 60_000).toISOString());
+  });
+
+  it("tolerates 'around' before a combined hour+minute duration", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Resets in around 1h 30m.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
+  });
+
+  it("tolerates 'approx.' with a trailing period", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit — try again in approx. 2h.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
+  it("does not treat a bare hedge with no number as a duration", () => {
+    // "try again in about" (no digits) must stay null, not resolve to now.
+    expect(parseRateLimitMessage("Rate limit hit — try again in about a while.")).toBeNull();
+  });
+
   it("parses a unix epoch retry_after field", () => {
     const result = parseRateLimitMessage("rate_limit_error retry_after=1752345600");
     expect(result).not.toBeNull();
