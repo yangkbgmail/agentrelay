@@ -41,6 +41,56 @@ export function canRequeue(job: RelayJob): ControlResult {
   return { ok: true };
 }
 
+/** Statuses a job can be snoozed from — only a job actively waiting to resume. */
+export const SNOOZABLE_STATUSES: readonly JobStatus[] = ["waiting_for_reset"];
+
+/**
+ * Whether `job` may be snoozed, i.e. have its scheduled reset pushed further
+ * into the future. Only a job that's `waiting_for_reset` has a resume time to
+ * defer: a `queued` job hasn't been parked by a rate limit yet (nothing to
+ * push), a `resuming` job is mid-flight, and terminal/cancelled jobs will
+ * never resume. This is the manual counterpart to {@link canRequeue}: `retry`
+ * pulls a resume forward to *now*, `snooze` pushes it *later*.
+ */
+export function canSnooze(job: RelayJob): ControlResult {
+  if (job.status === "waiting_for_reset") return { ok: true };
+  if (job.status === "queued") return { ok: false, reason: "job is not waiting for a reset yet (nothing to defer)" };
+  if (job.status === "resuming") return { ok: false, reason: "job is currently resuming; wait for it to finish" };
+  if (job.status === "cancelled") return { ok: false, reason: "job is cancelled" };
+  if (job.status === "completed") return { ok: false, reason: "job already completed" };
+  return { ok: false, reason: "job already failed" };
+}
+
+/** Options controlling how {@link computeSnoozedResetAt} anchors the delay. */
+export interface SnoozeOptions {
+  /**
+   * When true, measure the delay from `now` instead of from the job's current
+   * scheduled reset — the "remind me again in N" snooze-button reading. When
+   * false (the default), the delay is added to the later of the job's current
+   * reset and `now`, so an already-overdue job still lands a full delay in the
+   * future rather than staying in the past.
+   */
+  fromNow?: boolean;
+}
+
+/**
+ * Compute the new reset instant for a snoozed job as an ISO string. Pure — the
+ * caller writes it via {@link RelayQueue.reschedule}. `deltaMs` is a positive
+ * duration; the result is always strictly in the future because the anchor is
+ * never earlier than `now`. See {@link SnoozeOptions} for how the anchor is
+ * chosen. A job with no `resetAt` (shouldn't happen for a `waiting_for_reset`
+ * job, but guarded) is treated as anchored at `now`.
+ */
+export function computeSnoozedResetAt(job: RelayJob, deltaMs: number, now: Date, options: SnoozeOptions = {}): string {
+  const nowMs = now.getTime();
+  let anchorMs = nowMs;
+  if (!options.fromNow && job.resetAt) {
+    const resetMs = new Date(job.resetAt).getTime();
+    if (Number.isFinite(resetMs)) anchorMs = Math.max(resetMs, nowMs);
+  }
+  return new Date(anchorMs + deltaMs).toISOString();
+}
+
 /** One job that a bulk-control guard rejected, paired with the reason why. */
 export interface IneligibleJob {
   job: RelayJob;

@@ -22,6 +22,7 @@ import {
   setConfigFile,
   showConfig,
   showJob,
+  snoozeJob,
   unsetConfigFile,
   validateConfigFile,
   waitForJob,
@@ -218,6 +219,93 @@ describe("cancelJob / retryJob", () => {
     expect(result.job?.status).toBe("waiting_for_reset");
     expect(result.job?.attempts).toBe(0);
     expect(result.job?.lastError).toBeNull();
+  });
+});
+
+describe("snoozeJob", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cli-snooze-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function seedWaiting(resetAtMs: number) {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(job.id, new Date(resetAtMs).toISOString());
+    queue.close();
+    return job.id;
+  }
+
+  it("pushes a waiting job's reset an extra duration past its current reset", () => {
+    const resetAt = Date.now() + 60 * 60_000; // 1h out
+    const id = seedWaiting(resetAt);
+    const result = snoozeJob(id.slice(0, 8), "30m", { storePath });
+    expect(result.ok).toBe(true);
+    expect(result.job?.status).toBe("waiting_for_reset");
+    const newReset = new Date(result.job!.resetAt!).getTime();
+    // Added to the existing reset, not to now.
+    expect(newReset).toBeGreaterThanOrEqual(resetAt + 30 * 60_000 - 1000);
+    expect(newReset).toBeLessThanOrEqual(resetAt + 30 * 60_000 + 1000);
+  });
+
+  it("keeps the attempt count and last error intact (unlike retry)", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markResuming(job.id); // attempts -> 1
+    queue.markRetryScheduled(job.id, new Date(Date.now() + 60_000).toISOString(), "boom");
+    queue.close();
+
+    const result = snoozeJob(job.id, "1h", { storePath });
+    expect(result.ok).toBe(true);
+    expect(result.job?.attempts).toBe(1);
+    expect(result.job?.lastError).toBe("boom");
+  });
+
+  it("measures from now with fromNow, ignoring a far-future reset", () => {
+    const resetAt = Date.now() + 10 * 60 * 60_000; // 10h out
+    const id = seedWaiting(resetAt);
+    const before = Date.now();
+    const result = snoozeJob(id, "1h", { fromNow: true, storePath });
+    expect(result.ok).toBe(true);
+    const newReset = new Date(result.job!.resetAt!).getTime();
+    expect(newReset).toBeGreaterThanOrEqual(before + 60 * 60_000 - 1000);
+    expect(newReset).toBeLessThanOrEqual(Date.now() + 60 * 60_000 + 1000);
+  });
+
+  it("refuses to snooze a job that is not waiting for a reset", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markCompleted(job.id, "done");
+    queue.close();
+
+    const result = snoozeJob(job.id, "1h", { storePath });
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("cannot snooze");
+    expect(listStatus(storePath)[0].status).toBe("completed");
+  });
+
+  it("rejects an invalid or non-positive duration without touching the store", () => {
+    const id = seedWaiting(Date.now() + 60_000);
+    expect(snoozeJob(id, "soon", { storePath }).ok).toBe(false);
+    expect(snoozeJob(id, "banana", { storePath }).message).toContain("invalid duration");
+    expect(snoozeJob(id, "0s", { storePath }).message).toContain("must be positive");
+    // Store unchanged: still the original ~1m reset.
+    const job = listStatus(storePath)[0];
+    expect(new Date(job.resetAt!).getTime()).toBeLessThanOrEqual(Date.now() + 61_000);
+  });
+
+  it("reports an unknown id without mutating the store", () => {
+    seedWaiting(Date.now() + 60_000);
+    const result = snoozeJob("deadbeef", "1h", { storePath });
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("no job matches");
   });
 });
 

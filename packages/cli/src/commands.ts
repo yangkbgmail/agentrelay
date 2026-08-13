@@ -36,6 +36,8 @@ import {
   type ConfigValueSource,
   canCancel,
   canRequeue,
+  canSnooze,
+  computeSnoozedResetAt,
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
@@ -64,6 +66,7 @@ import {
   notifiersFromEnv,
   parseConfig,
   parseDaemonHeartbeat,
+  parseDuration,
   parseImportJobs,
   partitionForControl,
   planImport,
@@ -507,6 +510,53 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
       ok: true,
       job: updated,
       message: `job ${shortId(job.id)} (${job.project}) queued to resume now — run "agentrelay tick" or the daemon to pick it up`,
+    };
+  } finally {
+    queue.close();
+  }
+}
+
+export interface SnoozeJobOptions {
+  /** Measure the delay from now instead of from the job's current reset. */
+  fromNow?: boolean;
+  storePath?: string;
+}
+
+/**
+ * Defer a waiting job's resume by pushing its reset time further into the
+ * future, by full id or short prefix. The manual counterpart to {@link
+ * retryJob}: `retry` pulls a resume to now, `snooze` pushes it later. Only
+ * `waiting_for_reset` jobs can be snoozed (guarded by `canSnooze`); the
+ * duration is parsed with the same `parseDuration` used by `prune`, and must be
+ * positive. By default the delay is added to the job's scheduled reset (or to
+ * now if that's already past); `fromNow` measures it from now instead.
+ */
+export function snoozeJob(idOrPrefix: string, duration: string, options: SnoozeJobOptions = {}): JobControlResult {
+  const deltaMs = parseDuration(duration);
+  if (deltaMs === null) {
+    return { ok: false, job: null, message: `invalid duration "${duration}" — use a value like 30m, 2h, or 1d` };
+  }
+  if (deltaMs <= 0) {
+    return { ok: false, job: null, message: "snooze duration must be positive (e.g. 30m, 2h, 1d)" };
+  }
+
+  const queue = openQueue(options.storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { ok: false, job: null, message: resolved.error ?? "job not found" };
+
+    const job = jobs.find((j) => j.id === resolved.id) as RelayJob;
+    const guard = canSnooze(job);
+    if (!guard.ok) return { ok: false, job, message: `cannot snooze ${shortId(job.id)}: ${guard.reason}` };
+
+    const newResetAt = computeSnoozedResetAt(job, deltaMs, new Date(), { fromNow: options.fromNow });
+    queue.reschedule(job.id, newResetAt);
+    const updated = queue.getById(job.id) ?? null;
+    return {
+      ok: true,
+      job: updated,
+      message: `job ${shortId(job.id)} (${job.project}) snoozed — will now resume at ${newResetAt}`,
     };
   } finally {
     queue.close();

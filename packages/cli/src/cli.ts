@@ -72,6 +72,7 @@ import {
   setConfigFile,
   showConfig,
   showJob,
+  snoozeJob,
   startDaemon,
   tickOnce,
   unsetConfigFile,
@@ -104,6 +105,7 @@ import {
   renderWeekday,
 } from "./stats.js";
 import {
+  formatCountdown,
   type JobSelection,
   NO_MATCH_MESSAGE,
   renderStatusJson,
@@ -2045,6 +2047,29 @@ export function buildCli(): Command {
     describe: "Requeue a job to resume immediately (by id), or every matching job with --all",
     allHelp: "Requeue every matching job to resume now (narrow with the scope filters below)",
   });
+
+  program
+    .command("snooze")
+    .description("Defer a waiting job's resume by pushing its reset time later (the opposite of retry)")
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .argument("<duration>", "How much later to resume, e.g. 30m, 2h, 1d")
+    .option("--from-now", "Measure the delay from now instead of adding it to the job's current reset time")
+    .option("--json", "Print the result as JSON (machine-readable, for scripts/jq)")
+    .action((id: string, duration: string, opts: { fromNow?: boolean; json?: boolean }) => {
+      const { store } = program.opts();
+      const result = snoozeJob(id, duration, { fromNow: opts.fromNow, storePath: store });
+      if (opts.json) {
+        console.log(JSON.stringify({ ok: result.ok, message: result.message, job: result.job }, null, 2));
+        if (!result.ok) process.exitCode = 1;
+        return;
+      }
+      if (result.ok && result.job?.resetAt) {
+        console.log(`[agentrelay] ${result.message} (in ${formatCountdown(result.job.resetAt, Date.now())})`);
+      } else {
+        console.log(`[agentrelay] ${result.message}`);
+      }
+      if (!result.ok) process.exitCode = 1;
+    });
 
   program
     .command("backup")

@@ -243,6 +243,18 @@ export class RelayQueue {
     this.update(id, { status: "waiting_for_reset", resetAt: at, attempts: 0, lastError: null });
   }
 
+  /**
+   * Push a waiting job's resume time to a new instant (user-initiated snooze).
+   * Unlike {@link requeueNow} this keeps the job's attempt count and last-error
+   * intact — snoozing only defers *when* the existing rate-limit clears, it does
+   * not restart the job's history. The status stays `waiting_for_reset` so the
+   * scheduler picks it up once the new time passes. A no-op if the id is unknown;
+   * callers guard eligibility via `canSnooze`.
+   */
+  reschedule(id: string, resetAt: string) {
+    this.update(id, { status: "waiting_for_reset", resetAt });
+  }
+
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {
     this.load();
     const existing = this.jobs.get(id);
