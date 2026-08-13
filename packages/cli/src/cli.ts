@@ -113,7 +113,7 @@ import {
   type SortField,
   selectJobs,
 } from "./status.js";
-import { renderSummary, renderSummaryJson } from "./summary.js";
+import { renderSummary, renderSummaryJson, renderSummaryWatchFrame } from "./summary.js";
 import { renderTools, renderToolsJson, renderToolsWatchFrame } from "./tools.js";
 import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
 import { renderVerify, renderVerifyJson } from "./verify.js";
@@ -498,6 +498,27 @@ function runStatsWatch(
 }
 
 /**
+ * Live `agentrelay summary --watch`: clears the screen and re-renders the
+ * one-glance overview on an interval so the "next reset in" countdown ticks down
+ * in place. Like the other watch loops, `listStatus` re-reads the JSON store
+ * each pass (a running daemon's writes show up automatically) and the
+ * `--status`/`--tool`/`--project`/`--since`/`--until` scope is re-applied every
+ * frame. The scope's time-window boundaries stay fixed (absolute epoch-ms from
+ * when the command started) while live writes still surface. Runs until the
+ * process is interrupted (Ctrl-C).
+ */
+function runSummaryWatch(store: string, intervalMs: number, scope: JobScope, active: boolean): void {
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const all = listStatus(store);
+    const jobs = active ? scopeJobs(all, scope) : all;
+    const body = renderSummary(summarizeJobs(jobs), { color: true, now });
+    const frame = renderSummaryWatchFrame(body, store, intervalMs, now);
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
  * Shared plumbing for the live `--watch` loops: draw one frame immediately, then
  * re-draw every `intervalMs`, cleaning up the timer and printing a trailing
  * newline on SIGINT/SIGTERM. `setInterval` keeps the process alive, so the
@@ -748,6 +769,7 @@ export function buildCli(): Command {
   program
     .command("summary")
     .description("Show a one-glance queue overview: total jobs, per-status counts, and the next reset countdown")
+    .option("-w, --watch [seconds]", "Continuously refresh the overview with a live countdown (Ctrl-C to exit)")
     .option("--json", "Print the overview as JSON (machine-readable, for scripts/jq)")
     .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
     .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
@@ -764,14 +786,24 @@ export function buildCli(): Command {
         "  # read the per-status counts with jq\n" +
         "  agentrelay summary --json | jq '.summary.byStatus'"
     )
-    .action((opts: ScopeOpts & { json?: boolean }) => {
+    .action((opts: ScopeOpts & { json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
+      // Validate the scope (incl. time window) up front so a bad flag exits 1
+      // before we enter the watch loop rather than churning frames.
       const built = buildScope(opts, now);
       if ("error" in built) {
         console.error(built.error);
         process.exitCode = 1;
         return;
+      }
+
+      // --json is a one-shot machine dump; it takes precedence over --watch.
+      if (!opts.json && opts.watch !== undefined) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        runSummaryWatch(store, intervalMs, built.scope, built.active);
+        return; // setInterval keeps the process alive.
       }
 
       const allJobs = listStatus(store);

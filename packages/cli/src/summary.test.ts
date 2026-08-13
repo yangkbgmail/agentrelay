@@ -1,7 +1,7 @@
 import type { QueueSummary, RelayJob } from "@agentrelay/core";
 import { summarizeJobs } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { EMPTY_MESSAGE, renderSummary, renderSummaryJson } from "./summary.js";
+import { EMPTY_MESSAGE, renderSummary, renderSummaryJson, renderSummaryWatchFrame } from "./summary.js";
 
 /** Zero-filled QueueSummary with the given overrides — mirrors summarizeJobs' shape. */
 function summary(overrides: Partial<QueueSummary> = {}): QueueSummary {
@@ -92,6 +92,33 @@ describe("renderSummaryJson", () => {
     expect(parsed.summary.total).toBe(2);
     expect(parsed.summary.byStatus).toMatchObject({ queued: 1, completed: 1, failed: 0, cancelled: 0 });
     expect(parsed.summary.nextResetAt).toBeNull();
+  });
+});
+
+describe("renderSummaryWatchFrame", () => {
+  it("wraps the body in a live banner with the interval, timestamp, and store path", () => {
+    const body = renderSummary(summary({ total: 1, byStatus: { ...summary().byStatus, queued: 1 } }), { now: NOW });
+    const frame = renderSummaryWatchFrame(body, "/tmp/jobs.json", 5000, NOW);
+    expect(frame).toContain("agentrelay summary");
+    expect(frame).toContain("(live, every 5s — Ctrl-C to exit)");
+    expect(frame).toContain("2026-08-10 12:00:00Z");
+    expect(frame).toContain("/tmp/jobs.json");
+    expect(frame).toContain(body); // the composed summary body is included verbatim
+  });
+
+  it("rounds a fractional interval to whole seconds in the banner", () => {
+    const frame = renderSummaryWatchFrame("body", "/tmp/jobs.json", 2500, NOW);
+    expect(frame).toContain("(live, every 3s — Ctrl-C to exit)");
+  });
+
+  it("keeps the countdown live by rendering the body with the frame's now", () => {
+    const resetAt = new Date(NOW + 90 * 60_000).toISOString(); // 1h 30m out
+    const body = renderSummary(
+      summary({ total: 1, byStatus: { ...summary().byStatus, waiting_for_reset: 1 }, nextResetAt: resetAt }),
+      { now: NOW }
+    );
+    const frame = renderSummaryWatchFrame(body, "/tmp/jobs.json", 2000, NOW);
+    expect(frame).toContain("next reset in 1h 30m");
   });
 });
 
