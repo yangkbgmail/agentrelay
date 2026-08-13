@@ -2166,3 +2166,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats` 해결 시간 MAD(중앙값 절대편차)] (2026-08-13, 무인 자율 세션, branch `claude/wizardly-pascal-66seqm`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 68이 "다음 할 일"로 명시한 "MAD(median absolute deviation, 이상치에
+  더 강건한 분산)"를 골랐다 — watch·tz·heatmap·parser는 PR 포화라 반복 지양 권고. stdev·CV는 전부 평균
+  기반이라 하나의 pathological 장기 잡이 제곱편차로 지표를 지배한다. MAD는 편차의 **중앙값**이라 최대
+  절반의 잡이 임의로 커도 움직이지 않는 최강건 분산 측도로, stdev과 나란히 읽으면 "소수 무거운 이상치가
+  spread를 끄는가"를 판별하는 가장 명확한 신호가 된다.
+- **한 일 (branch `claude/wizardly-pascal-66seqm`):**
+  - core `stats.ts`의 `TimingStats`에 `madResolutionMs`(ms, null 가능) 추가 + 순수
+    `medianAbsoluteDeviation(sortedAsc, median)` 헬퍼 신설 — 이미 보고하는 (반올림된) median에서 각
+    편차 `|xᵢ−median|`를 구해 오름차순 정렬 후 공용 type-7 `percentile(devs, 0.5)`로 축약. 단일 잡은
+    편차 0 → mad 0, resolved 0개면 null. `computeStats`가 median을 한 번만 계산해 report·MAD 양쪽에
+    재사용(rounding drift 방지). 새 core 집계/정렬 로직 0줄 — 기존 정렬된 배열·median 위에 필드 하나.
+  - CLI `stats.ts` resolution-time spread 라인 끝에 `mad ${formatDurationMs(...)}`를 덧붙임(iqr·stdev·cv
+    옆). `--json`은 timing 전체 직렬화라 자동 노출(기존 shape 불변). metrics.ts는 stdev/iqr/cv도 노출
+    안 하는 최소 집합이라 MAD도 미추가(일관성 유지).
+  - core stats.test +2 단언(3-잡 mad 1h·단일 잡 mad 0, null-timing toEqual에 madResolutionMs:null 2곳),
+    cli stats.test render `mad 1h 0m` 단언.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 614 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): spans {1h,3h} 임시
+  스토어로 `stats`가 `spread: … cv 50%   mad 1h 0m` 렌더 + `--json`이 `stats.timing.madResolutionMs: 3600000`
+  (=1h) 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stats --group-by`의
+  그룹별 행에도 cv/mad 노출, timing 블록 왜도(skewness). tz/heatmap/parser/watch·summary --watch는 PR
+  포화라 지양. README/ARCHITECTURE(🧭 코워크).

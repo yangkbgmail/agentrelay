@@ -157,6 +157,8 @@ describe("renderStats", () => {
     expect(out).toContain("stdev 1h 0m");
     // cv = stdev / mean = 1h / 2h = 0.5 → "50%".
     expect(out).toContain("cv 50%");
+    // mad = median(|1-2|,|3-2|) = 1h (robust spread) over {1h,3h}.
+    expect(out).toContain("mad 1h 0m");
   });
 
   it("omits the resolution-time block when nothing has resolved", () => {
