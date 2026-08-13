@@ -810,6 +810,21 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay status --group-by <tool|project|status>` — 큰 큐의 잡 목록을 툴/프로젝트/상태별
+      구획으로 나눠 보기(`stats --group-by`의 잡-목록 버전).
+      (완료 — `stats --group-by`는 그룹별 *지표*를 보여주지만 status 테이블에는 그룹핑이 없어, 큰
+      큐에서 "프로젝트별로 어떤 잡이 있나"를 한눈에 볼 방법이 없었다. CLI `status.ts`에 순수 `groupJobs
+      (jobs, dimension)`(그룹 내 입력 순서 보존 → 상위 `--sort` 전파, 그룹은 크기 desc·키 asc로 랭킹 —
+      `stats --group-by`와 동일 규칙) + `renderGroupedStatusTable`(컬럼 헤더 1회 + 그룹별 `▸ dim=key (n)`
+      섹션, status 차원은 상태색 틴트, `--limit`은 **그룹당** 상위 N행 캡+그룹별 절삭 노트) +
+      `renderGroupedStatusJson`(`groupBy`+`groups[{key,count,returned,jobs}]`, 스크립트가 재버킷 불필요).
+      core `GroupDimension`/`GROUP_DIMENSIONS` 재사용(새 core 코드 0줄, 그룹핑은 표시 관심사라 CLI 레이어).
+      CLI `status`에 `-g/--group-by` 배선(일회성 테이블·`--json`·`--watch` 세 뷰 공통, `renderWatchFrame`에
+      optional groupBy 인자), 잘못된 dimension은 exit 1. 기존 `--status/--tool/--project/--since/--until/
+      --sort/--limit` 필터는 그룹핑 **전에** 적용돼 그대로 결합. status.test에 groupJobs 5 + 테이블 3 +
+      JSON 2 + watch 1 = 11 신규(cli 354/1skip). 실제 빌드 CLI e2e로 project/status 섹션 순서·그룹당 limit
+      절삭·JSON groups·필터 결합(tool+project)·invalid exit 1 검증. branch `claude/wizardly-pascal-lv75i8`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

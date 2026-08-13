@@ -3,7 +3,7 @@
 // commander wiring in cli.ts — so the exact output is unit-testable without a
 // TTY, a clock, or a spawned process.
 
-import type { JobStatus, QueueSummary, RelayJob } from "@agentrelay/core";
+import type { GroupDimension, JobStatus, QueueSummary, RelayJob } from "@agentrelay/core";
 import { summarizeJobs } from "@agentrelay/core";
 
 const COL = { id: 10, project: 16, status: 18, resets: 12 } as const;
@@ -179,6 +179,47 @@ export function summaryLine(summary: QueueSummary, now: number = Date.now()): st
   return `${summary.total} job(s) — ${counts}${next}`;
 }
 
+/** The column header row (shared by the flat and grouped table renderers). */
+function headerRow(color: boolean): string {
+  const header = [
+    "ID".padEnd(COL.id),
+    "PROJECT".padEnd(COL.project),
+    "STATUS".padEnd(COL.status),
+    "RESETS IN".padEnd(COL.resets),
+    "ATTEMPTS",
+  ].join(" ");
+  return color ? `${BOLD}${header}${RESET}` : header;
+}
+
+/** One job's table row. */
+function jobRow(job: RelayJob, now: number, color: boolean): string {
+  const statusCell = job.status.padEnd(COL.status);
+  return [
+    job.id.slice(0, 8).padEnd(COL.id),
+    job.project.slice(0, COL.project).padEnd(COL.project),
+    colorStatus(job.status, statusCell, color),
+    formatCountdown(job.resetAt, now).padEnd(COL.resets),
+    String(job.attempts),
+  ].join(" ");
+}
+
+/**
+ * Renders up to `limit` rows for `jobs` plus, when the cap hides some, a
+ * "… N more not shown" note. `total` is the full count the note reports against
+ * (equals `jobs.length` for the flat table; the group's own size when grouped).
+ */
+function jobRows(jobs: RelayJob[], now: number, color: boolean, limit: number | undefined): string[] {
+  const truncated = limitTruncates(limit, jobs.length);
+  const shown = truncated ? jobs.slice(0, limit) : jobs;
+  const lines = shown.map((job) => jobRow(job, now, color));
+  if (truncated) {
+    const hidden = jobs.length - shown.length;
+    const note = `… ${hidden} more not shown (showing ${shown.length} of ${jobs.length}). Raise --limit to see more.`;
+    lines.push(color ? `${DIM}${note}${RESET}` : note);
+  }
+  return lines;
+}
+
 /**
  * Renders the full status table (header + one row per job + summary footer) as
  * a single string. Jobs are expected already sorted (newest first) by the
@@ -189,41 +230,91 @@ export function renderStatusTable(jobs: RelayJob[], options: RenderOptions = {})
   const color = options.color ?? false;
   if (jobs.length === 0) return EMPTY_MESSAGE;
 
-  const header = [
-    "ID".padEnd(COL.id),
-    "PROJECT".padEnd(COL.project),
-    "STATUS".padEnd(COL.status),
-    "RESETS IN".padEnd(COL.resets),
-    "ATTEMPTS",
-  ].join(" ");
-
-  // Cap the rows we print, but keep the summary over the whole set below.
-  const truncated = limitTruncates(options.limit, jobs.length);
-  const shown = truncated ? jobs.slice(0, options.limit) : jobs;
-
-  const lines = shown.map((job) => {
-    const statusCell = job.status.padEnd(COL.status);
-    return [
-      job.id.slice(0, 8).padEnd(COL.id),
-      job.project.slice(0, COL.project).padEnd(COL.project),
-      colorStatus(job.status, statusCell, color),
-      formatCountdown(job.resetAt, now).padEnd(COL.resets),
-      String(job.attempts),
-    ].join(" ");
-  });
-
-  if (truncated) {
-    const hidden = jobs.length - shown.length;
-    const note = `… ${hidden} more not shown (showing ${shown.length} of ${jobs.length}). Raise --limit to see more.`;
-    lines.push(color ? `${DIM}${note}${RESET}` : note);
-  }
+  const lines = jobRows(jobs, now, color, options.limit);
 
   // Summary reflects every job passed in, not just the shown rows, so the
   // counts stay honest even when --limit hides some.
   const footer = summaryLine(summarizeJobs(jobs), now);
-  const headerLine = color ? `${BOLD}${header}${RESET}` : header;
   const footerLine = color ? `${DIM}${footer}${RESET}` : footer;
-  return [headerLine, ...lines, "", footerLine].join("\n");
+  return [headerRow(color), ...lines, "", footerLine].join("\n");
+}
+
+/** Every dimension `agentrelay status --group-by` accepts (reused from stats). */
+export type { GroupDimension };
+
+/** The raw job value used to bucket a job under a given group dimension. */
+function groupKeyFor(job: RelayJob, dimension: GroupDimension): string {
+  switch (dimension) {
+    case "tool":
+      return job.tool;
+    case "project":
+      return job.project;
+    case "status":
+      return job.status;
+  }
+}
+
+/** One section of a `--group-by` view: the shared key and its jobs (in input order). */
+export interface JobGroup {
+  key: string;
+  jobs: RelayJob[];
+}
+
+/**
+ * Partitions `jobs` by `dimension` into sections. Pure and non-mutating: each
+ * group keeps its jobs in input order (so an upstream `--sort` carries through),
+ * and groups are ranked by size (desc), ties broken by key (asc) — the same
+ * ordering convention as `agentrelay stats --group-by`.
+ */
+export function groupJobs(jobs: RelayJob[], dimension: GroupDimension): JobGroup[] {
+  const buckets = new Map<string, RelayJob[]>();
+  for (const job of jobs) {
+    const key = groupKeyFor(job, dimension);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(job);
+    else buckets.set(key, [job]);
+  }
+  return [...buckets.entries()]
+    .map(([key, groupJobs]) => ({ key, jobs: groupJobs }))
+    .sort((a, b) => (b.jobs.length !== a.jobs.length ? b.jobs.length - a.jobs.length : a.key.localeCompare(b.key)));
+}
+
+/** A group's section header, e.g. "▸ project=web (3)". Status keys get their status color. */
+function groupHeader(dimension: GroupDimension, key: string, count: number, color: boolean): string {
+  const label = `▸ ${dimension}=${key} (${count})`;
+  if (!color) return label;
+  // Tint the whole header; for the status dimension use the per-status color so
+  // the section reads at a glance, otherwise bold like the column header.
+  const tint = dimension === "status" ? (STATUS_COLOR[key as JobStatus] ?? BOLD) : BOLD;
+  return `${tint}${label}${RESET}`;
+}
+
+/**
+ * Grouped variant of {@link renderStatusTable}: one column header, then a
+ * labeled section per group (ordered by {@link groupJobs}), then the overall
+ * summary footer. `limit` caps rows *per group* (each section reports its own
+ * "… N more not shown"), so `--group-by project --limit 5` means "top 5 jobs in
+ * each project". The footer still counts every job. Pure.
+ */
+export function renderGroupedStatusTable(
+  jobs: RelayJob[],
+  dimension: GroupDimension,
+  options: RenderOptions = {}
+): string {
+  const now = options.now ?? Date.now();
+  const color = options.color ?? false;
+  if (jobs.length === 0) return EMPTY_MESSAGE;
+
+  const sections: string[] = [];
+  for (const group of groupJobs(jobs, dimension)) {
+    sections.push(groupHeader(dimension, group.key, group.jobs.length, color));
+    sections.push(...jobRows(group.jobs, now, color, options.limit));
+    sections.push("");
+  }
+
+  const footer = summaryLine(summarizeJobs(jobs), now);
+  const footerLine = color ? `${DIM}${footer}${RESET}` : footer;
+  return [headerRow(color), "", ...sections, footerLine].join("\n");
 }
 
 /**
@@ -256,21 +347,58 @@ export function renderStatusJson(
 }
 
 /**
+ * Machine-readable grouped snapshot for `status --group-by … --json`. Emits the
+ * same provenance/summary as {@link renderStatusJson} plus a `groups` array
+ * (each `{ key, count, jobs }`, jobs capped by `limit` per group), so scripts get
+ * the same sections the human table shows without re-bucketing themselves.
+ */
+export function renderGroupedStatusJson(
+  jobs: RelayJob[],
+  dimension: GroupDimension,
+  storePath: string,
+  generatedAt: string = new Date().toISOString(),
+  limit?: number
+): string {
+  const groups = groupJobs(jobs, dimension).map((group) => {
+    const truncated = limitTruncates(limit, group.jobs.length);
+    const emitted = truncated ? group.jobs.slice(0, limit) : group.jobs;
+    return { key: group.key, count: group.jobs.length, returned: emitted.length, jobs: emitted };
+  });
+  return JSON.stringify(
+    {
+      storePath,
+      generatedAt,
+      groupBy: dimension,
+      summary: summarizeJobs(jobs),
+      total: jobs.length,
+      groups,
+    },
+    null,
+    2
+  );
+}
+
+/**
  * One frame of the live `--watch` view: a title/header block plus the colored
  * table. Separated out so the watch loop in cli.ts only has to clear the
- * screen and print this.
+ * screen and print this. When `groupBy` is set, the frame shows the grouped
+ * table instead of the flat one.
  */
 export function renderWatchFrame(
   jobs: RelayJob[],
   storePath: string,
   intervalMs: number,
   now: number = Date.now(),
-  limit?: number
+  limit?: number,
+  groupBy?: GroupDimension
 ): string {
   const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
   const title = `${BOLD}agentrelay status${RESET} ${DIM}(live, every ${Math.round(
     intervalMs / 1000
   )}s — Ctrl-C to exit)${RESET}`;
   const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
-  return [title, meta, "", renderStatusTable(jobs, { now, color: true, limit })].join("\n");
+  const table = groupBy
+    ? renderGroupedStatusTable(jobs, groupBy, { now, color: true, limit })
+    : renderStatusTable(jobs, { now, color: true, limit });
+  return [title, meta, "", table].join("\n");
 }

@@ -4,7 +4,10 @@ import { describe, expect, it } from "vitest";
 import {
   EMPTY_MESSAGE,
   formatCountdown,
+  groupJobs,
   isSelectionFiltering,
+  renderGroupedStatusJson,
+  renderGroupedStatusTable,
   renderStatusJson,
   renderStatusTable,
   renderWatchFrame,
@@ -392,3 +395,123 @@ function emptyCounts(): Record<JobStatus, number> {
     cancelled: 0,
   };
 }
+
+describe("groupJobs", () => {
+  it("partitions jobs by project, ranked by size (desc) then key (asc)", () => {
+    const jobs = [
+      job({ id: "w1", project: "web" }),
+      job({ id: "a1", project: "api" }),
+      job({ id: "w2", project: "web" }),
+      job({ id: "c1", project: "cli" }),
+      job({ id: "a2", project: "api" }),
+      job({ id: "w3", project: "web" }),
+    ];
+    const groups = groupJobs(jobs, "project");
+    expect(groups.map((g) => `${g.key}:${g.jobs.length}`)).toEqual(["web:3", "api:2", "cli:1"]);
+  });
+
+  it("breaks size ties by key ascending", () => {
+    const jobs = [job({ project: "zeta" }), job({ project: "alpha" }), job({ project: "mu" })];
+    expect(groupJobs(jobs, "project").map((g) => g.key)).toEqual(["alpha", "mu", "zeta"]);
+  });
+
+  it("keeps each group's jobs in input order (so upstream --sort carries through)", () => {
+    const jobs = [
+      job({ id: "first", project: "web" }),
+      job({ id: "second", project: "web" }),
+      job({ id: "third", project: "web" }),
+    ];
+    expect(groupJobs(jobs, "project")[0].jobs.map((j) => j.id)).toEqual(["first", "second", "third"]);
+  });
+
+  it("groups by tool and by status too", () => {
+    const jobs = [
+      job({ tool: "claude-code", status: "failed" }),
+      job({ tool: "codex-cli", status: "completed" }),
+      job({ tool: "claude-code", status: "failed" }),
+    ];
+    expect(groupJobs(jobs, "tool").map((g) => `${g.key}:${g.jobs.length}`)).toEqual(["claude-code:2", "codex-cli:1"]);
+    expect(groupJobs(jobs, "status").map((g) => `${g.key}:${g.jobs.length}`)).toEqual(["failed:2", "completed:1"]);
+  });
+
+  it("does not mutate the input array", () => {
+    const jobs = [job({ project: "b" }), job({ project: "a" })];
+    const snapshot = jobs.map((j) => j.project);
+    groupJobs(jobs, "project");
+    expect(jobs.map((j) => j.project)).toEqual(snapshot);
+  });
+});
+
+describe("renderGroupedStatusTable", () => {
+  it("shows the empty message when there are no jobs", () => {
+    expect(renderGroupedStatusTable([], "project", { now: NOW })).toBe(EMPTY_MESSAGE);
+  });
+
+  it("renders one labeled section per group with counts", () => {
+    const jobs = [
+      job({ id: "w1", project: "web" }),
+      job({ id: "a1", project: "api" }),
+      job({ id: "w2", project: "web" }),
+    ];
+    const out = renderGroupedStatusTable(jobs, "project", { now: NOW });
+    expect(out).toContain("▸ project=web (2)");
+    expect(out).toContain("▸ project=api (1)");
+    // web section (larger) comes before api section.
+    expect(out.indexOf("project=web")).toBeLessThan(out.indexOf("project=api"));
+    // Footer still counts every job.
+    expect(out).toContain("3 job(s)");
+  });
+
+  it("caps rows per group with a per-group truncation note", () => {
+    const jobs = [
+      job({ id: "w1", project: "web" }),
+      job({ id: "w2", project: "web" }),
+      job({ id: "w3", project: "web" }),
+      job({ id: "a1", project: "api" }),
+    ];
+    const out = renderGroupedStatusTable(jobs, "project", { now: NOW, limit: 1 });
+    expect(out).toContain("▸ project=web (3)");
+    expect(out).toContain("… 2 more not shown (showing 1 of 3)");
+    // The single-job api group is not truncated.
+    expect(out).toContain("▸ project=api (1)");
+  });
+});
+
+describe("renderGroupedStatusJson", () => {
+  it("emits provenance, groupBy, summary, and per-group job lists", () => {
+    const jobs = [
+      job({ id: "w1", project: "web" }),
+      job({ id: "a1", project: "api" }),
+      job({ id: "w2", project: "web" }),
+    ];
+    const parsed = JSON.parse(renderGroupedStatusJson(jobs, "project", "/tmp/store.json", "2026-07-13T00:00:00.000Z"));
+    expect(parsed.groupBy).toBe("project");
+    expect(parsed.storePath).toBe("/tmp/store.json");
+    expect(parsed.total).toBe(3);
+    expect(parsed.groups.map((g: { key: string; count: number }) => `${g.key}:${g.count}`)).toEqual(["web:2", "api:1"]);
+    expect(parsed.groups[0].jobs.map((j: RelayJob) => j.id)).toEqual(["w1", "w2"]);
+  });
+
+  it("caps per-group jobs by limit and reports returned vs count", () => {
+    const jobs = [
+      job({ id: "w1", project: "web" }),
+      job({ id: "w2", project: "web" }),
+      job({ id: "w3", project: "web" }),
+    ];
+    const parsed = JSON.parse(
+      renderGroupedStatusJson(jobs, "project", "/tmp/store.json", "2026-07-13T00:00:00.000Z", 2)
+    );
+    expect(parsed.groups[0].count).toBe(3);
+    expect(parsed.groups[0].returned).toBe(2);
+    expect(parsed.groups[0].jobs).toHaveLength(2);
+  });
+});
+
+describe("renderWatchFrame with groupBy", () => {
+  it("renders the grouped table when a dimension is given", () => {
+    const jobs = [job({ id: "w1", project: "web" }), job({ id: "a1", project: "api" })];
+    const frame = renderWatchFrame(jobs, "/tmp/store.json", 2000, NOW, undefined, "project");
+    expect(frame).toContain("project=web");
+    expect(frame).toContain("project=api");
+  });
+});
