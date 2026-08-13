@@ -80,6 +80,7 @@ import {
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
+import { runEnv } from "./env.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderEta, renderEtaJson } from "./eta.js";
 import { renderHealth, renderHealthJson } from "./health.js";
@@ -1048,6 +1049,21 @@ export function buildCli(): Command {
       } else {
         console.log(renderLocations(report, { color: Boolean(process.stdout.isTTY) }));
       }
+    });
+
+  program
+    .command("env")
+    .description("List every environment variable AgentRelay reads, with its current value and description")
+    .option("--json", "Print as JSON (machine-readable, for scripts/jq)")
+    .option("--show-secrets", "Reveal webhook URLs / auth tokens in full instead of masking them")
+    .action((opts: { json?: boolean; showSecrets?: boolean }) => {
+      console.log(
+        runEnv({
+          json: opts.json,
+          showSecrets: opts.showSecrets,
+          color: Boolean(process.stdout.isTTY),
+        })
+      );
     });
 
   program
