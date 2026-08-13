@@ -175,11 +175,18 @@ export function renderStatsWatchFrame(
 /** Shown by `stats --group-by` when the store (or scoped subset) has no jobs. */
 export const NO_GROUP_MESSAGE = "No jobs to group.";
 
+/** Fixed width of the "median resolve" column so the trailing cv column aligns. */
+const MEDIAN_COL_WIDTH = 14;
+
 /**
  * Renders a per-group stats breakdown as a compact multi-line block: one row
- * per group with its count, success rate, and typical (median) resolution time,
- * ranked by count. Pure: no I/O, no clock. `color` gates ANSI codes (TTY only).
- * A `scopeNote` is echoed once at the top when a filter is active.
+ * per group with its count, success rate, typical (median) resolution time, and
+ * variability (cv — coefficient of variation), ranked by count. The cv column
+ * turns a per-group comparison from "which group resolves fastest?" into "which
+ * group resolves *most consistently*?" — a high cv next to a low median flags a
+ * group whose typical case is quick but whose tails are erratic. Pure: no I/O,
+ * no clock. `color` gates ANSI codes (TTY only). A `scopeNote` is echoed once at
+ * the top when a filter is active.
  */
 export function renderGroupedStats(
   groups: GroupedStat[],
@@ -202,13 +209,19 @@ export function renderGroupedStats(
   lines.push("");
   // Width the key column to the widest key (capped) so rows line up.
   const keyWidth = Math.min(24, Math.max(dimension.length, ...groups.map((g) => Math.min(24, g.key.length))));
-  lines.push(`  ${d(pad(dimension, keyWidth))}  ${d("jobs")}  ${d("success")}  ${d("median resolve")}`);
+  lines.push(
+    `  ${d(pad(dimension, keyWidth))}  ${d("jobs")}  ${d("success")}  ${d(pad("median resolve", MEDIAN_COL_WIDTH))}  ${d("cv")}`
+  );
   for (const { key, count, stats } of groups) {
     const { timing } = stats;
-    const median = timing.resolvedCount > 0 ? formatDurationMs(timing.medianResolutionMs ?? 0) : "-";
+    const hasResolved = timing.resolvedCount > 0;
+    const median = hasResolved ? formatDurationMs(timing.medianResolutionMs ?? 0) : "-";
+    // cv is only meaningful once a span exists; show "-" (not "n/a") when the
+    // group has resolved nothing, so it reads the same as the median column.
+    const cv = hasResolved ? formatCv(timing.cvResolution) : "-";
     lines.push(
       `  ${pad(key.slice(0, keyWidth), keyWidth)}  ${pad(String(count), 4)}  ` +
-        `${pad(formatSuccessRate(stats.successRate), 7)}  ${median}`
+        `${pad(formatSuccessRate(stats.successRate), 7)}  ${pad(median, MEDIAN_COL_WIDTH)}  ${cv}`
     );
   }
   return lines.join("\n");

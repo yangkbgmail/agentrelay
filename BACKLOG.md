@@ -824,6 +824,19 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay stats --group-by` 그룹별 행에 변동성(cv) 컬럼 노출 — 그룹별 count·success·
+      median에 더해 "어느 그룹이 가장 일관되게(꾸준히) 해결되나"를 무차원 비율로 비교. 세션 68·MAD(#649)가
+      공통으로 지목한 후속 후보.
+      (완료 — 기존 `--group-by` 표는 그룹별 count·success·median resolve만 보여줘 "어느 툴/프로젝트가 가장
+      *일관되게* 해결되나"는 알 수 없었다. cv(변동계수=stdev/mean, 이미 core `TimingStats.cvResolution`에
+      존재)를 그룹 행 끝 컬럼으로 추가 — 낮은 median 옆의 높은 cv는 "전형은 빠른데 꼬리가 들쭉날쭉한"
+      그룹을 드러낸다. CLI `stats.ts` `renderGroupedStats`에만 손댐: median resolve 컬럼을 고정폭
+      (`MEDIAN_COL_WIDTH=14`)으로 패딩해 cv 컬럼 정렬, 해결 스팬 있으면 `formatCv`, 없으면 median과 동일하게
+      `-`(n/a 아님) 표시. core·집계·JSON shape 불변(`--group-by --json`은 이미 그룹별 `stats.timing` 전체를
+      직렬화해 cvResolution 자동 노출). 새 core 코드 0줄. cli stats.test render 단언 확장(cv 헤더·web 50%·api
+      `-`). 실제 빌드 CLI e2e로 web{1h,3h}→`cv 50%`·api(queued)→median·cv 둘 다 `-` 정렬 검증.
+      branch `claude/stats-groupby-cv`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

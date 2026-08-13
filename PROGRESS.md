@@ -2166,3 +2166,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 70 — `agentrelay stats --group-by` 그룹별 변동성(cv) 컬럼] (2026-08-13, 무인 자율 세션, branch `claude/stats-groupby-cv`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유뿐. 이번 실행은 처음에
+  timing MAD를 골랐으나, 직전 실행이 이미 동일 기능을 `claude/stats-mad-resolution` 브랜치·PR #649로 열어둔
+  것을 발견해(중복) 충돌 없는 인접 후속으로 전환했다 — 세션 68과 PR #649가 공통으로 "그룹별 행에 cv 노출"을
+  후속 후보로 지목한 항목. 기존 `--group-by` 표는 그룹별 count·success·median resolve만 보여줘 "어느 툴/
+  프로젝트가 가장 *일관되게* 해결되나"는 알 수 없었다.
+- **한 일 (branch `claude/stats-groupby-cv`):**
+  - CLI `stats.ts` `renderGroupedStats`에만 손댐(core·집계 미변경): cv(변동계수=stdev/mean, 이미 core
+    `TimingStats.cvResolution`에 존재)를 그룹 행 끝 컬럼으로 추가. median resolve 컬럼을 고정폭
+    (`MEDIAN_COL_WIDTH=14`)으로 패딩해 cv 컬럼이 정렬되게 하고, 해결 스팬이 있으면 `formatCv`, 없으면
+    median 컬럼과 동일하게 `-`(n/a 아님)로 표시 — 두 컬럼이 같은 규칙으로 읽히도록.
+  - `--group-by --json`은 이미 그룹별 `stats.timing` 전체를 직렬화해 `cvResolution`을 자동 노출하므로
+    JSON 경로는 무변경(shape 불변). 새 core 코드 0줄.
+  - cli stats.test의 group-by render 테스트에 cv 헤더·web 행 `cv 50%`·api 행 median·cv 둘 다 `-` 단언 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test` 전
+  패키지 통과(**core 614 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): web{완료 1h·
+  실패 3h}·api{queued} 임시 스토어로 `stats --group-by project`가 `web 2 50% 2h 0m 50%` / `api 1 n/a - -`를
+  정렬된 표로 렌더 확인.
+- **참고:** 직전 실행의 timing MAD 작업은 PR #649로 이미 열려 있어 이 세션에서 중복 재작업/강제푸시하지 않음.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). #649(MAD)가 먼저 병합되면 PROGRESS/BACKLOG
+  꼬리 append 충돌은 순차 머지로 해소. 후속 인접 후보 — `--group-by` 행에 mad 컬럼(#649 병합 후), timing
+  블록 skewness(왜도). tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭).
