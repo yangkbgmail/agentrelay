@@ -2142,3 +2142,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay env` 환경변수 레퍼런스 명령] (2026-08-13, 무인 자율 세션, branch `claude/wizardly-pascal-vsm77t`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR 50건(summary --watch·parser·stats CV·watch 계열 등)이 포화된
+  축을 피해 **어떤 열린 PR에도 없는 명확한 갭**을 골랐다 — AgentRelay가 읽는 환경변수(16개)가 코드 곳곳에
+  흩어져 있고 "무엇을 설정할 수 있고 지금 뭐가 설정돼 있나"를 한 곳에서 답하는 명령이 없었다. `config show`는
+  config-backed 14개만, config 관점으로만 보여줘 `AGENTRELAY_CONFIG`(설정파일 선택)·`AGENTRELAY_MAX_CONCURRENT`
+  (스케줄러 동시성)는 전혀 다루지 못하고, 각 변수의 설명도 없었다.
+- **한 일 (branch `claude/wizardly-pascal-vsm77t`):**
+  - core `env.ts` 신설: `EnvVarDoc` 레지스트리(`ENV_VARS`, 16개 = config-backed 14 + 순수 env 2)에
+    key·category·설명·configBacked·secret·defaultHint 수록. `describeEnv(env)`(순수)가 현재 환경 대비
+    set/unset·raw value 스냅샷(공백값은 unset 취급 — 코드 전반의 blank-env 관례와 일치). `configBackedEnvDrift()`로
+    `CONFIG_ENV_KEYS`와의 드리프트를 테스트에서 강제(두 레지스트리가 절대 어긋나지 않음).
+  - CLI `env.ts` 신설: `renderEnv`(카테고리별 정렬 테이블 + [set]/[default] 소스 태그 + 설명/기본값,
+    비밀값은 `maskSecret` 재사용해 마스킹)·`renderEnvJson`(machine 출력, 비밀값 기본 마스킹)·`runEnv`(얇은 배선).
+    순수 함수(TTY·시계·spawn 없이 단위 테스트 가능).
+  - `cli.ts`에 `agentrelay env [--json] [--show-secrets]` 배선(paths/health 옆 read-only 레퍼런스군).
+    completion 스펙은 commander program에서 동적 생성이라 자동 등록됨.
+  - `env.test.ts` core 11 + cli 11케이스: 레지스트리 유일성/설명/드리프트/secret 플래그, describeEnv
+    set·blank·순서·메타 전달, 렌더 헤더 카운트·set/unset 태그·설명/기본값·마스킹·show-secrets·색토글, JSON
+    카운트·redaction·null.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm lint:fix`+`pnpm ci:lint`(Biome 0에러, 120파일)→
+  `pnpm test` 전 패키지 통과(**core 625**+11 / **cli 354/1skip**+11 / dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  빈 env가 `0 of 16 set` + 카테고리별 설명/기본값 렌더, `AGENTRELAY_MAX_CONCURRENT=4`가 `[set]`으로 표시,
+  `AGENTRELAY_SLACK_WEBHOOK`이 마스킹(•••CRET)·`--show-secrets`로 전체 노출, `--json`이 total/set/vars 방출,
+  `--help`·`completion bash`에 env 등록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — dashboard에 env 레퍼런스
+  패널, `doctor`가 위험한 env 조합(예: 오타난 duration) 경고. tz/heatmap/parser/watch/summary는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
