@@ -40,6 +40,7 @@ import {
   scopeJobs,
   selectNextResume,
   sendTestNotification,
+  shouldUseColor,
   summarizeJobs,
   summarizeProjects,
   summarizeRateLimitPatterns,
@@ -324,6 +325,15 @@ export function buildCompletionSpec(program: Command): CompletionSpec {
 }
 
 /**
+ * Whether stdout should carry ANSI color. Honors the `NO_COLOR` / `FORCE_COLOR`
+ * conventions via `@agentrelay/core`'s `shouldUseColor`, falling back to whether
+ * stdout is a TTY. Read per call so it reflects the live environment.
+ */
+function stdoutColor(): boolean {
+  return shouldUseColor(process.env, Boolean(process.stdout.isTTY));
+}
+
+/**
  * Live `agentrelay status --watch`: clears the screen and re-renders the table
  * on an interval so countdowns tick down in place. `listStatus` re-reads the
  * JSON store each pass, so a running daemon's writes show up automatically.
@@ -338,7 +348,7 @@ function runWatch(store: string, intervalMs: number, selection: JobSelection, wi
     const all = listStatus(store);
     const windowed = window && isJobScopeActive(window) ? scopeJobs(all, window) : all;
     const selected = selectJobs(windowed, selection);
-    const frame = renderWatchFrame(selected, store, intervalMs, Date.now(), limit);
+    const frame = renderWatchFrame(selected, store, intervalMs, Date.now(), limit, stdoutColor());
     // Clear screen + move cursor home, then paint the frame.
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
@@ -366,7 +376,7 @@ function runUpcomingWatch(
     const all = listStatus(store);
     const jobs = active ? scopeJobs(all, window) : all;
     const timeline = buildUpcomingTimeline(jobs, now, limit);
-    const frame = renderUpcomingWatchFrame(timeline, store, intervalMs, now, scopeNote);
+    const frame = renderUpcomingWatchFrame(timeline, store, intervalMs, now, scopeNote, stdoutColor());
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
 }
@@ -395,7 +405,7 @@ function runOverdueWatch(
     const all = listStatus(store);
     const jobs = active ? scopeJobs(all, window) : all;
     const report = buildOverdueReport(jobs, now, { graceMs, limit });
-    const frame = renderOverdueWatchFrame(report, store, intervalMs, now, scopeNote);
+    const frame = renderOverdueWatchFrame(report, store, intervalMs, now, scopeNote, stdoutColor());
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
 }
@@ -417,7 +427,7 @@ function runToolsWatch(store: string, intervalMs: number, window: JobScope, scop
     const all = listStatus(store);
     const jobs = active ? scopeJobs(all, window) : all;
     const summary = summarizeTools(jobs);
-    const frame = renderToolsWatchFrame(summary, store, intervalMs, now, scopeNote);
+    const frame = renderToolsWatchFrame(summary, store, intervalMs, now, scopeNote, stdoutColor());
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
 }
@@ -439,7 +449,7 @@ function runProjectsWatch(store: string, intervalMs: number, window: JobScope, s
     const all = listStatus(store);
     const jobs = active ? scopeJobs(all, window) : all;
     const summary = summarizeProjects(jobs);
-    const frame = renderProjectsWatchFrame(summary, store, intervalMs, now, scopeNote);
+    const frame = renderProjectsWatchFrame(summary, store, intervalMs, now, scopeNote, stdoutColor());
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
 }
@@ -472,27 +482,28 @@ function runStatsWatch(
     const now = Date.now();
     const all = listStatus(store);
     const jobs = active ? scopeJobs(all, scope) : all;
+    const color = stdoutColor();
     let body: string;
     if (groupBy !== undefined) {
-      body = renderGroupedStats(groupStats(jobs, groupBy), groupBy, { color: true, scopeNote });
+      body = renderGroupedStats(groupStats(jobs, groupBy), groupBy, { color, scopeNote });
     } else {
       const stats = computeStats(jobs);
-      body = renderStats(stats, { color: true, scopeNote, now });
+      body = renderStats(stats, { color, scopeNote, now });
       if (trendDays !== null && stats.total > 0) {
         const trend = computeDailyTrend(jobs, { nowMs: now, days: trendDays });
-        body += `\n\n${renderTrend(trend, { color: true })}`;
+        body += `\n\n${renderTrend(trend, { color })}`;
       }
       if (hours && stats.total > 0) {
-        body += `\n\n${renderHours(computeHourlyDistribution(jobs, zone.offsetMinutes), { color: true, zoneLabel: zone.label })}`;
+        body += `\n\n${renderHours(computeHourlyDistribution(jobs, zone.offsetMinutes), { color, zoneLabel: zone.label })}`;
       }
       if (weekday && stats.total > 0) {
-        body += `\n\n${renderWeekday(computeWeekdayDistribution(jobs, zone.offsetMinutes), { color: true, zoneLabel: zone.label })}`;
+        body += `\n\n${renderWeekday(computeWeekdayDistribution(jobs, zone.offsetMinutes), { color, zoneLabel: zone.label })}`;
       }
       if (heatmap && stats.total > 0) {
-        body += `\n\n${renderHeatmap(computeActivityHeatmap(jobs, zone.offsetMinutes), { color: true, zoneLabel: zone.label })}`;
+        body += `\n\n${renderHeatmap(computeActivityHeatmap(jobs, zone.offsetMinutes), { color, zoneLabel: zone.label })}`;
       }
     }
-    const frame = renderStatsWatchFrame(body, store, intervalMs, now);
+    const frame = renderStatsWatchFrame(body, store, intervalMs, now, color);
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
 }
@@ -713,7 +724,7 @@ export function buildCli(): Command {
           console.log(NO_MATCH_MESSAGE);
           return;
         }
-        console.log(renderStatusTable(selected, { color: Boolean(process.stdout.isTTY), limit }));
+        console.log(renderStatusTable(selected, { color: stdoutColor(), limit }));
       }
     );
 
@@ -732,7 +743,7 @@ export function buildCli(): Command {
       if (opts.json) {
         console.log(renderNextJson(next, store));
       } else {
-        console.log(renderNext(next, { color: Boolean(process.stdout.isTTY) }));
+        console.log(renderNext(next, { color: stdoutColor() }));
       }
 
       // Opt-in exit codes let scripts branch without jq: e.g. a cron that only
@@ -781,7 +792,7 @@ export function buildCli(): Command {
       if (opts.json) {
         console.log(renderSummaryJson(summary, store ?? defaultStorePath()));
       } else {
-        console.log(renderSummary(summary, { color: Boolean(process.stdout.isTTY), now }));
+        console.log(renderSummary(summary, { color: stdoutColor(), now }));
       }
     });
 
@@ -810,7 +821,7 @@ export function buildCli(): Command {
       if (opts.json) {
         console.log(renderEtaJson(eta, store ?? defaultStorePath()));
       } else {
-        console.log(renderEta(eta, { color: Boolean(process.stdout.isTTY) }));
+        console.log(renderEta(eta, { color: stdoutColor() }));
       }
 
       // Opt-in exit code: 0 when caught up (a poll loop can stop), 3 while any
@@ -889,7 +900,7 @@ export function buildCli(): Command {
         );
         return;
       }
-      console.log(renderUpcoming(timeline, { color: Boolean(process.stdout.isTTY), now, scopeNote }));
+      console.log(renderUpcoming(timeline, { color: stdoutColor(), now, scopeNote }));
     });
 
   program
@@ -981,7 +992,7 @@ export function buildCli(): Command {
         );
         return;
       }
-      console.log(renderOverdue(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
+      console.log(renderOverdue(report, { color: stdoutColor(), scopeNote }));
     });
 
   program
@@ -1046,7 +1057,7 @@ export function buildCli(): Command {
       if (opts.json) {
         console.log(renderLocationsJson(report));
       } else {
-        console.log(renderLocations(report, { color: Boolean(process.stdout.isTTY) }));
+        console.log(renderLocations(report, { color: stdoutColor() }));
       }
     });
 
@@ -1066,7 +1077,7 @@ export function buildCli(): Command {
       if (opts.json) {
         console.log(renderHealthJson(report, store));
       } else {
-        console.log(renderHealth(report, { color: Boolean(process.stdout.isTTY) }));
+        console.log(renderHealth(report, { color: stdoutColor() }));
       }
       // The exit code is the whole point: a monitor can branch on it without
       // parsing output. 0 = healthy/idle, 1 = unhealthy.
@@ -1271,7 +1282,7 @@ export function buildCli(): Command {
             console.log(renderGroupedStatsJson(groups, groupBy, store, { scope }));
             return;
           }
-          console.log(renderGroupedStats(groups, groupBy, { color: Boolean(process.stdout.isTTY), scopeNote }));
+          console.log(renderGroupedStats(groups, groupBy, { color: stdoutColor(), scopeNote }));
           return;
         }
 
@@ -1287,24 +1298,24 @@ export function buildCli(): Command {
         }
         // A store with jobs but an empty scoped subset should say "no match",
         // not the onboarding hint — renderStats keys that off scopeNote.
-        console.log(renderStats(stats, { color: Boolean(process.stdout.isTTY), scopeNote }));
+        console.log(renderStats(stats, { color: stdoutColor(), scopeNote }));
         // Append the histograms only when the store has matching jobs (renderStats
         // already handles the empty/no-match messaging on its own).
         if (trend !== null && stats.total > 0) {
           console.log("");
-          console.log(renderTrend(trend, { color: Boolean(process.stdout.isTTY) }));
+          console.log(renderTrend(trend, { color: stdoutColor() }));
         }
         if (hours !== null && stats.total > 0) {
           console.log("");
-          console.log(renderHours(hours, { color: Boolean(process.stdout.isTTY), zoneLabel: zone.label }));
+          console.log(renderHours(hours, { color: stdoutColor(), zoneLabel: zone.label }));
         }
         if (weekday !== null && stats.total > 0) {
           console.log("");
-          console.log(renderWeekday(weekday, { color: Boolean(process.stdout.isTTY), zoneLabel: zone.label }));
+          console.log(renderWeekday(weekday, { color: stdoutColor(), zoneLabel: zone.label }));
         }
         if (heatmap !== null && stats.total > 0) {
           console.log("");
-          console.log(renderHeatmap(heatmap, { color: Boolean(process.stdout.isTTY), zoneLabel: zone.label }));
+          console.log(renderHeatmap(heatmap, { color: stdoutColor(), zoneLabel: zone.label }));
         }
       }
     );
@@ -1381,7 +1392,7 @@ export function buildCli(): Command {
       }
       console.log(
         renderPatterns(summary, {
-          color: Boolean(process.stdout.isTTY),
+          color: stdoutColor(),
           scopeNote: built.active ? built.note : undefined,
         })
       );
@@ -1445,7 +1456,7 @@ export function buildCli(): Command {
       }
       console.log(
         renderProjects(summary, {
-          color: Boolean(process.stdout.isTTY),
+          color: stdoutColor(),
           scopeNote: built.active ? built.note : undefined,
           now,
         })
@@ -1510,7 +1521,7 @@ export function buildCli(): Command {
       }
       console.log(
         renderTools(summary, {
-          color: Boolean(process.stdout.isTTY),
+          color: stdoutColor(),
           scopeNote,
           now,
         })
@@ -1557,7 +1568,7 @@ export function buildCli(): Command {
         console.log(renderErrorBreakdownJson(breakdown, store, { scopeNote }));
         return;
       }
-      console.log(renderErrorBreakdown(breakdown, { color: Boolean(process.stdout.isTTY), limit, scopeNote }));
+      console.log(renderErrorBreakdown(breakdown, { color: stdoutColor(), limit, scopeNote }));
     });
 
   program
@@ -1570,7 +1581,7 @@ export function buildCli(): Command {
       if (opts.json) {
         console.log(renderDoctorJson(report));
       } else {
-        console.log(renderDoctor(report, { color: Boolean(process.stdout.isTTY) }));
+        console.log(renderDoctor(report, { color: stdoutColor() }));
       }
       // Exit non-zero when any check failed, so `agentrelay doctor` is usable as
       // a CI/pre-flight gate.
@@ -1587,7 +1598,7 @@ export function buildCli(): Command {
       if (opts.json) {
         console.log(renderVerifyJson(report));
       } else {
-        console.log(renderVerify(report, { color: Boolean(process.stdout.isTTY) }));
+        console.log(renderVerify(report, { color: stdoutColor() }));
       }
       // Exit non-zero on whole-file corruption or any error-level issue, so
       // `agentrelay verify` works as a CI/pre-flight gate (warnings still exit 0).
@@ -1607,9 +1618,7 @@ export function buildCli(): Command {
       if (opts.json) {
         console.log(renderTestNotifyResultsJson(results));
       } else {
-        console.log(
-          renderTestNotifyResults(results, { color: Boolean(process.stdout.isTTY), showSecrets: opts.showSecrets })
-        );
+        console.log(renderTestNotifyResults(results, { color: stdoutColor(), showSecrets: opts.showSecrets }));
       }
       // Exit non-zero when nothing was configured (nothing to test) or any
       // channel failed, so scripts/CI can gate on working notifications.
@@ -1865,7 +1874,7 @@ export function buildCli(): Command {
         console.log(renderJobDetailJson(result.job, store));
         return;
       }
-      console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
+      console.log(renderJobDetail(result.job, { color: stdoutColor() }));
     });
 
   program
@@ -1897,7 +1906,7 @@ export function buildCli(): Command {
         console.log(renderParseReportJson(report));
         return;
       }
-      console.log(renderParseReport(report, { color: Boolean(process.stdout.isTTY) }));
+      console.log(renderParseReport(report, { color: stdoutColor() }));
     });
 
   const config = program.command("config").description("Manage the agentrelay.config.json defaults file");
@@ -1952,9 +1961,7 @@ export function buildCli(): Command {
       if (opts.json) {
         console.log(renderEffectiveConfigJson(result));
       } else {
-        console.log(
-          renderEffectiveConfig(result, { color: Boolean(process.stdout.isTTY), showSecrets: opts.showSecrets })
-        );
+        console.log(renderEffectiveConfig(result, { color: stdoutColor(), showSecrets: opts.showSecrets }));
       }
       // A broken config file is a real problem worth a non-zero exit, but we
       // still printed the env/default resolution above to aid debugging.

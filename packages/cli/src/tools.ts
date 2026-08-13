@@ -83,14 +83,16 @@ export function renderToolsWatchFrame(
   storePath: string,
   intervalMs: number,
   now: number = Date.now(),
-  scopeNote?: string
+  scopeNote?: string,
+  color = true
 ): string {
+  const b = color ? BOLD : "";
+  const d = color ? DIM : "";
+  const r = color ? RESET : "";
   const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
-  const title = `${BOLD}agentrelay tools${RESET} ${DIM}(live, every ${Math.round(
-    intervalMs / 1000
-  )}s — Ctrl-C to exit)${RESET}`;
-  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
-  return [title, meta, "", renderTools(summary, { color: true, scopeNote, now })].join("\n");
+  const title = `${b}agentrelay tools${r} ${d}(live, every ${Math.round(intervalMs / 1000)}s — Ctrl-C to exit)${r}`;
+  const meta = `${d}${stamp}Z · ${storePath}${r}`;
+  return [title, meta, "", renderTools(summary, { color, scopeNote, now })].join("\n");
 }
 
 /**

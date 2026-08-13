@@ -810,6 +810,21 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `NO_COLOR`/`FORCE_COLOR` 환경변수 지원 — 모든 렌더 명령의 ANSI 색상을 표준 관례대로 제어.
+      자기 발굴 항목(열린 PR에 색상 관련 항목 전무). 지금까지 색상은 오직 `Boolean(process.stdout.isTTY)`로만
+      결정돼, 스크린리더·플레인 로그를 위해 색을 끄는 `NO_COLOR`(https://no-color.org/)도, 페이저/CI로
+      파이프할 때 색을 유지하는 `FORCE_COLOR`도 무시됐다. 게다가 `stats --watch`와 5개 watch 프레임
+      렌더러는 파이프해도 `color: true`로 하드코딩돼 있었다.
+      (완료 — core `color.ts` 신설(순수·env 주입): `resolveColorPreference(env)`(FORCE_COLOR 우선[0/false는
+      OFF, 그 외·빈값은 ON — supports-color 관례], 다음 NO_COLOR 비어있지 않으면 OFF, 아니면 null=무의견) +
+      `shouldUseColor(env, isTTY)`(오버라이드 없으면 TTY로 폴백). 빈 `NO_COLOR`는 미설정 취급(실수로 export된
+      빈 변수가 색을 조용히 끄지 않게). CLI `cli.ts`에 `stdoutColor()` 헬퍼 신설 → 25개 `Boolean(process.stdout
+      .isTTY)` 호출부를 전부 교체하고, `stats --watch` 루프와 status/upcoming/overdue/tools/projects/stats
+      watch 프레임 렌더러(제목·메타 ANSI 포함)에 color 파라미터를 배선해 `NO_COLOR`가 watch 뷰에서도
+      존중되게. 새 파서/스케줄러 로직 0줄. core color.test +12(preference/shouldUseColor 전 분기), 실제 빌드
+      CLI e2e로 default(non-TTY)→무색·`FORCE_COLOR=1`→유색·`NO_COLOR=1`→무색·FORCE>NO 우선·`FORCE_COLOR=0`→
+      무색·빈 `NO_COLOR`→무시 검증. branch `claude/wizardly-pascal-sq477h`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -65,14 +65,16 @@ export function renderOverdueWatchFrame(
   storePath: string,
   intervalMs: number,
   now: number = Date.now(),
-  scopeNote?: string
+  scopeNote?: string,
+  color = true
 ): string {
+  const b = color ? BOLD : "";
+  const d = color ? DIM : "";
+  const r = color ? RESET : "";
   const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
-  const title = `${BOLD}agentrelay overdue${RESET} ${DIM}(live, every ${Math.round(
-    intervalMs / 1000
-  )}s — Ctrl-C to exit)${RESET}`;
-  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
-  return [title, meta, "", renderOverdue(report, { color: true, scopeNote })].join("\n");
+  const title = `${b}agentrelay overdue${r} ${d}(live, every ${Math.round(intervalMs / 1000)}s — Ctrl-C to exit)${r}`;
+  const meta = `${d}${stamp}Z · ${storePath}${r}`;
+  return [title, meta, "", renderOverdue(report, { color, scopeNote })].join("\n");
 }
 
 /**
