@@ -810,6 +810,20 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay snooze <id> <duration>` — 대기 중 잡의 재개 시각을 뒤로 미룸(`retry`의 대칭:
+      retry=지금 재개, snooze=나중 재개). 파서가 리셋을 잘못 추정했거나, 소프트/월간 캡처럼 실제로는
+      더 늦게 풀리는 걸 알 때 수동으로 재개를 늦춘다.
+      (완료 — core `control.ts`에 순수 `canSnooze(job)`(오직 `waiting_for_reset`만 허용, 나머지는 사유와
+      함께 거부: queued="아직 대기 아님"·resuming·terminal)·`SNOOZABLE_STATUSES`·`computeSnoozedResetAt(job,
+      deltaMs, now, {fromNow})` 추가. 기본 앵커=max(현재 resetAt, now)+delta라 이미 지난(overdue) 잡도
+      항상 미래 인스턴트로 미뤄지는 불변식 보장, `--from-now`는 now 기준. `RelayQueue.reschedule(id, resetAt)`
+      신설 — `requeueNow`와 달리 attempts·lastError 보존(재개 시점만 늦추고 이력은 유지). 기간 파싱은
+      `prune`의 `parseDuration` 재사용, 양수만 허용. CLI `snoozeJob(id, duration, {fromNow, storePath})` +
+      `agentrelay snooze <id> <duration> [--from-now] [--json]`(사람용은 카운트다운 첨부). completion은
+      program에서 자동 파생. core control.test +9(canSnooze 3·computeSnoozedResetAt 6), cli commands.test +6
+      (연장·이력보존·from-now·비대기 거부·불량기간·미존재 id). 실제 빌드 CLI e2e로 1h→2h snooze=3h·
+      --from-now·--json·에러 경로 검증. branch `claude/wizardly-pascal-v44jt8`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

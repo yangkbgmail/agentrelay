@@ -2142,3 +2142,34 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay snooze <id> <duration>` 수동 재개 지연 명령] (2026-08-13, 무인 자율 세션, branch `claude/wizardly-pascal-v44jt8`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 [x], 남은 미완은 🧭 코워크 소유뿐. 열린 PR 50+개가 parser/
+  watch/stats/tz/heatmap 축으로 극도로 포화(세션 60~67 기조). 이 축들을 피해 **어떤 열린 PR에도 없는
+  고유 갭**을 골랐다 — `retry`(지금 재개)는 있는데 그 **대칭**인 "나중 재개"가 없었다. 파서가 리셋을
+  잘못 추정했거나, 소프트/월간 캡처럼 실제로는 더 늦게 풀리는 걸 사용자가 알 때, 재개 시점을 수동으로
+  미룰 수 없어 `cancel` 후 재등록이 유일한 우회였다.
+- **한 일 (branch `claude/wizardly-pascal-v44jt8`):**
+  - core `control.ts`(기존 cancel/retry 순수 가드 이웃)에 3종 추가: `canSnooze(job)` — 오직
+    `waiting_for_reset`만 허용, 나머지는 사유와 함께 거부(queued="아직 대기 아님(미룰 게 없음)"·
+    resuming·cancelled·completed·failed) / `SNOOZABLE_STATUSES` / `computeSnoozedResetAt(job, deltaMs,
+    now, {fromNow})`. 기본 앵커 = `max(현재 resetAt, now) + delta` → 이미 지난(overdue) 잡·resetAt이
+    null/파싱불가여도 **항상 미래 인스턴트로 미뤄지는 불변식** 보장. `--from-now`는 now 기준(스누즈 버튼
+    의미). 파싱은 `prune`의 `parseDuration` 재사용.
+  - core `queue.ts`에 `reschedule(id, resetAt)` 신설 — `requeueNow`와 달리 attempts·lastError를
+    **보존**(재개 시점만 늦추고 rate-limit 이력은 유지). status는 `waiting_for_reset` 유지라 스케줄러가
+    새 시각 경과 시 정상 픽업.
+  - CLI `commands.ts` `snoozeJob(id, duration, {fromNow, storePath})` — parseDuration null/≤0은 명확한
+    에러, `resolveJobId`(짧은 prefix·모호/미존재) + `canSnooze` 가드 재사용, 불량 입력·미존재 id는
+    스토어 미변경. `cli.ts` `agentrelay snooze <id> <duration> [--from-now] [--json]` 배선(사람용은
+    `formatCountdown`으로 새 재개까지 카운트다운 첨부). completion은 program에서 자동 파생.
+  - 테스트: core `control.test.ts` +9(canSnooze 상태별·computeSnoozedResetAt 연장/overdue앵커/from-now/
+    null·불량 resetAt/미래불변식), cli `commands.test.ts` +6(연장=현재리셋+delta·attempts/error 보존·
+    from-now·비대기 거부·불량기간·미존재 id).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm lint:fix`+`ci:lint`(Biome 0에러, 116파일)→
+  `pnpm test` 전 패키지 통과(**core 623**(+15)·**cli 349/1skip**(+6)·dashboard 9). **실제 빌드 CLI e2e**
+  (mock 아님): 1h-out 대기 잡에 `snooze 2h`→3h-out(현재 리셋에 가산), `--from-now 15m`→now+15m,
+  `--json` 방출, `banana`/`0s`/`deadbeef` 에러 경로 각각 검증.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `snooze --all`(스코프
+  일괄 지연), 대칭축의 `snooze`를 `retry`처럼 bulk 경로에 편입. parser/watch/stats/tz/heatmap은 PR 포화라
+  지양. README/ARCHITECTURE(🧭 코워크).

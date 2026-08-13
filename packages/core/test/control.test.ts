@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { canCancel, canRequeue, partitionForControl, resolveJobId } from "../src/control.js";
+import {
+  canCancel,
+  canRequeue,
+  canSnooze,
+  computeSnoozedResetAt,
+  partitionForControl,
+  resolveJobId,
+} from "../src/control.js";
 import type { JobStatus, RelayJob } from "../src/types.js";
 
-function job(id: string, status: JobStatus): RelayJob {
+function job(id: string, status: JobStatus, resetAt: string | null = null): RelayJob {
   const now = "2026-07-13T00:00:00.000Z";
   return {
     id,
@@ -11,7 +18,7 @@ function job(id: string, status: JobStatus): RelayJob {
     command: ["claude", "-p", "continue"],
     cwd: "/tmp/demo",
     status,
-    resetAt: null,
+    resetAt,
     createdAt: now,
     updatedAt: now,
     attempts: 0,
@@ -47,6 +54,65 @@ describe("canRequeue", () => {
     const result = canRequeue(job("a", "resuming"));
     expect(result.ok).toBe(false);
     expect(result.reason).toContain("resuming");
+  });
+});
+
+describe("canSnooze", () => {
+  it("allows snoozing only a job that is waiting for a reset", () => {
+    expect(canSnooze(job("a", "waiting_for_reset")).ok).toBe(true);
+  });
+
+  it("rejects snoozing jobs in any other state with a reason", () => {
+    for (const status of ["queued", "resuming", "completed", "failed", "cancelled"] as JobStatus[]) {
+      const result = canSnooze(job("a", status));
+      expect(result.ok).toBe(false);
+      expect(result.reason).toBeTruthy();
+    }
+  });
+
+  it("explains that a queued job has nothing to defer", () => {
+    expect(canSnooze(job("a", "queued")).reason).toContain("not waiting");
+  });
+});
+
+describe("computeSnoozedResetAt", () => {
+  const now = new Date("2026-07-13T00:00:00.000Z");
+
+  it("adds the delay to a future reset time by default", () => {
+    const j = job("a", "waiting_for_reset", "2026-07-13T02:00:00.000Z"); // 2h out
+    const result = computeSnoozedResetAt(j, 60 * 60_000, now); // +1h
+    expect(result).toBe("2026-07-13T03:00:00.000Z");
+  });
+
+  it("anchors on now when the current reset is already past", () => {
+    const j = job("a", "waiting_for_reset", "2026-07-12T23:00:00.000Z"); // 1h ago
+    const result = computeSnoozedResetAt(j, 30 * 60_000, now); // +30m
+    // Anchored at now (not the past reset) -> always lands in the future.
+    expect(result).toBe("2026-07-13T00:30:00.000Z");
+  });
+
+  it("measures from now when fromNow is set, ignoring a later reset", () => {
+    const j = job("a", "waiting_for_reset", "2026-07-13T05:00:00.000Z"); // 5h out
+    const result = computeSnoozedResetAt(j, 60 * 60_000, now, { fromNow: true }); // +1h from now
+    expect(result).toBe("2026-07-13T01:00:00.000Z");
+  });
+
+  it("treats a job with no resetAt as anchored at now", () => {
+    const j = job("a", "waiting_for_reset", null);
+    const result = computeSnoozedResetAt(j, 15 * 60_000, now);
+    expect(result).toBe("2026-07-13T00:15:00.000Z");
+  });
+
+  it("treats an unparseable resetAt as anchored at now", () => {
+    const j = job("a", "waiting_for_reset", "not-a-date");
+    const result = computeSnoozedResetAt(j, 15 * 60_000, now);
+    expect(result).toBe("2026-07-13T00:15:00.000Z");
+  });
+
+  it("always produces a future instant relative to now", () => {
+    const j = job("a", "waiting_for_reset", "2026-07-10T00:00:00.000Z"); // days ago
+    const result = computeSnoozedResetAt(j, 60_000, now); // +1m
+    expect(new Date(result).getTime()).toBeGreaterThan(now.getTime());
   });
 });
 
