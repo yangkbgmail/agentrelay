@@ -246,10 +246,14 @@ describe("renderGroupedStats", () => {
     expect(out).toContain("3 job(s) across 2 project(s)");
     expect(out).toContain("web");
     expect(out).toContain("api");
-    // web: 1 completed of 2 resolved = 50%, median of {1h,3h} = 2h
-    expect(out).toMatch(/web\s+2\s+50%\s+2h 0m/);
-    // api: still queued → success rate n/a, no resolved span → "-"
-    expect(out).toMatch(/api\s+1\s+n\/a\s+-/);
+    // Header carries the variability column.
+    expect(out).toContain("cv");
+    // web: 1 completed of 2 resolved = 50%, median of {1h,3h} = 2h, and the cv
+    // column: mean 2h / stdev 1h → cv 0.5 = "50%".
+    expect(out).toMatch(/web\s+2\s+50%\s+2h 0m\s+50%/);
+    // api: still queued → success rate n/a, no resolved span → "-" for both
+    // the median and cv columns.
+    expect(out).toMatch(/api\s+1\s+n\/a\s+-\s+-/);
   });
 
   it("prepends a scope note when given", () => {
