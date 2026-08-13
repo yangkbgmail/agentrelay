@@ -76,6 +76,16 @@ export interface TimingStats {
    * IQR is the signature of a few heavy outliers dragging the mean.
    */
   stdevResolutionMs: number | null;
+  /**
+   * Coefficient of variation: the population standard deviation divided by the
+   * mean, as a unitless ratio (e.g. 0.5 = the spread is half the mean). Unlike
+   * {@link stdevResolutionMs} — which is in ms and only comparable within one
+   * scale — CV is scale-free, so it compares consistency across groups whose
+   * typical resolution times differ by orders of magnitude (a `--group-by tool`
+   * with one tool resolving in seconds and another in days). Lower = steadier.
+   * `null` when there are no resolved jobs or the mean is 0 (ratio undefined).
+   */
+  cvResolution: number | null;
 }
 
 export interface RelayStats {
@@ -452,6 +462,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     };
   } else {
     // Sort once ascending; percentiles read from it, min/max are its ends.
@@ -459,6 +470,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     const mean = sorted.reduce((sum, d) => sum + d, 0) / resolvedCount;
     const p25 = percentile(sorted, 0.25);
     const p75 = percentile(sorted, 0.75);
+    const stdev = populationStdev(sorted, mean);
     timing = {
       resolvedCount,
       avgResolutionMs: Math.round(mean),
@@ -471,7 +483,11 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p25ResolutionMs: p25,
       p75ResolutionMs: p75,
       iqrResolutionMs: p75 - p25,
-      stdevResolutionMs: populationStdev(sorted, mean),
+      stdevResolutionMs: stdev,
+      // Unitless ratio from the raw (unrounded) mean; null when the mean is 0
+      // (all spans zero → spread undefined). Rounded to 4 dp for a stable,
+      // lossless-enough JSON value; the CLI renders it as a whole percentage.
+      cvResolution: mean === 0 ? null : Math.round((stdev / mean) * 10000) / 10000,
     };
   }
 

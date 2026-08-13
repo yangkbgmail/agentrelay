@@ -2142,3 +2142,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay stats` 해결 시간 변동계수(CV = stdev/mean)] (2026-08-13, 무인 자율 세션, branch `claude/wizardly-pascal-fh0nlx`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 65(IQR·stdev)와 세션 67이 후속 후보로 명시한 "timing 블록 변동계수
+  (CV=stdev/mean)"를 골랐다 — 기존 함수 시그니처를 안 건드리는 순수 추가라 회귀 위험 최소이고, 열린 PR이
+  포화된 축(parser/watch/stats-tz/heatmap)과 겹치지 않는 timing 지표 확장. **왜 CV인가:** stdev는 ms 단위라
+  스케일이 다른 그룹끼리 비교가 안 된다. `--group-by tool`로 초 단위로 재개되는 툴과 일 단위 툴을 나란히
+  놓으면, 절대 stdev로는 어느 쪽이 더 일관적인지 알 수 없다. CV(stdev/mean, 무단위 비율)는 스케일-프리라
+  "퍼짐이 평균의 몇 %인가"로 직접 비교된다.
+- **한 일 (branch `claude/wizardly-pascal-fh0nlx`):**
+  - core `stats.ts`: `TimingStats`에 `cvResolution: number | null` 추가. `computeStats`가 이미 계산한
+    `stdev`와 raw(비반올림) `mean`을 재사용해 `stdev/mean`을 산출 — **새 정렬·새 순회 0줄**. `mean === 0`
+    (모든 span이 sub-ms → 비율 정의 안 됨)이면 null, resolved 0개도 null. stdev 0/양수 mean은 CV 0(완벽
+    일관). 4-소수 반올림으로 안정적·거의 무손실 JSON 값.
+  - CLI `stats.ts`: 순수 `formatCoefficientOfVariation(cv)`(비율→whole %, null·비유한은 "n/a") 신설,
+    resolution-time `spread:` 라인 끝에 `cv N%` 부착. `--json`은 timing 전체를 직렬화하므로 자동 노출.
+  - 테스트: core stats.test에 mean 0 → cv null 케이스 신규 + 기존 quartile/stdev·단일 잡 테스트에 cv
+    단언 확장, cli stats.test에 formatCoefficientOfVariation 2케이스 + spread 렌더 `cv 50%` 단언.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 615 / cli 345·1skip / dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): spans {1h,3h}
+  임시 스토어로 `stats`가 `spread: iqr 1h 0m (p25 …) stdev 1h 0m   cv 50%` 렌더, `stats --json`이
+  `timing.cvResolution: 0.5` 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에 CV를
+  `--group-by`별로 비교 강조하는 렌더, `summary --watch` 라이브 갱신. tz/heatmap/parser/watch는 PR
+  포화라 지양. README/ARCHITECTURE(🧭 코워크).

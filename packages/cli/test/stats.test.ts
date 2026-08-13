@@ -9,6 +9,7 @@ import {
 } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
 import {
+  formatCoefficientOfVariation,
   formatDurationMs,
   formatSuccessRate,
   formatUtcOffsetLabel,
@@ -57,6 +58,20 @@ describe("formatSuccessRate", () => {
 
   it("renders n/a for a null rate", () => {
     expect(formatSuccessRate(null)).toBe("n/a");
+  });
+});
+
+describe("formatCoefficientOfVariation", () => {
+  it("renders a ratio as a whole percentage", () => {
+    expect(formatCoefficientOfVariation(0.5)).toBe("50%");
+    expect(formatCoefficientOfVariation(0)).toBe("0%");
+    expect(formatCoefficientOfVariation(1.234)).toBe("123%");
+  });
+
+  it("renders n/a for a null or non-finite cv", () => {
+    expect(formatCoefficientOfVariation(null)).toBe("n/a");
+    expect(formatCoefficientOfVariation(Number.NaN)).toBe("n/a");
+    expect(formatCoefficientOfVariation(Number.POSITIVE_INFINITY)).toBe("n/a");
   });
 });
 
@@ -139,6 +154,8 @@ describe("renderStats", () => {
     expect(out).toContain("spread: iqr 1h 0m");
     expect(out).toContain("p25 1h 30m – p75 2h 30m");
     expect(out).toContain("stdev 1h 0m");
+    // cv = stdev/mean = 1h/2h = 0.5 → 50%
+    expect(out).toContain("cv 50%");
   });
 
   it("omits the resolution-time block when nothing has resolved", () => {

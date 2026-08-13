@@ -810,6 +810,20 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay stats` 해결 시간 변동계수(CV = stdev/mean) — 절대 퍼짐(stdev, ms)에 더해
+      **스케일-프리** 일관성 지표를 노출. `--group-by tool`로 초 단위 툴과 일 단위 툴을 나란히 볼 때,
+      ms 단위 stdev는 서로 비교가 안 되지만 CV(비율)는 "어느 쪽이 더 들쭉날쭉한가"를 직접 비교 가능.
+      직전 세션(IQR·stdev)이 후속 후보로 지목한 항목의 자기 발굴 확장.
+      (완료 — core `stats.ts`의 `TimingStats`에 `cvResolution: number | null`(모표준편차/평균, 무단위
+      비율) 추가. 기존에 계산한 `stdev`·raw `mean`을 재사용 → 새 정렬·새 순회 0줄. `mean === 0`(모든
+      span이 sub-ms)이면 비율이 정의 안 되므로 null, resolved 0개도 null, stdev 0/양수 mean은 CV 0
+      (완벽 일관). 4-소수 반올림으로 안정적 JSON 값. CLI `stats.ts`에 순수 `formatCoefficientOfVariation`
+      (비율→whole %, null·비유한은 "n/a") 신설 + resolution-time `spread:` 라인 끝에 `cv N%` 부착,
+      `--json`은 timing 전체 직렬화라 자동 노출. core stats.test +1(mean 0 → cv null) + 기존 spread
+      테스트에 cv 단언 확장, cli stats.test에 formatCoefficientOfVariation 2 + spread 렌더 cv 단언.
+      실제 빌드 CLI e2e로 spans {1h,3h}→휴먼 `cv 50%`·JSON `cvResolution: 0.5` 검증. 새 파서/스케줄러
+      로직 0줄. branch `claude/wizardly-pascal-fh0nlx`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
