@@ -2166,3 +2166,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay wait --all` 큐 전체 드레인 대기] (2026-08-13, 무인 자율 세션, branch `claude/wizardly-pascal-gep265`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이라, 스스로 인접 개선을 발굴했다. `wait <id>`(세션에서 이미 존재)는 잡
+  **하나**를 종료까지 따라가지만, 여러 `run`을 팬아웃한 뒤 "릴레이가 전부 끝날 때까지" CI/스크립트에서
+  게이트로 삼을 방법이 없었다. `eta`는 카운트다운을 보여줄 뿐 블록하지 않는다. 이 빈틈을 큐 레벨 wait으로 메움.
+- **한 일 (branch `claude/wizardly-pascal-gep265`):**
+  - core `wait.ts`에 순수 `evaluateWaitAll(jobs)` + `WaitAllVerdict`(done·outcome·remaining·total) 신설.
+    활성 잡이 하나라도 남으면 `done:false`(+`remaining`), 전부 종료면 **최악 우선** 집계(any failed→failed,
+    else any cancelled→cancelled, else completed)로 `done:true`. 빈 큐는 공허하게 드레인된 것으로 보아
+    completed. exit code는 기존 `WAIT_EXIT_CODES`(0/1/2/124) 재사용 — 새 코드 표 발명 없음.
+  - CLI `commands.ts`에 `waitForAll`(스토어를 매 폴 재오픈해 별도 daemon/tick의 쓰기를 관측, clock/
+    sleeper/reader 주입 가능한 I/O 루프 — 순수 판정은 core 위임, `waitForJob`와 대칭). `cli/wait.ts`에
+    `renderWaitAllJson`(큐 레벨 aggregate JSON: outcome·exitCode·total·remaining).
+  - `wait` 커맨드의 `<id>`를 `[id]`로 만들고 `--all` 플래그 추가. id와 --all은 상호배타(둘 다/둘 다
+    아님은 명확한 에러 + exit 1), `--timeout`/`--interval`/`--json`/`-q`는 단일 잡 경로와 동일하게 동작.
+  - core `test/wait.test.ts`에 evaluateWaitAll 6케이스, cli `src/wait.test.ts` 신설(waitForAll 루프 3 +
+    renderWaitAllJson 1). 단일 잡 wait 경로는 회귀 없음.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 620 · cli 349/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 실패 포함 드레인
+  스토어→`--all --json` outcome=failed·exit 1, 전부 완료→exit 0, 빈 큐→"nothing to wait for"·exit 0,
+  활성 잡+`--timeout 1s`→exit 124, id와 --all 동시/둘 다 없음→에러 exit 1, 단일 잡 prefix wait 회귀 없음 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `wait --all`에 스코프
+  필터(`--tool`/`--project`, 특정 부분집합만 드레인 대기), 진행률 표시(`--progress`로 남은 잡 수 라이브
+  갱신). tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

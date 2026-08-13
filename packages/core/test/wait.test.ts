@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { JobStatus, RelayJob } from "../src/types.js";
-import { evaluateWait, isTerminalStatus, WAIT_EXIT_CODES, waitExitCode } from "../src/wait.js";
+import { evaluateWait, evaluateWaitAll, isTerminalStatus, WAIT_EXIT_CODES, waitExitCode } from "../src/wait.js";
 
+let seq = 0;
 function job(status: JobStatus): RelayJob {
+  seq += 1;
   return {
-    id: "id",
+    id: `id-${seq}`,
     project: "proj",
     tool: "claude-code",
     command: ["echo"],
@@ -61,5 +63,49 @@ describe("evaluateWait", () => {
 
   it("treats a null (vanished) job as done/missing", () => {
     expect(evaluateWait(null)).toEqual({ done: true, outcome: "missing" });
+  });
+});
+
+describe("evaluateWaitAll", () => {
+  it("reports an empty queue as vacuously drained + completed", () => {
+    expect(evaluateWaitAll([])).toEqual({ done: true, outcome: "completed", remaining: 0, total: 0 });
+  });
+
+  it("is not done while any job is still active, counting the remainder", () => {
+    const jobs = [job("completed"), job("waiting_for_reset"), job("resuming")];
+    expect(evaluateWaitAll(jobs)).toEqual({ done: false, remaining: 2, total: 1 });
+  });
+
+  it("drains to completed when every job completed", () => {
+    expect(evaluateWaitAll([job("completed"), job("completed")])).toEqual({
+      done: true,
+      outcome: "completed",
+      remaining: 0,
+      total: 2,
+    });
+  });
+
+  it("aggregates cancelled over completed", () => {
+    expect(evaluateWaitAll([job("completed"), job("cancelled")])).toEqual({
+      done: true,
+      outcome: "cancelled",
+      remaining: 0,
+      total: 2,
+    });
+  });
+
+  it("aggregates failed as the worst outcome, over cancelled and completed", () => {
+    expect(evaluateWaitAll([job("completed"), job("cancelled"), job("failed")])).toEqual({
+      done: true,
+      outcome: "failed",
+      remaining: 0,
+      total: 3,
+    });
+  });
+
+  it("does not report done just because some jobs are terminal", () => {
+    const verdict = evaluateWaitAll([job("failed"), job("queued")]);
+    expect(verdict.done).toBe(false);
+    expect(verdict.remaining).toBe(1);
   });
 });

@@ -46,6 +46,7 @@ import {
   evaluateHealth,
   evaluateHeartbeat,
   evaluateWait,
+  evaluateWaitAll,
   exportJobs,
   findConfigField,
   hasConfigErrors,
@@ -88,6 +89,7 @@ import {
   unsetConfigValue,
   validateConfig,
   verifyStore,
+  type WaitAllVerdict,
   type WaitOutcome,
   waitExitCode,
 } from "@agentrelay/core";
@@ -1558,6 +1560,110 @@ export async function waitForJob(idOrPrefix: string, options: WaitJobOptions = {
       };
     }
     if (job) options.onPoll?.(job, elapsed);
+    await sleep(intervalMs);
+  }
+}
+
+export interface WaitAllOptions {
+  storePath?: string;
+  /** How often to re-read the store while polling, in ms. Default 2000. */
+  intervalMs?: number;
+  /** Give up after this many ms of waiting. `null`/omitted = wait forever. */
+  timeoutMs?: number | null;
+  /** Injected clock (ms since epoch). Defaults to `Date.now`. */
+  now?: () => number;
+  /** Injected sleeper. Defaults to a `setTimeout`-based delay. */
+  sleep?: (ms: number) => Promise<void>;
+  /**
+   * Injected snapshot reader (whole store). Defaults to opening the store fresh
+   * on each poll so a *separate* daemon/tick process's writes are observed.
+   * Overridable for tests.
+   */
+  readJobs?: () => RelayJob[];
+  /** Called once per poll while the queue still has active jobs (for progress). */
+  onPoll?: (verdict: WaitAllVerdict, elapsedMs: number) => void;
+}
+
+export interface WaitAllResult {
+  outcome: WaitOutcome;
+  /** Active jobs still pending when the wait ended (non-zero only on timeout). */
+  remaining: number;
+  /** Terminal jobs the outcome aggregated over. */
+  total: number;
+  /** Human-readable line for the CLI to print. */
+  message: string;
+  exitCode: number;
+}
+
+function waitAllMessage(outcome: WaitOutcome, verdict: WaitAllVerdict): string {
+  switch (outcome) {
+    case "completed":
+      return verdict.total === 0 ? "queue is empty — nothing to wait for" : `all ${verdict.total} job(s) completed`;
+    case "failed":
+      return `queue drained with failure(s) across ${verdict.total} job(s)`;
+    case "cancelled":
+      return `queue drained; some of ${verdict.total} job(s) were cancelled`;
+    case "timeout":
+      return `timed out waiting for the queue to drain; ${verdict.remaining} job(s) still active`;
+    // `missing` never applies to a whole-queue wait.
+    default:
+      return "queue drained";
+  }
+}
+
+/**
+ * Block until the *whole* relay queue drains — every job reaches a terminal
+ * state — then exit with a code reflecting the worst outcome. Where
+ * {@link waitForJob} follows one job, this follows the entire queue, so a
+ * caller can fan out several `run`s and gate on the relay finishing them all.
+ * Pure aggregation lives in core's {@link evaluateWaitAll}; this owns only the
+ * I/O loop, with the clock/sleeper/reader injectable for tests.
+ */
+export async function waitForAll(options: WaitAllOptions = {}): Promise<WaitAllResult> {
+  const storePath = options.storePath ?? defaultStorePath();
+  const intervalMs = options.intervalMs ?? 2000;
+  const timeoutMs = options.timeoutMs ?? null;
+  const now = options.now ?? (() => Date.now());
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  const readJobs =
+    options.readJobs ??
+    ((): RelayJob[] => {
+      const q = openQueue(storePath);
+      try {
+        return q.listAll();
+      } finally {
+        q.close();
+      }
+    });
+
+  const start = now();
+  // First check is immediate so an already-drained queue returns without a
+  // sleep. The deadline is checked before each sleep so `--timeout` can't be
+  // overshot by more than one interval.
+  while (true) {
+    const verdict = evaluateWaitAll(readJobs());
+    if (verdict.done) {
+      const outcome = verdict.outcome as WaitOutcome;
+      return {
+        outcome,
+        remaining: verdict.remaining,
+        total: verdict.total,
+        message: waitAllMessage(outcome, verdict),
+        exitCode: waitExitCode(outcome),
+      };
+    }
+    const elapsed = now() - start;
+    if (timeoutMs !== null && elapsed >= timeoutMs) {
+      return {
+        outcome: "timeout",
+        remaining: verdict.remaining,
+        total: verdict.total,
+        message: waitAllMessage("timeout", verdict),
+        exitCode: waitExitCode("timeout"),
+      };
+    }
+    options.onPoll?.(verdict, elapsed);
     await sleep(intervalMs);
   }
 }
