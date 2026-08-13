@@ -106,6 +106,8 @@ import {
 import {
   type JobSelection,
   NO_MATCH_MESSAGE,
+  renderGroupedStatusJson,
+  renderGroupedStatusTable,
   renderStatusJson,
   renderStatusTable,
   renderWatchFrame,
@@ -333,12 +335,19 @@ export function buildCompletionSpec(program: Command): CompletionSpec {
  * writes still show up while the window edges stay put.
  * Runs until the process is interrupted (Ctrl-C).
  */
-function runWatch(store: string, intervalMs: number, selection: JobSelection, window?: JobScope, limit?: number): void {
+function runWatch(
+  store: string,
+  intervalMs: number,
+  selection: JobSelection,
+  window?: JobScope,
+  limit?: number,
+  groupBy?: GroupDimension
+): void {
   startWatchLoop(intervalMs, () => {
     const all = listStatus(store);
     const windowed = window && isJobScopeActive(window) ? scopeJobs(all, window) : all;
     const selected = selectJobs(windowed, selection);
-    const frame = renderWatchFrame(selected, store, intervalMs, Date.now(), limit);
+    const frame = renderWatchFrame(selected, store, intervalMs, Date.now(), limit, groupBy);
     // Clear screen + move cursor home, then paint the frame.
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
@@ -590,6 +599,7 @@ export function buildCli(): Command {
     .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
     .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
     .option("-n, --limit <n>", "Show at most N jobs (applied after filter/sort; the summary still counts all matches)")
+    .option("-g, --group-by <dimension>", `Split the table into sections per: ${GROUP_DIMENSIONS.join(", ")}`)
     .action(
       (opts: {
         watch?: string | boolean;
@@ -602,6 +612,7 @@ export function buildCli(): Command {
         sort?: string;
         reverse?: boolean;
         limit?: string;
+        groupBy?: string;
       }) => {
         const { store } = program.opts();
 
@@ -659,6 +670,16 @@ export function buildCli(): Command {
           selection.sort = opts.sort as SortField;
         }
 
+        let groupBy: GroupDimension | undefined;
+        if (opts.groupBy !== undefined) {
+          if (!GROUP_DIMENSIONS.includes(opts.groupBy as GroupDimension)) {
+            console.error(`Unknown --group-by: "${opts.groupBy}". Valid: ${GROUP_DIMENSIONS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          groupBy = opts.groupBy as GroupDimension;
+        }
+
         // Time window: --since/--until are "N ago" durations relative to now, so
         // `--since 7d --until 1d` scopes to jobs created between 7 and 1 days ago.
         // Applied via core scopeJobs before selectJobs, matching stats/export.
@@ -694,14 +715,19 @@ export function buildCli(): Command {
         const scoped = (jobs: RelayJob[]): RelayJob[] => (isJobScopeActive(window) ? scopeJobs(jobs, window) : jobs);
 
         if (opts.json) {
-          console.log(renderStatusJson(selectJobs(scoped(listStatus(store)), selection), store, undefined, limit));
+          const selected = selectJobs(scoped(listStatus(store)), selection);
+          console.log(
+            groupBy
+              ? renderGroupedStatusJson(selected, groupBy, store, undefined, limit)
+              : renderStatusJson(selected, store, undefined, limit)
+          );
           return;
         }
 
         if (opts.watch !== undefined) {
           const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
           const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
-          runWatch(store, intervalMs, selection, window, limit);
+          runWatch(store, intervalMs, selection, window, limit, groupBy);
           return; // setInterval keeps the process alive.
         }
 
@@ -713,7 +739,12 @@ export function buildCli(): Command {
           console.log(NO_MATCH_MESSAGE);
           return;
         }
-        console.log(renderStatusTable(selected, { color: Boolean(process.stdout.isTTY), limit }));
+        const color = Boolean(process.stdout.isTTY);
+        console.log(
+          groupBy
+            ? renderGroupedStatusTable(selected, groupBy, { color, limit })
+            : renderStatusTable(selected, { color, limit })
+        );
       }
     );
 
