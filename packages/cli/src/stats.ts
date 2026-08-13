@@ -58,6 +58,15 @@ export function formatDurationMs(ms: number): string {
 }
 
 /**
+ * Formats a coefficient of variation (stdev ÷ mean ratio) as a percentage, e.g.
+ * 0.564 → "56%". Null (undefined ratio — every span was 0) renders as "n/a".
+ */
+export function formatCv(cv: number | null): string {
+  if (cv === null || !Number.isFinite(cv)) return "n/a";
+  return `${Math.round(cv * 100)}%`;
+}
+
+/**
  * Renders the stats summary as a multi-line block. Pure: no I/O, no ambient
  * clock unless `now` is omitted. `color` gates ANSI codes (TTY only).
  */
@@ -110,7 +119,8 @@ export function renderStats(
         d(
           `(p25 ${formatDurationMs(timing.p25ResolutionMs ?? 0)} – p75 ${formatDurationMs(timing.p75ResolutionMs ?? 0)})`
         ) +
-        `   stdev ${formatDurationMs(timing.stdevResolutionMs ?? 0)}`
+        `   stdev ${formatDurationMs(timing.stdevResolutionMs ?? 0)}` +
+        `   cv ${formatCv(timing.cvResolution)}`
     );
   }
 
