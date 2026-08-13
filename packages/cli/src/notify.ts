@@ -1,4 +1,4 @@
-import type { TestNotifyResult } from "@agentrelay/core";
+import type { NotifyChannel, TestNotifyResult } from "@agentrelay/core";
 import { maskSecret } from "./config.js";
 
 const GREEN = "\x1b[32m";
@@ -50,6 +50,57 @@ export function renderTestNotifyResults(
       : bad(`${failed} of ${results.length} channel(s) failed`)
   );
   return lines.join("\n");
+}
+
+/** Message shown when `notify list` finds no channels configured. */
+export const NO_CHANNELS_LIST_MESSAGE =
+  "No notification channels configured. Set AGENTRELAY_SLACK_WEBHOOK and/or AGENTRELAY_WEBHOOK_URL to get queue-event notifications (see `agentrelay config show`).";
+
+/**
+ * Renders the configured notification channels as a static inventory — the
+ * read-only counterpart to {@link renderTestNotifyResults}, which actually
+ * delivers a payload. Answers "which channels are wired up?" without touching
+ * the network, so it's safe to run when the endpoints are down. Pure: no I/O.
+ * `color` gates ANSI codes (TTY only); `showSecrets` reveals the otherwise-
+ * masked destination URLs. An empty channel list prints the setup hint so the
+ * command never looks like a silent no-op.
+ */
+export function renderNotifyChannels(
+  channels: NotifyChannel[],
+  options: { color?: boolean; showSecrets?: boolean } = {}
+): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  if (channels.length === 0) {
+    return NO_CHANNELS_LIST_MESSAGE;
+  }
+
+  const lines: string[] = [b(`notification channels (${channels.length})`)];
+  for (const channel of channels) {
+    const url = options.showSecrets ? channel.url : maskSecret(channel.url);
+    lines.push(`  • ${channel.label.padEnd(8)} ${d(url)}  ${d(`[${channel.envVar}]`)}`);
+  }
+  lines.push("");
+  lines.push(d("Run `agentrelay notify test` to send a live test payload to each channel."));
+  return lines.join("\n");
+}
+
+/**
+ * Machine-readable form of the channel inventory for `--json`. Deliberately
+ * omits the destination URL — a secret — so a `--json` dump is safe to log or
+ * paste, matching how {@link renderTestNotifyResultsJson} never echoes the URL.
+ */
+export function renderNotifyChannelsJson(channels: NotifyChannel[]): string {
+  return JSON.stringify(
+    {
+      channels: channels.map((c) => ({ kind: c.kind, label: c.label, envVar: c.envVar })),
+      configured: channels.length,
+    },
+    null,
+    2
+  );
 }
 
 /** Machine-readable form of the test results for `--json`. */

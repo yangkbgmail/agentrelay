@@ -810,6 +810,20 @@
       quartile/stdev·단일 잡 collapse), cli stats.test render 단언 확장. 실제 빌드 CLI e2e로 spans
       {1h,3h,9h}→iqr 4h·stdev 3h23m·JSON 필드 방출 검증. branch `claude/wizardly-pascal-mzvln3`)
 
+- [x] 👷 `agentrelay notify list` — 설정된 알림 채널을 **전송 없이** 조회하는 정적 인벤토리.
+      `notify test`(실전송·네트워크 필요)·`config show`(원시 env값)와 구분되는 빈 자리를 메움.
+      (완료 — core는 이미 `listNotifyChannels`(env에서 Slack/webhook 채널 열거, "어떤 채널이
+      설정됐나"의 단일 진실 소스)를 갖고 있었지만 이를 조회하는 CLI 명령이 없었다 — `notify test`는
+      실제 페이로드를 보내 엔드포인트가 살아있어야 하고, `config show`는 원시 env를 보여줄 뿐.
+      CLI `notify.ts`에 순수 `renderNotifyChannels`(채널별 label·마스킹 URL·출처 env var, 빈 목록은
+      셋업 힌트, 마지막에 "notify test로 실전송하라" 안내)·`renderNotifyChannelsJson`(kind/label/envVar +
+      configured 카운트, **URL은 시크릿이라 JSON에서 생략** — test JSON과 동일 정책) + `NO_CHANNELS_LIST_MESSAGE`
+      추가. 기존 `maskSecret`(마지막 4자만 노출) 재사용, `--show-secrets`로 전체 URL 표시. 기존 `notify`
+      부모 커맨드에 `notify list [--json] [--show-secrets]` 서브커맨드 배선. 새 core 코드 0줄. cli
+      notify.test.ts 9케이스(빈 목록·2채널 열거·기본 마스킹·show-secrets·color 토글·JSON shape·URL 미노출)
+      추가, 실제 빌드 CLI e2e로 무채널→힌트·2채널 마스킹·--show-secrets 전체노출·--json 방출·help/completion
+      `list` 등록 검증. branch `claude/notify-list-command`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
