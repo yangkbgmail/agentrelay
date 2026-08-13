@@ -22,6 +22,7 @@ import {
   computeErrorBreakdown,
   computeHourlyDistribution,
   computeQueueEta,
+  computeRelayCoverage,
   computeStats,
   computeWeekdayDistribution,
   EXPORT_FORMATS,
@@ -79,6 +80,7 @@ import {
   waitForJob,
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
+import { renderCoverage, renderCoverageJson } from "./coverage.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderEta, renderEtaJson } from "./eta.js";
@@ -1338,6 +1340,42 @@ export function buildCli(): Command {
       const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
       const stats = computeStats(jobs);
       process.stdout.write(renderPrometheusMetrics(stats, { prefix: opts.prefix }));
+    });
+
+  program
+    .command("coverage")
+    .description("Show how much unattended rate-limit wait the relay covered for you (from detection provenance)")
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/CI)")
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. completed,failed)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # total hands-off wait AgentRelay absorbed across the queue\n" +
+        "  agentrelay coverage\n" +
+        "  # just one project, as JSON for a dashboard\n" +
+        "  agentrelay coverage --project webapp --json"
+    )
+    .action((opts: ScopeOpts & { json?: boolean }) => {
+      const { store } = program.opts();
+      const built = buildScope(opts, Date.now());
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const coverage = computeRelayCoverage(jobs);
+      if (opts.json) {
+        console.log(renderCoverageJson(coverage, store, { scope: built.scope }));
+        return;
+      }
+      const scopeNote = built.active ? built.note : undefined;
+      console.log(renderCoverage(coverage, { color: Boolean(process.stdout.isTTY), scopeNote }));
     });
 
   program

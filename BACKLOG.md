@@ -824,6 +824,26 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay coverage` — 릴레이가 대신 기다려준 rate-limit 무인 대기 시간 집계
+      (이 툴의 헤드라인 가치 "릴레이 돌린 게 값어치 했나?"를 한 숫자로).
+      (완료 — 스토어의 잡마다 `lastRateLimit` provenance가 `detectedAt`(감지)·`resetAt`(해제 예상)를
+      기록하는데, 그 사이 창(window)은 사용자가 릴레이 없이라면 직접 지켜보다 재실행해야 했을 대기
+      시간이다. 이걸 전 큐에 합산한 게 AgentRelay가 대신 처리한 hands-off 시간 = 헤드라인 가치. `stats`
+      의 resolution time(생성→종료 전체 수명)과는 별개다 — 잡이 리셋 창 사이에 몇 시간 대기해도 실제
+      작업은 초 단위로 끝날 수 있음. `@agentrelay/core/coverage.ts` 신설: 순수 `computeRelayCoverage(jobs)`
+      + `RelayCoverage`/`CoveredWindow`/`CoverageByPattern`. 각 창=`max(0, resetAt − detectedAt)`(시계
+      스큐·과거 리셋은 0으로 clamp해 음수 방지). 유효 detection(비어있지 않은 pattern + 파싱 가능한
+      양 타임스탬프)만 집계, 그 외는 조용히 제외 → detection 없는 스토어는 zero·empty 리포트. windowCount·
+      totalWaitMs·avg/min/max·median(p50)·p90(로컬 선형보간 percentile, stats와 동일 방식)·longest 창·
+      pattern별 롤업(totalWait desc, 이름 asc). I/O·wall-clock 미접촉으로 완전 결정론적. CLI
+      `packages/cli/src/coverage.ts`에 순수 `renderCoverage`(헤드라인 총합 + per-window + longest 콜아웃 +
+      by-pattern 블록, scope note·no-match/온보딩 메시지 분기)·`renderCoverageJson`(--json, stats와 동일
+      envelope). `agentrelay coverage [--json] [-s/--status] [-t/--tool] [-p/--project] [--since] [--until]`
+      커맨드 배선(공용 `buildScope` 재사용, 잘못된 status/tool은 exit 1). core coverage.test 8 + cli
+      coverage.test 8케이스. 실제 빌드 CLI e2e로 3-잡 스토어(detection 없는 잡 제외 확인)·`--json`·
+      `--project` scope·no-match·빈 스토어·invalid tool exit 1 검증. branch
+      `claude/wizardly-pascal-8sgrun`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
