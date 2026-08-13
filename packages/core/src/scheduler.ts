@@ -3,6 +3,7 @@ import { resolveAdapter } from "./adapters.js";
 import { mapWithConcurrency, normalizeMaxConcurrent } from "./concurrency.js";
 import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
 import type { RelayQueue } from "./queue.js";
+import { normalizeResumeTimeoutMs } from "./resume-timeout.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
 import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
 
@@ -63,6 +64,16 @@ export interface SchedulerOptions {
    * store because every queue mutation is synchronous (see `concurrency.ts`).
    */
   maxConcurrent?: number;
+  /**
+   * Hard wall-clock cap (ms) on a single resumed agent process. When a resume
+   * runs longer than this, the child is killed and the attempt is treated as a
+   * transient failure (retried/backed-off per {@link retryPolicy}), so one
+   * wedged agent can't stall the whole relay loop. `0`/omitted disables the
+   * watchdog — the historical "await the child forever" behavior — since most
+   * resumes are legitimately long-running. Non-positive / non-finite values
+   * disable it too. See `resume-timeout.ts`.
+   */
+  resumeTimeoutMs?: number;
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
   /**
@@ -93,6 +104,7 @@ export class RelayScheduler {
   private autoPruneEveryMs: number;
   private autoPruneEveryTicks: number;
   private maxConcurrent: number;
+  private resumeTimeoutMs: number;
   private lastPruneAtMs: number | null = null;
   private pruneTickCounter = 0;
   private onPrune?: (pruned: RelayJob[]) => void;
@@ -111,6 +123,7 @@ export class RelayScheduler {
     this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
     this.maxConcurrent = normalizeMaxConcurrent(options.maxConcurrent);
+    this.resumeTimeoutMs = normalizeResumeTimeoutMs(options.resumeTimeoutMs);
     this.onPrune = options.onPrune;
     this.onTick = options.onTick;
   }
@@ -263,14 +276,47 @@ export class RelayScheduler {
   private runCommand(job: RelayJob): Promise<{ output: string; exitCode: number | null; error: Error | null }> {
     return new Promise((resolve) => {
       let output = "";
+      let settled = false;
+      let watchdog: ReturnType<typeof setTimeout> | null = null;
+      // Resolve exactly once and always clear the watchdog, so a child that
+      // closes normally can't be killed after the fact and a killed child's
+      // late `close` can't resolve a second time.
+      const finish = (result: { output: string; exitCode: number | null; error: Error | null }) => {
+        if (settled) return;
+        settled = true;
+        if (watchdog) clearTimeout(watchdog);
+        resolve(result);
+      };
+
       let child: ChildProcessWithoutNullStreams;
       try {
         child = this.spawnFn(job.command, job.cwd);
       } catch (err) {
         // Synchronous spawn failure (e.g. bad cwd) — surface as a transient error
         // so the caller can apply the retry policy rather than dropping the job.
-        resolve({ output, exitCode: null, error: err as Error });
+        finish({ output, exitCode: null, error: err as Error });
         return;
+      }
+
+      if (this.resumeTimeoutMs > 0) {
+        watchdog = setTimeout(() => {
+          // A wedged resume: kill the child and surface a transient error so the
+          // retry policy re-queues it instead of the loop stalling forever.
+          try {
+            child.kill();
+          } catch {
+            // A fake/already-dead child may not be killable; the error below
+            // still frees the loop, which is the point.
+          }
+          finish({
+            output,
+            exitCode: null,
+            error: new Error(`resume exceeded timeout of ${Math.round(this.resumeTimeoutMs / 1000)}s and was killed`),
+          });
+        }, this.resumeTimeoutMs);
+        // Don't let the watchdog itself keep the process alive if nothing else is
+        // pending (e.g. a one-shot `tick`).
+        watchdog.unref?.();
       }
 
       child.stdout?.on("data", (chunk) => {
@@ -280,10 +326,10 @@ export class RelayScheduler {
         output += chunk.toString();
       });
       child.on("error", (err) => {
-        resolve({ output, exitCode: null, error: err as Error });
+        finish({ output, exitCode: null, error: err as Error });
       });
       child.on("close", (code) => {
-        resolve({ output, exitCode: code ?? 0, error: null });
+        finish({ output, exitCode: code ?? 0, error: null });
       });
     });
   }

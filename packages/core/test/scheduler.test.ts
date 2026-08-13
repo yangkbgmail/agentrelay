@@ -42,6 +42,22 @@ function fakeSpawnWith(opts: { output?: string; exitCode?: number; error?: Error
   };
 }
 
+// Fake ChildProcess that never emits `close` — it just hangs, standing in for a
+// wedged agent resume. Records whether the scheduler's watchdog killed it.
+function hangingSpawnFn(killed: { called: boolean }): SpawnFn {
+  return () => {
+    const emitter = new EventEmitter() as any;
+    emitter.stdout = new EventEmitter();
+    emitter.stderr = new EventEmitter();
+    emitter.kill = () => {
+      killed.called = true;
+      return true;
+    };
+    // Never emits "close" or "error": simulates a hung child.
+    return emitter;
+  };
+}
+
 describe("RelayScheduler", () => {
   let dir: string;
   let queue: RelayQueue;
@@ -218,6 +234,73 @@ describe("RelayScheduler", () => {
 
     const [result] = await scheduler.tick();
     expect(result.status).toBe("waiting_for_reset");
+  });
+
+  it("kills a wedged resume once it exceeds resumeTimeoutMs and re-queues it as a transient failure", async () => {
+    dueJob();
+    const now = new Date(Date.now() + 1000);
+    const killed = { called: false };
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: hangingSpawnFn(killed),
+      resumeTimeoutMs: 20, // watchdog fires fast for the test
+      retryPolicy: { maxAttempts: 5, baseDelayMs: 60_000, factor: 2, maxDelayMs: 3_600_000, jitter: 0 },
+    });
+
+    const [result] = await scheduler.tick(now);
+
+    expect(killed.called).toBe(true); // the hung child was killed
+    expect(result.status).toBe("waiting_for_reset"); // retried, not stuck
+    expect(result.lastError).toContain("timeout");
+    // Backoff is measured from the reference time, exactly like other transient failures.
+    expect(result.resetAt).toBe(new Date(now.getTime() + 60_000).toISOString());
+  });
+
+  it("fails a wedged resume once it exhausts maxAttempts", async () => {
+    const job = dueJob();
+    queue.markResuming(job.id); // attempts -> 1
+    queue.markResuming(job.id); // attempts -> 2
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const killed = { called: false };
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: hangingSpawnFn(killed),
+      resumeTimeoutMs: 20,
+      retryPolicy: { maxAttempts: 3, baseDelayMs: 1000, factor: 2, maxDelayMs: 10_000, jitter: 0 },
+    });
+
+    const [result] = await scheduler.tick(); // attempt 3 == maxAttempts
+    expect(killed.called).toBe(true);
+    expect(result.status).toBe("failed");
+    expect(result.lastError).toContain("Failed after 3 attempt(s)");
+  });
+
+  it("does not arm the watchdog when resumeTimeoutMs is unset (a slow resume still completes)", async () => {
+    const job = queue.enqueue({
+      project: "slow",
+      tool: "claude-code",
+      command: ["claude", "-p", "slow"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    // Child closes after 30ms; without a watchdog it must be allowed to finish.
+    const spawnFn: SpawnFn = () => {
+      const emitter = new EventEmitter() as any;
+      emitter.stdout = new EventEmitter();
+      emitter.stderr = new EventEmitter();
+      emitter.kill = () => true;
+      setTimeout(() => {
+        emitter.stdout.emit("data", Buffer.from("done"));
+        emitter.emit("close", 0);
+      }, 30);
+      return emitter;
+    };
+
+    const scheduler = new RelayScheduler({ queue, spawnFn });
+    const [result] = await scheduler.tick();
+    expect(result.status).toBe("completed");
   });
 
   it("auto-prunes finished jobs after a tick (age 0), leaving active jobs untouched", async () => {
