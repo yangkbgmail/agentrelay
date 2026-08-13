@@ -2142,3 +2142,25 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `summary --watch`
   라이브 갱신, timing 블록 변동계수(CV=stdev/mean). tz/heatmap/parser/watch는 PR 포화라 지양.
   README/ARCHITECTURE(🧭 코워크).
+
+### [세션 68 — `agentrelay stats` 해결 시간 변동계수(CV) 지표] (2026-08-13, 무인 자율 세션, branch `claude/stats-timing-cv`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 65·67이 "다음 할 일"의 후속 인접 후보로 두 번 명시한 **timing 블록
+  변동계수(CV=stdev/mean)**를 골랐다 — 기존 잘 검증된 `TimingStats`에 순수 필드 하나만 더하는 저위험 확장이라
+  포화 축(parser/watch/stats-신규명령/tz/heatmap)의 PR 중복을 만들지 않으면서 실사용 갭을 메운다.
+- **한 일 (branch `claude/stats-timing-cv`):**
+  - core `stats.ts`의 `TimingStats`에 `cvResolution: number | null` 추가. `computeStats`가 이미 계산한
+    `stdev`/`mean`을 재사용해 `stdev/mean`(소수 3자리 반올림)을 채움 — 새 정렬/순회 0줄. **평균 0(모든
+    해결이 즉시)이면 비율이 정의 안 돼 null**, resolved 0개면 null. stdev(ms·같은 스케일 내 비교)와 달리
+    CV는 평균으로 정규화한 무단위 비율이라 절대 해결 시간이 자릿수만큼 다른 큐끼리도 일관성 비교 가능
+    (CV≈0=평균에 촘촘, CV≳1=매우 불규칙).
+  - CLI `stats.ts` resolution-time `spread:` 라인 끝에 `cv N.NN`(2자리, null이면 생략) 추가. `--json`은
+    timing 전체 직렬화라 자동 노출(기존 shape에 필드 추가만).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 615** stats 66[+1 mean0→null·기존 2케이스 cv 단언 확장] / **cli 343/1skip** stats
+  46[render cv 단언 확장] / dashboard 9). **실제 빌드 CLI e2e**(mock 아님): spans {1h,3h} 임시 스토어로
+  `stats`가 `spread: iqr 1h 0m (p25 1h 30m – p75 2h 30m)   stdev 1h 0m   cv 0.50` 렌더, `stats --json`의
+  timing이 `cvResolution: 0.5`(stdev 3600000 / avg 7200000)를 정확히 방출함을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `--group-by` per-group
+  요약에 median 외 p90/스프레드/CV 노출. tz/heatmap/parser/watch 및 신규 조회 명령은 PR 포화라 지양,
+  적체가 크면 신규 빌드보다 통합 우선(세션 60~67 기조). README/ARCHITECTURE(🧭 코워크).

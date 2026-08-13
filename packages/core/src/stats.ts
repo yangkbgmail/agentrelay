@@ -76,6 +76,18 @@ export interface TimingStats {
    * IQR is the signature of a few heavy outliers dragging the mean.
    */
   stdevResolutionMs: number | null;
+  /**
+   * Coefficient of variation: {@link stdevResolutionMs} / {@link avgResolutionMs},
+   * a unitless ratio, or null when none. Unlike the stdev (which is in ms and so
+   * only comparable within one scale), the CV normalises spread by the mean, so
+   * it answers "how consistent is the relay, relative to how long it typically
+   * babysits a job?" — a CV near 0 means resolutions cluster tightly around the
+   * mean, while a CV above ~1 means the spread is as wide as the mean itself
+   * (very erratic). This makes it comparable across queues whose absolute
+   * resolution times differ by orders of magnitude. Null when the mean is 0
+   * (every resolution was instantaneous, so the ratio is undefined).
+   */
+  cvResolution: number | null;
 }
 
 export interface RelayStats {
@@ -452,6 +464,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     };
   } else {
     // Sort once ascending; percentiles read from it, min/max are its ends.
@@ -459,6 +472,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     const mean = sorted.reduce((sum, d) => sum + d, 0) / resolvedCount;
     const p25 = percentile(sorted, 0.25);
     const p75 = percentile(sorted, 0.75);
+    const stdev = populationStdev(sorted, mean);
     timing = {
       resolvedCount,
       avgResolutionMs: Math.round(mean),
@@ -471,7 +485,10 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p25ResolutionMs: p25,
       p75ResolutionMs: p75,
       iqrResolutionMs: p75 - p25,
-      stdevResolutionMs: populationStdev(sorted, mean),
+      stdevResolutionMs: stdev,
+      // CV = stdev / mean. Undefined when mean is 0 (every span was
+      // instantaneous); rounded to 3 decimals since it's a small ratio.
+      cvResolution: mean > 0 ? Math.round((stdev / mean) * 1000) / 1000 : null,
     };
   }
 

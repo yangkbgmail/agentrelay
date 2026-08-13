@@ -110,7 +110,8 @@ export function renderStats(
         d(
           `(p25 ${formatDurationMs(timing.p25ResolutionMs ?? 0)} – p75 ${formatDurationMs(timing.p75ResolutionMs ?? 0)})`
         ) +
-        `   stdev ${formatDurationMs(timing.stdevResolutionMs ?? 0)}`
+        `   stdev ${formatDurationMs(timing.stdevResolutionMs ?? 0)}` +
+        (timing.cvResolution !== null ? `   cv ${timing.cvResolution.toFixed(2)}` : "")
     );
   }
 

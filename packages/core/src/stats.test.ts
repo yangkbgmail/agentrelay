@@ -59,6 +59,7 @@ describe("computeStats", () => {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     });
   });
 
@@ -224,6 +225,8 @@ describe("computeStats", () => {
     expect(stats.timing.iqrResolutionMs).toBe(3_600_000);
     // mean 2h; population variance = ((1-2)^2 + (3-2)^2)/2 = 1 h^2 → stdev 1h
     expect(stats.timing.stdevResolutionMs).toBe(3_600_000);
+    // cv = stdev / mean = 1h / 2h = 0.5 (unitless)
+    expect(stats.timing.cvResolution).toBe(0.5);
   });
 
   it("collapses spread metrics to zero for a single resolved job", () => {
@@ -234,6 +237,21 @@ describe("computeStats", () => {
     expect(stats.timing.p75ResolutionMs).toBe(3_600_000);
     expect(stats.timing.iqrResolutionMs).toBe(0);
     expect(stats.timing.stdevResolutionMs).toBe(0);
+    // stdev 0 over a positive mean → cv 0 (perfectly consistent).
+    expect(stats.timing.cvResolution).toBe(0);
+  });
+
+  it("reports cv null when every resolution is instantaneous (mean 0)", () => {
+    // Two same-timestamp resolutions → span 0 → mean 0, so cv is undefined.
+    const t = "2026-07-13T00:00:00.000Z";
+    const stats = computeStats([
+      job({ status: "completed", createdAt: t, updatedAt: t }),
+      job({ status: "failed", createdAt: t, updatedAt: t }),
+    ]);
+    expect(stats.timing.resolvedCount).toBe(2);
+    expect(stats.timing.avgResolutionMs).toBe(0);
+    expect(stats.timing.stdevResolutionMs).toBe(0);
+    expect(stats.timing.cvResolution).toBeNull();
   });
 
   it("excludes cancelled and still-active jobs from resolution timing", () => {
@@ -292,6 +310,7 @@ describe("computeStats", () => {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      cvResolution: null,
     });
   });
 });

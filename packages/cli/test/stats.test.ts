@@ -139,6 +139,8 @@ describe("renderStats", () => {
     expect(out).toContain("spread: iqr 1h 0m");
     expect(out).toContain("p25 1h 30m – p75 2h 30m");
     expect(out).toContain("stdev 1h 0m");
+    // cv = stdev / mean = 1h / 2h = 0.50, shown to 2 decimals.
+    expect(out).toContain("cv 0.50");
   });
 
   it("omits the resolution-time block when nothing has resolved", () => {
