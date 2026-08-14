@@ -2166,3 +2166,24 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — 파서: 상대-일 + 시각 인식 (`resets tomorrow at 9am`)] (2026-08-14, 무인 자율 세션, branch `claude/wizardly-pascal-parser-relday`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션들이 "parser는 PR 포화라 지양"이라 적어왔지만, 실제 Anthropic 주간/
+  일간 한도 문구("Your limit will reset tomorrow at 9am")는 **파서가 아예 못 잡던 진짜 갭**이었다 — 기존
+  clock 패턴들은 "reset **at** <time>" 인접을 요구해 "today"/"tomorrow"가 사이에 끼면 매칭 실패 → null
+  반환 → 릴레이가 큐잉 못 함. 제품 핵심(rate-limit 감지 정확도)에 직결되는 자족적 개선이라 선택.
+- **한 일 (branch `claude/wizardly-pascal-parser-relday`):**
+  - `parser.ts`에 `relative-day-clock` 패턴 신설: `reset[s]? (today|tomorrow) at <시각>` — 시각은
+    `9am`/`9:30pm`/`15:00` 세 형태 모두 허용. 분·자오선 없는 맨 시각(`at 5`)은 clock-time-meridiem과
+    동일한 안전 규칙으로 애매하다고 보아 명확한 24시(13–23)만 수용, 아니면 null. `tomorrow`면 다음 날,
+    `today`면 당일(과거여도 즉시 재개=안전)로 해소. 명명 tz는 다른 clock 패턴과 동일하게 로컬 시간 무시.
+  - 사전필터 `LOOKS_LIKE_RATE_LIMIT`에 `resets? (today|tomorrow)` 분기 추가(그래야 pre-filter 통과).
+  - parser.test에 4케이스: tomorrow 9am(다음날·9시)·today 15:00(당일·24시)·tomorrow 9:30pm(분+자오선)·
+    bare "at 5" 거부. 새 core/CLI 명령 표면 0줄 — 순수 파서 한 곳만 확장.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 618 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): `agentrelay parse
+  "Your limit will reset tomorrow at 9am."`가 `pattern: relative-day-clock` + 다음날 09:00 UTC 리셋 인식.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 파서 "resets on
+  Monday"(요일 기반)·"resets at 9am tomorrow"(시각→요일 역순 어순), timing MAD 지표. tz/heatmap/watch·
+  summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

@@ -824,6 +824,18 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 파서: 상대-일(day) + 시각 인식 (`resets tomorrow at 9am` / `reset today at 15:00`).
+      (완료 — Anthropic의 주간/일간 한도 문구는 시각 앞에 상대 요일을 둔다("Your limit will reset
+      tomorrow at 9am"). 기존 clock 패턴들은 "reset **at** <time>" 인접을 요구해 "today"/"tomorrow"가
+      "reset"과 "at" 사이에 끼면 못 잡았고, 이 경우 파서가 null을 반환해 릴레이가 큐잉하지 못하는
+      갭이었다. `parser.ts`에 `relative-day-clock` 패턴 신설: `reset[s]? (today|tomorrow) at <시각>` —
+      시각은 `9am`/`9:30pm`/`15:00` 모두 허용, 분·자오선 없는 맨 시각(`at 5`)은 clock-time-meridiem과
+      동일한 안전 규칙으로 애매하다고 보아 명확한 24시(13–23)만 수용하고 아니면 null. `tomorrow`면
+      다음 날, `today`면 당일(과거여도 즉시 재개=안전)로 해소, 명명 tz는 다른 clock 패턴과 동일하게
+      로컬 시간으로 무시. 사전필터 `LOOKS_LIKE_RATE_LIMIT`에 `resets? (today|tomorrow)` 추가.
+      parser.test에 4케이스(tomorrow 9am·today 15:00·tomorrow 9:30pm·bare "at 5" 거부). 실제 빌드
+      CLI `parse`로 e2e 확인. branch `claude/wizardly-pascal-parser-relday`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
