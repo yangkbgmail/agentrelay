@@ -102,6 +102,36 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(expected);
   });
 
+  it("parses natural-language 'in 1 hour and 30 minutes' (connector 'and')", () => {
+    // Regression: the readable "X and Y" phrasing must not drop the trailing
+    // component — previously this parsed as just 1 hour, losing the 30 minutes.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached, try again in 1 hour and 30 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + (60 + 30) * 60_000).toISOString());
+  });
+
+  it("parses 'in 2 hours and 15 minutes' (plural + 'and')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit — retry in 2 hours and 15 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + (2 * 60 + 15) * 60_000).toISOString());
+  });
+
+  it("parses a comma-separated 'in 1 day, 4 hours' relative duration", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly usage limit reached, try again in 1 day, 4 hours.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + (24 + 4) * 60 * 60_000).toISOString());
+  });
+
+  it("parses a fully spelled-out 'in 1 day, 4 hours and 30 minutes'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Try again in 1 day, 4 hours and 30 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + ((24 + 4) * 60 + 30) * 60_000).toISOString());
+  });
+
   it("parses the singular 'in 1 day' form", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Usage limit reached. Try again in 1 day.", { now });

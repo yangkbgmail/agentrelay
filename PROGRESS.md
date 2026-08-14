@@ -2166,3 +2166,25 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — 파서: 자연어 연결어("and"·쉼표) 상대 기간 인식] (2026-08-14, 무인 자율 세션, branch `claude/wizardly-pascal-y94i7k`)
+- **배경:** 시작 시 BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유뿐. 열린 PR
+  30여 개 중 대다수가 stats(해결시간 MAD 10+개 중복·trimmed mean·skewness·CV group-by)와 파서(try-again-at·
+  relative-day+time·X-RateLimit 헤더·clock timezone)에 몰려 있어, 중복을 피해 **아무도 손대지 않은 실측 파서
+  버그**를 발굴했다: `relative-duration` 패턴이 day/hour/minute 성분을 `\s*`로만 이어 붙여, 자연어 연결어
+  ("and")나 쉼표가 낀 표현을 만나면 뒤 성분을 통째로 드롭했다. 핵심 미션(rate-limit 감지)에 직접 닿는 갭.
+- **한 일 (branch `claude/wizardly-pascal-y94i7k`):**
+  - 재현 확인: `try again in 1 hour and 30 minutes`→**1시간만**(30분 유실), `resets in 2 hours and 15 minutes`
+    →2시간만, `try again in 1 day, 4 hours`→**1일만**(4시간 유실).
+  - `parser.ts`의 `relative-duration` 정규식에서 성분 사이 `\s*` 구분자를 `(?:[\s,]*(?:and[\s,]+)?)`로 교체 —
+    공백·쉼표·단어 "and"(및 조합, 예 ", and ")를 허용. 구분자가 빈 문자열도 매치하므로 붙여쓴 `4h32m`도 불변.
+    `resolve`·pre-filter·다른 패턴·CLI는 전혀 안 건드림(순수 정규식 1줄 + 주석).
+  - `parser.test.ts`에 회귀 4케이스 추가: "1 hour and 30 minutes"(90분)·"2 hours and 15 minutes"·
+    "1 day, 4 hours"(28h)·"1 day, 4 hours and 30 minutes"(28h30m).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 116파일 0에러)→`pnpm test` 전
+  패키지 통과(**core 618[parser 37, +4] · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  `parse "…try again in 1 hour and 30 minutes."`→`relative-duration`·`(in 1h 30m)`·matched에 "30 minutes"
+  포함, `"1 day, 4 hours and 30 minutes"`→28h30m 합산, 기존 `4h32m`/`45m`은 무회귀 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — 서술형 숫자
+  ("in an hour"), keyword 시각("resets at midnight/noon"). stats(MAD/trimmed/skew)·tz/heatmap·watch·summary
+  --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

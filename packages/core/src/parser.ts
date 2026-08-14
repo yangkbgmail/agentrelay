@@ -88,11 +88,16 @@ const PATTERNS: RateLimitPattern[] = [
   {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
-    // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
-    // are OpenAI/Codex-style wording that the Codex adapter contributes).
+    // windows. Components may also be joined by natural-language connectors, e.g.
+    // "try again in 1 hour and 30 minutes" or "resets in 1 day, 4 hours" — the
+    // separator between the day/hour/minute groups tolerates whitespace, a comma,
+    // and/or the word "and" so those readable phrasings don't drop a component
+    // (previously "1 hour and 30 minutes" parsed as just 1 hour). Seconds are
+    // deliberately *not* handled here (see adapters.ts: they are OpenAI/Codex-style
+    // wording that the Codex adapter contributes).
     name: "relative-duration",
     regex:
-      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
+      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?)?(?:[\s,]*(?:and[\s,]+)?)(?:(\d+)\s*h(?:ours?)?)?(?:[\s,]*(?:and[\s,]+)?)(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
     resolve: (m, now) => {
       const days = m[1] ? parseInt(m[1], 10) : 0;
       const hours = m[2] ? parseInt(m[2], 10) : 0;
