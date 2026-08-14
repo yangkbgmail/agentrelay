@@ -367,6 +367,92 @@ export function computeActivityHeatmap(jobs: RelayJob[], offsetMinutes = 0): Act
   return { cells, total, maxCell };
 }
 
+/** Default cap for {@link computeAttemptsDistribution}: attempt counts at or
+ * above this fold into one "N+" overflow bucket so the long tail can't explode
+ * the histogram into dozens of sparse rows. */
+export const DEFAULT_ATTEMPTS_CAP = 8;
+
+/** One bucket in a {@link computeAttemptsDistribution} histogram. */
+export interface AttemptsBucket {
+  /** Attempt count this bucket represents; for the overflow bucket, its floor. */
+  attempts: number;
+  /** Display label: `"0"`, `"1"`, … or `"N+"` for the capped overflow bucket. */
+  label: string;
+  /** Jobs with exactly `attempts` tries (or `≥ attempts` for the overflow bucket). */
+  count: number;
+  /** True for the final capped bucket that aggregates the long tail (`≥ cap`). */
+  overflow: boolean;
+}
+
+/**
+ * Distribution of jobs by how many resume attempts each took, so `agentrelay
+ * stats --attempts` can show retry effectiveness at a glance — "most jobs
+ * resolve on the first resume, a few needed 3+". Unlike the timing metrics this
+ * counts *every* job (active + terminal): a job's `attempts` field is
+ * meaningful whatever state it's in.
+ */
+export interface AttemptsDistribution {
+  /**
+   * One bucket per attempt count from 0 up to the observed max (capped). Always
+   * contiguous (zero-filled for gaps) so the histogram has a stable shape, and
+   * always at least the `0` bucket when any job exists.
+   */
+  buckets: AttemptsBucket[];
+  /** Total jobs placed into buckets. */
+  total: number;
+  /** The busiest single bucket's count (0 when empty) — for bar scaling. */
+  maxCount: number;
+}
+
+/**
+ * Buckets jobs by their resume-attempt count (`job.attempts`), so `agentrelay
+ * stats --attempts` can reveal how many tries jobs typically needed: a spike at
+ * 1 means the relay usually resolves things on the first resume, a fat tail
+ * means jobs are bouncing off repeated rate-limits. Pure and non-mutating: no
+ * I/O, no clock.
+ *
+ * Attempt counts are clamped to a non-negative integer (a negative or
+ * non-finite `attempts` — should never happen, but be defensive — counts as 0).
+ * Buckets are contiguous from 0 to the observed max, zero-filled for gaps so
+ * the shape is stable. Counts at or above `cap` fold into one `"cap+"` overflow
+ * bucket, keeping the histogram compact when a few jobs retried many times.
+ * `cap` is clamped to at least 1. An empty job list yields no buckets.
+ */
+export function computeAttemptsDistribution(jobs: RelayJob[], options: { cap?: number } = {}): AttemptsDistribution {
+  const cap = Math.max(1, Math.floor(options.cap ?? DEFAULT_ATTEMPTS_CAP));
+  const counts = new Map<number, number>();
+  let observedMax = 0;
+  let total = 0;
+  for (const job of jobs) {
+    const raw = job.attempts;
+    const attempts = Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 0;
+    counts.set(attempts, (counts.get(attempts) ?? 0) + 1);
+    if (attempts > observedMax) observedMax = attempts;
+    total += 1;
+  }
+
+  const buckets: AttemptsBucket[] = [];
+  if (total === 0) return { buckets, total: 0, maxCount: 0 };
+
+  const top = Math.min(observedMax, cap);
+  let maxCount = 0;
+  for (let a = 0; a <= top; a++) {
+    // The cap bucket swallows the whole tail (≥ cap) only when something
+    // actually landed beyond it; otherwise it's an exact count like any other.
+    const overflow = a === cap && observedMax > cap;
+    let count: number;
+    if (overflow) {
+      count = 0;
+      for (const [k, v] of counts) if (k >= cap) count += v;
+    } else {
+      count = counts.get(a) ?? 0;
+    }
+    buckets.push({ attempts: a, label: overflow ? `${a}+` : String(a), count, overflow });
+    if (count > maxCount) maxCount = count;
+  }
+  return { buckets, total, maxCount };
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 
