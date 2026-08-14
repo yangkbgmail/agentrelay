@@ -86,6 +86,39 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // "resets tomorrow at 9am" / "reset today at 15:00" / "resets tomorrow at 9:30pm".
+    // Anthropic's weekly/daily limit wording names a relative day before the clock
+    // time ("Your limit will reset tomorrow at 9am"), which the "reset at <time>"
+    // clock patterns above miss because "today"/"tomorrow" sits between "reset" and
+    // "at". A bare hour with no minutes and no meridiem stays ambiguous (same safety
+    // rule as clock-time-meridiem): we accept it only as an unambiguous 24-hour value
+    // (13–23), otherwise a minute component or am/pm is required. The named timezone,
+    // if any, is ignored — hour is interpreted in local time, same known limitation as
+    // the other clock patterns.
+    name: "relative-day-clock",
+    regex: /reset[s]?\s+(today|tomorrow)\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i,
+    resolve: (m, now) => {
+      let hour = parseInt(m[2], 10);
+      const hasMinute = m[3] !== undefined;
+      const minute = hasMinute ? parseInt(m[3], 10) : 0;
+      const meridiem = m[4]?.toLowerCase();
+      if (meridiem) {
+        if (hour > 12) return null; // 13pm etc. is not a valid 12-hour clock time
+        if (meridiem === "pm" && hour < 12) hour += 12;
+        if (meridiem === "am" && hour === 12) hour = 0;
+      } else if (!hasMinute && hour <= 12) {
+        return null; // bare "at 5" — ambiguous without minutes or am/pm
+      }
+      if (hour > 23 || minute > 59) return null;
+      const candidate = new Date(now);
+      candidate.setHours(hour, minute, 0, 0);
+      if (m[1].toLowerCase() === "tomorrow") {
+        candidate.setDate(candidate.getDate() + 1);
+      }
+      return candidate;
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
@@ -136,7 +169,7 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in|today|tomorrow)|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);

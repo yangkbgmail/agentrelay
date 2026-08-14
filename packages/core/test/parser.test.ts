@@ -69,6 +69,48 @@ describe("parseRateLimitMessage", () => {
     expect(parseRateLimitMessage("Rate limit hit, reset at 5.")).toBeNull();
   });
 
+  it("parses the real Anthropic wording: 'reset tomorrow at 9am'", () => {
+    // Weekly/daily limit message names the day before the time.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("You've reached your usage limit. Your limit will reset tomorrow at 9am.", {
+      now,
+    });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("relative-day-clock");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(9);
+    expect(resetDate.getMinutes()).toBe(0);
+    // Tomorrow's date, one day past `now`'s local date.
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    expect(resetDate.getDate()).toBe(tomorrow.getDate());
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'reset today at 15:00' (24-hour) on the current day", () => {
+    const now = new Date("2026-07-12T02:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Resets today at 15:00.", { now });
+    expect(result?.pattern).toBe("relative-day-clock");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(15);
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getDate()).toBe(new Date(now).getDate());
+  });
+
+  it("parses 'resets tomorrow at 9:30pm' with minutes + meridiem", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Weekly usage limit reached. Resets tomorrow at 9:30pm.", { now });
+    expect(result?.pattern).toBe("relative-day-clock");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(21);
+    expect(resetDate.getMinutes()).toBe(30);
+  });
+
+  it("does not treat a bare 'reset tomorrow at 5' (no minutes, no meridiem) as a clock time", () => {
+    // Same ambiguity guard as the "reset at 5" case.
+    expect(parseRateLimitMessage("Usage limit reached. Reset tomorrow at 5.")).toBeNull();
+  });
+
   it("parses a relative duration like '4h32m'", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Rate limit exceeded, try again in 4h32m.", { now });
