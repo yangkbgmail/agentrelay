@@ -2166,3 +2166,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay snooze` 미래 시각 재조정] (2026-08-14, 무인 자율 세션, branch `claude/wizardly-pascal-fhj6tm`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이라 CLAUDE.md 지침대로 새 개선 항목을 발굴했다. 제어 명령을 살펴보니
+  `retry`(지금 즉시 재개)와 `cancel`(영구 취소)은 있지만, **잡을 특정 미래 시각으로 재조정**하는 수단이
+  없었다. 파서가 리셋 시각을 잘못 추정했거나(예: 명명 타임존을 로컬로 해석) 사용자가 재개를 미루고 싶을
+  때 필요한 실사용 갭. 마침 `queue.ts`의 `requeueNow(id, at)`가 이미 임의 시각 파라미터를 받고 있어
+  깔끔한 일반화가 가능했다.
+- **한 일 (branch `claude/wizardly-pascal-fhj6tm`):**
+  - core `control.ts`: 순수 `canReschedule`(mid-flight `resuming`만 거부, `canRequeue` 위임으로 가드 일원화)
+    + `resolveResumeTime(input, now)` — 상대 기간(`2h`/`30m`/`1d`/`90s`, 기존 `parseDuration` 재사용)은
+    `now`+span, 절대 ISO-8601 타임스탬프는 `new Date`로 해소. 0/음수 기간은 명확히 거부(그건 `retry`의
+    역할), 둘 다 실패하면 안내 에러. 시계 주입(`now`)으로 순수·결정적.
+  - core `queue.ts`: `requeueNow`를 새 `reschedule(id, resetAt)`(status=waiting_for_reset + resetAt +
+    attempts 0 + lastError 클리어 → 깨끗한 재실행 슬레이트)로 리팩터하고 `requeueNow(id, at=now)`가
+    `reschedule(id, at)`에 위임(중복 0, 두 이름 모두 자기설명적).
+  - CLI `commands.ts` `snoozeJob(id, time, store?, now?)`: 시각을 **먼저** 해소해 미파싱은 스토어 미접촉
+    exit 1, id는 `resolveJobId`로 짧은 prefix·모호/미존재 처리(cancel/retry와 동일), `canReschedule`
+    가드 통과 후 `reschedule`. `cli.ts`에 `agentrelay snooze <id> <time>` 배선 — 성공/실패 메시지·exit
+    code, addHelpText 예시 3줄, completion 자동 포함. 새 파서/스케줄러 로직 0줄.
+  - core control.test +7(canReschedule 2 + resolveResumeTime 5: relative/absolute/zero-neg/empty-unparse/
+    duration-vs-date), queue.test reschedule 1, cli commands.test snooze 4(상대·절대·미파싱·미존재) 신규.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 622 · cli 349/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): "try again in 30m"을
+  큐잉한 임시 스토어로 `snooze <id> 2h`→resetAt=now+2h, `snooze <id> 2026-12-31T23:00:00Z`→절대 시각,
+  `upcoming`이 139d 카운트다운 반영, `snooze <id> whenever`→"could not parse" exit 1, 미존재 id→"no job
+  matches" exit 1, `--help`/bash completion에 snooze 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `snooze --all`(스코프
+  대량 재조정), `snooze`가 잡의 `--project`/`--tool` 필터와 조합, timing MAD 지표. tz/heatmap/parser/
+  watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

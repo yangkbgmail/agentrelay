@@ -194,6 +194,24 @@ describe("RelayQueue", () => {
     expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(1);
   });
 
+  it("reschedules a job to a chosen future time with a fresh attempt count", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    queue.markResuming(job.id);
+    queue.markFailed(job.id, "boom");
+    expect(queue.getById(job.id)?.attempts).toBe(1);
+
+    const future = new Date(Date.now() + 2 * 60 * 60_000).toISOString();
+    queue.reschedule(job.id, future);
+    const rescheduled = queue.getById(job.id);
+    expect(rescheduled?.status).toBe("waiting_for_reset");
+    expect(rescheduled?.resetAt).toBe(future);
+    expect(rescheduled?.attempts).toBe(0);
+    expect(rescheduled?.lastError).toBeNull();
+    // Not yet due — it sits in the queue until its future reset time.
+    expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(0);
+    expect(queue.listDue(new Date(Date.now() + 3 * 60 * 60_000))).toHaveLength(1);
+  });
+
   describe("importJobs", () => {
     const historyJob = (id: string, project = "imported"): RelayJob => ({
       id,

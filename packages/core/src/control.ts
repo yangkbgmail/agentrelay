@@ -1,3 +1,4 @@
+import { parseDuration } from "./prune.js";
 import type { JobStatus, RelayJob } from "./types.js";
 
 /**
@@ -39,6 +40,53 @@ export function canCancel(job: RelayJob): ControlResult {
 export function canRequeue(job: RelayJob): ControlResult {
   if (job.status === "resuming") return { ok: false, reason: "job is currently resuming; wait for it to finish" };
   return { ok: true };
+}
+
+/**
+ * Whether `job` may be rescheduled to resume at a chosen future time
+ * (`agentrelay snooze`). Same guard as {@link canRequeue}: rescheduling parks
+ * the job for a later run, so the only thing that can't be touched is one
+ * that's mid-flight (`resuming`) — moving its reset time under the scheduler
+ * would race the in-progress run.
+ */
+export function canReschedule(job: RelayJob): ControlResult {
+  return canRequeue(job);
+}
+
+export interface ResumeTimeResult {
+  /** The resolved absolute resume time as an ISO-8601 string (only when ok). */
+  resetAt?: string;
+  /** Present only when parsing failed — a human-readable reason. */
+  error?: string;
+}
+
+/**
+ * Resolve a user-supplied snooze argument into an absolute resume time. Two
+ * accepted forms, tried in this order:
+ *
+ *   1. A relative duration (`2h`, `30m`, `1d`, `90s`) → `now` + that span.
+ *      Uses the same {@link parseDuration} the rest of the CLI accepts, so
+ *      `--older-than`/`--since`/`snooze` all speak one grammar.
+ *   2. An absolute ISO-8601 timestamp (`2026-08-15T05:00:00Z`) → that instant.
+ *
+ * Pure and clock-injected (`now`) for deterministic tests. A zero/negative
+ * duration is rejected (that's what `retry` is for), as is anything that parses
+ * as neither a duration nor a date.
+ */
+export function resolveResumeTime(input: string, now: Date): ResumeTimeResult {
+  const raw = input.trim();
+  if (!raw) return { error: "no time given" };
+
+  const durationMs = parseDuration(raw);
+  if (durationMs !== null) {
+    if (durationMs <= 0) return { error: `duration "${raw}" must be positive (use "retry" to resume now)` };
+    return { resetAt: new Date(now.getTime() + durationMs).toISOString() };
+  }
+
+  const absolute = new Date(raw);
+  if (!Number.isNaN(absolute.getTime())) return { resetAt: absolute.toISOString() };
+
+  return { error: `could not parse "${raw}" as a duration (e.g. 2h, 30m, 1d) or an ISO-8601 timestamp` };
 }
 
 /** One job that a bulk-control guard rejected, paired with the reason why. */
