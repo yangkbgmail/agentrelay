@@ -2166,3 +2166,39 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay recent` 방금 해결된 잡 피드] (2026-08-14, 무인 자율 세션, branch `claude/wizardly-pascal-m10pa3`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR 30건을 스캔하니 stats(MAD ~8중복·trimmed mean·skewness·CV·
+  --attempts)·parser·snooze·dedup·coverage·wait --all 등으로 포화. 이 포화 축을 피해 **어떤 열린 PR에도
+  없는 명확한 갭**을 골랐다 — 타임라인 계열(`next`/`upcoming`/`overdue`/`eta`)은 전부 "미래(앞으로 무엇이
+  언제 재개되나)"만 보여줄 뿐, "방금 무엇이 해결됐나"라는 **과거 거울**이 없었다. `status --sort updated
+  --reverse --status completed,failed,cancelled`로 근사할 수는 있으나, 종료 잡에 초점을 맞춰 잡별 해결
+  시간과 평균까지 한 뷰에 묶는 전용 명령이 discoverability·요약 가치를 준다(projects/tools/upcoming/
+  overdue/summary와 동일한 얇은-순수-명령 카덴스).
+- **한 일 (branch `claude/wizardly-pascal-m10pa3`):**
+  - core `recent.ts` 신설(순수·파일시스템/시계 미접촉): `buildRecentReport(jobs, now, limit?)` +
+    `RecentReport`(entries·totalResolved·hidden·avgResolutionMs)·`RecentEntry`(job·resolutionMs·
+    finishedAgoMs·position). 종료 상태(completed/failed/cancelled)만 골라 **가장 최근 종료 순**
+    (updatedAt desc → createdAt desc → id asc tie-break, 결정론적)으로 정렬, 각 행에 잡별 해결 시간
+    (`updatedAt-createdAt`, `stats` resolution-time 규약 그대로 — 음수·파싱불가 span은 null)과
+    종료 후 경과(`finishedAgoMs`, 미래 updatedAt는 0 클램프) 부여. `avgResolutionMs`는 **한도(limit)
+    적용 전 전체 집합**의 well-formed span 평균이라 `--limit`에서도 정직. 파싱불가 updatedAt는 맨 아래로
+    가라앉음. 입력 불변.
+  - CLI `recent.ts`에 순수 `renderRecent`(표: #·id·project·상태[색]·TOOK·FINISHED, `formatDurationMs`
+    재사용으로 stats와 표현 일치, ANSI 폭 보정 `padVisible`로 컬러 상태 셀 정렬 유지, 평균·hidden 푸터·
+    scope note·no-match 문구)·`renderRecentJson`(upcoming/projects와 동일 envelope). `cli.ts`에
+    `agentrelay recent [-n/--limit] [-s/-t/-p/--since/--until] [--json]` 배선 — 공용 `buildScope`/
+    `scopeJobs` 재사용, `--limit`은 양의 정수(0/음수 exit 1), 잘못된 status/tool exit 1, completion 자동 포함.
+    새 파서/스케줄러 로직 0줄.
+  - core recent.test 11케이스(빈 리포트·활성 잡 제외·정렬·tie-break·span/ago 계산·클럭스큐 클램프·null span·
+    평균·limit 정직성·입력 불변·파싱불가 침몰) + cli recent.test 10케이스(빈/scope 메시지·정렬·duration
+    포맷·`-` span·푸터·컬러 on/off·JSON envelope/scope).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 120파일)→`pnpm test`
+  전 패키지 통과. **실제 빌드 CLI e2e**(mock 아님): completed/failed/cancelled/waiting 4-잡 임시 스토어로
+  `recent`가 종료 3잡을 최근순(failed→completed→cancelled)으로 TOOK(3h/1h30m/15m)·FINISHED·평균 렌더,
+  `--status failed,cancelled`가 2잡+scope note, `--limit 1`이 1행+"2 more not shown"+평균 전체 유지,
+  `--project web-app --json`이 1잡·avgMs 5400000·scope 에코, `--limit 0`/`--status bogus` exit 1, 빈 스토어
+  "No finished jobs yet.", completion/help에 `recent` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recent --watch`(방금
+  종료 피드 라이브 갱신, 단 watch 축은 PR 포화라 지양 권고), timing 블록 MAD. README/ARCHITECTURE(🧭 코워크).

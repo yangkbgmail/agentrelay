@@ -824,6 +824,15 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay recent` — 방금 해결된(종료) 잡을 가장 최근 종료 순으로 잡별 해결 시간·경과와 함께
+      조회(`upcoming`의 과거 거울). 타임라인 계열(next/upcoming/overdue/eta)의 빠진 "과거" 코너.
+      (완료 — core `recent.ts` 순수 `buildRecentReport(jobs, now, limit?)`+`RecentReport`/`RecentEntry`:
+      종료 상태만 최근 종료 순(updatedAt desc→createdAt desc→id asc) 정렬, 잡별 `resolutionMs`(stats
+      규약)·`finishedAgoMs`(미래는 0 클램프)·`avgResolutionMs`(limit 전 전체 평균). CLI `recent.ts`
+      `renderRecent`(색 상태 셀·`padVisible` 정렬·`formatDurationMs` 재사용)·`renderRecentJson`,
+      `agentrelay recent [-n][-s/-t/-p/--since/--until][--json]` 공용 `buildScope` 재사용. 새 파서/스케줄러
+      로직 0줄. core 11 + cli 10 신규 테스트, 실제 빌드 CLI e2e 검증. branch `claude/wizardly-pascal-m10pa3`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
