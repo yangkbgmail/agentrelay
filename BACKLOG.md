@@ -823,6 +823,20 @@
       +2 단언(cv 0.5·단일 잡 0) + cli stats formatCv 2 + render cv 단언 신규. 실제 빌드 CLI e2e로
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
+- [x] 👷 `agentrelay stats` 해결 시간 skewness(왜도) — 분산 지표(iqr/stdev/cv)는 분포가 얼마나
+      넓은지만 알려주고 "어느 쪽으로 치우쳤는가"는 못 본다. 왜도는 오른쪽 꼬리 지연(대부분 빨리
+      끝나지만 몇몇이 오래 방치)의 강도를 잰다.
+      (완료 — core `stats.ts`의 `TimingStats`에 `skewnessResolution`(무차원 비율, null 가능) 추가 +
+      순수 `skewness(values, mean)` 헬퍼: 모집단(편향) 3차 표준화 적률 `m3/m2^1.5`. 양수=오른쪽 꼬리
+      (느린 이상치), 음수=왼쪽 꼬리, ~0=대칭. 스케일 프리(ms 단위가 비율에서 상쇄)라 어떤 시간대 큐든
+      직접 비교. 2차 적률 0(전동일 span)이면 shape 미정 → null(0 아님). resolved 0개 → null.
+      CLI `stats.ts`에 순수 `formatSkewness`(부호+2소수+꼬리 방향어: 1.15→"+1.15 (right-tailed)",
+      |skew|<0.5→symmetric, null→n/a) 신설, resolution-time 블록에 `shape: skew …` 전용 라인 추가.
+      `--json`은 timing 전체 직렬화라 자동 노출(기존 shape 불변). 새 파서/스케줄러/집계 로직 0줄.
+      core stats.test +1 케이스(이상치 [1h×3,10h] → skew≈+1.1547 right-tailed) + 기존 2케이스에 단언,
+      cli stats.test formatSkewness 2케이스 + render `shape: skew 0.00 (symmetric)` 단언. 실제 빌드
+      CLI e2e로 이상치 스토어에서 `shape: skew +1.15 (right-tailed)`·JSON `skewnessResolution: 1.1547`
+      확인. branch `claude/stats-skewness-resolution`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
