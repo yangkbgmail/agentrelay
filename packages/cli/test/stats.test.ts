@@ -157,6 +157,8 @@ describe("renderStats", () => {
     expect(out).toContain("stdev 1h 0m");
     // cv = stdev / mean = 1h / 2h = 0.5 → "50%".
     expect(out).toContain("cv 50%");
+    // median 2h; both deviations are 1h → mad 1h (robust, tracks the IQR here).
+    expect(out).toContain("mad 1h 0m");
   });
 
   it("omits the resolution-time block when nothing has resolved", () => {

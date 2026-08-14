@@ -86,6 +86,15 @@ export interface TimingStats {
    * > 1 heavy-tailed. Rounded to 4 decimals.
    */
   cvResolution: number | null;
+  /**
+   * Median absolute deviation (ms): the median of |xᵢ − median|, or null when
+   * none. Like {@link iqrResolutionMs} it's a robust spread measure that ignores
+   * the tail, but it's centred on the median rather than the quartile edges, so
+   * a single pathological outlier moves it even less than it moves the IQR (and
+   * far less than the stdev). Read the trio together: a small MAD beside a large
+   * stdev is the clearest "typically consistent, rare heavy tail" signature.
+   */
+  madResolutionMs: number | null;
 }
 
 export interface RelayStats {
@@ -422,6 +431,30 @@ function coefficientOfVariation(values: number[], mean: number): number | null {
 }
 
 /**
+ * Exact (unrounded) median of a non-empty ascending-sorted array: the middle
+ * sample for odd n, the mean of the two straddling samples for even n. Used as
+ * the centre for {@link medianAbsoluteDeviation} so ms-level rounding of the
+ * reported median never leaks into the deviations. Callers guarantee non-empty.
+ */
+function rawMedian(sortedAsc: number[]): number {
+  const n = sortedAsc.length;
+  const mid = Math.floor(n / 2);
+  return n % 2 === 1 ? sortedAsc[mid] : (sortedAsc[mid - 1] + sortedAsc[mid]) / 2;
+}
+
+/**
+ * Median absolute deviation (ms): the median of |xᵢ − median(x)|, rounded to
+ * whole ms, over a non-empty ascending-sorted list. A robust scale estimator —
+ * unlike the stdev, one arbitrarily-large outlier can shift it by at most one
+ * rank. Centred on the unrounded {@link rawMedian}. A single value yields 0.
+ */
+function medianAbsoluteDeviation(sortedAsc: number[]): number {
+  const median = rawMedian(sortedAsc);
+  const deviations = sortedAsc.map((v) => Math.abs(v - median)).sort((a, b) => a - b);
+  return Math.round(rawMedian(deviations));
+}
+
+/**
  * Aggregates a job list into headline relay metrics for `agentrelay stats`.
  * Pure and non-mutating: no I/O, no ambient clock. Reuses {@link summarizeJobs}
  * for the per-status counts and next-reset so the two surfaces never drift.
@@ -475,6 +508,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      madResolutionMs: null,
     };
   } else {
     // Sort once ascending; percentiles read from it, min/max are its ends.
@@ -496,6 +530,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       iqrResolutionMs: p75 - p25,
       stdevResolutionMs: populationStdev(sorted, mean),
       cvResolution: coefficientOfVariation(sorted, mean),
+      madResolutionMs: medianAbsoluteDeviation(sorted),
     };
   }
 
