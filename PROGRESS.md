@@ -2166,3 +2166,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay eta --watch` 라이브 캐치업 카운트다운] (2026-08-14, 무인 자율 세션, branch `claude/wizardly-pascal-2bksox`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐 → CLAUDE.md 지침대로 새 개선 항목을 발굴. watch 계열(status/upcoming/
+  overdue/tools/projects/stats)은 모두 라이브 뷰가 있는데, 큐 캐치업 카운트다운을 답하는 `eta`만
+  `next`처럼 스크립트 친화 한 줄 출력이라 유일하게 라이브 뷰가 빠져 있었다. 세션 68이 "PR 포화라 지양"
+  경고한 tz/heatmap/parser·summary --watch와 달리, eta --watch는 미착수 표면이라 중복 위험이 없다.
+- **한 일 (branch `claude/wizardly-pascal-2bksox`):**
+  - CLI `eta.ts`에 순수 `renderEtaWatchFrame(eta, storePath, intervalMs, now)` 신설 — `status`/`upcoming`의
+    watch-frame와 동일 title/meta 배너(`agentrelay eta (live, every Ns — Ctrl-C to exit)` + `stamp · store`)
+    + 항상 컬러인 `renderEta` 본문. `eta`는 스코프 필터가 없어 scopeNote 파라미터 불필요.
+  - `cli.ts`에 세션 52가 추출한 공용 `startWatchLoop`을 재사용하는 `runEtaWatch(store, intervalMs)` —
+    매 프레임 `listStatus`로 스토어 재읽기 + `computeQueueEta`를 fresh `now`로 재계산해 카운트다운 live
+    (데몬이 잡을 따라잡으면 대기수 감소·전부 종료 시 caught-up 메시지로 전환·화면 clear).
+  - `eta`에 `-w, --watch [seconds]` 배선 — `--json`이 `--watch`보다 우선(일회성 기계 덤프), watch 루프는
+    영원히 도므로 `--exit-code`는 watch 하에선 무의미(문서화), 인터벌 기본 2s, addHelpText 예시 1줄.
+  - 새 파서/스케줄러/core 로직 0줄 — 전부 기존 검증된 `computeQueueEta`(now 주입 가능)/`renderEta` 재사용.
+  - cli eta.test에 watch-frame 3케이스 신규(라이브 배너·1h30m 카운트다운 컬러 본문·caught-up 프레임) → 10.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 614 · cli 348/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 대기 잡 1개(리셋
+  +90m) 임시 스토어로 `eta --watch 5`가 라이브 배너 + `Queue caught up in 1h 30m` 카운트다운을 화면
+  clear와 함께 그림, `--json`이 `--watch`보다 우선해 일회성 JSON(waiting:1) 방출·루프 안 돎, `eta --help`가
+  `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `eta`에 `--tool`/
+  `--project` 스코프 필터(다른 조회 명령과 정합), timing 블록 MAD 지표. tz/heatmap/parser·summary --watch는
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
