@@ -824,6 +824,21 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 알림 이벤트 필터(`AGENTRELAY_NOTIFY_EVENTS`) — Slack/웹훅 알림을 원하는 이벤트 종류로만
+      좁혀 라우팅 스팸을 줄임(예: `failed`만 받아 릴레이가 포기할 때만 호출).
+      (완료 — 지금까지 `notifiersFromEnv`는 감지된 모든 큐 이벤트(queued/resumed/completed/failed)를
+      무조건 발송해, 잡이 많으면 routine한 queued/resumed 알림이 채널을 도배했다. core `notify.ts`에
+      순수 `NOTIFY_EVENTS`(라이프사이클 순 단일 진실원)·`isNotifyEvent`(타입가드)·`parseNotifyEvents`
+      (콤마 구분 allow-list 파싱, trim·소문자화, 미지 토큰 무시; 미설정/공백/전부-오타는 `null`=무필터로
+      폴백해 오타가 **모든** 알림을 조용히 끄지 않게 — MAX_CONCURRENT/prune env 관례와 일치)·
+      `filterNotifier(notifier, events)`(events가 null이면 원본 그대로 반환[무비용], 아니면 allow-list에
+      든 이벤트만 위임하는 래퍼; "never throws" 계약 보존) 추가. `notifiersFromEnv`가 조립된 결합
+      notifier를 `AGENTRELAY_NOTIFY_EVENTS`로 감싸 run/daemon/tick 세 진입점에 자동 적용(CLI 배선 0줄).
+      `notify test`는 listNotifyChannels 직접 경로라 필터 무관하게 항상 발송(의도적). 새 파서/스케줄러
+      로직 0줄. core notify.test +12(parse 4·guard 1·filter 3·notifiersFromEnv 필터 2 등), 실제 빌드 CLI
+      e2e로 로컬 HTTP 서버 상대 run→webhook: 무필터→queued 전달·`failed` 필터→queued 억제(0건)·
+      `queued,failed`→queued 전달 검증. branch `claude/wizardly-pascal-67tndg`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

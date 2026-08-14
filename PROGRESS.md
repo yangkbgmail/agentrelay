@@ -2166,3 +2166,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — 알림 이벤트 필터(AGENTRELAY_NOTIFY_EVENTS)] (2026-08-14, 무인 자율 세션)
+- **배경:** 세션 시작 시 BACKLOG의 👷 항목은 전부 [x], 남은 `[ ]`는 전부 🧭(코워크 소유: README/
+  ARCHITECTURE/경쟁조사 등)라 손대지 않는다. 열린 PR 20개는 파서·stats(MAD만 7중복)·eta --watch·
+  dedup·snooze·wait --all·coverage 등에 포화 → 중복을 피해 CLAUDE.md 지침대로 **새 개선 항목을
+  발굴**했다. 알림 파이프라인을 읽던 중, `notifiersFromEnv`가 감지된 **모든** 큐 이벤트(queued/
+  resumed/completed/failed)를 무조건 발송해 잡이 많으면 routine한 queued/resumed 알림이 채널을
+  도배하는 실사용 갭을 발견 — 원하는 이벤트만 받는 필터가 없었다.
+- **한 일 (branch `claude/wizardly-pascal-67tndg`):** **알림 이벤트 필터** —
+  - core `notify.ts`에 순수 `NOTIFY_EVENTS`(라이프사이클 순 단일 진실원)·`isNotifyEvent`(타입가드)·
+    `parseNotifyEvents(value)`(콤마 구분 allow-list → Set; trim·소문자화, 미지 토큰 무시; 미설정/공백/
+    전부-오타는 `null`=무필터로 폴백 → 오타가 **모든** 알림을 조용히 끄지 않게, MAX_CONCURRENT·prune
+    env 파싱 관례와 일치)·`filterNotifier(notifier, events)`(events가 null이면 원본 notifier 그대로
+    반환[무필터 콜러 무비용], 아니면 allow-list에 든 이벤트만 위임하는 래퍼) 추가.
+  - `notifiersFromEnv`가 조립된 결합 notifier를 `AGENTRELAY_NOTIFY_EVENTS`로 감싸도록 배선 →
+    run/daemon/tick 세 진입점에 자동 적용(CLI 코드 0줄 변경). `notify test`는 listNotifyChannels 직접
+    경로라 필터와 무관하게 항상 발송(테스트는 언제나 전달돼야 하므로 의도적).
+  - 새 파서/스케줄러/config 로직 0줄 — env-only(세션 65 `AGENTRELAY_MAX_CONCURRENT` 선례와 동일).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 624 · cli 345/1skip · dashboard 9**; notify.test 23→35, +12 신규). **실제 빌드
+  CLI e2e**(mock 아님): 로컬 HTTP 서버를 띄우고 rate-limit을 뱉는 가짜 에이전트를 `run`으로 큐잉 →
+  무필터일 때 webhook이 `queued` 이벤트 1건 수신, `AGENTRELAY_NOTIFY_EVENTS=failed`면 0건(queued
+  억제), `queued,failed`면 다시 `queued` 1건 수신 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `notify` 검사
+  커맨드/데몬 배너에 활성 이벤트 필터 표기, 채널별 이벤트 라우팅. 파서/stats/watch·summary --watch는
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
