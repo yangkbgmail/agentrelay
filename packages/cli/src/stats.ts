@@ -104,6 +104,7 @@ export function renderStats(
     lines.push(b("resolution time") + d(" (completed + failed)"));
     lines.push(
       `  avg ${formatDurationMs(timing.avgResolutionMs ?? 0)}` +
+        `   trim10 ${formatDurationMs(timing.trimmedMeanResolutionMs ?? 0)}` +
         `   min ${formatDurationMs(timing.minResolutionMs ?? 0)}` +
         `   max ${formatDurationMs(timing.maxResolutionMs ?? 0)} ` +
         d(`over ${timing.resolvedCount} job(s)`)

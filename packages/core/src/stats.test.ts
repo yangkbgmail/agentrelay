@@ -49,6 +49,7 @@ describe("computeStats", () => {
     expect(stats.timing).toEqual({
       resolvedCount: 0,
       avgResolutionMs: null,
+      trimmedMeanResolutionMs: null,
       minResolutionMs: null,
       maxResolutionMs: null,
       medianResolutionMs: null,
@@ -181,12 +182,37 @@ describe("computeStats", () => {
     expect(stats.timing.medianResolutionMs).toBe(2 * 3_600_000);
     // avg = (1+2+6)/3 h = 3h
     expect(stats.timing.avgResolutionMs).toBe(3 * 3_600_000);
+    // trim10 over 3 jobs: ⌊0.1·3⌋ = 0 trimmed → degrades to the plain mean (3h).
+    expect(stats.timing.trimmedMeanResolutionMs).toBe(3 * 3_600_000);
     // p90 over sorted [1h,2h,6h]: rank=0.9*2=1.8 → 2h + 0.8*(6h-2h) = 2h+3.2h = 5.2h
     expect(stats.timing.p90ResolutionMs).toBe(Math.round(5.2 * 3_600_000));
     // p95 over sorted [1h,2h,6h]: rank=0.95*2=1.9 → 2h + 0.9*(6h-2h) = 2h+3.6h = 5.6h
     expect(stats.timing.p95ResolutionMs).toBe(Math.round(5.6 * 3_600_000));
     // p99 over sorted [1h,2h,6h]: rank=0.99*2=1.98 → 2h + 0.98*(6h-2h) = 2h+3.92h = 5.92h
     expect(stats.timing.p99ResolutionMs).toBe(Math.round(5.92 * 3_600_000));
+  });
+
+  it("trims the extreme tails from the mean once there are enough resolved jobs", () => {
+    // 11 spans: a fast 1h outlier, nine typical 2h jobs, and one pathological
+    // 100h babysit. ⌊0.1·11⌋ = 1 is dropped from each end (the 1h and the 100h),
+    // leaving nine 2h jobs → trim10 = 2h, while the plain mean is dragged high by
+    // the 100h tail. This is the whole point of the metric.
+    const base = Date.parse("2026-07-13T00:00:00.000Z");
+    const span = (ms: number) =>
+      job({
+        status: "completed",
+        createdAt: new Date(base).toISOString(),
+        updatedAt: new Date(base + ms).toISOString(),
+      });
+    const H = 3_600_000;
+    const jobs = [span(1 * H), span(100 * H), ...Array.from({ length: 9 }, () => span(2 * H))];
+    const stats = computeStats(jobs);
+    expect(stats.timing.resolvedCount).toBe(11);
+    // trimmed mean discards the 1h and 100h extremes → mean of nine 2h = 2h.
+    expect(stats.timing.trimmedMeanResolutionMs).toBe(2 * H);
+    // plain mean = (1 + 100 + 9·2)/11 h = 119/11 h ≈ 10.82h — the tail inflates it.
+    expect(stats.timing.avgResolutionMs).toBe(Math.round((119 / 11) * H));
+    expect(stats.timing.trimmedMeanResolutionMs).not.toBe(stats.timing.avgResolutionMs);
   });
 
   it("interpolates the median over an even number of resolved jobs", () => {
@@ -239,6 +265,8 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(0);
     // single span: stdev 0, nonzero mean → cv 0 (no spread, well-defined)
     expect(stats.timing.cvResolution).toBe(0);
+    // nothing to trim from one value → trim10 equals that value (= the mean).
+    expect(stats.timing.trimmedMeanResolutionMs).toBe(3_600_000);
   });
 
   it("excludes cancelled and still-active jobs from resolution timing", () => {
@@ -287,6 +315,7 @@ describe("computeStats", () => {
     expect(stats.timing).toEqual({
       resolvedCount: 0,
       avgResolutionMs: null,
+      trimmedMeanResolutionMs: null,
       minResolutionMs: null,
       maxResolutionMs: null,
       medianResolutionMs: null,
