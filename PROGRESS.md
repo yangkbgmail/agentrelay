@@ -2166,3 +2166,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### 세션 67 — 2026-08-14 · `agentrelay stats` 해결 시간 MAD(median absolute deviation)
+- **한 일 (branch `claude/wizardly-pascal-fus2gd`):**
+  - 착수 시점 BACKLOG의 👷(클로드 코드) 항목은 전부 [x] 완료 상태였고 미완료는 🧭 코워크
+    소유(README/ARCHITECTURE/경쟁조사/샘플수집/성능분석)뿐이었다. CLAUDE.md 지침("비면 스스로
+    새 개선 항목 발굴")과 세션 66의 "다음 할 일"이 지목한 후속 후보(timing 블록 MAD)를 골랐다.
+    stdev·IQR·CV에 더해 MAD는 이상치에 가장 강건한 분산 지표 — stdev는 극단값의 *크기*에
+    끌려가고 IQR은 두 사분위 경계만 쓰는 반면, MAD는 모든 점의 중앙값 거리 중 중앙값이라
+    소수의 무거운 꼬리가 값을 거의 못 흔든다.
+  - core `stats.ts`의 `TimingStats`에 `madResolutionMs`(중앙값 절대편차 ms, null 가능) 추가 +
+    순수 `medianAbsoluteDeviation(values, median)` 헬퍼(각 값의 |span−median| 절대편차를
+    오름차순 정렬 후 기존 검증된 `percentile`로 내부 중앙값 → 보간/반올림이 보고된 median과 일치).
+    `computeStats`가 median을 한 번 계산해 medianResolutionMs와 MAD 양쪽에 재사용(중복 정렬 0줄).
+    resolved 0개면 null, 단일/전부동일 잡이면 0(분산 없음, 잘 정의됨).
+  - CLI `stats.ts` resolution-time spread 라인에 robust 지표끼리 iqr 다음·stdev 앞에
+    `mad N` 삽입(`spread: iqr … (p25 … – p75 …)   mad …   stdev …   cv …%`), `--json`은 timing
+    전체 직렬화라 자동 노출(기존 shape 불변). 새 파서/스케줄러/core 집계 로직 0줄.
+  - core stats.test +2 단언(3-잡 mad 1h·단일 잡 mad 0), cli stats.test render `mad 1h 0m` 단언 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test`
+  전 패키지 통과(**core 614 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  spans {1h,3h} 임시 스토어로 `stats`가 `spread: iqr 1h 0m (p25 1h 30m – p75 2h 30m)   mad 1h 0m
+  stdev 1h 0m   cv 50%` 렌더 + `--json`이 `stats.timing.madResolutionMs: 3600000`(1h, median 2h와
+  일관) 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 —
+  `stats --group-by`의 그룹별 한 줄 요약에 spread(iqr/mad) 노출, timing 블록에 skewness(왜도).
+  tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

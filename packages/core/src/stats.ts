@@ -77,6 +77,16 @@ export interface TimingStats {
    */
   stdevResolutionMs: number | null;
   /**
+   * Median absolute deviation (ms): the median of |span − median(spans)|, or
+   * null when none. The most outlier-robust spread measure here — unlike the
+   * stdev it ignores the magnitude of extreme spans entirely (a lone 10× outlier
+   * barely moves it), and unlike the {@link iqrResolutionMs} it folds in every
+   * point's distance from the center rather than just the two quartile
+   * boundaries. A MAD near 0 next to a large stdev is the signature of a tight
+   * typical case with a few heavy tails dragging the mean.
+   */
+  madResolutionMs: number | null;
+  /**
    * Coefficient of variation: population stdev ÷ mean, a dimensionless ratio of
    * relative dispersion, or null when none (or when the mean is 0). Unlike the
    * absolute-ms {@link stdevResolutionMs}, CV is scale-free — it answers "how
@@ -410,6 +420,19 @@ function populationStdev(values: number[], mean: number): number {
 }
 
 /**
+ * Median absolute deviation (ms): the median of the absolute deviations of each
+ * value from `median`, rounded to whole ms. A robust dispersion measure — a lone
+ * extreme value moves it far less than it moves the stdev. Reuses
+ * {@link percentile} for the inner median so its interpolation/rounding matches
+ * the reported median. A single value (or all-equal values) yields 0. Callers
+ * guarantee non-empty input; `median` is the already-computed p50 of `values`.
+ */
+function medianAbsoluteDeviation(values: number[], median: number): number {
+  const deviations = values.map((v) => Math.abs(v - median)).sort((a, b) => a - b);
+  return percentile(deviations, 0.5);
+}
+
+/**
  * Coefficient of variation: population stdev ÷ mean, rounded to 4 decimals.
  * Returns null when the mean is 0 — for non-negative spans a zero mean means
  * every span was 0, so the ratio is undefined (0/0) rather than 0. Uses the
@@ -474,6 +497,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      madResolutionMs: null,
       cvResolution: null,
     };
   } else {
@@ -482,12 +506,13 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     const mean = sorted.reduce((sum, d) => sum + d, 0) / resolvedCount;
     const p25 = percentile(sorted, 0.25);
     const p75 = percentile(sorted, 0.75);
+    const median = percentile(sorted, 0.5);
     timing = {
       resolvedCount,
       avgResolutionMs: Math.round(mean),
       minResolutionMs: sorted[0],
       maxResolutionMs: sorted[resolvedCount - 1],
-      medianResolutionMs: percentile(sorted, 0.5),
+      medianResolutionMs: median,
       p90ResolutionMs: percentile(sorted, 0.9),
       p95ResolutionMs: percentile(sorted, 0.95),
       p99ResolutionMs: percentile(sorted, 0.99),
@@ -495,6 +520,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p75ResolutionMs: p75,
       iqrResolutionMs: p75 - p25,
       stdevResolutionMs: populationStdev(sorted, mean),
+      madResolutionMs: medianAbsoluteDeviation(sorted, median),
       cvResolution: coefficientOfVariation(sorted, mean),
     };
   }
