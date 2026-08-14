@@ -824,6 +824,18 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 파서: 자연어 연결어("and"·쉼표)가 낀 상대 기간 인식 (`try again in 1 hour and 30 minutes`,
+      `resets in 1 day, 4 hours`) — 성분 유실 버그 수정.
+      (완료 — `relative-duration` 패턴이 day/hour/minute 성분 사이를 `\s*`로만 이어 붙여, 읽기 좋은
+      "X and Y"·쉼표 구분 표현("1 hour and 30 minutes", "1 day, 4 hours")을 만나면 **뒤 성분을 통째로
+      드롭**했다(실측: "1 hour and 30 minutes"→1시간만, 30분 유실 / "1 day, 4 hours"→1일만, 4시간 유실).
+      성분 사이 구분자를 `(?:[\s,]*(?:and[\s,]+)?)`로 교체해 공백·쉼표·단어 "and"(및 조합)를 허용 —
+      "1 day, 4 hours and 30 minutes" 같은 완전 서술형까지 정확히 합산. 기존 포맷(`4h32m`/`1d 4h`/`45m`/
+      `2 days`/`3 minutes`)은 전부 불변(구분자가 빈 문자열도 매치). `resolve`·pre-filter·다른 패턴 미변경.
+      새 CLI 코드 0줄 — 기존 `parse` 커맨드가 자동 노출. parser.test +4 회귀(and/쉼표/plural/완전서술형),
+      실제 빌드 CLI `parse`로 `in 1h 30m`·매치 문자열 "30 minutes"까지 포함 + 기존 포맷 무회귀 e2e 확인.
+      branch `claude/wizardly-pascal-y94i7k`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
