@@ -2166,3 +2166,36 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay dedup` 중복 활성 잡 진단] (2026-08-14, 무인 자율 세션)
+- **배경:** 세션 시작 시 명시적 미완 👷 백로그 항목 0개(전부 완료), 남은 미체크는 전부 🧭 코워크
+  소유(README/ARCHITECTURE/경쟁조사 등). 열린 PR 30개(#626~#656)를 파싱해 이미 점유된 아이디어
+  (MAD·snooze·wait --all·group-by cv·IANA tz·coverage·CV·yaml·notify list·stuck·env·summary --watch·
+  NO_COLOR·hedge·status --group-by·diff·logs·resolution-hist·attempts·rm·busiest 등)를 전부 회피하고
+  CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다. 이 저장소 자신이 겪은 "무기억 세션이 같은 항목을
+  반복 구현해 중복 PR이 쌓이는" 페인을 잡 큐에 매핑 — rate-limit 중 같은 명령이 두 번 큐잉되면
+  리셋 시 스케줄러가 동일 명령을 여러 번 spawn해 낭비한다. 이를 잡는 읽기 전용 진단이 없었다.
+- **한 일 (branch `claude/wizardly-pascal-1c6iq7`):** **`agentrelay dedup`.**
+  - core `dedup.ts` 신설(순수·파일시스템/시계 미접촉): `findDuplicateJobs(jobs)`→`DedupReport`
+    (groups·groupCount·duplicateJobs·redundantJobs) + `DuplicateGroup`(tool·project·cwd·command·jobs·
+    count·redundant·nextResetAt). **활성 잡(queued/waiting_for_reset/resuming)만** 대상 — 종료 잡과
+    같은 명령의 신규 잡은 재개 대상이 아니라 중복이 아니다. 시그니처=tool+길이접두 cwd+
+    `command.join(" ")`라 `["a b"]`≠`["a","b"]` 안 충돌, 빈 command는 스킵. 그룹 내 oldest
+    createdAt(→id tiebreak) 먼저=keeper, redundant=count−1, nextResetAt=대기 잡의 사전식 min resetAt.
+    그룹 랭킹은 redundant desc→count desc→tool/cwd/command asc(완전 결정론적). index.ts export.
+  - CLI `dedup.ts`에 순수 `renderDedup`(클러스터별 tool·command·cwd·리셋 카운트다운·짧은 id[keeper
+    표기]·`--limit` 트림+숨김 푸터, 빈 스토어 vs 무중복[healthy] vs no-match[scope] 3-way 구분)·
+    `renderDedupJson`(tools/stats와 동일 envelope). `agentrelay dedup [--json][-n/--limit][--exit-code]`
+    + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용, `--exit-code`는 redundant>0일
+    때 exit 1(CI/프리플라이트 게이트). show.ts `formatCommand`·status.ts `formatCountdown` 재사용.
+  - 새 파서/스케줄러 로직 0줄 — 기존 스토어 스키마·정렬 관례 위에 순수 집계 함수 하나 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 626 · cli 354/1skip · dashboard 9** — dedup core 12 + cli 9 신규). **실제 빌드
+  CLI e2e**(mock 아님): 5-잡 임시 스토어(web 동일명령 3개[대기2+큐잉1] + codex-cli completed 1 +
+  generic queued 단일 1)로 `dedup`이 web 3-잡 클러스터 1개(2 redundant)만 감지하고 codex/generic은
+  제외, `--exit-code`→1, `--json`→groupCount 1·redundant 2·dupJobs 3, `--tool codex-cli`/`--project api`
+  스코프는 무중복(exit 0), 빈 스토어→온보딩 문구, `--limit 0`→exit 1, `--help`에 dedup 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `dedup --cancel`
+  (redundant 잡을 keeper만 남기고 일괄 취소, control.ts `bulkControlJobs` 재사용, 파괴적이라 기본
+  --dry-run), 대시보드에 중복 클러스터 배지 노출. tz/heatmap/parser/watch·summary --watch·stats 분산
+  지표는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

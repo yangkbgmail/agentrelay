@@ -824,6 +824,24 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay dedup` — 같은 tool+cwd+command로 재개될 **중복 활성 잡**을 찾아 그룹으로 보고하는
+      읽기 전용 진단 명령. rate-limit 중에 같은 `agentrelay run …`이 실수로 두 번 발화되거나 래퍼가
+      재큐잉하면, 리셋이 풀릴 때 스케줄러가 동일 명령을 여러 번 spawn해 재개 슬롯과 하위 에이전트
+      실행을 낭비한다 — 이 프로젝트 자신의 "중복 PR 루프" 페인을 잡 큐에 매핑한 것.
+      (완료 — core `dedup.ts` 신설(순수·파일시스템/시계 미접촉): `findDuplicateJobs(jobs)`→`DedupReport`
+      (groups·groupCount·duplicateJobs·redundantJobs) + `DuplicateGroup`(tool·project·cwd·command·jobs·
+      count·redundant·nextResetAt). **활성 잡(queued/waiting_for_reset/resuming)만** 대상 — 종료 잡과
+      같은 명령의 신규 잡은 재개되지 않으므로 중복 아님. 시그니처=tool+길이접두 cwd+`command.join(" ")`라
+      `["a b"]`≠`["a","b"]` 안 충돌, 빈 command는 스킵. 그룹 내 oldest createdAt(→id) 먼저=keeper,
+      redundant=count−1, nextResetAt은 대기 잡의 사전식 min resetAt. 랭킹은 redundant desc→count desc→
+      tool/cwd/command asc(완전 결정론적). CLI `dedup.ts`에 순수 `renderDedup`(클러스터별 tool·command·
+      cwd·리셋 카운트다운·짧은 id[keeper 표기]·`--limit` 트림+숨김 푸터·빈 스토어 vs 무중복 vs no-match
+      구분)·`renderDedupJson`(tools/stats와 동일 envelope). `agentrelay dedup [--json][-n/--limit]
+      [--exit-code]` + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용, `--exit-code`는
+      redundant>0일 때 exit 1(CI/프리플라이트 게이트). 새 파서/스케줄러 로직 0줄. core dedup 12 + cli
+      dedup 9 신규 테스트, 실제 빌드 CLI e2e로 3-잡 클러스터 감지·codex/generic 단일 잡 제외·--exit-code
+      1·--json·스코프 무중복·빈 스토어·--limit 0 exit 1·help 노출 검증. branch `claude/wizardly-pascal-1c6iq7`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
