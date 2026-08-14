@@ -824,6 +824,23 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay stats --attempts` — 잡을 재개 시도 횟수(attempts)별로 묶은 히스토그램(릴레이
+      재시도 효과 한눈에). `--trend`/`--hours`/`--weekday`/`--heatmap`에 이은 분포 플래그.
+      (완료 — 기존 stats는 `totalAttempts`(합계)·`retriedJobs`(attempts>1 개수)만 보여줘, "몇 번
+      만에 해결됐나"의 *분포*가 안 보였다. 대부분 첫 재개(1회)에 풀리는지, 여러 번 튕기는지 구분
+      불가. core `stats.ts`에 순수 `computeAttemptsDistribution(jobs, {cap?})` + `AttemptsBucket`/
+      `AttemptsDistribution`/`DEFAULT_ATTEMPTS_CAP`(=8): attempts를 0부터 관측 최대까지 연속 버킷으로
+      집계(빈 구간 zero-fill로 안정적 shape), `cap` 이상은 하나의 `"N+"` overflow 버킷으로 접어 롱테일이
+      히스토그램을 폭발시키지 않게 함(관측 최대가 cap과 정확히 같으면 overflow 아님). 음수·비유한
+      attempts는 방어적으로 0으로 클램프, timing과 달리 활성+종료 잡 *전부* 집계(attempts는 상태 무관
+      의미). CLI `stats.ts`에 순수 `renderAttempts`(막대 스케일=최다 버킷, zero 버킷은 dim 베이스라인
+      점, `N+` 우측정렬 라벨) + `renderStatsJson`에 옵셔널 `attempts` 필드(요청 시에만 방출, 기본 shape
+      불변). `cli.ts` `stats`에 `--attempts` 플래그 배선(일회성·`--watch`·`--json` 세 뷰 공통, 헬프
+      예시 추가). 새 파서/스케줄러 로직 0줄. core stats.test +7케이스(빈 스토어·연속 버킷·overflow·
+      cap 경계·custom cap·음수 클램프·불변) + cli stats.test render 4 + JSON 필드 1. 실제 빌드 CLI
+      e2e로 attempts=11이 `8+` 버킷에 집계·`--json` attempts 필드 방출 확인. branch
+      `claude/wizardly-pascal-4veu41`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -1,6 +1,7 @@
 import type { DailyActivity, HourlyActivity, RelayJob, WeekdayActivity } from "@agentrelay/core";
 import {
   computeActivityHeatmap,
+  computeAttemptsDistribution,
   computeDailyTrend,
   computeHourlyDistribution,
   computeStats,
@@ -16,6 +17,7 @@ import {
   NO_GROUP_MESSAGE,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
+  renderAttempts,
   renderGroupedStats,
   renderGroupedStatsJson,
   renderHeatmap,
@@ -573,6 +575,56 @@ describe("renderStatsJson heatmap field", () => {
     expect(withHeatmap.heatmap.cells[1][9]).toBe(1);
     expect(withHeatmap.heatmap.total).toBe(1);
     expect(withHeatmap.heatmap.maxCell).toBe(1);
+  });
+});
+
+describe("renderAttempts", () => {
+  it("shows a placeholder for an empty distribution", () => {
+    const out = renderAttempts({ buckets: [], total: 0, maxCount: 0 });
+    expect(out).toContain("by attempts");
+    expect(out).toContain("none");
+  });
+
+  it("renders a header, one row per bucket, and a footer total", () => {
+    const dist = computeAttemptsDistribution([job({ attempts: 1 }), job({ attempts: 1 }), job({ attempts: 3 })]);
+    const out = renderAttempts(dist);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("by attempts");
+    // header + buckets 0..3 (4 rows) + footer
+    expect(lines).toHaveLength(6);
+    // Busiest bucket (attempts=1, count 2) draws blocks; zero bucket (2) shows a dot.
+    expect(out).toMatch(/ 1 .*█.* 2/);
+    expect(out).toMatch(/ 2 .*·.* 0/);
+    expect(lines[lines.length - 1]).toContain("3 job(s)");
+  });
+
+  it("labels the overflow bucket with an N+ suffix", () => {
+    const dist = computeAttemptsDistribution([job({ attempts: 1 }), job({ attempts: 10 })], { cap: 2 });
+    expect(renderAttempts(dist)).toContain(" 2+ ");
+  });
+
+  it("scales bars to the busiest bucket; a zero-count in-between bucket gets no blocks", () => {
+    // attempts 0 and 2 present, 1 is a zero-count gap between them.
+    const dist = computeAttemptsDistribution([job({ attempts: 0 }), job({ attempts: 2 })]);
+    const gapRow =
+      renderAttempts(dist)
+        .split("\n")
+        .find((r) => /^\s+1\s/.test(r)) ?? "";
+    expect(gapRow).not.toContain("█");
+    expect(gapRow).toContain("·");
+  });
+});
+
+describe("renderStatsJson attempts field", () => {
+  it("omits `attempts` by default but includes the distribution when provided", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("attempts" in without).toBe(false);
+    const attempts = computeAttemptsDistribution([job({ attempts: 1 }), job({ attempts: 3 })]);
+    const withAttempts = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", attempts }));
+    expect(withAttempts.attempts.total).toBe(2);
+    expect(withAttempts.attempts.buckets).toHaveLength(4); // 0..3
+    expect(withAttempts.attempts.buckets[1]).toEqual({ attempts: 1, label: "1", count: 1, overflow: false });
   });
 });
 

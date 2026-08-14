@@ -2166,3 +2166,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats --attempts` 재개 시도 횟수 히스토그램] (2026-08-14, 무인 자율 세션, branch `claude/wizardly-pascal-4veu41`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이라, 스스로 새 개선 항목을 발굴했다. 기존 stats는 `totalAttempts`(합계)와
+  `retriedJobs`(attempts>1 개수)만 보여줘, "잡이 몇 번 만에 해결됐나"의 *분포*가 안 보였다 — 대부분 첫
+  재개(1회)에 풀리는지, 소수가 여러 번 튕기는지 구분 불가. `--trend`/`--hours`/`--weekday`/`--heatmap`에
+  이은 자연스러운 분포 플래그로 `--attempts`를 택했다(watch 축·summary --watch는 PR 포화라 지양 권고 반복).
+- **한 일 (branch `claude/wizardly-pascal-4veu41`):**
+  - core `stats.ts`에 순수 `computeAttemptsDistribution(jobs, {cap?})` + `AttemptsBucket`/
+    `AttemptsDistribution`/`DEFAULT_ATTEMPTS_CAP`(=8). attempts를 0부터 관측 최대까지 연속 버킷으로 집계
+    (빈 구간 zero-fill로 안정적 shape), `cap` 이상은 하나의 `"N+"` overflow 버킷으로 접어 롱테일이
+    히스토그램을 폭발시키지 않게 함(관측 최대가 cap과 정확히 같으면 overflow 아님). 음수·비유한 attempts는
+    방어적으로 0 클램프, timing과 달리 활성+종료 잡 전부 집계(attempts는 상태 무관 의미). 순수·불변.
+  - CLI `stats.ts`에 순수 `renderAttempts`(막대 스케일=최다 버킷, zero 버킷은 dim 베이스라인 점, `N+`
+    우측정렬 라벨) 신설 + `renderStatsJson`에 옵셔널 `attempts` 필드(요청 시에만 방출, 기본 shape 불변).
+    `cli.ts` `stats`에 `--attempts` 플래그 배선 — 일회성·`--watch`·`--json` 세 뷰 공통, 헬프 예시 추가.
+    새 파서/스케줄러 로직 0줄.
+  - core stats.test +7케이스(빈 스토어·연속 버킷·overflow·cap 경계·custom cap·음수 클램프·불변),
+    cli stats.test render 4 + JSON 필드 1케이스.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 621 · cli 350/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): attempts {1,1,1,2,2,3,11}
+  7-잡 임시 스토어로 `stats --attempts`가 1→3·2→2·3→1·`8+`→1(attempts=11 집계) 막대 렌더 + `--json`이
+  `attempts.buckets`(0..8, overflow 플래그)·`maxCount:3` 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stats --group-by`의
+  그룹별 행에도 재시도 분포 요약, timing 블록 MAD. tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).

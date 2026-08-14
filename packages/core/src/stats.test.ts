@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   computeActivityHeatmap,
+  computeAttemptsDistribution,
   computeDailyTrend,
   computeHourlyDistribution,
   computeStats,
   computeWeekdayDistribution,
+  DEFAULT_ATTEMPTS_CAP,
   GROUP_DIMENSIONS,
   groupStats,
   isJobScopeActive,
@@ -721,5 +723,72 @@ describe("computeActivityHeatmap", () => {
   it("offset 0 matches the default UTC bucketing", () => {
     const jobs = [job({ createdAt: "2026-07-20T09:15:00.000Z" })];
     expect(computeActivityHeatmap(jobs, 0)).toEqual(computeActivityHeatmap(jobs));
+  });
+});
+
+describe("computeAttemptsDistribution", () => {
+  it("returns no buckets for an empty store", () => {
+    expect(computeAttemptsDistribution([])).toEqual({ buckets: [], total: 0, maxCount: 0 });
+  });
+
+  it("buckets jobs by exact attempt count, contiguous from 0", () => {
+    const jobs = [job({ attempts: 1 }), job({ attempts: 1 }), job({ attempts: 3 }), job({ attempts: 0 })];
+    const dist = computeAttemptsDistribution(jobs);
+    expect(dist.total).toBe(4);
+    expect(dist.maxCount).toBe(2);
+    // Contiguous 0..3, zero-filled at the gap (attempts=2), no overflow.
+    expect(dist.buckets).toEqual([
+      { attempts: 0, label: "0", count: 1, overflow: false },
+      { attempts: 1, label: "1", count: 2, overflow: false },
+      { attempts: 2, label: "2", count: 0, overflow: false },
+      { attempts: 3, label: "3", count: 1, overflow: false },
+    ]);
+  });
+
+  it("folds the tail at or above the cap into one N+ overflow bucket", () => {
+    const jobs = [job({ attempts: 1 }), job({ attempts: 8 }), job({ attempts: 12 })];
+    const dist = computeAttemptsDistribution(jobs); // default cap 8
+    const last = dist.buckets[dist.buckets.length - 1];
+    expect(last).toEqual({ attempts: DEFAULT_ATTEMPTS_CAP, label: "8+", count: 2, overflow: true });
+    expect(dist.buckets).toHaveLength(DEFAULT_ATTEMPTS_CAP + 1); // 0..8
+    expect(dist.total).toBe(3);
+  });
+
+  it("does not overflow when the observed max equals the cap exactly", () => {
+    const jobs = [job({ attempts: 8 })];
+    const dist = computeAttemptsDistribution(jobs); // cap 8
+    const last = dist.buckets[dist.buckets.length - 1];
+    expect(last).toEqual({ attempts: 8, label: "8", count: 1, overflow: false });
+  });
+
+  it("honors a custom cap (clamped to at least 1)", () => {
+    const jobs = [job({ attempts: 1 }), job({ attempts: 2 }), job({ attempts: 5 })];
+    const dist = computeAttemptsDistribution(jobs, { cap: 2 });
+    expect(dist.buckets).toEqual([
+      { attempts: 0, label: "0", count: 0, overflow: false },
+      { attempts: 1, label: "1", count: 1, overflow: false },
+      { attempts: 2, label: "2+", count: 2, overflow: true },
+    ]);
+    // cap floored/clamped: 0 and fractional collapse to at least 1.
+    expect(computeAttemptsDistribution(jobs, { cap: 0 }).buckets[0]).toEqual({
+      attempts: 0,
+      label: "0",
+      count: 0,
+      overflow: false,
+    });
+  });
+
+  it("clamps negative or non-finite attempt counts to 0", () => {
+    const jobs = [job({ attempts: -3 }), job({ attempts: Number.NaN }), job({ attempts: 2 })];
+    const dist = computeAttemptsDistribution(jobs);
+    expect(dist.buckets[0].count).toBe(2); // both defensive cases land in bucket 0
+    expect(dist.total).toBe(3);
+  });
+
+  it("does not mutate the input jobs", () => {
+    const jobs = [job({ attempts: 4 }), job({ attempts: 1 })];
+    const before = JSON.stringify(jobs);
+    computeAttemptsDistribution(jobs);
+    expect(JSON.stringify(jobs)).toBe(before);
   });
 });
