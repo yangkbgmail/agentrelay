@@ -824,6 +824,21 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay eta --watch [seconds]` — 큐 캐치업 카운트다운을 라이브로 갱신(다음 리셋까지의
+      "언제까지 지켜봐야 하나"가 째깍째깍 줄어드는 뷰). watch 계열(status/upcoming/overdue/tools/
+      projects/stats)에서 유일하게 빠져 있던 카운트다운 조회 명령을 동일 패턴으로 완성.
+      (완료 — `eta`는 `next`처럼 스크립트 친화 한 줄 출력이라 watch 형제 중 유일하게 라이브 뷰가
+      없었다. CLI `eta.ts`에 순수 `renderEtaWatchFrame(eta, storePath, intervalMs, now)` 신설
+      (`status`/`upcoming`의 watch-frame와 동일 title/meta 배너 + 항상 컬러인 `renderEta` 본문).
+      `eta`는 스코프 필터가 없어 scopeNote 불필요. 세션 52가 추출한 공용 `startWatchLoop`을 재사용하는
+      `runEtaWatch`(매 프레임 스토어 재읽기 + `computeQueueEta`를 fresh `now`로 재계산 → 캐치업
+      카운트다운 live, 데몬이 잡을 따라잡으면 대기수 감소·전부 종료 시 caught-up 메시지로 전환·화면
+      clear). `eta`에 `-w, --watch [seconds]` 배선: `--json`이 `--watch`보다 우선(일회성 기계 덤프),
+      watch 루프는 영원히 도므로 `--exit-code`는 watch 하에선 무의미, 인터벌 기본 2s, addHelpText 예시
+      1줄. 새 파서/스케줄러/core 로직 0줄 — 전부 기존 검증된 `computeQueueEta`/`renderEta` 재사용.
+      cli eta watch-frame 3케이스 신규(=10), 실제 빌드 CLI e2e로 라이브 배너·1h30m 카운트다운·caught-up
+      프레임·`--json` 우선·help `--watch` 노출 검증. branch `claude/wizardly-pascal-2bksox`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

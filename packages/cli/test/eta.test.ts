@@ -1,6 +1,8 @@
 import type { QueueEta } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { CAUGHT_UP_MESSAGE, renderEta, renderEtaJson } from "../src/eta.js";
+import { CAUGHT_UP_MESSAGE, renderEta, renderEtaJson, renderEtaWatchFrame } from "../src/eta.js";
+
+const NOW = Date.parse("2026-07-30T10:00:00.000Z");
 
 function caughtUp(): QueueEta {
   return {
@@ -74,5 +76,33 @@ describe("renderEtaJson", () => {
     expect(parsed.eta.dueNow).toBe(1);
     expect(parsed.eta.etaMs).toBe(5 * 60 * 60 * 1000);
     expect(parsed.eta.lastResetAt).toBe("2026-07-30T15:00:00.000Z");
+  });
+});
+
+describe("renderEtaWatchFrame", () => {
+  it("prepends a live title with the store path, timestamp, and interval", () => {
+    const out = renderEtaWatchFrame(eta(), "/tmp/jobs.json", 5000, NOW);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("agentrelay eta");
+    expect(lines[0]).toContain("every 5s");
+    expect(lines[0]).toContain("Ctrl-C to exit");
+    // Metadata line: ISO timestamp (space-separated, trimmed to seconds) + store path.
+    expect(lines[1]).toContain("2026-07-30 10:00:00Z");
+    expect(lines[1]).toContain("/tmp/jobs.json");
+    // Then a blank line, then the catch-up body.
+    expect(lines[2]).toBe("");
+    expect(out).toContain("Queue caught up");
+  });
+
+  it("embeds the colored catch-up body (always colored for the live TTY view)", () => {
+    const out = renderEtaWatchFrame(eta(), "/tmp/jobs.json", 2000, NOW);
+    expect(out).toContain("5h 0m");
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting escapes are present.
+    expect(out).toMatch(/\x1b\[/);
+  });
+
+  it("shows the caught-up message in the frame when nothing waits", () => {
+    const out = renderEtaWatchFrame(caughtUp(), "/tmp/jobs.json", 2000, NOW);
+    expect(out).toContain(CAUGHT_UP_MESSAGE);
   });
 });
