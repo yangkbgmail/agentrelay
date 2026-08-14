@@ -127,9 +127,20 @@ export class RelayScheduler {
     this.timer = null;
   }
 
+  /**
+   * The jobs a {@link tick} at `referenceTime` *would* resume, without touching
+   * them — a read-only preview of the next pass. This is the exact set `tick`
+   * consumes (both call this method), so a `agentrelay tick --dry-run` built on
+   * it can never drift from what the real run does. No mutation, no spawn, no
+   * notify, no prune, no heartbeat — pure query against the queue.
+   */
+  planTick(referenceTime: Date = new Date()): RelayJob[] {
+    return this.queue.listDue(referenceTime);
+  }
+
   /** Runs one polling cycle immediately. Exposed for tests and manual `agentrelay tick`. */
   async tick(referenceTime: Date = new Date()): Promise<RelayJob[]> {
-    const due = this.queue.listDue(referenceTime);
+    const due = this.planTick(referenceTime);
     // Resume with bounded concurrency (default 1 = serial, unchanged). Results
     // stay in due-order regardless of which resume finishes first.
     const processed = await mapWithConcurrency(due, this.maxConcurrent, (job) => this.resume(job, referenceTime));
