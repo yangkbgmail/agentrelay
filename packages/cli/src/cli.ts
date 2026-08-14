@@ -25,6 +25,7 @@ import {
   computeStats,
   computeWeekdayDistribution,
   EXPORT_FORMATS,
+  findDuplicateJobs,
   GROUP_DIMENSIONS,
   generateCompletion,
   groupStats,
@@ -79,6 +80,7 @@ import {
   waitForJob,
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
+import { renderDedup, renderDedupJson } from "./dedup.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderEta, renderEtaJson } from "./eta.js";
@@ -1515,6 +1517,80 @@ export function buildCli(): Command {
           now,
         })
       );
+    });
+
+  program
+    .command("dedup")
+    .description("Find duplicate active jobs that would resume the same command (tool + cwd + command)")
+    .option("-n, --limit <n>", "Show at most N duplicate clusters (the totals still count all)")
+    .option("--exit-code", "Exit 1 when any redundant resume exists (for CI/pre-flight gating)")
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/jq)")
+    .option("-s, --status <statuses>", "Only scan jobs with these comma-separated statuses (active states only apply)")
+    .option("-t, --tool <tools>", `Only scan jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only scan jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only scan jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only scan jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # is the relay queued to run the same command twice?\n" +
+        "  agentrelay dedup\n" +
+        "  # fail a pre-flight check when duplicate resumes are queued\n" +
+        "  agentrelay dedup --exit-code\n" +
+        "  # feed the clusters to jq\n" +
+        "  agentrelay dedup --json | jq '.report.groups'"
+    )
+    .action((opts: ScopeOpts & { limit?: string; exitCode?: boolean; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const all = listStatus(store);
+      const jobs = built.active ? scopeJobs(all, built.scope) : all;
+      const scopeNote = built.active ? built.note : undefined;
+      const report = findDuplicateJobs(jobs);
+
+      if (opts.json) {
+        console.log(
+          renderDedupJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            report,
+          })
+        );
+      } else {
+        console.log(
+          renderDedup(report, {
+            color: Boolean(process.stdout.isTTY),
+            scopeNote,
+            now,
+            limit,
+            hasJobs: jobs.length > 0,
+          })
+        );
+      }
+
+      // --exit-code turns "duplicates present" into a non-zero exit so a CI or
+      // pre-flight step can gate on it without parsing output.
+      if (opts.exitCode && report.redundantJobs > 0) process.exitCode = 1;
     });
 
   program
