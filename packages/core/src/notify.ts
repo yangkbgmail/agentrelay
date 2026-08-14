@@ -12,6 +12,46 @@ export function formatSlackText(payload: NotifyPayload): string {
   return `${EVENT_EMOJI[payload.event]} *AgentRelay — ${payload.project}* (${payload.event})\n${payload.message}\n_job ${payload.jobId}_`;
 }
 
+/** Every notification event kind, in lifecycle order. Zero source of truth for the filter. */
+export const NOTIFY_EVENTS: NotifyPayload["event"][] = ["queued", "resumed", "completed", "failed"];
+
+/** Type guard: is `value` one of the known notification event kinds? */
+export function isNotifyEvent(value: string): value is NotifyPayload["event"] {
+  return (NOTIFY_EVENTS as string[]).includes(value);
+}
+
+/**
+ * Parses a comma-separated event allow-list (e.g. `"failed,completed"`) into the
+ * set of events that should be delivered. Returns `null` — meaning "no filter,
+ * deliver every event" — when the input is unset/blank, or when it names no
+ * recognized event. Tokens are trimmed and lower-cased; unknown tokens are
+ * ignored. Falling back to `null` on an all-typo input is deliberate and matches
+ * the rest of AgentRelay's env parsing: a typo must never silently mute *all*
+ * notifications (which an empty allow-list would do).
+ */
+export function parseNotifyEvents(value: string | undefined): Set<NotifyPayload["event"]> | null {
+  if (value === undefined || value.trim() === "") return null;
+  const events = new Set<NotifyPayload["event"]>();
+  for (const token of value.split(",")) {
+    const name = token.trim().toLowerCase();
+    if (name && isNotifyEvent(name)) events.add(name);
+  }
+  return events.size > 0 ? events : null;
+}
+
+/**
+ * Wraps a notifier so it only delivers events contained in `events`. When
+ * `events` is `null` (no filter configured) the original notifier is returned
+ * unchanged, so unfiltered callers pay nothing. The wrapper preserves the
+ * "never throws" contract — an event that is filtered out resolves to a no-op.
+ */
+export function filterNotifier(notifier: Notifier, events: Set<NotifyPayload["event"]> | null): Notifier {
+  if (!events) return notifier;
+  return async (payload: NotifyPayload) => {
+    if (events.has(payload.event)) await notifier(payload);
+  };
+}
+
 export interface SlackNotifierOptions {
   webhookUrl: string;
   /** Injected for tests; defaults to global fetch (Node >= 18). */
@@ -147,6 +187,12 @@ export function webhookNotifierFromEnv(
  * (`AGENTRELAY_SLACK_WEBHOOK`) and/or a generic webhook
  * (`AGENTRELAY_WEBHOOK_URL`), fanned out together. Returns null when neither
  * is configured, so callers can report "notifications off" and skip work.
+ *
+ * `AGENTRELAY_NOTIFY_EVENTS` (optional) narrows delivery to a comma-separated
+ * allow-list of event kinds (`queued,resumed,completed,failed`) — e.g. set it
+ * to `failed` to only be paged when a relay gives up, cutting the routine
+ * queued/resumed chatter. Unset means every event is delivered (see
+ * {@link parseNotifyEvents}).
  */
 export function notifiersFromEnv(
   env: Record<string, string | undefined> = process.env,
@@ -156,7 +202,7 @@ export function notifiersFromEnv(
     (n): n is Notifier => typeof n === "function"
   );
   if (configured.length === 0) return null;
-  return combineNotifiers(...configured);
+  return filterNotifier(combineNotifiers(...configured), parseNotifyEvents(env.AGENTRELAY_NOTIFY_EVENTS));
 }
 
 export type NotifyChannelKind = "slack" | "webhook";
