@@ -236,6 +236,40 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  it("parses the GitHub-style X-RateLimit-Reset header as an absolute epoch", () => {
+    const result = parseRateLimitMessage("HTTP 429\nX-RateLimit-Reset: 1752345600");
+    expect(result?.pattern).toBe("ratelimit-reset");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("parses the IETF RateLimit-Reset header as a relative delta-seconds window", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("429 Too Many Requests\nRateLimit-Reset: 3600", { now });
+    expect(result?.pattern).toBe("ratelimit-reset");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 3600 * 1000).toISOString());
+  });
+
+  it("parses a lowercase x-ratelimit-reset with a small (relative) value", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("x-ratelimit-reset: 60", { now });
+    expect(result?.pattern).toBe("ratelimit-reset");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 60 * 1000).toISOString());
+  });
+
+  it("treats RateLimit-Reset: 0 as an immediate resume", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("RateLimit-Reset: 0", { now });
+    expect(result?.pattern).toBe("ratelimit-reset");
+    expect(result?.resetAt).toBe(now.toISOString());
+  });
+
+  it("does not confuse the retry_after epoch field with the ratelimit-reset header", () => {
+    // The underscore `retry_after` epoch stays unix-epoch; the hyphenated
+    // ratelimit-reset header is its own pattern — the two must not cross-match.
+    const result = parseRateLimitMessage("retry_after=1752345600");
+    expect(result?.pattern).toBe("unix-epoch");
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [

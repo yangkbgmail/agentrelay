@@ -127,6 +127,26 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // The `X-RateLimit-Reset` / `RateLimit-Reset` response headers, emitted by
+    // many HTTP APIs (GitHub, Twitter/X, and the IETF ratelimit-headers draft)
+    // that an agent CLI proxying such an API dumps verbatim on a 429. The value
+    // has two conventions depending on the source:
+    //   - absolute unix epoch seconds:  `X-RateLimit-Reset: 1752345600` (GitHub)
+    //   - relative delta-seconds:        `RateLimit-Reset: 3600`         (IETF draft)
+    // We disambiguate by magnitude, the same trick the epoch/delay patterns above
+    // use: a 10-digit value (>= ~1e9 s, i.e. any date from year 2001 onward) is an
+    // absolute timestamp; anything shorter is a window measured from now. The
+    // hyphen/underscore split keeps this disjoint from the `retry_after` epoch
+    // field, and the required `reset` word keeps it off `retry-after`.
+    name: "ratelimit-reset",
+    regex: /(?:x-)?ratelimit[-_]reset"?\s*[:=]\s*(\d{1,10})\b/i,
+    resolve: (m, now) => {
+      const value = parseInt(m[1], 10);
+      if (m[1].length >= 10) return new Date(value * 1000);
+      return new Date(now.getTime() + value * 1000);
+    },
+  },
+  {
     // Generic "5-hour limit" mention with no explicit time -> assume a full 5h window from now.
     // Kept last and treated as a low-confidence fallback.
     name: "five-hour-window-fallback",

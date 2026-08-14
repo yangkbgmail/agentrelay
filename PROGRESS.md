@@ -2166,3 +2166,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — 파서: `X-RateLimit-Reset` / `RateLimit-Reset` 헤더 인식] (2026-08-14, 무인 자율 세션, branch `claude/wizardly-pascal-vh7q2u`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR ~30개(dedup·MAD·snooze·cv·IANA tz·hedge 부사·export yaml·logs·
+  attempts 등)가 포화라 겹치지 않는 **새 개선 항목을 발굴**했다. 파서를 읽던 중 실무에서 매우 흔한
+  `X-RateLimit-Reset`(GitHub·Twitter/X)·`RateLimit-Reset`(IETF ratelimit-headers 초안) 응답 헤더를
+  기존 파서가 못 잡는 갭을 발견 — 세션 41의 `http-retry-after`는 표준 `Retry-After`만 인식했다.
+  에이전트 CLI가 HTTP API를 프록시하다 429에서 이 헤더를 콘솔에 덤프하면 리셋 시각을 놓쳐 큐잉이
+  안 됐다. 순수 파서 추가라 회귀 위험 최소.
+- **한 일 (branch `claude/wizardly-pascal-vh7q2u`):**
+  - `packages/core/src/parser.ts`에 순수 `ratelimit-reset` 패턴 추가(fallback 직전 배치):
+    `(?:x-)?ratelimit[-_]reset"?\s*[:=]\s*(\d{1,10})\b`. 값을 **크기로 두 관례 구분** — 10자리
+    (≥~1e9초=2001년 이후)이면 GitHub식 절대 unix epoch 초(`value*1000`), 그보다 짧으면 IETF식 상대
+    delta-seconds 창(`now + value*1000`). epoch/delay 패턴이 쓰는 것과 동일한 자릿수 트릭.
+  - 하이픈/언더스코어 분리로 `retry_after`(unix-epoch, 절대 epoch)와 disjoint, 필수 `reset` 단어로
+    `retry-after`(http-retry-after)와도 비교차 — 세 헤더 패턴이 서로 안 겹침. 사전필터(`rate.?limit`)가
+    "ratelimit"을 이미 통과시켜 별도 배선 불필요. 새 CLI/스케줄러 코드 0줄 — 기존 `parse` 커맨드·
+    run/스케줄러 감지 경로가 자동으로 이 패턴을 픽업.
+  - `packages/core/test/parser.test.ts` +5 회귀: GitHub식 절대 epoch(`X-RateLimit-Reset: 1752345600`),
+    IETF식 상대 delta(`RateLimit-Reset: 3600`→now+1h), 소문자 소값(`x-ratelimit-reset: 60`), `RateLimit-Reset: 0`
+    즉시 재개, `retry_after` epoch와 비교차(여전히 unix-epoch로 귀속) 검증.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 619(parser 38) · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  `parse "X-RateLimit-Reset: 1752345600"`→`pattern: ratelimit-reset`·절대 시각, `parse "RateLimit-Reset: 3600"`→
+  now+1h, `parse --json "x-ratelimit-reset: 60"`→`resetInMs:59999`·`pattern:ratelimit-reset` 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 인접 파서 후보 — `X-RateLimit-Remaining: 0`
+  단독 신호는 리셋 시각이 없어 큐잉 불가라 제외가 맞고, 명시 IANA 타임존 존중은 PR #650이 점유 중.
+  README/ARCHITECTURE(🧭 코워크).

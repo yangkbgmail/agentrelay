@@ -824,6 +824,19 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 파서: `X-RateLimit-Reset` / `RateLimit-Reset` 응답 헤더 인식 — GitHub·Twitter/X 등 다수 HTTP API가
+      429에 방출하는 헤더로, 에이전트 CLI가 이를 콘솔에 덤프할 때 리셋 시각을 놓치지 않고 큐잉.
+      (완료 — 기존 `http-retry-after`(세션 41)는 표준 `Retry-After`만 인식했지, 실무에서 훨씬 흔한
+      `X-RateLimit-Reset` 계열은 놓쳤다. `parser.ts`에 순수 `ratelimit-reset` 패턴 추가 —
+      `(?:x-)?ratelimit[-_]reset"?\s*[:=]\s*(\d{1,10})`. 두 관례를 **크기로 구분**(epoch/delay 패턴이
+      쓰는 것과 동일 트릭): 10자리 값(≥~1e9초=2001년 이후)은 GitHub식 절대 unix epoch 초, 그보다
+      짧으면 IETF ratelimit-headers 초안식 상대 delta-seconds 창(now 기준). 하이픈/언더스코어 분리로
+      `retry_after`(unix-epoch) epoch 필드와 disjoint, 필수 `reset` 단어로 `retry-after`와도 비교차.
+      사전필터(`rate.?limit`)가 "ratelimit"을 이미 통과시켜 배선 불필요. 새 CLI 코드 0줄 — 기존
+      `parse` 커맨드가 자동 노출. parser.test +5(절대 epoch/상대 delta/소문자 소값/`0` 즉시/`retry_after`
+      비교차), 실제 빌드 CLI `parse`로 3형태(GitHub 절대·IETF 상대·소문자) 매치 e2e 확인. branch
+      `claude/wizardly-pascal-vh7q2u`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
