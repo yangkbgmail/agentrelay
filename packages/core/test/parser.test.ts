@@ -236,6 +236,45 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  it("parses a 'try again at' clock time (not just 'reset at')", () => {
+    const now = new Date("2026-07-12T20:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded. Try again at 3:00pm.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(15);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses a meridiem-only 'try again at 5pm'", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached, please try again at 5pm.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(new Date(result!.resetAt).getHours()).toBe(17);
+  });
+
+  it("parses 'available again at' with a 24-hour clock", () => {
+    const now = new Date("2026-07-12T06:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit. Available again at 09:30.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(9);
+    expect(resetDate.getMinutes()).toBe(30);
+  });
+
+  it("parses an ISO timestamp behind 'try again at'", () => {
+    const result = parseRateLimitMessage("You've hit your usage limit. Try again at 2026-07-13T05:00:00Z.");
+    expect(result?.pattern).toBe("iso-timestamp");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("still returns null for 'try again at' with no parseable time", () => {
+    // "at some later point" has no clock/ISO time to anchor on.
+    expect(parseRateLimitMessage("Rate limit hit, try again at some later point.")).toBeNull();
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [

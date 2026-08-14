@@ -2166,3 +2166,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — 파서: `try again at` / `available again at` 시각 인식] (2026-08-14, 무인 자율 세션)
+- **배경:** 세션 시작 시 열린 PR 0개, `claude/wizardly-pascal-y34swj`=최신 main 동일(중복/누적
+  없음). BACKLOG의 👷 항목이 전부 완료라 CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다 — 핵심
+  가치인 파서를 읽다 실사용 갭을 찾았다: 시각 기반 리셋 패턴(iso/clock/clock-meridiem)이 선행구를
+  `reset[s]? at`으로만 고정해, Claude/OpenAI 계열이 실제로 자주 쓰는 `Try again at 3:00pm`·
+  `please try again at 5pm`·`Available again at 09:30`를 놓쳤다(상대시간 `try again in <기간>`만
+  잡힘). 이 문구를 못 잡으면 잡이 큐잉되지 않아 릴레이의 핵심 동작이 조용히 실패한다.
+- **한 일 (branch `claude/wizardly-pascal-y34swj`):**
+  - `packages/core/src/parser.ts`에 공유 선행구 상수 `TIME_LEAD =
+    (?:reset[s]?|try\s+again|available(?:\s+again)?)\s+at\s+` 신설, 세 시각 앵커 패턴
+    (iso-timestamp·clock-time·clock-time-meridiem)을 `new RegExp(TIME_LEAD + …)`로 재구성.
+    캡처 그룹 인덱스가 그대로라 각 `resolve` 로직은 한 줄도 안 바뀜(순수 리팩터+확장).
+  - 모든 선행구가 뒤에 `at`을 **요구**하므로 회귀 안전: "try again"만 있고 시각 없는 메시지·
+    "reset at 5"(분/meridiem 없음)는 여전히 null. 상대시간 `try again in`은 `in`을 요구하는
+    relative-duration이 계속 담당(충돌 없음).
+  - 사전필터 `LOOKS_LIKE_RATE_LIMIT`에 `available(?:\s+again)?\s+at`를 추가 — rate-limit 명사가
+    없는 순수 "Available again at …" 메시지도 트립하게(패턴 자체는 그대로 엄격).
+  - parser.test +5 회귀: try again at 시:분(clock-time)·try again at 5pm(clock-time-meridiem)·
+    available again at 09:30(24h clock-time)·try again at ISO(iso-timestamp)·"try again at some
+    later point"(시각 없음→null).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, format 정규화
+  1파일)→`pnpm test` 전 패키지 통과(**core 619 · cli 345/1skip · dashboard 9**, parser.test 33→38).
+  **실제 빌드 CLI e2e**(mock 아님): `parse "Rate limit exceeded. Try again at 3:00pm."`→`clock-time`
+  매치·resets 계산, `parse "…please try again at 5pm."`→`clock-time-meridiem`, `parse "Something
+  went wrong, please try again."`→"No rate-limit detected"(회귀 확인).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 —
+  "back online at <시각>"·"limit resets on <요일>"(요일 기반 주간 한도) 인식, 명명 타임존
+  (`(America/New_York)`) 실제 존중(현재 로컬 해석). README/ARCHITECTURE(🧭 코워크).

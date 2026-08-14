@@ -824,6 +824,22 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 파서: `try again at <시각>` / `available again at <시각>` 문구 인식 — 시각 기반 리셋
+      선행구를 `reset(s) at`뿐 아니라 실제 에이전트 CLI가 자주 쓰는 다른 표현까지 확장.
+      (완료 — 기존 iso/clock/clock-meridiem 패턴은 `reset[s]? at <시각>`만 인식했다. 그런데
+      Claude/OpenAI 계열 에러는 같은 의미를 `Try again at 3:00pm`·`please try again at 5pm`·
+      `Available again at 09:30`로도 쓴다 — 상대시간 `try again in <기간>`(relative-duration)만
+      잡히고 절대 시각 `at`은 놓쳐 잡이 큐잉 안 되던 실사용 갭. `parser.ts`에 공유 선행구 상수
+      `TIME_LEAD = (?:reset[s]?|try\s+again|available(?:\s+again)?)\s+at\s+`를 신설하고 세 시각
+      앵커 패턴(iso-timestamp·clock-time·clock-time-meridiem)을 `new RegExp(TIME_LEAD + …)`로 재구성 —
+      캡처 그룹 인덱스 불변이라 resolve 로직 변경 0줄. 모든 선행구가 뒤에 `at`을 **요구**하므로
+      기존 테스트("try again"만 있고 시각 없으면 null; "reset at 5"[분·meridiem 없음]도 null)는 그대로
+      통과. 사전필터 `LOOKS_LIKE_RATE_LIMIT`에 `available(?:\s+again)?\s+at`를 더해 rate-limit 명사가
+      없는 순수 "Available again at …" 메시지도 트립. parser.test +5 회귀(try again at 시:분/meridiem/
+      available again at 24h/try again at ISO/시각 없는 "at some later point"→null), 실제 빌드 CLI
+      `parse`로 `clock-time`·`clock-time-meridiem` 매치 및 시각 없는 "try again" 미검출 e2e 확인.
+      branch `claude/wizardly-pascal-y34swj`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
