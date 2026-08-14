@@ -824,6 +824,22 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay snooze <id> <time>` — 잡을 선택한 미래 시각으로 재조정(`retry`=지금·`cancel`=영원
+      사이의 빠진 짝). 파서가 리셋 시각을 잘못 추정했거나 재개를 미루고 싶을 때 필요한 제어 갭.
+      (완료 — 제어 명령은 `retry`(즉시 재개)와 `cancel`(영구 취소)뿐이라, 잡을 **특정 미래 시각**으로
+      재조정하는 수단이 없었다. core `control.ts`에 순수 `canReschedule`(mid-flight `resuming`만 거부,
+      `canRequeue`와 동일 가드 위임) + `resolveResumeTime(input, now)`(상대 기간 `2h`/`30m`/`1d`/`90s`는
+      기존 `parseDuration` 재사용 → now+span, 절대 ISO-8601 타임스탬프는 `new Date`; 0/음수 기간은 거부
+      [retry가 그 역할]·미파싱은 명확 에러, 시계 주입 순수 함수) 추가. `queue.ts`의 `requeueNow(id, at)`를
+      일반화 — 새 `reschedule(id, resetAt)`(waiting_for_reset + resetAt + attempts 0 + lastError 클리어로
+      깨끗한 재실행)를 뽑고 `requeueNow`는 `reschedule(id, now)`로 위임(중복 0). CLI `commands.ts`
+      `snoozeJob(id, time, store?, now?)`(시각 먼저 해소→미파싱은 스토어 미접촉 exit 1, id는 `resolveJobId`로
+      짧은 prefix·모호/미존재 처리 cancel/retry와 동일, 가드 통과 후 `reschedule`), `cli.ts`에
+      `agentrelay snooze <id> <time>` 배선(성공/실패 메시지·exit code, addHelpText 예시 3줄, completion
+      자동 포함). 새 파서/스케줄러 로직 0줄. core control +7(canReschedule 2 + resolveResumeTime 5) +
+      queue reschedule 1, cli commands snooze 4 신규 테스트, 실제 빌드 CLI e2e로 상대 2h·절대 ISO·upcoming
+      반영·미파싱 exit 1·미존재 id exit 1·help/completion 노출 검증. branch `claude/wizardly-pascal-fhj6tm`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

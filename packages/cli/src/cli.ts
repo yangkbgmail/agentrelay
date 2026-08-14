@@ -72,6 +72,7 @@ import {
   setConfigFile,
   showConfig,
   showJob,
+  snoozeJob,
   startDaemon,
   tickOnce,
   unsetConfigFile,
@@ -2045,6 +2046,32 @@ export function buildCli(): Command {
     describe: "Requeue a job to resume immediately (by id), or every matching job with --all",
     allHelp: "Requeue every matching job to resume now (narrow with the scope filters below)",
   });
+
+  program
+    .command("snooze")
+    .description("Reschedule a job to resume at a chosen future time (between retry=now and cancel=never)")
+    .argument("<id>", "Job id or short prefix (as shown by status/show)")
+    .argument("<time>", "Relative duration (2h, 30m, 1d, 90s) or an absolute ISO-8601 timestamp")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  agentrelay snooze 1a2b3c4d 2h                     resume 2 hours from now",
+        "  agentrelay snooze 1a2b3c4d 45m                    resume in 45 minutes",
+        "  agentrelay snooze 1a2b3c4d 2026-08-15T05:00:00Z   resume at an exact instant",
+      ].join("\n")
+    )
+    .action((id: string, time: string) => {
+      const { store } = program.opts();
+      const result = snoozeJob(id, time, store);
+      if (result.ok) {
+        console.log(`[agentrelay] ${result.message}`);
+      } else {
+        console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 1;
+      }
+    });
 
   program
     .command("backup")

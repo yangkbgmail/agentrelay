@@ -240,7 +240,20 @@ export class RelayQueue {
    * a fresh run rather than instantly re-failing the retry check.
    */
   requeueNow(id: string, at: string = new Date().toISOString()) {
-    this.update(id, { status: "waiting_for_reset", resetAt: at, attempts: 0, lastError: null });
+    this.reschedule(id, at);
+  }
+
+  /**
+   * Reschedule a job to resume at a specific instant (user-initiated
+   * `agentrelay snooze`). Sits between {@link requeueNow} (resume immediately)
+   * and {@link markCancelled} (never resume): the job is parked in
+   * `waiting_for_reset` with the caller-supplied `resetAt`, and — exactly like
+   * {@link requeueNow}, which delegates here with `now` — attempts are reset to
+   * 0 and the last error cleared so the eventual run starts from a clean slate
+   * rather than instantly re-failing an exhausted attempt budget.
+   */
+  reschedule(id: string, resetAt: string) {
+    this.update(id, { status: "waiting_for_reset", resetAt, attempts: 0, lastError: null });
   }
 
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {

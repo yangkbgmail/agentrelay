@@ -22,6 +22,7 @@ import {
   setConfigFile,
   showConfig,
   showJob,
+  snoozeJob,
   unsetConfigFile,
   validateConfigFile,
   waitForJob,
@@ -218,6 +219,42 @@ describe("cancelJob / retryJob", () => {
     expect(result.job?.status).toBe("waiting_for_reset");
     expect(result.job?.attempts).toBe(0);
     expect(result.job?.lastError).toBeNull();
+  });
+
+  it("snoozes a waiting job to a chosen future time (relative duration)", () => {
+    const id = seed("waiting_for_reset");
+    const now = new Date("2026-08-14T00:00:00.000Z");
+    const result = snoozeJob(id.slice(0, 8), "2h", storePath, now);
+    expect(result.ok).toBe(true);
+    expect(result.job?.status).toBe("waiting_for_reset");
+    expect(result.job?.resetAt).toBe("2026-08-14T02:00:00.000Z");
+    expect(result.job?.attempts).toBe(0);
+    expect(listStatus(storePath)[0].resetAt).toBe("2026-08-14T02:00:00.000Z");
+  });
+
+  it("snoozes a failed job to an absolute ISO timestamp with a fresh slate", () => {
+    const id = seed("failed");
+    const result = snoozeJob(id, "2026-08-15T05:00:00Z", storePath);
+    expect(result.ok).toBe(true);
+    expect(result.job?.resetAt).toBe("2026-08-15T05:00:00.000Z");
+    expect(result.job?.attempts).toBe(0);
+    expect(result.job?.lastError).toBeNull();
+  });
+
+  it("rejects an unparseable snooze time without touching the store", () => {
+    const id = seed("waiting_for_reset");
+    const result = snoozeJob(id, "whenever", storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("could not parse");
+    // resetAt unchanged (still the seeded ~60s-from-now value, not cleared).
+    expect(listStatus(storePath)[0].status).toBe("waiting_for_reset");
+  });
+
+  it("reports an unknown id for snooze without mutating the store", () => {
+    seed("waiting_for_reset");
+    const result = snoozeJob("deadbeef", "2h", storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("no job matches");
   });
 });
 

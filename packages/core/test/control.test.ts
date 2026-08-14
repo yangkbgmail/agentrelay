@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { canCancel, canRequeue, partitionForControl, resolveJobId } from "../src/control.js";
+import {
+  canCancel,
+  canRequeue,
+  canReschedule,
+  partitionForControl,
+  resolveJobId,
+  resolveResumeTime,
+} from "../src/control.js";
 import type { JobStatus, RelayJob } from "../src/types.js";
 
 function job(id: string, status: JobStatus): RelayJob {
@@ -47,6 +54,50 @@ describe("canRequeue", () => {
     const result = canRequeue(job("a", "resuming"));
     expect(result.ok).toBe(false);
     expect(result.reason).toContain("resuming");
+  });
+});
+
+describe("canReschedule", () => {
+  it("allows rescheduling any job that is not mid-flight (mirrors canRequeue)", () => {
+    for (const status of ["queued", "waiting_for_reset", "completed", "failed", "cancelled"] as JobStatus[]) {
+      expect(canReschedule(job("a", status)).ok).toBe(true);
+    }
+  });
+
+  it("rejects rescheduling a job that is currently resuming", () => {
+    const result = canReschedule(job("a", "resuming"));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("resuming");
+  });
+});
+
+describe("resolveResumeTime", () => {
+  const now = new Date("2026-08-14T00:00:00.000Z");
+
+  it("resolves a relative duration to now + span", () => {
+    expect(resolveResumeTime("2h", now)).toEqual({ resetAt: "2026-08-14T02:00:00.000Z" });
+    expect(resolveResumeTime("30m", now)).toEqual({ resetAt: "2026-08-14T00:30:00.000Z" });
+    expect(resolveResumeTime("1d", now)).toEqual({ resetAt: "2026-08-15T00:00:00.000Z" });
+    expect(resolveResumeTime("90s", now)).toEqual({ resetAt: "2026-08-14T00:01:30.000Z" });
+  });
+
+  it("resolves an absolute ISO-8601 timestamp", () => {
+    expect(resolveResumeTime("2026-08-15T05:00:00Z", now)).toEqual({ resetAt: "2026-08-15T05:00:00.000Z" });
+  });
+
+  it("rejects a zero or negative duration", () => {
+    expect(resolveResumeTime("0s", now).error).toContain("must be positive");
+    expect(resolveResumeTime("-2h", now).error).toContain("could not parse");
+  });
+
+  it("rejects empty and unparseable input", () => {
+    expect(resolveResumeTime("   ", now).error).toBe("no time given");
+    expect(resolveResumeTime("soon", now).error).toContain("could not parse");
+  });
+
+  it("prefers the duration grammar over date parsing for bare unit strings", () => {
+    // "1d" is a duration (now + 1 day), not a date — parseDuration wins.
+    expect(resolveResumeTime("1d", now)).toEqual({ resetAt: "2026-08-15T00:00:00.000Z" });
   });
 });
 
