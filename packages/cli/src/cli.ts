@@ -60,6 +60,7 @@ import {
   type JobControlResult,
   listStatus,
   listStoreBackups,
+  planTick,
   previewRestoreStore,
   pruneJobs,
   readHealthReport,
@@ -565,8 +566,21 @@ export function buildCli(): Command {
   program
     .command("tick")
     .description("Run a single scheduler pass immediately (useful when driven by external cron/Routines)")
-    .action(async () => {
+    .option("-n, --dry-run", "Preview which jobs this pass would resume without running or mutating anything")
+    .action(async (opts: { dryRun?: boolean }) => {
       const { store } = program.opts();
+      if (opts.dryRun) {
+        const due = planTick(store);
+        if (due.length === 0) {
+          console.log("[agentrelay] dry run: no due jobs — nothing would resume.");
+        } else {
+          console.log(`[agentrelay] dry run: ${due.length} job(s) would resume:`);
+          for (const job of due) {
+            console.log(`[agentrelay] ${job.id} (${job.project}) would resume (due ${job.resetAt})`);
+          }
+        }
+        return;
+      }
       const processed = await tickOnce(store);
       if (processed.length === 0) {
         console.log("[agentrelay] no due jobs.");

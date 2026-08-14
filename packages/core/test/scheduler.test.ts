@@ -450,6 +450,41 @@ describe("RelayScheduler", () => {
     return job;
   }
 
+  it("planTick previews the due set without resuming, spawning, or mutating any job", async () => {
+    seedDue("a");
+    seedDue("b");
+    const notDue = queue.enqueue({ project: "later", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(notDue.id, new Date(Date.now() + 60_000).toISOString());
+
+    let spawned = false;
+    const spawnFn: SpawnFn = () => {
+      spawned = true;
+      throw new Error("planTick must never spawn");
+    };
+    const scheduler = new RelayScheduler({ queue, spawnFn });
+
+    const preview = scheduler.planTick();
+
+    expect(preview.map((j) => j.project).sort()).toEqual(["a", "b"]);
+    expect(spawned).toBe(false);
+    // No state moved off waiting_for_reset — a dry run leaves the queue untouched.
+    expect(queue.listAll().every((j) => j.status === "waiting_for_reset")).toBe(true);
+  });
+
+  it("planTick returns exactly the set a real tick then processes (no drift)", async () => {
+    for (let i = 0; i < 3; i++) seedDue(`p${i}`);
+    const at = new Date();
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({}), // all resumes succeed cleanly
+    });
+    const planned = scheduler.planTick(at).map((j) => j.id);
+    const processed = (await scheduler.tick(at)).map((j) => j.id);
+
+    expect(processed).toEqual(planned);
+  });
+
   it("resumes a herd of due jobs one at a time by default (maxConcurrent unset)", async () => {
     const track = { inFlight: 0, peak: 0 };
     for (let i = 0; i < 5; i++) seedDue(`p${i}`);

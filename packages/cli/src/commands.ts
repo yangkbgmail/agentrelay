@@ -446,6 +446,25 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
   return processed;
 }
 
+/**
+ * Preview which jobs the next scheduler pass would resume, without running it.
+ * Backs `agentrelay tick --dry-run`. Routes through the same
+ * `RelayScheduler.planTick` selection a real `tickOnce` uses, so the preview
+ * can never disagree with the action. Side-effect free: it neither resumes,
+ * prunes, notifies, nor writes a heartbeat (a dry run must not claim the resume
+ * loop ran). `referenceTime` is injectable for deterministic tests.
+ */
+export function planTick(storePath?: string, referenceTime: Date = new Date()): RelayJob[] {
+  const queue = openQueue(storePath ?? defaultStorePath());
+  const scheduler = new RelayScheduler({ queue });
+  const due = scheduler.planTick(referenceTime);
+  // Deliberately do NOT queue.close() here: close() flushes the in-memory jobs
+  // back to disk (rewriting/reformatting the store), which would be a real side
+  // effect. A dry run only reads — the queue holds no open handle to release —
+  // so we leave the store file exactly as it was found.
+  return due;
+}
+
 export function listStatus(storePath?: string): RelayJob[] {
   const queue = openQueue(storePath ?? defaultStorePath());
   const jobs = queue.listAll();

@@ -2166,3 +2166,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay tick --dry-run` 재개 프리뷰] (2026-08-14, 무인 자율 세션, branch `claude/wizardly-pascal-pjtg9f`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료([x]), 미완은 🧭 코워크 소유뿐. 열린 PR 50개 + claude/* 원격
+  브랜치 수백 개로 stats(MAD 5중복·CV·skewness)·parser·watch 축은 극심한 포화 → 이 축은 전부 지양.
+  직교하고 포화되지 않은 빈틈으로 **명령을 실제로 실행하는** `tick`의 프리뷰를 골랐다. AgentRelay는
+  tick이 뜨면 에이전트 CLI를 자동 spawn하는데, "지금 tick을 돌리면 정확히 무엇이 재개되나"를 실행 전에
+  안전하게 확인할 방법이 없었다. `overdue`(재개됐어야 하는데 안 된 잡 알람)·`next`(다음 1건)와는 의도가
+  다른, 동일 액션의 무부작용 미리보기.
+- **한 일 (branch `claude/wizardly-pascal-pjtg9f`):**
+  - core `scheduler.ts`에 `planTick(referenceTime)` 추가 — `tick()`이 실제로 소비하는 `queue.listDue`
+    선택을 그대로 반환. `tick()`도 이 메서드를 재사용하도록 리팩터(`const due = this.planTick(...)`) →
+    프리뷰와 실제 실행이 **절대 어긋날 수 없음**(같은 코드 경로). spawn·notify·prune·heartbeat 0.
+  - CLI `commands.ts`에 무부작용 `planTick(store, referenceTime)` 래퍼. **의도적으로 `queue.close()`
+    호출 안 함** — close()는 flush로 스토어를 재작성(정렬·pretty-print)하므로 진짜 부작용. 큐는 읽기 후
+    파일 핸들을 잡지 않아 close 없이도 안전. `cli.ts` `tick`에 `-n, --dry-run` 옵션 배선(실제 실행 분기와
+    분리, 프리뷰는 `[agentrelay] <id> (<project>) would resume (due <resetAt>)` 렌더).
+  - core scheduler.test +2(프리뷰가 due-set만 반환·spawn 0·상태 불변 / planTick==tick 처리집합 무drift),
+    cli 신규 `tick.test.ts` +4(due 필터·빈 큐·**파일 byte-for-byte 불변**·없는 스토어 관대 처리).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 618 · cli 353/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): past/future resetAt
+  임시 스토어로 `tick --dry-run`·`tick -n`이 due 1건만 렌더 + `md5sum` 전후 동일(스토어 불변) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `tick --json`(스크립트
+  친화 프리뷰), `daemon`/`tick`에 프리뷰-후-실행 로깅. **⚠️ 코워크 주의:** 열린 PR 50개·원격 브랜치 수백
+  개로 stats/parser/watch 축이 완전 포화(MAD만 5중복). 신규 빌드보다 통합·중복 정리가 최우선.
