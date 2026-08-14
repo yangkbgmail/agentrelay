@@ -59,6 +59,7 @@ describe("computeStats", () => {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      madResolutionMs: null,
       cvResolution: null,
     });
   });
@@ -227,6 +228,25 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(3_600_000);
     // cv = stdev / mean = 1h / 2h = 0.5 (scale-free ratio)
     expect(stats.timing.cvResolution).toBe(0.5);
+    // median 2h; deviations |1h-2h|=1h, |3h-2h|=1h → median deviation 1h
+    expect(stats.timing.madResolutionMs).toBe(3_600_000);
+  });
+
+  it("keeps MAD robust to an outlier that inflates the stdev", () => {
+    const at = (h: number) => `2026-07-13T${String(h).padStart(2, "0")}:00:00.000Z`;
+    // three tight 1h spans + one 13h outlier: median stays at 1h, so MAD stays
+    // small, while the stdev is dragged up by the squared outlier deviation.
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "failed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(13) }), // 13h outlier
+    ]);
+    // sorted spans [1h,1h,1h,13h]; median = interp between the two middle 1h = 1h
+    // deviations |1-1|,|1-1|,|1-1|,|13-1| = [0,0,0,12h] → median deviation 0
+    expect(stats.timing.madResolutionMs).toBe(0);
+    // the stdev, in contrast, is inflated well past the MAD by the outlier
+    expect(stats.timing.stdevResolutionMs ?? 0).toBeGreaterThan(stats.timing.madResolutionMs ?? 0);
   });
 
   it("collapses spread metrics to zero for a single resolved job", () => {
@@ -239,6 +259,8 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(0);
     // single span: stdev 0, nonzero mean → cv 0 (no spread, well-defined)
     expect(stats.timing.cvResolution).toBe(0);
+    // single span: median = the span, deviation 0 → MAD 0 (no spread)
+    expect(stats.timing.madResolutionMs).toBe(0);
   });
 
   it("excludes cancelled and still-active jobs from resolution timing", () => {
@@ -297,6 +319,7 @@ describe("computeStats", () => {
       p75ResolutionMs: null,
       iqrResolutionMs: null,
       stdevResolutionMs: null,
+      madResolutionMs: null,
       cvResolution: null,
     });
   });
