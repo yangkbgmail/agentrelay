@@ -142,6 +142,8 @@ describe("renderStats", () => {
     const out = renderStats(stats, { now: NOW });
     expect(out).toContain("resolution time");
     expect(out).toContain("avg 2h 0m");
+    // trim10 over 2 jobs: ⌊0.1·2⌋ = 0 trimmed → equals the plain mean (2h).
+    expect(out).toContain("trim10 2h 0m");
     expect(out).toContain("min 1h 0m");
     expect(out).toContain("max 3h 0m");
     expect(out).toContain("over 2 job(s)");

@@ -26,6 +26,17 @@ export interface TimingStats {
   resolvedCount: number;
   /** Mean resolution time (ms) over {@link resolvedCount} jobs, or null when none. */
   avgResolutionMs: number | null;
+  /**
+   * 10% symmetric trimmed mean of resolution times (ms), or null when none. The
+   * plain {@link avgResolutionMs} is easily dragged by one pathologically
+   * long-babysat job; this discards the fastest and slowest 10% of resolutions
+   * (⌊0.1·n⌋ from each end) before averaging the rest, so it reports the typical
+   * babysit time without the tail distortion. Unlike the {@link medianResolutionMs}
+   * — a single mid-point value — it still averages the whole robust middle 80%,
+   * so it moves with that bulk's shape rather than ignoring it. With ≤ 9 resolved
+   * jobs nothing is trimmed and it equals the plain mean. Rounded to whole ms.
+   */
+  trimmedMeanResolutionMs: number | null;
   /** Shortest resolution time (ms), or null when none. */
   minResolutionMs: number | null;
   /** Longest resolution time (ms), or null when none. */
@@ -410,6 +421,28 @@ function populationStdev(values: number[], mean: number): number {
 }
 
 /**
+ * Symmetric trimmed mean over an ascending-sorted, non-empty array: drop
+ * `⌊proportion·n⌋` values from each end, then average the remaining middle,
+ * rounded to whole ms. A robust central tendency — it ignores the extreme tails
+ * that skew the plain mean. For `proportion` in [0, 0.5) the trim count is
+ * always `< n/2`, so at least one value survives and the result is well-defined;
+ * when `⌊proportion·n⌋` is 0 (small `n`, or `proportion` 0) it degrades to the
+ * plain mean. Callers guarantee `sortedAsc.length > 0` and `0 ≤ proportion < 0.5`.
+ */
+function trimmedMean(sortedAsc: number[], proportion: number): number {
+  const n = sortedAsc.length;
+  const trim = Math.floor(proportion * n);
+  const lo = trim;
+  const hi = n - trim; // exclusive
+  let sum = 0;
+  for (let i = lo; i < hi; i++) sum += sortedAsc[i];
+  return Math.round(sum / (hi - lo));
+}
+
+/** Trim fraction for {@link TimingStats.trimmedMeanResolutionMs} (10% each end). */
+const TRIM_PROPORTION = 0.1;
+
+/**
  * Coefficient of variation: population stdev ÷ mean, rounded to 4 decimals.
  * Returns null when the mean is 0 — for non-negative spans a zero mean means
  * every span was 0, so the ratio is undefined (0/0) rather than 0. Uses the
@@ -464,6 +497,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     timing = {
       resolvedCount: 0,
       avgResolutionMs: null,
+      trimmedMeanResolutionMs: null,
       minResolutionMs: null,
       maxResolutionMs: null,
       medianResolutionMs: null,
@@ -485,6 +519,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     timing = {
       resolvedCount,
       avgResolutionMs: Math.round(mean),
+      trimmedMeanResolutionMs: trimmedMean(sorted, TRIM_PROPORTION),
       minResolutionMs: sorted[0],
       maxResolutionMs: sorted[resolvedCount - 1],
       medianResolutionMs: percentile(sorted, 0.5),

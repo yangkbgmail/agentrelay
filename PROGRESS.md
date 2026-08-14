@@ -2166,3 +2166,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats` 해결 시간 절사평균(10% trimmed mean)] (2026-08-14, 무인 자율 세션, branch `claude/stats-trimmed-mean-resolution`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 68 후속 후보(MAD·group-by cv)는 오픈 PR에서 이미 대량 중복
+  (MAD만 7개 PR: #663/#660/#656/#654/#653/#649/#648, skewness #662, group-by cv #651) 상태라 지양했다.
+  대신 timing 블록이 문서에 명시한 문제 —"평균은 유난히 오래 babysit한 잡 하나에 쉽게 왜곡된다"—를
+  직접 겨냥하는 **절사평균**을 골랐다. median(단일 중앙값)과 달리 절사평균은 이상치를 잘라낸 뒤
+  중앙 80% 전체를 평균 내므로 그 덩어리의 형태를 반영한다 — 견고한 중심경향치이면서 median보다 정보를
+  더 쓴다. in-flight 어디에도 없는 고유 지표.
+- **한 일 (branch `claude/stats-trimmed-mean-resolution`):**
+  - core `stats.ts`의 `TimingStats`에 `trimmedMeanResolutionMs`(정수 ms, null 가능) 추가 + 순수
+    `trimmedMean(sortedAsc, proportion)` 헬퍼(양끝에서 각 ⌊proportion·n⌋개 제거 후 평균). 10% 각 끝
+    상수 `TRIM_PROPORTION=0.1`. proportion<0.5면 trim<n/2라 항상 최소 1개 생존→well-defined, ⌊0.1·n⌋=0
+    (n≤9)이면 평범한 평균으로 자연 강등. resolved 0개면 null. 이미 정렬된 `sorted` 위에 필드 하나 추가 —
+    새 파서/스케줄러 로직 0줄.
+  - CLI `stats.ts`의 resolution-time avg 라인에 `trim10 <dur>`를 avg 바로 옆에 추가(원평균 vs 절사평균을
+    나란히). `--json`은 timing 전체 직렬화라 자동 노출(기존 shape 불변, 필드만 추가).
+  - core stats.test: 빈-timing 리터럴 2곳에 `trimmedMeanResolutionMs:null` 반영, 3-잡(무절사=평균 동일)·
+    단일 잡(=값)·**11-잡 이상치 제거 전용 테스트**(1h·100h 잘라내고 9×2h만 남겨 trim10=2h≠평균) 추가.
+    cli stats.test: render `trim10 2h 0m` 단언 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 615 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): spans
+  {1h,2h,76h} 임시 스토어로 `stats`가 `avg 1d 2h   trim10 1d 2h`(3잡 무절사) 렌더 + `--json`이
+  `timing.trimmedMeanResolutionMs` 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에 MAD
+  (오픈 PR 다수와 중복이라 지양), 절사평균을 `stats --group-by` 행에도, 또는 "특정 임계 이내 해결 비율"
+  (SLA식 `--within 1h`) 같은 고유 지표. tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
