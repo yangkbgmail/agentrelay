@@ -60,6 +60,7 @@ describe("computeStats", () => {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      madResolutionMs: null,
     });
   });
 
@@ -227,6 +228,23 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(3_600_000);
     // cv = stdev / mean = 1h / 2h = 0.5 (scale-free ratio)
     expect(stats.timing.cvResolution).toBe(0.5);
+    // median of [1h, 3h] = 2h; |1h-2h|=1h, |3h-2h|=1h; median of [1h,1h] = 1h
+    expect(stats.timing.madResolutionMs).toBe(3_600_000);
+  });
+
+  it("keeps MAD robust to a lone outlier that inflates the stdev", () => {
+    const at = (h: number) => `2026-07-13T${String(h).padStart(2, "0")}:00:00.000Z`;
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(2) }), // 2h
+      job({ status: "failed", createdAt: at(0), updatedAt: at(10) }), // 10h (heavy tail)
+    ]);
+    // sorted spans [1h, 2h, 10h]; median = 2h.
+    // deviations |1-2|=1h, |2-2|=0, |10-2|=8h → sorted [0, 1h, 8h] → median = 1h.
+    // The MAD stays 1h — the 10h outlier barely moves it — while the stdev is
+    // dragged far above it, the exact "consistent with rare heavy tails" signal.
+    expect(stats.timing.madResolutionMs).toBe(3_600_000);
+    expect(stats.timing.stdevResolutionMs).toBeGreaterThan(stats.timing.madResolutionMs as number);
   });
 
   it("collapses spread metrics to zero for a single resolved job", () => {
@@ -239,6 +257,8 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(0);
     // single span: stdev 0, nonzero mean → cv 0 (no spread, well-defined)
     expect(stats.timing.cvResolution).toBe(0);
+    // single span: only deviation is 0 → MAD 0 (no spread)
+    expect(stats.timing.madResolutionMs).toBe(0);
   });
 
   it("excludes cancelled and still-active jobs from resolution timing", () => {
@@ -298,6 +318,7 @@ describe("computeStats", () => {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      madResolutionMs: null,
     });
   });
 });

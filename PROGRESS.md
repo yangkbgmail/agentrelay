@@ -2166,3 +2166,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats` 해결 시간 중앙값 절대편차(MAD)] (2026-08-14, 무인 자율 세션, branch `claude/wizardly-pascal-fkgupr`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 68이 후속 인접 후보로 명시한 "timing 블록 MAD(median absolute
+  deviation, 이상치에 더 강건한 분산)"를 골랐다 — 동일 세션이 watch 축(summary --watch 등)은 PR 포화라
+  지양 권고를 반복해, 비-watch·순수 core 추가인 이 항목이 방향에 부합. stdev은 모든 거리를 제곱해 단
+  하나의 병적 이상치가 값을 지배하고, IQR도 사분위수와 함께 움직인다. MAD는 "중앙에서 벗어나는 전형적
+  거리"라 한 잡이 100배 오래 걸려도 거의 꿈쩍 않아, 작은 MAD 옆의 큰 stdev이 "평소 일정한데 드물게
+  무거운 꼬리"의 가장 선명한 신호가 된다.
+- **한 일 (branch `claude/wizardly-pascal-fkgupr`):**
+  - core `stats.ts`의 `TimingStats`에 `madResolutionMs`(ms 반올림, null 가능) 추가 + 순수
+    `medianAbsoluteDeviation(sortedAsc)` 헬퍼. 이미 오름차순 정렬된 span에서 median을 기존 `percentile`
+    재사용으로 구하고, 절대편차 `|xᵢ−median|`를 독립 정렬해 그 median을 반환. `computeStats`의 zero
+    분기는 null, 정상 분기는 이미 있던 `sorted` 배열을 그대로 소비(새 정렬 0줄). resolved 0개면 null,
+    단일 잡이면 0(편차 없음, 잘 정의됨).
+  - CLI `stats.ts` resolution-time spread 라인 끝에 `mad …`를 `formatDurationMs`로 덧붙임. `--json`은
+    timing 전체 직렬화라 자동 노출(기존 shape 불변). 새 파서/스케줄러 로직 0줄.
+  - core stats.test +1 신규(이상치 3-잡 spans {1h,2h,10h}→mad 1h인데 stdev은 훨씬 큼을 단언) + 2-잡·
+    단일 잡 기존 테스트에 mad 단언 확장 + 빈 shape 두 곳에 `madResolutionMs: null` 추가, cli stats.test
+    render `mad 1h 0m` 단언 신규.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 615 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): spans {1h,2h,10h}
+  임시 스토어로 `stats`가 `spread: … stdev 4h 1m   cv 93%   mad 1h 0m` 렌더(MAD가 10h 이상치를 무시) +
+  `--json`이 `timing.madResolutionMs` 방출, spans {1h,10h}→mad 16,200,000ms(median 5.5h, 편차 4.5h) 확인,
+  빈 스토어는 resolution-time 블록 자체 생략(mad 미출력).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에 robust CV
+  (MAD÷median, 스케일 프리 강건 분산)나 `stats --group-by`의 그룹별 행에도 spread(iqr/mad) 노출.
+  tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
