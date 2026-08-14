@@ -58,6 +58,7 @@ describe("computeStats", () => {
       p25ResolutionMs: null,
       p75ResolutionMs: null,
       iqrResolutionMs: null,
+      madResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
     });
@@ -223,6 +224,8 @@ describe("computeStats", () => {
     expect(stats.timing.p75ResolutionMs).toBe(Math.round(2.5 * 3_600_000));
     // iqr = p75 - p25 = 1h
     expect(stats.timing.iqrResolutionMs).toBe(3_600_000);
+    // median 2h; deviations {|1h-2h|, |3h-2h|} = {1h, 1h} → mad 1h
+    expect(stats.timing.madResolutionMs).toBe(3_600_000);
     // mean 2h; population variance = ((1-2)^2 + (3-2)^2)/2 = 1 h^2 → stdev 1h
     expect(stats.timing.stdevResolutionMs).toBe(3_600_000);
     // cv = stdev / mean = 1h / 2h = 0.5 (scale-free ratio)
@@ -236,9 +239,30 @@ describe("computeStats", () => {
     expect(stats.timing.p25ResolutionMs).toBe(3_600_000);
     expect(stats.timing.p75ResolutionMs).toBe(3_600_000);
     expect(stats.timing.iqrResolutionMs).toBe(0);
+    // single span: every deviation from the median is 0 → mad 0
+    expect(stats.timing.madResolutionMs).toBe(0);
     expect(stats.timing.stdevResolutionMs).toBe(0);
     // single span: stdev 0, nonzero mean → cv 0 (no spread, well-defined)
     expect(stats.timing.cvResolution).toBe(0);
+  });
+
+  it("keeps MAD robust to a single heavy outlier that inflates the stdev", () => {
+    const at = (h: number) => `2026-07-13T${String(h).padStart(2, "0")}:00:00.000Z`;
+    // Four tight 1h spans + one pathological 21h span. The median span is 1h, so
+    // the MAD (median of {0,0,0,0,20h}) stays 0 — the outlier can't move it
+    // unless half the jobs move. The stdev, squaring the 20h deviation, blows up.
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "failed", createdAt: at(0), updatedAt: at(21) }), // 21h outlier
+    ]);
+    expect(stats.timing.medianResolutionMs).toBe(3_600_000); // 1h
+    expect(stats.timing.madResolutionMs).toBe(0); // deviations {0,0,0,0,20h} → median 0
+    // stdev is far larger than the MAD, flagging the heavy tail.
+    expect(stats.timing.stdevResolutionMs).toBeGreaterThan(stats.timing.madResolutionMs ?? 0);
+    expect(stats.timing.stdevResolutionMs).toBeGreaterThan(7 * 3_600_000);
   });
 
   it("excludes cancelled and still-active jobs from resolution timing", () => {
@@ -296,6 +320,7 @@ describe("computeStats", () => {
       p25ResolutionMs: null,
       p75ResolutionMs: null,
       iqrResolutionMs: null,
+      madResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
     });
