@@ -86,6 +86,18 @@ export interface TimingStats {
    * > 1 heavy-tailed. Rounded to 4 decimals.
    */
   cvResolution: number | null;
+  /**
+   * Moment coefficient of skewness (dimensionless), or null when none (or when
+   * every span is identical, so the shape is undefined). Where the spread
+   * metrics say *how wide* the distribution is, skewness says *which way it
+   * leans*: a positive value means a long right tail — most jobs resolve quickly
+   * but a few sit far longer (the common relay shape), the case the mean overstates
+   * and the median resists. Negative means a long left tail (rare here). Near
+   * zero is symmetric. Uses the population (biased) third moment over stdev³, so
+   * it's scale-free and queues of any timescale compare directly. Rounded to 4
+   * decimals.
+   */
+  skewnessResolution: number | null;
 }
 
 export interface RelayStats {
@@ -422,6 +434,29 @@ function coefficientOfVariation(values: number[], mean: number): number | null {
 }
 
 /**
+ * Moment coefficient of skewness — the population (biased) third standardized
+ * moment `m3 / m2^1.5`, rounded to 4 decimals. Positive means a long right tail
+ * (a few slow outliers), negative a long left tail, ~0 symmetric. Scale-free:
+ * the ms units cancel in the ratio, so queues of any timescale compare directly.
+ * Returns null when the second moment is 0 — every span identical means no
+ * spread, so the shape is undefined (0/0) rather than 0. Non-empty input.
+ */
+function skewness(values: number[], mean: number): number | null {
+  const n = values.length;
+  let m2 = 0;
+  let m3 = 0;
+  for (const v of values) {
+    const d = v - mean;
+    m2 += d * d;
+    m3 += d * d * d;
+  }
+  m2 /= n;
+  m3 /= n;
+  if (m2 === 0) return null;
+  return Math.round((m3 / m2 ** 1.5) * 10_000) / 10_000;
+}
+
+/**
  * Aggregates a job list into headline relay metrics for `agentrelay stats`.
  * Pure and non-mutating: no I/O, no ambient clock. Reuses {@link summarizeJobs}
  * for the per-status counts and next-reset so the two surfaces never drift.
@@ -475,6 +510,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      skewnessResolution: null,
     };
   } else {
     // Sort once ascending; percentiles read from it, min/max are its ends.
@@ -496,6 +532,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       iqrResolutionMs: p75 - p25,
       stdevResolutionMs: populationStdev(sorted, mean),
       cvResolution: coefficientOfVariation(sorted, mean),
+      skewnessResolution: skewness(sorted, mean),
     };
   }
 

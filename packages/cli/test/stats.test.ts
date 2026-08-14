@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatCv,
   formatDurationMs,
+  formatSkewness,
   formatSuccessRate,
   formatUtcOffsetLabel,
   NO_GROUP_MESSAGE,
@@ -97,6 +98,22 @@ describe("formatCv", () => {
   });
 });
 
+describe("formatSkewness", () => {
+  it("signs the value and names the tail", () => {
+    expect(formatSkewness(1.1547)).toBe("+1.15 (right-tailed)");
+    expect(formatSkewness(-0.7)).toBe("-0.70 (left-tailed)");
+    expect(formatSkewness(0.2)).toBe("+0.20 (symmetric)");
+    expect(formatSkewness(0)).toBe("0.00 (symmetric)");
+    expect(formatSkewness(-0.2)).toBe("-0.20 (symmetric)");
+  });
+
+  it("renders n/a for null or non-finite input", () => {
+    expect(formatSkewness(null)).toBe("n/a");
+    expect(formatSkewness(Number.NaN)).toBe("n/a");
+    expect(formatSkewness(Number.POSITIVE_INFINITY)).toBe("n/a");
+  });
+});
+
 describe("renderStats", () => {
   it("shows the onboarding message for an empty store", () => {
     expect(renderStats(computeStats([]))).toBe(NO_STATS_MESSAGE);
@@ -157,6 +174,8 @@ describe("renderStats", () => {
     expect(out).toContain("stdev 1h 0m");
     // cv = stdev / mean = 1h / 2h = 0.5 → "50%".
     expect(out).toContain("cv 50%");
+    // symmetric two-point set {1h,3h} → skewness 0.
+    expect(out).toContain("shape: skew 0.00 (symmetric)");
   });
 
   it("omits the resolution-time block when nothing has resolved", () => {

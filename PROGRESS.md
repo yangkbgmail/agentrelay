@@ -2166,3 +2166,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 70 — `agentrelay stats` 해결 시간 skewness(왜도, 분포 비대칭)] (2026-08-14, 무인 자율 세션, branch `claude/stats-skewness-resolution`)
+- **배경:** 이번 실행 초반, 원래 고르려던 인접 후속(timing MAD)은 **이전 세션이 이미 구현해 PR #649로
+  열어둔 상태**임을 발견(원격 브랜치 `claude/stats-mad-resolution` + open PR). 같은 브랜치를
+  force-push로 덮으면 기존 PR을 파괴하므로 중복 로컬 작업을 버리고, 세션 69가 "다음 할 일"로 함께
+  명시한 또 다른 신규 항목 **skewness(왜도)**를 골랐다 — 아직 어디에도 미구현임을 grep으로 확인
+  (기존 "skew" 매치는 전부 clock-skew). 분산 지표(iqr/stdev/cv)는 분포가 얼마나 넓은지만 알려주고
+  "어느 쪽으로 치우쳤는가"는 못 본다. 릴레이 해결 시간은 전형적으로 오른쪽 꼬리(대부분 빨리 끝나고
+  소수가 오래 방치)라, 왜도가 그 비대칭 강도를 정량화한다.
+- **한 일 (branch `claude/stats-skewness-resolution`, main 기준):**
+  - core `stats.ts`의 `TimingStats`에 `skewnessResolution`(무차원, null 가능) 추가 + 순수
+    `skewness(values, mean)` 헬퍼: 모집단(편향) 3차 표준화 적률 `m3/m2^1.5`. 양수=오른쪽 꼬리,
+    음수=왼쪽 꼬리, ~0=대칭. 스케일 프리(ms 단위 상쇄). 2차 적률 0(전동일 span)이면 shape 미정
+    → null(0 아님, cv가 mean 0에서 null인 것과 동형). resolved 0개 → null.
+  - CLI `stats.ts`에 순수 `formatSkewness`(부호+2소수+꼬리 방향어; |skew|<0.5→symmetric,
+    null/비유한→n/a) 신설, resolution-time 블록에 `shape: skew …` 전용 라인 추가. `--json`은 timing
+    전체 직렬화라 자동 노출(기존 shape 불변). 새 파서/스케줄러/집계 로직 0줄.
+  - core stats.test +1 케이스(spans [1h,1h,1h,10h] → skew≈+1.1547, `toBeGreaterThan(1)`+
+    `toBeCloseTo(1.1547,3)`), 기존 2케이스({1h,3h} 대칭 skew 0 · 단일 잡 skew null)에 단언 추가.
+    cli stats.test formatSkewness 2케이스 + render `shape: skew 0.00 (symmetric)` 단언.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 615 · cli 347/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): spans
+  {1h,1h,1h,10h} 임시 스토어로 `stats`가 `shape: skew +1.15 (right-tailed)` 렌더 + `--json`이
+  `timing.skewnessResolution: 1.1547` 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). **기존 PR #649(MAD)와 병렬** —
+  둘 다 TimingStats에 필드를 더해 병합 시 사소한 conflict 가능하나 자명. 후속 인접 후보 —
+  `stats --group-by` 그룹별 행에 cv/skew 노출, timing 블록에 kurtosis(첨도, 꼬리 두께).
+  tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

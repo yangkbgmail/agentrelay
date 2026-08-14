@@ -60,6 +60,7 @@ describe("computeStats", () => {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      skewnessResolution: null,
     });
   });
 
@@ -227,6 +228,8 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(3_600_000);
     // cv = stdev / mean = 1h / 2h = 0.5 (scale-free ratio)
     expect(stats.timing.cvResolution).toBe(0.5);
+    // symmetric two-point set {1h,3h} around mean 2h → skewness 0
+    expect(stats.timing.skewnessResolution).toBe(0);
   });
 
   it("collapses spread metrics to zero for a single resolved job", () => {
@@ -239,6 +242,23 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(0);
     // single span: stdev 0, nonzero mean → cv 0 (no spread, well-defined)
     expect(stats.timing.cvResolution).toBe(0);
+    // no spread at all → skewness undefined (shape is meaningless) → null
+    expect(stats.timing.skewnessResolution).toBeNull();
+  });
+
+  it("reports positive skewness when slow outliers form a long right tail", () => {
+    const at = (h: number) => `2026-07-13T${String(h).padStart(2, "0")}:00:00.000Z`;
+    // Three fast 1h resolutions plus one 10h babysit: a long right tail.
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "failed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(10) }), // 10h outlier
+    ]);
+    // Moment skewness of {1,1,1,10} ≈ +1.1547 — right-tailed, and scale-free so
+    // the ms units cancel (same value in hours or ms).
+    expect(stats.timing.skewnessResolution).toBeGreaterThan(1);
+    expect(stats.timing.skewnessResolution).toBeCloseTo(1.1547, 3);
   });
 
   it("excludes cancelled and still-active jobs from resolution timing", () => {
@@ -298,6 +318,7 @@ describe("computeStats", () => {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      skewnessResolution: null,
     });
   });
 });

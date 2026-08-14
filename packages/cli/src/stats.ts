@@ -67,6 +67,21 @@ export function formatCv(cv: number | null): string {
 }
 
 /**
+ * Formats a moment coefficient of skewness as a signed 2-decimal number plus a
+ * plain-language shape word, e.g. `1.15` → "+1.15 (right-tailed)", `-0.7` →
+ * "-0.70 (left-tailed)", `0.2` → "+0.20 (symmetric)". |skew| < 0.5 reads as
+ * symmetric; beyond that the sign names the tail (positive = long right tail of
+ * slow outliers). Null (undefined shape — every span identical) renders "n/a".
+ */
+export function formatSkewness(skew: number | null): string {
+  if (skew === null || !Number.isFinite(skew)) return "n/a";
+  const rounded = Math.round(skew * 100) / 100;
+  const shape = Math.abs(rounded) < 0.5 ? "symmetric" : rounded > 0 ? "right-tailed" : "left-tailed";
+  const sign = rounded > 0 ? "+" : "";
+  return `${sign}${rounded.toFixed(2)} (${shape})`;
+}
+
+/**
  * Renders the stats summary as a multi-line block. Pure: no I/O, no ambient
  * clock unless `now` is omitted. `color` gates ANSI codes (TTY only).
  */
@@ -122,6 +137,7 @@ export function renderStats(
         `   stdev ${formatDurationMs(timing.stdevResolutionMs ?? 0)}` +
         `   cv ${formatCv(timing.cvResolution)}`
     );
+    lines.push(`  shape: skew ${formatSkewness(timing.skewnessResolution)}`);
   }
 
   const statusParts = STATUS_ORDER.filter((s) => stats.byStatus[s] > 0).map((s) => `${s}:${stats.byStatus[s]}`);
