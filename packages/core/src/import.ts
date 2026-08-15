@@ -49,7 +49,7 @@ const VALID_STATUSES: readonly JobStatus[] = [
   "failed",
   "cancelled",
 ];
-const VALID_TOOLS: readonly AgentTool[] = ["claude-code", "codex-cli", "generic"];
+const VALID_TOOLS: readonly AgentTool[] = ["claude-code", "codex-cli", "aider", "generic"];
 
 /** Statuses that mean "the relay is (or will be) actively working this job".
  *  Importing one of these makes the local scheduler start spawning the job's

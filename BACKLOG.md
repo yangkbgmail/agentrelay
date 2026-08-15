@@ -824,6 +824,23 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 Aider 에이전트 어댑터 — 네 번째 툴로 `aider` 추가. 백로그 "다른 에이전트 툴 어댑터"의
+      후속(Codex에 이어). 대부분의 stats/watch/parser 축이 오픈 PR로 포화 상태라, 미커버였던
+      어댑터 축을 골랐다.
+      (완료 — Aider(https://aider.chat)는 litellm으로 OpenAI/Anthropic 모델을 호출하며, rate-limit 시
+      litellm 자체 지수 백오프 안내 `Retrying in 8 seconds...`를 출력한다. 이 문구는 generic 파서도
+      Codex 초 패턴도 못 잡는다 — Codex 정규식의 `retry` 대안은 바로 뒤 공백을 요구해 "Retry*ing*"이
+      탈락하고, generic엔 초 패턴 자체가 없다. `types.ts`의 `AgentTool` 유니온에 `"aider"` 추가,
+      `stats.ts` `ALL_TOOLS`·`import.ts` `VALID_TOOLS`에 반영(byTool zero-fill·metrics·tools·`--tool`
+      필터·import 검증 전부 이 두 목록에서 파생돼 자동 인식). `adapters.ts`에 순수 `AIDER_RETRYING_PATTERN`
+      (`retrying in Ns`, 초 단위 올림) 신설 + `AIDER_ADAPTER`(binaries `["aider"]`, patterns=[retrying,
+      재사용한 `CODEX_SECONDS_PATTERN`(OpenAI식 "try again in Ns")]) → generic 패턴 fallback. ADAPTERS
+      레지스트리 등록. CLI `run --tool`·`tools` 도움말 문자열에 aider 추가. adapters.test +6(aider
+      바이너리 추론·resolve·레지스트리·retrying 감지[8s·0.2s 올림]·OpenAI 초 재사용·generic 폴백·
+      generic/codex가 "Retrying in Ns" 못 잡음을 증명), stats.test byTool 3단언에 `aider:0` 반영.
+      실제 빌드 CLI e2e로 `parse --tool aider`가 aider-retrying-seconds 감지·`stats --json` byTool에
+      `aider:1`·`tools` 렌더·잘못된 tool 거부 메시지 aider 포함 검증. branch `claude/aider-adapter`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

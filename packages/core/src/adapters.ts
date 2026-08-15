@@ -61,6 +61,25 @@ const CODEX_SECONDS_PATTERN: RateLimitPattern = {
   },
 };
 
+/**
+ * Aider drives its LLM calls through litellm, which retries rate-limited
+ * requests with an exponential backoff and prints a running notice — e.g.
+ * "Retrying in 8 seconds..." or "Retrying in 0.2 seconds... (1/5)". The generic
+ * parser doesn't recognize this wording, and the Codex seconds pattern doesn't
+ * match it either (its `retry` alternative needs whitespace immediately after,
+ * so "Retry*ing*" falls through). Match the backoff notice and round the delay
+ * up so a resume never fires before the wait elapses.
+ */
+const AIDER_RETRYING_PATTERN: RateLimitPattern = {
+  name: "aider-retrying-seconds",
+  regex: /retrying\s+in\s+(\d+(?:\.\d+)?)\s*(?:s\b|sec(?:ond)?s?\b)/i,
+  resolve: (m, now) => {
+    const seconds = parseFloat(m[1]);
+    if (!Number.isFinite(seconds) || seconds <= 0) return null;
+    return new Date(now.getTime() + Math.ceil(seconds * 1000));
+  },
+};
+
 export const CLAUDE_CODE_ADAPTER: AgentAdapter = makeAdapter({
   tool: "claude-code",
   displayName: "Claude Code",
@@ -75,6 +94,21 @@ export const CODEX_CLI_ADAPTER: AgentAdapter = makeAdapter({
   patterns: [CODEX_SECONDS_PATTERN],
 });
 
+/**
+ * Aider (https://aider.chat) talks to OpenAI- and Anthropic-backed models via
+ * litellm. It surfaces two rate-limit shapes: litellm's own "Retrying in Ns"
+ * backoff notice (see {@link AIDER_RETRYING_PATTERN}), and — when the upstream
+ * provider's message leaks through — the OpenAI-style bare/fractional "try again
+ * in Ns" wait the Codex adapter already handles. Contribute both, tried before
+ * the generic hour/minute patterns.
+ */
+export const AIDER_ADAPTER: AgentAdapter = makeAdapter({
+  tool: "aider",
+  displayName: "Aider",
+  binaries: ["aider"],
+  patterns: [AIDER_RETRYING_PATTERN, CODEX_SECONDS_PATTERN],
+});
+
 export const GENERIC_ADAPTER: AgentAdapter = makeAdapter({
   tool: "generic",
   displayName: "Generic agent",
@@ -86,6 +120,7 @@ export const GENERIC_ADAPTER: AgentAdapter = makeAdapter({
 export const ADAPTERS: Record<AgentTool, AgentAdapter> = {
   "claude-code": CLAUDE_CODE_ADAPTER,
   "codex-cli": CODEX_CLI_ADAPTER,
+  aider: AIDER_ADAPTER,
   generic: GENERIC_ADAPTER,
 };
 

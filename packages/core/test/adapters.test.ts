@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ADAPTERS,
+  AIDER_ADAPTER,
   CLAUDE_CODE_ADAPTER,
   CODEX_CLI_ADAPTER,
   GENERIC_ADAPTER,
@@ -15,6 +16,11 @@ describe("inferToolFromCommand", () => {
 
   it("recognizes the codex binary", () => {
     expect(inferToolFromCommand(["codex", "exec", "fix the bug"])).toBe("codex-cli");
+  });
+
+  it("recognizes the aider binary", () => {
+    expect(inferToolFromCommand(["aider", "--yes", "src/app.py"])).toBe("aider");
+    expect(inferToolFromCommand(["/usr/local/bin/aider"])).toBe("aider");
   });
 
   it("strips a directory prefix and .exe suffix before matching", () => {
@@ -37,6 +43,7 @@ describe("resolveAdapter", () => {
   it("infers from the command when no tool is given", () => {
     expect(resolveAdapter({ command: ["codex"] })).toBe(CODEX_CLI_ADAPTER);
     expect(resolveAdapter({ command: ["claude"] })).toBe(CLAUDE_CODE_ADAPTER);
+    expect(resolveAdapter({ command: ["aider"] })).toBe(AIDER_ADAPTER);
   });
 
   it("falls back to the generic adapter when nothing matches", () => {
@@ -45,7 +52,7 @@ describe("resolveAdapter", () => {
   });
 
   it("exposes every AgentTool in the registry", () => {
-    expect(Object.keys(ADAPTERS).sort()).toEqual(["claude-code", "codex-cli", "generic"]);
+    expect(Object.keys(ADAPTERS).sort()).toEqual(["aider", "claude-code", "codex-cli", "generic"]);
   });
 });
 
@@ -84,5 +91,40 @@ describe("adapter rate-limit detection", () => {
   it("the Claude Code adapter behaves like the generic parser", () => {
     const text = "usage limit reached, resets at 2026-07-13T05:00:00Z";
     expect(CLAUDE_CODE_ADAPTER.detectRateLimit(text, { now })?.pattern).toBe("iso-timestamp");
+  });
+
+  it("Aider adapter parses litellm's 'Retrying in Ns' backoff notice", () => {
+    const result = AIDER_ADAPTER.detectRateLimit("litellm.RateLimitError: overloaded\nRetrying in 8 seconds... (1/5)", {
+      now,
+    });
+    expect(result?.pattern).toBe("aider-retrying-seconds");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 8_000).toISOString());
+  });
+
+  it("Aider adapter rounds a fractional backoff up to whole ms", () => {
+    // 0.2s -> exactly 200ms; a "(1/5)" retry counter must not confuse the match.
+    expect(AIDER_ADAPTER.detectRateLimit("Retrying in 0.2 seconds...", { now })?.resetAt).toBe(
+      new Date(now.getTime() + 200).toISOString()
+    );
+  });
+
+  it("Aider adapter also handles the OpenAI-style seconds wait via the shared pattern", () => {
+    const result = AIDER_ADAPTER.detectRateLimit("Rate limit reached for gpt-4o. Please try again in 20s.", { now });
+    expect(result?.pattern).toBe("codex-relative-seconds");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 20_000).toISOString());
+  });
+
+  it("Aider adapter still falls back to the generic patterns", () => {
+    const result = AIDER_ADAPTER.detectRateLimit("Usage limit reached. Resets in 30m.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
+
+  it("neither the generic nor the Codex adapter recognizes 'Retrying in Ns' — the gap Aider fills", () => {
+    // The whole point of the Aider pattern: "Retry*ing*" breaks the Codex
+    // seconds regex (its `retry` alternative needs whitespace right after), and
+    // the generic parser has no seconds pattern at all.
+    expect(GENERIC_ADAPTER.detectRateLimit("Retrying in 8 seconds...", { now })).toBeNull();
+    expect(CODEX_CLI_ADAPTER.detectRateLimit("Retrying in 8 seconds...", { now })).toBeNull();
   });
 });
