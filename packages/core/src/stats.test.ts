@@ -60,6 +60,7 @@ describe("computeStats", () => {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      madResolutionMs: null,
     });
   });
 
@@ -227,6 +228,8 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(3_600_000);
     // cv = stdev / mean = 1h / 2h = 0.5 (scale-free ratio)
     expect(stats.timing.cvResolution).toBe(0.5);
+    // median = 2h; deviations |1h-2h|=1h, |3h-2h|=1h → median 1h
+    expect(stats.timing.madResolutionMs).toBe(3_600_000);
   });
 
   it("collapses spread metrics to zero for a single resolved job", () => {
@@ -239,6 +242,24 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(0);
     // single span: stdev 0, nonzero mean → cv 0 (no spread, well-defined)
     expect(stats.timing.cvResolution).toBe(0);
+    // single span: no deviation from its own median → mad 0
+    expect(stats.timing.madResolutionMs).toBe(0);
+  });
+
+  it("keeps MAD robust to a single outlier that inflates the stdev", () => {
+    const at = (h: number) => `2026-07-13T${String(h).padStart(2, "0")}:00:00.000Z`;
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(2) }), // 2h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(3) }), // 3h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(4) }), // 4h
+      job({ status: "failed", createdAt: at(0), updatedAt: at(23) }), // 23h outlier
+    ]);
+    // sorted spans [1h,2h,3h,4h,23h], median 3h
+    // deviations |1-3|,|2-3|,|3-3|,|4-3|,|23-3| = [2h,1h,0,1h,20h] → sorted [0,1h,1h,2h,20h] → median 1h
+    expect(stats.timing.madResolutionMs).toBe(3_600_000);
+    // the lone outlier drags the mean-based stdev far above the robust MAD
+    expect(stats.timing.stdevResolutionMs).toBeGreaterThan(stats.timing.madResolutionMs ?? 0);
   });
 
   it("excludes cancelled and still-active jobs from resolution timing", () => {
@@ -298,6 +319,7 @@ describe("computeStats", () => {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      madResolutionMs: null,
     });
   });
 });

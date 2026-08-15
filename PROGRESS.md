@@ -2166,3 +2166,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats` 해결 시간 중앙값 절대 편차(MAD)] (2026-08-15, 무인 자율 세션, branch `claude/wizardly-pascal-a6ivc4`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 68이 "다음 할 일"로 명시한 "timing 블록 MAD(이상치에 더 강건한
+  분산)"를 골랐다. 기존 퍼짐 지표 stdev·CV는 평균 기반이라 소수의 무거운 이상치(하나의 오래-돌본 잡)에
+  크게 끌리고, IQR도 사분위 기반이라 붕괴점이 25%다. MAD는 median에서의 절대 편차의 median이라 50%
+  붕괴점 — 절반이 임의로 커져도 안 움직이는, 여기서 가장 강건한 퍼짐 지표다. stdev보다 훨씬 작은 MAD는
+  "대부분은 촘촘한데 소수 이상치가 평균 기반 퍼짐을 부풀린다"는 가장 명확한 신호.
+- **한 일 (branch `claude/wizardly-pascal-a6ivc4`):**
+  - core `stats.ts`의 `TimingStats`에 `madResolutionMs`(ms, null 가능) 추가 + 순수
+    `medianAbsoluteDeviation(sortedAsc, median)` 헬퍼. |xᵢ − median| 배열을 만들어 기존 `percentile`
+    (type-7 보간)으로 다시 median을 취함 → 보고되는 `medianResolutionMs`와 정확히 일치. median은
+    `computeStats`에서 한 번만 계산해 두 필드가 공유(중복 정렬 0). resolved 0개면 null, 단일/전부-동일
+    잡이면 0(분산 없음, 잘 정의됨).
+  - CLI `stats.ts`의 resolution-time spread 라인에 `mad …`를 stdev와 cv 사이에 삽입, `--json`은 timing
+    전체 직렬화라 자동 노출(기존 shape 불변). 새 파서/스케줄러/core 집계 로직 0줄.
+  - core stats.test +3 단언(3-잡 `mad 1h`·단일 잡 0·이상치 5-잡 강건성 `mad 1h` & `stdev>mad`) + null
+    브랜치 timing 객체 2곳에 `madResolutionMs: null` + cli stats.test render `mad 1h 0m` 단언.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 615 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 이상치 스토어
+  (spans {1h,2h,3h,26h})로 `stats`가 `spread: … stdev 10h 24m   mad 1h 0m   cv 130%` 렌더 —
+  이상치가 stdev는 10h대로 부풀리지만 MAD는 1h로 촘촘함 유지 —, `--json`이 `timing.madResolutionMs`
+  방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stats --group-by`
+  그룹별 행에도 cv/mad 노출, timing 블록에 mad 기반 modified z-score(이상치 카운트). tz/heatmap/parser/
+  watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
