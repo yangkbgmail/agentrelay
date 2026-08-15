@@ -2166,3 +2166,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats` 해결 시간 MAD(median absolute deviation)] (2026-08-15, 무인 자율 세션, branch `claude/wizardly-pascal-2rccas`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 68이 후속 후보로 명시한 "timing 블록 MAD(median absolute deviation,
+  이상치에 더 강건한 분산)"를 골랐다 — tz/heatmap/parser/watch·summary --watch는 PR 포화라 반복적으로
+  지양 권고돼 있었다. stdev은 단 하나의 긴 잡에 끌려 올라가고 IQR도 바깥 사분위를 버릴 뿐인데, MAD는
+  median(|xᵢ−median|)이라 표본의 절반이 극단으로 가도 미동 없이 전형적 해결의 퍼짐을 기술한다.
+- **한 일 (branch `claude/wizardly-pascal-2rccas`):**
+  - core `stats.ts`의 `TimingStats`에 `madResolutionMs`(ms, null 가능) 추가 + 순수
+    `medianAbsoluteDeviation(sortedAsc, median)` 헬퍼 신설. 각 값의 median 절대편차를 오름차순 정렬
+    후 기존 검증된 type-7 `percentile(_, 0.5)`을 재사용 → 새 정렬/보간 로직 0줄. `computeStats`가
+    median을 한 번 계산해 percentile(median)과 MAD에 공유. resolved 0개면 null, 단일 잡이면 0.
+  - CLI `stats.ts` resolution-time spread 라인에 `mad …`를 stdev와 cv 사이에 삽입, `--json`은 timing
+    전체 직렬화라 자동 노출(기존 shape 불변). 새 파서/스케줄러/core 집계 로직 0줄.
+  - core stats.test +2(3-잡 mad 1h·outlier 4×1h+1×21h 스토어에서 median 1h·mad 0인데 stdev>7h로
+    강건성 대비·단일 잡 mad 0), cli stats.test render `mad 1h 0m` 단언 추가, empty-timing toEqual 두 곳에
+    `madResolutionMs: null` 반영.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 615 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 4×1h+1×21h 이상치
+  임시 스토어로 `stats`가 `spread: … stdev 8h 0m   mad <1s   cv 160%` 렌더(MAD가 이상치에 미동 없음을
+  stdev와 대비) + `--json`이 `stats.timing.madResolutionMs` 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stats --group-by`의
+  그룹별 행에도 spread(iqr/mad) 노출, timing 블록 skewness(비대칭도). tz/heatmap/parser/watch·summary
+  --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
