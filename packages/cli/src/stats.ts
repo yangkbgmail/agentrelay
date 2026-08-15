@@ -5,6 +5,7 @@
 
 import type {
   ActivityHeatmap,
+  AttemptsBucket,
   DailyActivity,
   GroupDimension,
   GroupedStat,
@@ -355,6 +356,50 @@ export function renderWeekday(
   return lines.join("\n");
 }
 
+/** Max width (chars) of a full-scale bar in the attempts-distribution histogram. */
+const ATTEMPTS_BAR_WIDTH = 24;
+
+/**
+ * Renders a resume-attempt distribution histogram (how many jobs needed 0, 1,
+ * 2, … relay resumes) as a compact ASCII bar chart. Bars scale to the busiest
+ * bucket so the shape reads regardless of absolute volume; an empty bucket shows
+ * a dim baseline dot. The `0` row is labelled to name what it means (jobs not
+ * yet resumed, or resolved without one). Pure: no I/O, no clock. Callers pass
+ * the already-computed distribution so it stays testable.
+ */
+export function renderAttempts(buckets: AttemptsBucket[], options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [b("by attempts") + d(" (jobs per resume-attempt count)")];
+  if (buckets.length === 0) {
+    lines.push("  none");
+    return lines.join("\n");
+  }
+
+  const max = buckets.reduce((m, bucket) => Math.max(m, bucket.count), 0);
+  const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
+  // Width the attempt-count label to the widest value so bars line up.
+  const labelWidth = Math.max(...buckets.map((bucket) => String(bucket.attempts).length));
+  for (const { attempts, count } of buckets) {
+    // Scale each bar to the busiest bucket; guarantee at least one block for any
+    // non-zero bucket so small counts don't vanish next to a spike.
+    const filled = max === 0 || count === 0 ? 0 : Math.max(1, Math.round((count / max) * ATTEMPTS_BAR_WIDTH));
+    // Pad the plain bar to a fixed width so the count column stays aligned; an
+    // empty bucket shows a single baseline dot (dimmed only when color is on).
+    const plain = count === 0 ? "·" : "█".repeat(filled);
+    const padded = plain.padEnd(ATTEMPTS_BAR_WIDTH);
+    const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
+    // The 0 bucket is worth naming: it's jobs the relay never resumed (still
+    // queued/waiting, or resolved without a resume) rather than a retry count.
+    const note = attempts === 0 ? d(" (not yet resumed)") : "";
+    lines.push(`  ${String(attempts).padStart(labelWidth)}  ${shown} ${count}${note}`);
+  }
+  lines.push(d(`  ${total} job(s) across ${buckets.length} bucket(s)`));
+  return lines.join("\n");
+}
+
 /** Ramp glyphs for the heatmap, from lightest (few jobs) to heaviest (busiest). */
 const HEATMAP_RAMP = ["░", "▒", "▓", "█"] as const;
 /** Glyph shown for a cell with zero jobs (a dim baseline dot). */
@@ -432,18 +477,20 @@ export function renderStatsJson(
     hours?: HourlyActivity[] | null;
     weekday?: WeekdayActivity[] | null;
     heatmap?: ActivityHeatmap | null;
+    attempts?: AttemptsBucket[] | null;
   } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
-  // Only emit `trend`/`hours`/`weekday`/`heatmap` when the matching flag was
-  // requested; omit them otherwise so the default JSON shape is unchanged for
-  // existing consumers.
+  // Only emit `trend`/`hours`/`weekday`/`heatmap`/`attempts` when the matching
+  // flag was requested; omit them otherwise so the default JSON shape is
+  // unchanged for existing consumers.
   const trend = options.trend ?? undefined;
   const hours = options.hours ?? undefined;
   const weekday = options.weekday ?? undefined;
   const heatmap = options.heatmap ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, heatmap, stats }, null, 2);
+  const attempts = options.attempts ?? undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, heatmap, attempts, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */
