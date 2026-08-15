@@ -21,6 +21,7 @@ import {
   computeDailyTrend,
   computeErrorBreakdown,
   computeHourlyDistribution,
+  computeLeadTimes,
   computeQueueEta,
   computeStats,
   computeWeekdayDistribution,
@@ -118,6 +119,7 @@ import { renderTools, renderToolsJson, renderToolsWatchFrame } from "./tools.js"
 import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
 import { renderVerify, renderVerifyJson } from "./verify.js";
 import { renderWaitJson } from "./wait.js";
+import { renderWindows, renderWindowsJson } from "./windows.js";
 
 /**
  * Split a comma-separated CLI option (e.g. `--status completed,failed`) into
@@ -1381,6 +1383,55 @@ export function buildCli(): Command {
       }
       console.log(
         renderPatterns(summary, {
+          color: Boolean(process.stdout.isTTY),
+          scopeNote: built.active ? built.note : undefined,
+        })
+      );
+    });
+
+  program
+    .command("windows")
+    .description("Show the reset-window (lead-time) distribution: how long the relay waits out each rate limit")
+    .option("--json", "Print the summary as JSON (machine-readable, for scripts/CI)")
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # how long are my rate-limit windows, typically and in the tail?\n" +
+        "  agentrelay windows\n" +
+        "  # just the claude-code windows over the last week\n" +
+        "  agentrelay windows --tool claude-code --since 7d\n" +
+        "  # feed the distribution to jq\n" +
+        "  agentrelay windows --json | jq '.summary.medianMs'"
+    )
+    .action((opts: ScopeOpts & { json?: boolean }) => {
+      const { store } = program.opts();
+      const built = buildScope(opts, Date.now());
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const summary = computeLeadTimes(jobs);
+      if (opts.json) {
+        console.log(
+          renderWindowsJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            summary,
+          })
+        );
+        return;
+      }
+      console.log(
+        renderWindows(summary, {
           color: Boolean(process.stdout.isTTY),
           scopeNote: built.active ? built.note : undefined,
         })
