@@ -2166,3 +2166,36 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay windows` 리셋 창(lead-time) 분포 명령] (2026-08-15, 무인 자율 세션, branch `claude/wizardly-pascal-bx5j9j`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이라, CLAUDE.md 지침대로 새 개선 항목을 스스로 발굴했다. 잡이
+  `waiting_for_reset`으로 파킹될 때마다 `job.lastRateLimit`에 `detectedAt`(감지 시각)과 `resetAt`(판단한
+  리셋 시각) provenance가 이미 영속되는데, 그 차이(`resetAt − detectedAt` = **lead time**, 릴레이가 실제로
+  기다린 rate-limit 창의 길이)를 집계하는 지표가 없었다. 이 값은 이 도구가 리포트할 수 있는 가장
+  제품-정의적인 숫자인데(5시간 사용창 vs 주간 캡을 구분) 어떤 명령도 노출하지 않았다 — `stats`는 잡
+  라이프사이클(createdAt→updatedAt, resume 포함)을, `patterns`는 어떤 포맷이 발화했는지만 센다.
+- **한 일 (branch `claude/wizardly-pascal-bx5j9j`):**
+  - core `leadtime.ts` 신설(순수·파일시스템/클럭 미접촉): `computeLeadTimes(jobs)` + `LeadTimeSummary`/
+    `LeadTimePatternStat`. 각 잡의 `lastRateLimit`에서 lead time을 계산 — 비어있지 않은 `pattern`을 가진
+    감지만 `withDetection`으로 세고, 두 타임스탬프가 모두 파싱되고 span ≥ 0일 때만 usable 샘플(`count`).
+    파싱 불가·음수 span(클럭 스큐)은 클램프 대신 `skipped`로 분리(stats.ts의 resolution-time 정책과 동일).
+    count>0이면 min/max/avg + median(p50)/p90(stats.ts와 동일한 NumPy "type 7" 선형보간 percentile),
+    `byPattern`(패턴별 count·avg·min·max, count desc·이름 asc 랭킹 — 어떤 포맷이 짧은/긴 창을 뜻하는지).
+  - CLI `windows.ts`에 순수 `renderWindows`(scope note + 분포 라인 min/median/avg/p90/max + 패턴별
+    브레이크다운 바)·`renderWindowsJson`(표준 storePath/generatedAt/scope/summary 봉투). 기간 포맷은
+    기존 `formatDurationMs`(stats.ts) 재사용. `agentrelay windows [--json] [-s/-t/-p] [--since/--until]`
+    커맨드를 `patterns` 옆에 배선 — 스코프 필터는 공용 `buildScope`+core `scopeJobs` 재사용(새 배선 로직
+    최소). 잘못된 status/tool/기간은 exit 1.
+  - core `index.ts`에 `leadtime.js` export 추가. core leadtime.test 11케이스(빈 스토어·감지 없음·
+    lead 계산·집계·zero-span 허용·음수 skip·파싱불가 skip·빈 패턴 무시·패턴별 랭킹·불변) +
+    cli windows.test 9케이스(빈/no-match/no-detection/skipped-only/분포/패턴 브레이크다운/색상/JSON).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 625 · cli 354/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 4-잡 임시 스토어
+  (five-hour-window/relative-duration/codex-seconds 감지 + 감지 없는 잡 1개)로 `windows`가
+  `min 30s   median 2h 0m   avg 2h 20m   p90 4h 24m   max 5h 0m` + 패턴별 3행 렌더, `--json`이
+  `count=3 median=7200000` 방출, `--tool claude-code` 스코프가 2 detection으로 좁혀짐, `--tool bogus`는
+  exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `windows --group-by
+  tool|project`(창 길이를 툴/프로젝트별로), 대시보드에 lead-time 요약 카드 노출. tz/heatmap/parser/watch·
+  summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

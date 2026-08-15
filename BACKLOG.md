@@ -824,6 +824,21 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay windows` — 리셋 창(lead-time) 분포: 릴레이가 각 rate-limit을 실제로 얼마나 오래
+      기다렸는지(`resetAt − detectedAt`)를 감지 provenance에서 집계. 세션 69가 스스로 발굴한 항목.
+      (완료 — 잡이 `waiting_for_reset`으로 파킹될 때 `job.lastRateLimit`에 `detectedAt`·`resetAt`이
+      영속되는데 그 차이인 lead time(=릴레이가 기다린 rate-limit 창 길이)을 보는 명령이 없었다. `stats`는
+      잡 라이프사이클(createdAt→updatedAt), `patterns`는 어떤 포맷이 발화했는지만 세어 "내 rate-limit
+      창이 실제로 얼마나 긴가(5h vs 주간)"를 답하지 못했다. core `leadtime.ts` 신설(순수): `computeLeadTimes`
+      + `LeadTimeSummary`/`LeadTimePatternStat` — 비어있지 않은 pattern을 가진 감지만 `withDetection`,
+      두 타임스탬프 파싱+span≥0일 때만 usable(`count`), 파싱불가·음수 span은 클램프 대신 `skipped`
+      (resolution-time 정책과 동일). count>0이면 min/max/avg/median(p50)/p90(stats.ts와 동일 NumPy type-7
+      percentile) + `byPattern`(패턴별 count·avg·min·max, count desc·이름 asc). CLI `windows.ts`
+      `renderWindows`(분포 라인 + 패턴 브레이크다운, `formatDurationMs` 재사용)·`renderWindowsJson`,
+      `agentrelay windows [--json] [-s/-t/-p] [--since/--until]` 커맨드(공용 `buildScope`+`scopeJobs`
+      재사용, 잘못된 값 exit 1). core 11 + cli 9 신규 테스트, 실제 빌드 CLI e2e로 분포·패턴·스코프·
+      JSON·에러 exit 검증. branch `claude/wizardly-pascal-bx5j9j`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
