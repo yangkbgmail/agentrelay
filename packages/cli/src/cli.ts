@@ -138,6 +138,7 @@ interface ScopeOpts {
   project?: string;
   since?: string;
   until?: string;
+  command?: string;
 }
 
 type ScopeBuild = { scope: JobScope; note: string; active: boolean } | { error: string };
@@ -199,6 +200,13 @@ function buildScope(opts: ScopeOpts, now: number): ScopeBuild {
     return { error: "--since must be a longer window than --until (empty range otherwise)." };
   }
 
+  if (opts.command !== undefined) {
+    const needle = opts.command.trim();
+    if (needle.length === 0) return { error: "--command needs a non-empty substring to match." };
+    scope.commandContains = needle;
+    noteParts.push(`command~${needle}`);
+  }
+
   return { scope, note: noteParts.join(" "), active: isJobScopeActive(scope) };
 }
 
@@ -239,6 +247,7 @@ function registerBulkControl(program: Command, spec: BulkControlSpec): void {
     .option("-p, --project <projects>", "Only jobs in these projects (comma-separated)")
     .option("--since <duration>", "Only jobs created within this long ago (e.g. 24h, 7d)")
     .option("--until <duration>", "Only jobs created before this long ago (e.g. 1d)")
+    .option("--command <text>", "Only jobs whose command contains this text (case-insensitive substring)")
     .option("--dry-run", "Preview which jobs would be affected without changing the store")
     .action((id: string | undefined, opts: ScopeOpts & { all?: boolean; dryRun?: boolean }) => {
       const { store } = program.opts();
@@ -587,6 +596,7 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only show jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only show jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only show jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--command <text>", "Only show jobs whose command contains this text (case-insensitive substring)")
     .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
     .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
     .option("-n, --limit <n>", "Show at most N jobs (applied after filter/sort; the summary still counts all matches)")
@@ -599,6 +609,7 @@ export function buildCli(): Command {
         project?: string;
         since?: string;
         until?: string;
+        command?: string;
         sort?: string;
         reverse?: boolean;
         limit?: string;
@@ -691,6 +702,15 @@ export function buildCli(): Command {
           process.exitCode = 1;
           return;
         }
+        if (opts.command !== undefined) {
+          const needle = opts.command.trim();
+          if (needle.length === 0) {
+            console.error("--command needs a non-empty substring to match.");
+            process.exitCode = 1;
+            return;
+          }
+          window.commandContains = needle;
+        }
         const scoped = (jobs: RelayJob[]): RelayJob[] => (isJobScopeActive(window) ? scopeJobs(jobs, window) : jobs);
 
         if (opts.json) {
@@ -754,6 +774,7 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--command <text>", "Only count jobs whose command contains this text (case-insensitive substring)")
     .addHelpText(
       "after",
       "\nExamples:\n" +
@@ -827,6 +848,7 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--command <text>", "Only include jobs whose command contains this text (case-insensitive substring)")
     .option("--json", "Print the timeline as JSON (machine-readable, for scripts/jq)")
     .addHelpText(
       "after",
@@ -906,6 +928,7 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--command <text>", "Only include jobs whose command contains this text (case-insensitive substring)")
     .option("--json", "Print the report as JSON (machine-readable, for scripts/jq)")
     .addHelpText(
       "after",
@@ -1082,6 +1105,7 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--command <text>", "Only count jobs whose command contains this text (case-insensitive substring)")
     .option("-g, --group-by <dimension>", `Break down metrics per group: ${GROUP_DIMENSIONS.join(", ")}`)
     .option("--trend [days]", "Also show a per-day activity histogram over the last N days, UTC (default 14, max 90)")
     .option("--hours", "Also show an hour-of-day activity histogram (jobs created per hour, 0–23)")
@@ -1117,6 +1141,7 @@ export function buildCli(): Command {
         project?: string;
         since?: string;
         until?: string;
+        command?: string;
         groupBy?: string;
         trend?: string | boolean;
         hours?: boolean;
@@ -1195,6 +1220,17 @@ export function buildCli(): Command {
           console.error("--since must be a longer window than --until (empty range otherwise).");
           process.exitCode = 1;
           return;
+        }
+
+        if (opts.command !== undefined) {
+          const needle = opts.command.trim();
+          if (needle.length === 0) {
+            console.error("--command needs a non-empty substring to match.");
+            process.exitCode = 1;
+            return;
+          }
+          scope.commandContains = needle;
+          noteParts.push(`command~${needle}`);
         }
 
         let groupBy: GroupDimension | undefined;
@@ -1317,6 +1353,7 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--command <text>", "Only count jobs whose command contains this text (case-insensitive substring)")
     .option("--prefix <prefix>", "Metric name prefix (default agentrelay); sanitized to a valid Prometheus name")
     .addHelpText(
       "after",
@@ -1349,6 +1386,7 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--command <text>", "Only count jobs whose command contains this text (case-insensitive substring)")
     .addHelpText(
       "after",
       "\nExamples:\n" +
@@ -1397,6 +1435,7 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--command <text>", "Only count jobs whose command contains this text (case-insensitive substring)")
     .addHelpText(
       "after",
       "\nExamples:\n" +
@@ -1462,6 +1501,7 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--command <text>", "Only count jobs whose command contains this text (case-insensitive substring)")
     .addHelpText(
       "after",
       "\nExamples:\n" +
@@ -1525,6 +1565,7 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--command <text>", "Only count jobs whose command contains this text (case-insensitive substring)")
     .option("-n, --limit <n>", "Show at most N error reasons (the totals still count all)")
     .option("--json", "Print the breakdown as JSON (machine-readable, for scripts/jq)")
     .action((opts: ScopeOpts & { limit?: string; json?: boolean }) => {
@@ -1628,6 +1669,7 @@ export function buildCli(): Command {
     .option("-p, --project <projects>", "Only export jobs from these comma-separated project names (exact match)")
     .option("--since <duration>", "Only export jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
     .option("--until <duration>", "Only export jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--command <text>", "Only export jobs whose command contains this text (case-insensitive substring)")
     .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
     .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
     .option("--columns <list>", `Pick/reorder columns for csv/md (comma-separated): ${JOB_CSV_COLUMNS.join(", ")}`)
@@ -1640,6 +1682,7 @@ export function buildCli(): Command {
         project?: string;
         since?: string;
         until?: string;
+        command?: string;
         sort?: string;
         reverse?: boolean;
         columns?: string;
@@ -1752,6 +1795,15 @@ export function buildCli(): Command {
           console.error("--since must be a longer window than --until (empty range otherwise).");
           process.exitCode = 1;
           return;
+        }
+        if (opts.command !== undefined) {
+          const needle = opts.command.trim();
+          if (needle.length === 0) {
+            console.error("--command needs a non-empty substring to match.");
+            process.exitCode = 1;
+            return;
+          }
+          window.commandContains = needle;
         }
 
         const all = listStatus(store);

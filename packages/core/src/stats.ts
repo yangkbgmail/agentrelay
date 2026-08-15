@@ -138,6 +138,15 @@ export interface JobScope {
   createdFrom?: number;
   /** Keep only jobs created at-or-before this epoch-ms boundary (inclusive). */
   createdTo?: number;
+  /**
+   * Keep only jobs whose command contains this text (case-insensitive substring
+   * of the space-joined `command` argv). Lets callers slice by *what is being
+   * relayed* — e.g. `--command "claude -p"` or `--command build` — a dimension
+   * the label-based `projects`/`tools` filters can't express (two jobs can share
+   * a project label yet run entirely different commands). An empty/whitespace
+   * string means "don't filter on it".
+   */
+  commandContains?: string;
 }
 
 /** True when a scope would actually filter anything (any dimension is set). */
@@ -147,7 +156,8 @@ export function isJobScopeActive(scope: JobScope): boolean {
       (scope.tools && scope.tools.length > 0) ||
       (scope.projects && scope.projects.length > 0) ||
       scope.createdFrom !== undefined ||
-      scope.createdTo !== undefined
+      scope.createdTo !== undefined ||
+      (scope.commandContains !== undefined && scope.commandContains.trim().length > 0)
   );
 }
 
@@ -182,6 +192,12 @@ export function scopeJobs(jobs: RelayJob[], scope: JobScope = {}): RelayJob[] {
       if (Number.isNaN(created)) return false;
       return created >= from && created <= to;
     });
+  }
+  if (scope.commandContains !== undefined) {
+    const needle = scope.commandContains.trim().toLowerCase();
+    if (needle.length > 0) {
+      result = result.filter((job) => job.command.join(" ").toLowerCase().includes(needle));
+    }
   }
   return result;
 }

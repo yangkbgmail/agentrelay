@@ -319,6 +319,12 @@ describe("isJobScopeActive", () => {
     expect(isJobScopeActive({ createdTo: 0 })).toBe(true);
     expect(isJobScopeActive({ createdFrom: 1_000 })).toBe(true);
   });
+
+  it("is true for a non-blank command filter, false for a blank one", () => {
+    expect(isJobScopeActive({ commandContains: "build" })).toBe(true);
+    expect(isJobScopeActive({ commandContains: "" })).toBe(false);
+    expect(isJobScopeActive({ commandContains: "   " })).toBe(false);
+  });
 });
 
 describe("scopeJobs", () => {
@@ -426,6 +432,36 @@ describe("scopeJobs", () => {
       job({ id: "c", project: "api", createdAt: "2026-07-14T00:00:00.000Z" }), // wrong project
     ];
     expect(scopeJobs(jobs, { projects: ["web"], createdFrom: from }).map((j) => j.id)).toEqual(["a"]);
+  });
+
+  it("filters by command substring (case-insensitive, across the joined argv)", () => {
+    const jobs = [
+      job({ id: "build", command: ["claude", "-p", "build the app"] }),
+      job({ id: "test", command: ["claude", "-p", "run tests"] }),
+      job({ id: "codex", command: ["codex", "exec", "BUILD it"] }),
+    ];
+    // Matches within a single argv token...
+    expect(scopeJobs(jobs, { commandContains: "build" }).map((j) => j.id)).toEqual(["build", "codex"]);
+    // ...and across token boundaries (the argv is space-joined before matching).
+    expect(scopeJobs(jobs, { commandContains: "-p build" }).map((j) => j.id)).toEqual(["build"]);
+    // Case-insensitive.
+    expect(scopeJobs(jobs, { commandContains: "CODEX" }).map((j) => j.id)).toEqual(["codex"]);
+    // No match -> empty.
+    expect(scopeJobs(jobs, { commandContains: "deploy" })).toEqual([]);
+  });
+
+  it("treats a blank command filter as inactive (keeps everything)", () => {
+    const jobs = [job({ id: "a" }), job({ id: "b" })];
+    expect(scopeJobs(jobs, { commandContains: "   " }).map((j) => j.id)).toEqual(["a", "b"]);
+  });
+
+  it("ANDs the command filter with other dimensions", () => {
+    const jobs = [
+      job({ id: "a", project: "web", command: ["claude", "-p", "build"] }),
+      job({ id: "b", project: "web", command: ["claude", "-p", "test"] }),
+      job({ id: "c", project: "api", command: ["claude", "-p", "build"] }),
+    ];
+    expect(scopeJobs(jobs, { projects: ["web"], commandContains: "build" }).map((j) => j.id)).toEqual(["a"]);
   });
 });
 

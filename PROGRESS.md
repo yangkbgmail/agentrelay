@@ -2166,3 +2166,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — 공유 스코프 필터 `--command` 차원] (2026-08-15, 무인 자율 세션, branch `claude/wizardly-pascal-scope-command`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유뿐. 열린 PR이 100개+
+  쌓여 stats 스칼라 지표(MAD/CV/skewness 등)·watch·parser 공간이 포화라, 또 하나의 지표 추가는 저가치·
+  고충돌이라 판단. CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다 — 공유 스코프 필터(`--status`/`--tool`/
+  `--project`/`--since`/`--until`)에 **잡이 실제 실행하는 명령(command)** 축이 없었다. 라벨 기반
+  `--project`/`--tool`은 "같은 web 프로젝트라도 `claude -p build` vs `claude -p test`"를 구분 못 한다.
+  열린 PR 어디에도 없는 진짜 빈칸이고, 확립된 스코프 필터 관용구에 정확히 부합.
+- **한 일 (branch `claude/wizardly-pascal-scope-command`):**
+  - core `stats.ts`의 `JobScope`에 `commandContains?: string` 추가. `scopeJobs`가 space-join한
+    `job.command`에 대해 대소문자 무시 부분 문자열 매칭(입력 trim, 공백만이면 비활성=필터 안 함),
+    `isJobScopeActive`가 비공백 command 필터를 활성으로 인식. 순수·비변형(항상 새 배열) 유지 — 새
+    파서/스케줄러/집계 로직 0줄.
+  - CLI 공용 `buildScope`에 `ScopeOpts.command` 추가(빈 문자열은 명확한 에러+exit 1, scope note
+    `command~<text>`) → buildScope를 쓰는 metrics/patterns/projects/tools/errors/upcoming/overdue/eta/
+    cancel/retry가 한 번에 필터 획득. 인라인 스코프를 쓰는 stats/status/export 3개에도 `--command <text>`
+    옵션과 처리(trim·빈값 exit 1) 개별 배선(export/status는 `window` scope, stats는 자체 scope).
+  - core stats.test +5(isJobScopeActive blank/non-blank 1 + scopeJobs: 단일 토큰·토큰 경계·대소문자·
+    no-match 1, blank-inactive 1, AND 결합 1), cli export.test +1(scopeJobs→exportStore로 CLI 실경로 미러).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 618 · cli 346/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 3-잡 스토어
+  (web:`claude -p build the app`/`run tests`, api:`codex exec BUILD the service`)로 `status --command build`가
+  build 잡 2개(대소문자 무시로 `BUILD` 포함), `stats --command build --json`이 total 2·scope 에코,
+  `export --command "run tests" -f json`이 해당 1건, `projects --command build --json`이 projectCount 2 반환,
+  빈 `--command "   "`은 exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드/필터 UI에
+  command 축 노출은 옵션. stats 스칼라 지표·watch·parser·summary --watch 계열은 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).

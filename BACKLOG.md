@@ -824,6 +824,19 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 공유 스코프 필터에 `--command <substring>` 차원 추가 — 잡이 실제 실행하는 명령(argv)
+      텍스트로 부분집합 필터. 라벨 기반 `--project`/`--tool`이 표현 못 하는 축(같은 프로젝트라도
+      서로 다른 명령을 돌릴 수 있음)을 채운다.
+      (완료 — core `stats.ts`의 `JobScope`에 `commandContains?: string` 추가: `scopeJobs`가
+      space-join한 `command`에 대해 대소문자 무시 부분 문자열 매칭(공백만이면 비활성=필터 안 함),
+      `isJobScopeActive`가 비공백 값을 활성으로 인식. 순수·비변형 유지. CLI 공용 `buildScope`(ScopeOpts에
+      `command` 추가, 빈 문자열은 exit 1, scope note `command~<text>`)와 인라인 스코프 3개(stats/status/
+      export)에 `--command <text>` 옵션 배선 → buildScope 계열(metrics/patterns/projects/tools/errors/
+      upcoming/overdue/eta/cancel/retry)까지 한 번에 획득. 새 파서/스케줄러 로직 0줄. core stats.test +5
+      (isJobScopeActive 1 + scopeJobs 4: 단일 토큰/토큰 경계/대소문자/AND/blank-inactive) + cli export.test
+      +1(scopeJobs→exportStore 실경로) 신규. 실제 빌드 CLI e2e로 status/stats/export/projects 필터·빈
+      `--command` exit 1 검증. branch `claude/wizardly-pascal-scope-command`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
