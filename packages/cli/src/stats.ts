@@ -119,6 +119,7 @@ export function renderStats(
         d(
           `(p25 ${formatDurationMs(timing.p25ResolutionMs ?? 0)} – p75 ${formatDurationMs(timing.p75ResolutionMs ?? 0)})`
         ) +
+        `   mad ${formatDurationMs(timing.madResolutionMs ?? 0)}` +
         `   stdev ${formatDurationMs(timing.stdevResolutionMs ?? 0)}` +
         `   cv ${formatCv(timing.cvResolution)}`
     );

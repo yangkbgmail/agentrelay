@@ -2166,3 +2166,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats` 해결 시간 MAD(median absolute deviation)] (2026-08-15, 무인 자율 세션, branch `claude/wizardly-pascal-sr46ob`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 68이 후속 후보로 명시한 두 가지(timing 블록 MAD, `--group-by` 그룹별
+  cv) 중 **MAD**를 골랐다 — group-by cv보다 회귀 위험이 더 작은 순수 추가이고, 이상치 강건성이라는
+  분명한 실사용 가치가 있다. 기존 분산 지표(stdev·CV)는 전부 평균 기반이라 단일 이상치 하나가 곧장
+  부풀린다. MAD(중앙값에서의 절대편차의 중앙값)는 이상치 하나가 편차 하나만 옮겨 거의 안 움직여,
+  "분산이 넓은가 vs 소수의 무거운 이상치가 끄는가"를 가장 강건하게 구분한다.
+- **한 일 (branch `claude/wizardly-pascal-sr46ob`):**
+  - core `stats.ts`의 `TimingStats`에 `madResolutionMs`(ms, resolved 0개면 null) 추가 + 순수
+    `medianAbsoluteDeviation(sortedAsc, median)` 헬퍼. 각 값의 median 대비 절대편차를 오름차순 정렬해
+    기존 `percentile`(type-7 보간)의 p50을 재사용 → 새 정렬 로직·새 집계 패스 0줄(이미 정렬된 배열과
+    이미 계산한 median 위에 필드 하나). resolved 0개면 null, 단일 잡이면 편차가 0뿐이라 0(잘 정의된 무분산).
+  - CLI `stats.ts`의 resolution-time spread 라인에 iqr 뒤·stdev 앞에 `mad …`를 삽입(iqr·MAD 두 강건
+    지표를 인접 배치, stdev·cv는 그대로 인접 유지). `--json`은 timing 전체 직렬화라 자동 노출(기존 shape 불변).
+  - core stats.test: 3-잡 mad 1h 단언 + 이상치 강건성 신규 케이스(4×1h+1×21h → mad 0 ≪ stdev) + 단일 잡
+    mad 0 + 빈 timing `toEqual`에 madResolutionMs:null 2곳. cli stats.test render `mad 1h 0m` 단언.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 615 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 4×1h+1×21h 이상치
+  임시 스토어로 `stats`가 `spread: iqr <1s (…)   mad <1s   stdev 8h 0m   cv 160%` 렌더 +
+  `--json`이 `madResolutionMs:0` vs `stdevResolutionMs:28800000`을 방출 → MAD가 이상치에 안 움직이는데
+  stdev는 부풀려짐을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stats --group-by`의
+  그룹별 행에도 cv/mad 노출, timing 블록 MAD 기반 modified z-score로 이상치 잡 카운트. tz/heatmap/parser/
+  watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
