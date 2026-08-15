@@ -2166,3 +2166,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay windows` (rate-limit 창 길이 분포)] (2026-08-15, 무인 자율 세션, branch `claude/wizardly-pascal-kiyo9f`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이라, CLAUDE.md 지침대로 **새 개선 항목을 자기 발굴**해 추가·구현했다.
+  세션 38이 `lastRateLimit`(detectedAt·resetAt)를 잡에 영속하고 세션 39가 `patterns`로 어떤 파서 패턴이
+  얼마나 자주 잡히나를 집계했지만, 정작 그 감지가 만든 **rate-limit 창이 실제로 얼마나 긴가**(감지→리셋
+  리드 타임)를 보는 수단이 없었다. `stats`의 해결 시간은 전체 라이프사이클(updatedAt−createdAt)이라
+  재시도 백오프·리셋 후 재개 지연까지 섞여, 락아웃 자체의 길이와는 다르다.
+- **한 일 (branch `claude/wizardly-pascal-kiyo9f`):**
+  - core `windows.ts` 신설(순수·파일시스템/시계 미접촉): `computeRateLimitWindows(jobs)` +
+    `RateLimitWindowStats`(total·withWindow·withoutWindow·min/max/avg/median/p90/p95 ms). 각 잡의
+    영속된 `lastRateLimit`에서 `resetAt − detectedAt`를 뽑아 min/max/avg + 백분위수(로컬 type-7
+    `percentile`)로 집계. detection 부재/미파싱 타임스탬프/음수 span(이미 지난 리셋·클럭 스큐,
+    `stats.ts` resolutionMs와 동일 정책)은 `withoutWindow`로 카운트해 분포를 0으로 왜곡하지 않음.
+  - CLI `windows.ts`에 순수 `renderWindows`(min/median/p90/p95/max/avg 블록, `formatDurationMs`
+    재사용·scope note·no-window/no-match 문구 분기)·`renderWindowsJson`(patterns와 동일 envelope).
+    `agentrelay windows [--json]` + 공용 `buildScope`(--status/--tool/--project/--since/--until) 재사용,
+    completion 자동 포함. 새 파서/스케줄러 로직 0줄 — 세션 38이 영속한 provenance만 읽음.
+  - core windows.test 6 + cli windows.test 6 신규.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm lint:fix`+`pnpm ci:lint`(Biome 0에러)→
+  `pnpm test` 전 패키지 통과(**core 620 · cli 351/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  3-잡 임시 스토어(창 5h·1h + detection 없는 1잡)로 `windows`가 `min 1h·median 3h·max 5h·avg 3h` 렌더 +
+  `--json`이 정확한 ms 필드 방출, `--tool claude-code` 스코프·`--status queued`(no-window 분기)·`--tool bogus`
+  (exit 1)·`--help`/`completion bash` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `windows`에 `--group-by
+  tool|project`(툴/프로젝트별 창 길이 비교)나 히스토그램/막대 렌더, timing 블록 MAD. README/ARCHITECTURE(🧭 코워크).

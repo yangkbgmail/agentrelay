@@ -824,6 +824,24 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay windows` — 릴레이가 실제로 겪은 rate-limit **창(window) 길이 분포**(감지→리셋
+      리드 타임). 세션 38이 영속한 `lastRateLimit`(detectedAt·resetAt)를 플릿 레벨로 집계 — `stats`의
+      해결 시간(전체 라이프사이클 updatedAt−createdAt)과 달리 "사용량 락아웃 자체가 얼마나 긴가"라는
+      원(raw) 지표라 용량 계획("내 Claude 한도는 ~5h 뒤 리셋")과 파서 정확성 검증(창이 4초·40일이면
+      거의 확실히 오파싱)에 직결. 자기 발굴 항목.
+      (완료 — core `windows.ts` 신설(순수·파일시스템/시계 미접촉): `computeRateLimitWindows(jobs)` +
+      `RateLimitWindowStats`(total·withWindow·withoutWindow·min/max/avg/median/p90/p95 ms). 각 잡의
+      영속된 `lastRateLimit`에서 `resetAt − detectedAt` 리드 타임을 뽑아 min/max/avg + 백분위수
+      (median/p90/p95, 로컬 type-7 `percentile`)로 집계. detection 부재/미파싱 타임스탬프/음수 span
+      (이미 지난 리셋·클럭 스큐, `stats.ts` resolutionMs와 동일 정책)은 `withoutWindow`로 카운트해
+      분포를 0으로 왜곡하지 않음. CLI `windows.ts`에 순수 `renderWindows`(min/median/p90/p95/max/avg
+      블록, `formatDurationMs` 재사용·scope note·no-window/no-match 문구 분기)·`renderWindowsJson`
+      (patterns와 동일 envelope). `agentrelay windows [--json]` + 공용 `buildScope`(--status/--tool/
+      --project/--since/--until) 재사용, completion 자동 포함. 새 파서/스케줄러 로직 0줄 — 세션 38이
+      영속한 provenance만 읽음. core windows 6 + cli windows 6 신규 테스트(core 620·cli 352 통과),
+      실제 빌드 CLI e2e로 분포·툴 스코프·no-window 분기·`--json`·에러 exit·help/completion 노출 검증.
+      branch `claude/wizardly-pascal-kiyo9f`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
