@@ -610,22 +610,51 @@ export function showJob(idOrPrefix: string, storePath?: string): ShowJobResult {
 export interface PruneJobsOptions extends PruneOptions {
   storePath?: string;
   dryRun?: boolean;
+  /**
+   * Snapshot the store (via {@link RelayQueue.backup}) *before* deleting, so a
+   * mistaken prune stays recoverable. `prune` is destructive and irreversible;
+   * this makes it undo-able. A snapshot is taken only when jobs will actually be
+   * removed — never on a dry run and never when nothing matches.
+   */
+  backup?: boolean;
+  /** Snapshots to retain when `backup` rotates (passed through to `RelayQueue.backup`). */
+  backupKeepLast?: number;
+}
+
+export interface PruneJobsResult {
+  pruned: RelayJob[];
+  remaining: number;
+  /** The snapshot written before deleting, when `backup` took one (else null). */
+  backup: BackupResult | null;
 }
 
 /**
  * Removes old finished jobs from the store (or, with `dryRun`, reports what
- * would be removed without touching the file). Returns the affected jobs plus
- * the remaining count so the CLI can print a summary.
+ * would be removed without touching the file). Returns the affected jobs, the
+ * remaining count, and the pre-prune snapshot (when `backup` requested one) so
+ * the CLI can print a summary.
  */
-export function pruneJobs(options: PruneJobsOptions = {}): { pruned: RelayJob[]; remaining: number } {
-  const { storePath, ...pruneOpts } = options;
+export function pruneJobs(options: PruneJobsOptions = {}): PruneJobsResult {
+  const { storePath, backup: doBackup, backupKeepLast, dryRun, ...pruneRules } = options;
   const queue = openQueue(storePath ?? defaultStorePath());
-  const pruned = queue.prune(pruneOpts);
-  // On a dry run nothing was deleted, so subtract the would-be-pruned count to
-  // report the count that *would* remain (matches the non-dry-run number).
-  const remaining = queue.listAll().length - (pruneOpts.dryRun ? pruned.length : 0);
-  queue.close();
-  return { pruned, remaining };
+  try {
+    // Compute the prune set non-destructively first so we know whether a backup
+    // is even warranted before touching the store.
+    const target = queue.prune({ ...pruneRules, dryRun: true });
+    let backupResult: BackupResult | null = null;
+    // Snapshot only when we're actually going to delete something: a dry run
+    // deletes nothing, and an empty prune set has nothing to protect.
+    if (doBackup && !dryRun && target.length > 0) {
+      backupResult = queue.backup({ keepLast: backupKeepLast });
+    }
+    const pruned = dryRun ? target : queue.prune(pruneRules);
+    // On a dry run nothing was deleted, so subtract the would-be-pruned count to
+    // report the count that *would* remain (matches the non-dry-run number).
+    const remaining = queue.listAll().length - (dryRun ? pruned.length : 0);
+    return { pruned, remaining, backup: backupResult };
+  } finally {
+    queue.close();
+  }
 }
 
 export interface ConfigInitOptions {

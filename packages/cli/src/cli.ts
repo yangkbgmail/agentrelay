@@ -2134,7 +2134,8 @@ export function buildCli(): Command {
     .option("--status <statuses>", "Comma-separated statuses to prune (default: completed,failed)")
     .option("--keep <n>", "Always keep the N most recently updated eligible jobs")
     .option("--dry-run", "Show what would be pruned without deleting anything")
-    .action((opts: { olderThan?: string; status?: string; keep?: string; dryRun?: boolean }) => {
+    .option("--backup", "Snapshot the store before deleting (recoverable via `agentrelay restore`)")
+    .action((opts: { olderThan?: string; status?: string; keep?: string; dryRun?: boolean; backup?: boolean }) => {
       const { store } = program.opts();
 
       let olderThanMs: number | undefined;
@@ -2174,12 +2175,13 @@ export function buildCli(): Command {
         keepLast = n;
       }
 
-      const { pruned, remaining } = pruneJobs({
+      const { pruned, remaining, backup } = pruneJobs({
         storePath: store,
         olderThanMs,
         statuses,
         keepLast,
         dryRun: opts.dryRun,
+        backup: opts.backup,
       });
 
       const verb = opts.dryRun ? "Would prune" : "Pruned";
@@ -2191,6 +2193,13 @@ export function buildCli(): Command {
         console.log(
           `${opts.dryRun ? "-" : "×"} ${job.id.slice(0, 8)}  ${job.project.slice(0, 20).padEnd(20)} ${job.status}`
         );
+      }
+      // Report the pre-prune snapshot: a real one when taken, or a heads-up on a
+      // dry run so `--backup --dry-run` explains what the real run would do.
+      if (backup) {
+        console.log(`Backed up ${backup.jobCount} job(s) to ${backup.path} before pruning.`);
+      } else if (opts.backup && opts.dryRun) {
+        console.log("(--backup would snapshot the store before deleting on a real run.)");
       }
       console.log(`${verb} ${pruned.length} job(s). ${remaining} remain.`);
     });
