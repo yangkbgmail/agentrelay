@@ -1,6 +1,7 @@
 import type { DailyActivity, HourlyActivity, RelayJob, WeekdayActivity } from "@agentrelay/core";
 import {
   computeActivityHeatmap,
+  computeAttemptsDistribution,
   computeDailyTrend,
   computeHourlyDistribution,
   computeStats,
@@ -16,6 +17,7 @@ import {
   NO_GROUP_MESSAGE,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
+  renderAttempts,
   renderGroupedStats,
   renderGroupedStatsJson,
   renderHeatmap,
@@ -573,6 +575,45 @@ describe("renderStatsJson heatmap field", () => {
     expect(withHeatmap.heatmap.cells[1][9]).toBe(1);
     expect(withHeatmap.heatmap.total).toBe(1);
     expect(withHeatmap.heatmap.maxCell).toBe(1);
+  });
+});
+
+describe("renderAttempts", () => {
+  it("renders a bar per attempt bucket, scaled to the busiest, with a total footer", () => {
+    const jobs = [job({ attempts: 0 }), job({ attempts: 1 }), job({ attempts: 1 }), job({ attempts: 3 })];
+    const out = renderAttempts(computeAttemptsDistribution(jobs));
+    expect(out).toContain("by attempts");
+    // The 0 bucket is named so it's not read as a retry count.
+    expect(out).toContain("(not yet resumed)");
+    // Busiest bucket (attempts=1, count 2) gets a full-width bar.
+    const busiest = out.split("\n").find((l) => l.trim().startsWith("1"));
+    expect(busiest).toContain("█");
+    // The gap at attempts=2 is zero-filled with a baseline dot.
+    const gap = out.split("\n").find((l) => l.trim().startsWith("2 "));
+    expect(gap).toContain("·");
+    expect(gap).not.toContain("█");
+    expect(out).toContain("4 job(s) across 4 bucket(s)");
+  });
+
+  it("shows a placeholder for an empty distribution", () => {
+    const out = renderAttempts(computeAttemptsDistribution([]));
+    expect(out).toContain("none");
+    expect(out).not.toContain("█");
+  });
+});
+
+describe("renderStatsJson attempts field", () => {
+  it("omits `attempts` by default but includes the distribution when provided", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("attempts" in without).toBe(false);
+    const attempts = computeAttemptsDistribution([job({ attempts: 0 }), job({ attempts: 2 })]);
+    const withAttempts = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", attempts }));
+    expect(withAttempts.attempts).toEqual([
+      { attempts: 0, count: 1 },
+      { attempts: 1, count: 0 },
+      { attempts: 2, count: 1 },
+    ]);
   });
 });
 

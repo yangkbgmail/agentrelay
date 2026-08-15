@@ -2166,3 +2166,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats --attempts` 시도 횟수 분포 히스토그램] (2026-08-15, 무인 자율 세션, branch `claude/wizardly-pascal-mansbu`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이라, CLAUDE.md 지침대로 스스로 신규 개선 항목을 발굴했다. `computeStats`는
+  `totalAttempts`·`retriedJobs` 두 스칼라로만 재시도 부담을 요약할 뿐, **몇 회 시도에 잡이 몰렸는지**의
+  분포는 노출하지 못했다. 시도 횟수 분포는 릴레이의 핵심 가치("얼마나 많은 잡이 실제로 몇 번 재개돼야
+  했나")를 한눈에 드러내고, 고-시도 잡의 롱테일은 재개가 깨끗이 안 되는 에이전트/환경의 신호다.
+  `--hours`(세션 58)/`--weekday`(59)/`--heatmap`(60) 히스토그램 패턴을 그대로 따르는 순수 추가라 파서/
+  스케줄러 회귀 위험 0.
+- **한 일 (branch `claude/wizardly-pascal-mansbu`):**
+  - core `stats.ts`에 순수 `computeAttemptsDistribution(jobs)` + `AttemptsBucket`(attempts·count) 신설 —
+    각 잡의 `attempts`(enqueue 0, 매 resume +1; `totalAttempts`가 합산하는 그 필드)를 버킷팅, 0부터 최다
+    관측 시도값까지 **연속**(중간 갭 zero-fill)으로 반환해 "first-try vs 재시도"가 한눈에 읽히게 함. 빈
+    스토어는 빈 배열, 음수·비유한 시도값은 방어적으로 스킵, 소수는 floor. 창/시계 불필요(시도수는 잡의
+    본질 속성).
+  - CLI `stats.ts`에 순수 `renderAttempts`(버킷당 ASCII 막대, 최다 버킷에 스케일·0버킷은 baseline 점·
+    `0`행은 "(not yet resumed)"로 의미 명시·합계 푸터) + `renderStatsJson`에 옵셔널 `attempts` 필드(요청
+    시에만 방출, 기존 JSON shape 불변). `cli.ts` `stats`에 `--attempts` 배선 — 일회성·`--json`·`--watch`
+    세 뷰 모두 적용(`runStatsWatch`에 파라미터 추가), 기존 스코프 필터(--status/--tool/--project/--since/
+    --until) 및 `--hours`/`--weekday`/`--heatmap`/`--trend`와도 조합 가능. 새 파서/스케줄러 로직 0줄.
+  - core stats.test +6(빈/연속버킷/0앵커/음수·NaN 스킵/소수 floor/불변) + cli stats.test renderAttempts 2 +
+    JSON attempts 필드 1 신규.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 620 · cli 348/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): attempts {0,1,1,3,1}
+  임시 스토어로 `stats --attempts`가 0(not yet resumed)·1(풀바 3)·2(baseline 점 0)·3 버킷을 정확히 렌더 +
+  `--json`이 `attempts` 배열 방출 + `stats --help`에 `--attempts` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stats --group-by`의
+  그룹별 행에도 시도 분포 요약(mean attempts) 노출, timing 블록 MAD(median absolute deviation). tz/heatmap/
+  parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

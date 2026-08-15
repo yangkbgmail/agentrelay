@@ -824,6 +824,19 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay stats --attempts` — 시도 횟수 분포 히스토그램(몇 회 재개에 잡이 몰렸나 = 재시도
+      부담을 한눈에). `totalAttempts`·`retriedJobs` 두 스칼라가 접어버린 분포의 모양을 드러냄. 자기 발굴 항목.
+      (완료 — core `stats.ts`에 순수 `computeAttemptsDistribution(jobs)` + `AttemptsBucket`(attempts·count)
+      신설. 각 잡의 `attempts`(enqueue 0, 매 resume +1; `totalAttempts`가 합산하는 그 필드)를 버킷팅해 0부터
+      최다 관측값까지 **연속**(중간 갭 zero-fill)으로 반환 — 0 앵커라 "first-try vs 재시도"가 한눈에 읽힘.
+      빈 스토어는 빈 배열, 음수·비유한 시도값은 방어적 스킵, 소수 floor. 창/시계 불필요. CLI `stats.ts`에
+      순수 `renderAttempts`(버킷당 ASCII 막대, 최다 버킷 스케일·0버킷 baseline 점·`0`행 "(not yet resumed)"
+      의미 명시·합계 푸터) + `renderStatsJson`에 옵셔널 `attempts` 필드(요청 시에만 방출, 기존 shape 불변).
+      `cli.ts` `stats`에 `--attempts` 배선 — 일회성·`--json`·`--watch` 세 뷰 모두, 기존 스코프 필터 및
+      `--hours`/`--weekday`/`--heatmap`/`--trend`와 조합 가능. 새 파서/스케줄러 로직 0줄. core stats +6 +
+      cli stats +3 신규 테스트, 실제 빌드 CLI e2e로 0(not yet resumed)/1(풀바)/2(gap 점)/3 버킷·`--json`
+      attempts 배열·help 노출 검증. branch `claude/wizardly-pascal-mansbu`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
