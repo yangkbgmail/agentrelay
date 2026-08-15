@@ -824,6 +824,20 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay stats` 해결 시간 MAD(중앙값 절대편차) — stdev·IQR·CV에 더해 이상치에 가장 강건한
+      퍼짐 측도를 노출. 세션 68이 후속 후보로 지목한 자기 발굴 항목.
+      (완료 — stdev·cv는 평균 기반이라 단 하나의 pathological 이상치[오래 돌본 잡]에 크게 끌리고, IQR은
+      두 사분위수만 읽어 중심에서의 전형적 거리를 안 본다. MAD=median(|span−median|)는 이상치가 중심 너머로
+      표본 하나를 밀 뿐이라 거의 안 움직이는, 여기 지표 중 가장 이상치-강건한 측도. core `stats.ts`의
+      `TimingStats`에 `madResolutionMs`(whole ms, null 가능) + 순수 `medianAbsoluteDeviation(sortedAsc,
+      median)` 헬퍼(abs 편차 정렬 후 기존 `percentile`로 p50) 추가. `computeStats`가 median(p50)을 한 번만
+      계산해 `medianResolutionMs`와 MAD 양쪽 재사용. resolved 0개면 null, 단일 잡이면 0. CLI `stats.ts`
+      resolution-time spread 라인 `stdev` 뒤에 `mad <duration>` 삽입(`formatDurationMs` 재사용), `--json`은
+      timing 직렬화라 자동 노출. 새 파서/스케줄러 로직 0줄. core stats +3 단언({1h,3h} mad 1h·단일 잡 0·
+      {1h,1h,1h,20h}→mad 0인데 stdev>1h 강건성) + 빈 timing toEqual 두 곳 갱신, cli stats render `mad 1h 0m`
+      단언 신규. 실제 빌드 CLI e2e로 {1h,1h,1h,20h}→`stdev 8h 13m mad <1s cv 143%`(이상치가 stdev·cv는
+      부풀리지만 MAD는 불변)·`--json` madResolutionMs 방출 검증. branch `claude/wizardly-pascal-itk46y`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

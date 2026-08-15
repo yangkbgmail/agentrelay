@@ -60,6 +60,7 @@ describe("computeStats", () => {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      madResolutionMs: null,
     });
   });
 
@@ -227,6 +228,8 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(3_600_000);
     // cv = stdev / mean = 1h / 2h = 0.5 (scale-free ratio)
     expect(stats.timing.cvResolution).toBe(0.5);
+    // median 2h; abs deviations |1h-2h|=1h, |3h-2h|=1h → median of [1h,1h] = 1h
+    expect(stats.timing.madResolutionMs).toBe(3_600_000);
   });
 
   it("collapses spread metrics to zero for a single resolved job", () => {
@@ -239,6 +242,25 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(0);
     // single span: stdev 0, nonzero mean → cv 0 (no spread, well-defined)
     expect(stats.timing.cvResolution).toBe(0);
+    // single span: deviation from itself is 0 → mad 0 (no spread)
+    expect(stats.timing.madResolutionMs).toBe(0);
+  });
+
+  it("keeps MAD outlier-robust where stdev balloons", () => {
+    const at = (h: number) => `2026-07-13T${String(h).padStart(2, "0")}:00:00.000Z`;
+    const stats = computeStats([
+      // three tight 1h resolutions plus one wild 20h outlier
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "failed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(20) }), // 20h outlier
+    ]);
+    // sorted spans [1h, 1h, 1h, 20h]; median (rank 1.5) interpolates 1h & 1h = 1h.
+    expect(stats.timing.medianResolutionMs).toBe(3_600_000);
+    // abs deviations [0, 0, 0, 19h] → median (rank 1.5) = 0: the outlier barely moves MAD.
+    expect(stats.timing.madResolutionMs).toBe(0);
+    // stdev, by contrast, is dragged far above the typical 0 spread by the one outlier.
+    expect(stats.timing.stdevResolutionMs).toBeGreaterThan(3_600_000);
   });
 
   it("excludes cancelled and still-active jobs from resolution timing", () => {
@@ -298,6 +320,7 @@ describe("computeStats", () => {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      madResolutionMs: null,
     });
   });
 });

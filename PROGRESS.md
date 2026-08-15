@@ -2166,3 +2166,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats` 해결 시간 MAD(중앙값 절대편차)] (2026-08-15, 무인 자율 세션, branch `claude/wizardly-pascal-itk46y`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이라, 세션 68이 "다음 할 일"로 명시한 후속 후보 중 **MAD(median absolute
+  deviation)**를 자기 발굴 항목으로 골랐다. 기존 분산 지표 중 stdev·cv는 평균 기반이라 단 하나의
+  pathological 이상치(오래 돌본 잡)에 크게 끌리고, IQR은 두 사분위수만 읽어 중심에서의 전형적 거리를
+  안 본다. MAD는 median(|span − median|)이라 이상치가 중심 너머로 표본 하나를 밀 뿐이라 거의 안 움직이는,
+  여기 지표 중 가장 이상치-강건한 퍼짐 측도다. 작은 MAD 옆의 큰 stdev = "평소 일관, 드문 폭주 이상치" 신호.
+- **한 일 (branch `claude/wizardly-pascal-itk46y`):**
+  - core `stats.ts`의 `TimingStats`에 `madResolutionMs`(whole ms, null 가능) 추가 + 순수
+    `medianAbsoluteDeviation(sortedAsc, median)` 헬퍼(median 재사용, abs 편차 정렬 후 기존 `percentile`로
+    p50). `computeStats`가 median(p50)을 한 번만 계산해 `medianResolutionMs`와 MAD 양쪽에 재사용. resolved
+    0개면 null, 단일 잡이면 0(편차 0). 기존 정렬 위에 편차 배열 하나만 추가 — 새 파서/스케줄러 로직 0줄.
+  - CLI `stats.ts`의 resolution-time spread 라인 `stdev` 뒤에 `mad N%` 형식으로 `mad <duration>` 삽입
+    (`formatDurationMs` 재사용). `--json`은 timing 전체 직렬화라 자동 노출(기존 shape 불변).
+  - core stats.test +3 단언({1h,3h} mad 1h·단일 잡 mad 0) + 이상치 강건성 전용 테스트({1h,1h,1h,20h}→
+    mad 0인데 stdev>1h) 신규, 빈 timing `toEqual` 두 곳에 `madResolutionMs: null` 추가. cli stats.test에
+    render `mad 1h 0m` 단언 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 615 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): spans {1h,1h,1h,20h}
+  임시 스토어로 `stats`가 `stdev 8h 13m   mad <1s   cv 143%` 렌더(이상치가 stdev·cv는 부풀리지만 MAD는
+  <1s로 거의 불변) + `--json`이 `stats.timing.madResolutionMs` 방출({1h,20h}→median 10.5h·mad 9.5h) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stats --group-by`의
+  그룹별 행에 spread(cv/mad) 노출, timing 블록에 skewness(비대칭도). tz/heatmap/parser/watch·summary
+  --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
