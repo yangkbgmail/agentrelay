@@ -2166,3 +2166,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `prune --backup` 안전망 + PR 포화 경고] (2026-08-15, 무인 자율 세션)
+- **배경/발견:** 세션 시작 시 BACKLOG의 명시적 👷 항목은 전부 완료, 남은 것은 🧭(코워크) 문서/리서치뿐.
+  CLAUDE.md 지침대로 새 항목을 발굴하던 중 **열린 PR이 50개로 심각하게 포화**됨을 확인했다. 특히
+  해결 시간 MAD 지표 PR만 **12개 이상 중복**(#682/#681/#680/#675/#674/#671/#670/#669/#663/#660/#656/#654/
+  #653/#649/#648 등)이고, 처음 자기 발굴한 파서 명명-타임존 기능도 이미 **PR #650**(`claude/parser-clock-timezone`)이
+  동일하게 구현해 열려 있었다. main 브랜치 보호로 병합이 밀리며 매시간 무기억 세션이 겹치는 항목을
+  재구현하는 **중복 PR 루프**가 재발 중. → 중복을 피해 **열린 PR 50개가 하나도 건드리지 않은 영역**
+  (backup/prune)에서 신규·안전 기능을 골랐다.
+- **한 일 (branch `claude/wizardly-pascal-gclnv6`): `agentrelay prune --backup`**
+  - `prune`은 종료 잡을 영구 삭제하는 되돌릴 수 없는 연산인데, 스코프(--status/--older-than/--keep)를
+    잘못 주면 원치 않는 잡까지 사라졌다. 이미 있는 `RelayQueue.backup`(세션 42)·`restore`(세션 44)를
+    prune 경로에 엮어 안전망을 만들었다.
+  - CLI `commands.ts` `pruneJobs`에 `backup?`/`backupKeepLast?` 옵션 + 반환 `backup: BackupResult | null`
+    추가. 큐를 한 번 열고 (1) prune 대상을 **비파괴 dry-run으로 먼저 계산**, (2) 실제 삭제가 일어날
+    때만(dry-run 아님 + 대상>0) 삭제 **전** 전체 스토어를 원자적 스냅샷, (3) 실제 prune. dry-run·무매칭이면
+    스냅샷 생략(잃을 게 없음 → 불필요한 백업 파일 축적 방지).
+  - `cli.ts` prune에 `--backup` 배선 — 실전이면 `Backed up N job(s) to … before pruning.`,
+    `--backup --dry-run`이면 `(--backup would snapshot …)` 힌트. 스냅샷은 기존 `agentrelay restore`가
+    그대로 인식(형제 명령 재사용, 새 복원/스냅샷 로직 0줄).
+  - 새 core 코드 0줄 — 검증된 backup/prune 프리미티브만 조합.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 614 · cli 348/1skip · dashboard 9**, cli +3). **실제 빌드 CLI e2e**(mock 아님): 완료/실패/대기
+  3-잡 임시 스토어로 `prune --backup --dry-run`(백업 파일 없음 + "would snapshot" 힌트)→`prune --backup`
+  (3잡 스냅샷 + 2 종료잡 삭제, 대기잡 보존)→`restore latest`(3잡 완전 복구) 왕복 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open. **⚠️ 다음 세션/사람에게: 최우선은 새 기능이 아니라
+  열린 PR 50개(특히 MAD 12중복)의 병합·정리다.** 빌드는 포화 상태라 추가 PR은 한계효용이 낮음. COLLAB.md
+  병합 정책(CI 초록이면 클로드 코드 병합 가능, 단 사람이 기본 게이트)에 따라 CI 초록·clean PR을 병합하고
+  중복은 사유 코멘트와 함께 닫아 루프를 끊을 것(세션 3·8·10 선례). CI 초록 판정은 `actions_list`로 확인
+  (세션 10 참고, `get_status`는 total_count:0 오판).

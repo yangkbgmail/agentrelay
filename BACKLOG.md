@@ -824,6 +824,22 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay prune --backup` — 파괴적 prune 직전 스토어 자동 스냅샷(잘못된 prune을 복구
+      가능하게). backup/prune은 이미 있지만 결합이 없어, prune으로 실수로 지운 잡은 되돌릴 수 없었다.
+      (완료 — `prune`은 종료 잡을 영구 삭제하는 되돌릴 수 없는 연산인데, 스코프(--status/--older-than/
+      --keep)를 잘못 주면 원치 않는 잡까지 사라졌다. 이미 있는 `RelayQueue.backup`(세션 42)과 `restore`
+      (세션 44)를 prune 경로에 엮어 안전망을 만들었다. CLI `commands.ts` `pruneJobs`에 `backup?`/
+      `backupKeepLast?` 옵션 + 반환에 `backup: BackupResult | null` 추가 — 큐를 한 번 열고 (1) prune 대상을
+      **비파괴 dry-run으로 먼저 계산**해 백업이 필요한지 판단, (2) 실제 삭제가 일어날 때만(=dry-run 아님 +
+      대상>0) `queue.backup()`으로 삭제 **전** 전체 스토어를 원자적 스냅샷, (3) 실제 prune. dry-run이거나
+      매칭 0건이면 스냅샷을 만들지 않아(잃을 게 없음) 불필요한 백업 파일 축적 방지. `cli.ts` prune에
+      `--backup` 배선 — 실전이면 `Backed up N job(s) to … before pruning.`, `--backup --dry-run`이면
+      `(--backup would snapshot …)` 힌트. 스냅샷은 기존 `agentrelay restore`가 그대로 인식(형제 명령
+      재사용, 새 복원 로직 0줄). 새 core 코드 0줄 — 검증된 backup/prune 프리미티브만 조합. cli
+      commands.test +3(전체 스냅샷+생존 잡 검증·dry-run 무백업·무매칭 무백업), 실제 빌드 CLI e2e로
+      prune --backup --dry-run(무파일)→prune --backup(3잡 스냅샷·2잡 삭제)→restore(3잡 복구) 왕복 검증.
+      branch `claude/wizardly-pascal-gclnv6`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

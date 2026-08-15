@@ -390,6 +390,51 @@ describe("pruneJobs", () => {
     // Store untouched.
     expect(listStatus(storePath)).toHaveLength(1);
   });
+
+  it("--backup snapshots the full store before deleting so the prune is recoverable", () => {
+    const queue = new RelayQueue(storePath);
+    const done = queue.enqueue({ project: "a", tool: "claude-code", command: ["x"], cwd: "/tmp" });
+    queue.markCompleted(done.id);
+    const active = queue.enqueue({ project: "b", tool: "claude-code", command: ["y"], cwd: "/tmp" });
+    queue.markWaitingForReset(active.id, new Date(Date.now() + 60_000).toISOString());
+    queue.close();
+
+    const { pruned, backup } = pruneJobs({ storePath, backup: true });
+    expect(pruned.map((j) => j.id)).toEqual([done.id]);
+    expect(backup).not.toBeNull();
+    // Snapshot captured BOTH jobs (the pre-prune state), while the live store
+    // now holds only the surviving active job.
+    expect(backup?.jobCount).toBe(2);
+    expect(existsSync(backup!.path)).toBe(true);
+    const snapshot = JSON.parse(readFileSync(backup!.path, "utf8")) as RelayJob[];
+    expect(snapshot.map((j) => j.id).sort()).toEqual([done.id, active.id].sort());
+    expect(listStatus(storePath).map((j) => j.id)).toEqual([active.id]);
+  });
+
+  it("--backup takes no snapshot on a dry run (nothing is deleted)", () => {
+    const queue = new RelayQueue(storePath);
+    const done = queue.enqueue({ project: "a", tool: "claude-code", command: ["x"], cwd: "/tmp" });
+    queue.markCompleted(done.id);
+    queue.close();
+
+    const { pruned, backup } = pruneJobs({ storePath, backup: true, dryRun: true });
+    expect(pruned).toHaveLength(1);
+    expect(backup).toBeNull();
+    expect(listStoreBackups(storePath)).toHaveLength(0);
+    expect(listStatus(storePath)).toHaveLength(1);
+  });
+
+  it("--backup takes no snapshot when nothing matches the prune rules", () => {
+    const queue = new RelayQueue(storePath);
+    const active = queue.enqueue({ project: "b", tool: "claude-code", command: ["y"], cwd: "/tmp" });
+    queue.markWaitingForReset(active.id, new Date(Date.now() + 60_000).toISOString());
+    queue.close();
+
+    const { pruned, backup } = pruneJobs({ storePath, backup: true });
+    expect(pruned).toHaveLength(0);
+    expect(backup).toBeNull();
+    expect(listStoreBackups(storePath)).toHaveLength(0);
+  });
 });
 
 describe("initConfig", () => {
