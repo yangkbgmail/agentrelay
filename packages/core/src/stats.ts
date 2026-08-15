@@ -86,6 +86,19 @@ export interface TimingStats {
    * > 1 heavy-tailed. Rounded to 4 decimals.
    */
   cvResolution: number | null;
+  /**
+   * Median absolute deviation (ms): the median of |span − median|, or null when
+   * none. The most outlier-robust spread measure here — where the population
+   * {@link stdevResolutionMs} squares every deviation (so one pathological
+   * long-babysat job dominates it) and even the {@link iqrResolutionMs} depends
+   * on the quartile positions, MAD asks the plain question "how far from the
+   * typical case does a typical resolution sit?" A single wild outlier moves the
+   * MAD by at most one rank. Read alongside stdev: stdev ≫ MAD is the signature
+   * of heavy tails. Left unscaled (no ×1.4826 normal-consistency factor) so it
+   * stays a direct ms deviation rather than a stdev estimate that assumes a
+   * distribution resolution times don't follow. Rounded to whole ms.
+   */
+  madResolutionMs: number | null;
 }
 
 export interface RelayStats {
@@ -422,6 +435,19 @@ function coefficientOfVariation(values: number[], mean: number): number | null {
 }
 
 /**
+ * Median absolute deviation: the median of the absolute deviations from the
+ * `median`, rounded to whole ms. Unlike the mean-based stdev, one outlier can
+ * shift this by at most a rank, so it reports the *typical* distance from the
+ * typical case. The absolute deviations form a V around the median and are not
+ * sorted even when `values` is, so they're re-sorted before the inner median.
+ * A single value yields 0 (no spread). Callers guarantee non-empty input.
+ */
+function medianAbsoluteDeviation(values: number[], median: number): number {
+  const deviations = values.map((v) => Math.abs(v - median)).sort((a, b) => a - b);
+  return percentile(deviations, 0.5);
+}
+
+/**
  * Aggregates a job list into headline relay metrics for `agentrelay stats`.
  * Pure and non-mutating: no I/O, no ambient clock. Reuses {@link summarizeJobs}
  * for the per-status counts and next-reset so the two surfaces never drift.
@@ -475,11 +501,13 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      madResolutionMs: null,
     };
   } else {
     // Sort once ascending; percentiles read from it, min/max are its ends.
     const sorted = [...resolutionDurations].sort((a, b) => a - b);
     const mean = sorted.reduce((sum, d) => sum + d, 0) / resolvedCount;
+    const median = percentile(sorted, 0.5);
     const p25 = percentile(sorted, 0.25);
     const p75 = percentile(sorted, 0.75);
     timing = {
@@ -487,7 +515,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       avgResolutionMs: Math.round(mean),
       minResolutionMs: sorted[0],
       maxResolutionMs: sorted[resolvedCount - 1],
-      medianResolutionMs: percentile(sorted, 0.5),
+      medianResolutionMs: median,
       p90ResolutionMs: percentile(sorted, 0.9),
       p95ResolutionMs: percentile(sorted, 0.95),
       p99ResolutionMs: percentile(sorted, 0.99),
@@ -496,6 +524,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       iqrResolutionMs: p75 - p25,
       stdevResolutionMs: populationStdev(sorted, mean),
       cvResolution: coefficientOfVariation(sorted, mean),
+      madResolutionMs: medianAbsoluteDeviation(sorted, median),
     };
   }
 

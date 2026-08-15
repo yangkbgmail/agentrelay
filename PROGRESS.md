@@ -2166,3 +2166,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats` 해결 시간 MAD(중앙값 절대편차)] (2026-08-15, 무인 자율 세션, branch `claude/wizardly-pascal-xk6oia`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 68이 후속 후보로 명시한 "timing 블록 MAD(median absolute
+  deviation, 이상치에 더 강건한 분산)"를 골랐다 — watch/tz/heatmap/parser 축은 PR 포화라 지양 권고가
+  반복돼 있었다. 기존 분산 지표(모표준편차·CV)는 편차를 제곱해 합산하므로 단 하나의 병적으로 오래
+  돌본 잡이 값을 지배했고, IQR조차 사분위 위치에 의존했다. MAD는 중앙값에서의 절대편차의 중앙값이라
+  이상치가 순위를 한 칸 움직일 뿐 → 가장 강건한 "전형적 잡이 전형적 케이스에서 얼마나 떨어져 있나".
+- **한 일 (branch `claude/wizardly-pascal-xk6oia`):**
+  - core `stats.ts`의 `TimingStats`에 `madResolutionMs`(반올림 ms, null 가능) 추가 + 순수
+    `medianAbsoluteDeviation(values, median)` 헬퍼. 절대편차는 values가 오름차순이어도 중앙값 기준
+    V자라 정렬돼 있지 않으므로 재정렬 후 내부 median에 기존 `percentile`(type-7 보간) 재사용 → 새
+    정렬 알고리즘 0줄. 정규분포 일관성 계수(×1.4826)를 곱하지 않아 stdev 추정치가 아닌 직접적 ms
+    편차로 유지(해결시간이 따르지 않는 분포 가정 배제). resolved 0개면 null, 단일 잡이면 0.
+  - CLI `stats.ts` resolution-time spread 라인 `stdev`와 `cv` 사이에 `mad …` 추가(기존 `formatDurationMs`
+    재사용), `--json`은 timing 전체 직렬화라 자동 노출(기존 shape 불변). 새 파서/스케줄러/core 집계
+    로직 0줄 — 이미 오름차순 정렬한 배열과 계산된 median 위에 필드 하나 추가.
+  - core stats.test +2 단언(2-잡 mad 1h·단일 잡 mad 0) + 이상치 강건성 전용 테스트({1h×4,10h}→
+    median 1h·mad 0인데 stdev>1h) + 두 full-shape timing 단언에 madResolutionMs:null, cli stats.test
+    render `mad 1h 0m` 단언 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 615 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): spans {1h×4,10h}
+  임시 스토어로 `stats`가 `spread: … stdev 3h 36m   mad <1s   cv 129%` 렌더 + `--json`이
+  `timing.madResolutionMs: 0`(이상치에 불변) 방출 확인 — stdev은 3h36m으로 부풀지만 MAD는 0으로 강건함을
+  실증.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stats --group-by`
+  그룹별 행에도 cv/mad 노출, timing 블록에 skewness(비대칭도). tz/heatmap/parser/watch·summary --watch는
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

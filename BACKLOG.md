@@ -824,6 +824,22 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay stats` 해결 시간 중앙값 절대편차(MAD=median(|span−median|)) — stdev·CV보다
+      이상치에 강건한 분산 지표. 세션 68이 후속 후보로 지목한 항목.
+      (완료 — 기존 분산 지표(모표준편차·CV)는 편차를 제곱해 합산하므로 단 하나의 병적으로 오래
+      돌본 잡이 값을 지배했다. MAD는 중앙값에서의 절대편차의 중앙값이라 이상치가 순위를 한 칸
+      움직일 뿐 → "전형적 잡이 전형적 케이스에서 얼마나 떨어져 있나"를 곧이곧대로 보고. stdev ≫ MAD면
+      무거운 꼬리(heavy tail)의 신호. core `stats.ts`의 `TimingStats`에 `madResolutionMs`(반올림 ms)
+      추가 + 순수 `medianAbsoluteDeviation(values, median)` 헬퍼(절대편차는 values가 정렬돼도 중앙값
+      기준 V자라 재정렬 후 내부 median에 기존 `percentile` 재사용 → 새 정렬 알고리즘 0줄). 정규분포
+      일관성 계수(×1.4826)를 곱하지 않아 stdev 추정치가 아닌 직접적 ms 편차로 유지(해결시간이 따르지
+      않는 분포 가정 배제). resolved 0개면 null, 단일 잡이면 0. CLI `stats.ts` resolution-time spread
+      라인 stdev와 cv 사이에 `mad …` 추가, `--json`은 timing 전체 직렬화라 자동 노출. 새 파서/스케줄러
+      로직 0줄. core stats +2 단언(2-잡 mad 1h·단일 잡 mad 0) + 이상치 강건성 전용 테스트({1h×4,10h}→
+      mad 0인데 stdev>1h) + cli stats render `mad 1h 0m` 단언. 실제 빌드 CLI e2e로 spans {1h×4,10h}→
+      `mad <1s` vs `stdev 3h 36m`·`--json` madResolutionMs:0 방출 검증. branch
+      `claude/wizardly-pascal-xk6oia`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
