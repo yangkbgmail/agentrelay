@@ -2166,3 +2166,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats` 해결 시간 MAD(median absolute deviation)] (2026-08-15, 무인 자율 세션, branch `claude/wizardly-pascal-n2xtux`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 68이 후속 후보로 명시한 "timing 블록 MAD"를 골랐다 — watch 축은
+  PR 포화라 지양 권고가 반복돼 있었다. 기존 분산 지표는 stdev(편차를 제곱 → 한 개의 장기 babysat 잡이
+  지표를 지배)·IQR(분위수 폭)·CV(스케일 프리 비율)였는데, 이상치에 **가장** 강건한 척도가 빠져 있었다.
+  MAD = median(|xᵢ − median|)는 "전형적 케이스로부터의 전형적 편차"라, MAD가 stdev보다 훨씬 작으면
+  "평소엔 일관적, 드물게 튀는 꼬리"의 깨끗한 신호가 된다.
+- **한 일 (branch `claude/wizardly-pascal-n2xtux`):**
+  - core `stats.ts`의 `TimingStats`에 `madResolutionMs`(whole ms, null 가능) 추가 + 순수
+    `medianAbsoluteDeviation(sortedAsc, median)` 헬퍼. median으로부터의 절대 편차를 정렬해 기존
+    `percentile`(type-7 median)을 재사용 → 보고된 median과 정확히 일치, 새 정렬 계열 로직 최소.
+    이미 계산한 median을 인자로 넘겨 재계산 없음. resolved 0개면 null, 단일 잡이면 0(분산 없음).
+  - CLI `stats.ts` resolution-time spread 라인에 `mad …`를 `stdev …`와 `cv …` 사이에 삽입.
+    `--json`은 timing 전체 직렬화라 자동 노출(기존 shape 불변). 새 파서/스케줄러/core 집계 로직 0줄.
+  - core stats.test +3 단언(2-잡 mad 1h·단일 잡 mad 0·**이상치 강건성** [1,1,1,10]h→median 1h·mad 0
+    vs stdev>3h), cli stats.test render `mad 1h 0m` 단언 신규. 두 timing `toEqual` shape에 madnull 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 615 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): spans {1h,1h,1h,10h}
+  임시 스토어로 `stats`가 `spread: … stdev 3h 53m   mad <1s   cv 120%` 렌더 — 이상치가 stdev(3h53m)는
+  지배하지만 median(1h)·MAD(0)는 못 건드림 확인, `--json`이 `madResolutionMs: 0`·`stdevResolutionMs:
+  14029612` 방출, 빈 스토어로 `madResolutionMs: null` 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stats --group-by`
+  그룹별 행에 cv/mad 노출, timing 블록에 왜도(skewness)·첨도(kurtosis). tz/heatmap/parser/watch·
+  summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

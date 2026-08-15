@@ -60,6 +60,7 @@ describe("computeStats", () => {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      madResolutionMs: null,
     });
   });
 
@@ -227,6 +228,25 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(3_600_000);
     // cv = stdev / mean = 1h / 2h = 0.5 (scale-free ratio)
     expect(stats.timing.cvResolution).toBe(0.5);
+    // median 2h; |1h-2h|=1h, |3h-2h|=1h → median deviation = 1h
+    expect(stats.timing.madResolutionMs).toBe(3_600_000);
+  });
+
+  it("computes a MAD that resists a single outlier the stdev cannot", () => {
+    const at = (h: number) => `2026-07-13T${String(h).padStart(2, "0")}:00:00.000Z`;
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "completed", createdAt: at(1), updatedAt: at(2) }), // 1h
+      job({ status: "completed", createdAt: at(2), updatedAt: at(3) }), // 1h
+      job({ status: "failed", createdAt: at(0), updatedAt: at(10) }), // 10h outlier
+    ]);
+    // sorted spans [1h, 1h, 1h, 10h]; median = 1h
+    expect(stats.timing.medianResolutionMs).toBe(3_600_000);
+    // deviations from median [0, 0, 0, 9h] → median deviation = 0: the lone
+    // outlier moves neither the median nor the MAD.
+    expect(stats.timing.madResolutionMs).toBe(0);
+    // the same outlier drags the stdev far above the MAD — the whole point.
+    expect(stats.timing.stdevResolutionMs).toBeGreaterThan(3 * 3_600_000);
   });
 
   it("collapses spread metrics to zero for a single resolved job", () => {
@@ -239,6 +259,8 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(0);
     // single span: stdev 0, nonzero mean → cv 0 (no spread, well-defined)
     expect(stats.timing.cvResolution).toBe(0);
+    // single span: deviation from median is 0 → mad 0
+    expect(stats.timing.madResolutionMs).toBe(0);
   });
 
   it("excludes cancelled and still-active jobs from resolution timing", () => {
@@ -298,6 +320,7 @@ describe("computeStats", () => {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      madResolutionMs: null,
     });
   });
 });
