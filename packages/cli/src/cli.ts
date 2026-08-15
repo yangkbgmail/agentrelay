@@ -64,6 +64,7 @@ import {
   pruneJobs,
   readHealthReport,
   readLocationReport,
+  recoverJobs,
   restoreStore,
   retryJob,
   runCommand,
@@ -90,6 +91,7 @@ import { buildParseReport, renderParseReport, renderParseReportJson } from "./pa
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
+import { type RecoverResult, renderRecover, renderRecoverJson } from "./recover.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
   formatUtcOffsetLabel,
@@ -2124,6 +2126,40 @@ export function buildCli(): Command {
       } catch (error) {
         console.error(`[agentrelay] ${error instanceof Error ? error.message : String(error)}`);
         process.exitCode = 1;
+      }
+    });
+
+  program
+    .command("recover")
+    .description("Requeue jobs orphaned mid-resume (a crashed daemon/tick left them stuck in 'resuming')")
+    .option(
+      "--older-than <duration>",
+      "Only recover jobs stuck resuming for at least this long (default 30m; 0s = all)"
+    )
+    .option("--dry-run", "Show what would be recovered without changing the store")
+    .option("--json", "Output machine-readable JSON")
+    .action((opts: { olderThan?: string; dryRun?: boolean; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let stuckAfterMs: number | undefined;
+      if (opts.olderThan !== undefined) {
+        const parsed = parseDuration(opts.olderThan);
+        if (parsed === null) {
+          console.error(`Invalid --older-than value "${opts.olderThan}". Use a duration like 30m, 1h, 90s, 0s.`);
+          process.exitCode = 1;
+          return;
+        }
+        stuckAfterMs = parsed;
+      }
+
+      const { report, recovered, dryRun } = recoverJobs({ storePath: store, stuckAfterMs, dryRun: opts.dryRun, now });
+      const result: RecoverResult = { report, recovered, dryRun };
+
+      if (opts.json) {
+        console.log(renderRecoverJson(result, store ?? defaultStorePath(), new Date(now).toISOString()));
+      } else {
+        console.log(renderRecover(result, { color: Boolean(process.stdout.isTTY), now }));
       }
     });
 
