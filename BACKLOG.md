@@ -824,6 +824,18 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay stats` 해결 시간 중앙값 절대편차(MAD=median of |xᵢ−median|) — 절대 ms 분산
+      지표(stdev·IQR)·무차원 CV에 더해, 이상치에 가장 강건한 퍼짐을 노출. 세션 68이 후속 후보로 지목.
+      (완료 — stdev은 단 하나의 병적 롱테일 잡에 끌려 올라가고 IQR도 사분위 이동에 흔들리는데, MAD는
+      중앙값에서의 전형적 거리라 소수 극단값에 거의 안 움직인다. stdev과 나란히 읽으면 "넓은 변동성이냐
+      몇몇 극단값이냐"가 바로 드러난다. core `stats.ts`의 `TimingStats`에 `madResolutionMs`(정수 ms,
+      null 가능) 추가 + 순수 `medianAbsoluteDeviation(sortedAsc, median)` 헬퍼(|x−median|는 x에 단조가
+      아니라 재정렬 후 기존 `percentile` 재사용, 이미 계산한 median 주입). resolved 0개면 null, 단일
+      잡이면 0. CLI `stats.ts` spread 라인의 `stdev`↔`cv` 사이에 `mad N`, `--json`은 timing 직렬화라
+      자동 노출. 새 파서/스케줄러 로직 0줄. core stats +2 + cli render 단언 신규, 실제 빌드 CLI e2e로
+      1h×3+21h→mad<1s(stdev 8h39m 대비)·{1h,3h}→madResolutionMs 3600000 검증. branch
+      `claude/wizardly-pascal-n6inw1`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

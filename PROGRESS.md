@@ -2166,3 +2166,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats` 해결 시간 MAD(중앙값 절대편차)] (2026-08-15, 무인 자율 세션, branch `claude/wizardly-pascal-n6inw1`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 68이 후속 후보로 명시한 "timing 블록 MAD(median absolute deviation,
+  이상치에 더 강건한 분산)"를 골랐다 — watch 축(summary --watch 등)은 PR 포화라 지양 권고가 반복돼 있었다.
+  기존 분산 지표 stdev은 단 하나의 병적 롱테일 잡에 끌려 올라가고, IQR도 사분위 이동에 흔들린다. MAD는
+  중앙값에서의 전형적 거리(median of |xᵢ−median|)라 소수의 극단값에 거의 움직이지 않아, "퍼짐이 넓은
+  변동성 때문인지 몇몇 극단값 때문인지"를 stdev과 나란히 읽으면 바로 드러난다.
+- **한 일 (branch `claude/wizardly-pascal-n6inw1`):**
+  - core `stats.ts`의 `TimingStats`에 `madResolutionMs`(정수 ms, null 가능) 추가 + 순수
+    `medianAbsoluteDeviation(sortedAsc, median)` 헬퍼 신설. |x−median| 절대편차는 x에 단조가 아니므로
+    재정렬 후 기존 `percentile`(type-7 중앙값)을 center와 편차 중앙값 양쪽에 재사용 — 새 정렬 로직 최소.
+    이미 계산한 median을 인자로 받아 재계산 회피. resolved 0개면 null, 단일 잡이면 0(편차 없음).
+  - CLI `stats.ts`의 resolution-time spread 라인에 `stdev`와 `cv` 사이에 `mad N` 추가. `--json`은 timing
+    전체 직렬화라 자동 노출(기존 shape 불변). 새 파서/스케줄러/core 집계 로직 0줄.
+  - core stats.test +2 케이스(3-잡 mad 1h·이상치 1h×3+21h→mad 0<stdev demonstration·단일 잡 mad 0) +
+    empty-timing 스냅샷 2곳에 madResolutionMs:null, cli stats.test render `mad 1h 0m` 단언 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 615 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 1h×3+21h
+  임시 스토어로 `stats`가 `spread: … stdev 8h 39m   mad <1s   cv 144%` 렌더(이상치를 mad가 완전히 무시,
+  stdev만 끌려 올라감) + spans {1h,3h} 스토어의 `--json`이 `timing.madResolutionMs: 3600000` 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stats --group-by`의
+  그룹별 행에도 cv/mad 노출, timing 블록에 skewness(비대칭도). tz/heatmap/parser/watch·summary --watch는
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
