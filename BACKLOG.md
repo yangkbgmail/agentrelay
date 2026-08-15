@@ -824,6 +824,19 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 Gemini CLI 어댑터 — 새 에이전트 툴 `gemini-cli`로 Google 429/RESOURCE_EXHAUSTED의
+      `retryDelay`(초) 리셋을 감지. AgentRelay 핵심 미션(여러 코딩 에이전트의 rate-limit 자동 재개)의
+      직접 확장.
+      (완료 — `types.ts`의 `AgentTool` 유니온에 `gemini-cli` 추가 + 단일 진실원 `ALL_TOOLS`(stats)·
+      `VALID_TOOLS`(import) 동기화. `adapters.ts`에 `GEMINI_CLI_ADAPTER`(binaries `gemini`/`gemini-cli`)
+      신설·레지스트리 등록, 두 패턴 기여: `gemini-retry-delay`(Google `retryDelay` JSON/snake/bare
+      `"17s"`/`5s`/`=30s`)·`gemini-relative-seconds`(초 "retry after 30 seconds"). Codex의 초 resolve를
+      순수 `resolveSecondsDelay`로 추출해 공유(올림·0/음수 거부로 조기 재개 방지), 시분/ISO/epoch은 generic
+      폴백. 새 파서/스케줄러 core 로직 0줄 — 모든 하위 명령(stats/status/export 필터·import 검증·parse·
+      doctor 바이너리 점검)이 자동 인식. adapters.test +7·stats.test byTool 3동기화·cli parse.test +1,
+      실제 빌드 CLI e2e로 retryDelay 18s 검출·`stats --help` 툴 목록 노출 검증. branch
+      `claude/wizardly-pascal-tqbi71`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
