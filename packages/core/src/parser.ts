@@ -102,6 +102,27 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Prose durations phrased with the indefinite article instead of a digit:
+    // "try again in an hour", "resets in a minute", "retry in a day", and the
+    // idiomatic "in half an hour". Agent CLIs (and the LLMs behind them) often
+    // word short waits this way, which the digit-requiring `relative-duration`
+    // pattern above misses. Only whole-unit day/hour/minute are handled (plus
+    // the half-hour special case) — "a couple of hours" / "a few minutes" are
+    // deliberately left out as too vague to time. Kept after the numeric pattern
+    // so a real digit still wins; the numeric regex matches "…in " with empty
+    // groups and resolves to null, falling through to here. Seconds stay out of
+    // the generic parser (adapter territory), so "half a minute" isn't matched.
+    name: "relative-word-duration",
+    regex: /(?:try again|resets?|retry)\s+in\s+(?:(half)\s+an\s+hour|an?\s+(day|hour|min(?:ute)?))\b/i,
+    resolve: (m, now) => {
+      // "half an hour" → 30 minutes.
+      if (m[1]) return new Date(now.getTime() + 30 * 60_000);
+      const unit = m[2].toLowerCase();
+      const minutes = unit === "day" ? 24 * 60 : unit === "hour" ? 60 : 1;
+      return new Date(now.getTime() + minutes * 60_000);
+    },
+  },
+  {
     // Unix epoch seconds embedded in structured error payloads, e.g.
     // `retry_after=1752345600`, `retry_after: 1752345600`, or the JSON form
     // `"retry_after": 1752345600`.

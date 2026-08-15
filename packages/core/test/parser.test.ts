@@ -118,6 +118,49 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 3 * 60_000).toISOString());
   });
 
+  it("parses the prose 'try again in an hour' (indefinite article, no digit)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit reached. Please try again in an hour.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("relative-word-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 60 * 60_000).toISOString());
+  });
+
+  it("parses 'resets in a minute' and 'in a day' word quantifiers", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const minute = parseRateLimitMessage("Usage limit hit — resets in a minute.", { now });
+    expect(minute?.pattern).toBe("relative-word-duration");
+    expect(minute?.resetAt).toBe(new Date(now.getTime() + 60_000).toISOString());
+
+    const day = parseRateLimitMessage("Weekly limit reached, try again in a day.", { now });
+    expect(day?.pattern).toBe("relative-word-duration");
+    expect(day?.resetAt).toBe(new Date(now.getTime() + 24 * 60 * 60_000).toISOString());
+  });
+
+  it("parses the idiomatic 'in half an hour' as 30 minutes", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in half an hour.", { now });
+    expect(result?.pattern).toBe("relative-word-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
+
+  it("still lets a digit win over the word form ('in 2 hours')", () => {
+    // Regression: the numeric relative-duration must keep priority; the word
+    // pattern only fires when there is no digit to parse.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in 2 hours.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
+  it("does not match a vague 'in a few minutes' (no whole-unit quantifier)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    // "a few minutes" has no timeable quantifier; better to leave it unqueued
+    // than to invent a duration.
+    const result = parseRateLimitMessage("Rate limit reached, try again in a few minutes.", { now });
+    expect(result).toBeNull();
+  });
+
   it("parses a unix epoch retry_after field", () => {
     const result = parseRateLimitMessage("rate_limit_error retry_after=1752345600");
     expect(result).not.toBeNull();
