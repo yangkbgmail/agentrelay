@@ -100,6 +100,18 @@ describe("exportStore", () => {
     expect(result.content.split("\n")).toHaveLength(1);
   });
 
+  it("honors a --command substring scope (scopeJobs -> exportStore, the real CLI path)", () => {
+    seed();
+    const all = listStatus(storePath);
+    // The CLI applies core scopeJobs before handing jobs to exportStore, so a
+    // `--command codex` scope must reach export as only the codex job.
+    const scoped = scopeJobs(all, { commandContains: "codex" });
+    const result = exportStore({ storePath, format: "json", jobs: scoped });
+    expect(result.count).toBe(1);
+    const parsed = JSON.parse(result.content) as Array<{ command: string[] }>;
+    expect(parsed.map((j) => j.command)).toEqual([["codex", "run"]]);
+  });
+
   it("produces a Markdown table with a header, separator, and one row per job", () => {
     seed();
     const result = exportStore({ storePath, format: "md" });
