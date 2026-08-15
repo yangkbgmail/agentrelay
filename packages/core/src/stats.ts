@@ -70,6 +70,16 @@ export interface TimingStats {
    */
   iqrResolutionMs: number | null;
   /**
+   * Median absolute deviation of resolution times (ms): the median of
+   * |xᵢ − median|, or null when none. Like {@link iqrResolutionMs} it's a robust
+   * spread measure that ignores the pathological outlier inflating the standard
+   * deviation, but centered on the median it summarizes the *typical* distance
+   * from the middle as a single number. A MAD far smaller than
+   * {@link stdevResolutionMs} is the signature of a few heavy outliers; a MAD
+   * close to the stdev says the spread is evenly distributed.
+   */
+  madResolutionMs: number | null;
+  /**
    * Population standard deviation of resolution times (ms), or null when none.
    * The classic spread measure: how far resolutions typically stray from the
    * mean. Read alongside {@link iqrResolutionMs} — a stdev much larger than the
@@ -399,6 +409,20 @@ function percentile(sortedAsc: number[], p: number): number {
 }
 
 /**
+ * Median absolute deviation (ms): the median of |xᵢ − median| over a non-empty
+ * list, rounded to whole ms. A robust dispersion measure — like the IQR it's
+ * unmoved by the one pathological outlier that inflates the standard deviation,
+ * but centered on the median it reads as the typical distance from the middle.
+ * A single value (or all-identical values) yields 0. Callers pass the same
+ * (already-rounded) median used for `medianResolutionMs`; sub-ms rounding of the
+ * center is negligible. Non-empty input guaranteed by the caller.
+ */
+function medianAbsoluteDeviation(sortedAsc: number[], median: number): number {
+  const deviations = sortedAsc.map((v) => Math.abs(v - median)).sort((a, b) => a - b);
+  return percentile(deviations, 0.5);
+}
+
+/**
  * Population standard deviation (not sample) over a non-empty list, rounded to
  * whole ms. Population is the right choice here: `values` is the complete set of
  * resolved-job spans being described, not a sample drawn to infer a wider
@@ -473,6 +497,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       p25ResolutionMs: null,
       p75ResolutionMs: null,
       iqrResolutionMs: null,
+      madResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
     };
@@ -480,6 +505,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     // Sort once ascending; percentiles read from it, min/max are its ends.
     const sorted = [...resolutionDurations].sort((a, b) => a - b);
     const mean = sorted.reduce((sum, d) => sum + d, 0) / resolvedCount;
+    const median = percentile(sorted, 0.5);
     const p25 = percentile(sorted, 0.25);
     const p75 = percentile(sorted, 0.75);
     timing = {
@@ -487,13 +513,14 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       avgResolutionMs: Math.round(mean),
       minResolutionMs: sorted[0],
       maxResolutionMs: sorted[resolvedCount - 1],
-      medianResolutionMs: percentile(sorted, 0.5),
+      medianResolutionMs: median,
       p90ResolutionMs: percentile(sorted, 0.9),
       p95ResolutionMs: percentile(sorted, 0.95),
       p99ResolutionMs: percentile(sorted, 0.99),
       p25ResolutionMs: p25,
       p75ResolutionMs: p75,
       iqrResolutionMs: p75 - p25,
+      madResolutionMs: medianAbsoluteDeviation(sorted, median),
       stdevResolutionMs: populationStdev(sorted, mean),
       cvResolution: coefficientOfVariation(sorted, mean),
     };

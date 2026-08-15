@@ -2166,3 +2166,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats` 해결 시간 MAD(median absolute deviation)] (2026-08-15, 무인 자율 세션, branch `claude/wizardly-pascal-m5mp54`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 68이 후속 후보로 명시한 "timing 블록에 MAD(이상치에 더 강건한
+  분산)"를 골랐다 — watch/tz/heatmap/parser·summary --watch는 PR 포화라 지양 권고가 반복돼 있었다.
+  stdev·CV는 평균 기준이라 소수의 무거운 이상치 하나에 크게 부풀고, IQR은 강건하지만 양 끝 사분위
+  폭이지 "중앙에서 얼마나 떨어져 있나"는 아니다. MAD=median(|xᵢ−median|)은 중앙값 기준의 강건한
+  퍼짐 지표라, 이상치가 있어도 "전형적인 중앙 이탈 거리"를 한 수로 요약한다.
+- **한 일 (branch `claude/wizardly-pascal-m5mp54`):**
+  - core `stats.ts`의 `TimingStats`에 `madResolutionMs`(null 가능) 추가 + 순수
+    `medianAbsoluteDeviation(sortedAsc, median)` 헬퍼(각 값의 절대편차를 정렬해 기존 `percentile`로
+    p50 —새 정렬 로직 최소). `computeStats`가 median을 한 번 계산해 `medianResolutionMs`와 MAD 중심에
+    함께 재사용(중심 sub-ms 반올림 무시 가능). resolved 0개면 null, 단일/동일 잡이면 0(퍼짐 없음).
+  - CLI `stats.ts` resolution-time spread 라인의 iqr 뒤·stdev 앞에 `mad …`를 끼워 넣음. `--json`은
+    timing 전체 직렬화라 madResolutionMs 자동 노출(기존 JSON shape 불변). 새 파서/스케줄러/집계 로직 0줄.
+  - core stats.test +1 이상치-강건성 케이스(spans {1h,2h,3h,6h}에서 mad 1h 불변·stdev>mad) + 기존
+    quartile/single-job 케이스에 mad 단언 추가, cli stats.test render `mad 1h 0m` 단언 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 615 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 30h 이상치 포함
+  임시 스토어로 `stats`가 `spread: iqr 8h 0m … mad 1h 0m   stdev 12h 8m   cv 135%` 렌더(MAD가 이상치에
+  불변인 반면 stdev는 팽창) + `--json`이 `timing.madResolutionMs` 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stats --group-by`의
+  그룹별 행에도 cv/mad 노출, timing 블록에 skewness(비대칭도). tz/heatmap/parser/watch·summary --watch는
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
