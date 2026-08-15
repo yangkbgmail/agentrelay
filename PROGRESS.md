@@ -2166,3 +2166,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — 파서: 공백 구분 절대 날짜+시각(`resets at 2026-07-13 05:00 UTC`) 인식] (2026-08-15, 무인 자율 세션, branch `claude/parser-absolute-datetime`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. CLAUDE.md 지침대로 새 개선 항목을 스스로 발굴했다. `parser.ts`를 감사하던 중
+  **실제 감지 갭**을 찾았다: 로그·에러 페이로드에서 흔한 공백 구분 날짜시각(`2026-07-13 05:00 UTC`)이 어떤
+  패턴에도 안 걸린다. 기존 `iso-timestamp`는 `T` 구분자 + 완전한 `…:SS`만, 그 아래 `clock-time`은 "at" 바로
+  뒤 `HH:MM`을 요구하는데 여기선 날짜가 먼저 온다. 결과적으로 메시지가 **완전히 미감지**되어 릴레이 잡이
+  스케줄되지 않는다 — AgentRelay 핵심 목적(리셋 감지 후 자동 재개)을 놓치는 갭. (기존 76개 오픈 PR과 대조해
+  중복 아님 확인: 상대-일 #661, "try again at" #665/#596, 헤더 #658/#604, 클록 타임존 #650/#614 등은 모두
+  다른 축.)
+- **한 일 (branch `claude/parser-absolute-datetime`):**
+  - core `parser.ts`에 `datetime` 패턴 신설. 공백 또는 `T` 구분자, 초 선택(`HH:MM` 또는 `HH:MM:SS`),
+    타임존 선택(`Z`/`UTC`/`GMT`→UTC, `±HH:MM`/`±HHMM` 오프셋 적용, 없으면 로컬 시각 — `clock-time`과 동일 관례).
+    `±HHMM` 컴팩트 오프셋은 `±HH:MM`으로 정규화해 `Date`가 안정적으로 파싱하게 함.
+  - `clock-time` **앞**에 배치 — 날짜가 있는 메시지가 "오늘의 시각"으로 오인되지 않고 실제 날짜로 해석되게.
+    strict `iso-timestamp`(완전한 `T…:SSZ`)는 여전히 먼저 잡으므로 기존 동작 불변.
+  - 새 스케줄러/CLI 로직 0줄 — 패턴 하나만 추가, `parse` 커맨드가 자동으로 노출.
+  - parser.test +6: UTC 존·초+오프셋(+09:00→전날 20:00Z)·컴팩트 ±HHMM·초 없는 `T` 로컬 라운드트립·
+    strict iso 유지·날짜 보존(오늘 시각으로 오인 안 함).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm test` 전 패키지 통과(**core 620 · cli 345/1skip
+  · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): `parse "…Resets at 2026-07-13 05:00 UTC."`가 `datetime`
+  패턴으로 `2026-07-13T05:00:00.000Z` 방출, stdin 파이프 + `--json`도 동일 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — 월-이름 절대 날짜
+  (`resets on Jul 13 at 5pm`), 요일 기반(`resets Thursday at 9am`). 단, **오픈 PR이 76개로 적체 심각** —
+  코워크에 통합/중복정리 우선을 권고. README/ARCHITECTURE(🧭 코워크).
