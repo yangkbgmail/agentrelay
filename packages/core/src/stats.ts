@@ -86,6 +86,16 @@ export interface TimingStats {
    * > 1 heavy-tailed. Rounded to 4 decimals.
    */
   cvResolution: number | null;
+  /**
+   * Median absolute deviation (ms): the median of |span − median span|, or null
+   * when none. The most outlier-robust spread measure here — like the
+   * {@link iqrResolutionMs} it ignores the one pathological long-babysat job
+   * that inflates {@link stdevResolutionMs}, but it's centred on the median
+   * (typical case) rather than the quartile edges, so it answers "how far does a
+   * typical resolution stray from the typical resolution?". A MAD much smaller
+   * than the stdev is the signature of a few heavy outliers. Rounded to whole ms.
+   */
+  madResolutionMs: number | null;
 }
 
 export interface RelayStats {
@@ -422,6 +432,31 @@ function coefficientOfVariation(values: number[], mean: number): number | null {
 }
 
 /**
+ * True (unrounded) median of an ascending-sorted, non-empty array. Even-length
+ * inputs average the two central samples. Kept separate from {@link percentile}
+ * (which rounds to whole ms) so the MAD's deviation base isn't distorted by
+ * sub-ms rounding before the outer median is taken. Callers guarantee non-empty.
+ */
+function median(sortedAsc: number[]): number {
+  const n = sortedAsc.length;
+  const mid = (n - 1) / 2;
+  return (sortedAsc[Math.floor(mid)] + sortedAsc[Math.ceil(mid)]) / 2;
+}
+
+/**
+ * Median absolute deviation over an ascending-sorted, non-empty list, rounded to
+ * whole ms: the median of |x − median(x)|. An outlier-robust spread measure —
+ * a single extreme span shifts the median (and thus every deviation) far less
+ * than it shifts the mean/stdev. A single value yields 0 (no spread). Callers
+ * guarantee non-empty.
+ */
+function medianAbsoluteDeviation(sortedAsc: number[]): number {
+  const centre = median(sortedAsc);
+  const deviations = sortedAsc.map((v) => Math.abs(v - centre)).sort((a, b) => a - b);
+  return Math.round(median(deviations));
+}
+
+/**
  * Aggregates a job list into headline relay metrics for `agentrelay stats`.
  * Pure and non-mutating: no I/O, no ambient clock. Reuses {@link summarizeJobs}
  * for the per-status counts and next-reset so the two surfaces never drift.
@@ -475,6 +510,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      madResolutionMs: null,
     };
   } else {
     // Sort once ascending; percentiles read from it, min/max are its ends.
@@ -496,6 +532,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       iqrResolutionMs: p75 - p25,
       stdevResolutionMs: populationStdev(sorted, mean),
       cvResolution: coefficientOfVariation(sorted, mean),
+      madResolutionMs: medianAbsoluteDeviation(sorted),
     };
   }
 
