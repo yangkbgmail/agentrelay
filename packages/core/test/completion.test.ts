@@ -20,16 +20,18 @@ const SPEC: CompletionSpec = {
 };
 
 describe("completion shell helpers", () => {
-  it("COMPLETION_SHELLS lists bash and zsh", () => {
-    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh"]);
+  it("COMPLETION_SHELLS lists bash, zsh, and powershell", () => {
+    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh", "powershell"]);
   });
 
   it("isCompletionShell accepts known shells and rejects others", () => {
     expect(isCompletionShell("bash")).toBe(true);
     expect(isCompletionShell("zsh")).toBe(true);
+    expect(isCompletionShell("powershell")).toBe(true);
     expect(isCompletionShell("fish")).toBe(false);
     expect(isCompletionShell("")).toBe(false);
     expect(isCompletionShell("BASH")).toBe(false);
+    expect(isCompletionShell("PowerShell")).toBe(false);
   });
 });
 
@@ -100,6 +102,51 @@ describe("generateCompletion — zsh", () => {
   });
 });
 
+describe("generateCompletion — powershell", () => {
+  const script = generateCompletion("powershell", SPEC);
+
+  it("registers a native argument completer for the program", () => {
+    expect(script).toContain("Register-ArgumentCompleter -Native -CommandName agentrelay -ScriptBlock {");
+    expect(script).toContain("param($wordToComplete, $commandAst, $cursorPosition)");
+  });
+
+  it("offers the top-level command names when no subcommand is present", () => {
+    expect(script).toContain("$opts = @('run','status','config')");
+  });
+
+  it("offers the global options plus --help/--version when typing a flag", () => {
+    expect(script).toContain("$opts = @('--store','--config','--help','--version')");
+  });
+
+  it("adds a switch arm per leaf command with its flags and --help", () => {
+    expect(script).toContain("'run' { $opts = @('--tool','--help') }");
+    expect(script).toContain("'status' { $opts = @('--watch','--json','--status','--sort','-r','--help') }");
+  });
+
+  it("handles a parent command by switching on its subcommand", () => {
+    expect(script).toContain("'config' {");
+    // per-subcommand flags
+    expect(script).toContain("'init' { $opts = @('--force','-f','--help') }");
+    expect(script).toContain("'show' { $opts = @('--json','--show-secrets','--help') }");
+    // subcommand-name fallback
+    expect(script).toContain("default { $opts = @('init','validate','show','--help') }");
+  });
+
+  it("emits CompletionResult objects filtered by the word being completed", () => {
+    expect(script).toContain('$_ -like "$wordToComplete*"');
+    expect(script).toContain("[System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)");
+  });
+
+  it("dedupes repeated flags while keeping first-seen order", () => {
+    const dup = generateCompletion("powershell", {
+      program: "x",
+      options: [],
+      commands: [{ name: "c", options: ["--json", "--json", "-j"] }],
+    });
+    expect(dup).toContain("'c' { $opts = @('--json','-j','--help') }");
+  });
+});
+
 describe("generateCompletion — safety", () => {
   it("throws on an unsafe command name rather than emitting it", () => {
     expect(() =>
@@ -117,6 +164,16 @@ describe("generateCompletion — safety", () => {
         program: "agentrelay",
         options: [],
         commands: [{ name: "run", options: ["--x$(whoami)"] }],
+      })
+    ).toThrow(/unsafe/);
+  });
+
+  it("powershell rejects unsafe tokens too (no quote breakout)", () => {
+    expect(() =>
+      generateCompletion("powershell", {
+        program: "agentrelay",
+        options: [],
+        commands: [{ name: "run", options: ["--x'; rm foo"] }],
       })
     ).toThrow(/unsafe/);
   });
