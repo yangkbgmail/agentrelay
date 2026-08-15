@@ -43,6 +43,44 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Absolute calendar date + wall-clock time, e.g.
+    //   "resets at 2026-07-13 05:00 UTC"      (space instead of the ISO "T")
+    //   "resets at 2026-07-13 05:00:30+09:00"
+    //   "reset at 2026-07-13T05:00"           (ISO "T" but no seconds/zone)
+    // The strict iso-timestamp pattern above only fires on a full `T…:SS` form
+    // with the `T` separator, so these very common log/date renderings would
+    // otherwise slip past it. Worse, the bare `clock-time` pattern below can't
+    // rescue them either — it needs `HH:MM` *immediately* after "at", but here
+    // the date comes first — so without this pattern the message goes wholly
+    // undetected and no relay job is scheduled. Placed before clock-time so a
+    // date-bearing message is resolved to its real day, never mistaken for a
+    // clock time "today".
+    //
+    // Timezone handling mirrors the message when one is given (Z/UTC/GMT → UTC;
+    // a ±HH[:]MM offset is applied); with no zone the time is read as this
+    // machine's local time, the same convention as clock-time.
+    name: "datetime",
+    regex: /reset[s]?\s+at\s+(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)\s*(Z|UTC|GMT|[+-]\d{2}:?\d{2})?/i,
+    resolve: (m) => {
+      const date = m[1];
+      const time = m[2].length === 5 ? `${m[2]}:00` : m[2]; // pad HH:MM → HH:MM:SS
+      const zoneRaw = m[3];
+      let suffix = "";
+      if (zoneRaw) {
+        const z = zoneRaw.toUpperCase();
+        if (z === "Z" || z === "UTC" || z === "GMT") {
+          suffix = "Z";
+        } else {
+          // Normalize ±HHMM → ±HH:MM so Date parses it reliably.
+          suffix = zoneRaw.includes(":") ? zoneRaw : `${zoneRaw.slice(0, 3)}:${zoneRaw.slice(3)}`;
+        }
+      }
+      // No suffix → ISO date-time with no zone, which ES parses as local time.
+      const d = new Date(`${date}T${time}${suffix}`);
+      return Number.isNaN(d.getTime()) ? null : d;
+    },
+  },
+  {
     // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
     name: "clock-time",
     regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,

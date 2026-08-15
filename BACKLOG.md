@@ -824,6 +824,18 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 파서: 공백 구분 절대 날짜+시각(`resets at 2026-07-13 05:00 UTC`) 인식 — 세션 67 자체 발굴.
+      (완료 — 기존 `iso-timestamp` 패턴은 `T` 구분자 + 완전한 `…:SS` 형태에서만 발화하고, 그 아래
+      `clock-time`은 "at" 바로 뒤에 `HH:MM`을 요구한다. 그래서 로그·에러 페이로드에서 흔한 공백 구분
+      날짜시각(`2026-07-13 05:00 UTC`)은 어떤 패턴에도 안 걸려 **감지 자체가 실패**하고 릴레이 잡이
+      스케줄되지 않았다 — 핵심 목적을 놓치는 갭. core `parser.ts`에 `datetime` 패턴 신설(공백 또는 `T`
+      구분자, 초 선택, `Z`/`UTC`/`GMT`/±HH[:]MM 타임존 선택). `clock-time` 앞에 배치해 날짜가 있는 메시지가
+      "오늘의 시각"으로 오인되지 않고 실제 날짜로 해석되게 함. 타임존은 메시지에 있으면 그대로 반영(Z/UTC/GMT
+      →UTC, ±오프셋 적용), 없으면 `clock-time`과 동일하게 로컬 시각. 새 스케줄러/CLI 로직 0줄. parser.test
+      +6(UTC·초+오프셋·컴팩트 ±HHMM·초·존 없는 T 로컬·strict iso 유지·날짜 보존). 실제 빌드 CLI e2e로
+      `parse`가 `datetime` 패턴을 잡아 `2026-07-13T05:00:00.000Z` 방출 검증. branch
+      `claude/parser-absolute-datetime`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

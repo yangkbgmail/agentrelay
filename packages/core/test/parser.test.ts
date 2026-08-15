@@ -249,4 +249,49 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("relative-duration");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
   });
+
+  it("parses an absolute date + time with a space separator and UTC zone", () => {
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 2026-07-13 05:00 UTC.");
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("datetime");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses a space-separated datetime with seconds and a numeric offset", () => {
+    const result = parseRateLimitMessage("try later — resets at 2026-07-13 05:00:30+09:00");
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("datetime");
+    // 05:00:30 at +09:00 == 20:00:30 UTC the day before.
+    expect(result?.resetAt).toBe("2026-07-12T20:00:30.000Z");
+  });
+
+  it("parses a compact ±HHMM offset (no colon)", () => {
+    const result = parseRateLimitMessage("resets at 2026-07-13 05:00-0430");
+    expect(result?.pattern).toBe("datetime");
+    expect(result?.resetAt).toBe("2026-07-13T09:30:00.000Z");
+  });
+
+  it("parses an ISO 'T' datetime that lacks seconds and a zone (local time)", () => {
+    // iso-timestamp requires full T…:SS, so this falls through to `datetime`,
+    // which reads a zone-less time as local — assert via a round-trip.
+    const result = parseRateLimitMessage("resets at 2026-07-13T05:00");
+    expect(result?.pattern).toBe("datetime");
+    expect(result?.resetAt).toBe(new Date("2026-07-13T05:00").toISOString());
+  });
+
+  it("keeps the strict iso-timestamp pattern for a full T…:SSZ form", () => {
+    const result = parseRateLimitMessage("resets at 2026-07-13T05:00:00Z");
+    expect(result?.pattern).toBe("iso-timestamp");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("does not treat a date-bearing message as a clock time 'today'", () => {
+    // Before this pattern existed, a message like this went wholly undetected
+    // (iso-timestamp needs the 'T', clock-time needs HH:MM right after "at").
+    const now = new Date("2026-01-01T00:00:00Z");
+    const result = parseRateLimitMessage("resets at 2026-07-13 05:00 UTC", { now });
+    expect(result?.pattern).toBe("datetime");
+    expect(new Date(result!.resetAt).getUTCFullYear()).toBe(2026);
+    expect(new Date(result!.resetAt).getUTCMonth()).toBe(6); // July (0-indexed)
+  });
 });
