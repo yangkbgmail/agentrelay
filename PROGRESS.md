@@ -2166,3 +2166,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — Aider 에이전트 어댑터 (네 번째 툴)] (2026-08-15, 무인 자율 세션, branch `claude/aider-adapter`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]). 처음엔 세션 68이 지목한 timing MAD를 구현했으나,
+  오픈 PR을 조사하니 **극심한 포화**(120+ 오픈 PR, MAD만 7중 중복·CV 5중·eta --watch 6중·summary
+  --watch 8중·skewness·trimmed mean·fish/powershell completion·tsv export·search·drain 등 거의 모든
+  인접 stats/watch/parser 항목이 이미 오픈)였다. MAD 작업을 폐기하고, 120개 PR 어디에도 없던 **어댑터
+  축**을 골랐다 — 백로그 "다른 에이전트 툴 어댑터"의 후속(Codex에 이어 Aider). Aider는 가장 널리
+  쓰이는 오픈소스 AI 코딩 CLI 중 하나이고, self-contained·테스트 가능하며 충돌 위험이 낮다.
+- **한 일 (branch `claude/aider-adapter`):**
+  - `types.ts`의 `AgentTool` 유니온에 `"aider"` 추가. 툴 집합은 잘 중앙화돼 있어(`stats.ts` `ALL_TOOLS`,
+    `import.ts` `VALID_TOOLS` 두 목록 + 유니온 + ADAPTERS 레지스트리), 이 둘에 aider를 넣으니 byTool
+    zero-fill·metrics `jobs_by_tool`·`tools`/`projects` 인덱스·`--tool` 필터·import 검증이 전부 자동 인식.
+  - `adapters.ts`에 순수 `AIDER_RETRYING_PATTERN`(litellm 백오프 `Retrying in Ns`, 초 단위 올림으로 조기
+    재개 방지) 신설. generic 파서도 Codex 초 패턴도 이 문구를 못 잡는다(Codex 정규식 `retry` 대안은 바로
+    뒤 공백 필요 → "Retry*ing*" 탈락, generic엔 초 패턴 없음). `AIDER_ADAPTER`는 binaries `["aider"]`에
+    patterns=[retrying, 재사용한 `CODEX_SECONDS_PATTERN`(OpenAI식 "try again in Ns")] → generic fallback.
+    ADAPTERS 레지스트리 등록.
+  - CLI: `run --tool` 도움말·`tools` 설명 문자열에 aider 추가(하드코딩 두 곳; 나머지는 ALL_TOOLS 파생).
+  - 테스트: adapters.test +6(aider 바이너리 추론·resolve·레지스트리 4-툴·retrying 감지[8s·0.2s 올림]·
+    OpenAI 초 재사용·generic 폴백·generic/codex가 "Retrying in Ns" 못 잡음 증명), stats.test byTool 3단언에
+    `aider:0` 반영.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 620 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  `parse --tool aider "…Retrying in 8 seconds…"` → `pattern: aider-retrying-seconds` 감지, aider 잡 임시
+  스토어로 `stats --json` byTool `{…,"aider":1,…}`·`tools`가 aider 행 렌더·`status --tool bogus`가
+  "Valid: claude-code, codex-cli, aider, generic"으로 거부 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). ⚠️ **PR 적체가 심각**(120+ 오픈,
+  대량 중복) — 다음 세션은 신규 구현 전 반드시 오픈 PR을 먼저 조사해 중복을 피할 것. 미커버로 보이는
+  후속 후보: Gemini 외 어댑터(Cursor CLI 등), 파서 month 단위, ISO-8601 duration(`PT1H30M`). README/
+  ARCHITECTURE는 🧭 코워크.
