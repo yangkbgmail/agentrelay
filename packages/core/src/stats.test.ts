@@ -60,6 +60,7 @@ describe("computeStats", () => {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      madResolutionMs: null,
     });
   });
 
@@ -227,6 +228,24 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(3_600_000);
     // cv = stdev / mean = 1h / 2h = 0.5 (scale-free ratio)
     expect(stats.timing.cvResolution).toBe(0.5);
+    // median 2h; |1h-2h|=1h, |3h-2h|=1h → mad = median([1h,1h]) = 1h
+    expect(stats.timing.madResolutionMs).toBe(3_600_000);
+  });
+
+  it("computes a MAD that resists an outlier far more than the stdev", () => {
+    const at = (h: number) => `2026-07-13T${String(h).padStart(2, "0")}:00:00.000Z`;
+    // spans [1h, 1h, 1h, 10h]: three tight jobs plus one long outlier.
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }),
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }),
+      job({ status: "failed", createdAt: at(0), updatedAt: at(1) }),
+      job({ status: "completed", createdAt: at(0), updatedAt: at(10) }),
+    ]);
+    // median span = median([1h,1h,1h,10h]) = 1h. deviations = [0,0,0,9h];
+    // sorted [0,0,0,9h] → mad = median = interpolate(0, 0) = 0.
+    expect(stats.timing.madResolutionMs).toBe(0);
+    // the stdev is pulled way up by the 10h outlier — mad ≪ stdev.
+    expect(stats.timing.stdevResolutionMs).toBeGreaterThan(stats.timing.madResolutionMs ?? 0);
   });
 
   it("collapses spread metrics to zero for a single resolved job", () => {
@@ -239,6 +258,8 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(0);
     // single span: stdev 0, nonzero mean → cv 0 (no spread, well-defined)
     expect(stats.timing.cvResolution).toBe(0);
+    // single span: |x - median| = 0 → mad 0 (no spread)
+    expect(stats.timing.madResolutionMs).toBe(0);
   });
 
   it("excludes cancelled and still-active jobs from resolution timing", () => {
@@ -298,6 +319,7 @@ describe("computeStats", () => {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      madResolutionMs: null,
     });
   });
 });

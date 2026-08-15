@@ -2166,3 +2166,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats` 해결 시간 중앙값 절대편차(MAD)] (2026-08-15, 무인 자율 세션, branch `claude/wizardly-pascal-8o9lb1`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 68이 후속 후보로 명시한 "timing 블록에 MAD(median absolute deviation,
+  이상치에 더 강건한 분산)"를 골랐다 — watch 축(summary --watch 등)은 PR 포화라 지양 권고가 반복돼 있다.
+  stdev/CV는 제곱합 기반이라 단 하나의 pathological long-babysat 잡이 값을 크게 끌어올려 "보통은 촘촘한데
+  드물게 꼬리가 길다"를 왜곡한다. MAD는 median으로부터의 절대거리의 median이라 이상치가 거의 안 움직여,
+  IQR과 함께 robust spread의 두 번째 축을 이룬다.
+- **한 일 (branch `claude/wizardly-pascal-8o9lb1`):**
+  - core `stats.ts`의 `TimingStats`에 `madResolutionMs`(반올림 ms, null 가능) 추가 + 순수
+    `medianAbsoluteDeviation(sortedAsc, median)` 헬퍼 신설(각 값의 |x−median| 편차를 정렬해 기존
+    `percentile`(type-7 보간)로 median 산출 → 백분위 로직 재사용, 새 정렬은 편차 배열 1회뿐). resolved
+    0개면 null, 단일 잡이면 편차 0 → mad 0. `computeStats`가 median을 한 번만 계산해 percentile(0.5)과
+    MAD가 공유하도록 리팩터(중복 계산 제거).
+  - CLI `stats.ts` resolution-time spread 라인에 `mad …`를 stdev와 cv 사이에 삽입(기존 `formatDurationMs`
+    재사용). `--json`은 timing 전체 직렬화라 자동 노출(기존 shape 불변, 필드 추가만).
+  - core stats.test +2(3-잡 mad 1h · 이상치 spans {1h,1h,1h,10h}에서 mad 0 이면서 stdev≫mad · 단일 잡
+    mad 0) + 기존 full-shape 단언 2곳에 `madResolutionMs: null` 반영, cli test render `mad 1h 0m` 단언 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 615 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): spans {1h,1h,1h,10h}
+  임시 스토어로 `stats`가 `spread: … stdev 3h 53m   mad <1s   cv 120%` 렌더 + `--json`이 `madResolutionMs: 0`
+  방출(median 1h, 편차 {0,0,0,9h}, mad=median=0), stdev 3h53m ≫ mad로 이상치 강건성 실증.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stats --group-by`의
+  그룹별 행에도 mad/cv 노출, timing에 skewness(왜도, 꼬리 방향)나 geometric mean. tz/heatmap/parser/
+  watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
