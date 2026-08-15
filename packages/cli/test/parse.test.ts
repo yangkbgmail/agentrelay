@@ -43,6 +43,18 @@ describe("buildParseReport", () => {
     expect(report.resetAt).toBe(new Date(NOW_MS + 20_000).toISOString());
   });
 
+  it("uses the gemini adapter's retryDelay pattern that the generic parser misses", () => {
+    const message = 'Error 429 RESOURCE_EXHAUSTED {"retryDelay":"18s"}';
+    // Generic adapter has no notion of retryDelay → no match.
+    expect(buildParseReport(message, { now: NOW }).matched).toBe(false);
+    // Gemini adapter recognizes Google's quota retryDelay field.
+    const report = buildParseReport(message, { tool: "gemini-cli", now: NOW });
+    expect(report.matched).toBe(true);
+    expect(report.tool).toBe("gemini-cli");
+    expect(report.pattern).toBe("gemini-retry-delay");
+    expect(report.resetAt).toBe(new Date(NOW_MS + 18_000).toISOString());
+  });
+
   it("falls back to the generic adapter for an unknown/omitted tool", () => {
     const report = buildParseReport("resets at 3:00pm", { now: NOW });
     expect(report.tool).toBe("generic");

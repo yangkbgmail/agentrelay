@@ -2166,3 +2166,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+---
+
+## 세션 (2026-08-15) — Gemini CLI 어댑터 추가 (새 에이전트 툴 `gemini-cli`)
+
+- **동기:** BACKLOG의 👷 항목이 전부 완료라 CLAUDE.md 지침대로 스스로 신규 개선 항목을 발굴했다.
+  AgentRelay의 핵심 미션은 "여러 AI 코딩 에이전트의 rate-limit을 감지해 자동 재개"인데, 어댑터 레지스트리는
+  claude-code·codex-cli·generic만 알고 있었다. Google Gemini CLI는 429 RESOURCE_EXHAUSTED 시
+  표준 `google.rpc.RetryInfo`의 `retryDelay`(예: `"retryDelay":"17s"`)를 초 단위로 노출하는데,
+  generic 파서엔 초 패턴이 없어 이 리셋을 통째로 놓쳐 너무 일찍/영영 재개하지 못했다.
+- **한 일 (branch `claude/wizardly-pascal-tqbi71`):**
+  - `types.ts`의 `AgentTool` 유니온에 `gemini-cli` 추가. 단일 진실원인 `stats.ts`의 `ALL_TOOLS`와
+    `import.ts`의 `VALID_TOOLS`도 동기화(모든 CLI `--tool` 검증·byTool zero-fill이 이 둘을 경유).
+  - `adapters.ts`에 `GEMINI_CLI_ADAPTER`(binaries `["gemini","gemini-cli"]`) 신설·레지스트리 등록.
+    두 패턴 기여: `gemini-retry-delay`(Google `retryDelay` JSON/snake/bare 형태 `"17s"`/`5s`/`=30s`)와
+    `gemini-relative-seconds`(초 단위 "retry after 30 seconds"). Codex의 초 resolve 로직을 순수
+    `resolveSecondsDelay` 헬퍼로 추출해 공유(초 올림·0/음수 거부 — 절대 조기 재개 방지). 나머지 시/분/
+    ISO/epoch은 기존 generic 패턴으로 폴백.
+  - 새 파서/스케줄러 core 로직 0줄 — 어댑터 훅 위에 패턴만 얹음. 모든 하위 명령(stats/status/export
+    필터, import 검증, parse 진단, doctor 바이너리 점검)이 자동으로 gemini-cli를 인식.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 621 · cli 346/1skip · dashboard 9**). adapters.test +7(gemini 추론·retryDelay JSON/snake/bare·
+  초 폴백·시분 폴백·0초 null), stats.test byTool 3케이스 gemini-cli:0 동기화, cli parse.test +1(gemini
+  retryDelay end-to-end). **실제 빌드 CLI e2e**(mock 아님): `parse --tool gemini-cli '…"retryDelay":"18s"'`가
+  `gemini-retry-delay` 패턴으로 18초 리셋 검출, `stats --help`가 tool 목록에 `gemini-cli` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — Aider/Cursor 등 추가
+  어댑터, 또는 어댑터별 실제 rate-limit 샘플 수집(🧭 코워크와 협업). README/ARCHITECTURE(🧭 코워크).
