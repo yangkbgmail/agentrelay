@@ -824,6 +824,20 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 파서: 부정관사 산문형 상대 기간(`try again in an hour` / `resets in a minute` /
+      `in half an hour`) 인식 — 숫자 없이 "a/an + 단위"로 표현된 짧은 대기(자기 발굴).
+      (완료 — 기존 `relative-duration` 패턴은 `\d+` 숫자를 요구해, 에이전트 CLI·그 뒤의 LLM이 자주
+      쓰는 산문형 "try again in an hour"/"resets in a minute"/"retry in a day"/"in half an hour"를
+      놓쳐 잡이 큐잉 안 되던 실사용 갭. `parser.ts`에 순수 신규 패턴 `relative-word-duration`
+      (`(?:try again|resets?|retry)\s+in\s+(?:(half)\s+an\s+hour|an?\s+(day|hour|min(?:ute)?))\b`)
+      추가 — 전체 단위 day/hour/minute(+half-hour 특수 케이스)만 해석, "a couple of hours"/"a few
+      minutes"는 시각화 불가라 의도적 제외(무매치=미큐잉). 숫자 `relative-duration` **뒤**에 배치해
+      실제 숫자가 있으면 그게 우선(숫자 regex는 빈 그룹으로 매치돼 null resolve→fall-through). 초는
+      generic 파서 밖(어댑터 소관)이라 "half a minute"도 미매치. 새 CLI 코드 0줄 — 기존 `parse`
+      커맨드가 자동 노출. parser.test +5 회귀(an hour/a minute·a day/half an hour/숫자 우선/a few
+      minutes 무매치), 실제 빌드 CLI `parse`로 `relative-word-duration` 매치 e2e 확인. branch
+      `claude/parser-word-quantifier`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

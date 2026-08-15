@@ -2166,3 +2166,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — 파서: 부정관사 산문형 상대 기간(`in an hour`/`a minute`/`half an hour`)] (2026-08-15, 무인 자율 세션, branch `claude/parser-word-quantifier`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유뿐. 세션 68이 지목한
+  후속 후보 MAD는 **원격에 이미 14개+ PR로 극도 중복**(#649·#654·#656·#660·#663·#669·#670·#671·#674·
+  #675·#680·#681·#682 등)이라 또 하나 열면 순수 낭비 — 병렬 무인 실행들이 세션 68 로그의 "다음 할 일:
+  MAD"를 모두 집어든 결과. 열린 30개 PR을 훑어 **어떤 PR도 다루지 않은** 항목을 새로 발굴했다: 파서가
+  숫자 없이 "a/an + 단위"로 표현된 산문형 상대 기간("try again in an hour", "resets in a minute",
+  "in half an hour")을 못 잡는 실사용 갭. 열린 파서 PR들(절대 날짜시각·"and"/쉼표·"try again at"·
+  relative-day·X-RateLimit 헤더)과 무충돌.
+- **한 일 (branch `claude/parser-word-quantifier`):**
+  - core `parser.ts`에 순수 신규 패턴 `relative-word-duration` 추가 —
+    `(?:try again|resets?|retry)\s+in\s+(?:(half)\s+an\s+hour|an?\s+(day|hour|min(?:ute)?))\b`.
+    전체 단위 day(1440m)/hour(60m)/minute(1m)만 해석 + "half an hour"=30m 특수 케이스. 숫자
+    `relative-duration` **뒤**에 배치 → 실제 숫자가 있으면 그게 우선(숫자 regex가 빈 그룹으로 매치돼
+    resolve null→fall-through하는 기존 동작 활용). "a couple of hours"/"a few minutes"는 시각화 불가라
+    의도적 미매치, "half a minute"(30s)은 generic 파서의 "초는 어댑터 소관" 원칙 존중해 미매치.
+  - 새 CLI/스케줄러 코드 0줄 — 기존 `parse` 커맨드·스케줄러 큐잉이 자동 노출.
+  - parser.test +5 회귀: an hour·(a minute+a day)·half an hour·숫자 우선(relative-duration 유지)·
+    a few minutes 무매치(null).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core 619 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 빌드된
+  parser.js로 6문구 판정(an hour→+1h·a minute→+1m·a day→+1d·half an hour→+30m·2 hours→relative-duration·
+  a few minutes→NO MATCH), 빌드된 CLI `parse "Please try again in an hour."`가 `relative-word-duration`
+  매치·`in 1h 0m` 렌더 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). ⚠️ 다음 세션 주의 — 세션 68 로그의
+  "MAD" 후속 제안은 **이미 다수 PR로 포화**이니 집지 말 것. 새 인접 후보(무충돌 확인 필요) — 파서:
+  ISO-8601 duration(`PT1H30M`)·"a couple/few" 근사 처리 여부 검토, `run --label` 잡 메모, 대시보드
+  overdue 강조(열린 대시보드 PR 0개=저충돌). README/ARCHITECTURE(🧭 코워크).
