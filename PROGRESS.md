@@ -2166,3 +2166,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay completion powershell` PowerShell 탭 완성] (2026-08-15, 무인 자율 세션, branch `claude/completion-powershell`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR을 훑어보니 stats 파생 지표(MAD 10여 개·CV·skewness·trimmed
+  mean)·parser·watch 축은 **극도로 포화**(동일 항목 중복 PR 다수)라 반드시 지양. 어떤 열린 PR에도 없는
+  깨끗한 갭을 골랐다 — `completion`은 bash/zsh만 지원하고 fish는 미병합 PR(#606)에 있지만, **PowerShell**은
+  어디에도 없었다. Windows/PowerShell 사용자가 `agentrelay <TAB>` 완성을 못 쓰던 실사용 갭.
+- **한 일 (branch `claude/completion-powershell`):**
+  - core `completion.ts`에 `CompletionShell`에 `"powershell"` 추가, `COMPLETION_SHELLS`를 `["bash","zsh",
+    "powershell"]`로 확장, 순수 `generatePowerShell(spec)` 신설 + `generateCompletion` 디스패치 배선.
+    생성 스크립트는 `Register-ArgumentCompleter -Native` 스크립트 블록으로, 파싱된 `$commandAst.CommandElements`를
+    훑어 프로그램 뒤 첫 비-플래그 단어(서브커맨드)를 찾아 그 명령의 플래그를 제안하고, `config`/`notify` 같은
+    부모 명령은 중첩 서브커맨드 이름/이미 존재하는 중첩 서브커맨드의 플래그를 제안한다(bash arm과 동일 구조).
+    새 순수 헬퍼 `psArray`(bash/zsh와 동일 `assertSafeToken` bare-word 검증 → 토큰이 따옴표/메타문자를
+    포함 못 하므로 single-quote 삽입이 항상 안전). 스펙은 라이브 커맨더에서 파생돼 실제 커맨드 표면과
+    드리프트하지 않음(새 명령이 생기면 자동 반영).
+  - CLI `cli.ts`의 `completion` 커맨드 설명을 "(bash, zsh, or powershell)"로, help 예시에 PowerShell
+    설치 라인(`agentrelay completion powershell | Out-String | Invoke-Expression`) 추가. 배선 코드는
+    기존 `isCompletionShell`/`generateCompletion`가 자동 처리(새 액션 코드 0줄).
+  - core completion.test에 PowerShell 7케이스(등록·top-level 명령/글로벌 옵션·leaf 플래그·부모 명령
+    switch·CompletionResult 필터링·플래그 dedup) + 안전성 1케이스(따옴표 breakout 시도 거부) + 기존
+    shell-helper 단언을 powershell 포함으로 확장.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test`
+  전 패키지 통과(**core** completion 14→21 · cli 345/1skip · dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  `completion powershell`가 라이브 커맨더의 전 명령(run…completion)·중첩 config/notify 서브커맨드까지
+  정확히 반영한 유효 스크립트를 방출, 알 수 없는 shell(`fish`)은 "Valid: bash, zsh, powershell" + exit 1,
+  `--help`가 powershell 설명/예시 노출, bash/zsh 무회귀 확인. (pwsh 미설치라 런타임 구문 검증은 수동 리뷰.)
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — completion에 fish
+  (미병합 #606과 별개면) 또는 서브커맨드 뒤 위치 인자(`show <id>`) 완성. stats 파생·tz/heatmap/parser/
+  watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

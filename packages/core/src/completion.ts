@@ -4,17 +4,17 @@
 // only way to get it is to hand the shell a completion script.
 //
 // This module holds only the pure *rendering*: given a description of the
-// command tree (a `CompletionSpec`), produce a valid bash or zsh completion
-// script as a string. The CLI derives the spec from the live commander program
-// (so it never drifts from the real command surface) and prints the script; the
-// generator here is filesystem/commander-free so it's trivially unit-testable
-// and deterministic.
+// command tree (a `CompletionSpec`), produce a valid bash, zsh, or PowerShell
+// completion script as a string. The CLI derives the spec from the live
+// commander program (so it never drifts from the real command surface) and
+// prints the script; the generator here is filesystem/commander-free so it's
+// trivially unit-testable and deterministic.
 
 /** Shells we can emit a completion script for. */
-export type CompletionShell = "bash" | "zsh";
+export type CompletionShell = "bash" | "zsh" | "powershell";
 
 /** Every shell `agentrelay completion` accepts, in a stable order. */
-export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh"] as const;
+export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh", "powershell"] as const;
 
 /** Type guard: is `value` one of the shells we support? */
 export function isCompletionShell(value: string): value is CompletionShell {
@@ -86,7 +86,8 @@ export function generateCompletion(shell: CompletionShell, spec: CompletionSpec)
     for (const sub of cmd.subcommands ?? []) assertSafeToken(sub.name, "subcommand name");
   }
   if (shell === "bash") return generateBash(spec);
-  return generateZsh(spec);
+  if (shell === "zsh") return generateZsh(spec);
+  return generatePowerShell(spec);
 }
 
 /**
@@ -266,5 +267,95 @@ ${caseArms.join("\n")}
   esac
 }
 ${fn} "$@"
+`;
+}
+
+/**
+ * Space-and-quote a validated word list for embedding in a PowerShell array
+ * literal, e.g. `'--json','-r','--help'`. Each token is validated (same bare-word
+ * rule as bash/zsh) so single-quoting is always safe — no token can contain a
+ * quote or PowerShell metacharacter that would break out of the literal.
+ */
+function psArray(words: string[], kind: string): string {
+  const cleaned = uniq(words.filter((w) => w.length > 0));
+  for (const w of cleaned) assertSafeToken(w, kind);
+  return cleaned.map((w) => `'${w}'`).join(",");
+}
+
+/**
+ * PowerShell: a `Register-ArgumentCompleter -Native` script block. It walks the
+ * parsed command line (`$commandAst.CommandElements`), finds the first non-flag
+ * word after the program (the subcommand), and offers that command's flags — or,
+ * for a parent command like `config`, its nested subcommand names / the flags of
+ * whichever nested subcommand is already present. At the start of the line it
+ * offers the top-level command names (or the global options when typing a flag).
+ * Kept robust rather than exhaustively state-machined, mirroring the bash arm.
+ */
+function generatePowerShell(spec: CompletionSpec): string {
+  const commandNames = psArray(
+    spec.commands.map((c) => c.name),
+    "command name"
+  );
+  const globalOpts = psArray([...spec.options, "--help", "--version"], "global option");
+
+  const caseArms: string[] = [];
+  for (const cmd of spec.commands) {
+    const hasSubs = (cmd.subcommands?.length ?? 0) > 0;
+    if (hasSubs) {
+      const subNames = psArray([...(cmd.subcommands ?? []).map((s) => s.name), "--help"], "subcommand name");
+      const subArms = (cmd.subcommands ?? [])
+        .map((s) => {
+          const subOpts = psArray([...s.options, "--help"], "subcommand option");
+          return `                    '${s.name}' { $opts = @(${subOpts}) }`;
+        })
+        .join("\n");
+      caseArms.push(
+        `            '${cmd.name}' {
+                $sub = ''
+                for ($j = $ci + 1; $j -lt $elements.Count; $j++) {
+                    $t = "$($elements[$j])"
+                    if ($t -notlike '-*') { $sub = $t; break }
+                }
+                switch ($sub) {
+${subArms}
+                    default { $opts = @(${subNames}) }
+                }
+            }`
+      );
+    } else {
+      const opts = psArray([...cmd.options, "--help"], "command option");
+      caseArms.push(`            '${cmd.name}' { $opts = @(${opts}) }`);
+    }
+  }
+
+  return `# powershell completion for ${spec.program}
+# Install: add the following line to your PowerShell profile ($PROFILE):
+#   ${spec.program} completion powershell | Out-String | Invoke-Expression
+# or dot-source a saved copy of this script.
+Register-ArgumentCompleter -Native -CommandName ${spec.program} -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+
+    $elements = $commandAst.CommandElements
+    $cmd = ''
+    $ci = 0
+    for ($i = 1; $i -lt $elements.Count; $i++) {
+        $t = "$($elements[$i])"
+        if ($t -notlike '-*') { $cmd = $t; $ci = $i; break }
+    }
+
+    $opts = @()
+    if ($cmd -eq '') {
+        if ($wordToComplete -like '-*') { $opts = @(${globalOpts}) } else { $opts = @(${commandNames}) }
+    } else {
+        switch ($cmd) {
+${caseArms.join("\n")}
+            default { $opts = @(${globalOpts}) }
+        }
+    }
+
+    $opts | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+        [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+    }
+}
 `;
 }
