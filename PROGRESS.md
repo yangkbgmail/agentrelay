@@ -2166,3 +2166,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats` 해결 시간 MAD(median absolute deviation)] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-fbgzlf`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 세션 68이 후속 후보로 명시한 "timing 블록 MAD(median absolute
+  deviation, 이상치에 더 강건한 분산)"를 골랐다 — watch 축(summary --watch 등)·tz/heatmap/parser는
+  PR 포화라 지양 권고가 반복돼 있었다. 기존 분산 지표 중 stdev는 이상치 하나에 부풀고(50% 붕괴점 없음),
+  IQR도 사분위 위치에 묶여 있다. MAD는 50% 붕괴점을 가진 가장 강건한 분산 지표라 "절반이 아무리 커져도
+  안 움직임" — stdev와 나란히 읽으면 "대체로 일정한데 소수 이상치"를 명확히 드러낸다.
+- **한 일 (branch `claude/wizardly-pascal-fbgzlf`):**
+  - core `stats.ts`의 `TimingStats`에 `madResolutionMs`(whole-ms 반올림, null 가능) 추가 + 순수
+    `medianAbsoluteDeviation(values, median)` 헬퍼(값별 `|v-median|`을 새로 정렬 → 기존 `percentile`
+    p=0.5 재사용). `computeStats`가 median을 한 번만 계산해 medianResolutionMs와 MAD 양쪽에 공유.
+    단일 잡이면 자기 median과의 편차 0 → MAD 0(잘 정의됨), resolved 0개면 null.
+  - CLI `stats.ts`의 resolution-time spread 라인에 `mad …`를 stdev와 cv 사이에 삽입. `--json`은
+    timing 전체 직렬화라 자동 노출(기존 shape 불변). 새 파서/스케줄러/집계 로직 0줄 — 기존 검증된
+    정렬·median 위에 필드 하나 추가.
+  - core stats.test +3(spread 테스트에 mad 1h 단언·단일 잡 mad 0·이상치 강건성 신규 케이스[1h×4+20h
+    이상치 → MAD 0 < stdev]), cli stats.test render `mad 1h 0m` 단언 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 615 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): spans {1h×4, 20h}
+  임시 스토어로 `stats`가 `spread: … stdev 7h 36m   mad <1s   cv 158%` 렌더(이상치가 stdev만 부풀리고
+  MAD는 불변) + `--json`이 `madResolutionMs: 0` / `stdevResolutionMs: 27360000` 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stats --group-by`의
+  그룹별 행에 spread(mad/stdev/cv) 노출, timing 블록에 상대적 MAD(MAD÷median, CV의 강건 버전).
+  tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

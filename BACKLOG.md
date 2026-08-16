@@ -824,6 +824,18 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay stats` 해결 시간 MAD(median absolute deviation) — stdev(이상치 민감)·CV에 더해
+      이상치에 가장 강건한(50% 붕괴점) 분산 지표.
+      (완료 — stdev는 잡 하나가 길어져도 부풀고 IQR도 사분위 위치에 묶여 있어, "절반이 아무리 커져도
+      안 움직이는" 강건 분산 지표가 없었다. core `stats.ts`의 `TimingStats`에 `madResolutionMs`
+      (whole-ms) 추가 + 순수 `medianAbsoluteDeviation(values, median)` 헬퍼(값별 `|v-median|`을 새로
+      정렬 후 기존 `percentile` p=0.5 재사용). `computeStats`가 median을 한 번 계산해 median과 MAD가
+      공유. resolved 0개면 null, 단일 잡이면 0(잘 정의). CLI `stats.ts` spread 라인에 `mad …`를
+      stdev와 cv 사이 삽입, `--json`은 timing 전체 직렬화라 자동 노출. 새 파서/스케줄러/집계 로직 0줄.
+      core stats +3(spread mad 1h·단일 잡 mad 0·이상치 강건성 신규[1h×4+20h→MAD 0<stdev]) + cli stats
+      render `mad 1h 0m` 단언. 실제 빌드 CLI e2e로 {1h×4,20h}→`stdev 7h 36m mad <1s`·`--json`
+      madResolutionMs 0 검증. branch `claude/wizardly-pascal-fbgzlf`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
