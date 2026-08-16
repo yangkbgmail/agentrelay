@@ -85,4 +85,31 @@ describe("adapter rate-limit detection", () => {
     const text = "usage limit reached, resets at 2026-07-13T05:00:00Z";
     expect(CLAUDE_CODE_ADAPTER.detectRateLimit(text, { now })?.pattern).toBe("iso-timestamp");
   });
+
+  it("Claude Code adapter parses the machine-readable 'reached|<epoch>' print-mode format", () => {
+    // What `claude -p` actually emits when rate-limited: an absolute reset time
+    // as Unix epoch seconds after a pipe. epoch 1752345600 -> 2025-07-12T18:40:00Z.
+    const result = CLAUDE_CODE_ADAPTER.detectRateLimit("Claude AI usage limit reached|1752345600", { now });
+    expect(result?.pattern).toBe("claude-usage-limit-epoch");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+    expect(result?.rawMatch).toBe("usage limit reached|1752345600");
+  });
+
+  it("Claude Code adapter tolerates whitespace around the pipe and mixed case", () => {
+    expect(CLAUDE_CODE_ADAPTER.detectRateLimit("Usage Limit Reached | 1752345600", { now })?.pattern).toBe(
+      "claude-usage-limit-epoch"
+    );
+  });
+
+  it("the generic adapter does NOT understand the pipe-delimited epoch format", () => {
+    // This is the whole point of putting it on the Claude adapter: a bare
+    // "...|<10 digits>" must not be treated as a reset by the generic parser.
+    expect(GENERIC_ADAPTER.detectRateLimit("Claude AI usage limit reached|1752345600", { now })).toBeNull();
+  });
+
+  it("Claude Code adapter still falls back to the generic patterns", () => {
+    const result = CLAUDE_CODE_ADAPTER.detectRateLimit("Usage limit reached. Resets in 30m.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
 });

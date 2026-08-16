@@ -2206,3 +2206,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stats --group-by`의
   그룹별 행에 spread(mad/stdev/cv) 노출, timing 블록에 상대적 MAD(MAD÷median, CV의 강건 버전).
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 71 — 파서: Claude Code `-p` 머신 포맷 `usage limit reached|<epoch>` 인식] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-j0fz82`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목이 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 70이 경고한 "stats 분산 지표·watch·summary --watch PR 포화" 클러스터를 피해, 덜 포화되고
+  이 도구의 **핵심 가치**(rate-limit 감지)에 직결되는 파서 영역에서 실제 갭을 발굴.
+- **발굴한 갭:** Claude Code 비대화형/print 모드(`claude -p …`)는 rate-limit 시 산문 문장이 아니라
+  머신 판독 라인 `Claude AI usage limit reached|<unix_epoch초>`를 출력한다(파이프 뒤 절대 리셋 시각).
+  AgentRelay가 헤드리스로 에이전트를 감싸므로 실전에서 가장 자주 마주칠 포맷이고, 경쟁 도구
+  claude-auto-retry가 핵심적으로 파싱하는 바로 그 wording인데도 기존 어떤 패턴도 못 잡았다
+  (pre-filter는 통과하나 매칭 실패 → null). 기존 `unix-epoch`는 `retry_after` 접두를 요구.
+- **한 일 (branch `claude/wizardly-pascal-j0fz82`):**
+  - core `adapters.ts`의 `CLAUDE_CODE_ADAPTER.patterns`에 순수 `CLAUDE_USAGE_LIMIT_EPOCH_PATTERN`
+    (`name: "claude-usage-limit-epoch"`) 추가 — 정규식 `/usage limit reached\s*\|\s*(\d{10})\b/i`로
+    파이프 뒤 10자리 epoch초를 절대 리셋 시각으로 해소(파이프 주변 공백·대소문자 관용, `\b`로 자릿수
+    초과 방지). Claude 고유 wording이라 generic이 아닌 **어댑터** 패턴에 둠(Codex 초 패턴과 대칭) →
+    다른 곳의 `...|<10자리>`를 리셋으로 오독하지 않음.
+  - adapters.test에 5케이스(epoch 파싱·공백/대소문자 관용·generic 미매치·generic 패턴 폴백 유지·
+    rawMatch 검증). 새 파서/스케줄러 로직은 패턴 하나뿐 — `detectRateLimit`가 이미 extraPatterns를
+    최우선으로 시도.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core adapters 17·parser 33 · cli 354/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock
+  아님): `parse --tool claude-code "Claude AI usage limit reached|1752345600"`가
+  `claude-usage-limit-epoch` 매치·`resets: 2025-07-12T18:40:00Z` 렌더, generic 어댑터는
+  "No rate-limit detected" 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
+  다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
+  확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

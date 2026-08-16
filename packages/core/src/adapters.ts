@@ -61,11 +61,32 @@ const CODEX_SECONDS_PATTERN: RateLimitPattern = {
   },
 };
 
+/**
+ * Claude Code's non-interactive / print mode (`claude -p ...`) does not print a
+ * prose sentence when it hits the usage limit — it emits a machine-readable line
+ * of the form `Claude AI usage limit reached|<unix_epoch_seconds>`, where the
+ * number after the pipe is the absolute reset time in Unix epoch *seconds*. This
+ * is the exact format automated wrappers (e.g. claude-auto-retry) key on, and
+ * the one AgentRelay is most likely to see in practice, since it wraps agents in
+ * headless mode. The generic parser has no pipe-delimited epoch pattern (its
+ * `unix-epoch` matcher requires a `retry_after` prefix), so this wording would
+ * otherwise slip through. Kept as a Claude-specific adapter pattern rather than a
+ * generic one so a bare `...|<10 digits>` elsewhere can't be misread as a reset.
+ */
+const CLAUDE_USAGE_LIMIT_EPOCH_PATTERN: RateLimitPattern = {
+  name: "claude-usage-limit-epoch",
+  regex: /usage limit reached\s*\|\s*(\d{10})\b/i,
+  resolve: (m) => {
+    const d = new Date(parseInt(m[1], 10) * 1000);
+    return Number.isNaN(d.getTime()) ? null : d;
+  },
+};
+
 export const CLAUDE_CODE_ADAPTER: AgentAdapter = makeAdapter({
   tool: "claude-code",
   displayName: "Claude Code",
   binaries: ["claude", "claude-code"],
-  patterns: [],
+  patterns: [CLAUDE_USAGE_LIMIT_EPOCH_PATTERN],
 });
 
 export const CODEX_CLI_ADAPTER: AgentAdapter = makeAdapter({

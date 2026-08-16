@@ -836,6 +836,21 @@
       render `mad 1h 0m` 단언. 실제 빌드 CLI e2e로 {1h×4,20h}→`stdev 7h 36m mad <1s`·`--json`
       madResolutionMs 0 검증. branch `claude/wizardly-pascal-fbgzlf`)
 
+- [x] 👷 파서: Claude Code 비대화형(`claude -p`) 모드의 머신 판독 rate-limit 포맷
+      `Claude AI usage limit reached|<unix_epoch초>`(파이프 구분 절대 리셋 시각) 인식. 자기 발굴 항목 —
+      헤드리스로 에이전트를 감싸는 이 도구가 실전에서 가장 자주 마주칠 실제 포맷인데(경쟁 도구
+      claude-auto-retry가 핵심적으로 파싱하는 바로 그 wording) 어떤 기존 패턴도 잡지 못했다.
+      (완료 — `@agentrelay/core/adapters.ts`의 `CLAUDE_CODE_ADAPTER.patterns`에 순수
+      `CLAUDE_USAGE_LIMIT_EPOCH_PATTERN`(`name: "claude-usage-limit-epoch"`) 추가 — 정규식
+      `/usage limit reached\s*\|\s*(\d{10})\b/i`로 파이프 뒤 10자리 unix epoch초를 절대 리셋 시각으로
+      해소(파이프 주변 공백·대소문자 관용, `\b`로 자릿수 초과 방지). Claude 고유 wording이라 generic
+      파서가 아닌 어댑터 패턴에 둠(Codex 초 패턴과 대칭) — 그래서 다른 곳의 `...|<10자리>`를 리셋으로
+      오독하지 않음. 기존 `unix-epoch`(제네릭, `retry_after` 접두 필요)와 별개. 새 파서/스케줄러 로직은
+      패턴 하나뿐 — 어댑터의 `detectRateLimit`가 이미 extraPatterns를 최우선으로 시도. adapters.test에
+      5케이스 추가(epoch 파싱·공백/대소문자 관용·generic 미매치·generic 패턴 폴백 유지·rawMatch 검증),
+      실제 빌드 CLI `parse --tool claude-code "…|1752345600"` e2e로 `claude-usage-limit-epoch` 매치 +
+      generic은 "No rate-limit detected" 확인. branch `claude/wizardly-pascal-j0fz82`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
