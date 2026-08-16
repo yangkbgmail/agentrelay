@@ -102,6 +102,33 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // "Please wait 30 minutes before trying again" / "wait 2 hours" /
+    // "wait for 1d 4h" — the *reordered* sibling of relative-duration, where the
+    // delay comes before the retry phrase (or the retry phrase never appears).
+    // relative-duration only matches "<retry> in <duration>", so this common
+    // real-world wording ("you must wait N minutes …") would otherwise slip
+    // through even though the pre-filter lets it in (the surrounding text carries
+    // a rate-limit/usage-limit/try-again phrase). Placed *after* relative-duration
+    // so an explicit "try again in X" still wins when both appear.
+    //
+    // The `(?=\d)` look-ahead requires a digit right after "wait" (past optional
+    // filler words), so a bare "please wait —" doesn't match empty and shadow a
+    // later "wait 30 minutes" in the same text; the regex keeps scanning to the
+    // first "wait <number>". Seconds are deliberately not handled (same decision
+    // as relative-duration: sub-minute waits are the Codex adapter's job), and
+    // the day/hour/minute grammar mirrors relative-duration for consistency.
+    name: "wait-duration",
+    regex:
+      /\bwait\s+(?:for\s+|about\s+|another\s+)?(?=\d)(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
+    resolve: (m, now) => {
+      const days = m[1] ? parseInt(m[1], 10) : 0;
+      const hours = m[2] ? parseInt(m[2], 10) : 0;
+      const minutes = m[3] ? parseInt(m[3], 10) : 0;
+      if (days === 0 && hours === 0 && minutes === 0) return null;
+      return new Date(now.getTime() + ((days * 24 + hours) * 60 + minutes) * 60_000);
+    },
+  },
+  {
     // Unix epoch seconds embedded in structured error payloads, e.g.
     // `retry_after=1752345600`, `retry_after: 1752345600`, or the JSON form
     // `"retry_after": 1752345600`.
