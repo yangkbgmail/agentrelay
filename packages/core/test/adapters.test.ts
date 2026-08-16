@@ -95,6 +95,22 @@ describe("adapter rate-limit detection", () => {
     expect(result?.rawMatch).toBe("usage limit reached|1752345600");
   });
 
+  it("Claude Code adapter also parses the pipe epoch when stamped in milliseconds (13 digits)", () => {
+    // Some tooling emits the reset as a JS-style ms epoch. 1752345600000 ms is
+    // the same instant as 1752345600 s -> 2025-07-12T18:40:00Z. The old
+    // `\d{10}\b` pattern missed this entirely (trailing digits broke `\b`).
+    const result = CLAUDE_CODE_ADAPTER.detectRateLimit("Claude AI usage limit reached|1752345600000", { now });
+    expect(result?.pattern).toBe("claude-usage-limit-epoch");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+    expect(result?.rawMatch).toBe("usage limit reached|1752345600000");
+  });
+
+  it("Claude Code adapter ignores pipe epochs of non-standard digit length (11–12)", () => {
+    // Neither seconds (10) nor milliseconds (13): don't guess a unit, resolve nothing.
+    expect(CLAUDE_CODE_ADAPTER.detectRateLimit("usage limit reached|17523456000", { now })).toBeNull();
+    expect(CLAUDE_CODE_ADAPTER.detectRateLimit("usage limit reached|175234560000", { now })).toBeNull();
+  });
+
   it("Claude Code adapter tolerates whitespace around the pipe and mixed case", () => {
     expect(CLAUDE_CODE_ADAPTER.detectRateLimit("Usage Limit Reached | 1752345600", { now })?.pattern).toBe(
       "claude-usage-limit-epoch"

@@ -2233,3 +2233,25 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 72 — 파서: `usage limit reached|<epoch>` 밀리초(13자리) 인식 확장] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-bqt792`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 71이 명시한 후속 후보 "파이프-epoch가 ms(13자리)로도 오는지 관찰 후 확장"을 그대로 이어받아,
+  비포화·고가치(핵심 rate-limit 감지) 파서 영역에서 실제 갭을 처리.
+- **발굴한 갭(실측):** 세션 71이 추가한 `claude-usage-limit-epoch` 패턴(`/usage limit reached\s*\|\s*(\d{10})\b/i`)은
+  **10자리 초 epoch만** 인식한다. 일부 툴체인은 리셋 시각을 JS식 **밀리초 epoch(13자리)**로 파이프 뒤에
+  찍는데, 이 경우 기존 패턴이 앞 10자리를 잡은 뒤 뒤따르는 숫자 때문에 `\b`가 깨져 **통째로 null**이 됐다
+  (실측: `usage limit reached|1752345600000` → null). 릴레이가 가장 자주 만나는 헤드리스 포맷이라 놓치면 치명적.
+- **한 일 (branch `claude/wizardly-pascal-bqt792`):**
+  - core `adapters.ts`의 `CLAUDE_USAGE_LIMIT_EPOCH_PATTERN` 정규식을 `(\d{13}|\d{10})\b`로 확장하고,
+    `resolve`가 자릿수로 단위를 구분(13자리=ms 그대로, 10자리=초×1000). `\b` 경계 덕에 정확히 10 또는 13자리만
+    잡고 11~12자리 같은 비표준 길이는 **추측 없이 미검출**로 남긴다(오독 방지). 새 파서/스케줄러 로직 0줄 —
+    기존 검증된 어댑터 패턴 하나를 단위 유연화한 것.
+  - adapters.test +2(ms 13자리가 초 10자리와 **동일 instant**로 해소·rawMatch 검증 / 11·12자리 비표준 길이 미검출).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 120파일)→`pnpm test` 전
+  패키지 통과(**core 629[adapters 19] · cli 354/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  `parse --tool claude-code "…|1752345600000"`와 `…|1752345600` 모두 `claude-usage-limit-epoch`로
+  `resets: 2025-07-12T18:40:00.000Z` 동일 렌더, `…|17523456000`(11자리)은 "No rate-limit detected".
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
+  다른 실사용 rate-limit wording 수집(🧭와 협업). stats 분산/watch·summary --watch는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
