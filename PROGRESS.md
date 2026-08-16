@@ -2166,3 +2166,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay stats --reliability` 일별 결과 추세] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-3f62tx`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이라, CLAUDE.md "멈추지 말고 새 개선 항목 발굴" 원칙대로 신규 👷 항목을
+  직접 발굴했다. 기존 `--trend`(세션 55경)는 잡이 *언제 도착했나*(생성일 기준 건수)만 보여줘, "릴레이가
+  시간이 갈수록 더 신뢰할 만해지나 나빠지나"라는 결과(outcome) 추세를 알 수 없었다. `--hours/--weekday/
+  --heatmap`도 전부 생성-시각 분포라 결과 축이 비어 있었다.
+- **한 일 (branch `claude/wizardly-pascal-3f62tx`):**
+  - core `stats.ts`에 `DailyReliability` 인터페이스 + 순수 `computeReliabilityTrend(jobs, {nowMs, days})`
+    신설: 종결(terminal) 잡을 `updatedAt`(최종 상태 도달일, UTC) 기준 버킷팅 → 일별 completed/failed/
+    cancelled 집계 + per-day `successRate`=completed÷(completed+failed). `--trend`와 동일 규약(정확히
+    days칸·오래된 날 먼저·0 채움·days≥1 클램프·비종결 잡 및 창밖/파싱불가 updatedAt 스킵). 취소는 사용자
+    의도라 성공률 분모 제외(store 전체 successRate와 일치), 해결 0인 날은 0이 아니라 null이라 조용한 날이
+    전패로 안 보임. 새 파서/스케줄러 로직 0줄.
+  - CLI `stats.ts`에 `renderReliability`: 각 날 막대를 가장 바쁜 해결일에 스케일 후 완료 머리(█)/실패
+    꼬리(░)로 분할, 성공률·(N✓ N✗ N⊘) 꼬리표, 해결 0인 날은 dim 점+"n/a"(소수 성공/실패도 최소 1블록
+    보장하도록 클램프). `renderStatsJson`에 `reliability` 필드(요청 시에만 방출, 기본 JSON shape 불변).
+  - cli.ts에 `--reliability [days]` 옵션(bare→14, 1..90 클램프, trend와 동일 검증/에러 문구) + 예시,
+    text/JSON/`--watch` 전 경로 배선(runStatsWatch 시그니처에 reliabilityDays 추가).
+  - core stats.test +5(빈 창 null·updatedAt 버킷팅+취소 제외·비종결 잡 무시·창밖/파싱불가 스킵·days
+    클램프), cli stats.test +7(헤더/행/푸터·n/a 날·█░ 분할·외톨이 실패 클램프·전부 조용·round-trip·JSON
+    필드 방출/누락).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm lint:fix`+`pnpm ci:lint`(Biome 0에러)→
+  `pnpm test` 전 패키지 통과(**core 619 · cli 352/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  6-잡 임시 스토어(completed×3·failed×1·cancelled×1·queued×1)로 `stats --reliability 4`가 일별 막대·
+  per-day 성공률(08-14 67%·08-16 100%)·취소 제외·overall 75% 렌더, `--reliability --json`이 14칸 reliability
+  배열 방출(trend 키 부재), `--reliability 999` → exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `--reliability`에도
+  `--local`/`--since` 창 결합, timing 블록 MAD, `stats --group-by` 행별 cv. watch 포화 축은 지양.
+  README/ARCHITECTURE(🧭 코워크).

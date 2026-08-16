@@ -243,6 +243,87 @@ export function computeDailyTrend(jobs: RelayJob[], options: { nowMs: number; da
   return trend;
 }
 
+/** One day's slot in a {@link computeReliabilityTrend} outcome histogram. */
+export interface DailyReliability {
+  /** UTC calendar day, "YYYY-MM-DD". */
+  date: string;
+  /** Jobs that reached `completed` on this day (bucketed by `updatedAt`, UTC). */
+  completed: number;
+  /** Jobs that reached `failed` on this day. */
+  failed: number;
+  /** Jobs that were `cancelled` on this day. */
+  cancelled: number;
+  /** completed + failed — the denominator for {@link DailyReliability.successRate}. */
+  resolved: number;
+  /** completed ÷ resolved, or null when nothing resolved that day. */
+  successRate: number | null;
+}
+
+/**
+ * Buckets terminal jobs by the UTC calendar day they reached their final state
+ * (`updatedAt`), over the last `days` days ending on the day of `nowMs`
+ * (inclusive), so `agentrelay stats --reliability` can show whether outcomes are
+ * trending healthier or worse over time. Where {@link computeDailyTrend} counts
+ * *when jobs arrived* (by `createdAt`), this counts *how they ended*.
+ *
+ * Each slot carries completed/failed/cancelled tallies plus a per-day
+ * `successRate` = completed ÷ (completed + failed), matching the store-wide
+ * success rate in {@link computeStats} (cancelled is user intent, not a relay
+ * outcome, so it stays out of the ratio). A day with nothing resolved has
+ * `successRate` null rather than 0, so a quiet day never reads as a total-failure
+ * day.
+ *
+ * Pure and non-mutating: the window is derived from the injected `nowMs`, never
+ * an ambient clock. The result is always exactly `days` entries, oldest first,
+ * zero-filled for quiet days. Non-terminal jobs, and terminal jobs whose
+ * `updatedAt` is missing/unparseable or falls outside the window, are skipped —
+ * they have no outcome to place on the timeline. `days` is clamped to at least 1.
+ */
+export function computeReliabilityTrend(
+  jobs: RelayJob[],
+  options: { nowMs: number; days: number }
+): DailyReliability[] {
+  const days = Math.max(1, Math.floor(options.days));
+  const todayStart = utcDayStart(options.nowMs);
+  const windowStart = todayStart - (days - 1) * DAY_MS;
+
+  interface Tally {
+    completed: number;
+    failed: number;
+    cancelled: number;
+  }
+  const tallies = new Map<string, Tally>();
+  for (const job of jobs) {
+    if (!TERMINAL_STATUSES.includes(job.status)) continue;
+    const ended = Date.parse(job.updatedAt);
+    if (Number.isNaN(ended)) continue;
+    const dayStart = utcDayStart(ended);
+    if (dayStart < windowStart || dayStart > todayStart) continue;
+    const key = utcDateKey(dayStart);
+    const tally = tallies.get(key) ?? { completed: 0, failed: 0, cancelled: 0 };
+    if (job.status === "completed") tally.completed += 1;
+    else if (job.status === "failed") tally.failed += 1;
+    else tally.cancelled += 1;
+    tallies.set(key, tally);
+  }
+
+  const trend: DailyReliability[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const key = utcDateKey(todayStart - i * DAY_MS);
+    const tally = tallies.get(key) ?? { completed: 0, failed: 0, cancelled: 0 };
+    const resolved = tally.completed + tally.failed;
+    trend.push({
+      date: key,
+      completed: tally.completed,
+      failed: tally.failed,
+      cancelled: tally.cancelled,
+      resolved,
+      successRate: resolved === 0 ? null : tally.completed / resolved,
+    });
+  }
+  return trend;
+}
+
 export interface HourlyActivity {
   /** Hour of day, 0–23, in the requested zone (UTC unless an offset is given). */
   hour: number;

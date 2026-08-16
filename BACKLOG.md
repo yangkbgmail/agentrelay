@@ -824,6 +824,24 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay stats --reliability [days]` — 일별 결과(완료/실패/취소 + 성공률) 히스토그램으로
+      "릴레이 결과가 시간이 갈수록 좋아지나 나빠지나"를 노출. 기존 `--trend`는 잡이 *언제 도착했나*(생성일
+      기준 건수)만 보여줘 신뢰성 추세를 알 수 없었다.
+      (완료 — core `stats.ts`에 `DailyReliability` 인터페이스 + 순수 `computeReliabilityTrend(jobs,
+      {nowMs, days})` 신설: 종결(terminal) 잡을 `updatedAt`(최종 상태 도달일, UTC) 기준으로 버킷팅해
+      일별 completed/failed/cancelled 집계 + per-day `successRate`=completed÷(completed+failed).
+      `--trend`와 동일 규약(정확히 days칸·오래된 날 먼저·0 채움·days≥1 클램프·창 밖/파싱불가 스킵).
+      취소는 사용자 의도라 성공률 분모에서 제외(store 전체 successRate와 일치), 해결 0인 날은 0이 아니라
+      null이라 조용한 날이 전패로 안 보임. CLI `stats.ts`에 `renderReliability`(각 날 막대를 가장 바쁜
+      해결일에 스케일 → 완료 머리(█)/실패 꼬리(░)로 분할, 성공률·(N✓ N✗ N⊘) 꼬리표, 해결 0인 날은
+      dim 점+"n/a"; 소수 성공/실패도 최소 1블록 보장하도록 클램프) + `renderStatsJson`에 `reliability`
+      필드(요청 시에만 방출, 기본 JSON 형태 불변). cli.ts에 `--reliability [days]` 옵션(bare→14, 1..90
+      클램프, trend와 동일 검증/에러 문구) + text/JSON/`--watch` 전 경로 배선. 새 파서/스케줄러 로직 0줄.
+      core stats.test +5(빈 창 null·updatedAt 버킷팅+취소 제외·비종결 잡 무시·창밖/파싱불가 스킵·days
+      클램프), cli stats.test +7(헤더/행/푸터·n/a 날·█░ 분할·외톨이 실패 클램프·전부 조용·round-trip·
+      JSON 필드). 실제 빌드 CLI e2e로 6잡 스토어→일별 막대/성공률/취소 제외·`--json` reliability 방출·
+      `--reliability 999` exit 1 검증. branch `claude/wizardly-pascal-3f62tx`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

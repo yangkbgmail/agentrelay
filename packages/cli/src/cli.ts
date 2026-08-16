@@ -22,6 +22,7 @@ import {
   computeErrorBreakdown,
   computeHourlyDistribution,
   computeQueueEta,
+  computeReliabilityTrend,
   computeStats,
   computeWeekdayDistribution,
   EXPORT_FORMATS,
@@ -97,6 +98,7 @@ import {
   renderGroupedStatsJson,
   renderHeatmap,
   renderHours,
+  renderReliability,
   renderStats,
   renderStatsJson,
   renderStatsWatchFrame,
@@ -462,6 +464,7 @@ function runStatsWatch(
   scopeNote: string | undefined,
   groupBy: GroupDimension | undefined,
   trendDays: number | null,
+  reliabilityDays: number | null,
   hours: boolean,
   weekday: boolean,
   heatmap: boolean,
@@ -481,6 +484,10 @@ function runStatsWatch(
       if (trendDays !== null && stats.total > 0) {
         const trend = computeDailyTrend(jobs, { nowMs: now, days: trendDays });
         body += `\n\n${renderTrend(trend, { color: true })}`;
+      }
+      if (reliabilityDays !== null && stats.total > 0) {
+        const reliability = computeReliabilityTrend(jobs, { nowMs: now, days: reliabilityDays });
+        body += `\n\n${renderReliability(reliability, { color: true })}`;
       }
       if (hours && stats.total > 0) {
         body += `\n\n${renderHours(computeHourlyDistribution(jobs, zone.offsetMinutes), { color: true, zoneLabel: zone.label })}`;
@@ -1084,6 +1091,10 @@ export function buildCli(): Command {
     .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("-g, --group-by <dimension>", `Break down metrics per group: ${GROUP_DIMENSIONS.join(", ")}`)
     .option("--trend [days]", "Also show a per-day activity histogram over the last N days, UTC (default 14, max 90)")
+    .option(
+      "--reliability [days]",
+      "Also show a per-day outcome histogram (completed/failed + success rate) over the last N days, UTC (default 14, max 90)"
+    )
     .option("--hours", "Also show an hour-of-day activity histogram (jobs created per hour, 0–23)")
     .option("--weekday", "Also show a day-of-week activity histogram (jobs created per weekday, Sun–Sat)")
     .option("--heatmap", "Also show a weekday × hour-of-day activity heatmap (when in the week jobs cluster)")
@@ -1108,7 +1119,9 @@ export function buildCli(): Command {
         "  # which weekdays rate-limits cluster on\n" +
         "  agentrelay stats --weekday\n" +
         "  # when in the week (weekday × hour) rate-limits cluster\n" +
-        "  agentrelay stats --heatmap"
+        "  agentrelay stats --heatmap\n" +
+        "  # is the relay getting more or less reliable over the last 30 days?\n" +
+        "  agentrelay stats --reliability 30"
     )
     .action(
       (opts: {
@@ -1119,6 +1132,7 @@ export function buildCli(): Command {
         until?: string;
         groupBy?: string;
         trend?: string | boolean;
+        reliability?: string | boolean;
         hours?: boolean;
         weekday?: boolean;
         heatmap?: boolean;
@@ -1224,6 +1238,25 @@ export function buildCli(): Command {
           }
         }
 
+        // --reliability mirrors --trend: bare flag uses the default window,
+        // `--reliability 30` overrides it. Same 1..90 clamp and error text.
+        let reliabilityDays: number | null = null;
+        if (opts.reliability !== undefined && opts.reliability !== false) {
+          if (opts.reliability === true) {
+            reliabilityDays = 14;
+          } else {
+            const parsed = Number(opts.reliability);
+            if (!Number.isInteger(parsed) || parsed < 1 || parsed > 90) {
+              console.error(
+                `Invalid --reliability value: "${opts.reliability}". Use a whole number of days from 1 to 90.`
+              );
+              process.exitCode = 1;
+              return;
+            }
+            reliabilityDays = parsed;
+          }
+        }
+
         const active = isJobScopeActive(scope);
         const scopeNote = active ? noteParts.join(" ") : undefined;
 
@@ -1254,6 +1287,7 @@ export function buildCli(): Command {
             scopeNote,
             groupBy,
             trendDays,
+            reliabilityDays,
             Boolean(opts.hours),
             Boolean(opts.weekday),
             Boolean(opts.heatmap),
@@ -1277,12 +1311,14 @@ export function buildCli(): Command {
 
         const stats = computeStats(jobs);
         const trend = trendDays !== null ? computeDailyTrend(jobs, { nowMs: now, days: trendDays }) : null;
+        const reliability =
+          reliabilityDays !== null ? computeReliabilityTrend(jobs, { nowMs: now, days: reliabilityDays }) : null;
         const hours = opts.hours ? computeHourlyDistribution(jobs, zone.offsetMinutes) : null;
         const weekday = opts.weekday ? computeWeekdayDistribution(jobs, zone.offsetMinutes) : null;
         const heatmap = opts.heatmap ? computeActivityHeatmap(jobs, zone.offsetMinutes) : null;
 
         if (opts.json) {
-          console.log(renderStatsJson(stats, store, { scope, trend, hours, weekday, heatmap }));
+          console.log(renderStatsJson(stats, store, { scope, trend, reliability, hours, weekday, heatmap }));
           return;
         }
         // A store with jobs but an empty scoped subset should say "no match",
@@ -1293,6 +1329,10 @@ export function buildCli(): Command {
         if (trend !== null && stats.total > 0) {
           console.log("");
           console.log(renderTrend(trend, { color: Boolean(process.stdout.isTTY) }));
+        }
+        if (reliability !== null && stats.total > 0) {
+          console.log("");
+          console.log(renderReliability(reliability, { color: Boolean(process.stdout.isTTY) }));
         }
         if (hours !== null && stats.total > 0) {
           console.log("");
