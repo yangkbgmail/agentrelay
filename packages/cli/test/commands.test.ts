@@ -9,6 +9,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  drainQueue,
   getConfigValue,
   importStore,
   initConfig,
@@ -1069,5 +1070,114 @@ describe("waitForJob", () => {
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
     expect(result.message).toMatch(/no job matches/);
+  });
+});
+
+describe("drainQueue", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-drain-cli-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function activeJob(): RelayJob {
+    return {
+      id: "a",
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude"],
+      cwd: dir,
+      status: "queued",
+      resetAt: null,
+      attempts: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      lastError: null,
+      lastOutputTail: null,
+      lastRateLimit: null,
+    };
+  }
+
+  it("returns immediately when the queue is already drained (exit 0)", async () => {
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await drainQueue({ storePath, readJobs: () => [], sleep });
+    expect(result.outcome).toBe("drained");
+    expect(result.exitCode).toBe(0);
+    expect(result.progress.active).toBe(0);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("treats only-terminal jobs as drained without polling", async () => {
+    const done: RelayJob = { ...activeJob(), status: "completed" };
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await drainQueue({ storePath, readJobs: () => [done], sleep });
+    expect(result.outcome).toBe("drained");
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("polls until the last active job settles, then reports drained", async () => {
+    const active = activeJob();
+    const snapshots: RelayJob[][] = [[active], [active], []];
+    let i = 0;
+    const readJobs = () => snapshots[Math.min(i++, snapshots.length - 1)];
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const seen: number[] = [];
+
+    const result = await drainQueue({
+      storePath,
+      readJobs,
+      sleep,
+      now: () => 0,
+      onPoll: (progress) => seen.push(progress.active),
+    });
+    expect(result.outcome).toBe("drained");
+    expect(result.exitCode).toBe(0);
+    // Slept for the two active polls before the empty read.
+    expect(sleep).toHaveBeenCalledTimes(2);
+    expect(seen).toEqual([1, 1]);
+  });
+
+  it("times out while jobs are still in flight (exit 124)", async () => {
+    let clock = 0;
+    const now = () => clock;
+    const sleep = vi.fn().mockImplementation(async (ms: number) => {
+      clock += ms;
+    });
+    const result = await drainQueue({
+      storePath,
+      readJobs: () => [activeJob()],
+      intervalMs: 1000,
+      timeoutMs: 2500,
+      now,
+      sleep,
+    });
+    expect(result.outcome).toBe("timeout");
+    expect(result.exitCode).toBe(124);
+    expect(result.message).toMatch(/timed out with 1 job still in flight/);
+  });
+
+  it("observes a real store: drains once a seeded job is marked completed", async () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.close();
+
+    let polls = 0;
+    const sleep = vi.fn().mockImplementation(async () => {
+      // After the first observed poll, settle the job in the real store.
+      if (polls++ === 0) {
+        const q = new RelayQueue(storePath);
+        q.markCompleted(job.id, "done");
+        q.close();
+      }
+    });
+    const result = await drainQueue({ storePath, intervalMs: 1, timeoutMs: 5000, now: () => 0, sleep });
+    expect(result.outcome).toBe("drained");
+    expect(result.exitCode).toBe(0);
   });
 });

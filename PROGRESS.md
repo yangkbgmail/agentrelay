@@ -2233,3 +2233,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 72 — `agentrelay drain` 큐 전체 캐치업까지 블로킹] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-8lcgq3`)
+- 배경: 세션 시작 시 열린 PR 30개(파서·stats·watch·어댑터·대시보드 등 다수 진행 중), BACKLOG의
+  👷 항목은 전부 `[x]` 완료. CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다 — `eta`는 "언제 큐가
+  다 따라잡히나"를 스냅샷으로 답하고 `wait <id>`는 잡 하나를 종료까지 따라가지만, **큐 전체가
+  다 처리될 때까지 블록**하는 플릿 레벨 프리미티브가 없었다(30개 열린 PR 어디에도 없음 확인).
+- 한 일 (branch `claude/wizardly-pascal-8lcgq3`): **`agentrelay drain`** — `eta`의 블로킹 짝.
+  1. `@agentrelay/core/drain.ts` 신설(순수·시계/스토어/스폰 미접촉): `evaluateDrain(jobs)`가 활성
+     상태(queued/waiting_for_reset/resuming — stats `ACTIVE_STATUSES`·doctor `countActiveJobs`와 동일
+     집합) 잡을 상태별로 세어 `DrainProgress`(done·active·queued·waiting·resuming) 반환, active 0이면
+     `done:true`+`outcome:"drained"`. `DrainOutcome`(drained/timeout)·`DRAIN_EXIT_CODES`(0/124 —
+     `wait`의 GNU `timeout(1)` 관례와 정렬)·`drainExitCode`. index.ts export.
+  2. CLI `commands.ts` `drainQueue(options)` — `waitForJob`과 동일한 폴링 루프(매 폴링마다 스토어
+     재오픈해 별도 daemon/tick 프로세스의 쓰기 관측, 첫 검사 즉시[이미 비었으면 sleep 없이 반환],
+     `--timeout`은 sleep 전 데드라인 검사로 1인터벌 이상 초과 안 함, now/sleep/readJobs 주입 가능)로
+     drained(exit 0)/timeout(exit 124) 반환. CLI `drain.ts` 순수 `formatDrainProgress`(비영 버킷만
+     "3 active jobs: 1 queued, 1 waiting, 1 resuming")·`renderDrainJson`(wait/eta와 동일 envelope).
+  3. `agentrelay drain [--timeout][--interval][--json][-q]` 배선 — 잘못된 interval/timeout은 실행 전
+     exit 1, `--json`이면 stdout 청정(진행 라인은 stderr), completion 자동 포함.
+  - 검증: `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고/0 에러**,
+    `pnpm test` **998개 전부 통과**(core 634 + cli 364/1skip — drain 7 + drainQueue 5 + drain render 5
+    신규). **실제 빌드된 CLI e2e**(mock 아님): 빈 큐→drained exit 0·완료+대기 잡+`--timeout 1s`→timeout
+    exit 124(active 브레이크다운)·잘못된 `--interval bogus`→exit 1·human 진행 라인(stderr)·help 예시·
+    `completion bash`에 drain 포함 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `eta --watch`(PR
+  #703 진행 중)·`drain --watch`(라이브 진행 뷰)는 PR 포화 관찰 후 판단. README/ARCHITECTURE(🧭 코워크).

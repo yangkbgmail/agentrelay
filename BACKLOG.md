@@ -851,6 +851,25 @@
       실제 빌드 CLI `parse --tool claude-code "…|1752345600"` e2e로 `claude-usage-limit-epoch` 매치 +
       generic은 "No rate-limit detected" 확인. branch `claude/wizardly-pascal-j0fz82`)
 
+- [x] 👷 `agentrelay drain` — 큐 전체가 다 따라잡힐 때(활성 잡 0개)까지 블록 후 exit code 반환.
+      `eta`(스냅샷)·`wait <id>`(단일 잡)의 빠진 짝인 **플릿 레벨 블로킹** 프리미티브 — CI/스크립트가
+      `agentrelay daemon & agentrelay drain --timeout 8h && ./deploy.sh`처럼 "릴레이가 전부 처리될 때까지
+      기다렸다 배포"를 게이트할 수 있게 한다. 자기 발굴 항목.
+      (완료 — `@agentrelay/core/drain.ts` 신설(순수·시계/스토어/스폰 미접촉): `evaluateDrain(jobs)`가
+      활성 상태(queued/waiting_for_reset/resuming — stats `ACTIVE_STATUSES`·`countActiveJobs`와 동일 집합)
+      잡 수를 상태별로 세어 `DrainProgress`(done·active·queued·waiting·resuming) 반환, active 0이면
+      `done:true`+`outcome:"drained"`. `DrainOutcome`(drained/timeout)·`DRAIN_EXIT_CODES`(0/124 — `wait`의
+      GNU `timeout(1)` 관례와 정렬)·`drainExitCode`. CLI `commands.ts` `drainQueue(options)`가 `waitForJob`과
+      동일한 폴링 루프(매 폴링마다 스토어 재오픈해 별도 daemon/tick 프로세스의 쓰기 관측, 첫 검사 즉시 —
+      이미 비었으면 sleep 없이 반환, `--timeout`은 sleep 전 데드라인 검사로 1인터벌 이상 초과 안 함,
+      now/sleep/readJobs 주입 가능)로 drained(exit 0)/timeout(exit 124) 반환. CLI `drain.ts` 순수
+      `formatDrainProgress`(비영 버킷만 "3 active jobs: 1 queued, 1 waiting, 1 resuming")·`renderDrainJson`
+      (wait/eta와 동일 envelope). `agentrelay drain [--timeout][--interval][--json][-q]` 배선 — 잘못된
+      interval/timeout은 watch 전 exit 1, `--json`이면 stdout 청정(진행 라인은 stderr), completion 자동 포함.
+      새 파서/스케줄러 로직 0줄. core drain 7 + cli drainQueue 5 + drain render 5 신규 테스트, 실제 빌드 CLI
+      e2e로 빈 큐→drained 0·활성+timeout→124(active 브레이크다운)·잘못된 interval→1·human 진행 라인·
+      completion 포함 검증. branch `claude/wizardly-pascal-8lcgq3`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
