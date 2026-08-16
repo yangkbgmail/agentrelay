@@ -2176,25 +2176,33 @@
   (데몬 OOM-kill·SIGKILL·재부팅) 잡이 **`resuming`에 영원히 갇힌다** — `listDue`는 `waiting_for_reset`만
   픽업하므로 어떤 tick도 다시 안 집고, `retry`는 `canRequeue`가 `resuming`을 거부해 손으로도 못 살린다.
   릴레이가 가장 필요했던 그 잡이 조용히 영원히 재개 안 되는 상태.
-- **한 일 (branch `claude/wizardly-pascal-recover`):**
-  - core `recover.ts` 신설(순수): `selectStuckResumingJobs(jobs,{nowMs,stuckAfterMs})` + `StuckResumingReport`
-    + `DEFAULT_STUCK_RESUMING_MS`(30m). `resuming` 상태이면서 `updatedAt`이 임계값보다 오래된 잡만 stuck으로
-    선정(오래된 순 정렬), 파싱 불가 `updatedAt`은 stuck 취급(라이브 루프는 항상 신선·유효한 타임스탬프를
-    쓰므로 안전). `stuckAfterMs:0`은 모든 resuming 잡 선정(루프가 죽은 걸 알 때 즉시 전부 회수).
-  - `RelayQueue.recoverResuming(id,at)`: 현재 `resuming`일 때만 `waiting_for_reset`(resetAt=now, 즉시 due)로
-    전이하고 사유를 `lastError`에 기록, **`attempts` 보존**(중단된 시도도 카운트 → 루프를 반복 크래시시키는
-    잡이 무한 회수되지 않게). 비-resuming/미존재는 no-op `false` 반환(스캔↔쓰기 사이 완료된 잡 중복 재개 방지).
-  - CLI: `commands.ts` `recoverJobs({storePath,stuckAfterMs,dryRun,now})`(스캔→per-job 가드 전이), `recover.ts`에
-    순수 `renderRecover`(정체 시간은 전이 전 `report.stuck` 객체에서 계산해 실제 대기 시간 표시)·`renderRecoverJson`.
-    `agentrelay recover [--older-than <dur>] [--dry-run] [--json]` 배선(잘못된 duration은 exit 1). completion은
-    commander 프로그램에서 파생되므로 자동 포함.
-  - 테스트: core recover.test 8(선정/정렬/파싱불가/threshold 0/queue 전이·attempts 보존·no-op) + cli recover.test 9
-    (render 4·json 1·recoverJobs 통합 4).
-- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러/0경고, 120파일)→`pnpm test`
-  전 패키지 통과(**core 622 · cli 354/1skip · dashboard 9**, recover 17 신규). **실제 빌드 CLI e2e**(mock 아님):
-  45분 갇힌 resuming + 방금 시작한 resuming 잡 시드 → `recover --dry-run`이 stuck 1건만 표시(스토어 미변경) →
-  `recover`가 stuck001을 `waiting_for_reset` due·attempts 보존으로 회수하고 fresh는 그대로 → 재-recover는
-  "30m threshold 내 라이브 런, left alone" → `--older-than 0s`가 fresh까지 회수 → 잘못된 duration exit 1 확인.
-- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `doctor`에 stuck-resuming
-  경고 체크(감지 표면 추가), 스케줄러 startup 시 자동 회수(fresh start면 모든 resuming은 정의상 고아).
-  tz/heatmap/parser/watch·summary --watch·stats 파생은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+- **한 일 (branch `claude/wizardly-pascal-recover`):** core `recover.ts` 신설(순수)
+  `selectStuckResumingJobs`/`StuckResumingReport`/`DEFAULT_STUCK_RESUMING_MS`(30m) + `RelayQueue.recoverResuming`
+  (resuming→waiting_for_reset due, attempts 보존) + CLI `agentrelay recover [--older-than][--dry-run][--json]`.
+  core recover 8 + cli recover 9 신규.
+- **검증:** build 클린·Biome 0에러·`pnpm test` 전 패키지 통과(core 622·cli 354/1skip·dashboard 9). 세션 70에서
+  최신 main 위로 통합·병합(PR #695).
+
+### [세션 70 — `agentrelay stats` 해결 시간 MAD + PR 정체 진단/병합] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-fbgzlf`)
+- **PR 정체 진단:** 세션 시작 시 **열린 PR 100+개**가 CI 초록인데도 병합되지 않고 쌓여 있었다(MAD 20+·CV·
+  eta --watch·summary --watch 등 동일 기능 다중 중복). 원인 = 병합 게이트를 쥔 사람이 없고, 매 세션이 기존
+  녹색 PR을 병합하는 대신 새 PR을 추가해 온 것. CV는 이미 #645로 main에 있는데도 CV PR이 여러 개 열려 불필요.
+  COLLAB 병합 정책(CI 초록이면 클로드 코드 병합 가능)에 따라 실질 진전을 위해 **고유·녹색 PR을 병합**했다:
+  #695(recover, 위) + 이 PR(#704, MAD — 가장 많이 중복된 미병합 기능이라 landing 시 중복 루프 차단).
+- **한 일 (branch `claude/wizardly-pascal-fbgzlf`):** MAD(median absolute deviation) 분산 지표 —
+  - core `stats.ts`의 `TimingStats`에 `madResolutionMs`(whole-ms 반올림, null 가능) 추가 + 순수
+    `medianAbsoluteDeviation(values, median)` 헬퍼(값별 `|v-median|`을 새로 정렬 → 기존 `percentile`
+    p=0.5 재사용). `computeStats`가 median을 한 번만 계산해 medianResolutionMs와 MAD 양쪽에 공유.
+    단일 잡이면 자기 median과의 편차 0 → MAD 0(잘 정의됨), resolved 0개면 null.
+  - CLI `stats.ts`의 resolution-time spread 라인에 `mad …`를 stdev와 cv 사이에 삽입. `--json`은
+    timing 전체 직렬화라 자동 노출(기존 shape 불변). 새 파서/스케줄러/집계 로직 0줄 — 기존 검증된
+    정렬·median 위에 필드 하나 추가.
+  - core stats.test +3(spread 테스트에 mad 1h 단언·단일 잡 mad 0·이상치 강건성 신규 케이스[1h×4+20h
+    이상치 → MAD 0 < stdev]), cli stats.test render `mad 1h 0m` 단언 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 615 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): spans {1h×4, 20h}
+  임시 스토어로 `stats`가 `spread: … stdev 7h 36m   mad <1s   cv 158%` 렌더(이상치가 stdev만 부풀리고
+  MAD는 불변) + `--json`이 `madResolutionMs: 0` / `stdevResolutionMs: 27360000` 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `stats --group-by`의
+  그룹별 행에 spread(mad/stdev/cv) 노출, timing 블록에 상대적 MAD(MAD÷median, CV의 강건 버전).
+  tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
