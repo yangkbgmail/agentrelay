@@ -118,6 +118,52 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 3 * 60_000).toISOString());
   });
 
+  it("parses a 'wait N minutes before trying again' delay (reordered wording)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("You've hit your rate limit. Please wait 30 minutes before trying again.", {
+      now,
+    });
+    expect(result?.pattern).toBe("wait-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
+
+  it("parses 'wait 2 hours' and 'wait for 1d 4h' compound waits", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const hours = parseRateLimitMessage("Usage limit reached. Wait 2 hours.", { now });
+    expect(hours?.pattern).toBe("wait-duration");
+    expect(hours?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+
+    const compound = parseRateLimitMessage("Rate limit exceeded — wait for 1d 4h.", { now });
+    expect(compound?.pattern).toBe("wait-duration");
+    expect(compound?.resetAt).toBe(new Date(now.getTime() + (24 + 4) * 60 * 60_000).toISOString());
+  });
+
+  it("lets an explicit 'try again in X' win over a nearby 'wait' phrase", () => {
+    // Both a wait clause and a retry-in clause appear; relative-duration is tried
+    // first, so the authoritative "try again in 1h" is what we resume on.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limited. Please wait 30 minutes, or just try again in 1h.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 60 * 60_000).toISOString());
+  });
+
+  it("skips a bare 'wait' with no number and finds the later 'wait <n>'", () => {
+    // The (?=\d) look-ahead stops a leading digit-less "wait" from matching empty
+    // and shadowing the real delay further along the same line.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit. Please wait — you must wait 45 minutes before retrying.", {
+      now,
+    });
+    expect(result?.pattern).toBe("wait-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 45 * 60_000).toISOString());
+  });
+
+  it("does not treat a sub-minute 'wait 30 seconds' as a generic wait", () => {
+    // Seconds are the Codex adapter's domain; the generic parser leaves them.
+    const result = parseRateLimitMessage("Rate limit reached. Please wait 30 seconds and try again.");
+    expect(result).toBeNull();
+  });
+
   it("parses a unix epoch retry_after field", () => {
     const result = parseRateLimitMessage("rate_limit_error retry_after=1752345600");
     expect(result).not.toBeNull();

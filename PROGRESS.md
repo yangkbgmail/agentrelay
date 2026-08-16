@@ -2233,3 +2233,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 72 — 파서: "wait <기간>" 선행형 상대 시간 인식 (reordered relative-duration)] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-378v1n`)
+- **항목 선정:** BACKLOG의 👷(클로드 코드) 항목은 전부 소진, 열린 PR 30개·원격 브랜치 수백 개로
+  stats/export/watch/adapters/대부분의 파서 wording이 이미 포화. 브랜치명 전수 검토로 아직 어느
+  in-flight 작업도 다루지 않은 **실사용 갭**을 이 도구의 핵심 가치(rate-limit 감지)에서 발굴.
+- **발굴한 갭:** 기존 `relative-duration`은 `try again|resets|retry` + `in` + `<기간>` **순서**만
+  인식한다. 그런데 실제 API/CLI rate-limit 메시지는 지연을 앞에 두는 뒤바뀐 어순이 흔하다 —
+  "You've hit your rate limit. Please wait 30 minutes before trying again." / "wait 2 hours" /
+  "wait for 1d 4h". 이들은 pre-filter는 통과("rate limit"/"try again" 포함)하지만 어떤 패턴도
+  못 잡아 `null`(큐잉 실패)이었다. "trying again"은 `try again`(리터럴)과도 불일치.
+- **한 일 (branch `claude/wizardly-pascal-378v1n`):**
+  - core `parser.ts`에 제네릭 패턴 `wait-duration` 추가(`relative-duration` **바로 뒤**에 배치 →
+    "try again in X"가 있으면 그쪽이 계속 우선). 정규식
+    `/\bwait\s+(?:for\s+|about\s+|another\s+)?(?=\d)(?:(\d+)\s*d…)?\s*(?:(\d+)\s*h…)?\s*(?:(\d+)\s*m…)?/i`
+    — `\bwait`로 "await/waited/waiting" 오검출 차단, `(?=\d)` 선읽기로 숫자 없는 "please wait —"가
+    빈 매치로 뒤의 "wait 30 minutes"를 가리는 것 방지. day/hour/minute 문법과 resolve는
+    relative-duration와 동일(초는 Codex 어댑터 소관이라 제외 — 기존 설계 결정 존중).
+  - `test/parser.test.ts`에 회귀 5케이스: "wait 30 minutes"·"wait 2 hours"+"wait for 1d 4h"·
+    (wait+try-again-in 동시 존재 시)relative-duration 우선·bare "wait" 스킵 후 "wait 45 minutes"
+    포착·"wait 30 seconds" 미감지.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 632(parser 38) · cli 354/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  `parse "…Please wait 30 minutes before trying again."` → `wait-duration` 매치·30m 후 리셋,
+  `"…wait 30 seconds and try again."` → "No rate-limit detected", `"…wait 30 minutes, or just try
+  again in 1h."` → `relative-duration`(우선순위 확인).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — "wait" 다음
+  부정관사형("wait an hour", #685 계열과 조율)·"come back in <기간>"/"resumes in <기간>" 등 다른
+  뒤바뀐 어순 수집(🧭와 협업). stats 분산/watch·summary --watch는 PR 포화라 지양. README/
+  ARCHITECTURE는 🧭 코워크 소유.
