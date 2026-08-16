@@ -3,6 +3,7 @@ import {
   computeActivityHeatmap,
   computeDailyTrend,
   computeHourlyDistribution,
+  computeResolutionHistogram,
   computeStats,
   computeWeekdayDistribution,
   groupStats,
@@ -20,6 +21,7 @@ import {
   renderGroupedStatsJson,
   renderHeatmap,
   renderHours,
+  renderResolutionHistogram,
   renderStats,
   renderStatsJson,
   renderStatsWatchFrame,
@@ -575,6 +577,64 @@ describe("renderStatsJson heatmap field", () => {
     expect(withHeatmap.heatmap.cells[1][9]).toBe(1);
     expect(withHeatmap.heatmap.total).toBe(1);
     expect(withHeatmap.heatmap.maxCell).toBe(1);
+  });
+});
+
+describe("renderResolutionHistogram", () => {
+  // A resolved job whose lifecycle span is exactly `minutes` long.
+  const span = (minutes: number, status: RelayJob["status"] = "completed"): RelayJob =>
+    job({
+      status,
+      createdAt: "2026-07-12T00:00:00.000Z",
+      updatedAt: new Date(Date.parse("2026-07-12T00:00:00.000Z") + minutes * 60_000).toISOString(),
+    });
+
+  it("renders a header, one row per bucket, and a resolved-count footer", () => {
+    const hist = computeResolutionHistogram([span(2), span(2), span(60 * 25)]); // ×2 in 1–5m, 1 in ≥24h
+    const out = renderResolutionHistogram(hist);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("resolution time distribution");
+    // header + 9 buckets + footer.
+    expect(lines).toHaveLength(1 + 9 + 1);
+    // The busiest bucket (1–5m, count 2) gets a full block; a populated but
+    // smaller bucket still gets at least one block.
+    expect(out).toMatch(/1–5m\s+█/);
+    expect(out).toMatch(/≥24h\s+█/);
+    // Empty buckets show a baseline dot, not a block.
+    expect(out).toMatch(/5–15m\s+·/);
+    expect(lines[lines.length - 1]).toContain("3 resolved job(s)");
+  });
+
+  it("shows an empty histogram with no bars", () => {
+    const out = renderResolutionHistogram(computeResolutionHistogram([]));
+    expect(out).toContain("none");
+    expect(out).not.toContain("█");
+  });
+
+  it("only counts completed + failed jobs (mirrors the timing policy)", () => {
+    const hist = computeResolutionHistogram([span(2, "completed"), span(2, "failed"), span(2, "cancelled")]);
+    const out = renderResolutionHistogram(hist);
+    expect(out).toContain("2 resolved job(s)");
+  });
+});
+
+describe("renderStatsJson durations field", () => {
+  it("omits `durations` by default but includes the histogram when provided", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("durations" in without).toBe(false);
+    const durations = computeResolutionHistogram([
+      job({
+        status: "completed",
+        createdAt: "2026-07-12T00:00:00.000Z",
+        updatedAt: "2026-07-12T00:02:00.000Z", // 2m → 1–5m bucket
+      }),
+    ]);
+    const withDurations = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", durations }));
+    expect(withDurations.durations.total).toBe(1);
+    expect(withDurations.durations.buckets).toHaveLength(9);
+    const oneToFive = withDurations.durations.buckets.find((b: { label: string }) => b.label === "1–5m");
+    expect(oneToFive.count).toBe(1);
   });
 });
 
