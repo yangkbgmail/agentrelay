@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 import type { ConfigIssue } from "../src/config.js";
 import {
   countActiveJobs,
+  countTerminalJobs,
   type DiagnosticInput,
   distinctActiveBinaries,
+  formatBytes,
   isSupportedNode,
   parseNodeVersion,
   runDiagnostics,
+  STORE_SIZE_WARN_BYTES,
+  STORE_SIZE_WARN_TERMINAL,
 } from "../src/doctor.js";
 import type { RelayJob } from "../src/types.js";
 
@@ -35,6 +39,7 @@ function input(overrides: Partial<DiagnosticInput> = {}): DiagnosticInput {
     nodeVersion: "v22.5.0",
     store: { path: "/home/u/.agentrelay/jobs.json", exists: true, corrupt: false, jobCount: 0, activeCount: 0 },
     writable: { dir: "/home/u/.agentrelay", writable: true, willCreate: false },
+    storeSize: { present: true, bytes: 1024, terminalCount: 0 },
     config: { path: null, loadError: null, issues: [] },
     notify: { slackWebhook: "https://hooks.slack.com/x" },
     adapters: { binaries: [] },
@@ -95,6 +100,42 @@ describe("countActiveJobs", () => {
   });
   it("is zero for an empty store", () => {
     expect(countActiveJobs([])).toBe(0);
+  });
+});
+
+describe("countTerminalJobs", () => {
+  it("counts only terminal jobs", () => {
+    const jobs = [
+      job({ status: "queued" }),
+      job({ status: "waiting_for_reset" }),
+      job({ status: "resuming" }),
+      job({ status: "completed" }),
+      job({ status: "failed" }),
+      job({ status: "cancelled" }),
+    ];
+    expect(countTerminalJobs(jobs)).toBe(3);
+  });
+  it("is zero for an empty store", () => {
+    expect(countTerminalJobs([])).toBe(0);
+  });
+});
+
+describe("formatBytes", () => {
+  it("renders bytes below 1 KiB as B", () => {
+    expect(formatBytes(0)).toBe("0 B");
+    expect(formatBytes(512)).toBe("512 B");
+  });
+  it("renders one decimal below 10 units, whole numbers above", () => {
+    expect(formatBytes(3500)).toBe("3.4 KB");
+    expect(formatBytes(42 * 1024)).toBe("42 KB");
+  });
+  it("scales up through MB and GB", () => {
+    expect(formatBytes(2 * 1024 * 1024)).toBe("2 MB");
+    expect(formatBytes(3 * 1024 * 1024 * 1024)).toBe("3 GB");
+  });
+  it("clamps negative/non-finite input to 0 B", () => {
+    expect(formatBytes(-1)).toBe("0 B");
+    expect(formatBytes(Number.NaN)).toBe("0 B");
   });
 });
 
@@ -241,7 +282,7 @@ describe("runDiagnostics", () => {
     const report = runDiagnostics(input({ nodeVersion: "v20.0.0", notify: {} }));
     expect(report.counts.error).toBe(1); // node
     expect(report.counts.warning).toBe(1); // notify
-    expect(report.counts.ok).toBe(5); // store + store-writable + adapters + daemon + config
+    expect(report.counts.ok).toBe(6); // store + store-writable + store-size + adapters + daemon + config
     expect(report.ok).toBe(false);
   });
 
@@ -278,6 +319,43 @@ describe("runDiagnostics", () => {
     expect(writable.message).toContain("EACCES: permission denied");
     expect(writable.hint).toContain("AGENTRELAY_STORE");
     expect(report.ok).toBe(false);
+  });
+
+  it("reports store-size OK for a small store", () => {
+    const report = runDiagnostics(input({ storeSize: { present: true, bytes: 4096, terminalCount: 12 } }));
+    const size = find(report, "store-size");
+    expect(size.level).toBe("ok");
+    expect(size.message).toContain("healthy");
+    expect(size.message).toContain("12 finished job(s)");
+  });
+
+  it("reports store-size OK when there is no store yet", () => {
+    const report = runDiagnostics(input({ storeSize: { present: false, bytes: 0, terminalCount: 0 } }));
+    const size = find(report, "store-size");
+    expect(size.level).toBe("ok");
+    expect(size.message).toContain("nothing to prune");
+  });
+
+  it("warns when the store file has grown past the byte threshold", () => {
+    const report = runDiagnostics(
+      input({ storeSize: { present: true, bytes: STORE_SIZE_WARN_BYTES, terminalCount: 3 } })
+    );
+    const size = find(report, "store-size");
+    expect(size.level).toBe("warning");
+    expect(size.message).toContain("large");
+    expect(size.hint).toContain("prune");
+    // a size-only warning still passes the report (warnings don't fail).
+    expect(report.ok).toBe(true);
+  });
+
+  it("warns when finished jobs pile up even if the file is still small", () => {
+    const report = runDiagnostics(
+      input({ storeSize: { present: true, bytes: 1024, terminalCount: STORE_SIZE_WARN_TERMINAL } })
+    );
+    const size = find(report, "store-size");
+    expect(size.level).toBe("warning");
+    expect(size.message).toContain(`${STORE_SIZE_WARN_TERMINAL} finished job(s)`);
+    expect(size.hint).toContain("AGENTRELAY_AUTOPRUNE");
   });
 
   describe("daemon (resume-loop liveness) check", () => {
