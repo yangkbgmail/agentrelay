@@ -249,4 +249,54 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("relative-duration");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
   });
+
+  it("parses the Anthropic API 'anthropic-ratelimit-*-reset' response header", () => {
+    const result = parseRateLimitMessage(
+      "HTTP 429 Too Many Requests\nanthropic-ratelimit-requests-reset: 2026-07-13T05:00:00Z"
+    );
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("anthropic-ratelimit-reset");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses the tokens-reset header variant with a timezone offset", () => {
+    const result = parseRateLimitMessage("anthropic-ratelimit-tokens-reset: 2026-07-13T00:00:00-05:00");
+    expect(result?.pattern).toBe("anthropic-ratelimit-reset");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses the input-tokens-reset header (multi-segment dimension name)", () => {
+    const result = parseRateLimitMessage("anthropic-ratelimit-input-tokens-reset : 2026-07-13T05:00:00Z");
+    expect(result?.pattern).toBe("anthropic-ratelimit-reset");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("prefers the precise reset header over fuzzy prose in the same dump", () => {
+    // A real 429 dump carries both the exact header and prose fallback wording;
+    // the header is authoritative, so it must win over the 5-hour fallback.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const dump = [
+      "Claude AI usage limit reached.",
+      "anthropic-ratelimit-tokens-reset: 2026-07-13T05:00:00Z",
+      "You have hit your 5-hour limit.",
+    ].join("\n");
+    const result = parseRateLimitMessage(dump, { now });
+    expect(result?.pattern).toBe("anthropic-ratelimit-reset");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("uses the first reset header when several dimensions are dumped together", () => {
+    const dump = [
+      "anthropic-ratelimit-requests-reset: 2026-07-13T05:00:00Z",
+      "anthropic-ratelimit-tokens-reset: 2026-07-13T06:00:00Z",
+    ].join("\n");
+    const result = parseRateLimitMessage(dump);
+    expect(result?.pattern).toBe("anthropic-ratelimit-reset");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("falls through a malformed reset-header timestamp instead of an invalid date", () => {
+    const result = parseRateLimitMessage("anthropic-ratelimit-requests-reset: 2026-13-99T99:99:99Z");
+    expect(result).toBeNull();
+  });
 });

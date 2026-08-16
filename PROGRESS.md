@@ -2233,3 +2233,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 72 — 파서: Anthropic API `anthropic-ratelimit-*-reset` 응답 헤더 인식] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-4br2w1`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목이 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 70~71이 경고한 stats 분산/watch·summary --watch PR 포화 클러스터를 피해, 이 도구의 **핵심 가치**
+  (rate-limit 감지)에 직결되는 파서 영역에서 실제 갭을 자기 발굴.
+- **발굴한 갭:** Claude Code(및 Anthropic API를 감싸는 모든 툴)는 429 응답 시 API의 rate-limit 헤더를
+  그대로 덤프한다. 각 한도 차원이 RFC 3339 절대 리셋 시각을 노출하는데
+  (`anthropic-ratelimit-requests-reset: <ISO>`, `-tokens-reset`, `-input-tokens-reset`, `-output-tokens-reset`),
+  기존 `iso-timestamp` 패턴은 산문 "reset at" wording을 요구해 `…-reset:` **헤더 형식**을 놓쳤다.
+  이 헤더는 정확한 리셋 시각을 담아 가장 authoritative한 신호인데도 어떤 기존 패턴도 잡지 못했다
+  (pre-filter는 "ratelimit"로 통과하나 매칭 실패 → 프로세스가 산문 폴백에 의존하거나 null).
+- **한 일 (branch `claude/wizardly-pascal-4br2w1`):**
+  - core `parser.ts`의 `PATTERNS` **맨 앞**에 순수 `anthropic-ratelimit-reset` 패턴 추가 —
+    정규식 `/anthropic-ratelimit-[a-z-]*reset\s*:\s*(<RFC3339>)/i`로 `anthropic-ratelimit-` 접두 뒤
+    임의 차원명(`requests`/`tokens`/`input-tokens`/`output-tokens`) + `-reset:` 헤더의 ISO 값을 절대
+    리셋 시각으로 해소(콜론 주변 공백·대소문자·타임존 오프셋 관용, 잘못된 날짜는 null→폴스루).
+    가장 정밀·authoritative하므로 `iso-timestamp`보다 우선(맨 앞 배치). 여러 reset 헤더 동시 덤프 시
+    첫 매치 채택(파서의 first-hit 설계와 일관, 릴레이엔 안전 — 이른 재개는 여전히 한도면 재큐잉).
+  - parser.test에 6케이스 추가(requests-reset 기본·tokens-reset+tz오프셋·input-tokens-reset 다세그먼트
+    차원명+콜론 공백·헤더 vs 5시간 폴백 우선순위·다중 헤더 first-hit·잘못된 날짜 폴스루). 새 스케줄러
+    로직 0줄 — 패턴 하나뿐.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 120파일)→
+  `pnpm test` 전 패키지 통과(**core 633 · cli 354/1skip · dashboard 9**, parser 33→39). **실제 빌드
+  CLI e2e**(mock 아님): `parse "HTTP 429\nanthropic-ratelimit-requests-reset: 2026-07-13T05:00:00Z"`가
+  `anthropic-ratelimit-reset` 매치·`resets: 2026-07-13T05:00:00.000Z` 렌더, 무관 로그 라인은
+  "No rate-limit detected"·exit 0 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — 여러 reset
+  헤더 중 **가장 늦은(max)** 시각을 골라 이른 재개 스래싱 최소화, `anthropic-ratelimit-*-remaining: 0`
+  신호 활용, Codex/OpenAI의 `x-ratelimit-reset-*` 헤더 대칭 추가. stats 분산/watch·summary --watch는
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
