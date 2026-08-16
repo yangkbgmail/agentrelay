@@ -139,6 +139,33 @@ export interface RunResult {
 }
 
 /**
+ * Resolve the working directory a `run` job should execute — and later resume —
+ * in. A `--cwd` value is resolved against `base` (an absolute path wins as-is),
+ * so `agentrelay run --cwd ../other -- claude ...` queues a job whose command
+ * the daemon re-runs in that directory and whose auto-derived project name comes
+ * from *that* directory, not wherever the wrapper happened to be invoked. Throws
+ * a clear, actionable error when the target is missing or not a directory —
+ * turning what would otherwise surface as a cryptic spawn `ENOENT` (after the
+ * child has already failed) into an up-front message, before anything is queued.
+ * A blank/omitted value keeps the default behavior: use `base`.
+ */
+export function resolveRunCwd(rawCwd: string | undefined, base: string): string {
+  const trimmed = rawCwd?.trim();
+  if (!trimmed) return base;
+  const resolved = resolve(base, trimmed);
+  let stat: ReturnType<typeof statSync>;
+  try {
+    stat = statSync(resolved);
+  } catch {
+    throw new Error(`working directory does not exist: ${resolved}`);
+  }
+  if (!stat.isDirectory()) {
+    throw new Error(`working directory is not a directory: ${resolved}`);
+  }
+  return resolved;
+}
+
+/**
  * Runs `command`, streaming its output live while also buffering it to scan
  * for a rate-limit message. If one is found, the command is enqueued for
  * automatic resume once the limit resets -- this is the core "wrap your

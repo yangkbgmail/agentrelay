@@ -823,6 +823,20 @@
       +2 단언(cv 0.5·단일 잡 0) + cli stats formatCv 2 + render cv 단언 신규. 실제 빌드 CLI e2e로
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
+- [x] 👷 `agentrelay run --cwd <dir>` — 릴레이할 명령을 지정한 작업 디렉터리에서 실행(+큐잉·재개)해,
+      다른 위치의 프로젝트를 현재 셸에서 cd 없이 릴레이. 큐잉되는 잡의 `cwd`와 자동 유도 project명이
+      그 디렉터리 기준이 됨.
+      (완료 — 내부 `runCommand`는 이미 `cwd`를 받지만 CLI `run`에는 이를 지정할 플래그가 없어, 다른
+      디렉터리의 에이전트를 릴레이하려면 미리 cd해야 했다. `packages/cli/src/commands.ts`에 순수
+      `resolveRunCwd(rawCwd, base)` 신설: `--cwd`를 base 기준으로 resolve(절대경로는 그대로), 대상이
+      없거나 디렉터리가 아니면 **명확한 에러 throw**(잡을 큐잉하기 전에 — 안 그러면 자식 spawn ENOENT로
+      뒤늦게 표면화). 빈/미지정은 base 유지(기존 동작 불변). CLI `run`에 `-C, --cwd <dir>` 플래그 배선 —
+      action이 resolveRunCwd로 먼저 검증(실패 시 stderr 에러+exit 1)한 뒤 resolve된 절대 cwd를 runCommand로
+      전달, project는 그 cwd에서 유도됨. runCommand는 불변(검증은 CLI 계층). commands.test.ts에
+      resolveRunCwd 5케이스(base fallback·상대 resolve·절대 그대로·미존재→throw·파일→throw) + runCommand가
+      지정 cwd에서 project 유도하는 1케이스 신규. 실제 빌드 CLI e2e로 다른 디렉터리 릴레이→cwd/project
+      유도·미존재/파일 cwd→exit 1·`--help`/`completion bash`에 `--cwd` 노출 검증. branch
+      `claude/wizardly-pascal-oyq1kw`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -16,6 +16,7 @@ import {
   listStoreBackups,
   previewRestoreStore,
   pruneJobs,
+  resolveRunCwd,
   restoreStore,
   retryJob,
   runCommand,
@@ -43,6 +44,51 @@ describe("resolveProjectName", () => {
     expect(resolveProjectName("/home/user/my-app", "")).toBe("my-app");
     expect(resolveProjectName("/home/user/my-app", "   ")).toBe("my-app");
     expect(resolveProjectName("/home/user/my-app", undefined)).toBe("my-app");
+  });
+});
+
+describe("resolveRunCwd", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cwd-test-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("returns the base directory when no --cwd is given (or it's blank)", () => {
+    expect(resolveRunCwd(undefined, dir)).toBe(dir);
+    expect(resolveRunCwd("", dir)).toBe(dir);
+    expect(resolveRunCwd("   ", dir)).toBe(dir);
+  });
+
+  it("resolves a relative --cwd against the base directory", () => {
+    const sub = join(dir, "nested");
+    mkdirSync(sub);
+    expect(resolveRunCwd("nested", dir)).toBe(sub);
+    // A base with a different cwd: relative segments still anchor to base.
+    expect(resolveRunCwd("./nested", dir)).toBe(sub);
+  });
+
+  it("returns an absolute --cwd unchanged (ignoring the base)", () => {
+    const other = mkdtempSync(join(tmpdir(), "agentrelay-cwd-abs-"));
+    try {
+      expect(resolveRunCwd(other, dir)).toBe(other);
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it("throws a clear error when the target directory does not exist", () => {
+    expect(() => resolveRunCwd("does-not-exist", dir)).toThrow(/does not exist/);
+  });
+
+  it("throws when the target path is a file, not a directory", () => {
+    const file = join(dir, "a-file.txt");
+    writeFileSync(file, "hi");
+    expect(() => resolveRunCwd("a-file.txt", dir)).toThrow(/not a directory/);
   });
 });
 
@@ -87,6 +133,21 @@ describe("runCommand", () => {
     const jobs = listStatus(storePath);
     expect(jobs).toHaveLength(1);
     expect(jobs[0].command).toEqual(["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"]);
+  });
+
+  it("queues the job in the given cwd and derives its project from that directory", async () => {
+    const projectDir = join(dir, "billing-service");
+    mkdirSync(projectDir);
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: projectDir,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      notify: null,
+    });
+    expect(result.queuedJob?.cwd).toBe(projectDir);
+    expect(result.queuedJob?.project).toBe("billing-service");
   });
 
   it("sends a 'queued' notification when a rate-limited command is enqueued", async () => {
