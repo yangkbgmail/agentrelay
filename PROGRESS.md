@@ -2233,3 +2233,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 72 — 파서: Claude Code `-p` 파이프-epoch 밀리초(13자리) 변형 인식] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-jajm7a`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 여전히 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 71이 "다음 할 일"로 **명시**한 인접 후속 — "파이프-epoch가 ms(13자리)로도 오는지 관찰 후 확장" —
+  을 골랐다. stats 분산/watch·summary --watch PR 포화 클러스터를 피하고, 이 도구의 핵심 가치(rate-limit
+  감지)에 직결되며 기존 함수 시그니처를 안 건드리는 순수 정규식 확장이라 회귀 위험 최소.
+- **발굴한 갭:** 세션 71이 추가한 `claude-usage-limit-epoch` 패턴(`usage limit reached|<epoch>`)은
+  10자리 unix epoch**초**만 인식했다. 그러나 헤드리스 런타임이 `Date.now()`(밀리초)를 그대로 이 필드에
+  찍으면 13자리 값이 오는데, `\d{10}\b`는 13자리 앞 10자리 뒤에 `\b`가 없어(11번째 숫자) 매칭 실패 →
+  잡이 큐잉 안 되고 그대로 종료. 초/밀리초 둘 다 실전에서 올 수 있는 절대 epoch라 양쪽을 커버해야 한다.
+- **한 일 (branch `claude/wizardly-pascal-jajm7a`):**
+  - core `adapters.ts`의 `CLAUDE_USAGE_LIMIT_EPOCH_PATTERN` 정규식을 `(\d{10})` → `(\d{13}|\d{10})`로
+    확장(13자리 먼저 시도). resolve가 **자릿수로 단위 구분** — `digits.length === 13`이면 그대로 ms,
+    아니면 초로 보고 ×1000. `\b` 경계 + 고정 13/10 길이라 11~12·14+자리 값은 두 브랜치 다 완전 매칭에
+    실패해 오독 없음(기존 초 전용 동작 완전 하위호환). 주석도 초/밀리초 disambiguation을 설명하도록 갱신.
+  - adapters.test +2: (1) 13자리 ms(`…|1752345600000`)가 pattern 매치 + 10자리 초와 **동일 instant**로
+    해소, (2) 11/12/14자리 쓰레기 값은 모두 `null`(미매치). 새 파서/스케줄러 로직 0줄 — 어댑터 패턴 하나만 확장.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 629 · cli 354/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  `parse --tool claude-code "…|1752345600000"`가 `claude-usage-limit-epoch` 매치·`resets:
+  2025-07-12T18:40:00.000Z`(초 버전과 동일 instant) 렌더, `…|17523456000`(11자리)는 "No rate-limit
+  detected" 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
+  다른 실사용 rate-limit wording 수집(🧭와 협업), Codex 초 패턴도 분/시 변형 관찰. stats 분산/watch·
+  summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
