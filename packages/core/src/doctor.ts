@@ -82,6 +82,23 @@ export interface WritableFacts {
   error?: string;
 }
 
+/**
+ * Facts about the on-disk *size* of the store, gathered by the CLI (which stats
+ * the file) before judging. The JSON store is read and rewritten *in full* on
+ * every `flush()`, so an ever-growing `jobs.json` — usually finished jobs that
+ * were never pruned — makes every enqueue/status/resume slower and slower. This
+ * check surfaces that bloat and points at the `prune` / auto-prune features that
+ * already exist to fix it, before it becomes a felt slowdown.
+ */
+export interface StoreSizeFacts {
+  /** Whether the store file exists — only then does its size mean anything. */
+  present: boolean;
+  /** Store file size in bytes (0 when absent). */
+  bytes: number;
+  /** Terminal jobs (completed/failed/cancelled) — the prunable bloat. */
+  terminalCount: number;
+}
+
 /** Facts about the config file, gathered by the CLI before judging. */
 export interface ConfigFacts {
   /** Resolved config-file path, or null when none was found. */
@@ -151,6 +168,7 @@ export interface DiagnosticInput {
   nodeVersion: string;
   store: StoreFacts;
   writable: WritableFacts;
+  storeSize: StoreSizeFacts;
   config: ConfigFacts;
   notify: NotifyFacts;
   adapters: AdapterFacts;
@@ -164,9 +182,46 @@ export const MIN_NODE_MINOR = 5;
 /** The non-terminal statuses that make a job "active" (still being relayed). */
 const ACTIVE_STATUSES = new Set<RelayJob["status"]>(["queued", "waiting_for_reset", "resuming"]);
 
+/** The terminal statuses a job settles into — the ones `prune` can remove. */
+const TERMINAL_STATUSES = new Set<RelayJob["status"]>(["completed", "failed", "cancelled"]);
+
+/**
+ * Warn once the store file grows past this size. The whole file is parsed and
+ * rewritten on every `flush()`, so a few MB of mostly-finished jobs is already a
+ * felt slowdown on a local-first tool. 2 MiB is roughly thousands of jobs.
+ */
+export const STORE_SIZE_WARN_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Warn once this many *terminal* jobs have piled up, even if the byte size is
+ * still modest — that many finished jobs is exactly what `prune` exists to clear.
+ */
+export const STORE_SIZE_WARN_TERMINAL = 2000;
+
 /** Count jobs still in flight — handy for the CLI to build {@link StoreFacts}. */
 export function countActiveJobs(jobs: RelayJob[]): number {
   return jobs.filter((job) => ACTIVE_STATUSES.has(job.status)).length;
+}
+
+/** Count jobs in a terminal state — the prunable bloat for {@link StoreSizeFacts}. */
+export function countTerminalJobs(jobs: RelayJob[]): number {
+  return jobs.filter((job) => TERMINAL_STATUSES.has(job.status)).length;
+}
+
+/** Human byte size like `512 B`, `3.4 KB`, `2.1 MB`. Pure; base-1024. */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "0 B";
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  // One decimal below 10 (3.4 KB), whole numbers above (42 KB) — compact but useful.
+  const rounded = value < 10 ? Math.round(value * 10) / 10 : Math.round(value);
+  return `${rounded} ${units[unit]}`;
 }
 
 /**
@@ -218,15 +273,18 @@ export function isSupportedNode(version: string): boolean {
  *    "will be created" note, since a fresh install has no store yet).
  * 3. **store-writable** — the store directory can actually be written to; if
  *    not, every `flush()` fails and job state is silently lost (error).
- * 4. **adapters** — every agent binary a queued job will re-spawn is on PATH
+ * 4. **store-size** — the store file hasn't grown so large (bytes or a pile of
+ *    finished jobs) that whole-file reads/writes drag; a warning that points at
+ *    `prune` / auto-prune.
+ * 5. **adapters** — every agent binary a queued job will re-spawn is on PATH
  *    (a missing one is an error: those jobs can't resume). Skipped-as-OK when
  *    nothing is queued to resume.
- * 5. **daemon** — a resume loop (daemon/tick) is alive, cross-referenced with
+ * 6. **daemon** — a resume loop (daemon/tick) is alive, cross-referenced with
  *    how many jobs are waiting: waiting jobs with no live loop is a warning
  *    (they won't resume), otherwise absence is just an informational OK.
- * 6. **config** — the config file (if any) loads and validates; a broken file
+ * 7. **config** — the config file (if any) loads and validates; a broken file
  *    is an error, semantic warnings are surfaced as warnings.
- * 7. **notify** — at least one notification channel is set (absence is a
+ * 8. **notify** — at least one notification channel is set (absence is a
  *    warning, not an error: notifications are optional but you'd want to know
  *    the relay can't reach you).
  */
@@ -236,6 +294,7 @@ export function runDiagnostics(input: DiagnosticInput): DiagnosticReport {
   checks.push(nodeCheck(input.nodeVersion));
   checks.push(storeCheck(input.store));
   checks.push(writableCheck(input.writable));
+  checks.push(storeSizeCheck(input.storeSize));
   checks.push(adapterCheck(input.adapters));
   checks.push(daemonCheck(input.heartbeat, input.store));
   checks.push(configCheck(input.config));
@@ -315,6 +374,34 @@ function writableCheck(writable: WritableFacts): DiagnosticCheck {
     };
   }
   return { name: "store-writable", level: "ok", message: `store directory ${writable.dir} is writable` };
+}
+
+/**
+ * Judges store bloat. The JSON store is rewritten in full on every state change,
+ * so a large file — or a heap of finished jobs that were never cleaned up — taxes
+ * every operation. Warn on either the byte size or the terminal-job count crossing
+ * a threshold, and point at the pruning tools that already exist. Absent/empty
+ * store → OK (nothing to prune yet).
+ */
+function storeSizeCheck(size: StoreSizeFacts): DiagnosticCheck {
+  if (!size.present) {
+    return { name: "store-size", level: "ok", message: "no job store yet — nothing to prune" };
+  }
+  const human = formatBytes(size.bytes);
+  const bloated = size.bytes >= STORE_SIZE_WARN_BYTES || size.terminalCount >= STORE_SIZE_WARN_TERMINAL;
+  if (bloated) {
+    return {
+      name: "store-size",
+      level: "warning",
+      message: `job store is large (${human}, ${size.terminalCount} finished job(s)) — the whole file is re-read and re-written on every update`,
+      hint: "Clear finished jobs with `agentrelay prune`, or enable auto-prune (AGENTRELAY_AUTOPRUNE=1).",
+    };
+  }
+  return {
+    name: "store-size",
+    level: "ok",
+    message: `job store size is healthy (${human}, ${size.terminalCount} finished job(s))`,
+  };
 }
 
 function adapterCheck(adapters: AdapterFacts): DiagnosticCheck {

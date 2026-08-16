@@ -824,6 +824,21 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay doctor` 스토어 비대화(store-size) 검사 — `jobs.json`이 종료 잡으로 커지면 매
+      `flush()`가 전체 재파싱·재기록이라 모든 연산이 느려지는데, 이를 진단하고 `prune`/auto-prune을
+      언제 써야 하는지 알려준다(PATH·store-writable에 이은 세 번째 "조용한 성능 저하" 진단).
+      (완료 — core `doctor.ts`에 `StoreSizeFacts`(present·bytes·terminalCount) + `DiagnosticInput.storeSize`
+      추가, 순수 `storeSizeCheck` 신설(검사 순서 node→store→store-writable→**store-size**→adapters→daemon→
+      config→notify): 파일 크기 `STORE_SIZE_WARN_BYTES`(2 MiB) **또는** 종료 잡 수 `STORE_SIZE_WARN_TERMINAL`
+      (2000) 임계 초과 시 warning + `prune`/`AGENTRELAY_AUTOPRUNE` 힌트, 그 외 ok, 스토어 부재는 ok
+      (정리 대상 없음). 순수 헬퍼 `countTerminalJobs`(completed/failed/cancelled 카운트)·`formatBytes`
+      (base-1024, 10 미만 1소수 "3.4 KB"·이상 정수 "42 KB", 음수/비유한 클램프). CLI `commands.ts`
+      `runDoctor`가 `statSync`로 실제 온-디스크 바이트를 캡처(corrupt는 moved-aside라 absent 취급) +
+      이미 로드한 잡에서 `countTerminalJobs`로 종료 수 집계해 `storeSize` 배선. warning-only라 exit 0.
+      core doctor +4(store-size ok/absent/byte-warn/terminal-warn) + countTerminalJobs 2 + formatBytes 4
+      신규 테스트, 실제 빌드 CLI e2e로 작은 스토어→ok·종료 잡 2001개→warning+힌트·`--json` 노출·exit 0 검증.
+      branch `claude/wizardly-pascal-lir727`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

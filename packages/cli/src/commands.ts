@@ -38,6 +38,7 @@ import {
   canRequeue,
   configToJson,
   countActiveJobs,
+  countTerminalJobs,
   daemonHeartbeatPath,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
@@ -1416,6 +1417,19 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // --- store-size facts. The JSON store is rewritten whole on every flush, so a
+  // bloated file (usually finished jobs never pruned) slows every operation. Stat
+  // the file for its byte size; count terminal jobs from the already-loaded list.
+  // A corrupt store was moved aside during load, so treat it as absent here.
+  let storeBytes = 0;
+  if (existedBefore && !corrupt) {
+    try {
+      storeBytes = statSync(storePath).size;
+    } catch {
+      // best-effort — a stat failure just leaves size 0, still a valid OK check.
+    }
+  }
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1426,6 +1440,11 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
       activeCount: countActiveJobs(jobs),
     },
     writable,
+    storeSize: {
+      present: existedBefore && !corrupt,
+      bytes: storeBytes,
+      terminalCount: countTerminalJobs(jobs),
+    },
     config: { path: configPathResolved, loadError, issues },
     notify: {
       slackWebhook: env.AGENTRELAY_SLACK_WEBHOOK,

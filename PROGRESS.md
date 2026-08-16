@@ -2166,3 +2166,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay doctor` 스토어 비대화(store-size) 검사] (2026-08-16, 무인 자율 세션)
+- **배경:** 세션 시작 시 명시적 미완 👷 항목은 없고(전부 완료), 미완은 🧭 코워크 소유(README/
+  ARCHITECTURE/리서치)뿐. 열린 PR 30개는 MAD·dashboard timing·reliability·recover·windows·
+  attempts·completion powershell·prune --backup·parser 변형·gemini/aider 어댑터·scope --command·
+  recent 등이 이미 점유. 중복을 피해 CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다 — `doctor`는
+  PATH 부재(세션 27)와 store-writable(세션 29) 같은 "조용한 실패/성능 저하"를 잡아왔지만, JSON
+  스토어가 종료 잡으로 무한히 커져 매 `flush()`(전체 재파싱+재기록)가 느려지는 **비대화**는 못 잡았다.
+  이미 있는 `prune`/auto-prune과 진단을 연결해 "언제 정리해야 하나"를 알려주는 자연스러운 빈틈.
+- **한 일 (branch `claude/wizardly-pascal-lir727`):**
+  - core `doctor.ts`에 `StoreSizeFacts`(present·bytes·terminalCount) + `DiagnosticInput.storeSize` 추가,
+    순수 `storeSizeCheck` 신설. 검사 순서 node→store→store-writable→**store-size**→adapters→daemon→
+    config→notify. 파일 크기 `STORE_SIZE_WARN_BYTES`(2 MiB) **또는** 종료 잡 수 `STORE_SIZE_WARN_TERMINAL`
+    (2000) 임계 초과면 warning(전체 파일이 매 업데이트마다 재읽기/재쓰기 됨) + `agentrelay prune`/
+    `AGENTRELAY_AUTOPRUNE=1` 힌트, 그 외 ok, 스토어 부재는 ok("정리 대상 없음"). warning-only라 exit 0.
+  - 순수 헬퍼: `countTerminalJobs`(completed/failed/cancelled 카운트, `countActiveJobs`의 거울),
+    `formatBytes`(base-1024, 10 미만 1소수 "3.4 KB"·이상 정수 "42 KB", 음수/비유한은 "0 B"로 클램프).
+  - CLI `commands.ts` `runDoctor`가 `statSync(storePath).size`로 실제 온-디스크 바이트 캡처(corrupt는
+    load 시 moved-aside라 여기선 absent 취급), 이미 로드한 잡 리스트에서 `countTerminalJobs`로 종료 수
+    집계해 `storeSize` 배선. 새 파서/스케줄러/큐 로직 0줄 — 순수 판정 계층 + 사실 수집만.
+  - 테스트: core doctor +4(store-size ok/absent/byte-warn/terminal-warn) + countTerminalJobs 2 +
+    formatBytes 4 신규, 기존 "counts levels" 단언을 ok 5→6으로 갱신(검사 하나 추가).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 624 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 종료 2+활성 1
+  스토어로 `doctor`가 `store-size ok` "1.1 KB, 2 finished job(s)" 렌더 + `--json` 노출, 종료 잡 2001개
+  스토어로 `store-size warning` "large … 2001 finished job(s)" + prune/auto-prune 힌트, warning-only라
+  doctor exit=0 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도
+  store-size 경고 노출, `doctor --json`의 store-size를 모니터링 임계로 쓰기. MAD/tz/heatmap/parser/
+  watch·summary --watch·어댑터는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
