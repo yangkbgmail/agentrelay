@@ -2233,3 +2233,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 72 — `agentrelay run --dry-run` 실행 전 계획 미리보기] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-vb0781`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목이 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  처음엔 파서(`anthropic-ratelimit-*-reset` 헤더)를 발굴했으나, **열린 PR 30개**를 점검하던 중 병렬
+  세션이 ~1시간 먼저 연 **#713이 동일 기능을 이미 구현**(제네릭 파서 배치로 더 넓은 커버리지)한 것을
+  발견 → 중복 PR #714를 정직하게 닫고(코멘트로 #713 참조), 파서·stats·watch 클러스터의 포화를 피해
+  겹치지 않는 CLI UX 갭으로 전환.
+- **발굴한 갭:** `tick`/`prune`/`restore`엔 `--dry-run` 미리보기가 있지만, 정작 도구의 진입점인 `run`엔
+  없었다. 사용자가 `agentrelay run -- claude -p "…"`를 워크플로에 배선하기 전에, 툴 추론(`--tool` 생략
+  시 argv0로 claude-code/codex-cli 추론)과 cwd 기반 프로젝트 라벨 도출이 기대대로인지 실행 전에 확인할
+  방법이 없었다.
+- **한 일 (branch `claude/wizardly-pascal-vb0781`):**
+  - CLI `commands.ts`에 순수 `RunPlan`/`RunToolSource` + `buildRunPlan(options)`(실제 run과 동일한
+    resolveAdapter·resolveProjectName·defaultStorePath 해소를 부작용 없이 재현 — preview와 실제 경로가
+    드리프트하지 않도록 팩터링) + `formatRunPlan(plan)`(TTY 무관 렌더, 툴 출처를 explicit/inferred/
+    default로 주석) 추가. `quoteArg`로 공백·특수문자 인자를 쉘-safe 인용해 복붙 가능한 command 라인 에코.
+  - `RunOptions`에 `dryRun` 필드, `runCommand`가 dryRun이면 spawn·스토어 접근 **전에** 계획을 출력하고
+    `{exitCode:0, queuedJob:null}` 반환. `cli.ts` `run`에 `--dry-run` 플래그 배선. 새 core 코드 0줄 —
+    전부 기존 `resolveAdapter`/`inferToolFromCommand`/`resolveProjectName` 재사용.
+  - commands.test에 4케이스(dry-run 스토어 미생성·미spawn·계획 출력 / explicit·inferred·default 출처 +
+    공백 인자 인용).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 120파일)→`pnpm test`
+  전 패키지 통과(**core 627 · cli 358/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  `run --dry-run -- claude -p "continue please"`가 계획(tool: Claude Code inferred·project·store·인용된
+  command)을 출력하고 **exit 0·스토어 파일 미생성**, `run --dry-run -- codex exec "fix the bug"`가
+  codex-cli 추론+공백 인자 인용 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `run`에 `--project`
+  외 `--label`(사람용 별칭) 추가, `run --dry-run`이 감지될 rate-limit 패턴까지 프리뷰(테스트 입력 주입).
+  파서/stats/watch는 PR 포화(열린 PR 30개)라 강하게 지양. README/ARCHITECTURE(🧭 코워크).

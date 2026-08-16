@@ -851,6 +851,22 @@
       실제 빌드 CLI `parse --tool claude-code "…|1752345600"` e2e로 `claude-usage-limit-epoch` 매치 +
       generic은 "No rate-limit detected" 확인. branch `claude/wizardly-pascal-j0fz82`)
 
+- [x] 👷 `agentrelay run --dry-run` — 에이전트를 실제로 실행하기 전에 해소된 계획(어댑터/툴·프로젝트
+      라벨·스토어 경로·spawn될 명령어)을 미리 보여주고 스토어를 건드리지 않고 종료. 자기 발굴 항목 —
+      `tick`/`prune`/`restore`엔 `--dry-run`이 있지만 정작 진입점인 `run`엔 없어, 툴 추론(`--tool` 생략 시
+      argv0로 claude-code/codex-cli 추론)과 cwd 기반 프로젝트 라벨 도출이 기대대로인지 실행 전에 확인할
+      길이 없었다.
+      (완료 — CLI `commands.ts`에 순수 `RunPlan`/`RunToolSource` 타입 + `buildRunPlan(options)`
+      (실제 run과 **동일한** resolveAdapter·resolveProjectName·defaultStorePath 해소를 부작용 없이 재현 —
+      preview가 거짓말하지 않도록 팩터링) + `formatRunPlan(plan)`(TTY 무관 렌더, 툴 출처를
+      explicit/inferred/default로 주석) 추가. `quoteArg`로 공백·특수문자 인자를 쉘-safe 단따옴표 인용해
+      복붙 가능한 command 라인 에코. `RunOptions`에 `dryRun` 필드, `runCommand`가 dryRun이면 spawn·
+      스토어 접근 **전에** 계획을 stdout에 출력하고 `{exitCode:0, queuedJob:null}` 반환. `cli.ts` `run`에
+      `--dry-run` 플래그 배선. 새 core 코드 0줄 — 전부 기존 `resolveAdapter`/`inferToolFromCommand`/
+      `resolveProjectName` 재사용. commands.test에 4케이스(dry-run이 스토어 미생성·미spawn·계획 출력 /
+      explicit·inferred·default 출처 + 공백 인자 인용). 실제 빌드 CLI e2e로 rate-limit을 낼 명령을 줘도
+      실행 안 됨·스토어 미생성·툴 추론·인용 검증. branch `claude/wizardly-pascal-vb0781`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
