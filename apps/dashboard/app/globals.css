@@ -137,6 +137,66 @@ main {
   padding: 14px;
 }
 
+.timing-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: 24px 0;
+  overflow-x: auto;
+}
+
+.timing-headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+  padding: 12px 14px 0;
+  font-size: 14px;
+  color: var(--ink-secondary);
+}
+
+.timing-headline .numeric {
+  font-weight: 600;
+  color: var(--ink-primary);
+}
+
+.timing-headline-sub {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.timing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 1px;
+  padding: 12px 14px;
+}
+
+.timing-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.timing-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+
+.timing-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-primary);
+}
+
+.timing-foot {
+  padding: 0 14px 12px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
 .jobs-card {
   background: var(--surface);
   border: 1px solid var(--border);
