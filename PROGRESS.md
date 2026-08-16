@@ -2233,3 +2233,24 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 72 — `agentrelay savings`: 릴레이 실효익 정량화] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-8nxtea`)
+- **동기:** 코드베이스가 매우 성숙해 열린 👷 항목이 없어, CLAUDE.md 지침대로 새 개선 항목을 발굴.
+  제품 존재 이유("사람 대신 rate-limit을 지켜보고 재개")를 데이터로 답하는 `agentrelay savings`가
+  자체 완결적이고 온-미션이라 선택.
+- **한 일:**
+  - core `value.ts` 신설(순수): `RelayValue`/`computeRelayValue(jobs)`. `autoResumes`=Σ max(0,
+    attempts−1)(첫 실행=사람, 이후=릴레이 재개), `resumedJobs`(attempts>1),
+    `manualInterventionsSaved`(=autoResumes 별칭), `unattendedMs`=재개된 종료 job의 라이프사이클
+    span 합(무인 커버 시간; 진행중·첫 실행 성공 제외, 음수/파싱불가 스킵 — TimingStats와 동일),
+    `longestUnattendedMs`·`unattendedJobs`. 추측성 곱셈 계수 없이 저장 데이터에서만 도출.
+  - `stats.ts`의 private span 헬퍼를 `jobResolutionMs`로 공개 export해 value.ts가 재사용 →
+    savings·timing 두 뷰가 "얼마나 돌봤나" 정의를 공유(드리프트 방지).
+  - CLI `savings.ts`: 순수 `renderSavings`(재개 없으면 "아직 나설 일 없었음", 재개됐지만 미종료면
+    "아직 해결된 job 없음")·`renderSavingsJson`. `agentrelay savings` 커맨드에 summary와 동일한
+    `--status/--tool/--project/--since/--until` 스코프 배선.
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과
+  (**core 633**[value 6 신규]**· cli 363/1skip**[savings 8 신규]**· dashboard 9**). 실제 빌드 CLI
+  e2e(mock 아님): human/json/`--tool codex-cli` 스코프/`--project nonexistent` 빈-스코프 4경로 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — savings를
+  대시보드 타일로 노출, 또는 `--since`로 기간별 실효익 트렌드. README/ARCHITECTURE(🧭 코워크).
