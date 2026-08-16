@@ -17,6 +17,13 @@ import type { RelayJob } from "./types.js";
  * (including `lastOutputTail` and the un-flattened `command` array) is what the
  * JSON export preserves. `command` is space-joined here for readability, so a
  * CSV row is a lossy-but-legible view and JSON is the exact one.
+ *
+ * `durationMs` is the one computed column: the job's lifecycle span
+ * (`updatedAt - createdAt`) in whole milliseconds, so a spreadsheet can sort
+ * "which jobs did the relay babysit longest?" without a formula. It mirrors the
+ * `resolution time` metric in `agentrelay stats`, but per-row and for every
+ * status (for an unresolved job it's the age so far). It's placed next to the
+ * two timestamps it's derived from.
  */
 export const JOB_CSV_COLUMNS = [
   "id",
@@ -27,6 +34,7 @@ export const JOB_CSV_COLUMNS = [
   "resetAt",
   "createdAt",
   "updatedAt",
+  "durationMs",
   "command",
   "cwd",
   "lastError",
@@ -94,6 +102,16 @@ export function jobCsvValue(job: RelayJob, column: JobCsvColumn): string {
       return job.resetAt ?? "";
     case "lastError":
       return job.lastError ?? "";
+    case "durationMs": {
+      // Lifecycle span in whole ms. Empty when either timestamp is
+      // missing/unparseable or the span is negative (clock skew) — matching the
+      // null semantics of the `resolution time` metric so the two never disagree.
+      const created = Date.parse(job.createdAt);
+      const updated = Date.parse(job.updatedAt);
+      if (Number.isNaN(created) || Number.isNaN(updated)) return "";
+      const span = updated - created;
+      return span >= 0 ? String(span) : "";
+    }
     default:
       // The remaining columns are all plain string fields on RelayJob.
       return job[column];

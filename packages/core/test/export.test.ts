@@ -83,6 +83,21 @@ describe("jobCsvValue", () => {
     expect(jobCsvValue(j, "status")).toBe("failed");
     expect(jobCsvValue(j, "cwd")).toBe("/work");
   });
+
+  it("computes durationMs as the lifecycle span in whole milliseconds", () => {
+    // default job: 00:00 → 01:00 = one hour.
+    expect(jobCsvValue(job(), "durationMs")).toBe(String(3_600_000));
+    const j = job({ createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:01.500Z" });
+    expect(jobCsvValue(j, "durationMs")).toBe("1500");
+  });
+
+  it("renders an empty durationMs for unparseable timestamps or a negative (clock-skew) span", () => {
+    expect(jobCsvValue(job({ createdAt: "not-a-date" }), "durationMs")).toBe("");
+    expect(jobCsvValue(job({ updatedAt: "nope" }), "durationMs")).toBe("");
+    // updatedAt before createdAt → negative span → empty, not a negative number.
+    const skewed = job({ createdAt: "2026-07-13T01:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" });
+    expect(jobCsvValue(skewed, "durationMs")).toBe("");
+  });
 });
 
 describe("jobsToCsv", () => {

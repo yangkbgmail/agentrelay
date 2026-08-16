@@ -326,6 +326,17 @@
       순수 로직은 전부 기존에 검증된 `selectJobs`(status.ts)·`scopeJobs`(stats.ts) 재사용이라 새
       core 코드 0줄, export.test.ts에 조합 파이프라인 회귀 2케이스 추가 + 빌드된 CLI e2e로
       tool/project AND·시간 창·에러 exit 검증. branch `claude/wizardly-pascal-xqzyk6`)
+- [x] 👷 `agentrelay export` — 잡별 생애주기 지속시간(`durationMs`) 계산 컬럼 추가. (스스로 발굴·구현)
+      (완료 — export의 CSV/MD/HTML 컬럼은 전부 원본 필드였고, "이 잡을 릴레이가 얼마나 오래
+      돌봤나"를 스프레드시트에서 정렬하려면 사용자가 updatedAt−createdAt 수식을 직접 짜야 했다.
+      `JOB_CSV_COLUMNS`에 유일한 계산 컬럼 `durationMs`(생애주기 span, 정수 ms)를 updatedAt 옆에
+      추가하고 `jobCsvValue`에 케이스 추가 — 타임스탬프 파싱 불가 또는 음수 span(시계 역전)이면
+      빈칸(`stats`의 resolution-time null 의미와 정확히 일치, 두 표면이 어긋나지 않게). 모든 상태에
+      대해 계산(미해결 잡은 "지금까지의 나이"). CSV/MD/HTML은 공유 컬럼이라 자동 반영, JSON/NDJSON은
+      무손실 원본 shape이라 불변(합성 컬럼 미포함). cli.ts 변경 0줄(export가 컬럼을 제네릭 처리).
+      core export.test +2케이스(1h→3600000·1.5s→1500·파싱불가/음수→빈칸). 빌드된 CLI e2e로
+      completed 1h→3600000·waiting 동시각→0·시계역전→빈칸·`--columns id,status,durationMs` 조합·
+      JSON 미포함 검증. branch `claude/export-duration-column`)
 
 - [x] 👷 `agentrelay doctor` 스토어 디렉터리 쓰기 권한 검사 — 스토어가 읽히더라도 매 `flush()`가
       쓰기 실패하면 잡 상태 변경이 조용히 유실된다(PATH 다음으로 흔한 "재개 조용히 실패" 원인).
