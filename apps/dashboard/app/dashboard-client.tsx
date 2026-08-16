@@ -1,6 +1,13 @@
 "use client";
 
-import type { HeartbeatStatus, JobStatus, ProjectBreakdown, RelayJob, ToolBreakdown } from "@agentrelay/core";
+import type {
+  HeartbeatStatus,
+  JobStatus,
+  ProjectBreakdown,
+  RelayJob,
+  RelayStats,
+  ToolBreakdown,
+} from "@agentrelay/core";
 import { useEffect, useState } from "react";
 import type { JobsSnapshot } from "../lib/jobs";
 
@@ -48,6 +55,90 @@ function formatAge(ms: number | undefined): string {
   if (hours > 0) return `${hours}h ${minutes}m ago`;
   if (minutes > 0) return `${minutes}m ${seconds}s ago`;
   return `${seconds}s ago`;
+}
+
+/**
+ * Formats an absolute duration (ms) as a compact two-unit human string, mirroring
+ * the CLI's `formatDurationMs` so the dashboard and `agentrelay stats` read the
+ * same. "-" for negative/non-finite, "<1s" for a sub-second span.
+ */
+function formatDurationMs(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return "-";
+  if (ms < 1000) return "<1s";
+  const totalSeconds = Math.round(ms / 1000);
+  const seconds = totalSeconds % 60;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const minutes = totalMinutes % 60;
+  const totalHours = Math.floor(totalMinutes / 60);
+  const hours = totalHours % 24;
+  const days = Math.floor(totalHours / 24);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (totalHours > 0) return `${totalHours}h ${minutes}m`;
+  if (totalMinutes > 0) return `${totalMinutes}m ${seconds}s`;
+  return `${totalSeconds}s`;
+}
+
+/** Formats a nullable success rate (0..1) as a percentage, or "n/a". */
+function formatSuccessRate(rate: number | null): string {
+  return rate === null ? "n/a" : `${Math.round(rate * 100)}%`;
+}
+
+/** Formats a nullable coefficient of variation (stdev ÷ mean) as a percentage, or "n/a". */
+function formatCv(cv: number | null): string {
+  return cv === null || !Number.isFinite(cv) ? "n/a" : `${Math.round(cv * 100)}%`;
+}
+
+/** One labeled metric cell in the resolution-time card. */
+function TimingCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="timing-cell">
+      <div className="timing-label">{label}</div>
+      <div className="timing-value numeric">{value}</div>
+    </div>
+  );
+}
+
+/**
+ * Surfaces the relay's effectiveness — success rate, retries, and the
+ * resolution-time distribution (how long jobs sat before completing/failing) —
+ * mirroring the CLI `stats` resolution-time block, which the dashboard otherwise
+ * omitted entirely. The distribution grid only renders once at least one job has
+ * resolved; before then just the headline reliability line shows.
+ */
+function ResolutionTimeCard({ stats }: { stats: RelayStats | undefined }) {
+  if (!stats) return null;
+  const { timing } = stats;
+  const resolved = stats.byStatus.completed + stats.byStatus.failed;
+
+  return (
+    <section className="timing-card" aria-label="Resolution time">
+      <h2 className="rollup-title">Resolution time</h2>
+      <div className="timing-headline">
+        <span>
+          success rate <span className="numeric">{formatSuccessRate(stats.successRate)}</span>
+        </span>
+        <span className="timing-headline-sub">
+          {stats.byStatus.completed}/{resolved} resolved · {stats.retriedJobs} retried · {stats.totalAttempts} attempts
+        </span>
+      </div>
+      {timing.resolvedCount > 0 ? (
+        <div className="timing-grid">
+          <TimingCell label="avg" value={formatDurationMs(timing.avgResolutionMs)} />
+          <TimingCell label="median" value={formatDurationMs(timing.medianResolutionMs)} />
+          <TimingCell label="p90" value={formatDurationMs(timing.p90ResolutionMs)} />
+          <TimingCell label="p99" value={formatDurationMs(timing.p99ResolutionMs)} />
+          <TimingCell label="min" value={formatDurationMs(timing.minResolutionMs)} />
+          <TimingCell label="max" value={formatDurationMs(timing.maxResolutionMs)} />
+          <TimingCell label="iqr" value={formatDurationMs(timing.iqrResolutionMs)} />
+          <TimingCell label="stdev" value={formatDurationMs(timing.stdevResolutionMs)} />
+          <TimingCell label="cv" value={formatCv(timing.cvResolution)} />
+        </div>
+      ) : (
+        <p className="rollup-empty">No jobs have resolved yet.</p>
+      )}
+      <div className="timing-foot">over {timing.resolvedCount} resolved job(s) (completed + failed)</div>
+    </section>
+  );
 }
 
 const HEARTBEAT_META: Record<HeartbeatStatus["state"], { label: string; colorVar: string }> = {
@@ -310,6 +401,8 @@ export default function DashboardClient() {
           <RollupCard title="By tool" keyHeader="Tool" rows={toolRows} now={now} />
         </section>
       )}
+
+      {jobs.length > 0 && <ResolutionTimeCard stats={snapshot?.stats} />}
 
       <section className="jobs-card" aria-label="Job list">
         {jobs.length === 0 ? (

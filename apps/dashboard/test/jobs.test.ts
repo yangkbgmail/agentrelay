@@ -134,4 +134,60 @@ describe("readJobsSnapshot", () => {
     const snapshot = readJobsSnapshot(storePath);
     expect(snapshot.heartbeat.state).toBe("absent");
   });
+
+  it("reports empty relay stats for an empty store", () => {
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.stats.total).toBe(0);
+    expect(snapshot.stats.successRate).toBeNull();
+    expect(snapshot.stats.timing.resolvedCount).toBe(0);
+    expect(snapshot.stats.timing.avgResolutionMs).toBeNull();
+  });
+
+  it("exposes resolution-time stats mirroring the CLI over resolved jobs", () => {
+    // Write the store directly so the lifecycle spans are deterministic: a 1h
+    // completed job and a 3h failed job (createdAt → updatedAt).
+    const jobs = [
+      {
+        id: "11111111-1111-1111-1111-111111111111",
+        project: "web",
+        tool: "claude-code",
+        command: ["claude", "-p", "one"],
+        cwd: dir,
+        status: "completed",
+        resetAt: null,
+        createdAt: "2026-07-13T00:00:00.000Z",
+        updatedAt: "2026-07-13T01:00:00.000Z",
+        attempts: 1,
+        lastError: null,
+        lastOutputTail: "ok",
+      },
+      {
+        id: "22222222-2222-2222-2222-222222222222",
+        project: "web",
+        tool: "claude-code",
+        command: ["claude", "-p", "two"],
+        cwd: dir,
+        status: "failed",
+        resetAt: null,
+        createdAt: "2026-07-13T00:00:00.000Z",
+        updatedAt: "2026-07-13T03:00:00.000Z",
+        attempts: 2,
+        lastError: "boom",
+        lastOutputTail: null,
+      },
+    ];
+    writeFileSync(storePath, JSON.stringify(jobs), "utf8");
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.stats.total).toBe(2);
+    // 1 completed / (1 completed + 1 failed) = 50%
+    expect(snapshot.stats.successRate).toBeCloseTo(0.5, 10);
+    expect(snapshot.stats.retriedJobs).toBe(1); // the failed job had attempts 2
+    expect(snapshot.stats.timing.resolvedCount).toBe(2);
+    // spans {1h, 3h}: avg 2h, median 2h, min 1h, max 3h
+    expect(snapshot.stats.timing.avgResolutionMs).toBe(2 * 3_600_000);
+    expect(snapshot.stats.timing.medianResolutionMs).toBe(2 * 3_600_000);
+    expect(snapshot.stats.timing.minResolutionMs).toBe(3_600_000);
+    expect(snapshot.stats.timing.maxResolutionMs).toBe(3 * 3_600_000);
+  });
 });

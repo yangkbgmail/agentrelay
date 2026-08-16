@@ -824,6 +824,25 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 대시보드에 해결 시간(resolution-time) 지표 카드 노출 — CLI `stats`의 resolution-time 블록을
+      로컬 대시보드에서도 한눈에. 자기 발굴 항목(MAD/CV 등 timing 지표는 여러 세션이 동시 진행 중이라
+      stats.ts를 피하고, 20개 열린 PR 중 아무도 안 건드리는 대시보드 영역을 골랐다).
+      (완료 — 대시보드는 잡 요약 타일·잡 테이블·재개-루프 하트비트·프로젝트/툴 롤업만 보여줄 뿐,
+      릴레이 효과의 핵심인 **성공률·재시도·해결 시간 분포**(잡을 얼마나 오래 돌봤나)를 전혀 노출하지
+      않았다. `apps/dashboard/lib/jobs.ts`의 `JobsSnapshot`에 `stats: RelayStats` 추가 — core의
+      `computeStats`를 매 폴링마다 재사용해 CLI와 절대 드리프트하지 않음(새 core 로직 0줄).
+      `dashboard-client.tsx`에 `ResolutionTimeCard`(성공률·resolved/retried/attempts 헤드라인 +
+      timing 그리드 avg/median/p90/p99/min/max/iqr/stdev/cv, `resolvedCount>0`일 때만 그리드 렌더,
+      아니면 "No jobs have resolved yet.")와 CLI `formatDurationMs`를 미러링한 클라이언트 포매터
+      (formatDurationMs/formatSuccessRate/formatCv). 롤업 그리드와 잡 테이블 사이에 잡이 있을 때만
+      카드 배치. `globals.css`에 `.timing-card`/`.timing-grid`(auto-fit 반응형)/`.timing-cell` 등 추가.
+      dashboard test에 stats 스냅샷 2케이스(빈 스토어 empty timing + 2-잡 {1h,3h} avg/median/min/max·
+      성공률 50%·retried 1 mirror). 검증: `pnpm build` 클린·`pnpm ci:lint`(Biome) 0에러·`pnpm test`
+      전 패키지 통과(dashboard 9→11). 실제 빌드 대시보드 `next start`+임시 스토어로 `/api/jobs`가
+      stats.timing(avg 2h·median 2h·min 1h·max 3h·iqr/stdev 1h·cv 0.5·successRate 0.5)를 정확히 반환하고,
+      사전설치 Chromium 헤드리스 렌더로 "Resolution time" 카드·성공률 50%·timing 그리드(AVG 2h 0m …
+      CV 50%)가 실제로 그려짐을 e2e 확인. branch `claude/dashboard-timing-card`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

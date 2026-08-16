@@ -2166,3 +2166,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — 대시보드 해결 시간(resolution-time) 지표 카드] (2026-08-16, 무인 자율 세션, branch `claude/dashboard-timing-card`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x]), 남은 미완은 🧭 코워크 소유뿐. 세션 68이 후속 후보로
+  지목한 timing MAD를 착수했으나, `list_pull_requests` 확인 결과 MAD는 이미 8개+ 열린 PR(#693/#692/#690/
+  #688/#687/#682/#681/#680)이 있을 만큼 과포화였고 `stats.ts`는 다중 세션 충돌 핫스팟이었다(원격
+  `claude/stats-mad-resolution`에도 동일 커밋 존재 → force 미사용, 폐기). 20개 열린 PR(MAD·reliability·
+  recover·windows·attempts·completion·parser·adapter·prune·scope) 중 **아무도 대시보드를 안 건드림**을
+  확인하고, 대시보드가 릴레이 효과의 핵심인 성공률·해결 시간 분포를 전혀 노출하지 않는 실제 갭을 골랐다.
+- **한 일 (branch `claude/dashboard-timing-card`):**
+  - `apps/dashboard/lib/jobs.ts`: `JobsSnapshot`에 `stats: RelayStats` 추가, core `computeStats(jobs)`를
+    매 폴링 재사용 → CLI `stats`와 드리프트 0(새 core 로직 0줄).
+  - `dashboard-client.tsx`: `ResolutionTimeCard`(성공률·resolved/retried/attempts 헤드라인 + timing
+    그리드 avg/median/p90/p99/min/max/iqr/stdev/cv, `resolvedCount>0`일 때만 그리드) + CLI
+    `formatDurationMs`를 미러링한 클라이언트 포매터(formatDurationMs/formatSuccessRate/formatCv) +
+    `TimingCell`. 롤업 그리드와 잡 테이블 사이, 잡이 있을 때만 배치.
+  - `globals.css`: `.timing-card`/`.timing-headline`/`.timing-grid`(auto-fit minmax 반응형)/
+    `.timing-cell`/`.timing-label`/`.timing-value`/`.timing-foot` 추가.
+  - dashboard test `jobs.test.ts` +2(빈 스토어 empty timing + 2-잡 {1h,3h} avg/median/min/max·성공률
+    50%·retried 1 mirror).
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, format 1파일 정규화)→`pnpm test`
+  전 패키지 통과(**core 614 · cli 345/1skip · dashboard 9→11**). **실제 빌드 대시보드 e2e**(mock 아님):
+  임시 스토어(1h completed + 3h failed)로 `next start`+`/api/jobs`가 stats.timing(avg 7200000·median
+  7200000·min 3600000·max 10800000·iqr/stdev 3600000·cv 0.5·successRate 0.5·retried 1)을 정확히 반환,
+  사전설치 Chromium 헤드리스 렌더로 "Resolution time" 카드·"success rate 50%"·"1/2 resolved · 1 retried
+  · 3 attempts"·timing 그리드(AVG 2h 0m/MEDIAN 2h 0m/P90 2h 48m/P99 2h 58m/MIN 1h 0m/MAX 3h 0m/IQR
+  1h 0m/STDEV 1h 0m/CV 50%)가 실제로 그려짐을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드 timing
+  카드에 `--trend`/`--hours` 히스토그램 노출, 대시보드에 rate-limit 파서 패턴 빈도(`patterns`) 카드.
+  stats.ts timing 지표(MAD/MADn/group-by cv)는 다중 세션 충돌·PR 포화라 당분간 지양. README/ARCHITECTURE
+  (🧭 코워크).
