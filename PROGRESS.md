@@ -2166,3 +2166,34 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay export` 잡별 지속시간(durationMs) 계산 컬럼] (2026-08-16, 무인 자율 세션, branch `claude/export-duration-column`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유뿐. 세션 68이 지목한
+  후속 후보 "timing 블록 MAD"를 처음 골랐으나, 확인해 보니 여러 동시 자율 세션이 같은 항목을 골라
+  main 대상 MAD PR이 이미 10개+ 열려 있었다(#680·681·682·687·688·690·692·693·698·699 …). 11번째
+  중복을 만들지 않으려고 방향을 틀었다. 열린 PR 20개가 `stats.ts`·`cli.ts`를 집중적으로 건드려 충돌
+  지대인 반면, `export.ts`는 어느 열린 PR도 손대지 않아 **충돌이 없는** 영역이라 여기서 유용한 소품을
+  골랐다.
+- **문제:** export의 CSV/MD/HTML 컬럼은 전부 RelayJob 원본 필드라, "이 잡을 릴레이가 얼마나 오래
+  돌봤나"로 잡 이력을 정렬/필터하려면 사용자가 스프레드시트에서 updatedAt−createdAt 수식을 직접 짜야
+  했다. `stats`의 resolution-time가 집계로 답하는 걸 export는 잡별(per-row)로 못 줬다.
+- **한 일 (branch `claude/export-duration-column`):**
+  - core `export.ts`의 `JOB_CSV_COLUMNS`에 유일한 계산 컬럼 `durationMs`(생애주기 span = updatedAt −
+    createdAt, 정수 ms)를 updatedAt 옆에 추가. `jobCsvValue`에 케이스 추가 — 타임스탬프 파싱 불가
+    또는 음수 span(시계 역전)이면 빈칸을 반환(`stats.ts`의 `resolutionMs` null 의미와 정확히 일치시켜
+    두 표면이 어긋나지 않게). 모든 상태에 대해 계산하므로 미해결 잡은 "지금까지의 나이"를 뜻함.
+  - CSV/MD/HTML은 `JOB_CSV_COLUMNS`+`jobCsvValue`를 공유하므로 자동 반영. JSON/NDJSON은 무손실 원본
+    RelayJob shape이라 불변(합성 컬럼 미포함 — 정확성 유지). `--columns`로 opt-in 부분집합에도 조합.
+    새 core 집계/파서/스케줄러 로직 0줄, **cli.ts 변경 0줄**(export 커맨드가 컬럼을 제네릭 처리하고
+    `isJobCsvColumn`이 새 컬럼을 자동 인식) — 충돌면적 최소.
+  - core export.test +2케이스(default 1h→"3600000"·1.5s→"1500"·파싱불가/음수 span→빈칸). 기존
+    접두사 단언은 attempts까지만 봐서 불변, CLI export.test는 컬럼 목록 하드코딩 없어 무수정.
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 116파일)→`pnpm test` 전 패키지
+  통과(**core 616 · cli 345/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 3잡 배열-루트 임시
+  스토어로 `export --format csv`가 completed 1h→`3600000`·waiting 동시각→`0`·시계역전 잡→빈칸을 방출,
+  `--columns id,status,durationMs`가 계산 컬럼을 조합, `--format md` 헤더에 durationMs 포함, `--format
+  json`엔 durationMs 미포함(무손실) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 참고 — stats 분산 지표(MAD/CV) 영역은
+  동시 세션 PR 포화라 당분간 지양, cli.ts·stats.ts 집중 충돌 지대도 지양. 후속 인접 후보 — export에
+  `lastRateLimit` 매칭 패턴/원본 텍스트 provenance 컬럼, HTML 리포트에 durationMs 인간가독 렌더.
+  README/ARCHITECTURE(🧭 코워크).
