@@ -2166,3 +2166,35 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay recover` 고아 resuming 잡 복구] (2026-08-15, 무인 자율 세션, branch `claude/wizardly-pascal-recover`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유뿐. 열린 PR 50개가
+  stats(MAD/CV/skewness/trimmed/attempts)·parser·adapter(gemini/aider)·windows/coverage/dedup/snooze/
+  recent/wait --all/tick --dry-run/notify list·events/export yaml/prune --backup 등으로 포화라, 어떤
+  열린 PR에도 없고 코드를 읽다 발견한 **실제 신뢰성 갭**을 골랐다: 스케줄러는 `resume(job)` 시 먼저
+  `markResuming`(status→`resuming`)한 뒤에야 종료/재큐 마크를 찍는데, 그 사이 프로세스가 죽으면
+  (데몬 OOM-kill·SIGKILL·재부팅) 잡이 **`resuming`에 영원히 갇힌다** — `listDue`는 `waiting_for_reset`만
+  픽업하므로 어떤 tick도 다시 안 집고, `retry`는 `canRequeue`가 `resuming`을 거부해 손으로도 못 살린다.
+  릴레이가 가장 필요했던 그 잡이 조용히 영원히 재개 안 되는 상태.
+- **한 일 (branch `claude/wizardly-pascal-recover`):**
+  - core `recover.ts` 신설(순수): `selectStuckResumingJobs(jobs,{nowMs,stuckAfterMs})` + `StuckResumingReport`
+    + `DEFAULT_STUCK_RESUMING_MS`(30m). `resuming` 상태이면서 `updatedAt`이 임계값보다 오래된 잡만 stuck으로
+    선정(오래된 순 정렬), 파싱 불가 `updatedAt`은 stuck 취급(라이브 루프는 항상 신선·유효한 타임스탬프를
+    쓰므로 안전). `stuckAfterMs:0`은 모든 resuming 잡 선정(루프가 죽은 걸 알 때 즉시 전부 회수).
+  - `RelayQueue.recoverResuming(id,at)`: 현재 `resuming`일 때만 `waiting_for_reset`(resetAt=now, 즉시 due)로
+    전이하고 사유를 `lastError`에 기록, **`attempts` 보존**(중단된 시도도 카운트 → 루프를 반복 크래시시키는
+    잡이 무한 회수되지 않게). 비-resuming/미존재는 no-op `false` 반환(스캔↔쓰기 사이 완료된 잡 중복 재개 방지).
+  - CLI: `commands.ts` `recoverJobs({storePath,stuckAfterMs,dryRun,now})`(스캔→per-job 가드 전이), `recover.ts`에
+    순수 `renderRecover`(정체 시간은 전이 전 `report.stuck` 객체에서 계산해 실제 대기 시간 표시)·`renderRecoverJson`.
+    `agentrelay recover [--older-than <dur>] [--dry-run] [--json]` 배선(잘못된 duration은 exit 1). completion은
+    commander 프로그램에서 파생되므로 자동 포함.
+  - 테스트: core recover.test 8(선정/정렬/파싱불가/threshold 0/queue 전이·attempts 보존·no-op) + cli recover.test 9
+    (render 4·json 1·recoverJobs 통합 4).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러/0경고, 120파일)→`pnpm test`
+  전 패키지 통과(**core 622 · cli 354/1skip · dashboard 9**, recover 17 신규). **실제 빌드 CLI e2e**(mock 아님):
+  45분 갇힌 resuming + 방금 시작한 resuming 잡 시드 → `recover --dry-run`이 stuck 1건만 표시(스토어 미변경) →
+  `recover`가 stuck001을 `waiting_for_reset` due·attempts 보존으로 회수하고 fresh는 그대로 → 재-recover는
+  "30m threshold 내 라이브 런, left alone" → `--older-than 0s`가 fresh까지 회수 → 잘못된 duration exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `doctor`에 stuck-resuming
+  경고 체크(감지 표면 추가), 스케줄러 startup 시 자동 회수(fresh start면 모든 resuming은 정의상 고아).
+  tz/heatmap/parser/watch·summary --watch·stats 파생은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
