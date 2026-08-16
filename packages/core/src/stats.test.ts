@@ -60,6 +60,7 @@ describe("computeStats", () => {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      madResolutionMs: null,
     });
   });
 
@@ -227,6 +228,8 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(3_600_000);
     // cv = stdev / mean = 1h / 2h = 0.5 (scale-free ratio)
     expect(stats.timing.cvResolution).toBe(0.5);
+    // median 2h; abs deviations |1h-2h|=1h, |3h-2h|=1h → mad = median([1h,1h]) = 1h
+    expect(stats.timing.madResolutionMs).toBe(3_600_000);
   });
 
   it("collapses spread metrics to zero for a single resolved job", () => {
@@ -239,6 +242,28 @@ describe("computeStats", () => {
     expect(stats.timing.stdevResolutionMs).toBe(0);
     // single span: stdev 0, nonzero mean → cv 0 (no spread, well-defined)
     expect(stats.timing.cvResolution).toBe(0);
+    // single span: deviation from its own median is 0 → mad 0
+    expect(stats.timing.madResolutionMs).toBe(0);
+  });
+
+  it("keeps MAD outlier-robust while one wild span inflates the stdev", () => {
+    const at = (h: number) => `2026-07-13T${String(h).padStart(2, "0")}:00:00.000Z`;
+    // Three tight 1h resolutions plus one pathological 100h outlier.
+    const stats = computeStats([
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "completed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "failed", createdAt: at(0), updatedAt: at(1) }), // 1h
+      job({ status: "completed", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-17T04:00:00.000Z" }), // 100h
+    ]);
+    const H = 3_600_000;
+    // sorted spans [1h, 1h, 1h, 100h]; median (type-7) = 1h.
+    expect(stats.timing.medianResolutionMs).toBe(H);
+    // abs deviations from 1h are [0, 0, 0, 99h]; their median is 0 → MAD 0.
+    expect(stats.timing.madResolutionMs).toBe(0);
+    // The lone outlier drags the mean/stdev far above the typical spread,
+    // proving MAD is the outlier-robust dispersion measure the others aren't.
+    expect(stats.timing.stdevResolutionMs).toBeGreaterThan(stats.timing.madResolutionMs as number);
+    expect(stats.timing.stdevResolutionMs).toBeGreaterThan(40 * H);
   });
 
   it("excludes cancelled and still-active jobs from resolution timing", () => {
@@ -298,6 +323,7 @@ describe("computeStats", () => {
       iqrResolutionMs: null,
       stdevResolutionMs: null,
       cvResolution: null,
+      madResolutionMs: null,
     });
   });
 });

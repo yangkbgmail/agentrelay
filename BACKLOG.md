@@ -824,6 +824,20 @@
       spans {1h,3h}→cv 50%·zero-span→cv n/a(null)·`--json` cvResolution 방출 검증. branch
       `claude/stats-cv-resolution`)
 
+- [x] 👷 `agentrelay stats` 해결 시간 MAD(median absolute deviation) — 이상치에 가장 강건한 분산 지표.
+      세션 68이 후속 후보로 지목한 자기 발굴 항목.
+      (완료 — stdev는 편차를 제곱하고 CV·IQR도 여전히 이상치에 흔들려, 소수의 극단적 장기 잡이 큐의
+      "전형적 퍼짐"을 왜곡했다. MAD=median(|span−median(spans)|)는 중심과 요약 둘 다 median에 앵커돼
+      단일 극단값이 거의 못 움직인다 → MAD≪stdev면 퍼짐이 광범위 변동이 아니라 드문 이상치 때문임을
+      가장 명확히 드러낸다. core `stats.ts`의 `TimingStats`에 `madResolutionMs`(ms 반올림, null 가능)
+      추가 + 순수 `medianAbsoluteDeviation(sortedAsc, center)` 헬퍼(median에서의 절대편차를 새로 정렬 —
+      `|·|` 접기로 오름차순이 깨지므로 — 후 기존 `percentile` 재사용, 단일 값=0). resolved 0개면 null.
+      CLI `stats.ts` resolution-time spread 라인 끝에 `mad …` 추가, `--json`은 timing 전체 직렬화라 자동
+      노출. 새 파서/스케줄러 로직 0줄. core stats +1 테스트(1h×3+100h 이상치→mad 0·stdev≫mad)+기존 spread
+      테스트에 mad 단언 2, cli stats render mad 단언 신규. 실제 빌드 CLI e2e로 이상치 스토어에서
+      `stdev 1d 18h … mad <1s`(=0)·`--json` madResolutionMs 방출 검증. branch
+      `claude/wizardly-pascal-voaxgl`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
