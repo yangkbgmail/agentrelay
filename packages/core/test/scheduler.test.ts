@@ -111,6 +111,53 @@ describe("RelayScheduler", () => {
     expect(results).toHaveLength(0);
   });
 
+  it("holds a just-reset job until the resume grace has elapsed", async () => {
+    const resetAt = new Date("2026-08-16T15:00:00.000Z");
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, resetAt.toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      resumeGraceMs: 30_000,
+      spawnFn: fakeSpawnFn({ "claude -p continue": "All done." }),
+    });
+
+    // 10s past the reset — inside the 30s grace, so nothing resumes yet.
+    const early = await scheduler.tick(new Date(resetAt.getTime() + 10_000));
+    expect(early).toHaveLength(0);
+    expect(queue.getById(job.id)?.status).toBe("waiting_for_reset");
+
+    // 31s past the reset — grace elapsed, the job resumes and completes.
+    const late = await scheduler.tick(new Date(resetAt.getTime() + 31_000));
+    expect(late).toHaveLength(1);
+    expect(late[0].status).toBe("completed");
+  });
+
+  it("resumes on the boundary when no grace is configured (default)", async () => {
+    const resetAt = new Date("2026-08-16T15:00:00.000Z");
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, resetAt.toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({ "claude -p continue": "All done." }),
+    });
+
+    const results = await scheduler.tick(resetAt);
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe("completed");
+  });
+
   function dueJob() {
     const job = queue.enqueue({
       project: "demo",

@@ -2233,3 +2233,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 72 — 스케줄러: 재개 유예(resume grace) `AGENTRELAY_RESUME_GRACE`] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-grace`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진, 열린 PR ~30개가 파서/stats/시간뷰/대시보드에
+  포화. 충돌을 피해 이들이 건드리지 않는 스케줄러 재개 타이밍 영역에서 실제 갭을 발굴.
+- **발굴한 갭:** 스케줄러는 `resetAt <= now`가 되는 순간(리셋 경계 정확히)에 재개한다. 그러나 그
+  시각은 서버 시계 기준이고 릴레이 머신엔 clock skew가 있으며, 서버는 리셋 경계를 분/버킷 단위로
+  반올림하는 경우가 많다. 경계에서 바로 재개하면 **즉시 재-limit**돼 시도 한 번을 낭비하고, 시도
+  상한에 걸리면 몇 초 뒤였다면 성공했을 잡이 failed가 된다. 코드 전체에 grace/margin/skew 개념이
+  전무했고(grep 0건) 열린 어떤 PR과도 겹치지 않음.
+- **한 일 (branch `claude/wizardly-pascal-grace`):**
+  - core `grace.ts` 신설(순수): `RESUME_GRACE_ENV`·`DEFAULT_RESUME_GRACE_MS`(0=off) +
+    `normalizeResumeGraceMs`(undefined/null/비유한/비양수→0, 소수 floor — 나쁜 값이 재개를 **앞당기지**
+    못하게) + `resumeGraceMsFromEnv`(`AGENTRELAY_RESUME_GRACE` 기간 파싱; 미설정/공백/파싱불가/비양수는
+    0 → 오타가 매 재개를 쓰레기값만큼 지연시키지 않음) + `resumeCutoff(ref, graceMs)`(ref를 grace만큼
+    뒤로 밀어 `resetAt + grace <= now`일 때만 due; grace 0이면 ref 그대로 반환 → 기본 경로 무할당).
+  - `RelayScheduler`에 `resumeGraceMs` 옵션(normalize 저장) + `tick`이 `listDue(resumeCutoff(ref, grace))`로
+    due 선택. `queue.ts`의 `listDue`와 next/eta/overdue 등 읽기 전용 뷰는 canonical "리셋 지남" 의미를
+    유지하도록 **불변** — grace는 스케줄러의 재개 결정에만 적용.
+  - CLI `commands.ts` daemon/tick이 `resumeGraceMsFromEnv()`로 배선, 데몬 배너에 "(resume grace Ns)".
+    grace가 backoff 재시도 시각에도 균일 적용되나 무시할 만큼 작고 안전(문서화).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 639 · cli 354/1skip · dashboard 9**). 새 테스트: core `grace.test` 13(normalize·
+  env 파싱 관용·cutoff) + `scheduler.test` +2(유예 내 보류→유예 후 완료·grace 0 경계 재개). **실제 빌드
+  CLI e2e**(mock 아님): resetAt 5s 전 잡을 `AGENTRELAY_RESUME_GRACE=1h tick`→"no due jobs"·상태
+  `waiting_for_reset` 유지, grace 없이 `tick`→`completed`, 데몬 배너 "(resume grace 45s)" 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — resume grace를
+  config 파일 스키마(`agentrelay.config.json`)에도 노출(현재 env-only), 또는 grace를 rate-limit 재개와
+  backoff 재시도에 분리 적용. 파서/stats 분산/시간뷰는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

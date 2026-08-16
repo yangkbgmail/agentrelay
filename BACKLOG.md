@@ -851,6 +851,22 @@
       실제 빌드 CLI `parse --tool claude-code "…|1752345600"` e2e로 `claude-usage-limit-epoch` 매치 +
       generic은 "No rate-limit detected" 확인. branch `claude/wizardly-pascal-j0fz82`)
 
+- [x] 👷 스케줄러: 재개 유예(resume grace) — 리셋 시각이 지난 직후 정확히 경계에서 재개하면
+      clock skew·서버측 반올림으로 즉시 재-limit돼 시도를 낭비한다. `AGENTRELAY_RESUME_GRACE`로
+      리셋 이후 N초를 더 기다렸다 재개하는 버퍼. 자기 발굴 항목 — 기존에 어떤 grace/margin/skew
+      개념도 없었고 열린 어떤 PR과도 겹치지 않음. 이 도구의 핵심(리셋 시점 재개)의 신뢰성 직결.
+      (완료 — `@agentrelay/core/grace.ts` 신설: 순수 `normalizeResumeGraceMs`(undefined/null/비유한/
+      비양수→0=off, 소수 floor — 나쁜 값이 재개를 앞당기지 못하게)·`resumeGraceMsFromEnv`
+      (`AGENTRELAY_RESUME_GRACE` 기간 파싱, 미설정/공백/파싱불가/비양수는 0=off → 오타가 매 재개를
+      쓰레기값만큼 지연시키지 않음)·`resumeCutoff(referenceTime, graceMs)`(referenceTime을 grace만큼
+      뒤로 밀어 `resetAt + grace <= now`일 때만 due; grace 0이면 referenceTime 그대로 반환 →
+      기본 경로 무할당·무변경). `RelayScheduler`에 `resumeGraceMs` 옵션(normalize) + `tick`이
+      `listDue(resumeCutoff(...))`로 due 선택 — queue.ts·다른 읽기 전용 뷰(next/eta/overdue 등)는
+      불변. CLI daemon/tick이 env로 배선, 데몬 배너에 "(resume grace Ns)". grace가 backoff 재시도
+      시각에도 균일 적용되나 무시할 만큼 작고 안전. 새 파서 로직 0줄. core grace.test 13 + scheduler.test
+      +2(유예 내 보류→유예 후 완료·grace 0 경계 재개), 실제 빌드 CLI e2e로 grace 1h→due 없음(대기 유지)·
+      grace 없음→재개 완료·배너 "resume grace 45s" 검증. branch `claude/wizardly-pascal-grace`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
