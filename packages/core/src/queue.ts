@@ -81,6 +81,30 @@ export function compareJobsNewestFirst(a: RelayJob, b: RelayJob): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
+/**
+ * Resume order for due jobs: the one whose reset passed earliest goes first, so
+ * the longest-waiting job is resumed before a more recently-parked one. This is
+ * the fair, FIFO-by-reset order — it matters under a bounded `maxConcurrent`,
+ * where only the first N due jobs run this tick and the rest wait for the next.
+ * Ties (jobs sharing a reset instant) fall back to oldest `createdAt`, then `id`
+ * ascending, so the order is fully deterministic. This matches the tie-break
+ * used by `next`/`upcoming`/`overdue` (see `next.ts`), so "what resumes first"
+ * is consistent across the read commands and the scheduler.
+ *
+ * Both jobs are expected to be due (`resetAt` non-null and parseable) — the
+ * caller (`listDue`) filters on exactly that — but an unparseable `resetAt` is
+ * treated as +Infinity (sorted last) rather than throwing, for defensiveness.
+ */
+export function compareDueJobs(a: RelayJob, b: RelayJob): number {
+  const ra = a.resetAt === null ? Number.POSITIVE_INFINITY : Date.parse(a.resetAt);
+  const rb = b.resetAt === null ? Number.POSITIVE_INFINITY : Date.parse(b.resetAt);
+  const na = Number.isNaN(ra) ? Number.POSITIVE_INFINITY : ra;
+  const nb = Number.isNaN(rb) ? Number.POSITIVE_INFINITY : rb;
+  if (na !== nb) return na < nb ? -1 : 1;
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
 export class RelayQueue {
   private filePath: string;
   private jobs: Map<string, RelayJob>;
@@ -434,12 +458,22 @@ export class RelayQueue {
     return summarizeImportPlan(plan);
   }
 
-  /** Jobs whose reset time has already passed and are ready to be resumed now. */
+  /**
+   * Jobs whose reset time has already passed and are ready to be resumed now,
+   * ordered longest-overdue first (see {@link compareDueJobs}). The order is what
+   * the scheduler resumes in, so under a bounded `maxConcurrent` the jobs that
+   * have been waiting longest are resumed first rather than being starved behind
+   * more recently-parked ones (the Map's natural order was effectively
+   * newest-first, since `flush` persists newest-first and `load` rebuilds the
+   * Map from that).
+   */
   listDue(referenceTime: Date = new Date()): RelayJob[] {
     this.load();
     const ref = referenceTime.getTime();
-    return Array.from(this.jobs.values()).filter(
-      (job) => job.status === "waiting_for_reset" && job.resetAt !== null && new Date(job.resetAt).getTime() <= ref
-    );
+    return Array.from(this.jobs.values())
+      .filter(
+        (job) => job.status === "waiting_for_reset" && job.resetAt !== null && new Date(job.resetAt).getTime() <= ref
+      )
+      .sort(compareDueJobs);
   }
 }

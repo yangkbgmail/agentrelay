@@ -2233,3 +2233,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 72 — 스케줄러 공정 재개 순서(longest-overdue first)] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-duejob-order`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료, 열린 PR 30개가 여러 후보(파서 변형·drain·savings·windows·
+  각종 --watch·어댑터 등)를 이미 점유 중이라 중복을 피해 **새 개선 항목을 발굴**했다. 코드를 읽다
+  `RelayQueue`에서 잠재적 불공정/비결정 재개 순서를 발견: `flush()`가 `compareJobsNewestFirst`로 저장하고
+  `load()`가 그 순서로 Map을 재구성하므로, `listDue()`가 사실상 **최신순**으로 due 잡을 반환하고 있었다.
+  `maxConcurrent < due.length`인 tick에서는 앞쪽 N개만 재개되고 나머지는 다음 tick으로 밀리므로, 최근
+  파킹된 잡이 먼저 재개되고 오래 밀린 잡이 뒤로 밀리는 기아(starvation) 위험이 있었다.
+- **한 일:** `@agentrelay/core/queue.ts`에 순수 `compareDueJobs(a,b)` 신설 — resetAt 오름차순(가장 오래
+  밀린 순)→createdAt 오름차순→id 오름차순. `next`/`upcoming`/`overdue`가 쓰는 것과 **동일한 tie-break**
+  (next.ts의 `compareNext`)라 "무엇이 먼저 재개되나"가 읽기 명령과 스케줄러에서 일관된다. 파싱 불가
+  resetAt은 throw 대신 +Infinity로 맨 뒤 정렬(방어적). `listDue`가 필터 결과를 `compareDueJobs`로 정렬.
+  `index.ts`가 `export * from "./queue.js"`라 자동 노출. 다른 코드는 listDue 순서에 의존 안 함(스케줄러만
+  사용, 테스트는 길이/포함 검사 또는 순서 동적 파생) — 새 스케줄러/파서 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 120파일 0에러)→`pnpm test`
+  전 패키지 통과(**core 632**[queue.test 23·scheduler.test 20]**· cli 354/1skip · dashboard 9**). queue.test에
+  listDue 순서 2 + compareDueJobs 3(earliest-first·tie-break[createdAt→id]·unparseable last) 신규,
+  scheduler.test의 "newest-first" 오래된 주석 갱신(테스트는 순서를 동적 파생해 그대로 통과). **실제 빌드
+  dist e2e**(mock 아님): `old`(먼저 enqueue·10s overdue)와 `recent`(나중 enqueue·1s overdue)를 심고
+  `listDue`가 `old -> recent` 반환(가장 오래 밀린 잡 먼저) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 재개 우선순위
+  (`run --priority`)로 사용자 지정 순서 부여, 또는 대시보드/`upcoming`에 "다음 재개 순서" 노출.
+  README/ARCHITECTURE(🧭 코워크).
