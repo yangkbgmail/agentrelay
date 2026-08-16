@@ -7,8 +7,10 @@ import { parseConfig, RelayQueue, sampleConfigJson } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   backupStore,
+  buildRunPlan,
   bulkControlJobs,
   cancelJob,
+  formatRunPlan,
   getConfigValue,
   importStore,
   initConfig,
@@ -162,6 +164,65 @@ describe("runCommand", () => {
     // dir is a mkdtemp path; its last segment is the derived label, never blank.
     expect(result.queuedJob?.project).toBe(dir.split("/").filter(Boolean).pop());
     expect(result.queuedJob?.project?.trim()).not.toBe("");
+  });
+
+  it("--dry-run previews the plan without spawning the agent or touching the store", async () => {
+    const stdout = new PassThrough();
+    let out = "";
+    stdout.on("data", (c) => {
+      out += c.toString();
+    });
+    // A command that would rate-limit if actually run — dry-run must NOT run it.
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      project: "billing",
+      dryRun: true,
+      stdout,
+      stderr: new PassThrough(),
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.queuedJob).toBeNull();
+    // The store file is never created, since dry-run touches nothing.
+    expect(existsSync(storePath)).toBe(false);
+    expect(out).toContain("dry run");
+    expect(out).toContain("project:  billing");
+    expect(out).toContain(`store:    ${storePath}`);
+  });
+});
+
+describe("buildRunPlan / formatRunPlan", () => {
+  it("marks an explicit --tool as the source and echoes the resolved fields", () => {
+    const plan = buildRunPlan({
+      command: ["claude", "-p", "continue"],
+      tool: "codex-cli",
+      cwd: "/home/user/my-app",
+      storePath: "/tmp/jobs.json",
+    });
+    expect(plan.tool).toBe("codex-cli");
+    expect(plan.toolSource).toBe("explicit");
+    expect(plan.project).toBe("my-app");
+    const text = formatRunPlan(plan);
+    expect(text).toContain("Codex CLI (codex-cli, explicit --tool)");
+    expect(text).toContain("project:  my-app");
+  });
+
+  it("infers the tool from the command binary when --tool is omitted", () => {
+    const plan = buildRunPlan({ command: ["claude", "-p", "go"], cwd: "/x/svc", storePath: "/s.json" });
+    expect(plan.tool).toBe("claude-code");
+    expect(plan.toolSource).toBe("inferred");
+    expect(formatRunPlan(plan)).toContain("Claude Code (claude-code, inferred from command)");
+  });
+
+  it("falls back to the generic adapter (default) for an unknown binary and quotes spaced args", () => {
+    const plan = buildRunPlan({ command: ["mystery-cli", "do the thing"], cwd: "/x/app", storePath: "/s.json" });
+    expect(plan.tool).toBe("generic");
+    expect(plan.toolSource).toBe("default");
+    const text = formatRunPlan(plan);
+    expect(text).toContain("Generic agent (generic, default (no match))");
+    // The arg with spaces is single-quoted so the command line is copy-pasteable.
+    expect(text).toContain("command:  mystery-cli 'do the thing'");
   });
 });
 

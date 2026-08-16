@@ -543,13 +543,18 @@ export function buildCli(): Command {
       "-p, --project <name>",
       "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
     )
-    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
+    .option(
+      "--dry-run",
+      "Preview the resolved plan (tool, project, store, command) and exit without running the agent or touching the store"
+    )
+    .action(async (command: string[], opts: { tool?: string; project?: string; dryRun?: boolean }) => {
       const { store } = program.opts();
       const result = await runCommand({
         command,
         storePath: store,
         tool: opts.tool as AgentTool | undefined,
         project: opts.project,
+        dryRun: opts.dryRun,
       });
       process.exitCode = result.exitCode;
     });

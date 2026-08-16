@@ -29,6 +29,7 @@ import type {
   WritableFacts,
 } from "@agentrelay/core";
 import {
+  ADAPTERS,
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
@@ -55,6 +56,7 @@ import {
   type ImportParseError,
   type ImportResult,
   type IneligibleJob,
+  inferToolFromCommand,
   isJobScopeActive,
   type JobCsvColumn,
   type JobScope,
@@ -125,6 +127,14 @@ export interface RunOptions {
    */
   project?: string;
   storePath?: string;
+  /**
+   * Preview the resolved plan (tool adapter, project label, store path, the
+   * command that would be spawned) and exit WITHOUT launching the agent or
+   * touching the store. Lets users validate their `agentrelay run -- …` wiring
+   * — especially tool inference and the derived project name — before it runs
+   * for real. Mirrors the `--dry-run` idiom of tick/prune/restore.
+   */
+  dryRun?: boolean;
   /** Injected for tests; defaults to real stdout/stderr passthrough. */
   stdout?: NodeJS.WritableStream;
   stderr?: NodeJS.WritableStream;
@@ -138,6 +148,73 @@ export interface RunOptions {
 export interface RunResult {
   exitCode: number;
   queuedJob: RelayJob | null;
+}
+
+/** How the tool adapter was chosen for a run — surfaced by the dry-run preview. */
+export type RunToolSource = "explicit" | "inferred" | "default";
+
+/** The fully resolved shape of a `run` invocation, as shown by `--dry-run`. */
+export interface RunPlan {
+  command: string[];
+  displayName: string;
+  tool: AgentTool;
+  toolSource: RunToolSource;
+  cwd: string;
+  project: string;
+  storePath: string;
+}
+
+/**
+ * Resolve a `run` invocation to its concrete plan without side effects — the
+ * same adapter/tool/project/store resolution the real run does, factored out so
+ * `--dry-run` and the imperative path can't drift. Pure given its inputs.
+ */
+export function buildRunPlan(options: {
+  command: string[];
+  tool?: AgentTool;
+  cwd: string;
+  project?: string;
+  storePath?: string;
+}): RunPlan {
+  const adapter = resolveAdapter({ tool: options.tool, command: options.command });
+  const toolSource: RunToolSource =
+    options.tool && ADAPTERS[options.tool]
+      ? "explicit"
+      : inferToolFromCommand(options.command)
+        ? "inferred"
+        : "default";
+  return {
+    command: options.command,
+    displayName: adapter.displayName,
+    tool: adapter.tool,
+    toolSource,
+    cwd: options.cwd,
+    project: resolveProjectName(options.cwd, options.project),
+    storePath: options.storePath ?? defaultStorePath(),
+  };
+}
+
+/** Shell-safe echo of a command so the preview line can be copy-pasted. */
+function quoteArg(arg: string): string {
+  return arg === "" || /[\s"'\\$`|&;<>()*?]/.test(arg) ? `'${arg.replace(/'/g, "'\\''")}'` : arg;
+}
+
+/** Human-readable, TTY-agnostic rendering of a {@link RunPlan} for `--dry-run`. */
+export function formatRunPlan(plan: RunPlan): string {
+  const toolNote =
+    plan.toolSource === "explicit"
+      ? "explicit --tool"
+      : plan.toolSource === "inferred"
+        ? "inferred from command"
+        : "default (no match)";
+  return [
+    "[agentrelay] dry run — nothing was executed and the store was not touched.",
+    `  tool:     ${plan.displayName} (${plan.tool}, ${toolNote})`,
+    `  project:  ${plan.project}`,
+    `  cwd:      ${plan.cwd}`,
+    `  store:    ${plan.storePath}`,
+    `  command:  ${plan.command.map(quoteArg).join(" ")}`,
+  ].join("\n");
 }
 
 /**
@@ -155,6 +232,21 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   const storePath = options.storePath ?? defaultStorePath();
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
+
+  // --dry-run: show the resolved plan and stop before spawning anything or
+  // touching the store. Reuses the exact same adapter/tool/project/store
+  // resolution as the real path via buildRunPlan, so the preview can't lie.
+  if (options.dryRun) {
+    const plan = buildRunPlan({
+      command: options.command,
+      tool: options.tool,
+      cwd,
+      project: options.project,
+      storePath,
+    });
+    stdout.write(`${formatRunPlan(plan)}\n`);
+    return { exitCode: 0, queuedJob: null };
+  }
 
   const [exitCode, output] = await new Promise<[number, string]>((resolve) => {
     let buffered = "";
