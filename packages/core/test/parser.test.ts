@@ -125,6 +125,35 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
   });
 
+  it("parses a millisecond-precision epoch retry_after (13 digits) without truncating it", () => {
+    // A raw JS Date.now() value. If the 13-digit ms timestamp were mistaken for
+    // seconds (grabbing the first 10 digits) the sub-second remainder would be
+    // lost; epochToDate scales by width, so the exact instant is preserved.
+    const result = parseRateLimitMessage('{"error":"rate_limit","retry_after":1752345600123}');
+    expect(result?.pattern).toBe("unix-epoch");
+    expect(result?.resetAt).toBe(new Date(1752345600123).toISOString());
+  });
+
+  it("parses a structured reset_at epoch field (seconds)", () => {
+    const result = parseRateLimitMessage('{"error":{"type":"rate_limit_error"},"reset_at":1752345600}');
+    expect(result?.pattern).toBe("unix-epoch");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("parses a camelCase resetAt epoch field on its own (no prose wording)", () => {
+    // The structured field alone must trip the pre-filter, or a JSON-only error
+    // body with no "rate limit" prose would slip through.
+    const result = parseRateLimitMessage('{"resetAt": 1752345600000}');
+    expect(result?.pattern).toBe("unix-epoch");
+    expect(result?.resetAt).toBe(new Date(1752345600000).toISOString());
+  });
+
+  it("rejects an implausible-width epoch run (11–12 digits) instead of truncating", () => {
+    // 12 digits is neither seconds (10) nor milliseconds (13) — refuse it rather
+    // than silently reading the first 10 digits as a bogus reset time.
+    expect(parseRateLimitMessage("rate_limit retry_after=175234560012")).toBeNull();
+  });
+
   it("falls back to a 5-hour window when no explicit time is present", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("You have reached your 5-hour usage limit.", { now });
