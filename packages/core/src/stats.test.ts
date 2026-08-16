@@ -3,11 +3,13 @@ import {
   computeActivityHeatmap,
   computeDailyTrend,
   computeHourlyDistribution,
+  computeResolutionHistogram,
   computeStats,
   computeWeekdayDistribution,
   GROUP_DIMENSIONS,
   groupStats,
   isJobScopeActive,
+  RESOLUTION_BUCKET_EDGES,
   scopeJobs,
 } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
@@ -745,5 +747,81 @@ describe("computeActivityHeatmap", () => {
   it("offset 0 matches the default UTC bucketing", () => {
     const jobs = [job({ createdAt: "2026-07-20T09:15:00.000Z" })];
     expect(computeActivityHeatmap(jobs, 0)).toEqual(computeActivityHeatmap(jobs));
+  });
+});
+
+describe("computeResolutionHistogram", () => {
+  // Helper: a job whose lifecycle span is exactly `minutes` long.
+  const span = (minutes: number, status: JobStatus = "completed"): RelayJob =>
+    job({
+      status,
+      createdAt: "2026-07-13T00:00:00.000Z",
+      updatedAt: new Date(Date.parse("2026-07-13T00:00:00.000Z") + minutes * 60_000).toISOString(),
+    });
+  const countOf = (hist: ReturnType<typeof computeResolutionHistogram>, label: string) =>
+    hist.buckets.find((b) => b.label === label)?.count ?? -1;
+
+  it("returns a zero-filled histogram for an empty store", () => {
+    const hist = computeResolutionHistogram([]);
+    expect(hist.total).toBe(0);
+    expect(hist.maxCount).toBe(0);
+    expect(hist.buckets).toHaveLength(RESOLUTION_BUCKET_EDGES.length);
+    expect(hist.buckets.every((b) => b.count === 0)).toBe(true);
+  });
+
+  it("places spans in the right buckets by their [min, max) edges", () => {
+    const hist = computeResolutionHistogram([
+      span(0), // <1m
+      span(0.5), // <1m
+      span(1), // 1–5m (lower edge is inclusive)
+      span(4), // 1–5m
+      span(5), // 5–15m
+      span(30), // 15–60m
+      span(60), // 1–3h
+      span(180), // 3–6h
+      span(60 * 13), // 12–24h
+      span(60 * 24), // ≥24h (open-ended)
+      span(60 * 100), // ≥24h
+    ]);
+    expect(countOf(hist, "<1m")).toBe(2);
+    expect(countOf(hist, "1–5m")).toBe(2);
+    expect(countOf(hist, "5–15m")).toBe(1);
+    expect(countOf(hist, "15–60m")).toBe(1);
+    expect(countOf(hist, "1–3h")).toBe(1);
+    expect(countOf(hist, "3–6h")).toBe(1);
+    expect(countOf(hist, "12–24h")).toBe(1);
+    expect(countOf(hist, "≥24h")).toBe(2);
+    expect(hist.total).toBe(11);
+    expect(hist.maxCount).toBe(2);
+  });
+
+  it("mirrors the TimingStats resolved-set policy: only completed + failed count", () => {
+    const hist = computeResolutionHistogram([
+      span(1, "completed"),
+      span(1, "failed"),
+      span(1, "cancelled"), // excluded (user cut, not a relay resolution)
+      span(1, "queued"), // excluded (not resolved)
+      span(1, "waiting_for_reset"), // excluded
+      span(1, "resuming"), // excluded
+    ]);
+    expect(hist.total).toBe(2);
+    expect(countOf(hist, "1–5m")).toBe(2);
+  });
+
+  it("skips jobs with unparseable timestamps or a negative span (clock skew)", () => {
+    const hist = computeResolutionHistogram([
+      span(2), // valid → 1–5m
+      job({ status: "completed", createdAt: "not-a-date", updatedAt: "2026-07-13T01:00:00.000Z" }),
+      job({ status: "failed", createdAt: "2026-07-13T05:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" }), // negative
+    ]);
+    expect(hist.total).toBe(1);
+    expect(countOf(hist, "1–5m")).toBe(1);
+  });
+
+  it("does not mutate its input", () => {
+    const jobs = [span(2), span(200)];
+    const before = JSON.stringify(jobs);
+    computeResolutionHistogram(jobs);
+    expect(JSON.stringify(jobs)).toBe(before);
   });
 });

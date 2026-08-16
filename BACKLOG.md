@@ -851,6 +851,26 @@
       실제 빌드 CLI `parse --tool claude-code "…|1752345600"` e2e로 `claude-usage-limit-epoch` 매치 +
       generic은 "No rate-limit detected" 확인. branch `claude/wizardly-pascal-j0fz82`)
 
+- [x] 👷 `agentrelay stats --durations` — 해결 시간(resolution time) 구간 분포 히스토그램. 스칼라
+      분산 지표(median/p90/IQR/stdev/CV/MAD)나 생성시각 기반 히스토그램(`--hours`/`--weekday`/`--heatmap`)과
+      달리, "릴레이가 잡을 보통 얼마나 오래 붙잡고 있나"의 **분포 형태**를 고정 구간별로 보여줌 —
+      median이 감추는 bimodal(빠른 잡 다수 + 밤샘 클럼프) 분포가 한눈에 드러남. 자기 발굴 항목.
+      (완료 — core `stats.ts`에 순수 `computeResolutionHistogram(jobs)` + `ResolutionHistogram`
+      (buckets·total·maxCount)·`DurationBucket`(minMs·maxMs·label·count)·`RESOLUTION_BUCKET_EDGES`
+      상수(9구간 고정 사다리: `<1m`/`1–5m`/`5–15m`/`15–60m`/`1–3h`/`3–6h`/`6–12h`/`12–24h`/`≥24h` —
+      한 시간 미만은 촘촘[전환실패 백오프], 이상은 성김[리셋 창]) 신설. **TimingStats와 동일 정책 재사용**:
+      resolved=completed+failed만, cancelled(사용자 취소)·비종료 잡 제외, 파싱불가/음수 span(클럭 스큐)
+      스킵 — 모듈 내 `RESOLVED_STATUSES`·`resolutionMs`를 그대로 씀(드리프트 0). 창도 시계도 불필요
+      (span은 두 타임스탬프의 절대 속성), 항상 9구간 zero-fill. CLI `stats.ts`에 순수
+      `renderResolutionHistogram`(구간 라벨 정렬 + 최다 구간 스케일 ASCII 막대 + 빈 구간 dim 베이스라인
+      점 + resolved-count 푸터, `--hours`/`--weekday` 관례 일치)·`renderStatsJson`에 옵셔널 `durations`
+      필드(요청 시에만 방출, 기존 JSON shape 불변). `cli.ts` `stats`에 `--durations` 배선 — 일회성·`--json`·
+      `--watch` 세 뷰 모두 적용, 기존 스코프 필터(--status/--tool/--project/--since/--until) 및
+      `--hours`/`--weekday`/`--heatmap`/`--trend`와 조합 가능. 새 파서/스케줄러 로직 0줄. core stats +6 +
+      cli stats +5 신규 테스트, 실제 빌드 CLI e2e로 구간 버킷팅(bimodal)·cancelled/active 제외·`--json`
+      durations 필드·기본 JSON 미포함·스코프 부분집합(--project web)·--heatmap 조합·help/completion 노출·
+      bad scope exit 1·빈 스토어 미첨부 검증. branch `claude/wizardly-pascal-g5jjbt`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

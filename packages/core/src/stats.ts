@@ -539,6 +539,96 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
   };
 }
 
+/** One duration range in a {@link ResolutionHistogram}. */
+export interface DurationBucket {
+  /** Inclusive lower edge of the range, in ms. */
+  minMs: number;
+  /** Exclusive upper edge in ms, or null for the open-ended final bucket. */
+  maxMs: number | null;
+  /** Compact human label for the range, e.g. `<1m`, `1–5m`, `≥24h`. */
+  label: string;
+  /** Resolved jobs whose resolution span falls in `[minMs, maxMs)`. */
+  count: number;
+}
+
+/**
+ * A histogram of resolution times bucketed into duration ranges. Where
+ * {@link TimingStats} reduces the resolution spans to scalar summaries
+ * (mean/percentiles/spread), this keeps their *shape*: it answers "does the
+ * relay usually resolve jobs in minutes, or does it babysit them overnight?" —
+ * a bimodal split (many quick + a clump past 12h) is invisible in a median but
+ * obvious here.
+ */
+export interface ResolutionHistogram {
+  /** One entry per range in {@link RESOLUTION_BUCKET_EDGES}, always fully filled. */
+  buckets: DurationBucket[];
+  /** Resolved jobs that contributed a valid span (sum of bucket counts). */
+  total: number;
+  /** The busiest bucket's count (0 when empty) — the bar-scale reference. */
+  maxCount: number;
+}
+
+const MINUTE_MS = 60_000;
+const HOUR_MS = 3_600_000;
+
+/**
+ * The fixed duration ladder for {@link computeResolutionHistogram}, chosen for
+ * the shape of rate-limit resolution times: fine-grained under an hour (where
+ * transient-failure backoffs land) and coarser above it (where whole rate-limit
+ * windows land). Each range is `[minMs, maxMs)`; the last bucket is open-ended
+ * (`maxMs: null`). Exported so callers/tests can reason about the edges without
+ * hard-coding them.
+ */
+export const RESOLUTION_BUCKET_EDGES: ReadonlyArray<{ minMs: number; maxMs: number | null; label: string }> = [
+  { minMs: 0, maxMs: MINUTE_MS, label: "<1m" },
+  { minMs: MINUTE_MS, maxMs: 5 * MINUTE_MS, label: "1–5m" },
+  { minMs: 5 * MINUTE_MS, maxMs: 15 * MINUTE_MS, label: "5–15m" },
+  { minMs: 15 * MINUTE_MS, maxMs: HOUR_MS, label: "15–60m" },
+  { minMs: HOUR_MS, maxMs: 3 * HOUR_MS, label: "1–3h" },
+  { minMs: 3 * HOUR_MS, maxMs: 6 * HOUR_MS, label: "3–6h" },
+  { minMs: 6 * HOUR_MS, maxMs: 12 * HOUR_MS, label: "6–12h" },
+  { minMs: 12 * HOUR_MS, maxMs: 24 * HOUR_MS, label: "12–24h" },
+  { minMs: 24 * HOUR_MS, maxMs: null, label: "≥24h" },
+];
+
+/** Index of the bucket in {@link RESOLUTION_BUCKET_EDGES} a non-negative span falls in. */
+function resolutionBucketIndex(span: number): number {
+  for (let i = 0; i < RESOLUTION_BUCKET_EDGES.length; i++) {
+    const { maxMs } = RESOLUTION_BUCKET_EDGES[i];
+    if (maxMs === null || span < maxMs) return i;
+  }
+  // Unreachable: the last bucket has maxMs === null, so it always matches.
+  return RESOLUTION_BUCKET_EDGES.length - 1;
+}
+
+/**
+ * Buckets relay-resolved jobs (completed + failed) by their resolution span
+ * ({@link resolutionMs}) into the fixed {@link RESOLUTION_BUCKET_EDGES} ladder,
+ * so `agentrelay stats --durations` can show the *distribution* of how long the
+ * relay babysits jobs. Uses the exact same resolved-set policy as
+ * {@link TimingStats}: cancelled jobs are excluded (a user cut, not a relay
+ * resolution), and jobs with a missing/unparseable timestamp or a negative span
+ * (clock skew) are skipped. Pure and non-mutating: no I/O, no ambient clock —
+ * a resolution span is an absolute property of the two timestamps.
+ *
+ * The result always has one entry per range (zero-filled), so the histogram
+ * shape is stable regardless of which buckets are populated.
+ */
+export function computeResolutionHistogram(jobs: RelayJob[]): ResolutionHistogram {
+  const counts = new Array<number>(RESOLUTION_BUCKET_EDGES.length).fill(0);
+  let total = 0;
+  for (const job of jobs) {
+    if (!RESOLVED_STATUSES.includes(job.status)) continue;
+    const span = resolutionMs(job);
+    if (span === null) continue;
+    counts[resolutionBucketIndex(span)] += 1;
+    total += 1;
+  }
+  const buckets = RESOLUTION_BUCKET_EDGES.map((edge, i) => ({ ...edge, count: counts[i] }));
+  const maxCount = counts.reduce((m, c) => (c > m ? c : m), 0);
+  return { buckets, total, maxCount };
+}
+
 /**
  * A dimension to split a job list on for {@link groupStats}. Each grouped subset
  * gets its own full {@link RelayStats}, so questions like "which project resolves

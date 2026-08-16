@@ -2233,3 +2233,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 72 — `agentrelay stats --durations` 해결 시간 구간 분포] (2026-08-16, 무인 자율 세션)
+- **상황:** 세션 시작 시 BACKLOG의 미완료 👷 항목이 전부 소진(남은 미완료는 🧭 코워크 소유
+  문서/리서치뿐), 열린 PR 30개가 누적(stats 분산 지표·watch·파서 wording·eta --watch 등 다수 중복).
+  CLAUDE.md 지침대로 열린 PR·완료 항목과 겹치지 않는 **새 개선 항목을 발굴**.
+- **발굴한 갭:** stats의 해결 시간(resolution time)은 스칼라 요약(mean/median/p90/p95/p99/IQR/stdev/
+  CV/MAD)만 있어 **분포 형태**를 볼 수 없었다. "릴레이가 잡을 보통 얼마나 오래 붙잡고 있나 — 대부분
+  몇 분인가, 아니면 밤새 붙잡나?"라는 bimodal 질문은 median으로는 안 보인다. 생성시각 기반 히스토그램
+  (`--hours`/`--weekday`/`--heatmap`)은 있지만 **해결 소요 시간**의 분포 히스토그램은 없었다(열린 PR
+  어디에도 없음 — attempts 히스토그램·windows 리드타임·reliability 일별과 전부 다른 축).
+- **한 일 (branch `claude/wizardly-pascal-g5jjbt`):**
+  - core `stats.ts`에 순수 `computeResolutionHistogram(jobs)` + `ResolutionHistogram`/`DurationBucket`/
+    `RESOLUTION_BUCKET_EDGES`(9구간 고정 사다리 `<1m`…`≥24h`, 한 시간 미만 촘촘·이상 성김). 기존
+    `TimingStats`와 **동일 resolved-set 정책**(completed+failed만·cancelled/비종료 제외·파싱불가/음수
+    span 스킵)을 모듈 내 `RESOLVED_STATUSES`·`resolutionMs` 재사용으로 보장(드리프트 0). 창/시계 불필요,
+    항상 9구간 zero-fill.
+  - CLI `stats.ts`에 순수 `renderResolutionHistogram`(라벨 정렬 + 최다 구간 스케일 ASCII 막대 + 빈 구간
+    dim 점 + resolved-count 푸터)·`renderStatsJson`에 옵셔널 `durations` 필드(요청 시에만 방출, 기존
+    shape 불변). `cli.ts` `stats`에 `--durations` 배선 — 일회성·`--json`·`--watch` 세 뷰 + 기존 스코프
+    필터 및 `--hours`/`--weekday`/`--heatmap`/`--trend`와 조합 가능. 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 632 · cli 358/1skip · dashboard 9**; core stats +6, cli stats +5 신규). **실제 빌드
+  CLI e2e**(mock 아님): 11잡 스토어(다양 span + cancelled + waiting)로 `--durations`가 bimodal(<1m~≥24h)
+  9 resolved 렌더·cancelled/active 제외, `--json`이 durations{total 9·maxCount 2·9구간} 방출·기본 JSON은
+  미포함, `--project web` 스코프 5 resolved, `--durations --heatmap` 동시 렌더, help/completion `--durations`
+  노출, `--status bogus`는 렌더 전 exit 1, 빈 스토어는 히스토그램 미첨부 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — resolution 히스토그램의
+  `--group-by`별 분포, 또는 attempts/wait-time 분포로 확장. stats 스칼라 분산·watch·summary --watch는 PR
+  포화라 지양. README/ARCHITECTURE(🧭 코워크).
