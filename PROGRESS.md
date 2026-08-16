@@ -2167,14 +2167,29 @@
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
 
-### [세션 69 — `agentrelay stats` 해결 시간 MAD(median absolute deviation)] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-fbgzlf`)
-- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
-  경쟁조사/샘플수집/성능분석)뿐. 세션 68이 후속 후보로 명시한 "timing 블록 MAD(median absolute
-  deviation, 이상치에 더 강건한 분산)"를 골랐다 — watch 축(summary --watch 등)·tz/heatmap/parser는
-  PR 포화라 지양 권고가 반복돼 있었다. 기존 분산 지표 중 stdev는 이상치 하나에 부풀고(50% 붕괴점 없음),
-  IQR도 사분위 위치에 묶여 있다. MAD는 50% 붕괴점을 가진 가장 강건한 분산 지표라 "절반이 아무리 커져도
-  안 움직임" — stdev와 나란히 읽으면 "대체로 일정한데 소수 이상치"를 명확히 드러낸다.
-- **한 일 (branch `claude/wizardly-pascal-fbgzlf`):**
+### [세션 69 — `agentrelay recover` 고아 resuming 잡 복구] (2026-08-15, 무인 자율 세션, branch `claude/wizardly-pascal-recover`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유뿐. 열린 PR 50개가
+  stats(MAD/CV/skewness/trimmed/attempts)·parser·adapter(gemini/aider)·windows/coverage/dedup/snooze/
+  recent/wait --all/tick --dry-run/notify list·events/export yaml/prune --backup 등으로 포화라, 어떤
+  열린 PR에도 없고 코드를 읽다 발견한 **실제 신뢰성 갭**을 골랐다: 스케줄러는 `resume(job)` 시 먼저
+  `markResuming`(status→`resuming`)한 뒤에야 종료/재큐 마크를 찍는데, 그 사이 프로세스가 죽으면
+  (데몬 OOM-kill·SIGKILL·재부팅) 잡이 **`resuming`에 영원히 갇힌다** — `listDue`는 `waiting_for_reset`만
+  픽업하므로 어떤 tick도 다시 안 집고, `retry`는 `canRequeue`가 `resuming`을 거부해 손으로도 못 살린다.
+  릴레이가 가장 필요했던 그 잡이 조용히 영원히 재개 안 되는 상태.
+- **한 일 (branch `claude/wizardly-pascal-recover`):** core `recover.ts` 신설(순수)
+  `selectStuckResumingJobs`/`StuckResumingReport`/`DEFAULT_STUCK_RESUMING_MS`(30m) + `RelayQueue.recoverResuming`
+  (resuming→waiting_for_reset due, attempts 보존) + CLI `agentrelay recover [--older-than][--dry-run][--json]`.
+  core recover 8 + cli recover 9 신규.
+- **검증:** build 클린·Biome 0에러·`pnpm test` 전 패키지 통과(core 622·cli 354/1skip·dashboard 9). 세션 70에서
+  최신 main 위로 통합·병합(PR #695).
+
+### [세션 70 — `agentrelay stats` 해결 시간 MAD + PR 정체 진단/병합] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-fbgzlf`)
+- **PR 정체 진단:** 세션 시작 시 **열린 PR 100+개**가 CI 초록인데도 병합되지 않고 쌓여 있었다(MAD 20+·CV·
+  eta --watch·summary --watch 등 동일 기능 다중 중복). 원인 = 병합 게이트를 쥔 사람이 없고, 매 세션이 기존
+  녹색 PR을 병합하는 대신 새 PR을 추가해 온 것. CV는 이미 #645로 main에 있는데도 CV PR이 여러 개 열려 불필요.
+  COLLAB 병합 정책(CI 초록이면 클로드 코드 병합 가능)에 따라 실질 진전을 위해 **고유·녹색 PR을 병합**했다:
+  #695(recover, 위) + 이 PR(#704, MAD — 가장 많이 중복된 미병합 기능이라 landing 시 중복 루프 차단).
+- **한 일 (branch `claude/wizardly-pascal-fbgzlf`):** MAD(median absolute deviation) 분산 지표 —
   - core `stats.ts`의 `TimingStats`에 `madResolutionMs`(whole-ms 반올림, null 가능) 추가 + 순수
     `medianAbsoluteDeviation(values, median)` 헬퍼(값별 `|v-median|`을 새로 정렬 → 기존 `percentile`
     p=0.5 재사용). `computeStats`가 median을 한 번만 계산해 medianResolutionMs와 MAD 양쪽에 공유.

@@ -243,6 +243,30 @@ export class RelayQueue {
     this.update(id, { status: "waiting_for_reset", resetAt: at, attempts: 0, lastError: null });
   }
 
+  /**
+   * Reclaim a job orphaned mid-resume: a resume loop that died between
+   * {@link markResuming} and a terminal mark leaves the job stuck in `resuming`,
+   * where no `listDue` tick will ever pick it up again. This moves it back to
+   * `waiting_for_reset` due immediately (`resetAt = at`) so the next tick
+   * resumes it, records why it's waiting, and — deliberately unlike
+   * {@link requeueNow} — **preserves `attempts`**: the interrupted attempt still
+   * counts, so a job that keeps crashing the loop can't be recovered forever.
+   *
+   * A no-op returning `false` unless the job is currently `resuming`, so it's
+   * safe to call on any id (e.g. after re-reading the store) without racing a
+   * genuinely in-flight run into a duplicate resume.
+   */
+  recoverResuming(id: string, at: string = new Date().toISOString()): boolean {
+    const current = this.getById(id);
+    if (current?.status !== "resuming") return false;
+    this.update(id, {
+      status: "waiting_for_reset",
+      resetAt: at,
+      lastError: "recovered from an interrupted resume (resume loop stopped mid-attempt)",
+    });
+    return true;
+  }
+
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {
     this.load();
     const existing = this.jobs.get(id);

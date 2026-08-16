@@ -25,6 +25,7 @@ import type {
   Notifier,
   PruneOptions,
   RelayJob,
+  StuckResumingReport,
   WritableFacts,
 } from "@agentrelay/core";
 import {
@@ -82,6 +83,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   sampleConfigJson,
   scopeJobs,
+  selectStuckResumingJobs,
   serializeDaemonHeartbeat,
   setConfigValue,
   summarizeImportPlan,
@@ -626,6 +628,52 @@ export function pruneJobs(options: PruneJobsOptions = {}): { pruned: RelayJob[];
   const remaining = queue.listAll().length - (pruneOpts.dryRun ? pruned.length : 0);
   queue.close();
   return { pruned, remaining };
+}
+
+export interface RecoverJobsOptions {
+  storePath?: string;
+  /** Staleness threshold (ms) a `resuming` job must exceed to be reclaimed. */
+  stuckAfterMs?: number;
+  /** Preview only — report what would be recovered without touching the store. */
+  dryRun?: boolean;
+  /** Reference "now" (epoch ms); defaults to the wall clock. Injectable for tests. */
+  now?: number;
+}
+
+export interface RecoverJobsResult {
+  report: StuckResumingReport;
+  /** Jobs actually reclaimed (post-transition). Empty on a dry run. */
+  recovered: RelayJob[];
+  dryRun: boolean;
+}
+
+/**
+ * Requeue jobs orphaned mid-resume — stuck in `resuming` because the resume
+ * loop died between marking them and recording an outcome. Finds the stuck jobs
+ * ({@link selectStuckResumingJobs}) and, unless `dryRun`, moves each back to
+ * `waiting_for_reset` due now via {@link RelayQueue.recoverResuming} so the next
+ * tick resumes it. The per-job guard means a job that finishes resuming between
+ * the scan and the write is simply skipped (its transition returns `false`),
+ * never double-run.
+ */
+export function recoverJobs(options: RecoverJobsOptions = {}): RecoverJobsResult {
+  const now = options.now ?? Date.now();
+  const queue = openQueue(options.storePath ?? defaultStorePath());
+  try {
+    const report = selectStuckResumingJobs(queue.listAll(), { nowMs: now, stuckAfterMs: options.stuckAfterMs });
+    if (options.dryRun) return { report, recovered: [], dryRun: true };
+    const at = new Date(now).toISOString();
+    const recovered: RelayJob[] = [];
+    for (const job of report.stuck) {
+      if (queue.recoverResuming(job.id, at)) {
+        const updated = queue.getById(job.id);
+        if (updated) recovered.push(updated);
+      }
+    }
+    return { report, recovered, dryRun: false };
+  } finally {
+    queue.close();
+  }
 }
 
 export interface ConfigInitOptions {
