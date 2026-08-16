@@ -32,6 +32,27 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/**
+ * Resolve a run of Unix-epoch digits to an absolute `Date`, auto-detecting the
+ * unit by width: 10 digits = seconds (the classic Unix epoch), 13 digits =
+ * milliseconds (what JavaScript's `Date.now()` emits, common in JSON error
+ * payloads from Node-based agents/APIs). Any other width is rejected as not a
+ * plausible epoch — this deliberately refuses 11–12 or 14+ digit runs rather
+ * than silently truncating them to the wrong instant. Returns null on an
+ * invalid/NaN date.
+ *
+ * Exposed so agent adapters (see `adapters.ts`) can reuse the exact same
+ * seconds-vs-milliseconds logic for their own tool-specific epoch patterns.
+ */
+export function epochToDate(digits: string): Date | null {
+  let ms: number;
+  if (digits.length === 13) ms = Number.parseInt(digits, 10);
+  else if (digits.length === 10) ms = Number.parseInt(digits, 10) * 1000;
+  else return null;
+  const d = new Date(ms);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
@@ -102,12 +123,19 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
-    // Unix epoch seconds embedded in structured error payloads, e.g.
-    // `retry_after=1752345600`, `retry_after: 1752345600`, or the JSON form
-    // `"retry_after": 1752345600`.
+    // Absolute Unix-epoch reset time embedded in a structured error payload,
+    // e.g. `retry_after=1752345600`, `retry_after: 1752345600`, the JSON form
+    // `"retry_after": 1752345600`, or the equivalent `reset_at`/`resets_at`/
+    // `resetAt` fields many APIs use. The value may be epoch *seconds*
+    // (10 digits) or *milliseconds* (13 digits, what a JS `Date.now()` emits) —
+    // `epochToDate` auto-detects the unit by width, so a millisecond timestamp
+    // is no longer truncated to the wrong instant. The trailing `\b` after the
+    // width alternation rejects implausible 11–12 or 14+ digit runs instead of
+    // grabbing a wrong-length prefix. The underscore/camelCase field names keep
+    // this disjoint from the hyphenated HTTP `Retry-After` header below.
     name: "unix-epoch",
-    regex: /retry_after"?\s*[=:]\s*(\d{10})/i,
-    resolve: (m) => new Date(parseInt(m[1], 10) * 1000),
+    regex: /(?:retry_after|resets?_?at)"?\s*[=:]\s*(\d{13}|\d{10})\b/i,
+    resolve: (m) => epochToDate(m[1]),
   },
   {
     // The standard HTTP `Retry-After` response header (RFC 9110 §10.2.3), which
@@ -136,7 +164,7 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|resets?_?at|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);

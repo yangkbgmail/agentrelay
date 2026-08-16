@@ -2233,3 +2233,36 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 72 — 파서: epoch 밀리초(13자리) + 구조화 `reset_at`/`resetAt` 필드 인식] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-ozkmq2`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목이 여전히 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 71이 "다음 할 일"로 명시한 두 파서 후보 — pipe-epoch의 ms 확장 + 인접 실사용 wording — 중
+  ms 확장을, 동시에 발견한 `reset_at`/`resetAt` 필드 갭과 한 테마로 묶어 처리. stats 분산/watch 클러스터
+  (PR 포화)는 계속 지양.
+- **발굴한 갭:** 둘 다 "구조화된 epoch 리셋 타임스탬프"라는 한 뿌리 — (1) 기존 epoch 매처(`unix-epoch`·
+  `claude-usage-limit-epoch`)는 10자리 초만 봐, JS `Date.now()`가 내는 13자리 ms를 앞 10자리로 잘라
+  잘못된 순간으로 해석(sub-second 유실, 폭에 따라 완전 오독 가능). (2) 제네릭 파서는 `retry_after`
+  epoch만 알고, 오늘날 API가 흔히 쓰는 `reset_at`/`resets_at`/`resetAt` 필드는 전혀 못 잡아 산문 없는
+  JSON 에러 바디에서 리셋 시각을 놓쳤다.
+- **한 일 (branch `claude/wizardly-pascal-ozkmq2`):**
+  - core `parser.ts`에 순수 `epochToDate(digits)` 헬퍼 신설(export) — 폭으로 단위 자동 판별
+    (10자리=초→×1000, 13자리=ms 그대로), 11–12·14+ 자리 같은 구현불가 폭은 조용히 자르지 않고 **거부**
+    (null 반환), NaN 방어. 어댑터가 재사용하도록 공개.
+  - 제네릭 `unix-epoch` 패턴을 `/(?:retry_after|resets?_?at)"?\s*[=:]\s*(\d{13}|\d{10})\b/i`로 확장 —
+    필드명에 reset_at/resets_at/resetAt(카멜/언더스코어) 추가, 값은 초·ms 둘 다, `\d{13}|\d{10}` +
+    끝 `\b`로 폭 초과 런은 매치 실패, `resolve`가 `epochToDate` 재사용. 하이픈 HTTP `Retry-After`
+    (별개 패턴)와는 언더스코어/카멜케이스라 여전히 disjoint.
+  - pre-filter(`LOOKS_LIKE_RATE_LIMIT`)에 `resets?_?at` 추가 → `{"resetAt":…}` 같은 산문 없는 순수
+    JSON 바디도 통과.
+  - 어댑터 `adapters.ts`의 `CLAUDE_USAGE_LIMIT_EPOCH_PATTERN`도 `\d{13}|\d{10}` + `epochToDate`
+    공유로 pipe 뒤 ms 인식(초 케이스는 불변).
+  - parser.test +4(ms 무손실 `.123`·reset_at 초·camelCase resetAt 단독·12자리 거부),
+    adapters.test +1(pipe ms). 새 스케줄러/집계 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm lint:fix`+`pnpm ci:lint`(Biome 0에러)→
+  `pnpm test` 전 패키지 통과(**core parser 37·adapters 18 · cli 354/1skip · dashboard 9**). **실제 빌드
+  CLI e2e**(mock 아님): `parse --json '{"retry_after":1752345600123}'`가 `unix-epoch`·`.123` 보존,
+  `reset_at`/camelCase `resetAt` 단독 매치, Claude pipe ms `.123` 보존, 12자리는 "No rate-limit detected"
+  확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
+  다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 ISO 타임스탬프의 명명 타임존 실제 반영. stats
+  분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

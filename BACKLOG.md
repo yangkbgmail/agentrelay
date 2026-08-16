@@ -851,6 +851,24 @@
       실제 빌드 CLI `parse --tool claude-code "…|1752345600"` e2e로 `claude-usage-limit-epoch` 매치 +
       generic은 "No rate-limit detected" 확인. branch `claude/wizardly-pascal-j0fz82`)
 
+- [x] 👷 파서: epoch 리셋 시각의 밀리초(13자리) 인식 + 구조화 `reset_at`/`resetAt` 필드 인식. 자기 발굴
+      항목 — 세션 72(pipe-epoch)가 후속 후보로 "파이프-epoch가 ms(13자리)로도 오는지 관찰 후 확장"을
+      지목했고, 동시에 제네릭 파서는 `retry_after` epoch만 알고 오늘날 흔한 `reset_at`/`resetAt` 필드를
+      전혀 못 잡던 두 갭을 한 테마로 묶어 처리.
+      (완료 — 두 문제 모두 "구조화된 epoch 리셋 타임스탬프"라는 한 테마: (1) 기존 epoch 매처는
+      10자리 초만 봐 JS `Date.now()`가 내는 13자리 ms를 앞 10자리로 잘라 잘못된 순간으로 해석했고,
+      (2) `reset_at`/`resets_at`/`resetAt` 필드는 전혀 인식 못 했다. `@agentrelay/core/parser.ts`에
+      순수 `epochToDate(digits)` 헬퍼 신설 — 폭으로 단위 자동 판별(10자리=초·13자리=ms), 11–12·14+
+      자리 같은 구현불가 폭은 조용히 자르지 않고 **거부**(null), NaN 방어. 제네릭 `unix-epoch` 패턴을
+      `/(?:retry_after|resets?_?at)"?\s*[=:]\s*(\d{13}|\d{10})\b/i`로 확장(필드명에 reset_at/resets_at/
+      resetAt 추가, 값은 초·ms 둘 다, 끝 `\b`로 폭 초과 거부) + `resolve`가 `epochToDate` 재사용.
+      pre-filter에 `resets?_?at` 추가 → 산문 없는 순수 JSON 에러 바디(`{"resetAt":…}`)도 감지.
+      어댑터 `CLAUDE_USAGE_LIMIT_EPOCH_PATTERN`도 `\d{13}|\d{10}` + `epochToDate` 공유로 pipe 뒤 ms
+      인식. 하이픈 HTTP `Retry-After`(별개 패턴)와는 언더스코어/카멜케이스라 여전히 disjoint.
+      parser.test +4(ms 무손실·reset_at 초·camelCase 단독·12자리 거부)·adapters.test +1(pipe ms).
+      실제 빌드 CLI `parse` e2e로 ms `.123` 보존·reset_at/resetAt 매치·12자리 "No rate-limit detected"
+      확인. 새 스케줄러 로직 0줄. branch `claude/wizardly-pascal-ozkmq2`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -1,4 +1,4 @@
-import { type ParseOptions, parseRateLimitMessage, type RateLimitPattern } from "./parser.js";
+import { epochToDate, type ParseOptions, parseRateLimitMessage, type RateLimitPattern } from "./parser.js";
 import type { AgentTool, RateLimitInfo } from "./types.js";
 
 /**
@@ -71,15 +71,17 @@ const CODEX_SECONDS_PATTERN: RateLimitPattern = {
  * headless mode. The generic parser has no pipe-delimited epoch pattern (its
  * `unix-epoch` matcher requires a `retry_after` prefix), so this wording would
  * otherwise slip through. Kept as a Claude-specific adapter pattern rather than a
- * generic one so a bare `...|<10 digits>` elsewhere can't be misread as a reset.
+ * generic one so a bare `...|<epoch>` elsewhere can't be misread as a reset.
+ *
+ * The value after the pipe is epoch *seconds* (10 digits) in the wording seen
+ * in the wild, but some payloads carry epoch *milliseconds* (13 digits, a raw
+ * JS `Date.now()`), so `epochToDate` accepts either and scales by width — a
+ * millisecond timestamp is no longer truncated to the wrong reset instant.
  */
 const CLAUDE_USAGE_LIMIT_EPOCH_PATTERN: RateLimitPattern = {
   name: "claude-usage-limit-epoch",
-  regex: /usage limit reached\s*\|\s*(\d{10})\b/i,
-  resolve: (m) => {
-    const d = new Date(parseInt(m[1], 10) * 1000);
-    return Number.isNaN(d.getTime()) ? null : d;
-  },
+  regex: /usage limit reached\s*\|\s*(\d{13}|\d{10})\b/i,
+  resolve: (m) => epochToDate(m[1]),
 };
 
 export const CLAUDE_CODE_ADAPTER: AgentAdapter = makeAdapter({
