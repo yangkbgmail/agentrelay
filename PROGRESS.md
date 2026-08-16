@@ -2166,3 +2166,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay run --cwd` 다른 디렉터리 릴레이] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-oyq1kw`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR 100여 개가 stats(MAD/CV/skewness/trimmed-mean)·parser·watch·
+  notify·신규 리포트 명령에 극도로 몰려(동일 주제 중복 다수) 있어, 그 어떤 축과도 겹치지 않으면서 릴레이
+  핵심 워크플로(`run`)를 개선하는 명확한 갭을 골랐다 — 내부 `runCommand`는 이미 `cwd`를 받는데 CLI `run`엔
+  이를 지정할 플래그가 없어, 다른 디렉터리의 에이전트를 릴레이하려면 미리 그 디렉터리로 cd해야 했다.
+- **한 일 (branch `claude/wizardly-pascal-oyq1kw`):**
+  - `packages/cli/src/commands.ts`에 순수 `resolveRunCwd(rawCwd, base)` 신설: `--cwd`를 base 기준으로
+    resolve(절대경로는 그대로 승리), 대상이 없거나 디렉터리가 아니면 **명확한 에러를 throw** — 잡을
+    큐잉하기 전에 잡아, 그러지 않으면 자식 spawn `ENOENT`로 뒤늦게(그리고 알쏭달쏭하게) 표면화될 실패를
+    선제 차단. 빈/미지정 값은 base 유지(기존 동작 불변).
+  - CLI `run`에 `-C, --cwd <dir>` 플래그 배선. action이 resolveRunCwd로 **먼저** 검증(실패 시 stderr
+    에러 + exit 1)한 뒤 resolve된 절대 cwd를 `runCommand`로 전달 → 큐잉되는 잡의 `cwd`와 자동 유도
+    project명이 모두 그 디렉터리 기준이 된다. `runCommand`는 불변(검증은 CLI 계층에만).
+  - commands.test.ts에 `resolveRunCwd` 5케이스(base fallback·상대 resolve·절대 그대로·미존재→throw·
+    파일→throw) + `runCommand`가 지정 cwd에서 project를 유도하는 1케이스 신규.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 614 · cli 351/1skip[+6] · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 임시 프로젝트
+  디렉터리로 `run --cwd`→rate-limit 감지 시 잡 cwd/project가 그 디렉터리 기준으로 큐잉, 미존재 cwd→
+  "does not exist" + exit 1, 파일 cwd→"not a directory" + exit 1, `run --help`·`completion bash`에
+  `-C, --cwd` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). stats/parser/watch/notify·summary --watch는
+  PR 극포화라 지양. 후속 인접 후보 — `run --project`처럼 다른 실행 시점 옵션(예: 재개 시 env 주입), 대시보드
+  영역(상대적으로 덜 포화). README/ARCHITECTURE(🧭 코워크).

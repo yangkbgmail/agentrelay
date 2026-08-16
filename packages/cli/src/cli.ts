@@ -64,6 +64,7 @@ import {
   pruneJobs,
   readHealthReport,
   readLocationReport,
+  resolveRunCwd,
   restoreStore,
   retryJob,
   runCommand,
@@ -541,10 +542,23 @@ export function buildCli(): Command {
       "-p, --project <name>",
       "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
     )
-    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
+    .option(
+      "-C, --cwd <dir>",
+      "Directory to run (and later resume) the command in (default: current directory). Relative paths resolve against the current directory."
+    )
+    .action(async (command: string[], opts: { tool?: string; project?: string; cwd?: string }) => {
       const { store } = program.opts();
+      let cwd: string;
+      try {
+        cwd = resolveRunCwd(opts.cwd, process.cwd());
+      } catch (err) {
+        console.error(`[agentrelay] ${err instanceof Error ? err.message : String(err)}`);
+        process.exitCode = 1;
+        return;
+      }
       const result = await runCommand({
         command,
+        cwd,
         storePath: store,
         tool: opts.tool as AgentTool | undefined,
         project: opts.project,
