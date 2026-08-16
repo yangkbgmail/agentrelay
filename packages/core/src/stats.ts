@@ -382,9 +382,11 @@ const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 
 /**
  * Lifecycle span of a job in ms (`updatedAt - createdAt`), or null when either
- * timestamp is missing/unparseable or the span is negative (clock skew).
+ * timestamp is missing/unparseable or the span is negative (clock skew). This is
+ * the shared definition of "how long the relay babysat a job"; {@link RelayValue}
+ * reuses it so the savings view and the timing stats never disagree.
  */
-function resolutionMs(job: RelayJob): number | null {
+export function jobResolutionMs(job: RelayJob): number | null {
   const created = Date.parse(job.createdAt);
   const updated = Date.parse(job.updatedAt);
   if (Number.isNaN(created) || Number.isNaN(updated)) return null;
@@ -465,7 +467,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     if (job.attempts > 1) retriedJobs += 1;
     projectCounts.set(job.project, (projectCounts.get(job.project) ?? 0) + 1);
     if (RESOLVED_STATUSES.includes(job.status)) {
-      const span = resolutionMs(job);
+      const span = jobResolutionMs(job);
       if (span !== null) resolutionDurations.push(span);
     }
   }

@@ -22,6 +22,7 @@ import {
   computeErrorBreakdown,
   computeHourlyDistribution,
   computeQueueEta,
+  computeRelayValue,
   computeStats,
   computeWeekdayDistribution,
   EXPORT_FORMATS,
@@ -92,6 +93,7 @@ import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
 import { type RecoverResult, renderRecover, renderRecoverJson } from "./recover.js";
+import { renderSavings, renderSavingsJson } from "./savings.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
   formatUtcOffsetLabel,
@@ -784,6 +786,47 @@ export function buildCli(): Command {
         console.log(renderSummaryJson(summary, store ?? defaultStorePath()));
       } else {
         console.log(renderSummary(summary, { color: Boolean(process.stdout.isTTY), now }));
+      }
+    });
+
+  program
+    .command("savings")
+    .description("Show the relay's payoff: manual restarts saved and wall-clock carried unattended")
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. completed,failed)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--json", "Print the value as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # what has AgentRelay actually done for you?\n" +
+        "  agentrelay savings\n" +
+        "  # just the last week\n" +
+        "  agentrelay savings --since 7d\n" +
+        "  # the payoff for one project, as JSON\n" +
+        "  agentrelay savings --project my-app --json | jq '.value.manualInterventionsSaved'"
+    )
+    .action((opts: ScopeOpts & { json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const value = computeRelayValue(jobs);
+      const scopeNote = built.active ? built.note : undefined;
+
+      if (opts.json) {
+        console.log(renderSavingsJson(value, store ?? defaultStorePath(), { scopeNote }));
+      } else {
+        console.log(renderSavings(value, { color: Boolean(process.stdout.isTTY), scopeNote }));
       }
     });
 

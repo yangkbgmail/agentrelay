@@ -184,6 +184,21 @@
       tick-mode 하트비트 기록(cron 사용자도 생존 신호). `runDoctor`가 `nowMs` 주입 가능(테스트용).
       heartbeat.test.ts 13 + doctor daemon 6 + scheduler onTick 2 + CLI 7케이스, 실제 빌드 CLI로
       before/after·daemon 수명주기·stale 경고 e2e 검증. branch `claude/wizardly-pascal-hb7k2m`)
+- [x] 👷 `agentrelay savings` — 릴레이의 실효익(제품 존재 이유) 한눈에: 자동 재개로 아껴준
+      수동 재시작 횟수 + 무인으로 커버한 wall-clock.
+      (완료 — `@agentrelay/core/value.ts` 신설(순수): `RelayValue`/`computeRelayValue(jobs)`.
+      `autoResumes`=Σ max(0, attempts−1)(첫 실행은 사람이 띄운 것, 그 이후가 릴레이 재개),
+      `resumedJobs`(attempts>1), `manualInterventionsSaved`(=autoResumes, 제품 스토리용 별칭),
+      `unattendedMs`=재개된(attempts>1) **종료** job의 라이프사이클 span 합(무인으로 커버한 시간,
+      진행중·첫 실행 성공은 제외, 음수/파싱불가 span 스킵 — TimingStats와 동일 정책),
+      `longestUnattendedMs`(최대 단일 save)·`unattendedJobs`. `stats.ts`의 span 헬퍼를
+      `jobResolutionMs`로 공개 export해 재사용(두 뷰가 "얼마나 돌봤나" 정의를 공유). 모든 수치는
+      저장 데이터에서 도출 — 추측성 곱셈 계수 없음. CLI `packages/cli/src/savings.ts`에 순수
+      `renderSavings`(사람용 블록, 재개 없으면 "아직 나설 일 없었음" 문구, 재개됐지만 미종료면
+      "아직 해결된 job 없음" 주석)·`renderSavingsJson`(--json). `agentrelay savings` 커맨드에
+      summary와 동일한 `--status/--tool/--project/--since/--until` 스코프 배선. value.test.ts 6 +
+      savings.test.ts 8케이스, 실제 빌드 CLI로 human/json/스코프/빈-스코프 e2e 검증(core 633·cli 363
+      전 테스트 통과, biome ci 0경고). branch `claude/wizardly-pascal-8nxtea`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
