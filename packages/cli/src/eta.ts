@@ -45,6 +45,29 @@ export function renderEta(eta: QueueEta, options: { color?: boolean } = {}): str
 }
 
 /**
+ * One frame of `agentrelay eta --watch`: the same live banner the other watch
+ * loops use (a bold command title carrying the refresh interval, a dim
+ * timestamp + store-path metadata line, a blank separator) wrapped around the
+ * always-colored `renderEta` body so the catch-up countdown ticks down in
+ * place. Matches the title/meta shape of `status`/`upcoming`/`tools` watch
+ * frames exactly. Pure: `now` is injected, so a test can assert the frame
+ * without a clock or a TTY.
+ */
+export function renderEtaWatchFrame(
+  eta: QueueEta,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now()
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay eta${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderEta(eta, { color: true })].join("\n");
+}
+
+/**
  * Machine-readable form for `--json` (scripts/jq): the full `QueueEta` plus the
  * store path and generation timestamp, matching the envelope of `next --json`.
  */

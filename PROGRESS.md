@@ -2166,3 +2166,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — timing 블록에
   MAD(median absolute deviation, 이상치에 더 강건한 분산), `stats --group-by`의 그룹별 행에도 cv 노출.
   tz/heatmap/parser/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay eta --watch`] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-xzne76`)
+- **배경:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR 30개가 대부분 timing MAD·parser·adapter 계열로 포화라 그
+  영역을 피해 **새 개선 항목을 발굴**했다: watch 계열(status/upcoming/overdue/tools/projects/stats)에는
+  라이브 뷰가 있지만 `eta`에만 빠져 있었다. `eta`는 "큐 전체가 언제 다 따라잡히나"의 단일 카운트다운이라
+  라이브로 째깍째깍 줄어드는 watch 뷰가 가장 자연스러운 짝인데, 지금까진 일회성 출력뿐이라 캐치업까지
+  지켜보려면 사람이 반복 실행해야 했다.
+- **한 일 (branch `claude/wizardly-pascal-xzne76`):**
+  - CLI `eta.ts`에 순수 `renderEtaWatchFrame(eta, storePath, intervalMs, now)` 신설 —
+    `status`/`upcoming`/`tools` 등 watch-frame와 **동일한** title/meta 배너(볼드 명령 제목+갱신 주기,
+    dim 타임스탬프+스토어 경로, 빈 줄)로 항상 컬러인 `renderEta` 본문을 감싼다. `now` 주입이라 시계·TTY
+    없이 테스트 가능.
+  - `cli.ts`에 세션 52가 추출한 공용 `startWatchLoop`을 재사용하는 `runEtaWatch(store, intervalMs)` —
+    매 프레임 스토어 재읽기(`listStatus`)·fresh `now`로 `computeQueueEta` 재계산(잡이 재개되면 ETA가
+    당겨지고 새 rate-limit이면 밀림)·화면 clear. `eta`는 큐 전체를 집계하므로 재적용할 스코프 없음.
+  - `eta`에 `-w, --watch [seconds]` 배선 — `--json`이 `--watch`보다 우선(일회성 기계 덤프), `--exit-code`는
+    watch에서 no-op(루프가 반환 안 함), 인터벌 기본 2s, addHelpText 예시 1줄. 새 파서/스케줄러/core 로직
+    0줄 — 전부 기존 검증된 `computeQueueEta`/`renderEta` 재사용, completion도 program 파생이라 자동 포함.
+  - cli eta.test에 `renderEtaWatchFrame` 3케이스(라이브 배너·컬러 카운트다운 본문·caught-up 메시지) 신규.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 614 · cli 348/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 대기 잡 1개(reset
+  +90m) 임시 스토어로 `eta --watch 1`이 1초 간격 3프레임을 화면 clear(`^[[2J^[[H`)+라이브 배너+째깍이는
+  타임스탬프(08:38:24→25→26)+"Queue caught up in 1h 29m" 카운트다운으로 렌더, `--json --watch`는 라이브
+  루프 없이 일회성 JSON(exit 0), `eta --help`에 `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `next --watch`(단일
+  다음-재개 라이브), timing 블록 MAD. parser/adapter/timing-MAD·summary --watch는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).

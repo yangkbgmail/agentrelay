@@ -826,4 +826,7 @@
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
-- (아직 없음)
+- [ ] 👷 `agentrelay eta --watch [seconds]` — 큐 전체 캐치업 카운트다운을 라이브로 갱신
+      ("caught up in …"이 째깍째깍 줄어드는 뷰). watch 계열(status/upcoming/overdue/tools/
+      projects/stats)에는 있지만 `eta`에만 빠져 있던 라이브 뷰 — `eta`는 본질적으로 단일
+      카운트다운이라 watch가 가장 자연스러운 짝. 공용 `startWatchLoop` 재사용, 새 core 로직 0줄.
