@@ -32,6 +32,7 @@ import {
   inferImportFormat,
   isCompletionShell,
   isJobScopeActive,
+  isTerminalStatus,
   JOB_CSV_COLUMNS,
   parseCsvColumns,
   parseDuration,
@@ -92,7 +93,7 @@ import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
 import { type RecoverResult, renderRecover, renderRecoverJson } from "./recover.js";
-import { renderJobDetail, renderJobDetailJson } from "./show.js";
+import { renderJobDetail, renderJobDetailJson, renderShowWatchFrame } from "./show.js";
 import {
   formatUtcOffsetLabel,
   renderGroupedStats,
@@ -508,6 +509,59 @@ function runStatsWatch(
 function startWatchLoop(intervalMs: number, draw: () => void): void {
   draw();
   const timer = setInterval(draw, intervalMs);
+  const stop = () => {
+    clearInterval(timer);
+    process.stdout.write("\n");
+    process.exit(0);
+  };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+}
+
+/**
+ * Live `agentrelay show --watch <id>`: clears the screen and re-renders one
+ * job's detail block on an interval so its reset countdown and status change in
+ * place. Unlike the queue-wide watch loops, this one has a natural end — it
+ * stops itself once the job reaches a terminal state (completed/failed/
+ * cancelled), so `agentrelay show <id> --watch` doubles as "wait until this
+ * job resolves, showing me live progress". `showJob` re-reads the JSON store
+ * each pass (a running daemon's writes surface automatically); if the job
+ * disappears mid-watch (e.g. pruned right after finishing), the loop exits
+ * cleanly rather than erroring. Runs until terminal or interrupted (Ctrl-C).
+ */
+function runShowWatch(store: string, id: string, intervalMs: number): void {
+  // Returns whether the loop should stop, and why, after painting one frame.
+  const drawOnce = (): { stop: boolean; missing: boolean } => {
+    const result = showJob(id, store);
+    if (!result.ok || !result.job) {
+      return { stop: true, missing: true };
+    }
+    const terminal = isTerminalStatus(result.job.status);
+    const frame = renderShowWatchFrame(result.job, store, intervalMs, { now: Date.now(), terminal });
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+    return { stop: terminal, missing: false };
+  };
+
+  const first = drawOnce();
+  if (first.stop) {
+    process.stdout.write("\n");
+    process.exit(0);
+  }
+
+  const timer = setInterval(() => {
+    const { stop, missing } = drawOnce();
+    if (missing) {
+      clearInterval(timer);
+      process.stdout.write(`\n[agentrelay] Job ${id} is no longer in the store; watch stopped.\n`);
+      process.exit(0);
+    }
+    if (stop) {
+      clearInterval(timer);
+      process.stdout.write("\n");
+      process.exit(0);
+    }
+  }, intervalMs);
+
   const stop = () => {
     clearInterval(timer);
     process.stdout.write("\n");
@@ -1855,7 +1909,11 @@ export function buildCli(): Command {
     .description("Show full details for one job: command, cwd, timestamps, last error, and captured output")
     .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
     .option("--json", "Print the job as JSON (machine-readable, for scripts/jq)")
-    .action((id: string, opts: { json?: boolean }) => {
+    .option(
+      "-w, --watch [seconds]",
+      "Live-refresh this job's detail until it reaches a terminal state (Ctrl-C to exit)"
+    )
+    .action((id: string, opts: { json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const result = showJob(id, store);
       if (!result.ok || !result.job) {
@@ -1866,6 +1924,12 @@ export function buildCli(): Command {
       if (opts.json) {
         console.log(renderJobDetailJson(result.job, store));
         return;
+      }
+      if (opts.watch !== undefined) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        runShowWatch(store, id, intervalMs);
+        return; // setInterval keeps the process alive.
       }
       console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
     });

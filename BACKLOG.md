@@ -851,6 +851,22 @@
       실제 빌드 CLI `parse --tool claude-code "…|1752345600"` e2e로 `claude-usage-limit-epoch` 매치 +
       generic은 "No rate-limit detected" 확인. branch `claude/wizardly-pascal-j0fz82`)
 
+- [x] 👷 `agentrelay show <id> --watch` — 단일 잡을 라이브로 추적하며 종료 상태 도달 시 자동 종료.
+      자기 발굴 항목 — `status`/`summary`/`eta`/`upcoming`/`overdue`엔 `--watch` 라이브 뷰가 있지만
+      **단일 잡**을 지켜보는 수단이 없었다. 잡 하나를 큐에 넣은 뒤 "이거 언제 재개돼서 끝나나"를 라이브로
+      보고 싶을 때 큐 전체 테이블을 훑을 필요 없이 그 잡만 카운트다운·상태 변화를 지켜본다.
+      (완료 — CLI `show.ts`에 순수 `renderShowWatchFrame(job, store, intervalMs, {now,terminal})` 추가:
+      헤더[갱신 주기·타임스탬프·store] 위에 기존 `renderJobDetail` 블록을 얹고, 잡이 종료 상태면 닫는
+      노트를 붙임(항상 컬러 — watch는 TTY 전용, 다른 `--watch` 프레임과 대칭). `cli.ts`에 `runShowWatch`
+      추가: 다른 큐 전역 watch 루프와 달리 **자연 종료점**이 있음 — 매 패스 `showJob`이 store를 재독해
+      잡을 재해소하고(데몬 write 자동 반영), 종료 상태(completed/failed/cancelled)면 스스로 멈춰
+      `agentrelay show <id> --watch`가 "이 잡이 해결될 때까지 라이브로 보며 대기" 역할을 겸함. watch 중
+      잡이 사라지면(직후 prune 등) 에러 대신 조용히 종료. `show` 커맨드에 `-w, --watch [seconds]` 옵션
+      배선(미존재 id는 non-watch와 동일하게 exit 1, `--json` 우선). 새 core 코드 0줄 — core의
+      `isTerminalStatus` 재사용. show.test.ts에 5케이스(헤더·주기 반올림·종료 노트 유무·컬러) 추가,
+      실제 빌드 CLI e2e로 종료 잡 단일 프레임+종료·활성→완료 전환 자동 종료(exit 0)·미존재 id exit 1 검증.
+      branch `claude/wizardly-pascal-show-watch`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

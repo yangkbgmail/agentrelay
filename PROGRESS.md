@@ -2233,3 +2233,19 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 72 — `agentrelay show <id> --watch`: 단일 잡 라이브 추적(종료 시 자동 종료)] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-show-watch`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 50+가 파서·stats·어댑터·신규 커맨드로 심하게 포화 → 이들과 겹치지 않는 갭을 발굴.
+  큐 전역 `--watch`(status/summary/eta/upcoming/overdue)는 있으나 **단일 잡**을 지켜보는 라이브 뷰가
+  전무했음(열린 PR에도 없음).
+- **한 일:** `show.ts`에 순수 `renderShowWatchFrame`(헤더+`renderJobDetail`+종료 노트) 추가, `cli.ts`에
+  `runShowWatch` 추가 + `show`에 `-w, --watch [seconds]` 배선. 큐 전역 watch와 달리 **자연 종료점**이 있음 —
+  매 패스 store 재독→잡 재해소, 종료 상태(completed/failed/cancelled)면 스스로 exit 0. 그래서
+  `show <id> --watch`가 "이 잡이 해결될 때까지 라이브로 보며 대기" 역할 겸용. watch 중 잡 소멸 시 조용히 종료.
+  새 core 코드 0줄 — core `isTerminalStatus` 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 627 · cli 359/1skip[show +5] · dashboard 9**). 실제 빌드 CLI e2e: 종료 잡=단일 프레임+종료
+  노트 후 exit 0, 활성→완료 전환=자동 종료 exit 0(timeout 아님), 미존재 id=exit 1.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). PR 풀 포화 심함 — 후속은 겹침 회피가
+  관건. 후보: `show --json --watch`(스트리밍 JSON), 대시보드 단일 잡 상세 뷰. README/ARCHITECTURE(🧭 코워크).

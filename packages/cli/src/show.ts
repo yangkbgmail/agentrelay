@@ -116,6 +116,44 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
   return lines.join("\n");
 }
 
+export interface ShowWatchFrameOptions {
+  /** Injectable "now" (epoch ms) so the reset countdown is deterministic. */
+  now?: number;
+  /**
+   * Whether the job has reached a terminal state — the watch loop stops after
+   * this frame, so we append a closing note explaining why the live view ended
+   * (instead of the screen just freezing with no hint it's done).
+   */
+  terminal?: boolean;
+}
+
+/**
+ * One frame of the live `agentrelay show --watch <id>` view: a header
+ * (refresh cadence + timestamp + store) above the full {@link renderJobDetail}
+ * block, plus a closing line once the job is terminal. Pure so the loop in
+ * cli.ts only has to clear the screen and print this. Always colored, matching
+ * the other `--watch` frames (watch mode only makes sense on a TTY).
+ */
+export function renderShowWatchFrame(
+  job: RelayJob,
+  storePath: string,
+  intervalMs: number,
+  options: ShowWatchFrameOptions = {}
+): string {
+  const now = options.now ?? Date.now();
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay show${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  const lines = [title, meta, "", renderJobDetail(job, { now, color: true })];
+  if (options.terminal) {
+    lines.push("");
+    lines.push(`${DIM}Job reached a terminal state (${job.status}); watch stopped.${RESET}`);
+  }
+  return lines.join("\n");
+}
+
 /** Machine-readable single-job snapshot for `--json` (scripts, jq, tooling). */
 export function renderJobDetailJson(
   job: RelayJob,
