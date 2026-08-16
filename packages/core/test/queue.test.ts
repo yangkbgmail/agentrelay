@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { corruptBackupPath, RelayQueue } from "../src/queue.js";
+import { compareDueJobs, corruptBackupPath, RelayQueue } from "../src/queue.js";
 import type { RelayJob } from "../src/types.js";
 
 describe("RelayQueue", () => {
@@ -192,6 +192,77 @@ describe("RelayQueue", () => {
     expect(requeued?.lastError).toBeNull();
     // resetAt is now (or earlier), so the job is immediately due.
     expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(1);
+  });
+
+  describe("listDue ordering", () => {
+    // Enqueue three jobs and park each at a distinct reset time, then return them
+    // by the label used in the test so we can assert the resume order.
+    function seedDueAt(project: string, resetOffsetMs: number): RelayJob {
+      const job = queue.enqueue({ project, tool: "claude-code", command: ["claude", "-p", project], cwd: "/tmp" });
+      queue.markWaitingForReset(job.id, new Date(Date.now() + resetOffsetMs).toISOString());
+      return job;
+    }
+
+    it("returns due jobs longest-overdue first, not newest-first", () => {
+      // Enqueue newest-last-created 'newer' but with a *later* reset; the older,
+      // longer-overdue job must still come first.
+      seedDueAt("older-overdue", -10_000); // reset passed 10s ago
+      seedDueAt("recent-overdue", -1_000); // reset passed 1s ago
+
+      const order = queue.listDue(new Date(Date.now() + 1000)).map((j) => j.project);
+      expect(order).toEqual(["older-overdue", "recent-overdue"]);
+    });
+
+    it("only includes jobs whose reset has passed, still ordered by reset", () => {
+      seedDueAt("due-2", -2_000);
+      seedDueAt("due-1", -5_000);
+      seedDueAt("not-yet", 60_000); // still in the future → excluded
+
+      const order = queue.listDue(new Date(Date.now())).map((j) => j.project);
+      expect(order).toEqual(["due-1", "due-2"]);
+    });
+  });
+
+  describe("compareDueJobs", () => {
+    const base: RelayJob = {
+      id: "id-a",
+      project: "p",
+      tool: "claude-code",
+      command: ["claude"],
+      cwd: "/tmp",
+      status: "waiting_for_reset",
+      resetAt: "2026-07-13T00:00:00.000Z",
+      createdAt: "2026-07-12T00:00:00.000Z",
+      updatedAt: "2026-07-12T00:00:00.000Z",
+      attempts: 0,
+      lastError: null,
+      lastOutputTail: null,
+      lastRateLimit: null,
+    };
+
+    it("orders by earliest reset time first", () => {
+      const early = { ...base, id: "b", resetAt: "2026-07-13T00:00:00.000Z" };
+      const late = { ...base, id: "a", resetAt: "2026-07-13T05:00:00.000Z" };
+      expect([late, early].sort(compareDueJobs).map((j) => j.id)).toEqual(["b", "a"]);
+    });
+
+    it("breaks reset ties by oldest createdAt, then id", () => {
+      const olderCreated = { ...base, id: "z", createdAt: "2026-07-12T00:00:00.000Z" };
+      const newerCreated = { ...base, id: "a", createdAt: "2026-07-12T06:00:00.000Z" };
+      // Same resetAt → older createdAt wins even though its id sorts later.
+      expect([newerCreated, olderCreated].sort(compareDueJobs).map((j) => j.id)).toEqual(["z", "a"]);
+
+      // Same resetAt AND createdAt → id ascending decides.
+      const idHigh = { ...base, id: "y" };
+      const idLow = { ...base, id: "x" };
+      expect([idHigh, idLow].sort(compareDueJobs).map((j) => j.id)).toEqual(["x", "y"]);
+    });
+
+    it("sorts an unparseable resetAt last rather than throwing", () => {
+      const good = { ...base, id: "good", resetAt: "2026-07-13T00:00:00.000Z" };
+      const bad = { ...base, id: "bad", resetAt: "not-a-date" };
+      expect([bad, good].sort(compareDueJobs).map((j) => j.id)).toEqual(["good", "bad"]);
+    });
   });
 
   describe("importJobs", () => {

@@ -851,6 +851,22 @@
       실제 빌드 CLI `parse --tool claude-code "…|1752345600"` e2e로 `claude-usage-limit-epoch` 매치 +
       generic은 "No rate-limit detected" 확인. branch `claude/wizardly-pascal-j0fz82`)
 
+- [x] 👷 스케줄러 공정 재개 순서 — `listDue`가 due 잡을 "가장 오래 밀린 순(longest-overdue first)"으로
+      반환해, 바운드 동시성(`AGENTRELAY_MAX_CONCURRENT`)에서 오래된 잡이 최신 잡 뒤로 밀려 기아
+      상태가 되는 잠재 문제 해소.
+      (완료 — `flush()`가 `compareJobsNewestFirst`로 저장하고 `load()`가 그 순서로 Map을 재구성해,
+      `listDue`가 사실상 **최신순**으로 due 잡을 반환하고 있었다. `maxConcurrent < due.length`인 tick에서는
+      앞쪽 N개만 이번 tick에 재개되고 나머지는 다음 tick으로 밀리므로, 최근 파킹된 잡이 먼저 재개되고
+      오래 밀린 잡이 뒤로 밀리는 불공정/비결정 순서였다. `@agentrelay/core/queue.ts`에 순수
+      `compareDueJobs(a,b)` 신설 — resetAt 오름차순(가장 오래 밀린 순)→createdAt 오름차순→id 오름차순,
+      `next`/`upcoming`/`overdue`와 **동일한 tie-break**(next.ts의 `compareNext`)라 "무엇이 먼저 재개되나"가
+      읽기 명령과 스케줄러 전체에서 일치. 파싱 불가 resetAt은 throw 대신 +Infinity로 맨 뒤 정렬(방어적).
+      `listDue`가 필터 결과를 `compareDueJobs`로 정렬. 다른 코드는 listDue 순서에 의존하지 않음(스케줄러만
+      사용, 테스트는 길이/포함 검사 또는 순서 동적 파생). 새 스케줄러/파서 로직 0줄. core queue.test에
+      listDue 순서 2 + compareDueJobs 3(earliest-first·tie-break·unparseable) 신규(=23), scheduler.test의
+      "newest-first" 오래된 주석 갱신. 실제 빌드 dist로 e2e 확인(늦게 enqueue됐지만 더 오래 밀린 잡이
+      먼저 재개). branch `claude/wizardly-pascal-duejob-order`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

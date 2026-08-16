@@ -490,7 +490,9 @@ describe("RelayScheduler", () => {
       }, delays[project] ?? 0);
       return emitter;
     };
-    // listDue returns newest-first (a enqueued first → oldest → last in due list).
+    // listDue returns due jobs longest-overdue first; this test only asserts the
+    // resumed results preserve whatever order listDue produced, so it reads that
+    // order dynamically rather than hardcoding it.
     seedDue("a");
     seedDue("b");
     seedDue("c");
