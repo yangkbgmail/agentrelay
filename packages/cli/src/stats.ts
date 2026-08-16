@@ -6,6 +6,7 @@
 import type {
   ActivityHeatmap,
   DailyActivity,
+  DailyReliability,
   GroupDimension,
   GroupedStat,
   HourlyActivity,
@@ -256,6 +257,69 @@ export function renderTrend(trend: DailyActivity[], options: { color?: boolean }
   return lines.join("\n");
 }
 
+/** Max width (chars) of a full-scale bar in the reliability histogram. */
+const RELIABILITY_BAR_WIDTH = 24;
+
+/**
+ * Renders a per-day reliability histogram (job outcomes per UTC day) as a
+ * compact ASCII bar chart, so `agentrelay stats --reliability` shows at a glance
+ * whether the relay's outcomes are trending healthier or worse. Each day's bar
+ * is scaled to the busiest resolved day (completed + failed), then split into a
+ * completed head (`█`) and a failed tail (`░`) so the success ratio reads
+ * visually; the trailing columns show the numeric success rate and the raw
+ * completed/failed/cancelled tallies. A day that resolved nothing shows a dim
+ * baseline dot and an "n/a" rate — a quiet day is not a failing day. Pure: no
+ * I/O, no clock. Callers pass the already-computed trend so it stays testable.
+ */
+export function renderReliability(trend: DailyReliability[], options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [b("reliability") + d(" (job outcomes per day, UTC)")];
+  if (trend.length === 0) {
+    lines.push("  none");
+    return lines.join("\n");
+  }
+
+  const maxResolved = trend.reduce((m, day) => Math.max(m, day.resolved), 0);
+  let totalCompleted = 0;
+  let totalFailed = 0;
+  let totalCancelled = 0;
+  for (const day of trend) {
+    totalCompleted += day.completed;
+    totalFailed += day.failed;
+    totalCancelled += day.cancelled;
+
+    // Scale the whole bar to the busiest resolved day, then split it into a
+    // completed head and a failed tail. Clamp so a lone success/failure keeps at
+    // least one block instead of being rounded away next to a bigger day.
+    const barLen =
+      maxResolved === 0 || day.resolved === 0
+        ? 0
+        : Math.max(1, Math.round((day.resolved / maxResolved) * RELIABILITY_BAR_WIDTH));
+    let filledOk = 0;
+    if (barLen > 0) {
+      filledOk = Math.round((day.completed / day.resolved) * barLen);
+      if (day.completed > 0 && filledOk === 0) filledOk = 1;
+      if (day.failed > 0 && filledOk === barLen) filledOk = barLen - 1;
+    }
+    const plain = day.resolved === 0 ? "·" : "█".repeat(filledOk) + "░".repeat(barLen - filledOk);
+    const padded = plain.padEnd(RELIABILITY_BAR_WIDTH);
+    const shown = day.resolved === 0 && color ? padded.replace("·", d("·")) : padded;
+    const rate = formatSuccessRate(day.successRate).padStart(4);
+    const tally = d(`(${day.completed}✓ ${day.failed}✗ ${day.cancelled}⊘)`);
+    lines.push(`  ${day.date}  ${shown} ${rate}  ${tally}`);
+  }
+
+  const overallResolved = totalCompleted + totalFailed;
+  const overallRate = overallResolved === 0 ? "n/a" : formatSuccessRate(totalCompleted / overallResolved);
+  lines.push(
+    d(`  ${totalCompleted}✓ ${totalFailed}✗ ${totalCancelled}⊘ over ${trend.length} day(s), ${overallRate} overall`)
+  );
+  return lines.join("\n");
+}
+
 /** Max width (chars) of a full-scale bar in the hour-of-day histogram. */
 const HOURS_BAR_WIDTH = 24;
 
@@ -429,6 +493,7 @@ export function renderStatsJson(
     generatedAt?: string;
     scope?: JobScope;
     trend?: DailyActivity[] | null;
+    reliability?: DailyReliability[] | null;
     hours?: HourlyActivity[] | null;
     weekday?: WeekdayActivity[] | null;
     heatmap?: ActivityHeatmap | null;
@@ -436,14 +501,15 @@ export function renderStatsJson(
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
-  // Only emit `trend`/`hours`/`weekday`/`heatmap` when the matching flag was
-  // requested; omit them otherwise so the default JSON shape is unchanged for
-  // existing consumers.
+  // Only emit `trend`/`reliability`/`hours`/`weekday`/`heatmap` when the matching
+  // flag was requested; omit them otherwise so the default JSON shape is
+  // unchanged for existing consumers.
   const trend = options.trend ?? undefined;
+  const reliability = options.reliability ?? undefined;
   const hours = options.hours ?? undefined;
   const weekday = options.weekday ?? undefined;
   const heatmap = options.heatmap ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, heatmap, stats }, null, 2);
+  return JSON.stringify({ storePath, generatedAt, scope, trend, reliability, hours, weekday, heatmap, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */

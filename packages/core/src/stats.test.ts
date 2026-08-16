@@ -3,6 +3,7 @@ import {
   computeActivityHeatmap,
   computeDailyTrend,
   computeHourlyDistribution,
+  computeReliabilityTrend,
   computeStats,
   computeWeekdayDistribution,
   GROUP_DIMENSIONS,
@@ -535,6 +536,81 @@ describe("computeDailyTrend", () => {
     expect(computeDailyTrend([], { nowMs: now, days: 0 }).map((d) => d.date)).toEqual(["2026-07-20"]);
     expect(computeDailyTrend([], { nowMs: now, days: -5 })).toHaveLength(1);
     expect(computeDailyTrend([], { nowMs: now, days: 2.9 })).toHaveLength(2);
+  });
+});
+
+describe("computeReliabilityTrend", () => {
+  const now = Date.parse("2026-07-20T12:34:56.000Z");
+
+  it("returns exactly `days` slots, oldest first, zero-filled with null rate", () => {
+    const trend = computeReliabilityTrend([], { nowMs: now, days: 3 });
+    expect(trend.map((d) => d.date)).toEqual(["2026-07-18", "2026-07-19", "2026-07-20"]);
+    expect(trend.every((d) => d.resolved === 0 && d.successRate === null)).toBe(true);
+  });
+
+  it("buckets terminal jobs by their UTC resolution day (updatedAt) and computes per-day rate", () => {
+    const jobs = [
+      job({ status: "completed", updatedAt: "2026-07-20T01:00:00.000Z" }),
+      job({ status: "completed", updatedAt: "2026-07-20T10:00:00.000Z" }),
+      job({ status: "failed", updatedAt: "2026-07-20T11:00:00.000Z" }),
+      job({ status: "cancelled", updatedAt: "2026-07-19T12:00:00.000Z" }),
+    ];
+    const trend = computeReliabilityTrend(jobs, { nowMs: now, days: 3 });
+    expect(trend[0]).toEqual({
+      date: "2026-07-18",
+      completed: 0,
+      failed: 0,
+      cancelled: 0,
+      resolved: 0,
+      successRate: null,
+    });
+    // cancelled counts in its own tally but stays out of resolved/successRate.
+    expect(trend[1]).toEqual({
+      date: "2026-07-19",
+      completed: 0,
+      failed: 0,
+      cancelled: 1,
+      resolved: 0,
+      successRate: null,
+    });
+    expect(trend[2]).toEqual({
+      date: "2026-07-20",
+      completed: 2,
+      failed: 1,
+      cancelled: 0,
+      resolved: 3,
+      successRate: 2 / 3,
+    });
+  });
+
+  it("ignores non-terminal jobs (they have no outcome yet)", () => {
+    const jobs = [
+      job({ status: "queued", updatedAt: "2026-07-20T01:00:00.000Z" }),
+      job({ status: "waiting_for_reset", updatedAt: "2026-07-20T02:00:00.000Z" }),
+      job({ status: "resuming", updatedAt: "2026-07-20T03:00:00.000Z" }),
+      job({ status: "completed", updatedAt: "2026-07-20T04:00:00.000Z" }),
+    ];
+    const trend = computeReliabilityTrend(jobs, { nowMs: now, days: 1 });
+    expect(trend[0]).toMatchObject({ completed: 1, failed: 0, cancelled: 0, resolved: 1, successRate: 1 });
+  });
+
+  it("excludes terminal jobs resolved outside the window and skips unparseable updatedAt", () => {
+    const jobs = [
+      job({ status: "failed", updatedAt: "2026-07-10T00:00:00.000Z" }), // too old
+      job({ status: "completed", updatedAt: "2026-07-25T00:00:00.000Z" }), // future
+      job({ status: "failed", updatedAt: "not-a-date" }), // unparseable
+      job({ status: "failed", updatedAt: "2026-07-18T05:00:00.000Z" }), // in-window
+    ];
+    const trend = computeReliabilityTrend(jobs, { nowMs: now, days: 3 });
+    const totalResolved = trend.reduce((sum, d) => sum + d.resolved, 0);
+    expect(totalResolved).toBe(1);
+    expect(trend[0]).toMatchObject({ date: "2026-07-18", failed: 1, resolved: 1, successRate: 0 });
+  });
+
+  it("clamps days to at least 1 and floors fractional days", () => {
+    expect(computeReliabilityTrend([], { nowMs: now, days: 0 }).map((d) => d.date)).toEqual(["2026-07-20"]);
+    expect(computeReliabilityTrend([], { nowMs: now, days: -5 })).toHaveLength(1);
+    expect(computeReliabilityTrend([], { nowMs: now, days: 2.9 })).toHaveLength(2);
   });
 });
 

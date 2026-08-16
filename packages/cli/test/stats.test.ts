@@ -1,8 +1,9 @@
-import type { DailyActivity, HourlyActivity, RelayJob, WeekdayActivity } from "@agentrelay/core";
+import type { DailyActivity, DailyReliability, HourlyActivity, RelayJob, WeekdayActivity } from "@agentrelay/core";
 import {
   computeActivityHeatmap,
   computeDailyTrend,
   computeHourlyDistribution,
+  computeReliabilityTrend,
   computeStats,
   computeWeekdayDistribution,
   groupStats,
@@ -20,6 +21,7 @@ import {
   renderGroupedStatsJson,
   renderHeatmap,
   renderHours,
+  renderReliability,
   renderStats,
   renderStatsJson,
   renderStatsWatchFrame,
@@ -351,6 +353,87 @@ describe("renderStatsJson trend field", () => {
     const trend: DailyActivity[] = [{ date: "2026-07-20", count: 1 }];
     const withTrend = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", trend }));
     expect(withTrend.trend).toEqual(trend);
+  });
+});
+
+describe("renderReliability", () => {
+  const trend: DailyReliability[] = [
+    { date: "2026-07-18", completed: 0, failed: 0, cancelled: 0, resolved: 0, successRate: null },
+    { date: "2026-07-19", completed: 1, failed: 1, cancelled: 0, resolved: 2, successRate: 0.5 },
+    { date: "2026-07-20", completed: 3, failed: 1, cancelled: 2, resolved: 4, successRate: 0.75 },
+  ];
+
+  it("renders a header, one row per day with rate and tallies, and a footer overall", () => {
+    const out = renderReliability(trend);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("reliability");
+    expect(out).toContain("2026-07-19");
+    // Per-day success rate and the completed/failed/cancelled tally appear on the row.
+    expect(out).toMatch(/2026-07-20 .*75% .*\(3✓ 1✗ 2⊘\)/);
+    expect(out).toMatch(/2026-07-19 .*50% .*\(1✓ 1✗ 0⊘\)/);
+    // Overall footer: 4 completed, 2 failed, 2 cancelled → 4/6 = 67%.
+    expect(lines[lines.length - 1]).toContain("4✓ 2✗ 2⊘ over 3 day(s), 67% overall");
+  });
+
+  it("shows n/a for a day that resolved nothing and never marks it a failure", () => {
+    const out = renderReliability(trend);
+    const zeroRow = out.split("\n").find((r) => r.includes("2026-07-18")) ?? "";
+    expect(zeroRow).toContain("n/a");
+    expect(zeroRow).not.toContain("█");
+    expect(zeroRow).not.toContain("░");
+  });
+
+  it("splits each bar into a completed head (█) and failed tail (░)", () => {
+    const out = renderReliability(trend);
+    const peakRow = out.split("\n").find((r) => r.includes("2026-07-20")) ?? "";
+    // 3 completed vs 1 failed → the bar has both segments, more █ than ░.
+    const ok = (peakRow.match(/█/g) ?? []).length;
+    const bad = (peakRow.match(/░/g) ?? []).length;
+    expect(ok).toBeGreaterThan(0);
+    expect(bad).toBeGreaterThan(0);
+    expect(ok).toBeGreaterThan(bad);
+  });
+
+  it("keeps a lone failure visible (clamps the completed head off a full bar)", () => {
+    const out = renderReliability([
+      { date: "2026-07-20", completed: 9, failed: 1, cancelled: 0, resolved: 10, successRate: 0.9 },
+    ]);
+    // Even at 90% success the single failure must not be rounded away.
+    expect(out).toContain("░");
+  });
+
+  it("handles an all-quiet window with no bars and n/a overall", () => {
+    const out = renderReliability([
+      { date: "2026-07-19", completed: 0, failed: 0, cancelled: 0, resolved: 0, successRate: null },
+      { date: "2026-07-20", completed: 0, failed: 0, cancelled: 0, resolved: 0, successRate: null },
+    ]);
+    expect(out).not.toContain("█");
+    expect(out).toContain("0✓ 0✗ 0⊘ over 2 day(s), n/a overall");
+  });
+
+  it("round-trips a store subset through computeReliabilityTrend + renderReliability", () => {
+    const now = Date.parse("2026-07-20T10:00:00.000Z");
+    const jobs = [
+      job({ status: "completed", updatedAt: "2026-07-20T01:00:00.000Z" }),
+      job({ status: "failed", updatedAt: "2026-07-20T09:00:00.000Z" }),
+      job({ status: "completed", updatedAt: "2026-07-19T09:00:00.000Z" }),
+    ];
+    const computed = computeReliabilityTrend(jobs, { nowMs: now, days: 2 });
+    expect(computed[1]).toMatchObject({ date: "2026-07-20", completed: 1, failed: 1, resolved: 2, successRate: 0.5 });
+    expect(renderReliability(computed)).toContain("2✓ 1✗ 0⊘ over 2 day(s), 67% overall");
+  });
+});
+
+describe("renderStatsJson reliability field", () => {
+  it("omits `reliability` by default but includes it when provided", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("reliability" in without).toBe(false);
+    const reliability: DailyReliability[] = [
+      { date: "2026-07-20", completed: 1, failed: 0, cancelled: 0, resolved: 1, successRate: 1 },
+    ];
+    const withField = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", reliability }));
+    expect(withField.reliability).toEqual(reliability);
   });
 });
 
