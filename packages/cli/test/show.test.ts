@@ -1,6 +1,6 @@
 import type { RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { formatCommand, renderJobDetail, renderJobDetailJson } from "../src/show.js";
+import { formatCommand, renderJobDetail, renderJobDetailJson, renderShowWatchFrame } from "../src/show.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -114,6 +114,43 @@ describe("renderJobDetail", () => {
   it("emits ANSI codes only when color is enabled", () => {
     expect(renderJobDetail(job(), { now: NOW, color: false })).not.toContain("\x1b[");
     expect(renderJobDetail(job(), { now: NOW, color: true })).toContain("\x1b[");
+  });
+});
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping ANSI escapes for assertions
+const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+
+describe("renderShowWatchFrame", () => {
+  it("renders a header with cadence, timestamp, store, and the job detail block", () => {
+    const frame = stripAnsi(renderShowWatchFrame(job(), "/store/jobs.json", 2000, { now: NOW }));
+    expect(frame).toContain("agentrelay show");
+    expect(frame).toContain("live, every 2s");
+    expect(frame).toContain("2026-07-13 00:00:00Z");
+    expect(frame).toContain("/store/jobs.json");
+    // The full detail block is embedded verbatim.
+    expect(frame).toContain("Job abcdef1234567890");
+    expect(frame).toContain("status     waiting_for_reset");
+  });
+
+  it("rounds the refresh cadence to whole seconds", () => {
+    const frame = stripAnsi(renderShowWatchFrame(job(), "/store/jobs.json", 5000, { now: NOW }));
+    expect(frame).toContain("live, every 5s");
+  });
+
+  it("appends a closing note when the job is terminal", () => {
+    const frame = stripAnsi(
+      renderShowWatchFrame(job({ status: "completed" }), "/store/jobs.json", 2000, { now: NOW, terminal: true })
+    );
+    expect(frame).toContain("Job reached a terminal state (completed); watch stopped.");
+  });
+
+  it("omits the closing note while the job is still active", () => {
+    const frame = stripAnsi(renderShowWatchFrame(job(), "/store/jobs.json", 2000, { now: NOW }));
+    expect(frame).not.toContain("watch stopped");
+  });
+
+  it("always emits ANSI color (watch mode targets a TTY)", () => {
+    expect(renderShowWatchFrame(job(), "/store/jobs.json", 2000, { now: NOW })).toContain("\x1b[");
   });
 });
 
