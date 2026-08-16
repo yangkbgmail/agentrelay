@@ -851,6 +851,19 @@
       실제 빌드 CLI `parse --tool claude-code "…|1752345600"` e2e로 `claude-usage-limit-epoch` 매치 +
       generic은 "No rate-limit detected" 확인. branch `claude/wizardly-pascal-j0fz82`)
 
+- [x] 👷 파서: Anthropic API의 rate-limit **응답 헤더**(`anthropic-ratelimit-*-reset: <RFC3339>`) 인식.
+      자기 발굴 항목 — Claude Code(및 Anthropic API를 감싸는 모든 툴)는 429 시 이 헤더를 그대로 덤프하고,
+      각 한도 차원이 정확한 RFC 3339 리셋 시각을 노출하는데도 기존 `iso-timestamp`(산문 "reset at" 요구)가
+      `…-reset:` 헤더 형식을 놓쳤다.
+      (완료 — core `parser.ts`의 `PATTERNS` 맨 앞에 순수 `anthropic-ratelimit-reset` 패턴 추가 —
+      `/anthropic-ratelimit-[a-z-]*reset\s*:\s*(<RFC3339>)/i`로 `anthropic-ratelimit-` 접두 뒤 임의
+      차원명(requests/tokens/input-tokens/output-tokens) + `-reset:` 헤더의 ISO 값을 절대 리셋 시각으로
+      해소(콜론 주변 공백·대소문자·타임존 오프셋 관용, 잘못된 날짜는 null→폴스루). 가장 정밀·authoritative
+      하므로 `iso-timestamp`보다 우선 배치. 여러 reset 헤더 동시 덤프 시 첫 매치 채택(파서 first-hit 설계와
+      일관, 릴레이엔 안전 — 이른 재개는 여전히 한도면 재큐잉). parser.test에 6케이스(requests·tokens+tz·
+      input-tokens+콜론공백·헤더 vs 5시간 폴백 우선·다중 헤더 first-hit·잘못된 날짜 폴스루). 실제 빌드
+      CLI `parse` e2e로 헤더 매치·무관 라인 미매치 확인. branch `claude/wizardly-pascal-4br2w1`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

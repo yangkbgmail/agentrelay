@@ -34,6 +34,27 @@ export interface RateLimitPattern {
 
 const PATTERNS: RateLimitPattern[] = [
   {
+    // The Anthropic API's rate-limit response headers, which Claude Code (and any
+    // other tool proxying the Anthropic API) dumps verbatim on a 429. Every
+    // limit dimension exposes an RFC 3339 reset instant:
+    //   anthropic-ratelimit-requests-reset: 2026-07-13T05:00:00Z
+    //   anthropic-ratelimit-tokens-reset:   2026-07-13T05:00:00Z
+    //   anthropic-ratelimit-input-tokens-reset / -output-tokens-reset
+    // These carry the exact reset time, so they're the most authoritative signal
+    // and are tried first. The generic `iso-timestamp` pattern below misses them
+    // because it requires the prose "reset at" wording, not a "…-reset:" header.
+    // When several reset headers are present (requests + tokens), the first in
+    // the dump wins — consistent with the parser's first-hit design, and safe for
+    // a relay: an early resume simply re-queues if still limited.
+    name: "anthropic-ratelimit-reset",
+    regex:
+      /anthropic-ratelimit-[a-z-]*reset\s*:\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/i,
+    resolve: (m) => {
+      const d = new Date(m[1]);
+      return Number.isNaN(d.getTime()) ? null : d;
+    },
+  },
+  {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
     name: "iso-timestamp",
     regex: /reset[s]?\s+at\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/i,
