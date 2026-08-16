@@ -78,6 +78,7 @@ import {
   resolveConfigWritePath,
   resolveEffectiveConfig,
   resolveJobId,
+  resumeGraceMsFromEnv,
   retryPolicyFromEnv,
   runDiagnostics,
   SETTABLE_CONFIG_KEYS,
@@ -368,6 +369,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   const autoPruneEveryMs = autoPruneEveryMsFromEnv() ?? undefined;
   const autoPruneEveryTicks = autoPruneEveryTicksFromEnv() ?? undefined;
   const maxConcurrent = maxConcurrentFromEnv();
+  const resumeGraceMs = resumeGraceMsFromEnv();
   const pollIntervalMs = options.pollIntervalMs ?? 30_000;
   const logLine = (line: string) => {
     // eslint-disable-next-line no-console
@@ -391,6 +393,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     pollIntervalMs,
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent,
+    resumeGraceMs,
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
@@ -416,6 +419,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     `[agentrelay] daemon started, watching ${storePath} every ${pollIntervalMs / 1000}s` +
       (remoteNotify ? " (notifications on)" : "") +
       (maxConcurrent > 1 ? ` (max ${maxConcurrent} concurrent)` : "") +
+      (resumeGraceMs > 0 ? ` (resume grace ${Math.round(resumeGraceMs / 1000)}s)` : "") +
       autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks)
   );
   return scheduler;
@@ -430,6 +434,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     notify: notify ?? undefined,
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent: maxConcurrentFromEnv(),
+    resumeGraceMs: resumeGraceMsFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
   });
   const processed = await scheduler.tick();

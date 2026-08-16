@@ -1,6 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { resolveAdapter } from "./adapters.js";
 import { mapWithConcurrency, normalizeMaxConcurrent } from "./concurrency.js";
+import { normalizeResumeGraceMs, resumeCutoff } from "./grace.js";
 import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
 import type { RelayQueue } from "./queue.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
@@ -63,6 +64,15 @@ export interface SchedulerOptions {
    * store because every queue mutation is synchronous (see `concurrency.ts`).
    */
   maxConcurrent?: number;
+  /**
+   * Extra buffer (ms) the scheduler waits *after* a job's scheduled resume time
+   * before treating it as due — see {@link ../grace}. Guards the reset boundary
+   * against clock skew and server-side rounding, which can immediately re-limit a
+   * resume that lands exactly on the dot and waste a retry attempt. Defaults to
+   * `0` (resume as soon as the reset passes, the historical behavior);
+   * non-positive / non-finite values fall back to `0`.
+   */
+  resumeGraceMs?: number;
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
   /**
@@ -93,6 +103,7 @@ export class RelayScheduler {
   private autoPruneEveryMs: number;
   private autoPruneEveryTicks: number;
   private maxConcurrent: number;
+  private resumeGraceMs: number;
   private lastPruneAtMs: number | null = null;
   private pruneTickCounter = 0;
   private onPrune?: (pruned: RelayJob[]) => void;
@@ -111,6 +122,7 @@ export class RelayScheduler {
     this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
     this.maxConcurrent = normalizeMaxConcurrent(options.maxConcurrent);
+    this.resumeGraceMs = normalizeResumeGraceMs(options.resumeGraceMs);
     this.onPrune = options.onPrune;
     this.onTick = options.onTick;
   }
@@ -129,7 +141,11 @@ export class RelayScheduler {
 
   /** Runs one polling cycle immediately. Exposed for tests and manual `agentrelay tick`. */
   async tick(referenceTime: Date = new Date()): Promise<RelayJob[]> {
-    const due = this.queue.listDue(referenceTime);
+    // Apply the resume grace: a job is due only once its reset time is at least
+    // `resumeGraceMs` in the past, so we don't resume on the boundary and get
+    // re-limited by clock skew / server-side rounding. Grace 0 (default) leaves
+    // the cutoff at `referenceTime`, so the historical behavior is unchanged.
+    const due = this.queue.listDue(resumeCutoff(referenceTime, this.resumeGraceMs));
     // Resume with bounded concurrency (default 1 = serial, unchanged). Results
     // stay in due-order regardless of which resume finishes first.
     const processed = await mapWithConcurrency(due, this.maxConcurrent, (job) => this.resume(job, referenceTime));
