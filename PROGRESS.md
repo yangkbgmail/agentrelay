@@ -2233,3 +2233,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 72 — 파서: Anthropic `anthropic-ratelimit-*-reset` RFC 3339 응답 헤더 인식] (2026-08-16, 무인 자율 세션, branch `claude/wizardly-pascal-vb0781`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목이 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 70~71이 경고한 "stats 분산 지표·watch·summary --watch PR 포화" 클러스터를 피하고, 세션 71이
+  후속으로 지목한 **파서 영역**(이 도구의 핵심 가치 rate-limit 감지에 직결, 덜 포화)에서 실제 갭 발굴.
+- **발굴한 갭:** Anthropic API의 rate-limit 429는 리셋 시각을 `retry-after`(초, 이미 처리됨)뿐 아니라
+  응답 헤더 `anthropic-ratelimit-unified-reset`/`-requests-reset`/`-tokens-reset`/`-input-tokens-reset`
+  등에 **RFC 3339 절대 타임스탬프**로 싣는다. Claude Code(또는 래퍼)가 raw 429 응답/헤더를 덤프하면
+  (verbose·print 모드) 이 ground-truth 리셋 시각이 나타나지만, 제네릭 `iso-timestamp` 패턴은 리터럴
+  "reset **at**" 접두를 요구해 이를 놓쳤다(헤더명은 하이픈으로 "reset"이 붙고 "at"이 없음).
+- **한 일 (branch `claude/wizardly-pascal-vb0781`):**
+  - core `adapters.ts`의 `CLAUDE_CODE_ADAPTER.patterns`에 순수 `CLAUDE_RATELIMIT_RESET_HEADER_PATTERN`
+    (`name: "claude-ratelimit-reset-header"`) 추가 — 정규식
+    `/anthropic-ratelimit-[a-z-]*reset"?\s*[=:]\s*"?(<RFC3339>)/i`로 헤더(`:`)와 JSON 직렬화
+    (`"…-reset": "<ts>"`) 두 형태를 모두 매칭, `[a-z-]*`로 unified/requests/tokens/input-tokens 등 모든
+    리밋 차원을 커버. ISO8601 캡처(오프셋·소수초 허용)를 절대 시각으로 해소. Anthropic 고유 wording이라
+    generic이 아닌 **어댑터** 패턴에 둠(epoch 패턴과 대칭) → 우연한 ISO 문자열 오독 방지. 429가 여러
+    리셋 헤더를 실을 때 first-hit이 더 이른 헤더를 고를 수 있으나, 즉시 재-리밋→재큐잉 위험만 있고
+    잡 유실은 없음(재시도 정책이 흡수).
+  - adapters.test에 4케이스(헤더 파싱·JSON+타임존 오프셋·input-tokens 차원·generic 미매치). 새 파서/
+    스케줄러 로직은 패턴 하나뿐 — `detectRateLimit`가 이미 extraPatterns를 최우선 시도.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 630[adapters 20] · cli 354/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  `parse --tool claude-code`에 `anthropic-ratelimit-unified-reset: 2026-07-13T05:00:00Z`를 주면
+  `claude-ratelimit-reset-header` 매치·`resets: 2026-07-13T05:00:00Z` 렌더, generic 어댑터는
+  "No rate-limit detected" 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Anthropic
+  `retry-after`가 HTTP-date로 오는 실사용 사례 확인, Codex/OpenAI의 `x-ratelimit-reset-*` 헤더 대칭
+  추가, 실제 rate-limit 메시지 샘플 수집(🧭와 협업). stats 분산/watch·summary --watch는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).

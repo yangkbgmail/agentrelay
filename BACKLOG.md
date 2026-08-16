@@ -851,6 +851,24 @@
       실제 빌드 CLI `parse --tool claude-code "…|1752345600"` e2e로 `claude-usage-limit-epoch` 매치 +
       generic은 "No rate-limit detected" 확인. branch `claude/wizardly-pascal-j0fz82`)
 
+- [x] 👷 파서: Anthropic API의 rate-limit 응답 헤더 `anthropic-ratelimit-*-reset`(RFC 3339 절대 리셋
+      시각) 인식. 자기 발굴 항목 — Anthropic 429는 리셋 시각을 `retry-after`(초)뿐 아니라
+      `anthropic-ratelimit-unified-reset`/`-requests-reset`/`-tokens-reset` 헤더에 RFC 3339 타임스탬프로
+      싣는데, Claude Code가 raw 429 응답/헤더를 덤프하면(verbose·print 모드) 이 절대 시각이 나타나지만
+      "reset **at**" 접두가 없어 제네릭 `iso-timestamp` 패턴이 놓쳤다.
+      (완료 — `@agentrelay/core/adapters.ts`의 `CLAUDE_CODE_ADAPTER.patterns`에 순수
+      `CLAUDE_RATELIMIT_RESET_HEADER_PATTERN`(`name: "claude-ratelimit-reset-header"`) 추가 — 정규식
+      `/anthropic-ratelimit-[a-z-]*reset"?\s*[=:]\s*"?(<RFC3339>)/i`로 헤더(`:`)·JSON 직렬화
+      (`"…-reset": "<ts>"`) 두 형태를 모두 잡고, `[a-z-]*`로 unified/requests/tokens/input-tokens 등
+      모든 리밋 차원을 커버. `iso-timestamp`와 동일한 ISO8601 캡처(오프셋·소수초 허용)를 절대 시각으로
+      해소. Anthropic 고유 wording이라 generic이 아닌 **어댑터** 패턴에 둠(epoch 패턴과 대칭) — 그래서
+      다른 곳의 우연한 ISO 문자열을 리셋으로 오독하지 않음. 429가 여러 리셋 헤더를 실을 수 있어 파서의
+      first-hit 규칙이 더 이른 헤더를 고를 수 있으나, 이는 즉시 재-리밋→재큐잉 위험만 있고 잡 유실은
+      없음. 새 파서/스케줄러 로직은 패턴 하나뿐 — `detectRateLimit`가 이미 extraPatterns를 최우선 시도.
+      adapters.test에 4케이스 추가(헤더 파싱·JSON+오프셋·input-tokens 차원·generic 미매치), 실제 빌드
+      CLI `parse --tool claude-code`로 `claude-ratelimit-reset-header` 매치 + generic은 "No rate-limit
+      detected" 확인. branch `claude/wizardly-pascal-vb0781`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

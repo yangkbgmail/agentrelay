@@ -82,11 +82,37 @@ const CLAUDE_USAGE_LIMIT_EPOCH_PATTERN: RateLimitPattern = {
   },
 };
 
+/**
+ * Anthropic's API returns the absolute moment a rate limit lifts in its 429
+ * response headers as RFC 3339 timestamps: `anthropic-ratelimit-unified-reset`,
+ * `anthropic-ratelimit-requests-reset`, `anthropic-ratelimit-tokens-reset`,
+ * `anthropic-ratelimit-input-tokens-reset`, etc. When Claude Code (or a wrapper
+ * around it) dumps the raw 429 response — common in verbose / print mode — these
+ * headers carry the ground-truth reset time, but the generic `iso-timestamp`
+ * matcher misses them: it requires a literal "reset **at**" prefix, whereas here
+ * the word "reset" is glued to the header name with a hyphen and no "at". Match
+ * the header (`:` form) and its JSON-serialized form (`"…-reset": "<ts>"`) and
+ * resolve straight to that absolute instant. Anthropic-specific wording, so it
+ * lives on the Claude adapter (symmetric with the epoch pattern above) rather
+ * than the generic parser. Because a 429 can carry several reset headers (one per
+ * limited dimension), the parser's first-hit rule may pick an earlier one; that
+ * only risks a resume that immediately re-limits and re-queues, never a lost job.
+ */
+const CLAUDE_RATELIMIT_RESET_HEADER_PATTERN: RateLimitPattern = {
+  name: "claude-ratelimit-reset-header",
+  regex:
+    /anthropic-ratelimit-[a-z-]*reset"?\s*[=:]\s*"?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/i,
+  resolve: (m) => {
+    const d = new Date(m[1]);
+    return Number.isNaN(d.getTime()) ? null : d;
+  },
+};
+
 export const CLAUDE_CODE_ADAPTER: AgentAdapter = makeAdapter({
   tool: "claude-code",
   displayName: "Claude Code",
   binaries: ["claude", "claude-code"],
-  patterns: [CLAUDE_USAGE_LIMIT_EPOCH_PATTERN],
+  patterns: [CLAUDE_USAGE_LIMIT_EPOCH_PATTERN, CLAUDE_RATELIMIT_RESET_HEADER_PATTERN],
 });
 
 export const CODEX_CLI_ADAPTER: AgentAdapter = makeAdapter({

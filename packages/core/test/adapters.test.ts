@@ -107,6 +107,41 @@ describe("adapter rate-limit detection", () => {
     expect(GENERIC_ADAPTER.detectRateLimit("Claude AI usage limit reached|1752345600", { now })).toBeNull();
   });
 
+  it("Claude Code adapter parses the RFC 3339 anthropic-ratelimit-*-reset response header", () => {
+    // What a raw Anthropic 429 carries: the absolute reset instant as an RFC 3339
+    // timestamp in a response header. No "reset at" prefix, so the generic
+    // iso-timestamp matcher misses it.
+    const result = CLAUDE_CODE_ADAPTER.detectRateLimit("anthropic-ratelimit-unified-reset: 2026-07-13T05:00:00Z", {
+      now,
+    });
+    expect(result?.pattern).toBe("claude-ratelimit-reset-header");
+    expect(result?.resetAt).toBe(new Date("2026-07-13T05:00:00Z").toISOString());
+  });
+
+  it("Claude Code adapter parses the JSON-serialized reset header and a timezone offset", () => {
+    // Dumped 429 payloads often JSON-encode the headers: `"…-reset": "<ts>"`.
+    const json = CLAUDE_CODE_ADAPTER.detectRateLimit(
+      '{"anthropic-ratelimit-requests-reset": "2026-07-13T05:00:00+00:00"}',
+      { now }
+    );
+    expect(json?.pattern).toBe("claude-ratelimit-reset-header");
+    expect(json?.resetAt).toBe(new Date("2026-07-13T05:00:00+00:00").toISOString());
+    // Also matches the input-tokens dimension (the [a-z-]* in the header name).
+    const tokens = CLAUDE_CODE_ADAPTER.detectRateLimit("anthropic-ratelimit-input-tokens-reset: 2026-07-12T11:30:00Z", {
+      now,
+    });
+    expect(tokens?.pattern).toBe("claude-ratelimit-reset-header");
+    expect(tokens?.resetAt).toBe(new Date("2026-07-12T11:30:00Z").toISOString());
+  });
+
+  it("the generic adapter does NOT understand the anthropic-ratelimit reset header", () => {
+    // It has no "reset at" prefix, so the generic iso-timestamp pattern misses it —
+    // the whole reason this lives on the Claude adapter.
+    expect(
+      GENERIC_ADAPTER.detectRateLimit("anthropic-ratelimit-unified-reset: 2026-07-13T05:00:00Z", { now })
+    ).toBeNull();
+  });
+
   it("Claude Code adapter still falls back to the generic patterns", () => {
     const result = CLAUDE_CODE_ADAPTER.detectRateLimit("Usage limit reached. Resets in 30m.", { now });
     expect(result?.pattern).toBe("relative-duration");
