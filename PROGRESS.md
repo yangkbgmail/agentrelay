@@ -2233,3 +2233,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 72 — 파서: Claude `-p` 파이프-epoch를 13자리 밀리초(ms)로도 인식] (2026-08-17, 무인 자율 세션, branch `claude/wizardly-pascal-cwx8vz`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 71이 "다음 할 일"로 명시한 인접 파서 후속을 골라, PR 포화가 심한 stats 분산/watch 클러스터를
+  피하면서 이 도구의 핵심 가치(rate-limit 감지)에 직결되는 갭을 메움.
+- **발굴한 갭:** 세션 71이 추가한 `claude-usage-limit-epoch` 패턴은 파이프 뒤 epoch를 `\d{10}`(초)로만
+  잡는다. 그런데 일부 Claude/래퍼 버전은 `Date.now()`에서 그대로 나온 **13자리 밀리초(ms)** epoch를
+  파이프 뒤에 실어 보낸다(`Claude AI usage limit reached|1752345600000`). 이 라인은 pre-filter는 통과
+  하지만 10자리 정규식과 매칭 실패 → null로 조용히 통과해, 실제 rate-limit인데도 감지 못 하는 갭.
+- **한 일 (branch `claude/wizardly-pascal-cwx8vz`):**
+  - core `adapters.ts`의 `CLAUDE_USAGE_LIMIT_EPOCH_PATTERN` 정규식을 `/usage limit reached\s*\|\s*(\d{13}|\d{10})\b/i`로
+    확장 — 13자리를 먼저 시도, 없으면 10자리(교대라 10자리 입력에도 안전). `resolve`가 캡처 자릿수로
+    단위를 구분: 13자리는 ms 그대로 `new Date(value)`, 10자리는 `value*1000`. `\b` 경계가 11/12자리
+    (깔끔한 초도 ms도 아닌 모호값)를 매칭에서 배제 → 엉뚱한 시각 재개 대신 fall-through(다른 패턴에 양보).
+    Claude 고유 wording이라 generic이 아닌 어댑터 패턴 유지(다른 곳의 `...|<13자리>` 오독 방지).
+  - adapters.test에 2케이스 추가(13자리 ms → 10자리 초와 동일 instant `2025-07-12T18:40:00Z`로 해소·
+    rawMatch 검증 / 11·12자리 모호값은 `toBeNull()`). 새 파서/스케줄러 로직은 정규식+resolve 확장뿐 —
+    어댑터의 `detectRateLimit`가 이미 extraPatterns를 최우선으로 시도.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 629[adapters 19] · cli 354/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  `parse --tool claude-code "…|1752345600000"`가 `claude-usage-limit-epoch` 매치·`resets: 2025-07-12T18:40:00Z`
+  (10자리 `…|1752345600`과 동일 시각) 렌더, `…|175234560000`(12자리)은 "No rate-limit detected" 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
+  다른 실사용 rate-limit wording 수집(🧭 코워크와 협업), 또는 파이프-epoch가 소수점 초(`.5`)로 오는지
+  관찰. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
