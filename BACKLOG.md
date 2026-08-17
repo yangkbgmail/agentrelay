@@ -854,3 +854,11 @@
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
+
+## 주력 빌더(👷) 자체 발굴 항목
+
+- [x] 👷 파서 relative-duration: 자연어 connector(`and`·콤마)·근사 filler(`about`/`~`/`roughly`
+      등) 인식 + 사전필터 "retry in" 정합. 기존 정규식이 첫 connector에서 멈춰 `"1 hour and
+      30 minutes"`를 1시간으로만 읽어 30분 일찍 재개하던 버그와, 사전필터가 `retry-after`만
+      허용해 bare `"retry in 2h"`를 버리던 불일치를 교정. `parser.test.ts` 7케이스 추가.
+      branch `claude/wizardly-pascal-7opjgt`
