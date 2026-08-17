@@ -870,6 +870,24 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 파서: 명명 타임존(IANA) 인식 — `reset at 5pm (America/New_York)` 같은 메시지의 벽시계 시각을
+      로컬이 아니라 **그 타임존**에서 해소해 정확한 절대 리셋 인스턴트를 얻음. 자기 발굴 항목 — 파서
+      주석이 두 번 "명명 타임존은 무시, 로컬 해석"을 알려진 한계로 명시했고, Claude Code가 실제로
+      출력하는 바로 그 wording이라 릴레이 머신 시간대가 다르면(예 KST) 리셋이 몇 시간씩 어긋나 너무
+      일찍(재충돌)/늦게 재개하던 실사용 정확성 갭. 열린 PR 50개 어디에도 없음.
+      (완료 — `@agentrelay/core/parser.ts`에 순수 `getTimeZoneOffsetMs(date, tz)`(Intl로 그 인스턴트의
+      존 벽시계를 읽어 UTC 대비 오프셋 ms 산출, DST 추적)·`resolveZonedClockTime(hour, minute, tz, now)`
+      (존의 오늘 벽시계 인스턴트가 미래면 그날, 이미 지났으면 존 기준 다음 날로 롤; 미인식 존은 null →
+      호출자 로컬 폴백) + 내부 `zonePartsOf`(`hourCycle:"h23"` 고정 로케일)·`zonedWallTimeToUtc`(오프셋
+      1회 재보정으로 DST 경계 정확) 신설. 두 clock-time 패턴(`clock-time`·`clock-time-meridiem`) 정규식에
+      옵셔널 `(Region/City)` IANA 존 캡처를 추가하고 공용 `computeClockReset`로 통일 — 존이 있고 인식되면
+      그 존에서 해소, 없거나 미인식(예 약어 `(PST)`)이면 기존 로컬 해석 그대로(**완전 하위호환**). 다중
+      세그먼트 존(`America/Argentina/Buenos_Aires`)도 지원. 기존 로컬-해석 단언 테스트 1건을 존-인식
+      절대 인스턴트 기준으로 갱신. parser.test +14(EDT/EST·다음날 롤·분정밀 존·다중세그먼트·미인식 폴백·
+      존 없음·resolveZonedClockTime·getTimeZoneOffsetMs). 실제 빌드 CLI `parse`로 UTC·LA·Seoul 세 머신
+      TZ에서 NY 5pm→21:00Z 불변·Seoul 15:00→06:00Z·존 없음→로컬 17:00Z e2e 검증. core 650 전 통과·Biome
+      0에러. branch `claude/wizardly-pascal-6icgx8`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

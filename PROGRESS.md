@@ -2259,3 +2259,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 파서 명명 타임존(IANA) 인식] (2026-08-17, 무인 자율 세션, branch `claude/wizardly-pascal-6icgx8`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 문서/리서치뿐). 세션 72가
+  "다음 할 일"로 제안한 `doctor` 먼-미래 리셋 검사는 이미 열린 PR #726/#727/#729가 선점(중복 회피).
+  열린 PR 50개 제목을 스캔하니 파서(epoch ms·벤더 헤더·상대기간)·stats 분산/watch·신규 커맨드가 극도로
+  포화. **어떤 열린 PR에도 없는** 실제 정확성 갭을 발굴했다: 파서 주석이 두 번(클래식 clock-time·
+  clock-time-meridiem) "명명 타임존은 무시하고 로컬 해석"이라고 **알려진 한계**로 적어둔 부분. Claude
+  Code가 실제로 출력하는 `Your limit will reset at 5pm (America/New_York).`에서, 릴레이 머신이 다른
+  시간대(예 KST)면 리셋이 몇 시간씩 어긋나 너무 일찍(재충돌)/늦게 재개되던 실사용 실패 — 이 제품의
+  핵심(리셋 시각 정확 감지)에 직결.
+- **한 일 (branch `claude/wizardly-pascal-6icgx8`):**
+  - core `parser.ts`: 순수 `getTimeZoneOffsetMs(date, tz)`(Intl `formatToParts`로 그 인스턴트의 존 벽시계를
+    읽어 UTC 대비 오프셋 ms 산출, DST 자동 추적)·`resolveZonedClockTime(hour, minute, tz, now)`(존의 오늘
+    벽시계 인스턴트가 미래면 그날, 이미 지났으면 **존 기준** 다음 날로 롤; 미인식 IANA 존이면 null →
+    호출자가 로컬로 폴백) export. 내부 헬퍼 `zonePartsOf`(`hourCycle:"h23"`+고정 `en-US` 로케일로
+    호스트 로케일 불변)·`zonedWallTimeToUtc`(오프셋 1회 재보정으로 DST 경계에서도 정확).
+  - 두 clock-time 패턴 정규식에 옵셔널 `(Region/City)` IANA 존 캡처 그룹 추가(`[a-z]+(?:\/[a-z_]+)+`로
+    슬래시 포함 존만 — 약어 `(PST)`나 임의 단어는 미포착) + 공용 `computeClockReset(hour, minute, now, tz?)`로
+    통일: 존이 있고 인식되면 그 존에서 해소, 없거나 미인식이면 **기존 로컬 해석 그대로**(완전 하위호환).
+  - 기존 로컬-17시 단언 테스트 1건을 존-인식 절대 인스턴트(`2026-07-12T21:00:00.000Z`) 기준으로 갱신.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 650 · cli 354/1skip · dashboard 9**; parser.test 40→54, +14). 존-인식 단언이 머신 TZ와
+  무관함을 **TZ=UTC / Asia/Kolkata / America/Los_Angeles** 세 시간대에서 parser.test 재실행해 확인.
+  **실제 빌드 CLI `parse`**(mock 아님): NY 5pm이 UTC·LA 머신 모두에서 `21:00Z` 불변(구버전은 LA에서
+  PDT로 오해석했을 것), Seoul 15:00→`06:00Z`, 존 없음→로컬 `17:00Z` e2e 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `(UTC)`/`(GMT)` 바레
+  존 토큰도 인식(현재 Region/City만), 상대-일+시각(`resets tomorrow at 9am (Europe/London)`) 조합에도 존
+  전파. epoch ms·stats 분산/watch·신규 커맨드·doctor 리셋검사는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
