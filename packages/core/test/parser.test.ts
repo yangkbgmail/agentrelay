@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_MAX_RESET_HORIZON_MS,
+  getTimeZoneOffsetMs,
   isPlausibleReset,
   maxResetHorizonMsFromEnv,
   parseRateLimitMessage,
+  resolveZonedClockTime,
 } from "../src/parser.js";
 
 describe("parseRateLimitMessage", () => {
@@ -30,19 +32,19 @@ describe("parseRateLimitMessage", () => {
     expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
   });
 
-  it("parses the real Claude Code wording: 'reset at 5pm' (hour + meridiem, no minutes)", () => {
+  it("parses the real Claude Code wording: 'reset at 5pm (America/New_York)' in that zone", () => {
     // Actual message: "Claude usage limit reached. Your limit will reset at 5pm (America/New_York)."
-    const now = new Date("2026-07-12T08:00:00Z"); // 08:00 UTC
+    // 2026-07-12 is EDT (UTC-4), so 5pm New York == 21:00 UTC — an absolute
+    // instant that is correct no matter what timezone the relay machine runs in.
+    const now = new Date("2026-07-12T08:00:00Z"); // 08:00 UTC == 04:00 EDT
     const result = parseRateLimitMessage(
       "Claude usage limit reached. Your limit will reset at 5pm (America/New_York).",
       { now }
     );
     expect(result).not.toBeNull();
     expect(result?.pattern).toBe("clock-time-meridiem");
-    const resetDate = new Date(result!.resetAt);
-    expect(resetDate.getHours()).toBe(17); // 5pm local
-    expect(resetDate.getMinutes()).toBe(0);
-    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+    expect(result?.resetAt).toBe("2026-07-12T21:00:00.000Z");
+    expect(new Date(result!.resetAt).getTime()).toBeGreaterThan(now.getTime());
   });
 
   it("parses 'resets at 10 AM' with a space before the meridiem, rolling to tomorrow if past", () => {
@@ -355,5 +357,94 @@ describe("maxResetHorizonMsFromEnv", () => {
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "off" })).toBeNull();
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "none" })).toBeNull();
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "banana" })).toBeNull();
+  });
+});
+
+// --- named-timezone clock-time resolution (the "5pm (America/New_York)" case) ---
+
+describe("named-timezone reset resolution", () => {
+  it("resolves 'reset at 5pm (America/New_York)' to the correct UTC instant (EDT)", () => {
+    // Summer -> EDT (UTC-4), so 5pm New York == 21:00 UTC. Independent of the
+    // machine's own timezone (asserts the absolute ISO instant).
+    const now = new Date("2026-07-12T08:00:00Z"); // 04:00 EDT, before 5pm
+    const result = parseRateLimitMessage("Your limit will reset at 5pm (America/New_York).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-07-12T21:00:00.000Z");
+  });
+
+  it("resolves a winter reset with the standard-time offset (EST, UTC-5)", () => {
+    // January -> EST (UTC-5), so 5pm New York == 22:00 UTC.
+    const now = new Date("2026-01-12T08:00:00Z");
+    const result = parseRateLimitMessage("Your limit will reset at 5pm (America/New_York).", { now });
+    expect(result?.resetAt).toBe("2026-01-12T22:00:00.000Z");
+  });
+
+  it("rolls to the next day in the zone when the wall time is already past", () => {
+    // 22:00 UTC == 18:00 EDT, so 5pm today (21:00 UTC) has passed -> next day.
+    const now = new Date("2026-07-12T22:00:00Z");
+    const result = parseRateLimitMessage("reset at 5pm (America/New_York)", { now });
+    expect(result?.resetAt).toBe("2026-07-13T21:00:00.000Z");
+    expect(new Date(result!.resetAt).getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("honors the zone on the minute-precise clock-time pattern too", () => {
+    // 15:00 Asia/Seoul (UTC+9, no DST) == 06:00 UTC.
+    const now = new Date("2026-07-12T00:00:00Z");
+    const result = parseRateLimitMessage("Resets at 15:00 (Asia/Seoul).", { now });
+    expect(result?.pattern).toBe("clock-time");
+    expect(result?.resetAt).toBe("2026-07-12T06:00:00.000Z");
+  });
+
+  it("resolves a multi-segment IANA zone name", () => {
+    // America/Argentina/Buenos_Aires is UTC-3 year-round: 5pm == 20:00 UTC.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("reset at 5pm (America/Argentina/Buenos_Aires)", { now });
+    expect(result?.resetAt).toBe("2026-07-12T20:00:00.000Z");
+  });
+
+  it("falls back to local time for an unrecognized zone token", () => {
+    // "(PST)" is an abbreviation, not an IANA Region/City name, so the regex's
+    // zone group doesn't capture it and the hour stays local — unchanged behavior.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("reset at 5pm (PST)", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const local = new Date(now);
+    local.setHours(17, 0, 0, 0);
+    if (local.getTime() <= now.getTime()) local.setDate(local.getDate() + 1);
+    expect(result?.resetAt).toBe(local.toISOString());
+  });
+
+  it("still parses the plain wording with no zone (local interpretation)", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("reset at 5pm", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const local = new Date(now);
+    local.setHours(17, 0, 0, 0);
+    expect(result?.resetAt).toBe(local.toISOString());
+  });
+});
+
+describe("resolveZonedClockTime", () => {
+  it("returns null for an unknown timezone (caller falls back to local)", () => {
+    expect(resolveZonedClockTime(17, 0, "Middle/Earth", new Date("2026-07-12T08:00:00Z"))).toBeNull();
+  });
+
+  it("computes today's instant when the wall time is still ahead", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const d = resolveZonedClockTime(17, 0, "America/New_York", now);
+    expect(d?.toISOString()).toBe("2026-07-12T21:00:00.000Z");
+  });
+});
+
+describe("getTimeZoneOffsetMs", () => {
+  it("reports a positive offset for a zone ahead of UTC", () => {
+    // Asia/Seoul is UTC+9 (no DST) -> +9h in ms.
+    expect(getTimeZoneOffsetMs(new Date("2026-07-12T00:00:00Z"), "Asia/Seoul")).toBe(9 * 60 * 60_000);
+  });
+
+  it("reports a negative offset for a zone behind UTC, tracking DST", () => {
+    // New York: EDT (-4h) in July, EST (-5h) in January.
+    expect(getTimeZoneOffsetMs(new Date("2026-07-12T12:00:00Z"), "America/New_York")).toBe(-4 * 60 * 60_000);
+    expect(getTimeZoneOffsetMs(new Date("2026-01-12T12:00:00Z"), "America/New_York")).toBe(-5 * 60 * 60_000);
   });
 });
