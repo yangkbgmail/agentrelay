@@ -542,12 +542,25 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
 /**
  * A dimension to split a job list on for {@link groupStats}. Each grouped subset
  * gets its own full {@link RelayStats}, so questions like "which project resolves
- * fastest?" or "which tool has the best success rate?" become answerable.
+ * fastest?", "which tool has the best success rate?", or "do jobs parked by the
+ * epoch rate-limit format resolve faster than relative-duration ones?" (via the
+ * `pattern` dimension) become answerable.
  */
-export type GroupDimension = "tool" | "project" | "status";
+export type GroupDimension = "tool" | "project" | "status" | "pattern";
 
 /** Every dimension {@link groupStats} accepts, for CLI validation/help text. */
-export const GROUP_DIMENSIONS: GroupDimension[] = ["tool", "project", "status"];
+export const GROUP_DIMENSIONS: GroupDimension[] = ["tool", "project", "status", "pattern"];
+
+/**
+ * Bucket key used by `--group-by pattern` for jobs that carry no rate-limit
+ * detection (never rate-limited, or a store written before provenance existed).
+ * A distinct sentinel rather than dropping them, so the breakdown stays a full
+ * partition (group counts still sum to the total) and lets a maintainer compare
+ * rate-limited jobs against ones that resolved without ever hitting a limit.
+ * Parser pattern names are kebab-case identifiers, so this never collides with a
+ * real pattern.
+ */
+export const PATTERN_NONE_KEY = "(none)";
 
 /** One group's key and its full aggregate stats. */
 export interface GroupedStat {
@@ -568,6 +581,14 @@ function groupKeyOf(job: RelayJob, dimension: GroupDimension): string {
       return job.project;
     case "status":
       return job.status;
+    case "pattern": {
+      // Bucket by the parser pattern that last parked this job; jobs with no
+      // usable detection collapse into a single (none) group. A blank/whitespace
+      // pattern name is treated as "no detection" so it can't spawn an unnamed
+      // bucket (mirrors summarizeRateLimitPatterns / computePatternDistribution).
+      const pattern = job.lastRateLimit?.pattern;
+      return pattern && pattern.trim() !== "" ? pattern : PATTERN_NONE_KEY;
+    }
   }
 }
 

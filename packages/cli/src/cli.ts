@@ -1103,6 +1103,8 @@ export function buildCli(): Command {
         "  agentrelay stats --watch\n" +
         "  # live per-tool breakdown, refreshed every 5s\n" +
         "  agentrelay stats --group-by tool --watch 5\n" +
+        "  # compare relay effectiveness by which rate-limit format parked the job\n" +
+        "  agentrelay stats --group-by pattern\n" +
         "  # which hours rate-limits cluster in (UTC)\n" +
         "  agentrelay stats --hours\n" +
         "  # same, but in your local time zone\n" +

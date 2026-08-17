@@ -2259,3 +2259,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay stats --group-by pattern`] (2026-08-17, 무인 자율 세션, branch `claude/wizardly-pascal-patterns`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  자기 발굴 — 처음엔 `stats --patterns`(패턴 분포)를 만들었으나 이미 `agentrelay patterns` 커맨드
+  (`summarizeRateLimitPatterns`)가 동일 카운트를 제공함을 발견해 폐기. 대신 그 카운트가 답 못하는
+  **분석적 갭**을 골랐다: `stats --group-by`는 `tool`/`project`/`status` 세 축만 지원해, "어떤 rate-limit
+  포맷(파서 패턴)으로 파킹된 잡이 더 빨리 해결되나 / 성공률이 높나"를 볼 수 없었다. 잡마다 `lastRateLimit.pattern`
+  프로버넌스가 이미 persist돼 있으니, 이를 네 번째 group-by 차원으로 노출.
+- **한 일 (branch `claude/wizardly-pascal-patterns`):**
+  - core `stats.ts`: `GroupDimension`에 `"pattern"` 추가 + `GROUP_DIMENSIONS`에 배열 원소 추가 +
+    `groupKeyOf`에 pattern 케이스(잡의 `lastRateLimit?.pattern`으로 버킷팅, 감지 없음·공백 이름은 새
+    `PATTERN_NONE_KEY = "(none)"` 센티널로 수렴 → 파티션이 전체 잡을 온전히 덮어 그룹 카운트 합=총계).
+    파서 패턴명은 kebab-case라 `(none)`과 절대 충돌 안 함.
+  - CLI: `--group-by` 검증·헬프·`renderGroupedStats`/`renderGroupedStatsJson`가 전부 `GROUP_DIMENSIONS`
+    기반 제네릭이라 **CLI 신규 코드 0줄** — 옵션 목록·검증 문구·렌더가 자동 갱신. 헬프 예시 1줄만 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 641 · cli 355/1skip · dashboard 9**; core groupStats +2[pattern 그룹핑·(none) 버킷], cli
+  renderGroupedStats +1). **실제 빌드 CLI e2e**(mock 아님): 4-잡 임시 스토어(epoch×2·relative×1·감지없음×1)로
+  `stats --group-by pattern`이 pattern별 성공률(epoch 50%·relative 100%)·median resolve를 정확히 렌더하고
+  `(none)` 버킷이 감지없는 잡을 담으며, `--json`은 `groupBy:"pattern"`·그룹별 stats를 방출, 잘못된 차원은
+  `Valid: tool, project, status, pattern`으로 exit 1임을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `patterns` 커맨드에
+  `--watch`(projects/tools엔 있으나 patterns엔 없는 일관성 갭) 추가, 또는 `stats --group-by pattern`에
+  per-그룹 예시 rawMatch 노출. stats 분산 지표·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

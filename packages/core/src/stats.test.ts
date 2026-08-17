@@ -8,6 +8,7 @@ import {
   GROUP_DIMENSIONS,
   groupStats,
   isJobScopeActive,
+  PATTERN_NONE_KEY,
   scopeJobs,
 } from "./stats.js";
 import type { AgentTool, JobStatus, RelayJob } from "./types.js";
@@ -455,7 +456,7 @@ describe("scopeJobs", () => {
 
 describe("groupStats", () => {
   it("exposes every dimension it accepts", () => {
-    expect(GROUP_DIMENSIONS).toEqual(["tool", "project", "status"]);
+    expect(GROUP_DIMENSIONS).toEqual(["tool", "project", "status", "pattern"]);
   });
 
   it("returns an empty array for no jobs", () => {
@@ -512,6 +513,52 @@ describe("groupStats", () => {
     );
     // mid (2) first; the two singletons tie on count and sort alpha < zeta.
     expect(groups.map((g) => g.key)).toEqual(["mid", "alpha", "zeta"]);
+  });
+
+  it("groups by the rate-limit pattern that parked each job", () => {
+    const det = (pattern: string) => ({
+      pattern,
+      rawMatch: "raw",
+      resetAt: "2026-07-13T01:00:00.000Z",
+      detectedAt: "2026-07-13T00:00:00.000Z",
+    });
+    const groups = groupStats(
+      [
+        job({ status: "completed", lastRateLimit: det("claude-usage-limit-epoch") }),
+        job({ status: "failed", lastRateLimit: det("claude-usage-limit-epoch") }),
+        job({ status: "completed", lastRateLimit: det("relative-duration") }),
+      ],
+      "pattern"
+    );
+    expect(groups.map((g) => [g.key, g.count])).toEqual([
+      ["claude-usage-limit-epoch", 2],
+      ["relative-duration", 1],
+    ]);
+    const epoch = groups.find((g) => g.key === "claude-usage-limit-epoch");
+    expect(epoch?.stats.successRate).toBe(0.5); // 1 completed of 2 resolved
+  });
+
+  it("buckets jobs with no (or blank) detection under the (none) sentinel", () => {
+    const det = (pattern: string) => ({
+      pattern,
+      rawMatch: "raw",
+      resetAt: "2026-07-13T01:00:00.000Z",
+      detectedAt: "2026-07-13T00:00:00.000Z",
+    });
+    const groups = groupStats(
+      [
+        job({ lastRateLimit: det("http-retry-after") }),
+        job({ lastRateLimit: null }),
+        job(), // lastRateLimit undefined
+        job({ lastRateLimit: det("   ") }), // whitespace-only name → treated as no detection
+      ],
+      "pattern"
+    );
+    // (none) collects the 3 detection-less jobs; the partition still sums to 4.
+    const none = groups.find((g) => g.key === PATTERN_NONE_KEY);
+    expect(none?.count).toBe(3);
+    expect(groups.reduce((sum, g) => sum + g.count, 0)).toBe(4);
+    expect(groups.map((g) => g.key).sort()).toEqual([PATTERN_NONE_KEY, "http-retry-after"].sort());
   });
 });
 
