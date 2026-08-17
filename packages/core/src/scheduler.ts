@@ -63,6 +63,14 @@ export interface SchedulerOptions {
    * store because every queue mutation is synchronous (see `concurrency.ts`).
    */
   maxConcurrent?: number;
+  /**
+   * Plausibility bound (ms) for a parsed rate-limit reset on resume. A reset
+   * more than this far in the future is treated as a misparse and ignored, so a
+   * bad parse can't re-queue a job days/years out. `null`/omitted disables the
+   * guard. Wired from `AGENTRELAY_MAX_RESET_HORIZON` at the CLI; see
+   * {@link maxResetHorizonMsFromEnv}.
+   */
+  maxResetHorizonMs?: number | null;
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
   /**
@@ -93,6 +101,7 @@ export class RelayScheduler {
   private autoPruneEveryMs: number;
   private autoPruneEveryTicks: number;
   private maxConcurrent: number;
+  private maxResetHorizonMs: number | null;
   private lastPruneAtMs: number | null = null;
   private pruneTickCounter = 0;
   private onPrune?: (pruned: RelayJob[]) => void;
@@ -111,6 +120,7 @@ export class RelayScheduler {
     this.autoPruneEveryMs = options.autoPruneEveryMs ?? 0;
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
     this.maxConcurrent = normalizeMaxConcurrent(options.maxConcurrent);
+    this.maxResetHorizonMs = options.maxResetHorizonMs ?? null;
     this.onPrune = options.onPrune;
     this.onTick = options.onTick;
   }
@@ -190,7 +200,9 @@ export class RelayScheduler {
     const tail = output.slice(-this.outputTailLength);
     // Use the tool's adapter so tool-specific rate-limit wording (e.g. Codex's
     // seconds-based waits) is recognized on resume, not just at enqueue time.
-    const rateLimit = resolveAdapter({ tool: job.tool, command: job.command }).detectRateLimit(output);
+    const rateLimit = resolveAdapter({ tool: job.tool, command: job.command }).detectRateLimit(output, {
+      maxFutureMs: this.maxResetHorizonMs,
+    });
 
     // Rate limit takes priority over exit code: agent CLIs commonly exit
     // non-zero when they hit a limit, and that's an expected relay, not a crash.

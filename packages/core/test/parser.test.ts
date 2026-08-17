@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseRateLimitMessage } from "../src/parser.js";
+import {
+  DEFAULT_MAX_RESET_HORIZON_MS,
+  isPlausibleReset,
+  maxResetHorizonMsFromEnv,
+  parseRateLimitMessage,
+} from "../src/parser.js";
 
 describe("parseRateLimitMessage", () => {
   it("returns null for unrelated text", () => {
@@ -248,5 +253,107 @@ describe("parseRateLimitMessage", () => {
     const result = parseRateLimitMessage(noisy, { now });
     expect(result?.pattern).toBe("relative-duration");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
+  });
+
+  // --- reset-time plausibility guard (maxFutureMs) ---
+
+  it("ignores an implausibly far-future reset when a horizon is set", () => {
+    // "try again in 30 days" resolves 30d out — well past an 8-day horizon, so
+    // it's treated as a misparse and dropped rather than parking a job a month.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in 30 days.", {
+      now,
+      maxFutureMs: DEFAULT_MAX_RESET_HORIZON_MS,
+    });
+    expect(result).toBeNull();
+  });
+
+  it("keeps a reset that lands within the horizon", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly usage limit reached, try again in 2 days.", {
+      now,
+      maxFutureMs: DEFAULT_MAX_RESET_HORIZON_MS,
+    });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 24 * 60 * 60_000).toISOString());
+  });
+
+  it("only bounds the future — a reset in the past is still accepted under a horizon", () => {
+    // A wrong-units epoch resolving to 2001 is in the past; resuming immediately
+    // is safe, so the guard (future-only) must not drop it.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("rate_limit_error retry_after=1000000000", {
+      now,
+      maxFutureMs: DEFAULT_MAX_RESET_HORIZON_MS,
+    });
+    expect(result?.pattern).toBe("unix-epoch");
+    expect(result?.resetAt).toBe(new Date(1000000000 * 1000).toISOString());
+  });
+
+  it("falls through to a saner pattern when the first match is implausibly far out", () => {
+    // A far-future adapter epoch (year ~2286) is rejected, so the generic
+    // relative-duration below it wins instead of the job being parked centuries.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const farEpoch = {
+      name: "test-far-epoch",
+      regex: /epoch=(\d+)/,
+      resolve: (m: RegExpMatchArray) => new Date(Number.parseInt(m[1], 10) * 1000),
+    };
+    const text = "usage limit reached epoch=9999999999 — try again in 15m";
+    const guarded = parseRateLimitMessage(text, {
+      now,
+      maxFutureMs: DEFAULT_MAX_RESET_HORIZON_MS,
+      extraPatterns: [farEpoch],
+    });
+    expect(guarded?.pattern).toBe("relative-duration");
+    expect(guarded?.resetAt).toBe(new Date(now.getTime() + 15 * 60_000).toISOString());
+    // Without the guard, the far-future epoch would win.
+    const unguarded = parseRateLimitMessage(text, { now, extraPatterns: [farEpoch] });
+    expect(unguarded?.pattern).toBe("test-far-epoch");
+  });
+
+  it("treats a non-positive horizon as no guard", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("try again in 30 days.", { now, maxFutureMs: 0 });
+    expect(result?.pattern).toBe("relative-duration");
+  });
+});
+
+describe("isPlausibleReset", () => {
+  const now = new Date("2026-07-12T10:00:00Z");
+
+  it("returns true when no horizon is supplied", () => {
+    const farOut = new Date(now.getTime() + 365 * 24 * 60 * 60_000);
+    expect(isPlausibleReset(farOut, now)).toBe(true);
+    expect(isPlausibleReset(farOut, now, null)).toBe(true);
+    expect(isPlausibleReset(farOut, now, 0)).toBe(true);
+    expect(isPlausibleReset(farOut, now, -5)).toBe(true);
+    expect(isPlausibleReset(farOut, now, Number.POSITIVE_INFINITY)).toBe(true);
+  });
+
+  it("bounds only the future side", () => {
+    const horizon = 24 * 60 * 60_000; // 1 day
+    expect(isPlausibleReset(new Date(now.getTime() + horizon), now, horizon)).toBe(true); // exactly at the edge
+    expect(isPlausibleReset(new Date(now.getTime() + horizon + 1), now, horizon)).toBe(false);
+    expect(isPlausibleReset(new Date(now.getTime() - 999 * horizon), now, horizon)).toBe(true); // past is fine
+  });
+});
+
+describe("maxResetHorizonMsFromEnv", () => {
+  it("defaults to the 8-day horizon when unset or blank", () => {
+    expect(maxResetHorizonMsFromEnv({})).toBe(DEFAULT_MAX_RESET_HORIZON_MS);
+    expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "  " })).toBe(DEFAULT_MAX_RESET_HORIZON_MS);
+  });
+
+  it("parses an explicit duration", () => {
+    expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "25h" })).toBe(25 * 60 * 60_000);
+    expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "2d" })).toBe(2 * 24 * 60 * 60_000);
+  });
+
+  it("disables the guard for 0/off/none/unparseable", () => {
+    expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "0" })).toBeNull();
+    expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "off" })).toBeNull();
+    expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "none" })).toBeNull();
+    expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "banana" })).toBeNull();
   });
 });

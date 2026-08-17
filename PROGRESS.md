@@ -2233,3 +2233,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 72 — 파서 rate-limit 리셋 plausibility 가드(미래 지평선)] (2026-08-17, 무인 자율 세션, branch `claude/wizardly-pascal-reset-horizon`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 200+개가 stats 분산 지표·watch 변형·epoch ms(13자리)·벤더 헤더·신규 커맨드 등으로 극도로
+  포화 상태라, 전체 PR 제목을 키워드 스캔해 **어떤 열린 PR에도 없는** 실제 신뢰성 갭을 발굴했다:
+  파서가 해소한 `resetAt`에 상한 검증이 전혀 없다는 점. 잘못된 epoch 단위·거대한 상대 기간·오탐
+  timezone이 만든 먼-미래 리셋이 그대로 큐에 들어가면 잡이 수일/수년 조용히 대기 — 이 프로젝트가
+  doctor·recover 등으로 반복해 겨냥해온 "silent failure" 부류.
+- **한 일 (branch `claude/wizardly-pascal-reset-horizon`):**
+  - core `parser.ts`: 순수 `isPlausibleReset(resetAt, now, maxFutureMs?)`(미래 쪽만 경계 — 과거 리셋은
+    이미 풀린 한도라 즉시 재개가 안전하므로 허용; 비양수·비유한·nullish maxFutureMs는 "가드 없음"으로
+    항상 true) + `DEFAULT_MAX_RESET_HORIZON_MS`(8일, 주간 한도를 여유 있게 덮되 오탐은 거름) +
+    `maxResetHorizonMsFromEnv`(`AGENTRELAY_MAX_RESET_HORIZON` 파싱; 미설정=기본, `0`/`off`/`none`/파싱불가
+    =null[비활성], 기존 `parseDuration` 재사용) 추가. `ParseOptions.maxFutureMs`를 `tryPattern`에 배선 —
+    지평선 밖 리셋은 매치 안 한 것처럼 스킵해 합당한 패턴으로 폴스루하거나 null. **기본 undefined =
+    하위호환**(기존 파서·`parse` 진단 커맨드 동작 불변).
+  - `RelayScheduler`에 `maxResetHorizonMs` 옵션 → resume 시 `detectRateLimit`에 배선. CLI run/daemon/tick이
+    `maxResetHorizonMsFromEnv()`로 배선. 어댑터 `detectRateLimit`는 옵션을 그대로 전달하므로 별도 수정 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 639 · cli 354/1skip · dashboard 9**; parser.test +11, scheduler.test +2). **실제 빌드 CLI
+  e2e**(mock 아님): 기본 지평선(8d)에서 "try again in 30 days"는 드롭돼 미큐잉(status 비어 있음),
+  `AGENTRELAY_MAX_RESET_HORIZON=off`면 30일 리셋 큐잉(30d 카운트다운), 2h 리셋은 정상 큐잉, `parse`
+  진단은 지평선 미적용으로 30일 파스를 그대로 표시함을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
+  (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
+  stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

@@ -62,6 +62,7 @@ import {
   listBackups,
   loadConfigFile,
   maxConcurrentFromEnv,
+  maxResetHorizonMsFromEnv,
   notifiersFromEnv,
   parseConfig,
   parseDaemonHeartbeat,
@@ -176,7 +177,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
     });
   });
 
-  const rateLimit = adapter.detectRateLimit(output);
+  const rateLimit = adapter.detectRateLimit(output, { maxFutureMs: maxResetHorizonMsFromEnv() });
   if (!rateLimit) {
     return { exitCode, queuedJob: null };
   }
@@ -391,6 +392,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     pollIntervalMs,
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent,
+    maxResetHorizonMs: maxResetHorizonMsFromEnv(),
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
@@ -430,6 +432,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     notify: notify ?? undefined,
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent: maxConcurrentFromEnv(),
+    maxResetHorizonMs: maxResetHorizonMsFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
   });
   const processed = await scheduler.tick();
