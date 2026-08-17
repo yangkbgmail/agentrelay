@@ -5,6 +5,7 @@
 
 import type {
   ActivityHeatmap,
+  AttemptDistribution,
   DailyActivity,
   GroupDimension,
   GroupedStat,
@@ -422,6 +423,48 @@ export function renderHeatmap(heatmap: ActivityHeatmap, options: { color?: boole
   return lines.join("\n");
 }
 
+/** Max width (chars) of a full-scale bar in the attempts histogram. */
+const ATTEMPTS_BAR_WIDTH = 24;
+
+/**
+ * Renders a resume-attempts-per-job distribution as a compact ASCII bar chart:
+ * one row per attempt count (`0×`, `1×`, `2×`, …), showing how many jobs needed
+ * that many resume attempts. `0×` are jobs the relay hasn't resumed yet; `1×`
+ * resolved on the first resume; higher counts needed transient-failure retries.
+ * Bars scale to the busiest bucket so the shape reads regardless of absolute
+ * volume; an empty bucket shows a dim baseline dot. Pure: no I/O, no clock.
+ * Callers pass the already-computed distribution so it stays testable.
+ */
+export function renderAttempts(distribution: AttemptDistribution, options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  const lines: string[] = [b("by attempts") + d(" (resume attempts per job)")];
+  if (distribution.total === 0) {
+    lines.push("  none");
+    return lines.join("\n");
+  }
+
+  const max = distribution.buckets.reduce((m, x) => Math.max(m, x.count), 0);
+  for (const { attempts, count } of distribution.buckets) {
+    // Scale each bar to the busiest bucket; guarantee at least one block for any
+    // non-empty bucket so small counts don't vanish next to a spike.
+    const filled = max === 0 || count === 0 ? 0 : Math.max(1, Math.round((count / max) * ATTEMPTS_BAR_WIDTH));
+    // Pad the plain bar to a fixed width so the count column stays aligned; an
+    // empty bucket shows a single baseline dot (dimmed only when color is on).
+    const plain = count === 0 ? "·" : "█".repeat(filled);
+    const padded = plain.padEnd(ATTEMPTS_BAR_WIDTH);
+    const shown = count === 0 && color ? padded.replace("·", d("·")) : padded;
+    lines.push(`  ${`${attempts}×`.padStart(4)}  ${shown} ${count}`);
+  }
+  const mean = distribution.totalAttempts / distribution.total;
+  lines.push(
+    d(`  ${distribution.total} job(s), ${distribution.totalAttempts} attempt(s) total, ${mean.toFixed(1)} avg`)
+  );
+  return lines.join("\n");
+}
+
 /** Machine-readable snapshot for `--json` (scripts, jq, other tooling). */
 export function renderStatsJson(
   stats: RelayStats,
@@ -433,18 +476,20 @@ export function renderStatsJson(
     hours?: HourlyActivity[] | null;
     weekday?: WeekdayActivity[] | null;
     heatmap?: ActivityHeatmap | null;
+    attempts?: AttemptDistribution | null;
   } = {}
 ): string {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
-  // Only emit `trend`/`hours`/`weekday`/`heatmap` when the matching flag was
-  // requested; omit them otherwise so the default JSON shape is unchanged for
-  // existing consumers.
+  // Only emit `trend`/`hours`/`weekday`/`heatmap`/`attempts` when the matching
+  // flag was requested; omit them otherwise so the default JSON shape is
+  // unchanged for existing consumers.
   const trend = options.trend ?? undefined;
   const hours = options.hours ?? undefined;
   const weekday = options.weekday ?? undefined;
   const heatmap = options.heatmap ?? undefined;
-  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, heatmap, stats }, null, 2);
+  const attempts = options.attempts ?? undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, heatmap, attempts, stats }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */

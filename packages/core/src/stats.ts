@@ -377,6 +377,63 @@ export function computeActivityHeatmap(jobs: RelayJob[], offsetMinutes = 0): Act
   return { cells, total, maxCell };
 }
 
+/** One attempt-count bucket in a {@link computeAttemptDistribution} histogram. */
+export interface AttemptBucket {
+  /** Number of resume attempts (a job's `attempts` counter value). */
+  attempts: number;
+  /** Jobs whose attempt counter equals exactly this value. */
+  count: number;
+}
+
+export interface AttemptDistribution {
+  /**
+   * One bucket per attempt count from 0 up to {@link maxAttempts}, contiguous
+   * and zero-filled so gaps are visible (e.g. "0×:3  1×:5  2×:0  3×:1"). An
+   * empty store yields a single `{ attempts: 0, count: 0 }` bucket.
+   */
+  buckets: AttemptBucket[];
+  /** Total jobs counted. */
+  total: number;
+  /** Highest attempt counter seen across the jobs (0 when empty). */
+  maxAttempts: number;
+  /** Sum of every job's attempt counter (matches {@link RelayStats.totalAttempts}). */
+  totalAttempts: number;
+}
+
+/**
+ * Buckets jobs by their resume-attempt counter so `agentrelay stats --attempts`
+ * can show how much work the relay actually did per job: how many resolved on
+ * the first resume (`1×`) versus needed several transient-failure retries, and
+ * how many are still un-resumed (`0×`). A job's `attempts` counts consecutive
+ * resume attempts since its last rate-limit wait (a rate-limit re-queue resets
+ * the counter to 0), so this reads as the per-run retry effort, not lifetime
+ * resumes.
+ *
+ * Pure and non-mutating: no I/O, no clock. Buckets are contiguous from 0 to the
+ * max attempt count and zero-filled, so a quiet middle bucket still shows as a
+ * gap. A corrupt `attempts` value (non-finite or negative) is defensively
+ * coerced to a non-negative integer rather than inventing a negative bucket or
+ * throwing.
+ */
+export function computeAttemptDistribution(jobs: RelayJob[]): AttemptDistribution {
+  const counts = new Map<number, number>();
+  let maxAttempts = 0;
+  let totalAttempts = 0;
+  let total = 0;
+  for (const job of jobs) {
+    const attempts = Number.isFinite(job.attempts) ? Math.max(0, Math.floor(job.attempts)) : 0;
+    counts.set(attempts, (counts.get(attempts) ?? 0) + 1);
+    totalAttempts += attempts;
+    if (attempts > maxAttempts) maxAttempts = attempts;
+    total += 1;
+  }
+  const buckets: AttemptBucket[] = [];
+  for (let a = 0; a <= maxAttempts; a++) {
+    buckets.push({ attempts: a, count: counts.get(a) ?? 0 });
+  }
+  return { buckets, total, maxAttempts, totalAttempts };
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 

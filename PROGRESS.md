@@ -2259,3 +2259,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay stats --attempts` 시도 횟수 분포 히스토그램] (2026-08-17, 무인 자율 세션, branch `claude/wizardly-pascal-dsbiwo`)
+- **항목 선정:** BACKLOG 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 30여 개 제목을 키워드 스캔 — parser(pipe-epoch ms·IANA tz·relative-duration·vendor 헤더),
+  doctor(reset-horizon·store-size), scheduler(jitter·grace·fair-order), stats(--group-by pattern·
+  --durations·--reliability), dashboard 등이 이미 포화. stats에는 시간축 분포(--hours/--weekday/
+  --heatmap/--trend)는 있지만 **시도 횟수(attempts) 분포**—"몇 개의 잡이 첫 resume에 통과했고 몇 개가
+  N회 재시도를 필요로 했나"라는 릴레이 핵심 가치 지표가 **어떤 열린 PR·기존 커맨드에도 없음**을 확인해 발굴.
+- **한 일 (branch `claude/wizardly-pascal-dsbiwo`):**
+  - core `stats.ts`: 순수 `computeAttemptDistribution(jobs)` + `AttemptDistribution`(buckets·total·
+    maxAttempts·totalAttempts) + `AttemptBucket` 신설 — 각 잡의 `attempts` 카운터로 버킷팅, 0부터
+    maxAttempts까지 **연속·zero-fill**(중간 빈 버킷도 갭으로 보임). 손상된 attempts(비유한·음수)는 예외 대신
+    비음수 정수로 방어적 coerce. `totalAttempts`는 `computeStats.totalAttempts`와 일치(테스트로 고정).
+    `attempts`는 rate-limit 재대기 시 0으로 리셋되므로 "run별 재시도 노력"으로 정확히 문서화. `export *`라
+    index 수정 0줄.
+  - CLI `stats.ts`: 순수 `renderAttempts(distribution,{color})` — 버킷별 ASCII 막대(최다 버킷에 스케일,
+    빈 버킷은 dim 베이스라인 점), `0×`/`1×`/`2×` 라벨 + "N job(s), M attempt(s) total, X.X avg" 푸터.
+    `renderStatsJson`에 옵셔널 `attempts` 필드(요청 시에만 방출, 기존 JSON shape 불변).
+  - CLI `cli.ts`: `stats`에 `--attempts` 배선 — 일회성·`--json`·`--watch` 세 뷰 모두 적용(runStatsWatch에
+    파라미터 추가), 기존 스코프 필터(--status/--tool/--project/--since/--until) 및 --hours/--weekday/
+    --heatmap/--trend와 조합 가능. help 예시 추가. 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 644 · cli 358/1skip · dashboard 9**; core stats +5, cli stats +5[renderAttempts 3 +
+  renderStatsJson attempts 2]). **실제 빌드 CLI e2e**(mock 아님): 4-잡 스토어(attempts 1,1,4,0)로
+  `stats --attempts`가 0×:1·1×:2·2×:0(갭 점)·3×:0·4×:1 막대 + "4 job(s), 6 attempt(s) total, 1.5 avg"
+  렌더, `--attempts --json`은 buckets/total/maxAttempts/totalAttempts 정확 방출, 기본 `--json`은 attempts
+  미포함(하위호환), `--help`에 `--attempts` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — attempts를 잡별로
+  파고드는 `show`의 재시도 이력, stats 분산/watch·parser epoch ms·vendor 헤더는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
