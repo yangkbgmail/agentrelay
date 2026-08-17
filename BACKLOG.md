@@ -851,6 +851,18 @@
       실제 빌드 CLI `parse --tool claude-code "…|1752345600"` e2e로 `claude-usage-limit-epoch` 매치 +
       generic은 "No rate-limit detected" 확인. branch `claude/wizardly-pascal-j0fz82`)
 
+- [x] 👷 파서: Claude `-p` 파이프-epoch를 13자리 밀리초(ms)로도 인식 — 세션 71이 "다음 할 일"로
+      지목한 후속. 일부 Claude/래퍼 버전이 `Date.now()`에서 그대로 나온 13자리 ms epoch를 파이프 뒤에
+      실어 보내는데, 세션 71의 패턴은 `\d{10}`(초)만 잡아 이런 라인이 조용히 통과(null)했다.
+      (완료 — `@agentrelay/core/adapters.ts`의 `CLAUDE_USAGE_LIMIT_EPOCH_PATTERN` 정규식을
+      `/usage limit reached\s*\|\s*(\d{13}|\d{10})\b/i`로 확장(13자리 먼저, 없으면 10자리). `resolve`가
+      자릿수로 단위를 구분 — 13자리는 ms 그대로, 10자리는 ×1000해 Date로 해소. `\b` 경계가 모호한
+      11/12자리(깔끔한 초도 ms도 아님)를 매칭에서 배제해 엉뚱한 시각 재개 대신 fall-through시킴.
+      1752345600(초)과 1752345600000(ms)이 동일 시각(2025-07-12T18:40:00Z)으로 해소됨을 확인. 새
+      파서/스케줄러 로직은 정규식+resolve 확장뿐. adapters.test에 2케이스 추가(13자리 ms 파싱·11/12자리
+      모호값 거부), 실제 빌드 CLI `parse --tool claude-code "…|<13자리>"` e2e로 ms 매치·초 유지·모호값
+      "No rate-limit detected" 확인. branch `claude/wizardly-pascal-cwx8vz`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
