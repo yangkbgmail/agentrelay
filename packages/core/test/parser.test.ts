@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_MAX_RESET_HORIZON_MS,
   isPlausibleReset,
+  isValidTimeZone,
   maxResetHorizonMsFromEnv,
+  nextClockTimeInZone,
   parseRateLimitMessage,
 } from "../src/parser.js";
 
@@ -30,7 +32,7 @@ describe("parseRateLimitMessage", () => {
     expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
   });
 
-  it("parses the real Claude Code wording: 'reset at 5pm' (hour + meridiem, no minutes)", () => {
+  it("parses the real Claude Code wording: 'reset at 5pm (America/New_York)' in that zone", () => {
     // Actual message: "Claude usage limit reached. Your limit will reset at 5pm (America/New_York)."
     const now = new Date("2026-07-12T08:00:00Z"); // 08:00 UTC
     const result = parseRateLimitMessage(
@@ -39,10 +41,55 @@ describe("parseRateLimitMessage", () => {
     );
     expect(result).not.toBeNull();
     expect(result?.pattern).toBe("clock-time-meridiem");
-    const resetDate = new Date(result!.resetAt);
-    expect(resetDate.getHours()).toBe(17); // 5pm local
-    expect(resetDate.getMinutes()).toBe(0);
-    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+    // 5pm America/New_York on 2026-07-12 is EDT (UTC-4) = 21:00 UTC — NOT 5pm in
+    // the daemon's own zone. Assert the absolute instant, not a local getHours().
+    expect(result?.resetAt).toBe("2026-07-12T21:00:00.000Z");
+    expect(new Date(result!.resetAt).getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("honors a named zone in winter too: '5pm (America/New_York)' in January is EST (UTC-5)", () => {
+    const now = new Date("2026-01-12T08:00:00Z");
+    const result = parseRateLimitMessage("usage limit reached. reset at 5pm (America/New_York).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    // 17:00 EST = 22:00 UTC (DST-correct — one hour later than the July case).
+    expect(result?.resetAt).toBe("2026-01-12T22:00:00.000Z");
+  });
+
+  it("honors a named zone on the minute-precise clock-time pattern: '15:00 (Europe/London)'", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Rate limited. Resets at 15:00 (Europe/London).", { now });
+    expect(result?.pattern).toBe("clock-time");
+    // 15:00 BST (UTC+1 in July) = 14:00 UTC.
+    expect(result?.resetAt).toBe("2026-07-12T14:00:00.000Z");
+  });
+
+  it("honors an explicit (UTC) zone", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Resets at 5pm (UTC).", { now });
+    expect(result?.resetAt).toBe("2026-07-12T17:00:00.000Z");
+  });
+
+  it("rolls to the next day *in the named zone* when the clock time already passed today", () => {
+    // 22:00 UTC == 18:00 EDT, so 5pm New York already passed today → tomorrow.
+    const now = new Date("2026-07-12T22:00:00Z");
+    const result = parseRateLimitMessage("reset at 5pm (America/New_York).", { now });
+    expect(result?.resetAt).toBe("2026-07-13T21:00:00.000Z");
+  });
+
+  it("falls back to local time when the parenthetical is not a valid IANA zone", () => {
+    // Test env runs in UTC, so local 5pm == 17:00Z. An unknown zone must not
+    // park the job at some garbage instant — it degrades to the old behavior.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("reset at 5pm (Middle/Earth).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-07-12T17:00:00.000Z");
+  });
+
+  it("ignores a non-identifier parenthetical like '(local time)' and reads the hour locally", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("reset at 5pm (local time).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-07-12T17:00:00.000Z");
   });
 
   it("parses 'resets at 10 AM' with a space before the meridiem, rolling to tomorrow if past", () => {
@@ -355,5 +402,52 @@ describe("maxResetHorizonMsFromEnv", () => {
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "off" })).toBeNull();
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "none" })).toBeNull();
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "banana" })).toBeNull();
+  });
+});
+
+describe("isValidTimeZone", () => {
+  it("accepts real IANA zones and UTC/GMT", () => {
+    expect(isValidTimeZone("America/New_York")).toBe(true);
+    expect(isValidTimeZone("Europe/London")).toBe(true);
+    expect(isValidTimeZone("Asia/Kolkata")).toBe(true);
+    expect(isValidTimeZone("UTC")).toBe(true);
+    expect(isValidTimeZone("GMT")).toBe(true);
+  });
+
+  it("rejects garbage and empty input", () => {
+    expect(isValidTimeZone("Middle/Earth")).toBe(false);
+    expect(isValidTimeZone("not a zone")).toBe(false);
+    expect(isValidTimeZone("")).toBe(false);
+  });
+});
+
+describe("nextClockTimeInZone", () => {
+  it("converts a wall clock in a zone to the correct future UTC instant", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    // 17:00 America/New_York (EDT, UTC-4) = 21:00 UTC.
+    expect(nextClockTimeInZone(now, 17, 0, "America/New_York")?.toISOString()).toBe("2026-07-12T21:00:00.000Z");
+  });
+
+  it("is DST-correct across summer vs winter", () => {
+    const summer = nextClockTimeInZone(new Date("2026-07-12T00:00:00Z"), 12, 0, "America/New_York");
+    const winter = nextClockTimeInZone(new Date("2026-01-12T00:00:00Z"), 12, 0, "America/New_York");
+    expect(summer?.toISOString()).toBe("2026-07-12T16:00:00.000Z"); // EDT: noon = 16:00Z
+    expect(winter?.toISOString()).toBe("2026-01-12T17:00:00.000Z"); // EST: noon = 17:00Z
+  });
+
+  it("rolls to the next day in the zone when the time already passed", () => {
+    // 22:00Z == 18:00 EDT, so noon NY already passed → tomorrow noon.
+    const now = new Date("2026-07-12T22:00:00Z");
+    expect(nextClockTimeInZone(now, 12, 0, "America/New_York")?.toISOString()).toBe("2026-07-13T16:00:00.000Z");
+  });
+
+  it("crosses a month boundary correctly when rolling to the next day", () => {
+    // Last day of July, 23:00 UTC = 19:00 EDT; 5pm NY already passed → Aug 1.
+    const now = new Date("2026-07-31T23:00:00Z");
+    expect(nextClockTimeInZone(now, 17, 0, "America/New_York")?.toISOString()).toBe("2026-08-01T21:00:00.000Z");
+  });
+
+  it("returns null for an unknown zone so the caller can fall back", () => {
+    expect(nextClockTimeInZone(new Date("2026-07-12T08:00:00Z"), 17, 0, "Middle/Earth")).toBeNull();
   });
 });

@@ -82,6 +82,141 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/**
+ * IANA-timezone helpers so a message like "reset at 5pm (America/New_York)"
+ * resolves to the correct *instant* — not 5pm in whatever zone the daemon
+ * happens to run in. A relay that runs in UTC (as most daemons/containers do)
+ * would otherwise resume a New-York-limited job 4–5 hours early, i.e. while it
+ * is still rate-limited. All pure and dependency-free: they lean on the full
+ * ICU data Node bundles (since 22), reachable through `Intl`.
+ */
+
+/** True when `timeZone` is an IANA zone `Intl` accepts (else it throws RangeError). */
+export function isValidTimeZone(timeZone: string): boolean {
+  if (!timeZone) return false;
+  try {
+    // Constructing with the zone is enough; an unknown zone throws RangeError.
+    new Intl.DateTimeFormat("en-US", { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Offset (ms) of `timeZone` from UTC at `instantMs`, i.e. `wallClock − UTC`
+ * (positive east of UTC). Computed by formatting the instant in the zone and
+ * differencing the read-back wall clock against the instant — the standard
+ * ICU-only technique, DST-correct because the offset is evaluated at that
+ * specific instant.
+ */
+function tzOffsetMsAt(instantMs: number, timeZone: string): number {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  const parts: Record<string, number> = {};
+  for (const p of dtf.formatToParts(new Date(instantMs))) {
+    if (p.type !== "literal") parts[p.type] = parseInt(p.value, 10);
+  }
+  // Some ICU builds render midnight as hour "24" with hour12:false; normalize.
+  const hour = parts.hour === 24 ? 0 : parts.hour;
+  const asUtc = Date.UTC(parts.year, parts.month - 1, parts.day, hour, parts.minute, parts.second);
+  return asUtc - instantMs;
+}
+
+/**
+ * The UTC instant for a wall-clock time (`y-mo-d h:mi`) *as read in* `timeZone`.
+ * Iterates twice so a DST transition — where the naive offset guess is wrong on
+ * the far side of the jump — still converges on the correct instant.
+ */
+function zonedWallClockToUtc(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  timeZone: string
+): number {
+  const wallAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  let instant = wallAsUtc;
+  for (let i = 0; i < 2; i++) {
+    const next = wallAsUtc - tzOffsetMsAt(instant, timeZone);
+    if (next === instant) break;
+    instant = next;
+  }
+  return instant;
+}
+
+/** Calendar Y/M/D of an instant as read in `timeZone`. */
+function zoneDateParts(instantMs: number, timeZone: string): { year: number; month: number; day: number } {
+  const dtf = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+  const parts: Record<string, number> = {};
+  for (const p of dtf.formatToParts(new Date(instantMs))) {
+    if (p.type !== "literal") parts[p.type] = parseInt(p.value, 10);
+  }
+  return { year: parts.year, month: parts.month, day: parts.day };
+}
+
+/**
+ * The next instant strictly after `now` at which the local wall clock in
+ * `timeZone` reads `hour:minute`. Returns `null` for an unknown zone so the
+ * caller can fall back to local-time interpretation. Pure — no ambient clock.
+ */
+export function nextClockTimeInZone(now: Date, hour: number, minute: number, timeZone: string): Date | null {
+  if (!isValidTimeZone(timeZone)) return null;
+  const { year, month, day } = zoneDateParts(now.getTime(), timeZone);
+  let instant = zonedWallClockToUtc(year, month, day, hour, minute, timeZone);
+  if (instant <= now.getTime()) {
+    // Advance one calendar day in the zone (UTC math handles month/year rollover).
+    const base = new Date(Date.UTC(year, month - 1, day));
+    base.setUTCDate(base.getUTCDate() + 1);
+    instant = zonedWallClockToUtc(
+      base.getUTCFullYear(),
+      base.getUTCMonth() + 1,
+      base.getUTCDate(),
+      hour,
+      minute,
+      timeZone
+    );
+  }
+  return new Date(instant);
+}
+
+/**
+ * Resolve a clock-time reset to a future Date. When `timeZone` is a valid IANA
+ * zone the wall clock is interpreted *there*; otherwise (absent or unknown) it
+ * falls back to the daemon's local zone — the historical behavior. Either way
+ * the result is the next occurrence strictly after `now`.
+ */
+function resolveClockTime(now: Date, hour: number, minute: number, timeZone?: string): Date {
+  if (timeZone) {
+    const zoned = nextClockTimeInZone(now, hour, minute, timeZone);
+    if (zoned) return zoned;
+  }
+  const candidate = new Date(now);
+  candidate.setHours(hour, minute, 0, 0);
+  if (candidate.getTime() <= now.getTime()) {
+    candidate.setDate(candidate.getDate() + 1);
+  }
+  return candidate;
+}
+
+/**
+ * Optional trailing IANA timezone in parentheses, e.g. "(America/New_York)",
+ * "(Europe/London)", "(UTC)". Appended to the clock-time patterns so a named
+ * zone in the message is honored. A single identifier-shaped token only — a
+ * parenthetical like "(local time)" (has a space) simply doesn't match, and an
+ * unknown token falls back to local time via {@link resolveClockTime}.
+ */
+const TZ_SUFFIX = "(?:\\s*\\(\\s*([A-Za-z][A-Za-z0-9_+-]*(?:\\/[A-Za-z0-9_+-]+)*)\\s*\\))?";
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
@@ -93,21 +228,18 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
-    // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
+    // "resets at 3:00pm" / "resets at 15:00" / "resets at 15:00 (Europe/London)"
+    // (assume today, or tomorrow if already past). A trailing "(IANA/Zone)" is
+    // honored; without one the hour is read in the daemon's local zone.
     name: "clock-time",
-    regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
+    regex: new RegExp(`reset[s]?\\s+at\\s+(\\d{1,2}):(\\d{2})\\s*(am|pm)?${TZ_SUFFIX}`, "i"),
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       const minute = parseInt(m[2], 10);
       const meridiem = m[3]?.toLowerCase();
       if (meridiem === "pm" && hour < 12) hour += 12;
       if (meridiem === "am" && hour === 12) hour = 0;
-      const candidate = new Date(now);
-      candidate.setHours(hour, minute, 0, 0);
-      if (candidate.getTime() <= now.getTime()) {
-        candidate.setDate(candidate.getDate() + 1);
-      }
-      return candidate;
+      return resolveClockTime(now, hour, minute, m[4]);
     },
   },
   {
@@ -115,24 +247,21 @@ const PATTERNS: RateLimitPattern[] = [
     // This is the wording Claude Code actually prints ("Your limit will reset
     // at 5pm (America/New_York)."), which the minute-requiring clock-time
     // pattern above misses. Meridiem is required: a bare "reset at 5" (no
-    // colon, no am/pm) is too ambiguous to treat as a clock time. The named
-    // timezone in the message is ignored — the hour is interpreted in local
-    // time, same known limitation as clock-time (a real reset is a future
-    // instant, so rolling to tomorrow when already past keeps us safe).
+    // colon, no am/pm) is too ambiguous to treat as a clock time. The trailing
+    // named timezone in this exact wording "(America/New_York)" is now honored:
+    // the hour is interpreted in that zone. Without a recognizable zone the hour
+    // falls back to the daemon's local time (same known limitation as before).
+    // A real reset is a future instant, so rolling to tomorrow when already past
+    // keeps us safe either way.
     name: "clock-time-meridiem",
-    regex: /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b/i,
+    regex: new RegExp(`reset[s]?\\s+at\\s+(\\d{1,2})\\s*(am|pm)\\b${TZ_SUFFIX}`, "i"),
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       if (hour > 12) return null; // 13pm etc. is not a valid 12-hour clock time
       const meridiem = m[2].toLowerCase();
       if (meridiem === "pm" && hour < 12) hour += 12;
       if (meridiem === "am" && hour === 12) hour = 0;
-      const candidate = new Date(now);
-      candidate.setHours(hour, 0, 0, 0);
-      if (candidate.getTime() <= now.getTime()) {
-        candidate.setDate(candidate.getDate() + 1);
-      }
-      return candidate;
+      return resolveClockTime(now, hour, 0, m[3]);
     },
   },
   {

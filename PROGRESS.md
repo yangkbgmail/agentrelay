@@ -2259,3 +2259,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 파서: 시각 리셋의 명시 타임존 인식(존-정확 재개)] (2026-08-17, 무인 자율 세션, branch `claude/wizardly-pascal-p47fwl`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유). 파서 신뢰성이 이
+  프로젝트에서 가장 반복적으로 가치가 높은 영역이라(경쟁 도구 parity), 실제 코드 주석에 "ignored"로 명시된
+  기존 갭을 발굴: clock-time / clock-time-meridiem 패턴이 "reset at 5pm (America/New_York)"의 **괄호 IANA
+  존을 무시하고 데몬 로컬 존**으로 해석했다. UTC로 도는 데몬/컨테이너가 대다수인데 뉴욕 5pm을 UTC 5pm으로
+  오해하면 실제 리셋보다 4~5시간 **일찍** 재개해 여전히 rate-limited 상태로 잡을 굴린다 — "silent failure"의
+  시간축 버전.
+- **한 일 (branch `claude/wizardly-pascal-p47fwl`):**
+  - core `parser.ts`: 순수 타임존 헬퍼 추가 — `isValidTimeZone`(Intl로 IANA 존 검증, RangeError=무효),
+    `tzOffsetMsAt`(특정 순간의 존 오프셋을 `formatToParts`로 산출, DST 정확), 내부 `zonedWallClockToUtc`
+    (벽시계→UTC 순간; DST 전이 대비 2회 수렴), `zoneDateParts`, 공개 `nextClockTimeInZone(now,h,m,tz)`
+    (존 안에서 `now` 직후 다음 h:m 순간; 무효 존=null로 로컬 폴백; 익일 넘김은 UTC 달력 산술로 월/년
+    롤오버까지). Node 22의 full-ICU에만 의존(신규 dep 0).
+  - clock-time·clock-time-meridiem 정규식 끝에 선택적 `TZ_SUFFIX`(괄호 안 식별자꼴 IANA 토큰만 —
+    "(local time)"처럼 공백 있으면 미매치→로컬) 캡처 추가, 공유 `resolveClockTime`가 유효 존이면 존
+    해석·아니면 기존 로컬 동작으로 폴백. **존 없는 메시지·데몬 로컬 존 해석은 동작 불변**(하위호환).
+    스케줄러/어댑터 배선 0줄(파서 내부 완결).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm test` 전 패키지 통과(**core parser 56 ·
+  cli 354/1skip · dashboard 9**), `pnpm lint`(Biome 0에러). parser.test: 기존 NY 테스트를 로컬 17시가
+  아닌 21:00Z(EDT)로 정정 + 신규(겨울 EST 22:00Z·London 15:00 BST 14:00Z·(UTC)·지난 시각 존 내 익일
+  롤·무효 존 로컬 폴백·"(local time)" 무시) + `isValidTimeZone`/`nextClockTimeInZone` 순수 유닛(여름/겨울
+  DST·익일 롤·월경계 롤·무효 존 null). **실제 빌드 CLI `parse` e2e**(mock 아님): NY 5pm→21:00Z·London
+  15:00→14:00Z·무효 존→로컬 17:00Z·존 없음+TZ=America/New_York→로컬 존(21:00Z) 반영 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 요일 지정 리셋
+  ("resets Wednesday at 5pm")·주간 한도 문구 파싱, `parse --tool` 출력에 해석에 쓴 존 표기. stats 분산·
+  watch·epoch ms 계열은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

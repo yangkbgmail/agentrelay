@@ -870,6 +870,26 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 파서: 시각 리셋의 명시 타임존 인식 — "reset at 5pm (America/New_York)" 같은 메시지의
+      괄호 IANA 존을 실제로 반영해 올바른 *절대 순간*으로 해소. 자기 발굴 항목 — 지금까지 clock-time /
+      clock-time-meridiem 패턴은 괄호 안 타임존을 **무시하고 데몬 로컬 존**으로 해석했다(주석에도 "ignored"로
+      명시). UTC로 도는 데몬/컨테이너가 대다수인데, 뉴욕 5pm을 UTC 5pm으로 오해하면 실제 리셋보다 4~5시간
+      **일찍** 재개해 여전히 rate-limited 상태로 잡을 굴리는 조용한 오류가 있었다(경쟁 도구·doctor·recover가
+      반복해 겨냥해온 "silent failure" 부류의 시간축 버전).
+      (완료 — `@agentrelay/core/parser.ts`에 순수 타임존 헬퍼 추가: `isValidTimeZone`(Intl로 IANA 존 검증,
+      RangeError=무효), `tzOffsetMsAt`(특정 순간의 존 오프셋을 formatToParts로 산출 — DST 정확), 내부
+      `zonedWallClockToUtc`(벽시계→UTC 순간, DST 전이 대비 2회 수렴 반복)·`zoneDateParts`, 그리고 공개
+      `nextClockTimeInZone(now,h,m,tz)`(존 안에서 `now` 직후의 다음 h:m 순간; 무효 존이면 null로 로컬 폴백
+      유도, 하루 넘김은 UTC 달력 산술로 월/년 롤오버까지 처리). clock-time·clock-time-meridiem 정규식 끝에
+      선택적 `TZ_SUFFIX`(괄호 안 식별자꼴 IANA 토큰만; "(local time)"처럼 공백 있으면 미매치→로컬) 캡처를
+      붙이고, 공유 `resolveClockTime`가 유효 존이면 존 해석·아니면 기존 로컬 동작으로 폴백. **존 없는 메시지는
+      동작 불변**(하위호환). 새 스케줄러/어댑터 배선 0줄(파서 내부 완결). parser.test: 기존 NY 테스트를
+      로컬 17시가 아닌 21:00Z(EDT)로 정정 + 신규 케이스(겨울 EST 22:00Z·London 15:00 BST 14:00Z·(UTC)·
+      지난 시각 존 내 익일 롤·무효 존 로컬 폴백·"(local time)" 무시) + `isValidTimeZone`/`nextClockTimeInZone`
+      순수 유닛(여름/겨울 DST·익일 롤·월경계 롤·무효 존 null). 전체 pnpm build/test/lint 통과, 실제 빌드 CLI
+      `parse` e2e로 NY→21:00Z·London→14:00Z·무효 존→로컬 17:00Z·존 없음+TZ=NY→로컬 존 반영 확인.
+      branch `claude/wizardly-pascal-p47fwl`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
