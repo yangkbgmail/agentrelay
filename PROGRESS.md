@@ -2233,3 +2233,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 72 — 스케줄러 재개 명령 오버라이드(`run --resume-with`)로 세션 이어가기] (2026-08-17, 무인 자율 세션, branch `claude/wizardly-pascal-vc2gxo`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목이 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 89개+를 훑어 포화 영역(파서 변형·stats·`--watch`·어댑터·소규모 명령)을 피하고, 이 도구의
+  **핵심 가치**(감지→재개)에 직결되는 실제 갭을 발굴.
+- **발굴한 갭:** 스케줄러가 재개 시 원본 `command`를 **글자 그대로** 재실행한다. 그래서
+  `claude -p "리팩터 계속"`은 리셋마다 이전 세션을 잇지 못하고 **매번 새 대화로 시작**한다.
+  SPEC §4가 명시한 "가능하면 `--resume`/컨텍스트 유지 플래그 사용"이 미구현이었다.
+- **한 일 (branch `claude/wizardly-pascal-vc2gxo`):**
+  - core `types.ts`: `RelayJob`/`CreateJobInput`에 선택적 `resumeCommand?: string[] | null` 추가.
+    옵셔널이라 기존 스토어 무마이그레이션 로드.
+  - core `queue.ts` `enqueue`: 비어있지 않은 `resumeCommand`가 주어졌을 때만 저장(없으면 필드
+    부재 → 기존 스토어 shape 유지, 테스트 churn 최소화).
+  - core `scheduler.ts` `runCommand`: `job.resumeCommand`가 있으면 그걸로 spawn, 없으면 원본
+    `command`(기존 동작). 재개 windows가 여러 번이어도 매번 재개 명령 사용.
+  - core `command-line.ts` 신설: `tokenizeCommandLine` — `--resume-with "<문자열>"`을 셸 없이 argv로
+    토큰화(따옴표·백슬래시 인식, 미완결 따옴표/후행 백슬래시는 오류). index.ts에서 export.
+  - cli `run`에 `--resume-with <command>` 플래그 배선(토큰화 실패/빈 명령은 stderr+exit 1),
+    `commands.ts` `RunOptions.resumeCommand` 추가·enqueue 전달·큐 적재 메시지에 "On resume it will run: …".
+  - cli `show.ts`: `resumeCommand`가 있으면 상세 뷰에 `on resume` 라인 표시.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 647**[command-line 15·scheduler 23·queue 20 포함] · cli 358/1skip · dashboard 9).
+  **실제 빌드 CLI e2e**(mock 아님): 가짜 에이전트로 `run --resume-with "node agent.mjs --continue" -- node
+  agent.mjs first`가 rate-limit 감지·큐 적재→`show`가 `on resume` 표시→리셋 과거화 후 `tick`이 원본이
+  아닌 `--continue` 재개 명령을 실행(마커 파일로 확인)·잡 `completed` 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 어댑터별 기본
+  "continue" 플래그를 알아 `run --continue` 단축(툴 내부 플래그 검증 필요), 또는 대기 중 잡의
+  resumeCommand를 사후 편집하는 명령(`relabel` 패턴). 파서/stats/watch는 PR 포화라 지양.

@@ -50,6 +50,34 @@ describe("RelayQueue", () => {
     expect(job.lastRateLimit).toBeNull();
   });
 
+  it("omits resumeCommand when none (or an empty one) is supplied", () => {
+    const none = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    expect("resumeCommand" in none).toBe(false);
+
+    const empty = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude"],
+      resumeCommand: [],
+      cwd: "/tmp",
+    });
+    expect("resumeCommand" in empty).toBe(false);
+  });
+
+  it("persists a supplied resumeCommand and reloads it verbatim", () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "start"],
+      resumeCommand: ["claude", "--continue", "-p", "keep going"],
+      cwd: "/tmp",
+    });
+    expect(job.resumeCommand).toEqual(["claude", "--continue", "-p", "keep going"]);
+
+    const reloaded = queue.getById(job.id);
+    expect(reloaded?.resumeCommand).toEqual(["claude", "--continue", "-p", "keep going"]);
+  });
+
   it("persists rate-limit detection provenance when parking a job", () => {
     const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
     const resetAt = new Date(Date.now() + 60_000).toISOString();

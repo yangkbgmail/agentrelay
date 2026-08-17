@@ -37,6 +37,16 @@ export interface RelayJob {
   tool: AgentTool;
   /** The original command that got rate-limited, e.g. ["claude", "-p", "continue the refactor"] */
   command: string[];
+  /**
+   * Optional override command the scheduler runs *on resume* instead of
+   * {@link command}. The point: re-running the original verbatim starts a fresh
+   * agent session, losing the in-flight context. Users who want the relay to
+   * *continue* the previous session pass the tool's continue form here (e.g.
+   * `["claude", "--continue", "-p", "keep going"]`). Optional so stores written
+   * before this field existed load without migration; `undefined`/`null`/empty
+   * means "resume with the original command", the historical behaviour.
+   */
+  resumeCommand?: string[] | null;
   /** Working directory the command should run in. */
   cwd: string;
   status: JobStatus;
@@ -59,6 +69,11 @@ export interface CreateJobInput {
   project: string;
   tool: AgentTool;
   command: string[];
+  /**
+   * Optional override command run on resume instead of {@link command}. See
+   * {@link RelayJob.resumeCommand}. Omitted/empty keeps the original command.
+   */
+  resumeCommand?: string[] | null;
   cwd: string;
 }
 

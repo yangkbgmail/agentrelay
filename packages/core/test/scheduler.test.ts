@@ -502,4 +502,101 @@ describe("RelayScheduler", () => {
     expect(results.map((j) => j.project)).toEqual(dueOrder);
     expect(results.every((j) => j.status === "completed")).toBe(true);
   });
+
+  it("spawns the job's resumeCommand on resume instead of the original command", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "start the refactor"],
+      resumeCommand: ["claude", "--continue", "-p", "keep going"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const spawned: string[][] = [];
+    const spawnFn: SpawnFn = (command) => {
+      spawned.push(command);
+      const emitter = new EventEmitter() as any;
+      emitter.stdout = new EventEmitter();
+      emitter.stderr = new EventEmitter();
+      setTimeout(() => {
+        emitter.stdout.emit("data", Buffer.from("all done"));
+        emitter.emit("close", 0);
+      }, 0);
+      return emitter;
+    };
+
+    const scheduler = new RelayScheduler({ queue, spawnFn });
+    const results = await scheduler.tick();
+
+    expect(spawned).toEqual([["claude", "--continue", "-p", "keep going"]]);
+    expect(results[0].status).toBe("completed");
+  });
+
+  it("falls back to the original command when resumeCommand is empty", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      resumeCommand: [],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const spawned: string[][] = [];
+    const spawnFn: SpawnFn = (command) => {
+      spawned.push(command);
+      const emitter = new EventEmitter() as any;
+      emitter.stdout = new EventEmitter();
+      emitter.stderr = new EventEmitter();
+      setTimeout(() => {
+        emitter.emit("close", 0);
+      }, 0);
+      return emitter;
+    };
+
+    const scheduler = new RelayScheduler({ queue, spawnFn });
+    await scheduler.tick();
+
+    expect(spawned).toEqual([["claude", "-p", "continue"]]);
+  });
+
+  it("re-runs the resumeCommand across multiple resume windows", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "first"],
+      resumeCommand: ["claude", "--continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const spawned: string[][] = [];
+    // First resume hits the limit again (re-queued), second resume completes.
+    let call = 0;
+    const spawnFn: SpawnFn = (command) => {
+      spawned.push(command);
+      const nth = call++;
+      const emitter = new EventEmitter() as any;
+      emitter.stdout = new EventEmitter();
+      emitter.stderr = new EventEmitter();
+      setTimeout(() => {
+        emitter.stdout.emit("data", Buffer.from(nth === 0 ? "Usage limit reached. Resets in 2h." : "done"));
+        emitter.emit("close", nth === 0 ? 1 : 0);
+      }, 0);
+      return emitter;
+    };
+
+    const scheduler = new RelayScheduler({ queue, spawnFn });
+    await scheduler.tick(); // resume 1 → re-queued
+    // Make it due again and tick a second time.
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+    const results = await scheduler.tick(); // resume 2 → completed
+
+    expect(spawned).toEqual([
+      ["claude", "--continue"],
+      ["claude", "--continue"],
+    ]);
+    expect(results[0].status).toBe("completed");
+  });
 });
