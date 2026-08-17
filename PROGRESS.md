@@ -2259,3 +2259,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `doctor` 먼-미래 리셋 검사(reset-horizon)] (2026-08-17, 무인 자율 세션, branch `claude/wizardly-pascal-7jdqx9`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 여전히 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치).
+  세션 72 "다음 할 일"이 명시적으로 제안한 인접 후속 — 파서 지평선 가드는 파스 *시점*에만 먼-미래
+  리셋을 드롭한다. 이미 스토어에 들어간 잡(가드 도입 전 큐잉·`AGENTRELAY_MAX_RESET_HORIZON=off`
+  상태 큐잉·타 머신 import/restore)은 여전히 수개월/수년 뒤로 파킹돼 조용히 재개 안 되는 무음 실패로
+  남는다. `doctor`가 큐를 재판정해 이를 노출하도록 검사를 추가(어떤 열린 PR에도 없는 신뢰성 갭).
+- **한 일 (branch `claude/wizardly-pascal-7jdqx9`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, {nowMs, horizonMs})` — 활성 잡(queued/
+    waiting_for_reset/resuming)만·`resetAt`이 `now+horizonMs` 초과인 것만, aheadMs 내림차순 worst-first.
+    종료 잡·resetAt 없음/파싱 불가·과거 리셋(이미 풀린 한도라 재개 안전)은 제외, 비양수 horizonMs는
+    "잣대 없음"=빈 결과. `FarFutureReset`/`ResetHorizonFacts`(horizonMs·guardEnabled·offenders) 타입 신설.
+  - `runDiagnostics`에 `reset-horizon` 검사 추가(node→store→store-writable→adapters→daemon→
+    **reset-horizon**→config→notify): offender 0개=ok, 있으면 warning(최악 잡 id·`~90d` 카운트다운 +
+    `cancel`/`retry` 힌트, 런타임 가드 비활성 시 `AGENTRELAY_MAX_RESET_HORIZON` 안내 추가).
+  - CLI `runDoctor`가 `maxResetHorizonMsFromEnv() ?? DEFAULT_MAX_RESET_HORIZON_MS`로 유효 지평선을 잡고
+    (가드 off여도 doctor는 잣대가 있어야 하므로 기본 8일 폴백) offender 수집, `guardEnabled`로 가드 기록.
+    기존 파서 가드 상수·env 헬퍼를 전부 재사용 — 새 파싱 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm format`+`pnpm ci:lint`(Biome 0에러)→
+  `pnpm test` 전 패키지 통과(**core 647 · cli 357/1skip · dashboard 9**; core doctor +8, cli doctor +3).
+  **실제 빌드 CLI e2e**(mock 아님): 90일 리셋 잡을 심어 기본 8d 지평선→warning(worst id·`~90d`),
+  `AGENTRELAY_MAX_RESET_HORIZON=off`→여전히 warning+가드 비활성 안내, `=400d`→ok(90d<400d) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도 먼-미래
+  리셋 잡 배지 노출(세션 31 하트비트 카드 옆), 또는 `status`/`next`에 "suspicious reset" 플래그.
+  stats 분산/watch·epoch ms·README/ARCHITECTURE(🧭 코워크)는 지양/타 소유.

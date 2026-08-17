@@ -870,6 +870,24 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay doctor` 먼-미래 리셋 검사(reset-horizon) — 세션 72 파서 지평선 가드의 후속.
+      가드는 파스 *시점*에 먼-미래 리셋을 드롭하지만, 이미 스토어에 들어간 잡(가드 도입 전 큐잉·
+      `AGENTRELAY_MAX_RESET_HORIZON=off`로 비활성 상태에서 큐잉·다른 머신에서 import/restore)은 여전히
+      수개월/수년 뒤로 파킹돼 조용히 재개 안 될 수 있다. `doctor`가 큐를 스캔해 이 잡을 경고로 노출.
+      (완료 — `@agentrelay/core/doctor.ts`에 순수 `selectFarFutureResets(jobs, {nowMs, horizonMs})`
+      (활성 잡만·resetAt이 `now+horizonMs` 초과인 것만, aheadMs 내림차순 worst-first; 종료 잡·resetAt
+      없음·파싱 불가·과거 리셋은 제외; 비양수 horizonMs는 "잣대 없음"=빈 결과) + `FarFutureReset`/
+      `ResetHorizonFacts`(horizonMs·guardEnabled·offenders) 타입 신설. `runDiagnostics`에 `reset-horizon`
+      검사 추가(node→store→store-writable→adapters→daemon→**reset-horizon**→config→notify): offender 0개=ok,
+      있으면 warning(최악 잡 id·`~90d` 카운트다운 표기 + `cancel`/`retry` 힌트, 런타임 가드 비활성 시
+      `AGENTRELAY_MAX_RESET_HORIZON` 안내 추가). CLI `runDoctor`가 `maxResetHorizonMsFromEnv() ??
+      DEFAULT_MAX_RESET_HORIZON_MS`로 유효 지평선을 잡고(가드 off여도 doctor는 잣대가 있어야 하므로 기본
+      8일 폴백) `selectFarFutureResets`로 offender 수집, `guardEnabled`로 가드 on/off 기록. 기존 파서
+      가드 상수·env 헬퍼 전부 재사용 — 새 파싱 로직 0줄. core doctor +8(selectFarFutureResets 5 + check 3),
+      cli doctor +3(far-future warning·near-term ok·guard-off hint) 신규 테스트. 실제 빌드 CLI e2e로
+      90일 리셋을 심어 기본 8d→warning·`off`도 warning+가드 안내·400d 지평선→ok 확인.
+      branch `claude/wizardly-pascal-7jdqx9`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -143,6 +143,58 @@ describe("runDoctor", () => {
     expect(report.ok).toBe(true);
   });
 
+  it("warns when an active job is parked on a far-future reset", () => {
+    const nowMs = Date.parse("2026-08-17T00:00:00.000Z");
+    const farReset = new Date(nowMs + 90 * 24 * 60 * 60_000).toISOString(); // 90 days out
+    const queue = new RelayQueue(storePath);
+    const jobRec = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(jobRec.id, farReset);
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { PATH: dir, AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs,
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain(jobRec.id);
+  });
+
+  it("reports reset-horizon OK for a near-term reset", () => {
+    const nowMs = Date.parse("2026-08-17T00:00:00.000Z");
+    const soon = new Date(nowMs + 2 * 60 * 60_000).toISOString(); // 2h out
+    const queue = new RelayQueue(storePath);
+    const jobRec = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(jobRec.id, soon);
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: { PATH: dir }, nodeVersion: "v22.5.0", nowMs });
+    expect(find(report, "reset-horizon").level).toBe("ok");
+  });
+
+  it("notes the disabled guard in the reset-horizon hint", () => {
+    const nowMs = Date.parse("2026-08-17T00:00:00.000Z");
+    const farReset = new Date(nowMs + 90 * 24 * 60 * 60_000).toISOString();
+    const queue = new RelayQueue(storePath);
+    const jobRec = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(jobRec.id, farReset);
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { PATH: dir, AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+      nowMs,
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.hint).toContain("AGENTRELAY_MAX_RESET_HORIZON");
+  });
+
   it("reports store-writable OK for a writable store directory", () => {
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
     const writable = find(report, "store-writable");
