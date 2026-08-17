@@ -97,6 +97,53 @@ describe("RelayScheduler", () => {
     expect(results[0].resetAt).not.toBeNull();
   });
 
+  it("does not stagger the re-queued reset by default (resumeJitterMs unset)", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({ "claude -p continue": "Usage limit reached again. Resets in 2h." }),
+      rng: () => 1, // would move the reset if jitter were consulted
+    });
+
+    const [result] = await scheduler.tick();
+    expect(result.status).toBe("waiting_for_reset");
+    // Scheduled reset equals the raw parsed reset — no spread.
+    expect(result.resetAt).toBe(result.lastRateLimit?.resetAt);
+  });
+
+  it("staggers the re-queued reset by resumeJitterMs using the injected rng", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({ "claude -p continue": "Usage limit reached again. Resets in 2h." }),
+      resumeJitterMs: 60_000, // spread across a 60s window
+      rng: () => 1, // full jitter → +60s
+    });
+
+    const [result] = await scheduler.tick();
+    expect(result.status).toBe("waiting_for_reset");
+    const raw = result.lastRateLimit?.resetAt;
+    expect(raw).toBeTruthy();
+    // Detection metadata keeps the raw parsed reset; the *scheduled* resetAt is
+    // pushed forward by the full jitter window so a herd doesn't stampede.
+    expect(result.resetAt).not.toBe(raw);
+    expect(Date.parse(result.resetAt as string) - Date.parse(raw as string)).toBe(60_000);
+  });
+
   it("ignores an implausibly far-future reset on resume when a horizon is set", async () => {
     // A misparse (or an absurd wait) resolving 30 days out would otherwise park
     // the job a month. With the horizon guard, the far-future reset is dropped;

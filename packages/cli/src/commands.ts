@@ -58,6 +58,7 @@ import {
   isJobScopeActive,
   type JobCsvColumn,
   type JobScope,
+  jitterResetAt,
   type LocationReport,
   listBackups,
   loadConfigFile,
@@ -79,6 +80,7 @@ import {
   resolveConfigWritePath,
   resolveEffectiveConfig,
   resolveJobId,
+  resumeJitterMsFromEnv,
   retryPolicyFromEnv,
   runDiagnostics,
   SETTABLE_CONFIG_KEYS,
@@ -185,7 +187,11 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   const queue = openQueue(storePath);
   const project = resolveProjectName(cwd, options.project);
   const job = queue.enqueue({ project, tool, command: options.command, cwd });
-  queue.markWaitingForReset(job.id, rateLimit.resetAt, {
+  // Spread the scheduled resume so many concurrent `run`s sharing one reset
+  // window don't all resume at the same instant (see jitterResetAt). Metadata
+  // keeps the raw parsed reset for diagnostics.
+  const scheduledResetAt = jitterResetAt(rateLimit.resetAt, resumeJitterMsFromEnv(), Math.random);
+  queue.markWaitingForReset(job.id, scheduledResetAt, {
     pattern: rateLimit.pattern,
     rawMatch: rateLimit.rawMatch,
     resetAt: rateLimit.resetAt,
@@ -194,7 +200,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   queue.close();
 
   stdout.write(
-    `\n[agentrelay] Rate limit detected for ${adapter.displayName} (pattern: ${rateLimit.pattern}). Queued job ${job.id} to resume at ${rateLimit.resetAt}.\n` +
+    `\n[agentrelay] Rate limit detected for ${adapter.displayName} (pattern: ${rateLimit.pattern}). Queued job ${job.id} to resume at ${scheduledResetAt}.\n` +
       `Run "agentrelay daemon" (or schedule "agentrelay tick" via cron) to auto-resume it.\n`
   );
 
@@ -393,6 +399,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent,
     maxResetHorizonMs: maxResetHorizonMsFromEnv(),
+    resumeJitterMs: resumeJitterMsFromEnv(),
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
@@ -433,6 +440,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent: maxConcurrentFromEnv(),
     maxResetHorizonMs: maxResetHorizonMsFromEnv(),
+    resumeJitterMs: resumeJitterMsFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
   });
   const processed = await scheduler.tick();

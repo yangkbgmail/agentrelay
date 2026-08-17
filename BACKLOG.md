@@ -870,6 +870,25 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 스케줄러: rate-limit 리셋 재개 지터(resume jitter) — 같은 리셋 창을 공유한 잡들이 정확히
+      동시에 재개해 방금 기다린 한도를 즉시 재유발하는 "재개 herd(thundering herd)" 완화. 자기 발굴 항목 —
+      실패 백오프 지터(`AGENTRELAY_RETRY_JITTER`)는 이미 있으나 그건 *일시적 실패* 경로에만 적용되고,
+      rate-limit 재큐는 파싱된 리셋 시각을 그대로 스케줄해 지터가 전혀 없었다(200+ 열린 PR·`maxConcurrent`
+      병렬 캡 어디에도 시간 분산 없음).
+      (완료 — `@agentrelay/core/retry.ts`에 순수 `jitterResetAt(resetAtIso, jitterMs, rng?)` 추가 — 리셋
+      시각을 `[0, jitterMs]` 범위의 균일 랜덤량만큼 **앞이 아니라 뒤로만** 밀어(한도 풀리기 전 재개는
+      무의미) herd를 짧은 캐치업 창에 분산. `jitterMs<=0`·rng 미주입·파싱불가 문자열은 입력 그대로 반환
+      (기본 결정론·하위호환). `DEFAULT_RESUME_JITTER_MS`(0=비활성) + `resumeJitterMsFromEnv`
+      (`AGENTRELAY_RESUME_JITTER` 기간 파싱, 기존 `parseDuration` 재사용; 미설정·비양수·파싱불가=0). 백오프
+      지터(`computeBackoffMs`, ±jitter)와 별개 개념 — 이건 rate-limit *리셋* 분산. `RelayScheduler`에
+      `resumeJitterMs` 옵션 추가 → rate-limit 재큐 시 스케줄 resetAt만 지터하고 detection 메타의 `resetAt`은
+      **원본 파스값 유지**(진단은 실제 파싱값, 스케줄만 분산). CLI run/daemon/tick이 env로 배선(백오프 지터와
+      동일한 `rng` 공유, run은 `Math.random`). retry.test +9(jitterResetAt 경계·forward-only·파싱불가·
+      resumeJitterMsFromEnv 파싱/비활성) + scheduler.test +2(기본 무지터=resetAt이 파스값과 동일·지터 시
+      full window만큼 뒤로 밀리고 메타는 원본 유지). 실제 빌드 CLI e2e로 기본은 resetAt==파스값·
+      `AGENTRELAY_RESUME_JITTER=1h`면 [0,1h] 범위로 forward 분산·메타 원본 보존 확인. branch
+      `claude/wizardly-pascal-ni854b`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
