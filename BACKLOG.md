@@ -870,6 +870,25 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay doctor` 먼-미래 리셋 검사(reset-horizon) — 파서 지평선 가드(위 항목)의 후속.
+      가드는 *새* 미스파싱이 큐에 들어오는 걸 막지만, 가드 도입 *전*에 파킹됐거나 `AGENTRELAY_MAX_RESET_HORIZON=off`
+      상태에서 들어온, 또는 향후 슬쩍 빠져나간 미스파싱으로 이미 큐에 앉아 수일/수년 조용히 대기 중인
+      잡은 못 잡는다. doctor가 스토어에 이미 있는 그런 잡을 한 번에 진단.
+      (완료 — `@agentrelay/core/doctor.ts`에 순수 `selectFarFutureResets(jobs, {nowMs, horizonMs})` +
+      `FarFutureReset`/`ResetFacts` 타입 신설: `waiting_for_reset` 잡만 검사(그 상태만 resetAt이 라이브
+      대기 목표), `resetAt`이 `now+horizonMs` 초과면 far-future로 분리(경계는 포함), 파싱 불가·누락
+      resetAt은 스킵, far-future는 가장 가까운 리셋 먼저 정렬. 가드 비활성(horizonMs null/≤0/비유한)이면
+      no-op(사용자가 긴 리셋을 opt-in한 것이므로 경고=노이즈). `DiagnosticInput`에 `reset: ResetFacts`
+      추가, `runDiagnostics`에 `reset-horizon` 검사 배선(node→store→writable→adapters→daemon→**reset-horizon**
+      →config→notify): far-future 잡 있으면 warning(최악 오프렌더 잡 이름·짧은 id·~기간 표기 + `show`/
+      `retry`/`cancel` 힌트), 없으면 ok(within 개수 표기), 가드 off면 ok(비검사). CLI `runDoctor`가
+      `maxResetHorizonMsFromEnv(env)`로 파서와 동일 지평선 해소 + 단일 `nowMs`(주입 가능)로 하트비트와
+      클럭 통일해 `selectFarFutureResets` 호출. core doctor +11(selectFarFutureResets 7 + reset-horizon
+      검사 3 + 집계 카운트 1) + cli doctor +3(within=ok·far=warning·off=noop) 신규 테스트. 실제 빌드
+      CLI e2e로 30일 리셋 시드 → 기본 8d 지평선에서 "resumes in ~30d … they'll wait silently" warning +
+      `agentrelay show/retry <id>` 힌트, `AGENTRELAY_MAX_RESET_HORIZON=off`면 "guard disabled" no-op 확인.
+      branch `claude/wizardly-pascal-lm89ly`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

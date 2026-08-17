@@ -201,6 +201,61 @@ describe("runDoctor", () => {
       chmodSync(join(dir, "readonly"), 0o700);
     }
   });
+
+  it("reset-horizon OK when a waiting job's reset is within the horizon", () => {
+    const now = Date.parse("2026-08-17T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, new Date(now + 2 * 60 * 60_000).toISOString()); // 2h out
+    queue.close();
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs: now,
+    });
+    const reset = find(report, "reset-horizon");
+    expect(reset.level).toBe("ok");
+    expect(reset.message).toContain("1 waiting job(s) within it");
+  });
+
+  it("reset-horizon warns when a waiting job's reset is implausibly far out", () => {
+    const now = Date.parse("2026-08-17T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "deepwork", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, new Date(now + 30 * 24 * 60 * 60_000).toISOString()); // 30 days out
+    queue.close();
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs: now,
+    });
+    const reset = find(report, "reset-horizon");
+    expect(reset.level).toBe("warning");
+    expect(reset.message).toContain("deepwork");
+    expect(reset.hint).toContain("agentrelay show");
+  });
+
+  it("reset-horizon is a no-op OK when the horizon guard is disabled", () => {
+    const now = Date.parse("2026-08-17T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, new Date(now + 365 * 24 * 60 * 60_000).toISOString()); // a year out
+    queue.close();
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_SLACK_WEBHOOK: "https://s", AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+      nowMs: now,
+    });
+    const reset = find(report, "reset-horizon");
+    expect(reset.level).toBe("ok");
+    expect(reset.message).toContain("disabled");
+  });
 });
 
 describe("renderDoctor", () => {

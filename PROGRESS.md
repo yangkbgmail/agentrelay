@@ -2259,3 +2259,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay doctor` 먼-미래 리셋 검사(reset-horizon)] (2026-08-17, 무인 자율 세션, branch `claude/wizardly-pascal-lm89ly`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72(파서 리셋 지평선 가드)가 "다음 할 일"로 명시한 후속 후보 — "doctor에 큐 내 먼-미래 리셋 잡
+  경고 검사 추가"를 구현했다. 열린 PR 포화(stats 분산·watch·epoch ms 등)를 피해, 이 도구가 반복해
+  겨냥해온 "silent failure" 부류에 직결되고 어떤 열린 PR에도 없는 갭.
+- **발굴한 갭:** 세션 72의 파서 지평선 가드는 *새* 미스파싱 리셋이 큐에 들어오는 것만 막는다. 가드
+  도입 *전*에 파킹됐거나, `AGENTRELAY_MAX_RESET_HORIZON=off`로 들어왔거나, 향후 슬쩍 빠져나간
+  미스파싱으로 **이미 큐에 앉아 수일/수년 조용히 대기 중**인 잡은 못 잡는다. doctor에는 그걸 잡는
+  검사가 없었다.
+- **한 일 (branch `claude/wizardly-pascal-lm89ly`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, {nowMs, horizonMs})` + `FarFutureReset`/
+    `ResetFacts` 타입 신설. `waiting_for_reset` 잡만 검사(그 상태만 resetAt이 라이브 대기 목표),
+    `resetAt > now+horizonMs`면 far-future로 분리(경계 포함), 파싱 불가·누락 resetAt은 스킵,
+    far-future는 가장 가까운 리셋 먼저 정렬. 가드 비활성(horizonMs null/≤0/비유한)이면 no-op
+    (사용자가 긴 리셋을 opt-in한 것이라 경고=노이즈). `DiagnosticInput`에 `reset: ResetFacts` 추가,
+    `runDiagnostics`에 `reset-horizon` 검사 배선(node→store→writable→adapters→daemon→**reset-horizon**
+    →config→notify): far-future 잡 있으면 warning(최악 오프렌더 잡 이름·짧은 id·~기간 + `show`/
+    `retry`/`cancel` 힌트), 없으면 ok(within 개수), 가드 off면 ok(비검사).
+  - CLI `runDoctor`: `maxResetHorizonMsFromEnv(env)`로 파서와 **동일 지평선** 해소 + 단일 `nowMs`
+    (주입 가능)로 하트비트와 클럭 통일 후 `selectFarFutureResets` 호출해 `reset` 팩트 구성.
+    warning은 report.ok을 깨지 않음(다른 검사처럼).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 649 · cli 357/1skip · dashboard 9**; core doctor +11, cli doctor +3). **실제 빌드
+  CLI e2e**(mock 아님): 30일 뒤 리셋의 `waiting_for_reset` 잡 시드 → 기본 8d 지평선에서
+  "1 waiting job(s) … resumes in ~30d … they'll wait silently" warning + `agentrelay show/retry <shortid>`
+  힌트 렌더, `AGENTRELAY_MAX_RESET_HORIZON=off`면 "reset-horizon guard disabled — not checking" no-op 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에 동일
+  far-future 리셋 경고 노출(하트비트 카드 옆), 또는 `doctor`가 과거-쪽 극단(수년 전 epoch) misparse도
+  신호로 보고. stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
