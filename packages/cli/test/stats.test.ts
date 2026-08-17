@@ -258,6 +258,28 @@ describe("renderGroupedStats", () => {
     const out = renderGroupedStats(groupStats([job()], "tool"), "tool", { scopeNote: "status=completed" });
     expect(out).toContain("scope: status=completed");
   });
+
+  it("renders a per-rate-limit-pattern breakdown, bucketing detection-less jobs under (none)", () => {
+    const det = (pattern: string) => ({
+      pattern,
+      rawMatch: "raw",
+      resetAt: "2026-07-12T01:00:00.000Z",
+      detectedAt: "2026-07-12T00:00:00.000Z",
+    });
+    const jobs = [
+      job({
+        status: "completed",
+        lastRateLimit: det("relative-duration"),
+        createdAt: "2026-07-12T00:00:00.000Z",
+        updatedAt: "2026-07-12T02:00:00.000Z",
+      }),
+      job({ status: "completed" }), // no detection → (none)
+    ];
+    const out = renderGroupedStats(groupStats(jobs, "pattern"), "pattern");
+    expect(out).toContain("2 job(s) across 2 pattern(s)");
+    expect(out).toMatch(/relative-duration\s+1\s+100%\s+2h 0m/);
+    expect(out).toContain("(none)");
+  });
 });
 
 describe("renderGroupedStatsJson", () => {

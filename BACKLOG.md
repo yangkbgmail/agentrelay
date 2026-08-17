@@ -870,6 +870,19 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay stats --group-by pattern` — 릴레이 효과(성공률·해결 시간)를 잡을 파킹한
+      rate-limit 파서 패턴별로 나눠 비교. 자기 발굴 항목 — `stats --group-by`는 tool/project/status
+      세 축만 있었고, `agentrelay patterns`(카운트)로는 "어떤 rate-limit 포맷이 더 빨리 해결되나"를
+      알 수 없었다. 잡의 `lastRateLimit.pattern` 프로버넌스를 네 번째 group-by 차원으로 노출.
+      (완료 — core `stats.ts`의 `GroupDimension`에 `"pattern"` 추가 + `GROUP_DIMENSIONS` 배열 원소 +
+      `groupKeyOf` pattern 케이스(잡의 `lastRateLimit?.pattern`으로 버킷팅, 감지 없음·공백 이름은 새
+      `PATTERN_NONE_KEY = "(none)"` 센티널로 수렴 → 파티션이 전체 잡을 온전히 덮어 그룹 카운트 합=총계;
+      파서 패턴명은 kebab-case라 충돌 없음). CLI는 `--group-by` 검증·헬프·`renderGroupedStats(Json)`가
+      전부 `GROUP_DIMENSIONS` 기반 제네릭이라 신규 코드 0줄 — 옵션 목록·검증 문구·렌더 자동 갱신, 헬프
+      예시 1줄만 추가. core groupStats +2(pattern 그룹핑·(none) 버킷 파티션) + cli renderGroupedStats +1,
+      실제 빌드 CLI e2e로 pattern별 성공률·median resolve·`(none)` 버킷·`--json` groupBy·잘못된 차원
+      exit 1(`Valid: …, pattern`) 검증. branch `claude/wizardly-pascal-patterns`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
