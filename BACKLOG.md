@@ -28,6 +28,13 @@
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
+- [x] 👷 파서: `at` 없는 상태줄 리셋 표기(`resets 3pm` / `resets 3:30pm` / `resets 15:00` /
+      `resets 2026-07-13T05:00:00Z`) 인식. Claude Code 컴팩트 상태줄은 `at` 없이 리셋 시각을
+      찍는데, 기존 시계·ISO 패턴과 사전 필터가 모두 `at`/`in`을 요구해 이 문구가 `null`로
+      떨어져 감지 실패했음. iso-timestamp/clock-time/clock-time-meridiem 세 패턴에서 `at`을
+      옵션화(`(?:at\s+)?`)하고 사전 필터를 `resets?\s+(?:at|in|\d)`로 넓힘. 미리디엄/콜론이 없는
+      `resets 5`는 여전히 매치 안 됨(모호). 회귀 테스트 5케이스 추가. branch
+      `claude/wizardly-pascal-vinbbh`.
 - [x] 👷 Codex CLI 등 다른 에이전트 툴 어댑터.
       (완료 — `@agentrelay/core`에 `adapters.ts` 신설: `AgentAdapter` 인터페이스 +
       `CLAUDE_CODE_ADAPTER`/`CODEX_CLI_ADAPTER`/`GENERIC_ADAPTER` + `ADAPTERS` 레지스트리.

@@ -84,18 +84,22 @@ export interface RateLimitPattern {
 
 const PATTERNS: RateLimitPattern[] = [
   {
-    // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
+    // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps.
+    // The word "at" is optional: Claude Code's compact status line prints the
+    // reset without it ("resets 2026-07-13T05:00:00Z").
     name: "iso-timestamp",
-    regex: /reset[s]?\s+at\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/i,
+    regex: /reset[s]?\s+(?:at\s+)?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/i,
     resolve: (m) => {
       const d = new Date(m[1]);
       return Number.isNaN(d.getTime()) ? null : d;
     },
   },
   {
-    // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
+    // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if
+    // already past). "at" is optional — Claude Code's compact status line drops
+    // it ("resets 3:00pm" / "resets 15:00").
     name: "clock-time",
-    regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
+    regex: /reset[s]?\s+(?:at\s+)?(\d{1,2}):(\d{2})\s*(am|pm)?/i,
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       const minute = parseInt(m[2], 10);
@@ -119,8 +123,10 @@ const PATTERNS: RateLimitPattern[] = [
     // timezone in the message is ignored — the hour is interpreted in local
     // time, same known limitation as clock-time (a real reset is a future
     // instant, so rolling to tomorrow when already past keeps us safe).
+    // "at" is optional here too ("resets 5pm"): Claude Code's status line omits
+    // it. The required meridiem keeps a bare "resets 5" from matching.
     name: "clock-time-meridiem",
-    regex: /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b/i,
+    regex: /reset[s]?\s+(?:at\s+)?(\d{1,2})\s*(am|pm)\b/i,
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       if (hour > 12) return null; // 13pm etc. is not a valid 12-hour clock time
@@ -185,8 +191,12 @@ const PATTERNS: RateLimitPattern[] = [
   },
 ];
 
-/** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+/**
+ * Quick pre-filter so we don't run every regex on every line of noisy CLI
+ * output. `resets?\s+(?:at|in|\d)` admits the "at"-less status-line wording
+ * ("resets 3pm", "resets 2026-…") in addition to "resets at" / "resets in".
+ */
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(?:at|in|\d)|retry.?after)/i;
 
 function tryPattern(
   pattern: RateLimitPattern,

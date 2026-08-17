@@ -2259,3 +2259,13 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+- **2026-08-17** — 파서에서 `at` 없는 상태줄 리셋 표기(`resets 3pm`/`3:30pm`/`15:00`/ISO)를 인식하도록
+  개선. Claude Code 컴팩트 상태줄이 `at` 없이 리셋 시각을 찍는데 기존 패턴·사전 필터가 `at`/`in`을
+  요구해 감지 실패하던 케이스. iso-timestamp·clock-time·clock-time-meridiem 세 패턴에서 `at`
+  옵션화 + 사전 필터를 `resets?\s+(?:at|in|\d)`로 확장. 콜론/미리디엄 없는 `resets 5`는 여전히
+  비매치(모호). 회귀 5케이스 추가, core 644·cli 354·dashboard 9 전 테스트 통과 + demo 스모크 그린.
+  `agentrelay parse "…resets 3pm"`가 clock-time-meridiem으로 정상 감지 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — Claude Code가
+  찍는 다른 상태줄 변형(`resets in 3h 12m` 조합, 로컬 타임존 표기) 실측 수집(🧭 189와 연계),
+  `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가. README/ARCHITECTURE(🧭 코워크).

@@ -255,6 +255,50 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
   });
 
+  // --- "at"-less status-line wording ("resets 3pm") ---
+
+  it("parses the compact status-line wording 'resets 3pm' (meridiem, no 'at')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("5-hour limit reached ∙ resets 3pm", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getHours()).toBe(15);
+    expect(reset.getMinutes()).toBe(0);
+    expect(reset.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'resets 3:30pm' (minute-precise clock, no 'at')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached, resets 3:30pm", { now });
+    expect(result?.pattern).toBe("clock-time");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getHours()).toBe(15);
+    expect(reset.getMinutes()).toBe(30);
+  });
+
+  it("parses a 24-hour 'resets 15:00' without 'at'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("resets 15:00", { now });
+    expect(result?.pattern).toBe("clock-time");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getHours()).toBe(15);
+    expect(reset.getMinutes()).toBe(0);
+  });
+
+  it("parses an ISO reset without the word 'at' ('resets 2026-07-13T05:00:00Z')", () => {
+    const result = parseRateLimitMessage("Rate limit hit. Resets 2026-07-13T05:00:00Z.");
+    expect(result?.pattern).toBe("iso-timestamp");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("still returns null for a bare 'resets 5' (no colon, no meridiem)", () => {
+    // A lone number after "resets" is too ambiguous to be a clock time even
+    // without the "at" — must not be treated as a reset.
+    const result = parseRateLimitMessage("usage limit — resets 5 minutes from your last request");
+    // "5 minutes" has no colon/meridiem and no "in", so no clock/relative match.
+    expect(result).toBeNull();
+  });
+
   // --- reset-time plausibility guard (maxFutureMs) ---
 
   it("ignores an implausibly far-future reset when a horizon is set", () => {
