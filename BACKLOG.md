@@ -870,6 +870,25 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay metrics`(Prometheus) 해결 시간 전체 분포·퍼짐 + 다음 리셋 타임스탬프 게이지 노출 —
+      지금까지 `resolution_seconds`가 avg/min/median/p90/max만 내보내 `stats`가 이미 계산하는 꼬리
+      (p95/p99)·퍼짐(iqr/stdev/mad/cv)이 Grafana에서 안 보였고, "다음 재개까지 얼마 남았나"를 관측할
+      게이지가 없었다. 자기 발굴 항목 — `metrics.ts`에만 self-contained(파서·스케줄러·큐 미접촉)라 릴레이
+      루프 회귀 위험 0.
+      (완료 — core `metrics.ts`의 `renderPrometheusMetrics`가 `resolution_seconds{stat=…}` 패밀리를
+      전체 분포로 확장: 기존 avg/min/median/p90/max에 더해 `p25`/`p75`/`p95`/`p99`(꼬리)와 `iqr`/`stdev`/
+      `mad`(퍼짐 폭)를 초 단위로 방출(min→…→max→spread 순 정렬). 각 stat이 nullable이라 non-null 단언
+      대신 null을 거르는 `stat(label, ms)` 헬퍼로 샘플을 쌓아 하나라도 있을 때만 패밀리 방출 → resolved
+      0개면 기존처럼 미방출(하위호환). 무차원 CV는 초-typed 패밀리와 섞지 않도록 별도 `resolution_cv`
+      게이지로 분리(null[미해결·mean 0]이면 NaN 대신 생략). 새 `next_reset_timestamp_seconds` 게이지 —
+      `stats.nextResetAt`(대기 잡 중 가장 이른 리셋)을 `Date.parse`로 절대 epoch초로 방출(Prometheus
+      `*_timestamp_seconds` 관례, node_boot_time_seconds처럼), 스크레이퍼가 `metric - time()`으로
+      "다음 재개까지 초"를 계산. 절대 시각이라 render는 여전히 순수(ambient clock 미접촉), 대기 리셋 없음·
+      파싱 불가 타임스탬프면 생략. metrics.test +4(전체 분포/spread 존재·zero-span mean 0→cv 생략·
+      next_reset 절대 epoch·대기 리셋 없으면 생략). 실제 빌드 CLI `metrics` e2e로 spans{1h,9h}→min 3600·
+      max 32400·avg 18000·iqr/stdev/mad 14400·cv 0.8, 대기 잡 02:00/05:00 중 더 이른 02:00을
+      next_reset로 방출 확인. branch `claude/wizardly-pascal-metrics-spread`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

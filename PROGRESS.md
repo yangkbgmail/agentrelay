@@ -2259,3 +2259,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 — metrics 해결시간 전체 분포·다음 리셋 게이지] (2026-08-17, 무인 자율 세션)
+- **배경:** 세션 시작 시 미완료 👷 백로그 항목 0개(열린 항목 전부 🧭 코워크 소유), 열린 PR 30개 중
+  상당수가 중복(doctor reset-horizon 7개·parser pipe-epoch ms 5개 등). CLAUDE.md 지침대로 중복을 피해
+  **새 개선 항목을 발굴**했다 — Prometheus `metrics`가 `stats`는 이미 계산하는 해결시간 꼬리(p95/p99)·
+  퍼짐(iqr/stdev/mad/cv)을 노출하지 않고, "다음 재개까지 얼마 남았나"를 관측할 게이지도 없었다.
+  `metrics.ts`에만 self-contained(파서·스케줄러·큐 미접촉)라 릴레이 루프 회귀 위험 0인 순수 관측성 확장.
+- **한 일 (branch `claude/wizardly-pascal-metrics-spread`):**
+  - core `metrics.ts`: `resolution_seconds{stat=…}` 패밀리를 전체 분포로 확장 — 기존 avg/min/median/
+    p90/max에 `p25`/`p75`/`p95`/`p99`(꼬리)와 `iqr`/`stdev`/`mad`(퍼짐 폭)를 초 단위로 추가(min→…→max→
+    spread 순). 각 stat이 nullable이라 non-null 단언 대신 null을 거르는 `stat(label, ms)` 헬퍼로 샘플을
+    쌓아 하나라도 있을 때만 패밀리 방출 → resolved 0개면 기존처럼 미방출(하위호환 유지).
+  - 무차원 CV는 초-typed 패밀리와 섞지 않도록 별도 `resolution_cv` 게이지로 분리(null[미해결·mean 0]이면
+    NaN 대신 생략). 새 `next_reset_timestamp_seconds` 게이지 — `stats.nextResetAt`(대기 잡 중 가장 이른
+    리셋)을 `Date.parse`로 절대 epoch초 방출(Prometheus `*_timestamp_seconds` 관례; node_boot_time_seconds
+    처럼 절대 시각이라 render는 여전히 순수·ambient clock 미접촉), 스크레이퍼가 `metric - time()`으로
+    "다음 재개까지 초"를 계산. 대기 리셋 없음·파싱 불가면 생략.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 643 · cli 354/1skip · dashboard 9**; metrics.test +4: 전체 분포·spread 존재/zero-span
+  mean 0→cv 생략/next_reset 절대 epoch/대기 리셋 없으면 생략). **실제 빌드 CLI `metrics` e2e**(mock 아님):
+  spans{1h,9h}→`min 3600`·`max 32400`·`avg 18000`·`iqr/stdev/mad 14400`·`cv 0.8`, 대기 잡 02:00/05:00
+  중 더 이른 02:00을 `next_reset_timestamp_seconds 1783908000`으로 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — metrics에 큐 ETA
+  게이지(`queue_eta_seconds`, eta.ts 재사용)나 프로젝트별 라벨 게이지. 파서/doctor reset-horizon·epoch ms·
+  stats 히스토그램은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

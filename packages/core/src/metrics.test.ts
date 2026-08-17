@@ -120,6 +120,56 @@ describe("renderPrometheusMetrics", () => {
     expect(s.get('agentrelay_resolution_seconds{stat="p90"}')).toBe(60);
   });
 
+  it("exposes the full resolution distribution and spread widths", () => {
+    // Three jobs with spans of 1h, 3h and 9h → percentiles and spread are all
+    // defined (in seconds: 3600, 10800, 32400).
+    const jobs = [
+      job({ createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T01:00:00.000Z" }),
+      job({ createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T03:00:00.000Z" }),
+      job({ createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T09:00:00.000Z" }),
+    ];
+    const text = renderPrometheusMetrics(computeStats(jobs));
+    const s = parseSamples(text);
+    expect(s.get('agentrelay_resolution_seconds{stat="min"}')).toBe(3600);
+    expect(s.get('agentrelay_resolution_seconds{stat="median"}')).toBe(10800);
+    expect(s.get('agentrelay_resolution_seconds{stat="max"}')).toBe(32400);
+    // Every distribution + spread stat is present when jobs resolved.
+    for (const st of ["p25", "avg", "p75", "p90", "p95", "p99", "iqr", "stdev", "mad"]) {
+      expect(s.has(`agentrelay_resolution_seconds{stat="${st}"}`)).toBe(true);
+    }
+    // CV lives in its own dimensionless family.
+    expect(s.has("agentrelay_resolution_cv")).toBe(true);
+  });
+
+  it("omits resolution_cv when the mean resolution is 0 (all zero-span)", () => {
+    // Two same-instant (zero-span) resolutions → mean 0 → CV undefined (null).
+    const jobs = [
+      job({ createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" }),
+      job({ createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" }),
+    ];
+    const text = renderPrometheusMetrics(computeStats(jobs));
+    // resolution_seconds is still emitted (spans are valid, just zero)…
+    expect(text).toContain("agentrelay_resolution_seconds");
+    // …but CV is omitted rather than emitting NaN.
+    expect(text).not.toContain("agentrelay_resolution_cv");
+  });
+
+  it("emits next_reset_timestamp_seconds as absolute epoch seconds for the soonest reset", () => {
+    const resetAt = "2026-07-13T02:00:00.000Z";
+    const expectedEpoch = Date.parse(resetAt) / 1000; // 1_784_685_600
+    const jobs = [
+      job({ status: "waiting_for_reset", resetAt: "2026-07-13T05:00:00.000Z" }),
+      job({ status: "waiting_for_reset", resetAt }),
+    ];
+    const s = parseSamples(renderPrometheusMetrics(computeStats(jobs)));
+    expect(s.get("agentrelay_next_reset_timestamp_seconds")).toBe(expectedEpoch);
+  });
+
+  it("omits next_reset_timestamp_seconds when no job is waiting on a reset", () => {
+    const text = renderPrometheusMetrics(computeStats([job({ status: "completed" })]));
+    expect(text).not.toContain("agentrelay_next_reset_timestamp_seconds");
+  });
+
   it("honors a custom prefix and sanitizes it", () => {
     const text = renderPrometheusMetrics(computeStats([job()]), { prefix: "my-relay" });
     expect(text).toContain("my_relay_jobs ");
