@@ -2259,3 +2259,25 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay config schema` (JSON Schema 출력)] (2026-08-17, 무인 자율 세션, branch `claude/wizardly-pascal-ywwkk0`)
+- **배경:** 세션 시작 시 열린 PR 50개+가 파서·doctor·stats 하위플래그·어댑터 등을 이미 포화 점유(다수
+  중복). 이를 피해 CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다 — config 생태계(init/validate/show/
+  get/set/unset)에 있던 마지막 빈칸인 스키마 출력. 설정을 손으로 고치는 사용자에게 에디터 자동완성·
+  타입검증·툴팁을 제공하는 순수 DX 개선이라 파서/스케줄러 미접촉으로 회귀 위험 최소.
+- **한 일:** core `config.ts`에 순수 `configJsonSchema()`/`configJsonSchemaJson()` — 기존 `CONFIG_FIELDS`
+  (단일 진실원본)에서 draft-07 스키마 파생(드리프트 0). `store` top-level + `notify`/`retry`/`autoPrune`
+  중첩 object, 필드 type 매핑(duration은 `CONFIG_DURATION_PATTERN`=parseDuration 문법 정규식 부착),
+  `CONFIG_FIELD_DESCRIPTIONS`(테스트가 CONFIG_FIELDS와 동기화 강제)+`envKeyForConfigKey`로 각 description에
+  매핑 env var 노출. `additionalProperties` 미설정(permissive) — parseConfig 전방호환과 일치, `$schema`
+  이스케이프 해치 property 포함. CLI `commands.ts` `writeConfigSchema({outPath,cwd})` + `cli.ts`
+  `config schema [-o/--out]`(파일 출력 시 상태는 stderr, 실패 exit 1, addHelpText 예시).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 645 · cli 356/1skip · dashboard 9**; core config.test +6, cli commands.test +2). **실제 빌드
+  CLI e2e**(mock 아님): `config schema`가 draft-07 shape·duration pattern·env var description을 출력,
+  `-o`가 부모 디렉터리 생성+trailing newline으로 파일 쓰고 stdout 청정, `$schema` 키를 넣은 config가
+  `config validate` 통과(전방호환), `config --help`에 schema 서브커맨드 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 스키마에
+  `examples`/`default` 주입, `config init`이 `$schema` 키를 자동 삽입, VS Code용 `.vscode/settings.json`
+  `json.schemas` 매핑 안내 문서. README/ARCHITECTURE(🧭 코워크). 열린 PR 포화 상태이므로 파서/doctor/stats
+  하위플래그류 신규는 지양.

@@ -5,8 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   type AgentRelayConfig,
   applyConfigToEnv,
+  CONFIG_DURATION_PATTERN,
   CONFIG_ENV_KEYS,
+  CONFIG_FIELD_DESCRIPTIONS,
   CONFIG_FIELDS,
+  configJsonSchema,
+  configJsonSchemaJson,
   configToEnv,
   configToJson,
   envKeyForConfigKey,
@@ -164,6 +168,69 @@ describe("sampleConfig", () => {
     expect(json.endsWith("\n")).toBe(true);
     expect(json).toContain("\n  "); // 2-space indented
     expect(JSON.parse(json)).toEqual(sampleConfig());
+  });
+});
+
+describe("configJsonSchema", () => {
+  it("keeps CONFIG_FIELD_DESCRIPTIONS in sync with CONFIG_FIELDS (no drift)", () => {
+    const fieldKeys = CONFIG_FIELDS.map((f) => f.key).sort();
+    const descKeys = Object.keys(CONFIG_FIELD_DESCRIPTIONS).sort();
+    expect(descKeys).toEqual(fieldKeys);
+  });
+
+  it("is a draft-07 object schema with the top-level shape", () => {
+    const schema = configJsonSchema();
+    expect(schema.$schema).toBe("http://json-schema.org/draft-07/schema#");
+    expect(schema.type).toBe("object");
+    const props = schema.properties as Record<string, { type?: string }>;
+    // Top-level: the $schema escape hatch, the flat `store`, and the three groups.
+    expect(props.$schema.type).toBe("string");
+    expect(props.store.type).toBe("string");
+    for (const group of ["notify", "retry", "autoPrune"]) {
+      expect(props[group].type).toBe("object");
+    }
+  });
+
+  it("nests each grouped field under its group with the right JSON type", () => {
+    const props = configJsonSchema().properties as Record<
+      string,
+      { properties?: Record<string, { type?: string; pattern?: string }> }
+    >;
+    expect(props.retry.properties?.maxAttempts.type).toBe("number");
+    expect(props.retry.properties?.jitter.type).toBe("number");
+    expect(props.autoPrune.properties?.enabled.type).toBe("boolean");
+    // Durations are strings carrying the duration-grammar pattern.
+    expect(props.autoPrune.properties?.after.type).toBe("string");
+    expect(props.autoPrune.properties?.after.pattern).toBe(CONFIG_DURATION_PATTERN);
+    expect(props.notify.properties?.slackWebhook.type).toBe("string");
+  });
+
+  it("surfaces the mapped AGENTRELAY_* env var in each field description", () => {
+    const props = configJsonSchema().properties as Record<
+      string,
+      { description?: string; properties?: Record<string, { description?: string }> }
+    >;
+    expect(props.store.description).toContain("AGENTRELAY_STORE");
+    expect(props.retry.properties?.maxAttempts.description).toContain("AGENTRELAY_MAX_ATTEMPTS");
+  });
+
+  it("has a duration pattern that accepts sampleConfig durations and rejects junk", () => {
+    const re = new RegExp(CONFIG_DURATION_PATTERN);
+    const sample = sampleConfig();
+    expect(re.test(sample.autoPrune?.after as string)).toBe(true); // "7d"
+    expect(re.test(sample.autoPrune?.every as string)).toBe(true); // "1h"
+    expect(re.test("500ms")).toBe(true);
+    expect(re.test("2.5h")).toBe(true);
+    expect(re.test("7 weeks")).toBe(false);
+    expect(re.test("soon")).toBe(false);
+    expect(re.test("")).toBe(false);
+  });
+
+  it("renders pretty JSON with a trailing newline that parses back to the schema", () => {
+    const json = configJsonSchemaJson();
+    expect(json.endsWith("\n")).toBe(true);
+    expect(json).toContain("\n  "); // 2-space indented
+    expect(JSON.parse(json)).toEqual(configJsonSchema());
   });
 });
 

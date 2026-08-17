@@ -870,6 +870,26 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay config schema` — `agentrelay.config.json`의 JSON Schema(draft-07) 출력.
+      에디터 자동완성·타입검증·인라인 문서(툴팁)를 손 편집 중에 제공. 자기 발굴 항목 — config
+      생태계(init/validate/show/get/set/unset)에 있던 마지막 빈칸이자, 설정을 손으로 고치는 사용자를
+      위한 순수 DX 개선(파서/스케줄러 미접촉이라 회귀 위험 최소).
+      (완료 — core `config.ts`에 순수 `configJsonSchema()`/`configJsonSchemaJson()` 신설: 기존
+      `CONFIG_FIELDS`(단일 진실원본)에서 draft-07 스키마를 파생 — 그래서 CLI가 실제로 읽는 설정과
+      절대 드리프트 안 함. `store`는 top-level, `notify`/`retry`/`autoPrune`는 중첩 object로 그룹핑,
+      각 필드 type 매핑(string/number/boolean; duration은 `CONFIG_DURATION_PATTERN`=parseDuration
+      문법과 동일한 정규식 pattern 부착). `CONFIG_FIELD_DESCRIPTIONS`(필드별 한 줄 설명, 테스트가
+      CONFIG_FIELDS와 동기화 강제)와 `envKeyForConfigKey` 재사용으로 각 description에 매핑 env var
+      노출 → 에디터 툴팁이 자기설명적. `additionalProperties`는 의도적으로 미설정(permissive) —
+      `parseConfig`의 미지-키 관용(전방호환)과 일치, `$schema` 이스케이프 해치 property도 포함해
+      설정에 `"$schema": "..."`를 넣어도 자기 참조를 이상키로 안 잡음. CLI `commands.ts`에
+      `writeConfigSchema({outPath,cwd})`(파일 쓰기 시 부모 디렉터리 생성·trailing newline, 아니면
+      stdout용 content 반환), `cli.ts` `config schema [-o/--out <file>]` 배선(파일 출력 시 상태는
+      stderr로 stdout 청정, 쓰기 실패는 exit 1, addHelpText 예시 3줄). 새 파서/스케줄러 로직 0줄.
+      core config +6 + cli commands +2 신규 테스트, 실제 빌드 CLI e2e로 draft-07 shape·duration
+      pattern·env var description·`--out` 파일 쓰기·`$schema` 키 든 설정의 validate 통과·help 노출
+      검증. branch `claude/wizardly-pascal-ywwkk0`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

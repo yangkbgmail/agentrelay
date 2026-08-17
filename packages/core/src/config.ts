@@ -156,6 +156,126 @@ export function findConfigField(key: string): ConfigField | undefined {
 }
 
 /**
+ * ECMA regex (JSON Schema `pattern`) matching the duration grammar that
+ * {@link parseDuration} accepts (`7d`, `24h`, `30m`, `90s`, `500ms`, optional
+ * decimal + surrounding whitespace). The unit alternation is spelled out with
+ * character classes because JSON Schema patterns can't carry a case-insensitive
+ * flag, and `ms` must be tried before the single-letter units.
+ */
+export const CONFIG_DURATION_PATTERN = "^\\s*\\d+(?:\\.\\d+)?\\s*(?:[mM][sS]|[sSmMhHdD])\\s*$";
+
+/**
+ * One-line human descriptions for each settable field, keyed by dotted path.
+ * Surfaced as JSON Schema `description`s so editors show a tooltip. Kept in sync
+ * with {@link CONFIG_FIELDS} by a test (every field key must have an entry and
+ * vice-versa), so this never drifts from the real config shape.
+ */
+export const CONFIG_FIELD_DESCRIPTIONS: Record<string, string> = {
+  store: "Job store path (JSON file).",
+  "notify.slackWebhook": "Slack incoming-webhook URL for notifications.",
+  "notify.webhookUrl": "Generic webhook endpoint for notifications.",
+  "notify.webhookAuth": "Value sent as the webhook Authorization header.",
+  "retry.maxAttempts": "Maximum resume attempts per job (0 = unlimited).",
+  "retry.baseDelayMs": "Base backoff delay in milliseconds.",
+  "retry.factor": "Exponential backoff multiplier (>= 1).",
+  "retry.maxDelayMs": "Backoff delay cap in milliseconds.",
+  "retry.jitter": "Backoff jitter fraction in [0, 1].",
+  "autoPrune.enabled": "Opt in to daemon auto-prune of finished jobs.",
+  "autoPrune.after": "Age threshold before a finished job becomes prunable.",
+  "autoPrune.keep": "Always keep the N most-recent finished jobs.",
+  "autoPrune.every": "Minimum wall-clock interval between prune passes.",
+  "autoPrune.everyTicks": "Minimum daemon ticks between prune passes.",
+};
+
+/** Description for each nested config group object in the generated schema. */
+const CONFIG_GROUP_DESCRIPTIONS: Record<ConfigGroup, string> = {
+  store: "Job store location.",
+  notify: "Notification channels (Slack / generic webhook).",
+  retry: "Retry / exponential-backoff policy for failed resumes.",
+  autoPrune: "Daemon auto-prune settings for the job store.",
+};
+
+/** Builds the JSON Schema fragment for a single settable field. */
+function fieldSchema(field: ConfigField): Record<string, unknown> {
+  const human = CONFIG_FIELD_DESCRIPTIONS[field.key] ?? "";
+  const envKey = envKeyForConfigKey(field.key);
+  const mapsTo = envKey ? ` Maps to ${envKey}.` : "";
+  switch (field.type) {
+    case "number":
+      return { type: "number", description: `${human}${mapsTo}`.trim() };
+    case "boolean":
+      return { type: "boolean", description: `${human}${mapsTo}`.trim() };
+    case "duration":
+      return {
+        type: "string",
+        pattern: CONFIG_DURATION_PATTERN,
+        description: `${human} Duration like "7d"/"24h"/"30m"/"90s"/"500ms".${mapsTo}`.trim(),
+      };
+    default:
+      return { type: "string", description: `${human}${mapsTo}`.trim() };
+  }
+}
+
+/**
+ * Generates a JSON Schema (draft-07) for `agentrelay.config.json`, derived
+ * entirely from {@link CONFIG_FIELDS} so it can never drift from the config the
+ * CLI actually reads. Point an editor at it (via a `$schema` key or a
+ * `json.schemas` mapping) to get autocomplete, type-checking and inline docs
+ * while hand-editing the file.
+ *
+ * Unknown keys are intentionally *not* rejected (`additionalProperties` is left
+ * unset), mirroring {@link parseConfig}'s forward-compatible tolerance of keys
+ * it doesn't recognise.
+ */
+export function configJsonSchema(): Record<string, unknown> {
+  const properties: Record<string, unknown> = {
+    // Let users add `"$schema": "./agentrelay.config.schema.json"` without the
+    // schema flagging its own reference key as unexpected.
+    $schema: {
+      type: "string",
+      description: "Optional path or URL of this JSON Schema, for editor validation.",
+    },
+  };
+  const groups = new Map<ConfigGroup, { type: string; description: string; properties: Record<string, unknown> }>();
+
+  for (const field of CONFIG_FIELDS) {
+    const segments = field.key.split(".");
+    const leaf = fieldSchema(field);
+    if (segments.length === 1) {
+      properties[segments[0]] = leaf;
+      continue;
+    }
+    const [group, key] = segments;
+    let obj = groups.get(group as ConfigGroup);
+    if (!obj) {
+      obj = { type: "object", description: CONFIG_GROUP_DESCRIPTIONS[group as ConfigGroup] ?? "", properties: {} };
+      groups.set(group as ConfigGroup, obj);
+      properties[group] = obj;
+    }
+    obj.properties[key] = leaf;
+  }
+
+  return {
+    $schema: "http://json-schema.org/draft-07/schema#",
+    $id: "https://raw.githubusercontent.com/yangkbgmail/agentrelay/main/agentrelay.config.schema.json",
+    title: "AgentRelay configuration",
+    description:
+      "Schema for agentrelay.config.json. Every field is optional and maps onto an AGENTRELAY_* " +
+      "environment variable; an explicit env var still overrides the file. Unknown keys are ignored.",
+    type: "object",
+    properties,
+  };
+}
+
+/**
+ * {@link configJsonSchema} rendered as pretty-printed JSON with a trailing
+ * newline — ready to write to a `.schema.json` file or pipe elsewhere.
+ */
+export function configJsonSchemaJson(): string {
+  return `${JSON.stringify(configJsonSchema(), null, 2)}\n`;
+}
+
+/**
  * Maps a dotted config key (`retry.maxAttempts`) to the `AGENTRELAY_*` env var
  * it projects onto, or `undefined` when the key is unknown. {@link CONFIG_FIELDS}
  * and {@link CONFIG_ENV_KEYS} are maintained index-aligned (a test asserts it),

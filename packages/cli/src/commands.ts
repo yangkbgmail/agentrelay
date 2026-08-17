@@ -37,6 +37,7 @@ import {
   type ConfigValueSource,
   canCancel,
   canRequeue,
+  configJsonSchemaJson,
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
@@ -726,6 +727,38 @@ export function initConfig(options: ConfigInitOptions = {}): ConfigInitResult {
 
   const verb = options.force ? "Overwrote" : "Wrote";
   return { ok: true, path, message: `${verb} sample config to ${path}. Edit it, then run any command.` };
+}
+
+export interface ConfigSchemaOptions {
+  /** Write to this file instead of returning the content for stdout. */
+  outPath?: string;
+  cwd?: string;
+}
+
+export interface ConfigSchemaResult {
+  /** The schema JSON (always populated, even when also written to a file). */
+  content: string;
+  /** Absolute path written, when `outPath` was given; else `null` (stdout). */
+  writtenTo: string | null;
+}
+
+/**
+ * Produces the JSON Schema for `agentrelay.config.json` (from core, so it never
+ * drifts from the real config shape). With `outPath`, writes it to that file
+ * (creating parent directories, trailing newline included) for referencing via
+ * a `$schema` key or an editor's `json.schemas` mapping; otherwise the caller
+ * prints `content` to stdout.
+ */
+export function writeConfigSchema(options: ConfigSchemaOptions = {}): ConfigSchemaResult {
+  const content = configJsonSchemaJson();
+  if (!options.outPath) {
+    return { content, writtenTo: null };
+  }
+  const cwd = options.cwd ?? process.cwd();
+  const path = resolve(cwd, options.outPath);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, content, "utf8");
+  return { content, writtenTo: path };
 }
 
 export interface ConfigValidateOptions {
