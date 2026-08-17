@@ -3,7 +3,13 @@ import { resolveAdapter } from "./adapters.js";
 import { mapWithConcurrency, normalizeMaxConcurrent } from "./concurrency.js";
 import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
 import type { RelayQueue } from "./queue.js";
-import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
+import {
+  computeBackoffMs,
+  DEFAULT_RESUME_JITTER_MS,
+  DEFAULT_RETRY_POLICY,
+  isRetryExhausted,
+  jitterResetAt,
+} from "./retry.js";
 import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
 
 export type Notifier = (payload: NotifyPayload) => void | Promise<void>;
@@ -71,6 +77,16 @@ export interface SchedulerOptions {
    * {@link maxResetHorizonMsFromEnv}.
    */
   maxResetHorizonMs?: number | null;
+  /**
+   * Spread (ms) added to a rate-limit reset time before re-queuing, so jobs
+   * sharing one reset window don't all resume at the exact same instant and
+   * re-trip the limit (a "resume herd"). Each re-queue is delayed by a uniform
+   * random amount in `[0, resumeJitterMs]` *after* the parsed reset — see
+   * {@link jitterResetAt}. Defaults to {@link DEFAULT_RESUME_JITTER_MS} (0 =
+   * disabled, deterministic). Wired from `AGENTRELAY_RESUME_JITTER` at the CLI;
+   * see {@link resumeJitterMsFromEnv}. Uses the same {@link rng} as backoff.
+   */
+  resumeJitterMs?: number;
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
   /**
@@ -102,6 +118,7 @@ export class RelayScheduler {
   private autoPruneEveryTicks: number;
   private maxConcurrent: number;
   private maxResetHorizonMs: number | null;
+  private resumeJitterMs: number;
   private lastPruneAtMs: number | null = null;
   private pruneTickCounter = 0;
   private onPrune?: (pruned: RelayJob[]) => void;
@@ -121,6 +138,7 @@ export class RelayScheduler {
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
     this.maxConcurrent = normalizeMaxConcurrent(options.maxConcurrent);
     this.maxResetHorizonMs = options.maxResetHorizonMs ?? null;
+    this.resumeJitterMs = options.resumeJitterMs ?? DEFAULT_RESUME_JITTER_MS;
     this.onPrune = options.onPrune;
     this.onTick = options.onTick;
   }
@@ -212,7 +230,11 @@ export class RelayScheduler {
         this.queue.markFailed(job.id, msg, tail);
         await this.notify({ jobId: job.id, project: job.project, event: "failed", message: msg });
       } else {
-        this.queue.markWaitingForReset(job.id, rateLimit.resetAt, {
+        // Spread the *scheduled* resume forward by up to `resumeJitterMs` so a
+        // herd sharing this reset window doesn't stampede at the same instant.
+        // The detection metadata keeps the raw parsed reset for diagnostics.
+        const scheduledResetAt = jitterResetAt(rateLimit.resetAt, this.resumeJitterMs, this.rng);
+        this.queue.markWaitingForReset(job.id, scheduledResetAt, {
           pattern: rateLimit.pattern,
           rawMatch: rateLimit.rawMatch,
           resetAt: rateLimit.resetAt,
@@ -222,7 +244,7 @@ export class RelayScheduler {
           jobId: job.id,
           project: job.project,
           event: "queued",
-          message: `Hit rate limit again, re-queued until ${rateLimit.resetAt}`,
+          message: `Hit rate limit again, re-queued until ${scheduledResetAt}`,
         });
       }
       return this.reload(job.id);

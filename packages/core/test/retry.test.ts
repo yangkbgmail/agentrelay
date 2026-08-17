@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted, retryPolicyFromEnv } from "../src/retry.js";
+import {
+  computeBackoffMs,
+  DEFAULT_RESUME_JITTER_MS,
+  DEFAULT_RETRY_POLICY,
+  isRetryExhausted,
+  jitterResetAt,
+  resumeJitterMsFromEnv,
+  retryPolicyFromEnv,
+} from "../src/retry.js";
 import type { RetryPolicy } from "../src/types.js";
 
 const policy: RetryPolicy = {
@@ -58,6 +66,53 @@ describe("computeBackoffMs", () => {
     // attempt 1 base = 1000; ±100% window is [0, 2000], not wider.
     expect(computeBackoffMs(overshoot, 1, () => 0)).toBe(0);
     expect(computeBackoffMs(overshoot, 1, () => 1)).toBe(2000);
+  });
+});
+
+describe("jitterResetAt", () => {
+  const reset = "2026-08-17T12:00:00.000Z";
+
+  it("returns the input unchanged when jitterMs is 0 or negative", () => {
+    expect(jitterResetAt(reset, 0, () => 0.5)).toBe(reset);
+    expect(jitterResetAt(reset, -1000, () => 0.5)).toBe(reset);
+  });
+
+  it("returns the input unchanged when no rng is supplied", () => {
+    expect(jitterResetAt(reset, 60_000)).toBe(reset);
+  });
+
+  it("adds a forward delay in [0, jitterMs] scaled by rng", () => {
+    // window is 60s: rng 0 => +0, 0.5 => +30s, ~1 => +60s.
+    expect(jitterResetAt(reset, 60_000, () => 0)).toBe("2026-08-17T12:00:00.000Z");
+    expect(jitterResetAt(reset, 60_000, () => 0.5)).toBe("2026-08-17T12:00:30.000Z");
+    expect(jitterResetAt(reset, 60_000, () => 0.999)).toBe("2026-08-17T12:00:59.940Z");
+  });
+
+  it("never moves the reset earlier (forward-only)", () => {
+    const out = jitterResetAt(reset, 60_000, () => 0);
+    expect(Date.parse(out)).toBeGreaterThanOrEqual(Date.parse(reset));
+  });
+
+  it("leaves an unparseable reset string untouched", () => {
+    expect(jitterResetAt("not-a-date", 60_000, () => 0.5)).toBe("not-a-date");
+  });
+});
+
+describe("resumeJitterMsFromEnv", () => {
+  it("defaults to 0 (disabled) when unset or blank", () => {
+    expect(resumeJitterMsFromEnv({})).toBe(DEFAULT_RESUME_JITTER_MS);
+    expect(resumeJitterMsFromEnv({ AGENTRELAY_RESUME_JITTER: "  " })).toBe(0);
+  });
+
+  it("parses a duration string into ms", () => {
+    expect(resumeJitterMsFromEnv({ AGENTRELAY_RESUME_JITTER: "30s" })).toBe(30_000);
+    expect(resumeJitterMsFromEnv({ AGENTRELAY_RESUME_JITTER: "2m" })).toBe(120_000);
+    expect(resumeJitterMsFromEnv({ AGENTRELAY_RESUME_JITTER: "500ms" })).toBe(500);
+  });
+
+  it("disables jitter for non-positive or unparseable values", () => {
+    expect(resumeJitterMsFromEnv({ AGENTRELAY_RESUME_JITTER: "0s" })).toBe(0);
+    expect(resumeJitterMsFromEnv({ AGENTRELAY_RESUME_JITTER: "nonsense" })).toBe(0);
   });
 });
 

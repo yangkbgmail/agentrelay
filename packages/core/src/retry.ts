@@ -1,3 +1,4 @@
+import { parseDuration } from "./prune.js";
 import type { RetryPolicy } from "./types.js";
 
 /**
@@ -47,6 +48,58 @@ export function computeBackoffMs(policy: RetryPolicy, attemptNumber: number, rng
   const hi = base * (1 + fraction);
   const spread = lo + rng() * (hi - lo);
   return Math.max(0, Math.min(policy.maxDelayMs, Math.round(spread)));
+}
+
+/**
+ * Default spread (ms) applied to a rate-limit *reset* time before re-queuing.
+ * `0` = disabled (the historical, fully deterministic behavior).
+ *
+ * See {@link jitterResetAt} for the rationale — this is a distinct concern from
+ * {@link DEFAULT_RETRY_POLICY}'s `jitter`, which spreads *transient-failure*
+ * backoff, not rate-limit resets.
+ */
+export const DEFAULT_RESUME_JITTER_MS = 0;
+
+/**
+ * Spread a rate-limit reset time forward by a small random amount so that jobs
+ * sharing one reset window don't all resume at the exact same instant.
+ *
+ * The backoff `jitter` in {@link computeBackoffMs} only spreads *transient
+ * failures*; a rate-limit re-queue instead schedules against the parsed reset
+ * time verbatim. When a whole "herd" of jobs hit the same weekly/5-hour window,
+ * they become due at the identical millisecond and stampede the agent CLI the
+ * moment the window opens — often immediately re-tripping the very limit we
+ * waited out. This adds a uniform delay in `[0, jitterMs]` *after* the reset
+ * (never before — resuming ahead of the window is pointless), staggering the
+ * herd across a short catch-up window.
+ *
+ * Purely additive and forward-only, so correctness is unaffected: a job still
+ * never resumes before its limit lifts. Returns the input unchanged when
+ * `jitterMs <= 0` (the default), `rng` is omitted, or `resetAtIso` can't be
+ * parsed — keeping existing callers and tests deterministic. `rng` must return
+ * a value in `[0, 1)` (e.g. `Math.random`).
+ */
+export function jitterResetAt(resetAtIso: string, jitterMs: number, rng?: () => number): string {
+  if (!rng || !(jitterMs > 0)) return resetAtIso;
+  const base = Date.parse(resetAtIso);
+  if (!Number.isFinite(base)) return resetAtIso;
+  const delay = Math.round(rng() * jitterMs);
+  return new Date(base + delay).toISOString();
+}
+
+/**
+ * Parses the resume-jitter window (ms) from the environment, falling back to
+ * {@link DEFAULT_RESUME_JITTER_MS} (0 = disabled) when unset or unparseable:
+ *
+ * - `AGENTRELAY_RESUME_JITTER` — a duration like `30s`, `2m`, `500ms`
+ *   (see {@link parseDuration}). Non-positive / invalid values disable jitter.
+ */
+export function resumeJitterMsFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.AGENTRELAY_RESUME_JITTER;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_RESUME_JITTER_MS;
+  const parsed = parseDuration(raw);
+  if (parsed === null || !(parsed > 0)) return DEFAULT_RESUME_JITTER_MS;
+  return parsed;
 }
 
 /**

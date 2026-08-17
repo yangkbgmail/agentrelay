@@ -2259,3 +2259,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 스케줄러: rate-limit 리셋 재개 지터(resume jitter)] (2026-08-17, 무인 자율 세션, branch `claude/wizardly-pascal-ni854b`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 200개 전체 제목을 키워드 스캔(jitter/thunder/backoff/herd/과거/skew 등)해 **어떤 열린 PR에도
+  없는** 실제 신뢰성 갭을 발굴: 실패 백오프 지터(`AGENTRELAY_RETRY_JITTER`)는 이미 있으나 그건 *일시적
+  실패* 경로에만 적용되고, rate-limit 재큐 경로(`markWaitingForReset(job.id, rateLimit.resetAt, …)`)는
+  파싱된 리셋 시각을 그대로 스케줄해 시간 분산이 전혀 없다. 같은 리셋 창을 공유한 잡들이 정확히 동시에
+  재개(thundering herd)하면 방금 기다린 한도를 즉시 재유발한다. `maxConcurrent`는 병렬 수만 제한할 뿐
+  시간 분산이 아니다 — 이 도구가 doctor·recover·reset-horizon으로 반복해 겨냥해온 "조용한 재유발" 부류.
+- **한 일 (branch `claude/wizardly-pascal-ni854b`):**
+  - core `retry.ts`에 순수 `jitterResetAt(resetAtIso, jitterMs, rng?)` 추가 — 리셋 시각을 `[0, jitterMs]`
+    범위 균일 랜덤량만큼 **뒤로만** 밀어(한도 풀리기 전 재개는 무의미) herd를 짧은 캐치업 창에 분산.
+    `jitterMs<=0`·rng 미주입·파싱불가 문자열은 입력 그대로 반환(기본 결정론·하위호환). `DEFAULT_RESUME_JITTER_MS`
+    (0=비활성) + `resumeJitterMsFromEnv`(`AGENTRELAY_RESUME_JITTER` 기간 파싱, 기존 `parseDuration` 재사용;
+    미설정·비양수·파싱불가=0). 백오프 지터(`computeBackoffMs`, ±jitter)와 개념 분리 — 이건 rate-limit *리셋* 분산.
+  - `RelayScheduler`에 `resumeJitterMs` 옵션 추가 → rate-limit 재큐 시 스케줄 resetAt만 지터하고 detection
+    메타의 `resetAt`은 **원본 파스값 유지**(진단은 실제 파싱값, 스케줄만 분산). 백오프와 동일한 `rng` 공유.
+    CLI run/daemon/tick이 `resumeJitterMsFromEnv()`로 배선(run은 `Math.random`).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 649 · cli 354/1skip · dashboard 9**; retry.test +9, scheduler.test +2). **실제 빌드 CLI e2e**
+  (mock 아님): 항상 rate-limit을 뱉는 가짜 에이전트로 `run` — 기본은 `resetAt == lastRateLimit.resetAt`(무지터·
+  결정론), `AGENTRELAY_RESUME_JITTER=1h`면 스케줄 resetAt이 [0,1h] 범위로 **뒤로만** 분산되고(forward-only)
+  메타의 파스값은 원본 보존 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `doctor`가 지터/백오프
+  설정을 진단에 노출(현재 설정 요약), 또는 대시보드에 재개 창 분산 시각화. stats 분산/watch·summary --watch·
+  epoch ms·reset-horizon doctor 검사(PR #726/#727/#729)는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
