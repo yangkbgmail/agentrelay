@@ -184,6 +184,17 @@
       tick-mode 하트비트 기록(cron 사용자도 생존 신호). `runDoctor`가 `nowMs` 주입 가능(테스트용).
       heartbeat.test.ts 13 + doctor daemon 6 + scheduler onTick 2 + CLI 7케이스, 실제 빌드 CLI로
       before/after·daemon 수명주기·stale 경고 e2e 검증. branch `claude/wizardly-pascal-hb7k2m`)
+- [x] 👷 `doctor` 리셋 지평선 검사 — 큐 안에 이미 파킹된 먼-미래 `resetAt`(오판 rate-limit
+      잔여물)이 조용히 수일/수년 대기하는 무음 실패를 잡음(세션72 리셋 plausibility 가드의 후속).
+      (완료 — `@agentrelay/core/doctor.ts`에 `JobReset`·`ResetHorizonFacts`(순수) + `reset-horizon`
+      체크 추가. 파서의 `isPlausibleReset`를 그대로 재사용해 "들어올 때 거부되는 리셋 = 이미
+      큐에 있으면 경고"를 한 규칙으로 유지. 지평선 밖 파킹 잡은 **warning**(릴레이를 깨는 게
+      아니라 대기만 하므로 daemon 검사와 동일 부류), 가드 비활성(null/≤0)·빈 큐·파싱불가 resetAt은
+      ok. 최대 3건 명시 + `+N more` 요약, `agentrelay show <id>`/`AGENTRELAY_MAX_RESET_HORIZON`
+      힌트. `ResetHorizonFacts`는 `DiagnosticInput`에서 **선택적** — 미제공 시 체크 미방출로
+      기존 리포트 형태 보존(하위호환). CLI `runDoctor`가 `waiting_for_reset` 잡을 스캔해
+      `maxResetHorizonMsFromEnv(env)`·`nowMs`로 배선. doctor.test +7, 실제 빌드 CLI e2e로
+      30d 밖 경고/2h 내 통과/off 비활성/빈 큐/JSON 검증. branch `claude/wizardly-pascal-sm6g60`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
