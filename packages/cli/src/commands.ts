@@ -73,6 +73,7 @@ import {
   RelayScheduler,
   type RestorePreview,
   type RestoreResult,
+  resetHorizonFacts,
   resolveAdapter,
   resolveBackup,
   resolveConfigPath,
@@ -1486,6 +1487,10 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    // --- reset-horizon facts. Re-applies the session-72 plausibility bound to
+    // the *existing* queue so doctor flags jobs already parked with an
+    // implausibly far reset (a misparse, or a `MAX_RESET_HORIZON=off` session).
+    resetHorizon: resetHorizonFacts(jobs, options.nowMs ?? Date.now(), maxResetHorizonMsFromEnv(env)),
   });
 }
 

@@ -375,6 +375,42 @@ describe("heartbeat helpers + doctor daemon check", () => {
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
     expect(find(report, "daemon").level).toBe("ok");
   });
+
+  it("warns when a waiting job in the store has a far-future reset time", () => {
+    const now = Date.parse("2026-08-17T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    // Park it 30 days out — well past the default 8-day horizon.
+    queue.markWaitingForReset(job.id, new Date(now + 30 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs: now });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("1 waiting job(s)");
+    // (report.ok can be false here because the `claude` binary isn't on PATH in
+    // the test env — the adapters check owns that; the reset-horizon warning
+    // itself is non-fatal, which the core-level test verifies directly.)
+  });
+
+  it("does not warn when AGENTRELAY_MAX_RESET_HORIZON disables the guard", () => {
+    const now = Date.parse("2026-08-17T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(job.id, new Date(now + 30 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+      nowMs: now,
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("guard disabled");
+  });
 });
 
 describe("renderDoctorJson", () => {

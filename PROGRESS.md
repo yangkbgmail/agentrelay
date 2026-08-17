@@ -2259,3 +2259,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — doctor 큐 내 먼-미래 리셋 잡 경고 검사] (2026-08-17, 무인 자율 세션, branch `claude/wizardly-pascal-doctor-reset-horizon`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 세션 72가
+  "다음 할 일"로 남긴 인접 후보 중 **doctor에 큐 내 먼-미래 리셋 잡 경고 검사 추가**를 골랐다. 세션 72의
+  plausibility 가드는 parse-time에 **신규** 리셋만 막고, 이미 큐에 있는(가드 도입 전 큐잉됐거나
+  `AGENTRELAY_MAX_RESET_HORIZON=off`로 들어온) 먼-미래 리셋 잡은 어디서도 경고되지 않아 수일/수년 조용히
+  대기 — doctor·recover가 반복해 겨냥해온 무음 실패 부류라 doctor에 딱 맞는 검사다.
+- **한 일 (branch `claude/wizardly-pascal-doctor-reset-horizon`):**
+  - core `doctor.ts`: `FarFutureReset`/`ResetHorizonFacts` 타입 + 순수 `resetHorizonFacts(jobs, nowMs, maxFutureMs)`
+    신설(활성 잡의 파싱 가능 resetAt을 세션 72 `isPlausibleReset`으로 판정→지평선 밖만 furthest-ahead 정렬 +
+    `checked` 카운트; 종료 잡·resetAt 없음/파싱불가 제외, 가드 비활성이면 빈 결과). `DiagnosticInput`에
+    `resetHorizon` 추가 + `resetHorizonCheck`를 daemon↔config 사이에 배선 — 먼-미래 잡 있으면 warning
+    (개수·지평선·최악 잡 예시 + show/cancel/env 힌트), 없으면 OK, 가드 off면 "guard disabled" OK.
+    warning이라 exit code 불변(비파괴·의도적 가드-off 사용자 배려).
+  - CLI `commands.ts`의 `runDoctor`가 큐 잡 + nowMs + `maxResetHorizonMsFromEnv(env)`로 facts 구성(순수 로직은
+    전부 core 위임). 렌더/`--json`은 checks 순회라 수정 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과
+  (**core 646 · cli 356/1skip · dashboard 9**; core doctor +7, cli doctor +2). **실제 빌드 CLI e2e**(mock 아님):
+  임시 스토어에 30일 리셋 waiting 잡을 심고 `doctor` 실행 → 기본 8d 지평선에서 `! reset-horizon 1 waiting
+  job(s) … resets in 30d` warning, `AGENTRELAY_MAX_RESET_HORIZON=off`면 `✔ reset-horizon … guard disabled` OK 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recover`/대시보드에도 먼-미래
+  리셋 잡을 노출(doctor와 판정 공유), 또는 과거-쪽 극단(수년 전 epoch)을 misparse 신호로 보고. stats 분산/watch·
+  summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

@@ -870,6 +870,25 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay doctor` 먼-미래 리셋 잡 경고 검사 — 세션 72의 parse-time plausibility 가드는 **신규**
+      리셋만 막는다. 이미 큐에 있는(가드 도입 전 큐잉됐거나 `AGENTRELAY_MAX_RESET_HORIZON=off` 세션에
+      들어온) 먼-미래 리셋 잡은 어디서도 경고되지 않아 수일/수년 조용히 대기한다(doctor·recover가 반복해
+      겨냥해온 무음 실패 부류).
+      (완료 — `@agentrelay/core/doctor.ts`에 `FarFutureReset`/`ResetHorizonFacts` 타입 + 순수
+      `resetHorizonFacts(jobs, nowMs, maxFutureMs)` 신설: **활성** 잡(queued/waiting/resuming) 중 파싱 가능한
+      `resetAt`을 세션 72의 `isPlausibleReset`으로 판정해 지평선 밖만 골라 furthest-ahead 순 정렬(+검사한
+      잡 수 `checked`). 종료 잡·resetAt 없음/파싱불가는 제외, 가드 비활성(maxFutureMs null/비양수)이면
+      farFuture 빈 배열. `DiagnosticInput`에 `resetHorizon` 추가 + `resetHorizonCheck`를 daemon↔config 사이에
+      배선(검사 순서 node→store→store-writable→adapters→daemon→**reset-horizon**→config→notify): 먼-미래 잡
+      있으면 **warning**(개수·지평선·최악 잡 예시[짧은 id·project·카운트다운] + `show`/`cancel`/env 힌트),
+      없으면 OK("all N within Xd" 또는 검사 대상 없음), 가드 off면 OK("guard disabled"). warning이라 exit code는
+      불변(파괴적이지 않고, 의도적으로 가드 끈 사용자의 실제 장기 대기일 수 있음). CLI `commands.ts`의
+      `runDoctor`가 큐 잡 + `nowMs` + `maxResetHorizonMsFromEnv(env)`로 facts 구성(순수 로직은 전부 core 위임,
+      새 CLI 로직 1줄). 렌더/`--json`은 기존대로 checks 순회라 수정 0줄. core doctor +7(resetHorizonFacts
+      5·check via runDiagnostics 3, 기존 카운트 테스트 1 갱신) + cli doctor +2(실 스토어 30일 리셋→warning·
+      `off`→guard disabled) 신규 테스트. 실제 빌드 CLI e2e로 기본 지평선 warning·`off` OK 확인.
+      branch `claude/wizardly-pascal-doctor-reset-horizon`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
