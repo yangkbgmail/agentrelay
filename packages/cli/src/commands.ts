@@ -1486,6 +1486,16 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    // --- reset-horizon facts. Scans jobs parked in `waiting_for_reset` for a
+    // `resetAt` implausibly far out (a misparsed rate-limit that would silently
+    // wait for days). Uses the same horizon the parser applies at detection.
+    resetHorizon: {
+      now: new Date(options.nowMs ?? Date.now()),
+      maxFutureMs: maxResetHorizonMsFromEnv(env),
+      jobs: jobs
+        .filter((job) => job.status === "waiting_for_reset" && job.resetAt)
+        .map((job) => ({ id: shortId(job.id), project: job.project, resetAt: job.resetAt as string })),
+    },
   });
 }
 

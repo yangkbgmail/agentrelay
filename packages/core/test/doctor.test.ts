@@ -362,6 +362,111 @@ describe("runDiagnostics", () => {
       expect(daemon.message).toContain("tick");
     });
   });
+
+  describe("reset-horizon check", () => {
+    const NOW = new Date("2026-08-17T00:00:00.000Z");
+    const DAY = 24 * 60 * 60_000;
+    const HORIZON = 8 * DAY;
+
+    it("is not emitted at all when no resetHorizon facts are supplied", () => {
+      const report = runDiagnostics(input());
+      expect(report.checks.find((c) => c.name === "reset-horizon")).toBeUndefined();
+    });
+
+    it("is OK when no jobs are parked on a reset", () => {
+      const report = runDiagnostics(input({ resetHorizon: { now: NOW, maxFutureMs: HORIZON, jobs: [] } }));
+      const check = find(report, "reset-horizon");
+      expect(check.level).toBe("ok");
+      expect(check.message).toContain("no jobs are parked");
+      expect(report.ok).toBe(true);
+    });
+
+    it("is OK when every parked reset is within the horizon", () => {
+      const report = runDiagnostics(
+        input({
+          resetHorizon: {
+            now: NOW,
+            maxFutureMs: HORIZON,
+            jobs: [
+              { id: "abc123", project: "demo", resetAt: new Date(NOW.getTime() + 2 * DAY).toISOString() },
+              // a past reset is plausible (the limit already lifted) — never flagged
+              { id: "def456", project: "demo", resetAt: new Date(NOW.getTime() - DAY).toISOString() },
+            ],
+          },
+        })
+      );
+      const check = find(report, "reset-horizon");
+      expect(check.level).toBe("ok");
+      expect(check.message).toContain("within the");
+      expect(report.ok).toBe(true);
+    });
+
+    it("warns about a job parked beyond the horizon and names it", () => {
+      const report = runDiagnostics(
+        input({
+          resetHorizon: {
+            now: NOW,
+            maxFutureMs: HORIZON,
+            jobs: [{ id: "bad001", project: "refactor", resetAt: new Date(NOW.getTime() + 30 * DAY).toISOString() }],
+          },
+        })
+      );
+      const check = find(report, "reset-horizon");
+      expect(check.level).toBe("warning");
+      expect(check.message).toContain("bad001");
+      expect(check.message).toContain("refactor");
+      expect(check.message).toContain("misparsed");
+      expect(check.hint).toContain("agentrelay show");
+      // a warning does not fail the report
+      expect(report.ok).toBe(true);
+      expect(report.counts.warning).toBeGreaterThanOrEqual(1);
+    });
+
+    it("summarizes with a +N more when many jobs are beyond the horizon", () => {
+      const far = (n: number) => ({
+        id: `job${n}`,
+        project: "p",
+        resetAt: new Date(NOW.getTime() + (30 + n) * DAY).toISOString(),
+      });
+      const report = runDiagnostics(
+        input({ resetHorizon: { now: NOW, maxFutureMs: HORIZON, jobs: [far(1), far(2), far(3), far(4), far(5)] } })
+      );
+      const check = find(report, "reset-horizon");
+      expect(check.level).toBe("warning");
+      expect(check.message).toContain("5 of 5");
+      expect(check.message).toContain("+2 more");
+    });
+
+    it("treats a disabled guard (null horizon) as OK without scanning", () => {
+      const report = runDiagnostics(
+        input({
+          resetHorizon: {
+            now: NOW,
+            maxFutureMs: null,
+            jobs: [{ id: "bad001", project: "p", resetAt: new Date(NOW.getTime() + 999 * DAY).toISOString() }],
+          },
+        })
+      );
+      const check = find(report, "reset-horizon");
+      expect(check.level).toBe("ok");
+      expect(check.message).toContain("disabled");
+    });
+
+    it("ignores an unparseable resetAt (a different problem, not a horizon one)", () => {
+      const report = runDiagnostics(
+        input({
+          resetHorizon: {
+            now: NOW,
+            maxFutureMs: HORIZON,
+            jobs: [{ id: "junk01", project: "p", resetAt: "not-a-date" }],
+          },
+        })
+      );
+      const check = find(report, "reset-horizon");
+      expect(check.level).toBe("ok");
+      expect(report.ok).toBe(true);
+    });
+  });
 });
 
 describe("distinctActiveBinaries", () => {

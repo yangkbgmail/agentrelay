@@ -2259,3 +2259,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — doctor 리셋 지평선 검사(큐 내 먼-미래 resetAt 무음 대기 감지)] (2026-08-17, 무인 자율 세션, branch `claude/wizardly-pascal-sm6g60`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션72가 "다음 할 일"로 명시적으로 남긴 인접 후보 — "doctor에 큐 내 먼-미래 리셋 잡 경고 검사
+  추가" — 를 골랐다. 파서는 세션72에서 감지 시점에 지평선 밖 리셋을 거부하게 됐지만, 그 가드가
+  생기기 전(또는 가드를 끈 채) 이미 큐에 파킹된 잡은 여전히 조용히 수일/수년 대기 — 이 프로젝트가
+  doctor·recover 등으로 반복 겨냥해온 "silent failure" 부류. 열린 PR 어디에도 없는 실제 갭.
+- **한 일 (branch `claude/wizardly-pascal-sm6g60`):**
+  - core `doctor.ts`: `JobReset`·`ResetHorizonFacts`(순수 팩트) + `resetHorizonCheck` 추가. 파서의
+    `isPlausibleReset`를 그대로 재사용해 "들어올 때 거부되는 리셋 = 이미 큐에 있으면 경고"를 한
+    규칙으로 유지. 지평선 밖 파킹 잡은 **warning**(릴레이를 깨는 게 아니라 재개만 늦어지므로 daemon
+    검사와 동일 부류), 가드 비활성(null/≤0)·빈 큐·파싱불가 resetAt은 ok. 최대 3건 명시 + `+N more`
+    요약, `agentrelay show <id>`/`AGENTRELAY_MAX_RESET_HORIZON` 힌트. `ResetHorizonFacts`는
+    `DiagnosticInput`에서 **선택적** — 미제공 시 체크 미방출로 기존 리포트 형태 보존(하위호환).
+  - CLI `commands.ts` `runDoctor`: `waiting_for_reset` 잡을 스캔해 `{id(short), project, resetAt}`로
+    추출, `maxResetHorizonMsFromEnv(env)`·`nowMs`로 `resetHorizon` 팩트 배선.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 646 · cli 354/1skip · dashboard 9**; doctor.test +7). **실제 빌드 CLI e2e**(mock
+  아님): 기본 지평선(8d)에서 30일-밖 잡은 경고(id·project·`~30d out` 명시)·2시간 잡은 통과("1 of 2"),
+  `AGENTRELAY_MAX_RESET_HORIZON=off`면 "guard disabled" ok, 빈 큐는 "no jobs parked" ok,
+  `--json`에 `reset-horizon` 체크가 그대로 실림을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `doctor`가
+  과거-쪽 극단(수년 전 epoch)도 misparse 신호로 보고할지, 또는 지평선 밖 잡을 자동 정리하는
+  `agentrelay prune --implausible-reset` 옵션. stats 분산/watch·summary --watch·epoch ms는 PR
+  포화라 지양. README/ARCHITECTURE(🧭 코워크).
