@@ -131,25 +131,72 @@ export function renderPrometheusMetrics(stats: RelayStats, options: PrometheusOp
   );
 
   // Resolution-time gauges (in seconds, Prometheus base unit) only when at least
-  // one job resolved — otherwise every stat is null.
+  // one job resolved — otherwise every stat is null. The full distribution and
+  // its spread are exposed so a Grafana panel can chart the tail (p95/p99) and
+  // how consistent the relay's babysitting is (iqr/stdev/mad), mirroring the
+  // `agentrelay stats` resolution-time block. Each stat is nullable, so we build
+  // the sample list by dropping nulls rather than asserting — when nothing has
+  // resolved the family is empty and never emitted.
   const t = stats.timing;
-  if (
-    t.avgResolutionMs !== null &&
-    t.minResolutionMs !== null &&
-    t.maxResolutionMs !== null &&
-    t.medianResolutionMs !== null &&
-    t.p90ResolutionMs !== null
-  ) {
-    const metric = name("resolution_seconds");
+  const metric = name("resolution_seconds");
+  const resolutionSamples: string[] = [];
+  const stat = (labelValue: string, ms: number | null) => {
+    if (ms === null) return;
+    resolutionSamples.push(`${metric}{${label("stat", labelValue)}} ${formatValue(ms / 1000)}`);
+  };
+  // Ordered smallest-to-largest across the distribution, then the spread widths.
+  stat("min", t.minResolutionMs);
+  stat("p25", t.p25ResolutionMs);
+  stat("median", t.medianResolutionMs);
+  stat("avg", t.avgResolutionMs);
+  stat("p75", t.p75ResolutionMs);
+  stat("p90", t.p90ResolutionMs);
+  stat("p95", t.p95ResolutionMs);
+  stat("p99", t.p99ResolutionMs);
+  stat("max", t.maxResolutionMs);
+  stat("iqr", t.iqrResolutionMs);
+  stat("stdev", t.stdevResolutionMs);
+  stat("mad", t.madResolutionMs);
+  if (resolutionSamples.length > 0) {
     lines.push(
-      ...metricFamily(metric, "Job resolution time (updatedAt - createdAt) over completed + failed jobs, seconds.", [
-        `${metric}{${label("stat", "avg")}} ${formatValue(t.avgResolutionMs / 1000)}`,
-        `${metric}{${label("stat", "min")}} ${formatValue(t.minResolutionMs / 1000)}`,
-        `${metric}{${label("stat", "median")}} ${formatValue(t.medianResolutionMs / 1000)}`,
-        `${metric}{${label("stat", "p90")}} ${formatValue(t.p90ResolutionMs / 1000)}`,
-        `${metric}{${label("stat", "max")}} ${formatValue(t.maxResolutionMs / 1000)}`,
-      ])
+      ...metricFamily(
+        metric,
+        "Job resolution time (updatedAt - createdAt) over completed + failed jobs, seconds. The stat label carries the distribution point (min/p25/median/avg/p75/p90/p95/p99/max) or a spread width (iqr/stdev/mad).",
+        resolutionSamples
+      )
     );
+  }
+
+  // Coefficient of variation is dimensionless (stdev / mean), so it lives in its
+  // own family rather than the seconds-typed resolution_seconds. It is null when
+  // nothing resolved or the mean is 0; omit the sample rather than emit NaN.
+  if (t.cvResolution !== null) {
+    lines.push(
+      ...metricFamily(
+        name("resolution_cv"),
+        "Coefficient of variation of resolution time (population stdev / mean), dimensionless.",
+        [`${name("resolution_cv")} ${formatValue(t.cvResolution)}`]
+      )
+    );
+  }
+
+  // Absolute epoch-seconds of the soonest upcoming rate-limit reset the relay is
+  // waiting on, following the Prometheus `*_timestamp_seconds` convention (like
+  // node_boot_time_seconds). Emitting the absolute instant keeps this render pure
+  // (no ambient clock): a scraper computes "seconds until the next resume" as
+  // `agentrelay_next_reset_timestamp_seconds - time()`. Omitted when the queue
+  // has no pending reset or the stored timestamp does not parse.
+  if (stats.nextResetAt !== null) {
+    const epochMs = Date.parse(stats.nextResetAt);
+    if (Number.isFinite(epochMs)) {
+      lines.push(
+        ...metricFamily(
+          name("next_reset_timestamp_seconds"),
+          "Unix time (seconds) of the soonest upcoming rate-limit reset the relay is waiting on.",
+          [`${name("next_reset_timestamp_seconds")} ${formatValue(epochMs / 1000)}`]
+        )
+      );
+    }
   }
 
   return `${lines.join("\n")}\n`;
