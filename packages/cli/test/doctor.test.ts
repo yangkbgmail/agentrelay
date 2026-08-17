@@ -48,6 +48,40 @@ describe("runDoctor", () => {
     expect(store.message).toContain("1 active");
   });
 
+  it("warns when an active job is parked with a far-future reset", () => {
+    const queue = new RelayQueue(storePath);
+    const far = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    // Park it ~1 year out — well beyond the default 8-day horizon.
+    queue.markWaitingForReset(far.id, "2030-01-01T00:00:00.000Z");
+    const soon = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(soon.id, new Date(Date.now() + 60 * 60_000).toISOString()); // 1h → fine
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("1 job(s)");
+    expect(check.message).toContain(far.id.slice(0, 8));
+    expect(check.message).not.toContain(soon.id.slice(0, 8));
+  });
+
+  it("is ok when the reset-horizon guard is disabled via env", () => {
+    const queue = new RelayQueue(storePath);
+    const far = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(far.id, "2030-01-01T00:00:00.000Z");
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+  });
+
   it("errors when the store file is corrupt", () => {
     writeFileSync(storePath, "{ this is not valid json", "utf8");
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
