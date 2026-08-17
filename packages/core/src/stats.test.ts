@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   computeActivityHeatmap,
+  computeAttemptDistribution,
   computeDailyTrend,
   computeHourlyDistribution,
   computeStats,
@@ -745,5 +746,54 @@ describe("computeActivityHeatmap", () => {
   it("offset 0 matches the default UTC bucketing", () => {
     const jobs = [job({ createdAt: "2026-07-20T09:15:00.000Z" })];
     expect(computeActivityHeatmap(jobs, 0)).toEqual(computeActivityHeatmap(jobs));
+  });
+});
+
+describe("computeAttemptDistribution", () => {
+  it("returns a single zero bucket for an empty store", () => {
+    const dist = computeAttemptDistribution([]);
+    expect(dist.buckets).toEqual([{ attempts: 0, count: 0 }]);
+    expect(dist.total).toBe(0);
+    expect(dist.maxAttempts).toBe(0);
+    expect(dist.totalAttempts).toBe(0);
+  });
+
+  it("buckets jobs by their attempt counter, contiguous and zero-filled", () => {
+    const jobs = [job({ attempts: 0 }), job({ attempts: 1 }), job({ attempts: 1 }), job({ attempts: 3 })];
+    const dist = computeAttemptDistribution(jobs);
+    expect(dist.buckets).toEqual([
+      { attempts: 0, count: 1 },
+      { attempts: 1, count: 2 },
+      { attempts: 2, count: 0 }, // gap is preserved, zero-filled
+      { attempts: 3, count: 1 },
+    ]);
+    expect(dist.total).toBe(4);
+    expect(dist.maxAttempts).toBe(3);
+    expect(dist.totalAttempts).toBe(0 + 1 + 1 + 3);
+  });
+
+  it("totalAttempts matches computeStats.totalAttempts", () => {
+    const jobs = [job({ attempts: 2 }), job({ attempts: 5 }), job({ attempts: 1 })];
+    expect(computeAttemptDistribution(jobs).totalAttempts).toBe(computeStats(jobs).totalAttempts);
+  });
+
+  it("defensively coerces a corrupt attempt counter to a non-negative integer", () => {
+    const jobs = [job({ attempts: -3 }), job({ attempts: 2.7 }), job({ attempts: Number.NaN })];
+    const dist = computeAttemptDistribution(jobs);
+    // -3 → 0, 2.7 → 2 (floor), NaN → 0. So bucket 0 has 2 jobs, bucket 2 has 1.
+    expect(dist.buckets).toEqual([
+      { attempts: 0, count: 2 },
+      { attempts: 1, count: 0 },
+      { attempts: 2, count: 1 },
+    ]);
+    expect(dist.totalAttempts).toBe(2); // 0 + 2 + 0
+    expect(dist.total).toBe(3);
+  });
+
+  it("does not mutate its input", () => {
+    const jobs = [job({ attempts: 4 })];
+    const before = JSON.stringify(jobs);
+    computeAttemptDistribution(jobs);
+    expect(JSON.stringify(jobs)).toBe(before);
   });
 });
