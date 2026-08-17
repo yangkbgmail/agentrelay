@@ -1,5 +1,6 @@
 export * from "./adapters.js";
 export * from "./backup.js";
+export * from "./command-line.js";
 export * from "./completion.js";
 export * from "./concurrency.js";
 export * from "./config.js";

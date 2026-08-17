@@ -163,6 +163,36 @@ describe("runCommand", () => {
     expect(result.queuedJob?.project).toBe(dir.split("/").filter(Boolean).pop());
     expect(result.queuedJob?.project?.trim()).not.toBe("");
   });
+
+  it("persists a resumeCommand override on the queued job", async () => {
+    const stdout = new PassThrough();
+    let printed = "";
+    stdout.on("data", (c) => {
+      printed += c.toString();
+    });
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      resumeCommand: ["claude", "--continue", "-p", "keep going"],
+      storePath,
+      cwd: dir,
+      stdout,
+      stderr: new PassThrough(),
+    });
+    expect(result.queuedJob?.resumeCommand).toEqual(["claude", "--continue", "-p", "keep going"]);
+    expect(listStatus(storePath)[0].resumeCommand).toEqual(["claude", "--continue", "-p", "keep going"]);
+    expect(printed).toContain("On resume it will run: claude --continue -p keep going");
+  });
+
+  it("does not set resumeCommand when none is given", async () => {
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    expect(result.queuedJob?.resumeCommand).toBeUndefined();
+  });
 });
 
 describe("cancelJob / retryJob", () => {

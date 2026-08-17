@@ -84,6 +84,9 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
   lines.push(`  ${label("tool")} ${job.tool}`);
   lines.push(`  ${label("status")} ${statusCell}`);
   lines.push(`  ${label("command")} ${formatCommand(job.command)}`);
+  if (job.resumeCommand && job.resumeCommand.length > 0) {
+    lines.push(`  ${label("on resume")} ${formatCommand(job.resumeCommand)}`);
+  }
   lines.push(`  ${label("cwd")} ${job.cwd}`);
   lines.push(`  ${label("created")} ${job.createdAt}`);
   lines.push(`  ${label("updated")} ${job.updatedAt}${d(updatedAnnotation(job.createdAt, job.updatedAt))}`);

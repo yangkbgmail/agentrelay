@@ -54,6 +54,16 @@ describe("renderJobDetail", () => {
     expect(out).toContain("attempts   2");
   });
 
+  it("shows an 'on resume' line when the job carries a resumeCommand", () => {
+    const out = renderJobDetail(job({ resumeCommand: ["claude", "--continue", "-p", "keep going"] }), { now: NOW });
+    expect(out).toContain('on resume  claude --continue -p "keep going"');
+  });
+
+  it("omits the 'on resume' line when there is no resumeCommand", () => {
+    expect(renderJobDetail(job(), { now: NOW })).not.toContain("on resume");
+    expect(renderJobDetail(job({ resumeCommand: [] }), { now: NOW })).not.toContain("on resume");
+  });
+
   it("shows the reset countdown with the absolute time when resetAt is set", () => {
     const out = renderJobDetail(job(), { now: NOW });
     expect(out).toContain("resets in  1h 30m");

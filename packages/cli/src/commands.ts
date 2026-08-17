@@ -119,6 +119,13 @@ export interface RunOptions {
   cwd?: string;
   tool?: AgentTool;
   /**
+   * Optional override command the scheduler runs on *resume* instead of the
+   * original `command` — e.g. a `claude --continue …` form so the relay
+   * continues the previous session rather than starting it fresh. Empty/omitted
+   * keeps resuming with the original command.
+   */
+  resumeCommand?: string[] | null;
+  /**
    * Explicit project label for the queued job. When omitted (or blank) the
    * project is derived from the cwd's last path segment. Lets users give jobs a
    * meaningful, stable name that the `--project` filters key off.
@@ -183,7 +190,13 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
 
   const queue = openQueue(storePath);
   const project = resolveProjectName(cwd, options.project);
-  const job = queue.enqueue({ project, tool, command: options.command, cwd });
+  const job = queue.enqueue({
+    project,
+    tool,
+    command: options.command,
+    resumeCommand: options.resumeCommand ?? null,
+    cwd,
+  });
   queue.markWaitingForReset(job.id, rateLimit.resetAt, {
     pattern: rateLimit.pattern,
     rawMatch: rateLimit.rawMatch,
@@ -192,8 +205,13 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   });
   queue.close();
 
+  const resumeNote =
+    options.resumeCommand && options.resumeCommand.length > 0
+      ? `On resume it will run: ${options.resumeCommand.join(" ")}\n`
+      : "";
   stdout.write(
     `\n[agentrelay] Rate limit detected for ${adapter.displayName} (pattern: ${rateLimit.pattern}). Queued job ${job.id} to resume at ${rateLimit.resetAt}.\n` +
+      resumeNote +
       `Run "agentrelay daemon" (or schedule "agentrelay tick" via cron) to auto-resume it.\n`
   );
 

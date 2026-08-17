@@ -44,6 +44,7 @@ import {
   summarizeProjects,
   summarizeRateLimitPatterns,
   summarizeTools,
+  tokenizeCommandLine,
 } from "@agentrelay/core";
 import { Command } from "commander";
 import {
@@ -543,13 +544,33 @@ export function buildCli(): Command {
       "-p, --project <name>",
       "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
     )
-    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
+    .option(
+      "--resume-with <command>",
+      "Command to run on resume instead of the original, so the relay continues the session rather than restarting it (e.g. --resume-with \"claude --continue -p 'keep going'\")"
+    )
+    .action(async (command: string[], opts: { tool?: string; project?: string; resumeWith?: string }) => {
       const { store } = program.opts();
+      let resumeCommand: string[] | undefined;
+      if (opts.resumeWith !== undefined) {
+        try {
+          resumeCommand = tokenizeCommandLine(opts.resumeWith);
+        } catch (err) {
+          process.stderr.write(`[agentrelay] --resume-with: ${(err as Error).message}\n`);
+          process.exitCode = 1;
+          return;
+        }
+        if (resumeCommand.length === 0) {
+          process.stderr.write("[agentrelay] --resume-with: empty command\n");
+          process.exitCode = 1;
+          return;
+        }
+      }
       const result = await runCommand({
         command,
         storePath: store,
         tool: opts.tool as AgentTool | undefined,
         project: opts.project,
+        resumeCommand,
       });
       process.exitCode = result.exitCode;
     });

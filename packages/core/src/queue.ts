@@ -168,6 +168,9 @@ export class RelayQueue {
       project: input.project,
       tool: input.tool,
       command: input.command,
+      // Only persist a resume override when a non-empty one was supplied, so
+      // jobs without one keep the historical store shape (field absent).
+      ...(input.resumeCommand && input.resumeCommand.length > 0 ? { resumeCommand: input.resumeCommand } : {}),
       cwd: input.cwd,
       status: "queued",
       resetAt: null,

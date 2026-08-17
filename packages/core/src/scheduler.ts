@@ -261,11 +261,16 @@ export class RelayScheduler {
   }
 
   private runCommand(job: RelayJob): Promise<{ output: string; exitCode: number | null; error: Error | null }> {
+    // On resume, prefer the job's resume-command override (e.g. a
+    // `claude --continue …` form) so the relay can *continue* the previous
+    // session rather than start it fresh. Absent/empty override → the original
+    // command, the historical behaviour.
+    const command = job.resumeCommand && job.resumeCommand.length > 0 ? job.resumeCommand : job.command;
     return new Promise((resolve) => {
       let output = "";
       let child: ChildProcessWithoutNullStreams;
       try {
-        child = this.spawnFn(job.command, job.cwd);
+        child = this.spawnFn(command, job.cwd);
       } catch (err) {
         // Synchronous spawn failure (e.g. bad cwd) — surface as a transient error
         // so the caller can apply the retry policy rather than dropping the job.
