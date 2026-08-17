@@ -2259,3 +2259,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — doctor 먼-미래 리셋 파킹 잡 검사(reset-horizon)] (2026-08-17, 무인 자율 세션, branch `claude/wizardly-pascal-av8zft`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72(파서 리셋 지평선 가드)가 "다음 할 일"로 직접 지목한 후속 — `doctor`에 큐 내 먼-미래 리셋
+  잡 경고 검사 추가 — 을 골랐다. 파서 가드는 **파싱 시점**에만 작동해 앞으로 들어올 먼-미래 리셋만
+  막는다. 하지만 가드 도입 **전**에, 또는 가드를 끈 채(`AGENTRELAY_MAX_RESET_HORIZON=off`) 이미
+  파킹된 잡은 여전히 수년 뒤 resetAt으로 큐에 앉아 "큐엔 있는데 영원히 재개 안 되는" 무음 실패로
+  남는다(이 프로젝트가 doctor·recover 등으로 반복 겨냥한 바로 그 부류). 열린 PR 200+ 키워드 스캔으로
+  어떤 열린 PR에도 없는 갭임을 확인.
+- **한 일 (branch `claude/wizardly-pascal-av8zft`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, {nowMs, maxFutureMs})`(`distinctActiveBinaries`와
+    동형 — 활성 잡만, resetAt 파싱해 `now+maxFutureMs` 초과분만 반환, `beyondHorizonMs` 계산; 종료 잡·
+    null/파싱불가 resetAt 스킵; maxFutureMs null/비양수/비유한=가드 비활성→빈 배열; 큐 순서 보존) +
+    `FarFutureReset`/`ResetHorizonFacts` 타입 + `DiagnosticInput.resetHorizon` 추가. `runDiagnostics`에
+    **reset-horizon** 검사 삽입(node→store→writable→adapters→daemon→**reset-horizon**→config→notify):
+    가드 비활성=OK, 먼-미래 잡 0=OK(지평선 표기), 1개+=warning(최대 3개 id 8자·project·resetAt 지목 +
+    `+N more`, `retry`/`cancel` 힌트). error 아닌 **warning**(큐는 온전하나 잡이 조용히 묶임 — daemon
+    검사와 동일 정책).
+  - CLI `commands.ts`의 `runDoctor`가 큐 잡을 `maxResetHorizonMsFromEnv(env)`(파서와 동일 env·지평선)로
+    `selectFarFutureResets` 판정해 `resetHorizon` facts 구성. `nowMs`를 한 번 해소해 heartbeat와 공유.
+    렌더러(`cli/src/doctor.ts`)는 체크를 일반 처리하므로 수정 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, import 정렬 포함)→
+  `pnpm test` 전 패키지 통과(**core 650 · cli 356/1skip · dashboard 9**; core doctor.test +11[selectFarFutureResets
+  7·check 4]·기존 카운트 단언 5→6 갱신, cli doctor.test +2). **실제 빌드 CLI e2e**(mock 아님): 스토어에 1yr
+  파킹 잡+1h 파킹 잡 심고 `doctor` → 기본 8d 지평선에서 먼 잡만 warning으로 지목(soon 잡 제외)·`retry`/`cancel`
+  힌트, `AGENTRELAY_MAX_RESET_HORIZON=off`면 reset-horizon OK(disabled), 먼-미래 잡 없으면 OK("no jobs parked
+  beyond the 8d reset horizon") 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단(수년 전
+  epoch로 파킹된 잡)도 misparse 신호로 리포트, 또는 `recover`가 먼-미래 파킹 잡을 즉시-due로 되살리는
+  옵션. stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
