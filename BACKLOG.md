@@ -869,6 +869,17 @@
       비양수=가드없음·isPlausibleReset 경계·env 기본/파싱/비활성) + scheduler.test +2(먼-미래 resume 드롭→
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
+- [x] 👷 대시보드 브라우저 탭 제목에 진행 중 잡 수 반영 — 백그라운드/고정 탭에서 한눈에 상태 확인.
+      (완료 — 로컬 대시보드는 보통 백그라운드 탭으로 열어두고 에이전트 CLI에서 작업하므로, 가장 값싼
+      "한눈 확인" 지점은 탭 제목 자체다. `apps/dashboard/lib/title.ts`에 순수 `buildPageTitle(summary)` +
+      `BASE_TITLE`("AgentRelay Dashboard", layout.tsx 메타데이터와 일치) 신설: 진행 중(=resuming +
+      waiting_for_reset) 잡 수를 선행 `(N)` 뱃지로 노출(메일/채팅 앱의 안읽음 카운트 관례). 종료 상태
+      (completed/failed/cancelled)와 queued는 뱃지에서 제외 — 종료 잡은 prune 전까지 스토어에 남아 뱃지에
+      영구히 고정될 노이즈라서, 진행 중 작업 0이면 제목은 `BASE_TITLE`로 collapse(유휴 시 깨끗한 탭).
+      요약(summary)만 보고 시계는 안 봄 → 초당 카운트다운이 아니라 상태 전이에만 갱신(깜빡임 없음),
+      partial byStatus에도 방어적(누락 키=0). `dashboard-client.tsx`에 `pageTitle` 파생 + `document.title`을
+      갱신하는 useEffect 배선(제목 문자열을 dep로 두어 실제 변경 시에만 write). title.test.ts 9케이스.
+      branch `claude/dashboard-tab-title`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

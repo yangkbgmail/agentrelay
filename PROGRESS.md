@@ -2259,3 +2259,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 대시보드 브라우저 탭 제목에 진행 중 잡 수 반영] (2026-08-17, 무인 자율 세션, branch `claude/dashboard-tab-title`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 200+개가 파서/stats/신규 커맨드/doctor 검사로 극도로 포화(주 단위 파서만 PR 4개, doctor
+  reset-horizon만 #726·#727 2개 진행 중). 전체 열린 PR 제목을 스캔해 **상대적으로 미포화한 대시보드
+  표면**에서 어떤 열린 PR에도 없는 실사용 갭을 골랐다: 로컬 대시보드를 백그라운드/고정 탭으로 열어두는
+  전형적 사용에서, 탭 제목이 항상 정적("AgentRelay Dashboard")이라 탭 전환 없이 큐 상태를 볼 수 없었다.
+- **한 일 (branch `claude/dashboard-tab-title`):**
+  - `apps/dashboard/lib/title.ts` 신설(순수·시계 미접촉): `buildPageTitle(summary)` + `BASE_TITLE`
+    ("AgentRelay Dashboard" — layout.tsx 메타데이터와 일치해 서버렌더/유휴 상태 불일치[깜빡임] 제거).
+    진행 중(resuming + waiting_for_reset) 잡 수를 선행 `(N)` 뱃지로 노출(메일/채팅 안읽음 카운트 관례,
+    잘리는 탭에서 선행 숫자가 가장 잘 보임). 종료 상태(completed/failed/cancelled)·queued는 제외 —
+    종료 잡은 prune 전까지 남아 뱃지에 영구 고정될 노이즈. 진행 중 0이면 `BASE_TITLE`로 collapse.
+    partial `byStatus`에도 방어적(누락 키=0), 미제공 summary(초기 로드)는 base 제목.
+  - `apps/dashboard/app/dashboard-client.tsx`: `pageTitle = buildPageTitle(summary)` 파생 + 제목 문자열을
+    dep로 둔 `useEffect(() => { document.title = pageTitle })` 배선 → 실제 상태 전이 시에만 write,
+    초당 카운트다운 tick엔 갱신 안 함(제목 깜빡임 없음).
+- **검증:** `pnpm install`→`pnpm build`(Next.js 타입체크 포함 클린)→`pnpm ci:lint`(Biome 0에러)→
+  `pnpm test` 전 패키지 통과(**core 639 · cli 354/1skip · dashboard 18**; dashboard title.test **+9**:
+  미제공/빈 큐=base·waiting/resuming 뱃지·합산·종료상태 제외·queued 제외·종료 혼재 시 진행 중만·partial 방어).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 탭 제목 favicon 색상
+  신호(진행/유휴), 대시보드 job 리스트 프로젝트/커맨드 텍스트 검색 필터(상태 필터 #635와 비겹침 확인 필요).
+  파서/stats/신규 커맨드/doctor는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
