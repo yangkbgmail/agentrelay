@@ -55,6 +55,33 @@ describe("runDoctor", () => {
     expect(report.ok).toBe(false);
   });
 
+  it("warns when a waiting job is parked implausibly far in the future", () => {
+    const now = Date.parse("2026-08-17T00:00:00.000Z");
+    const farReset = new Date(now + 400 * 86_400_000).toISOString(); // ~13 months out
+    const queue = new RelayQueue(storePath);
+    const parked = queue.enqueue({ project: "web", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(parked.id, farReset);
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs: now });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain(parked.id.slice(0, 8));
+    expect(check.message).toContain("web");
+  });
+
+  it("is OK on reset-horizon when a waiting job resets within the horizon", () => {
+    const now = Date.parse("2026-08-17T00:00:00.000Z");
+    const soonReset = new Date(now + 2 * 3_600_000).toISOString(); // 2h out
+    const queue = new RelayQueue(storePath);
+    const parked = queue.enqueue({ project: "web", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(parked.id, soonReset);
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs: now });
+    expect(find(report, "reset-horizon").level).toBe("ok");
+  });
+
   it("errors when the config file is malformed", () => {
     const configPath = join(dir, "agentrelay.config.json");
     writeFileSync(configPath, "{ broken", "utf8");
