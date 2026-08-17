@@ -143,6 +143,48 @@ describe("runDoctor", () => {
     expect(report.ok).toBe(true);
   });
 
+  // Drop a real executable in the temp dir so the adapters PATH check passes and
+  // `report.ok` reflects only the reset-horizon severity, not a missing binary.
+  function seedWaitingJob(msFromNow: number, nowMs: number, env: NodeJS.ProcessEnv): DiagnosticReport {
+    const binName = "faketool";
+    const binPath = join(dir, binName);
+    writeFileSync(binPath, "#!/bin/sh\necho hi\n", "utf8");
+    chmodSync(binPath, 0o755);
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "generic", command: [binName], cwd: dir });
+    queue.markWaitingForReset(j.id, new Date(nowMs + msFromNow).toISOString());
+    queue.close();
+    return runDoctor({ storePath, cwd: dir, env: { PATH: dir, ...env }, nodeVersion: "v22.5.0", nowMs });
+  }
+
+  it("reports reset-horizon OK when a waiting job's reset is within the horizon", () => {
+    const nowMs = Date.parse("2026-08-17T00:00:00.000Z");
+    const report = seedWaitingJob(2 * 60 * 60_000, nowMs, { AGENTRELAY_SLACK_WEBHOOK: "https://s" }); // 2h out
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("within the");
+    expect(report.ok).toBe(true);
+  });
+
+  it("warns when a waiting job's reset lands beyond the default 8d horizon", () => {
+    const nowMs = Date.parse("2026-08-17T00:00:00.000Z");
+    const report = seedWaitingJob(30 * 24 * 60 * 60_000, nowMs, { AGENTRELAY_SLACK_WEBHOOK: "https://s" }); // 30d out
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("1 of 1");
+    expect(check.message).toContain("30d out");
+    // a data-quality warning, not a hard failure
+    expect(report.ok).toBe(true);
+  });
+
+  it("does not flag a far-future reset when the guard is disabled via env", () => {
+    const nowMs = Date.parse("2026-08-17T00:00:00.000Z");
+    const report = seedWaitingJob(365 * 24 * 60 * 60_000, nowMs, { AGENTRELAY_MAX_RESET_HORIZON: "off" }); // 1y out
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+  });
+
   it("reports store-writable OK for a writable store directory", () => {
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
     const writable = find(report, "store-writable");

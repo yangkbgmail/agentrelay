@@ -2259,3 +2259,38 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay doctor` 먼-미래 리셋 잡 검사(reset-horizon)] (2026-08-17, 무인 자율 세션, branch `claude/wizardly-pascal-reset-horizon-doctor`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72가 "다음 할 일"의 후속 인접 후보로 명시한 **"doctor에 큐 내 먼-미래 리셋 잡 경고 검사 추가"**를
+  구현. 세션 72의 parse 시점 reset-horizon 가드가 만든 인프라를 재사용하는 자연스러운 다음 단계.
+- **발굴한 갭:** 세션 72의 `isPlausibleReset`/reset-horizon 가드는 **parse 시점에만** 먼-미래 리셋을
+  드롭한다. 하지만 (a) 가드 도입 이전에 큐잉된 잡, (b) `import`로 다른 머신에서 들어온 잡, (c)
+  `AGENTRELAY_MAX_RESET_HORIZON=off`로 가드를 끈 채 들어온 잡은 여전히 실현 불가능한 `resetAt`을
+  달고 `waiting_for_reset`에 수일/수년 앉아 조용히 재개되지 않는다 — doctor·recover가 반복해 겨냥한
+  바로 그 silent-failure 부류. 사후에 이를 표면화하는 진단이 없었다.
+- **한 일 (branch `claude/wizardly-pascal-reset-horizon-doctor`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, nowMs, maxFutureMs)` — 활성 잡 중 파싱 가능한
+    미래 `resetAt`만 카운트(scheduledCount)하고, `> maxFutureMs`인 것만 far-future로 플래그(파서
+    `isPlausibleReset`의 reject 쪽과 **동일 규칙**). 종료 잡(재개 안 됨)·과거 리셋(한도 이미 풀림)·
+    미파싱 resetAt은 제외, 가드 비활성(null/비유한/비양수)이면 scheduledCount만 세고 플래그 0개.
+    먼 것부터 정렬(id tiebreak). `FarFutureReset`/`ResetHorizonFacts` 타입 + `DiagnosticInput.resets` +
+    `resetHorizonCheck` 추가, `runDiagnostics`에 `reset-horizon` 검사를 adapters↔daemon 사이에 배선.
+    가드 비활성=no-op OK, far-future 0개=OK("all N scheduled reset(s) are within the 8d horizon" /
+    스케줄 잡 없으면 "nothing to check"), 1개 이상=**warning**(error 아님 — 하드 셋업 실패가 아니라
+    데이터 품질 신호). 메시지에 id prefix + "Nd out" 예시 최대 3개(+"+N more"), show/retry/cancel 힌트.
+  - CLI `commands.ts` `runDoctor`가 `maxResetHorizonMsFromEnv(env)` + `selectFarFutureResets(jobs, now,
+    horizon)`로 `resets` facts 수집. 새 파서/스케줄러/집계 로직 **0줄** — 세션 72 인프라 위에 판정
+    한 겹만 추가.
+  - core doctor.test +12(check 5: within-horizon OK·nothing-to-check OK·guard-disabled no-op·beyond-horizon
+    warning·3개 초과 truncation + selectFarFutureResets 7: 경계 inclusive·과거 카운트만·종료 잡 무시·
+    미파싱 스킵·guard null·정렬), cli doctor.test +3(within OK·beyond warning[report.ok 유지]·guard off).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 651 · cli 357/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 임시 스토어에
+  30d·2h waiting 잡 2개 시드 → 기본 8d 지평선 `doctor`가 "1 of 2 waiting job(s) reset beyond the 8d
+  horizon: <id8> (30d out)" warning(2h 잡은 카운트만) + `--json`이 구조화 check 방출 + `AGENTRELAY_MAX_RESET_HORIZON=off`면
+  "reset-horizon guard is disabled" 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드/`status`에도
+  먼-미래 리셋 배지 노출, `agentrelay next`/`upcoming`이 지평선 밖 잡을 별도 표시, `recover`가 stuck
+  resuming처럼 먼-미래 리셋 잡도 즉시-due로 복구하는 옵션. stats 분산/watch·summary --watch는 PR 포화라
+  지양. README/ARCHITECTURE(🧭 코워크).
