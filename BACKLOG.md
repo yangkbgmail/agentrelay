@@ -870,6 +870,23 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `doctor`: 큐 내 먼-미래 리셋 잡 경고 검사(`reset-horizon`) — 파서 plausibility 가드의
+      스토어-쪽 카운터파트. 자기 발굴 항목 — 가드는 *새* 먼-미래 리셋의 큐잉만 막지만, 가드 도입
+      이전에 저장됐거나 `AGENTRELAY_MAX_RESET_HORIZON=off`로 큐잉된 잡은 여전히 수일/수년 뒤로 파킹돼
+      resume 루프가 조용히 영영 안 재개하는 "silent failure"로 남을 수 있었다. `doctor`가 사후에
+      이를 잡아낸다.
+      (완료 — core `doctor.ts`에 순수 `selectFarFutureResets(jobs, nowMs, maxFutureMs)`(활성 중
+      `waiting_for_reset` 잡만, resetAt이 `now+maxFutureMs` 초과면 far-future로 선별; null/미파싱
+      resetAt 스킵; 먼 순 정렬; maxFutureMs null·비유한·비양수는 "가드 없음"=빈 배열로 `isPlausibleReset`
+      계약 미러) + `FarFutureReset`/`ResetHorizonFacts` 타입 + `resetHorizonCheck`(가드 비활성→OK, far
+      -future 있으면 최악 오프렌더 id·프로젝트·`in Nd` 표기와 `retry`/`cancel` 힌트로 warning, 없으면
+      OK) 추가. `DiagnosticInput.resetHorizon` 필드 + `runDiagnostics`에 adapters·daemon 다음으로 배선.
+      CLI `runDoctor`가 `nowMs`·`maxResetHorizonMsFromEnv() ?? DEFAULT_MAX_RESET_HORIZON_MS`로 사실
+      수집(가드가 env로 off여도 진단은 기본 지평선으로 계속 경고 — 읽기전용 리포트라 안전). warning은
+      전체 리포트를 fail시키지 않음(경고 정책 일관). doctor.test +11(selectFarFutureresets 7·check 3·
+      counts 갱신), 실제 빌드 CLI e2e로 30일 파킹→warn·2h→미표시·`off`에서도 warn·clean→OK·`--json`
+      노출 검증. 새 파서/스케줄러 로직 0줄. branch `claude/wizardly-pascal-wnqiqw`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
