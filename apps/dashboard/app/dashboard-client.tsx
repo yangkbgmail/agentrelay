@@ -3,6 +3,7 @@
 import type { HeartbeatStatus, JobStatus, ProjectBreakdown, RelayJob, ToolBreakdown } from "@agentrelay/core";
 import { useEffect, useState } from "react";
 import type { JobsSnapshot } from "../lib/jobs";
+import { buildPageTitle } from "../lib/title";
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -247,6 +248,15 @@ export default function DashboardClient() {
 
   const jobs = snapshot?.jobs ?? [];
   const summary = snapshot?.summary;
+
+  // Reflect in-flight work in the browser-tab title so a backgrounded/pinned tab
+  // reads "how many jobs is the relay still juggling?" at a glance. Keyed on the
+  // discrete in-flight count (via the title string), so it only updates when a
+  // job actually changes state — not on every per-second countdown tick.
+  const pageTitle = buildPageTitle(summary);
+  useEffect(() => {
+    document.title = pageTitle;
+  }, [pageTitle]);
   const projectRows = (snapshot?.projects.projects ?? []).map(projectRow);
   const toolRows = (snapshot?.tools.tools ?? []).map(toolRow);
   const hasRollup = projectRows.length > 0 || toolRows.length > 0;
