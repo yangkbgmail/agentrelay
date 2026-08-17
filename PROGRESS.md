@@ -2259,3 +2259,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — doctor: 큐 내 먼-미래 리셋 잡 경고 검사(reset-horizon)] (2026-08-17, 무인 자율 세션, branch `claude/wizardly-pascal-wnqiqw`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  직전 세션(72)이 남긴 후속 인접 후보 중 "doctor에 큐 내 먼-미래 리셋 잡 경고 검사 추가"를 골랐다 —
+  파서 plausibility 가드(세션 72)의 **스토어-쪽 카운터파트**. 가드는 *새* 먼-미래 리셋의 큐잉만
+  막지만, 가드 도입 이전에 저장됐거나 `AGENTRELAY_MAX_RESET_HORIZON=off`로 큐잉된 잡은 여전히
+  수일/수년 뒤로 파킹돼 resume 루프가 조용히 영영 안 재개할 수 있다. doctor가 이를 사후에 잡는다.
+- **한 일 (branch `claude/wizardly-pascal-wnqiqw`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, nowMs, maxFutureMs)`(활성 중
+    `waiting_for_reset` 잡만 스캔 — 종료/queued/resuming 제외, resetAt이 `now+maxFutureMs` 초과면
+    far-future로 선별, null·미파싱 resetAt 스킵, 먼 순 정렬; maxFutureMs가 null·비유한·비양수면
+    "가드 없음"=빈 배열로 parser `isPlausibleReset`의 계약을 미러) + `FarFutureReset`/
+    `ResetHorizonFacts` 타입 + `resetHorizonCheck`(가드 비활성→informational OK, far-future 있으면
+    개수·최악 오프렌더 short id·프로젝트·`in Nd`와 `retry`/`cancel` 힌트로 warning, 없으면 OK).
+    `DiagnosticInput.resetHorizon` 필드 + `runDiagnostics`에 adapters·daemon 다음으로 검사 배선.
+  - CLI `runDoctor`: `nowMs`(옵션 주입 or now)·`maxResetHorizonMsFromEnv() ?? DEFAULT_MAX_RESET_HORIZON_MS`
+    로 far-future 사실 수집 → `resetHorizon` 배선. env로 가드가 off여도 읽기전용 진단은 기본
+    지평선으로 계속 경고(리포트는 상태를 바꾸지 않으므로 안전). warning은 전체 리포트를 fail시키지
+    않음(기존 경고 정책과 일관).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 649 · cli 354/1skip · dashboard 9**; doctor.test +11 — selectFarFutureResets 7·
+  reset-horizon check 3·counts 갱신 1). **실제 빌드 CLI e2e**(mock 아님): 30일 파킹 잡→`reset-horizon`
+  warning(최악 오프렌더 표기)·2h 잡→미표시·`AGENTRELAY_MAX_RESET_HORIZON=off`에서도 warning 유지·
+  빈 스토어→OK·`doctor --json`에 검사 노출 확인. 새 파서/스케줄러 로직 0줄.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recover`/`prune`이
+  far-future 파킹 잡을 다루는 옵션, 과거-쪽 극단(수년 전 resetAt)도 misparse 신호로 보고할지,
+  `verify`에 스토어 무결성으로 far-future 리셋 포함. stats 분산/watch·epoch ms는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).

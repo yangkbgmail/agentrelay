@@ -39,6 +39,7 @@ import {
   canRequeue,
   configToJson,
   countActiveJobs,
+  DEFAULT_MAX_RESET_HORIZON_MS,
   daemonHeartbeatPath,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
@@ -84,6 +85,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   sampleConfigJson,
   scopeJobs,
+  selectFarFutureResets,
   selectStuckResumingJobs,
   serializeDaemonHeartbeat,
   setConfigValue,
@@ -1467,6 +1469,15 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // --- reset-horizon facts. Scan waiting jobs for an implausibly far-future
+  // resetAt (a misparse that would silently never resume). The parser's guard
+  // blocks new ones; doctor catches ones already parked. We diagnose even when
+  // the env guard is set to `off` (null) — a read-only report should still warn
+  // — by falling back to the default horizon for the check itself.
+  const nowMs = options.nowMs ?? Date.now();
+  const horizonMs = maxResetHorizonMsFromEnv(env) ?? DEFAULT_MAX_RESET_HORIZON_MS;
+  const farFuture = selectFarFutureResets(jobs, nowMs, horizonMs);
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1486,6 +1497,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    resetHorizon: { maxFutureMs: horizonMs, farFuture },
   });
 }
 
