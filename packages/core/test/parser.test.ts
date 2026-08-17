@@ -102,6 +102,62 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(expected);
   });
 
+  it("keeps the trailing unit across an 'and' connector ('1 hour and 30 minutes')", () => {
+    // Regression: the old regex stopped at the first connector, reading this as
+    // just "1 hour" and resuming 30 minutes early while still rate-limited.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in 1 hour and 30 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + (60 + 30) * 60_000).toISOString());
+  });
+
+  it("keeps both units across a comma connector ('2 days, 3 hours')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly usage limit reached, resets in 2 days, 3 hours.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + (2 * 24 + 3) * 60 * 60_000).toISOString());
+  });
+
+  it("tolerates an 'about' approximation filler ('in about 5 minutes')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit — try again in about 5 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 5 * 60_000).toISOString());
+  });
+
+  it("tolerates a '~' approximation filler ('retry in ~2h')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, retry in ~2h.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
+  it("tolerates a 'roughly' filler with a spelled-out hour ('roughly 1 hour')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached, resets in roughly 1 hour.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 60 * 60_000).toISOString());
+  });
+
+  it("still parses a minutes-only wait after the connector/filler changes ('in 3 minutes')", () => {
+    // Guard: the added optional connector/filler groups must not swallow the
+    // leading number of a plain minutes-only wait.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, resets in 30 minutes.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
+
+  it("parses a bare 'retry in …' with no other rate-limit keyword", () => {
+    // The relative-duration pattern accepts "retry" as a trigger, but the
+    // pre-filter used to only allow "retry-after", so a lone "retry in 2h"
+    // (no "rate limit"/"usage limit" nearby) was dropped before any pattern ran.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("retry in 2h", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
   it("parses the singular 'in 1 day' form", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Usage limit reached. Try again in 1 day.", { now });

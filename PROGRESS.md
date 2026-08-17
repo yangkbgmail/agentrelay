@@ -2233,3 +2233,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+---
+
+## 세션 (2026-08-17) — 파서 relative-duration: connector/근사 filler + 사전필터 "retry in" 정합
+
+- **한 일 (branch `claude/wizardly-pascal-7opjgt`):**
+  - `parser.ts`의 `relative-duration` 패턴을 실사용 자연어 wording에 맞게 강화. 기존 정규식은
+    첫 connector에서 멈춰 `"try again in 1 hour and 30 minutes"`를 **1시간으로만** 읽어
+    30분 일찍(=아직 rate-limit인 상태로) 재개했다. 이제 단위 사이 connector(`and`·콤마)와
+    선행 근사 filler(`about`/`approximately`/`roughly`/`around`/`~`)를 허용 →
+    `"1 hour and 30 minutes"`·`"2 days, 3 hours"`·`"in about 5 minutes"`·`"~2h"`·
+    `"roughly 1 hour"` 모두 정확히 파싱. 초 단위는 여전히 Codex 어댑터 소관(불변).
+  - 사전 필터 `LOOKS_LIKE_RATE_LIMIT` 불일치 교정: `relative-duration` 패턴은 트리거로
+    `retry`를 이미 지원하는데 사전 필터는 `retry-after`만 허용해, 다른 rate-limit 키워드가
+    없는 bare `"retry in 2h"`가 어떤 패턴도 돌기 전에 버려졌다. `(?:reset|retry)s?\s+(?:at|in)`로
+    묶어 "retry in"도 통과시킴(reset 계열 동작 불변).
+  - `parser.test.ts`에 7케이스 추가(and/콤마 connector·about/~/roughly filler·minutes-only
+    guard·bare "retry in"). 기존 회귀(4h32m·1d 4h·in 3 minutes·iso 우선 등) 전부 유지.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test`
+  전 패키지 통과(**core 634 · cli 354/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  `parse "try again in 1 hour and 30 minutes"`→`in 1h 30m`, `parse "try again in about 5 minutes"`
+  →`in 5m`, `parse "retry in ~2h"`→`relative-duration`/`in 2h 0m` 렌더 확인(수정 전엔
+  "No rate-limit detected").
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 —
+  `"in a few minutes"`류 비수치 근사(현재 의도적으로 null 유지)나 파이프-epoch ms(13자리)
+  관찰 후 확장. README/ARCHITECTURE는 🧭 코워크.

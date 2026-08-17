@@ -88,11 +88,17 @@ const PATTERNS: RateLimitPattern[] = [
   {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
-    // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
-    // are OpenAI/Codex-style wording that the Codex adapter contributes).
+    // windows. Also tolerates the natural-language wording real API/agent
+    // messages actually print: connectors between units ("1 hour and 30 minutes",
+    // "2 days, 3 hours") and a leading approximation filler ("in about 5 minutes",
+    // "in ~2h", "retry in roughly 1 hour"). Without these the previous regex
+    // silently dropped every unit after the first connector — e.g. it read
+    // "1 hour and 30 minutes" as just 1 hour, resuming 30 minutes early while the
+    // job was still rate-limited. Seconds are deliberately *not* handled here (see
+    // adapters.ts: they are OpenAI/Codex-style wording the Codex adapter contributes).
     name: "relative-duration",
     regex:
-      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
+      /(?:try again|resets?|retry)\s+in\s+(?:(?:about|approximately|roughly|around|~)\s*)?(?:(\d+)\s*d(?:ays?)?)?[\s,]*(?:and\s+)?(?:(\d+)\s*h(?:ours?)?)?[\s,]*(?:and\s+)?(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
     resolve: (m, now) => {
       const days = m[1] ? parseInt(m[1], 10) : 0;
       const hours = m[2] ? parseInt(m[2], 10) : 0;
@@ -135,8 +141,14 @@ const PATTERNS: RateLimitPattern[] = [
   },
 ];
 
-/** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+/**
+ * Quick pre-filter so we don't run every regex on every line of noisy CLI output.
+ * Must stay in sync with the trigger verbs of the generic PATTERNS above: the
+ * `relative-duration` pattern accepts a bare "retry in …", so the pre-filter has
+ * to let "retry in" through too (it previously only allowed "retry-after",
+ * silently dropping "retry in 2h" that had no other rate-limit keyword).
+ */
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|(?:reset|retry)s?\s+(?:at|in)|retry.?after)/i;
 
 function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
   const match = text.match(pattern.regex);
