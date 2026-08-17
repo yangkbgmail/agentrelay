@@ -64,20 +64,28 @@ const CODEX_SECONDS_PATTERN: RateLimitPattern = {
 /**
  * Claude Code's non-interactive / print mode (`claude -p ...`) does not print a
  * prose sentence when it hits the usage limit — it emits a machine-readable line
- * of the form `Claude AI usage limit reached|<unix_epoch_seconds>`, where the
- * number after the pipe is the absolute reset time in Unix epoch *seconds*. This
- * is the exact format automated wrappers (e.g. claude-auto-retry) key on, and
- * the one AgentRelay is most likely to see in practice, since it wraps agents in
+ * of the form `Claude AI usage limit reached|<unix_epoch>`, where the number
+ * after the pipe is the absolute reset time as a Unix epoch. This is the exact
+ * format automated wrappers (e.g. claude-auto-retry) key on, and the one
+ * AgentRelay is most likely to see in practice, since it wraps agents in
  * headless mode. The generic parser has no pipe-delimited epoch pattern (its
  * `unix-epoch` matcher requires a `retry_after` prefix), so this wording would
  * otherwise slip through. Kept as a Claude-specific adapter pattern rather than a
- * generic one so a bare `...|<10 digits>` elsewhere can't be misread as a reset.
+ * generic one so a bare `...|<digits>` elsewhere can't be misread as a reset.
+ *
+ * The epoch is accepted in two widths: 10 digits = seconds (what
+ * claude-auto-retry emits) and 13 digits = milliseconds (some wrappers pipe a
+ * raw JS `Date.now()` through). The `\b` after a fixed-length run rejects 11-
+ * and 12-digit values, so an ambiguous length can't be silently mis-scaled by
+ * three orders of magnitude — better to miss than to resume at the wrong time.
  */
 const CLAUDE_USAGE_LIMIT_EPOCH_PATTERN: RateLimitPattern = {
   name: "claude-usage-limit-epoch",
-  regex: /usage limit reached\s*\|\s*(\d{10})\b/i,
+  regex: /usage limit reached\s*\|\s*(\d{13}|\d{10})\b/i,
   resolve: (m) => {
-    const d = new Date(parseInt(m[1], 10) * 1000);
+    const digits = m[1];
+    const ms = digits.length === 13 ? parseInt(digits, 10) : parseInt(digits, 10) * 1000;
+    const d = new Date(ms);
     return Number.isNaN(d.getTime()) ? null : d;
   },
 };
