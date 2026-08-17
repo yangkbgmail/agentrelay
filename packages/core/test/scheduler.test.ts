@@ -97,6 +97,54 @@ describe("RelayScheduler", () => {
     expect(results[0].resetAt).not.toBeNull();
   });
 
+  it("ignores an implausibly far-future reset on resume when a horizon is set", async () => {
+    // A misparse (or an absurd wait) resolving 30 days out would otherwise park
+    // the job a month. With the horizon guard, the far-future reset is dropped;
+    // the resume exited 0, so the job completes instead of being re-queued.
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      maxResetHorizonMs: 8 * 24 * 60 * 60_000,
+      spawnFn: fakeSpawnFn({
+        "claude -p continue": "Usage limit reached. Try again in 30 days.",
+      }),
+    });
+
+    const results = await scheduler.tick();
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe("completed");
+  });
+
+  it("re-queues the same far-future reset when no horizon is configured", async () => {
+    // Same output, but without the guard the 30-day reset is honored (the
+    // historical behavior) — proving the horizon is what changed the outcome.
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({
+        "claude -p continue": "Usage limit reached. Try again in 30 days.",
+      }),
+    });
+
+    const results = await scheduler.tick();
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe("waiting_for_reset");
+  });
+
   it("does not touch jobs that are not yet due", async () => {
     const job = queue.enqueue({
       project: "demo",

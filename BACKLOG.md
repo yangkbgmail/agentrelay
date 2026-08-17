@@ -851,6 +851,25 @@
       실제 빌드 CLI `parse --tool claude-code "…|1752345600"` e2e로 `claude-usage-limit-epoch` 매치 +
       generic은 "No rate-limit detected" 확인. branch `claude/wizardly-pascal-j0fz82`)
 
+- [x] 👷 파서: rate-limit 리셋 시각 plausibility 가드(미래 지평선) — 미스파싱이 잡을 수일/수년 뒤로
+      파킹해 조용히 재개 안 되는 "silent failure"를 차단. 자기 발굴 항목 — 파서는 지금까지 해소한
+      resetAt에 상한 검증이 없어, 잘못된 epoch 단위·거대한 상대 기간·오탐 timezone이 만든 먼-미래
+      리셋을 그대로 큐에 넣어 잡을 영원히 대기시킬 수 있었다(대회 도구·doctor·recover가 반복해 겨냥해온
+      바로 그 무음 실패 부류).
+      (완료 — `@agentrelay/core/parser.ts`에 순수 `isPlausibleReset(resetAt, now, maxFutureMs?)`
+      (미래 쪽만 경계; 과거 리셋=이미 풀린 한도라 즉시 재개가 안전하므로 허용; 비양수·비유한·nullish
+      maxFutureMs는 "가드 없음"으로 항상 true) + `DEFAULT_MAX_RESET_HORIZON_MS`(8일 — 주간 한도를
+      여유 있게 덮되 오탐은 거름) + `maxResetHorizonMsFromEnv`(`AGENTRELAY_MAX_RESET_HORIZON` 기간 파싱;
+      미설정=기본 8일, `0`/`off`/`none`/파싱불가=null[가드 비활성], 기존 `parseDuration` 재사용) 추가.
+      `ParseOptions.maxFutureMs` 옵션을 `tryPattern`에 배선 — 지평선 밖 리셋은 매치 안 한 것처럼 스킵해
+      더 합당한 패턴으로 폴스루하거나 null 반환(호출자는 일반 완료로 처리). **기본 undefined = 하위호환**
+      (기존 파서/`parse` 진단 커맨드 동작 불변). `RelayScheduler`에 `maxResetHorizonMs` 옵션 추가 → resume
+      시 detectRateLimit에 배선, CLI run/daemon/tick이 env로 배선. 어댑터의 `detectRateLimit`는 옵션을
+      그대로 전달하므로 별도 수정 0줄. parser.test +11(지평선 밖 드롭·안 유지·과거 허용·먼-미래 후 폴스루·
+      비양수=가드없음·isPlausibleReset 경계·env 기본/파싱/비활성) + scheduler.test +2(먼-미래 resume 드롭→
+      completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
+      2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

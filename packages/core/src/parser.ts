@@ -1,3 +1,4 @@
+import { parseDuration } from "./prune.js";
 import type { RateLimitInfo } from "./types.js";
 
 /**
@@ -20,6 +21,55 @@ export interface ParseOptions {
    * pre-filter, so an adapter can match formats that don't look rate-limit-y.
    */
   extraPatterns?: RateLimitPattern[];
+  /**
+   * Plausibility guard: reject any parsed reset that lands more than this many
+   * milliseconds *after* `now`. A misparse (wrong epoch units, a huge relative
+   * duration, a bad timezone) can otherwise resolve to a reset days or years
+   * out, silently parking a job forever — the exact "silent failure" class this
+   * relay keeps guarding against. When a pattern's reset is implausibly far
+   * out, it's skipped as if it hadn't matched, so the parser falls through to a
+   * saner pattern or returns `null` (the caller then treats it as a normal
+   * completion instead of a multi-year wait). Only the *future* side is bounded
+   * — a reset in the past just means the limit already lifted, which is safe to
+   * resume immediately. `undefined`/`null`/`<= 0` disables the guard (the
+   * historical behavior), so existing callers are unaffected.
+   */
+  maxFutureMs?: number | null;
+}
+
+/**
+ * Default upper bound for a plausible rate-limit reset: 8 days. Generous enough
+ * to cover real weekly usage windows (Claude's longest published limit) with
+ * margin, while still rejecting the wildly-out resets a misparse produces.
+ */
+export const DEFAULT_MAX_RESET_HORIZON_MS = 8 * 24 * 60 * 60_000;
+
+/**
+ * True when `resetAt` is close enough to `now` to be a believable rate-limit
+ * reset. Only the future side is bounded (see {@link ParseOptions.maxFutureMs}).
+ * A non-positive / non-finite / nullish `maxFutureMs` means "no guard" and
+ * always returns `true`. Pure and side-effect free so callers and tests can use
+ * it directly.
+ */
+export function isPlausibleReset(resetAt: Date, now: Date, maxFutureMs?: number | null): boolean {
+  if (maxFutureMs === undefined || maxFutureMs === null || !Number.isFinite(maxFutureMs) || maxFutureMs <= 0) {
+    return true;
+  }
+  return resetAt.getTime() <= now.getTime() + maxFutureMs;
+}
+
+/**
+ * Resolve the reset horizon (ms) from `AGENTRELAY_MAX_RESET_HORIZON`. Unset →
+ * {@link DEFAULT_MAX_RESET_HORIZON_MS}. An explicit `0`/`off`/`none`/`disabled`
+ * (or any non-positive / unparseable duration) → `null`, meaning the guard is
+ * disabled. Anything else is parsed as a duration (`25h`, `2d`, `90m`, …).
+ */
+export function maxResetHorizonMsFromEnv(env: NodeJS.ProcessEnv = process.env): number | null {
+  const raw = env.AGENTRELAY_MAX_RESET_HORIZON?.trim();
+  if (raw === undefined || raw === "") return DEFAULT_MAX_RESET_HORIZON_MS;
+  if (/^(0|off|none|disabled|no)$/i.test(raw)) return null;
+  const parsed = parseDuration(raw);
+  return parsed !== null && parsed > 0 ? parsed : null;
 }
 
 /**
@@ -138,11 +188,19 @@ const PATTERNS: RateLimitPattern[] = [
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
 const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
 
-function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLimitInfo | null {
+function tryPattern(
+  pattern: RateLimitPattern,
+  text: string,
+  now: Date,
+  maxFutureMs?: number | null
+): RateLimitInfo | null {
   const match = text.match(pattern.regex);
   if (!match) return null;
   const resetDate = pattern.resolve(match, now);
   if (!resetDate || Number.isNaN(resetDate.getTime())) return null;
+  // Drop an implausibly far-out reset so a misparse can't park a job forever;
+  // the caller keeps scanning for a saner pattern (or gets `null`).
+  if (!isPlausibleReset(resetDate, now, maxFutureMs)) return null;
   return {
     resetAt: resetDate.toISOString(),
     rawMatch: match[0],
@@ -152,19 +210,20 @@ function tryPattern(pattern: RateLimitPattern, text: string, now: Date): RateLim
 
 export function parseRateLimitMessage(text: string, options: ParseOptions = {}): RateLimitInfo | null {
   const now = options.now ?? new Date();
+  const maxFutureMs = options.maxFutureMs;
 
   // Tool-specific patterns win over the generic ones and are tried even when
   // the text doesn't trip the generic pre-filter (a tool may phrase things its
   // own way, e.g. "please try again in 20s").
   for (const pattern of options.extraPatterns ?? []) {
-    const hit = tryPattern(pattern, text, now);
+    const hit = tryPattern(pattern, text, now, maxFutureMs);
     if (hit) return hit;
   }
 
   if (!LOOKS_LIKE_RATE_LIMIT.test(text)) return null;
 
   for (const pattern of PATTERNS) {
-    const hit = tryPattern(pattern, text, now);
+    const hit = tryPattern(pattern, text, now, maxFutureMs);
     if (hit) return hit;
   }
 
