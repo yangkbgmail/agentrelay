@@ -2233,3 +2233,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
   다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
   확장. stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 72 — 파서: Claude Code 파이프-epoch 밀리초(13자리) 인식] (2026-08-17, 무인 자율 세션, branch `claude/wizardly-pascal-357xfz`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목이 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 71이 "다음 할 일"로 명시한 후속 인접 파서 후보 — 파이프-epoch가 ms(13자리)로도 오는지 관찰 후
+  확장 — 을 골라, PR 포화 클러스터(stats 분산·watch·summary --watch)를 피하고 이 도구의 핵심 가치
+  (rate-limit 감지)에 직결되는 파서 영역에서 실제 갭을 메움.
+- **발굴한 갭:** 세션 71이 추가한 `claude-usage-limit-epoch` 패턴은 파이프 뒤 10자리(초) epoch만 잡았다.
+  하지만 일부 래퍼는 JS `Date.now()`(밀리초, 13자리)를 그대로 파이프로 흘려보낼 수 있고, 그러면 기존
+  패턴은 미탐이거나(자릿수 초과) 앞 10자리만 잡아 1000배 이른 시각에 재개하는 위험이 있었다.
+- **한 일 (branch `claude/wizardly-pascal-357xfz`):**
+  - core `adapters.ts`의 `CLAUDE_USAGE_LIMIT_EPOCH_PATTERN` 정규식을 `(\d{10})` → `(\d{13}|\d{10})`로
+    확장. 13자리 alternation을 먼저 둬 13자리가 10자리+꼬리로 잘못 캡처되지 않게 하고, `resolve`가
+    13자리는 ms 그대로·10자리는 ×1000으로 스케일해 두 폭이 같은 절대 instant로 해소.
+  - `\b`(고정 길이 뒤 경계)가 11·12자리 값을 거부 → 애매한 자릿수를 ×1000 또는 ÷10만큼 조용히
+    오스케일하지 않음(잘못된 시각 재개보다 미탐이 안전). 새 스케줄러/파서 로직 0줄 — 패턴 하나만 확장.
+  - adapters.test +3(13자리 ms → 10자리 초와 동일 instant + rawMatch 검증·11자리 미탐·12자리 미탐).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core adapters 20 · cli 354/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  `parse --tool claude-code "…|1752345600000"`(ms)와 `…|1752345600"`(초) 모두 `claude-usage-limit-epoch`
+  매치·동일한 `2025-07-12T18:40:00Z`로 해소, `…|17523456000"`(11자리)는 "No rate-limit detected" 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — Claude/Codex의
+  다른 실사용 rate-limit wording 수집(🧭와 협업), 또는 파이프 뒤 ISO-8601 타임스탬프 변형 관찰 후 확장.
+  stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

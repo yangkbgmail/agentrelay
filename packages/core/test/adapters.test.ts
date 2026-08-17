@@ -101,6 +101,23 @@ describe("adapter rate-limit detection", () => {
     );
   });
 
+  it("Claude Code adapter reads a 13-digit millisecond epoch after the pipe", () => {
+    // Some wrappers pipe a raw JS `Date.now()` (milliseconds). 1752345600000ms
+    // is the same instant as 1752345600s -> 2025-07-12T18:40:00Z, not 1000x off.
+    const result = CLAUDE_CODE_ADAPTER.detectRateLimit("Claude AI usage limit reached|1752345600000", { now });
+    expect(result?.pattern).toBe("claude-usage-limit-epoch");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+    expect(result?.rawMatch).toBe("usage limit reached|1752345600000");
+  });
+
+  it("Claude Code adapter rejects ambiguous 11-/12-digit epochs rather than mis-scaling them", () => {
+    // Only 10 (seconds) or 13 (ms) digits are meaningful. An 11- or 12-digit run
+    // would be off by 10x-100x whichever scale we guessed, so the `\b` after a
+    // fixed-length run refuses to match and we fall through instead.
+    expect(CLAUDE_CODE_ADAPTER.detectRateLimit("Claude AI usage limit reached|17523456000", { now })).toBeNull();
+    expect(CLAUDE_CODE_ADAPTER.detectRateLimit("Claude AI usage limit reached|175234560000", { now })).toBeNull();
+  });
+
   it("the generic adapter does NOT understand the pipe-delimited epoch format", () => {
     // This is the whole point of putting it on the Claude adapter: a bare
     // "...|<10 digits>" must not be treated as a reset by the generic parser.
