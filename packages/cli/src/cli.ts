@@ -78,6 +78,7 @@ import {
   unsetConfigFile,
   validateConfigFile,
   waitForJob,
+  writeConfigSchema,
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
@@ -1914,6 +1915,33 @@ export function buildCli(): Command {
         console.log(`[agentrelay] ${result.message}`);
       } else {
         console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 1;
+      }
+    });
+  config
+    .command("schema")
+    .description("Print the JSON Schema for agentrelay.config.json (editor autocomplete/validation)")
+    .option("-o, --out <file>", "Write the schema to this file instead of stdout")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # save the schema next to your config and reference it\n" +
+        "  agentrelay config schema -o agentrelay.config.schema.json\n" +
+        '  # then add  "$schema": "./agentrelay.config.schema.json"  to agentrelay.config.json\n' +
+        "  # or inspect it directly\n" +
+        "  agentrelay config schema | jq .properties"
+    )
+    .action((opts: { out?: string }) => {
+      try {
+        const result = writeConfigSchema({ outPath: opts.out });
+        if (result.writtenTo) {
+          // Keep stdout clean for redirection; status goes to stderr.
+          console.error(`[agentrelay] wrote config schema to ${result.writtenTo}`);
+        } else {
+          process.stdout.write(result.content);
+        }
+      } catch (error) {
+        console.error(`[agentrelay] could not write config schema: ${String(error)}`);
         process.exitCode = 1;
       }
     });

@@ -25,6 +25,7 @@ import {
   unsetConfigFile,
   validateConfigFile,
   waitForJob,
+  writeConfigSchema,
 } from "../src/commands.js";
 import { isConfigDiagnosticInvocation, renderEffectiveConfig, resolveProjectName } from "../src/config.js";
 
@@ -438,6 +439,37 @@ describe("initConfig", () => {
     expect(result.ok).toBe(true);
     expect(result.message).toMatch(/Overwrote/);
     expect(readFileSync(path, "utf8")).toBe(sampleConfigJson());
+  });
+});
+
+describe("writeConfigSchema", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-schema-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("returns the schema for stdout when no outPath is given", () => {
+    const result = writeConfigSchema();
+    expect(result.writtenTo).toBeNull();
+    const parsed = JSON.parse(result.content);
+    expect(parsed.$schema).toBe("http://json-schema.org/draft-07/schema#");
+    expect(parsed.type).toBe("object");
+    expect(parsed.properties.retry.properties.maxAttempts.type).toBe("number");
+  });
+
+  it("writes the schema to a file (creating parent dirs) when outPath is set", () => {
+    const result = writeConfigSchema({ cwd: dir, outPath: "nested/agentrelay.config.schema.json" });
+    const expected = join(dir, "nested", "agentrelay.config.schema.json");
+    expect(result.writtenTo).toBe(expected);
+    expect(existsSync(expected)).toBe(true);
+    const written = readFileSync(expected, "utf8");
+    expect(written.endsWith("\n")).toBe(true);
+    expect(JSON.parse(written)).toEqual(JSON.parse(result.content));
   });
 });
 
