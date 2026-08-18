@@ -48,6 +48,7 @@ import {
   evaluateHeartbeat,
   evaluateWait,
   exportJobs,
+  farFutureResetJobs,
   findConfigField,
   hasConfigErrors,
   heartbeatStaleAfterMs,
@@ -1467,6 +1468,17 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // --- reset-horizon facts. The parser's plausibility guard drops far-future
+  // resets at detection time; this catches ones already parked in the store
+  // (queued before the guard, or while it was disabled) that would sit waiting
+  // for a reset a misparse invented. Uses the same resolved horizon the relay
+  // loop applies; null means the guard is off, so nothing is flagged.
+  const horizonMs = maxResetHorizonMsFromEnv(env);
+  const resetHorizon =
+    horizonMs === null
+      ? { guarded: false, offenders: [] }
+      : { guarded: true, horizonMs, offenders: farFutureResetJobs(jobs, options.nowMs ?? Date.now(), horizonMs) };
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1486,6 +1498,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    resetHorizon,
   });
 }
 

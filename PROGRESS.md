@@ -2259,3 +2259,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — doctor `reset-horizon` 검사(먼-미래 리셋 잡 탐지)] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-reset-doctor`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72가 남긴 인접 후속 후보 중 "doctor에 큐 내 먼-미래 리셋 잡 경고 검사 추가"를 골랐다.
+  세션 72의 파서 plausibility 가드는 리셋을 **감지 시점에만** 거른다 — 가드 도입 전에 이미
+  큐에 들어갔거나 `AGENTRELAY_MAX_RESET_HORIZON=off`로 실행 중 파킹된 잡은, 오탐이 만든 먼-미래
+  리셋을 그대로 안은 채 스토어에 남아 수일/수년 조용히 대기한다. 모든 목록엔 "waiting"으로 보이지만
+  현실적으로 재개되지 않는 이 부류가 doctor가 겨냥하는 silent failure다.
+- **한 일 (branch `claude/wizardly-pascal-reset-doctor`):**
+  - core `doctor.ts`: 순수 `farFutureResetJobs(jobs, nowMs, maxFutureMs)`(active 잡만, resetAt이
+    `now+horizon`을 초과하면 오펜더로; 과거/미파싱/터미널은 스킵; 먼-미래 우선 정렬) + `ResetHorizonFacts`/
+    `FarFutureReset` 인터페이스 + `resetHorizonCheck`(가드 off→정보성 ok, 오펜더 0→ok, 1+→worst
+    오펜더를 앞세운 warning + `agentrelay cancel <id>`/`AGENTRELAY_MAX_RESET_HORIZON` 힌트) 추가.
+    `runDiagnostics` 체크 순서에 daemon 다음으로 배선. 클록·호라이즌은 주입식이라 모듈은 순수 유지.
+  - cli `commands.ts` `runDoctor`: `maxResetHorizonMsFromEnv(env)`로 호라이즌 해소(null=가드 off) →
+    `farFutureResetJobs`로 오펜더 수집해 `resetHorizon` fact 배선. 렌더러는 기존 체크리스트를 그대로 사용.
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과
+  (**core 650**[doctor.test +12] · cli 354/1skip · dashboard 9). **실제 빌드 CLI e2e**(mock 아님):
+  30일 리셋 파킹 잡을 심고 `doctor` 실행 시 `reset-horizon`이 `1 active job(s) ... jfar (web) resumes
+  in 30d` warning 렌더(2h 리셋 잡은 미플래그), `AGENTRELAY_MAX_RESET_HORIZON=off`면 "guard disabled"
+  정보성 ok로 전환 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `doctor`가 과거-쪽
+  극단(수년 전 epoch로 미파싱 신호)도 보고할지, 또는 `agentrelay recover`류에 먼-미래 파킹 잡을
+  일괄 재감지/재큐잉하는 정리 명령. stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
