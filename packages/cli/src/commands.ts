@@ -39,6 +39,7 @@ import {
   canRequeue,
   configToJson,
   countActiveJobs,
+  DEFAULT_MAX_RESET_HORIZON_MS,
   daemonHeartbeatPath,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
@@ -84,6 +85,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   sampleConfigJson,
   scopeJobs,
+  selectFarFutureResets,
   selectStuckResumingJobs,
   serializeDaemonHeartbeat,
   setConfigValue,
@@ -1486,6 +1488,13 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    // --- reset-horizon facts. Flags jobs parked on an implausibly far-future
+    // reset (a misparse that will silently never resume). Uses the parser's
+    // default horizon so `doctor` flags exactly what the enqueue guard rejects.
+    resetHorizon: {
+      horizonMs: DEFAULT_MAX_RESET_HORIZON_MS,
+      farFuture: selectFarFutureResets(jobs, options.nowMs ?? Date.now(), DEFAULT_MAX_RESET_HORIZON_MS),
+    },
   });
 }
 

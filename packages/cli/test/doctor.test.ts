@@ -143,6 +143,30 @@ describe("runDoctor", () => {
     expect(report.ok).toBe(true);
   });
 
+  it("reports reset-horizon OK when no job is parked implausibly far", () => {
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, new Date(Date.now() + 2 * 60 * 60_000).toISOString()); // 2h out
+    queue.close();
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+  });
+
+  it("warns when a waiting job is parked on an implausibly far-future reset", () => {
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "runaway", tool: "claude-code", command: ["claude"], cwd: dir });
+    const farReset = new Date(Date.now() + 400 * 24 * 60 * 60_000).toISOString(); // ~13 months out
+    queue.markWaitingForReset(j.id, farReset);
+    queue.close();
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("runaway");
+    expect(check.message).toContain(farReset);
+    expect(check.hint).toContain("agentrelay show");
+  });
+
   it("reports store-writable OK for a writable store directory", () => {
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
     const writable = find(report, "store-writable");
