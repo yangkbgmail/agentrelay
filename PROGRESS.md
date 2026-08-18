@@ -2259,3 +2259,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — CLI `--version` 단일 출처(package.json) 리드] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-npg5m0`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 464개를 전량 수집·키워드 스캔해 **어떤 열린 PR에도 없는**(version 관련 0건) 실제 갭을
+  발굴했다: `buildCli`가 `.version("0.1.0")`으로 CLI 버전을 손코딩해 `packages/cli/package.json`의
+  `version`과 별개로 관리 → 다음 릴리스에서 매니페스트만 올리면 `agentrelay --version`이 조용히 옛
+  버전을 보고하는 잠복 드리프트 결함(이 프로젝트가 doctor·plausibility 가드 등으로 반복해 겨냥해온
+  "조용한 불일치" 부류). reset-horizon doctor 검사·HTML export 등 세션 72가 후속으로 남긴 후보는
+  이미 열린 PR(#726~756 등 ~15개)·병합된 코드로 포화라 의도적으로 회피.
+- **한 일 (branch `claude/wizardly-pascal-npg5m0`):**
+  - `packages/cli/src/version.ts` 신설: 순수+방어적 `resolveCliVersion(fromUrl = import.meta.url)` —
+    `createRequire`로 `../package.json`을 읽어 `version` 문자열 반환, 매니페스트 부재·불량 JSON·빈/
+    비문자열 version은 모두 `FALLBACK_VERSION`("0.0.0")으로 폴스루(절대 throw 안 함). `src/`·`dist/`가
+    `packages/cli/` 바로 아래 동일 깊이라 `../package.json`이 vitest(TS 소스)와 빌드(dist/cli.js)
+    양쪽에서 같은 매니페스트로 해소된다(런타임 검증으로 확인).
+  - `cli.ts`: `.version("0.1.0")` → `.version(resolveCliVersion())` (+ import 1줄). 다른 로직 불변.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 122파일)→`pnpm test`
+  전 패키지 통과(**core 639 · cli 358/1skip[+version.test 4] · dashboard 9**). **실제 빌드 CLI e2e**(mock
+  아님): `node dist/bin.js --version`·`-V` 모두 `0.1.0`(package.json과 일치), package.json을 `0.9.9`로
+  임시 변경 시 소스 수정 없이 `0.9.9` 보고(단일 출처 증명) 후 원복 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). PR 공간이 464개로 극도 포화라 후속은
+  신규 feature보다 **실제 버그 수정/드리프트 제거**를 우선 — 후보: parser `relative-duration`의
+  `m(?:in...)?`가 "in 3 months"를 3분으로 오독하는 느슨 매칭(단, "months"는 rate-limit에 비현실적이라
+  가치 낮음), `listDue`가 파싱 불가 `resetAt`(NaN)을 조용히 영원 대기시키는 방어 갭. README/ARCHITECTURE(🧭 코워크).

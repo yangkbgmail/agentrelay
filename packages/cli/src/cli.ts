@@ -119,6 +119,7 @@ import { renderSummary, renderSummaryJson } from "./summary.js";
 import { renderTools, renderToolsJson, renderToolsWatchFrame } from "./tools.js";
 import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
 import { renderVerify, renderVerifyJson } from "./verify.js";
+import { resolveCliVersion } from "./version.js";
 import { renderWaitJson } from "./wait.js";
 
 /**
@@ -524,7 +525,7 @@ export function buildCli(): Command {
     .description(
       "Wrap AI coding agent CLI calls (Claude Code, etc.), detect rate-limit messages, and auto-resume once the limit resets."
     )
-    .version("0.1.0")
+    .version(resolveCliVersion())
     .option("--store <path>", "Path to the job store JSON file", defaultStorePath())
     .option(
       "--config <path>",

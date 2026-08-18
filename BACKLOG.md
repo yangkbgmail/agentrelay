@@ -870,6 +870,22 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 CLI `--version`이 하드코딩된 리터럴 대신 패키지 `package.json`을 단일 출처로 읽도록 수정 —
+      릴리스마다 소스와 매니페스트 두 곳을 동기화해야 하던 드리프트 위험 제거. 자기 발굴 항목 —
+      `buildCli`가 `.version("0.1.0")`으로 버전을 손코딩해, `packages/cli/package.json`(및 core/root)의
+      `version`과 별개로 관리됐다. 다음 릴리스에서 매니페스트만 올리면 `agentrelay --version`이 조용히
+      틀린(옛) 버전을 보고하는 잠복 결함(이 프로젝트가 반복해 겨냥해온 "조용한 불일치" 부류).
+      (완료 — `packages/cli/src/version.ts` 신설: 순수+방어적 `resolveCliVersion(fromUrl?)` —
+      `createRequire(fromUrl)`로 `../package.json`을 읽어 `version` 반환, 매니페스트 부재·불량 JSON·
+      빈/비문자열 version은 모두 `FALLBACK_VERSION`("0.0.0")으로 폴스루(절대 throw 안 함 → 버전
+      부기 때문에 CLI가 기동 실패하지 않음). `src/`와 `dist/`가 `packages/cli/` 바로 아래 같은 깊이라
+      `../package.json`이 vitest(TS 소스)와 빌드(dist/cli.js) 양쪽에서 동일 매니페스트로 해소된다.
+      `cli.ts`의 `.version("0.1.0")` → `.version(resolveCliVersion())`. version.test.ts 4케이스
+      (매니페스트 일치·드리프트 없음·매니페스트 없는 경로→폴백·폴백 마커 형태). 실제 빌드 CLI e2e로
+      `--version`/`-V` 모두 0.1.0 보고, package.json을 0.9.9로 임시 변경 시 소스 수정 없이 0.9.9 보고
+      (단일 출처 증명) 후 원복 확인. 전 패키지 그린 유지(core 639 · cli 358/1skip · dashboard 9).
+      branch `claude/wizardly-pascal-npg5m0`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
