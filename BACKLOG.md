@@ -870,6 +870,21 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 스케줄러: 시그널로 종료된 재개(resume)를 성공으로 오인하지 않기 — "silent completion" 버그 수정.
+      자기 발굴 항목 — 열린 PR 200+개(파서·stats·watch·doctor·어댑터)를 키워드 스캔해 **어떤 열린 PR에도
+      없는** 실제 신뢰성 결함을 발굴했다: `runCommand`의 `close` 핸들러가 `exitCode: code ?? 0`으로
+      종료 코드를 강제했는데, 프로세스가 시그널로 죽으면(OOM 킬러·timeout·수동 kill) Node는
+      `code=null, signal='SIGKILL'`을 넘긴다. `?? 0`이 이를 **exit 0(성공)**으로 만들어, 작업을 끝내지
+      못하고 죽은 잡이 조용히 `completed` 처리되던 무음 실패(이 릴레이가 반복해 겨냥해온 바로 그 부류).
+      (완료 — `@agentrelay/core/scheduler.ts` `runCommand`가 이제 `(code, signal)`을 모두 캡처하고
+      `exitCode`를 null-보존(`code ?? 0` 제거)해 시그널 종료를 클린 종료와 구분. `resume`의 `failed`
+      판정에 `signal !== null` 추가 → 시그널 킬은 non-zero 종료와 동일하게 **일시 실패**로 취급돼
+      지수 백오프로 재시도되고, maxAttempts 초과 시 `failed` 처리(무한 루프 방지). 실패 사유는
+      `command terminated by signal <SIG>`로 명확히 기록. rate-limit 우선순위·정상 종료·에러 이벤트
+      경로는 불변(하위호환). scheduler.test +2(SIGKILL 재개→waiting_for_reset[백오프 60s]+lastError에
+      시그널 표기 / 시그널 킬 maxAttempts 초과→failed). core 641 · cli 354/1skip · dashboard 9 전 통과,
+      `pnpm build`·`biome ci` 클린. branch `claude/wizardly-pascal-1mi9ap`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
