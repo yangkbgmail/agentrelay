@@ -2259,3 +2259,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — Gemini CLI 어댑터] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-7ldguj`)
+- **배경:** 세션 시작 시 열린 👷 백로그 항목 0개(모두 완료). 열린 PR 30개 중 다수가 동일한
+  "doctor reset-horizon 검사"의 중복 클러스터(12개+)라, 그 포화 영역을 피해 CLAUDE.md 지침대로
+  **겹치지 않는 새 개선 항목을 발굴**했다. 어댑터는 Claude Code·Codex CLI 둘뿐이었는데, 세 번째
+  주요 코딩 에이전트인 **Google Gemini CLI**(`gemini`)를 헤드리스로 감싸면 그 rate-limit을
+  아무 기존 패턴도 못 잡아 조용히 완료 처리되는 실사용 갭이 있었다(원격 `aider-adapter` 시도와도
+  별개 툴).
+- **한 일:** `@agentrelay/core`의 `AgentTool` union·`ALL_TOOLS`·`VALID_TOOLS`에 `gemini-cli` 추가,
+  `adapters.ts`에 순수 `GEMINI_RETRY_DELAY_PATTERN`(`gemini-retry-delay`) + `GEMINI_CLI_ADAPTER`
+  (binaries `gemini`/`gemini-cli`) 신설 후 `ADAPTERS` 등록. Gemini API는 429 `RESOURCE_EXHAUSTED`
+  시 `google.rpc.RetryInfo`의 `retryDelay`를 **초 문자열**(`"retryDelay": "56s"`)로 반환하는데
+  generic 파서는 초 단위도 `retryDelay` 키도 없어 놓쳤다. 정규식으로 snake/kebab/spaced 철자·양쪽
+  인용을 관용하고 `Math.ceil`로 올림(조기 재개 방지). Claude epoch·Codex 초 패턴과 대칭으로
+  **어댑터-스코프**(gemini 잡에만 우선)라 다른 곳의 `retryDelay`를 오독하지 않음. CLI `--tool` 검증은
+  `ALL_TOOLS`를 동적 참조해 자동 반영, `run --tool`·`tools` 도움말 문자열만 갱신.
+- **검증:** `pnpm build` 클린(Next.js 포함), `pnpm ci:lint`(Biome) **0 경고**, `pnpm test`
+  **1009개 통과**(core 646 + cli 354/1skip + dashboard 9 — adapters +6, stats byTool zero-fill 갱신).
+  **실제 빌드 CLI e2e**(mock 아님): `parse --tool gemini-cli '{"retryDelay":"56s"}'`→`gemini-retry-delay`
+  매치(in 1m)·generic은 "No rate-limit detected"; 격리 스토어에 페이크 `gemini` 바이너리로 `run --
+  gemini -p "..."`→툴 `gemini-cli` 추론+`gemini-retry-delay`+56s 큐잉, `status --json`이
+  tool `gemini-cli`·status `waiting_for_reset`·pattern `gemini-retry-delay` 반환; `run`/`tools` help가
+  `gemini-cli` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — Aider/Cursor 등
+  추가 어댑터, Gemini 무료 티어 일일 쿼터(자정 PT 리셋) 특수 처리. doctor reset-horizon·stats 분산·
+  parser 타임존은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

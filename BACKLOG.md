@@ -870,6 +870,24 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 Gemini CLI 어댑터 — Google Gemini CLI(`gemini`)의 rate-limit 포맷 인식. 자기 발굴 항목 —
+      어댑터는 Claude Code·Codex CLI 둘뿐이었는데, 널리 쓰이는 세 번째 주요 코딩 에이전트인 Google
+      Gemini CLI를 헤드리스로 감싸면 그 rate-limit(HTTP 429 `RESOURCE_EXHAUSTED`)을 아무 기존 패턴도
+      잡지 못해 조용히 완료 처리됐다.
+      (완료 — `@agentrelay/core`의 `AgentTool` union·`ALL_TOOLS`·`VALID_TOOLS`(import 검증)에
+      `gemini-cli` 추가, `adapters.ts`에 순수 `GEMINI_RETRY_DELAY_PATTERN`(`name:
+      "gemini-retry-delay"`) + `GEMINI_CLI_ADAPTER`(binaries `gemini`/`gemini-cli`) 신설 후 `ADAPTERS`
+      레지스트리 등록. Gemini API는 429 시 `google.rpc.RetryInfo` 디테일의 `retryDelay`를 **초 문자열**
+      (`"retryDelay": "56s"`, 간혹 소수)로 반환하는데, generic 파서는 초 단위도 `retryDelay` 키도 없어
+      놓쳤다. 정규식 `/retry[\s_-]?delay\s*["']?\s*[:=]\s*["']?\s*(\d+(?:\.\d+)?)\s*s\b/i`로 snake/kebab/
+      spaced 철자·양쪽 인용을 관용하고 `Math.ceil`로 올림해 절대 조기 재개 안 함. Claude epoch·Codex 초
+      패턴과 대칭으로 **어댑터-스코프**(gemini 잡에만 우선 적용)라 다른 곳의 `retryDelay`를 리셋으로
+      오독하지 않음(generic은 여전히 null). CLI는 `--tool` 검증이 `ALL_TOOLS`를 동적 참조해 자동 반영,
+      `run --tool`·`tools` 도움말 문자열만 갱신. adapters.test +6(추론·레지스트리·retryDelay 파싱·철자
+      관용·소수 올림·generic 미매치·generic 폴백) + stats.test byTool zero-fill 갱신, 실제 빌드 CLI e2e로
+      `parse --tool gemini-cli`·`run -- gemini`(툴 추론→`gemini-retry-delay`→56s 큐잉)·generic 미매치·
+      help 노출 검증. branch `claude/wizardly-pascal-7ldguj`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
