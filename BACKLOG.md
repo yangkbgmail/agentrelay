@@ -870,6 +870,26 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 파서: 클록 리셋 메시지의 명시 타임존 존중(`reset at 5pm (America/New_York)` / `(UTC+9)` / `(UTC)`) —
+      지금까지 괄호 안 타임존을 **무시하고 항상 머신 로컬 시간으로 해석**해, 메시지의 타임존과 머신 타임존이
+      다르면(예: KST 사용자가 미국 타임존 메시지를 받으면 최대 13시간+) 재개 시각이 통째로 어긋나 잡이
+      엉뚱한 때 재개되던 실전 무음-실패. Claude Code가 실제로 출력하는 바로 그 wording.
+      (완료 — `@agentrelay/core/parser.ts`에 순수 `ianaOffsetMinutes(zone, utcMs)`(내장 `Intl`로 IANA
+      타임존의 그 시점 UTC 오프셋[분]을 계산 — DST 자동 반영, 의존성 0·수기 DST 테이블 0; 미지 zone은
+      null) + `resolveTimeZone(raw)`(괄호 spec을 오프셋 함수로 해소: `UTC`/`GMT`/`Z`→0, `UTC+9`/`GMT-5`/
+      `+05:30`/`-0530`→고정 오프셋[±14h·분<60 범위 검증], **슬래시 포함** IANA명→`Intl` DST-aware; `PST`/`KST`
+      같은 모호한 약어는 슬래시 없으면 거부→로컬 폴백; 미해소는 null) 추가. 내부 `nextClockInstant`(zone의
+      "오늘" wall date를 `now`에서 구해 후보 instant 생성, 지났으면 익일 롤 — 로컬 패턴과 동일한 next-occurrence
+      계약을 zone 안에서 재현, 타깃 wall time 근처 오프셋으로 DST 전환도 처리) + `resolveClockReset(hour,
+      minute, now, zoneRaw?)`(zone 해소 시 zone 해석, 아니면 기존 `setHours` 로컬 폴백). `clock-time`·
+      `clock-time-meridiem` 두 패턴 정규식에 optional `(?:\s*\(([^)]+)\))?` 존 캡처 추가, resolve를
+      `resolveClockReset`로 위임. **미지 zone·zone 없음 = 기존 로컬 동작 그대로**(하위호환). 새 CLI 코드 0줄 —
+      `parse`·스케줄러가 자동 노출. parser.test: 기존 로컬-17시 단언을 zone-aware(America/New_York EDT→
+      21:00Z, TZ 독립적 절대 instant)로 갱신 + UTC/UTC+9/Asia/Seoul/익일 롤/미지-zone 로컬 폴백 6케이스 +
+      `resolveTimeZone` 5 + `ianaOffsetMinutes` 2 추가(core 651). 실제 빌드 CLI `parse --json` e2e로
+      `5pm (America/New_York)`→21:00Z(EDT)·`9am (UTC+9)`→00:00Z·`(Pacific Time)`→로컬 폴백 확인.
+      branch `claude/wizardly-pascal-f6574a`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
