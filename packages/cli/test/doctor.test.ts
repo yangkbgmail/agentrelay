@@ -143,6 +143,64 @@ describe("runDoctor", () => {
     expect(report.ok).toBe(true);
   });
 
+  it("warns when an active job is parked with an implausibly far-future reset", () => {
+    const nowMs = Date.parse("2026-08-18T00:00:00.000Z");
+    // Real on-PATH binary so the adapters check passes and this is a
+    // warning-only report (proving a far-future reset doesn't hard-fail doctor).
+    const binPath = join(dir, "faketool");
+    writeFileSync(binPath, "#!/bin/sh\necho hi\n", "utf8");
+    chmodSync(binPath, 0o755);
+
+    const queue = new RelayQueue(storePath);
+    const far = queue.enqueue({ project: "runaway", tool: "generic", command: ["faketool"], cwd: dir });
+    // 30 days out — well beyond the default 8-day horizon (a misparse fingerprint).
+    queue.markWaitingForReset(far.id, new Date(nowMs + 30 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { PATH: dir, AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs,
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("1 job(s)");
+    expect(check.message).toContain("runaway");
+    expect(report.ok).toBe(true); // warning does not fail the report
+  });
+
+  it("does not flag a parked reset within the horizon", () => {
+    const nowMs = Date.parse("2026-08-18T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const soon = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(soon.id, new Date(nowMs + 2 * 60 * 60_000).toISOString()); // 2h out
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs });
+    expect(find(report, "reset-horizon").level).toBe("ok");
+  });
+
+  it("respects AGENTRELAY_MAX_RESET_HORIZON=off (guard disabled → no warning)", () => {
+    const nowMs = Date.parse("2026-08-18T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const far = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(far.id, new Date(nowMs + 365 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+      nowMs,
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+  });
+
   it("reports store-writable OK for a writable store directory", () => {
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
     const writable = find(report, "store-writable");

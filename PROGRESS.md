@@ -2259,3 +2259,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — doctor: 큐 내 먼-미래 리셋 잡 경고(reset-horizon 체크)] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-noj4zj`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 여전히 소진 상태(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72가 "다음 할 일"로 남긴 인접 후보 중 **어떤 열린 PR에도 없는** 신뢰성 갭을 구현: 세션 72의
+  `isPlausibleReset` 가드는 *새* 파스만 걸러내지만, **이미 큐에 들어간 잡**(가드 도입 전 큐잉·가드를
+  끈 상태에서 큐잉·잘못된 epoch 단위·오탐 timezone)은 `resetAt`이 수일/수년 뒤라도 그대로 대기 —
+  아무도 재개시키지 않아 조용히 멈춰 있는다. doctor가 반복해 겨냥해온 "silent failure" 부류.
+- **한 일 (branch `claude/wizardly-pascal-noj4zj`):**
+  - core `doctor.ts`: 순수 헬퍼 `farFutureResetJobs(jobs, now, maxFutureMs)` — 활성 잡(터미널은 재개
+    안 되므로 제외, adapters 체크와 동일) 중 `resetAt`이 유효하고 지평선을 넘는(`!isPlausibleReset`)
+    것을 먼-미래 순으로 반환. `null`/비양수/비유한 horizon=가드 없음→빈 목록. `now`는 주입(순수).
+    `ResetHorizonFacts`(`maxFutureMs`·`offenders`) + `FarFutureReset` 타입 + `resetHorizonCheck` 추가 →
+    `runDiagnostics`에 6번째 체크로 배선(daemon 다음, config 앞). 지평선 내=ok, 위반=warning(설정은
+    정상이고 데이터만 의심스러우므로 error 아님; report.ok 유지), 가드 비활성(null)=조용한 ok.
+    파서의 `isPlausibleReset` 재사용(순환 없음 — parser는 doctor를 import하지 않음).
+  - CLI `commands.ts`: `runDoctor`가 `maxResetHorizonMsFromEnv(env)`로 지평선을, `options.nowMs`(heartbeat와
+    동일한 now)로 `farFutureResetJobs`를 호출해 `resetHorizon` facts를 채움. 렌더/JSON은 기존 체크 렌더가
+    그대로 처리(0줄 수정).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm lint:fix`+`pnpm ci:lint`(Biome 0에러)→
+  `pnpm test` 전 패키지 통과(**core 648 · cli 357/1skip · dashboard 9**; core doctor.test +9, cli doctor.test +3).
+  **실제 빌드 CLI e2e**(mock 아님): 가드를 끈 채 "try again in 30 days"를 큐잉(30d waiting_for_reset) →
+  기본 지평선(8d) doctor가 해당 잡을 short-id·project·resetAt·힌트와 함께 warning으로 표시,
+  `AGENTRELAY_MAX_RESET_HORIZON=off` doctor는 "guard is disabled" ok, warning이어도 doctor 종료코드 0 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단(수년 전
+  epoch)도 misparse 신호로 보고, `next`/`upcoming`류에도 지평선 밖 잡 시각 표식. stats 분산/watch·summary
+  --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

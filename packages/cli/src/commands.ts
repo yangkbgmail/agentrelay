@@ -48,6 +48,7 @@ import {
   evaluateHeartbeat,
   evaluateWait,
   exportJobs,
+  farFutureResetJobs,
   findConfigField,
   hasConfigErrors,
   heartbeatStaleAfterMs,
@@ -1467,6 +1468,14 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // --- reset-horizon facts. Active jobs can carry a `resetAt` days/years out
+  // (a pre-guard queue entry, or a misparse the guard was off for); they'd sit
+  // idle forever. Judge them against the same env-configured horizon the parser
+  // uses, at the same "now" doctor ages the heartbeat with.
+  const maxFutureMs = maxResetHorizonMsFromEnv(env);
+  const now = options.nowMs !== undefined ? new Date(options.nowMs) : new Date();
+  const resetOffenders = farFutureResetJobs(jobs, now, maxFutureMs);
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1486,6 +1495,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    resetHorizon: { maxFutureMs, offenders: resetOffenders },
   });
 }
 
