@@ -39,6 +39,7 @@ import {
   canRequeue,
   configToJson,
   countActiveJobs,
+  DEFAULT_MAX_RESET_HORIZON_MS,
   daemonHeartbeatPath,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
@@ -48,6 +49,7 @@ import {
   evaluateHeartbeat,
   evaluateWait,
   exportJobs,
+  farFutureResets,
   findConfigField,
   hasConfigErrors,
   heartbeatStaleAfterMs,
@@ -1467,6 +1469,14 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // --- reset-horizon facts. A waiting job parked on a wildly-distant reset is a
+  // misparse the relay will silently sit on. `doctor` advises even when the
+  // enqueue-time guard was disabled (AGENTRELAY_MAX_RESET_HORIZON=off) — a
+  // warning is harmless — so fall back to the built-in horizon in that case.
+  const nowMs = options.nowMs ?? Date.now();
+  const horizonMs = maxResetHorizonMsFromEnv(env) ?? DEFAULT_MAX_RESET_HORIZON_MS;
+  const farFuture = farFutureResets(jobs, nowMs, horizonMs);
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1486,6 +1496,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    resetHorizon: { horizonMs, farFuture },
   });
 }
 

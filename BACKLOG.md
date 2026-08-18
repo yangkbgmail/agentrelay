@@ -870,6 +870,22 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay doctor` 큐 내 먼-미래 리셋 검사 — 파서 지평선 가드(위 항목)의 **큐 사이드 후속**.
+      파서는 나쁜 리셋이 큐에 *들어오는 것*을 막지만, 이미 그런 리셋에 파킹된 잡(지평선 가드 도입 전
+      큐잉·`import`로 이관·가드 `off`일 때 파킹)은 스케줄러가 resetAt을 다시 보지 않아 수일/수년 조용히
+      대기한다 — doctor가 지금까지 잡지 못하던 "silent failure". PROGRESS 세션 66의 후속 후보였음.
+      (완료 — `@agentrelay/core/doctor.ts`에 순수 `farFutureResets(jobs, nowMs, horizonMs)`
+      (`waiting_for_reset` 상태만·`nowMs+horizonMs` 초과 리셋만, 파서와 **동일한** `isPlausibleReset`
+      경계 재사용, null/파싱불가 resetAt·과거-due 리셋은 스킵, 비양수/비유한 horizon=가드없음→빈배열,
+      먼-미래 순 정렬) + `FarFutureReset`/`ResetHorizonFacts` 타입 신설. `runDiagnostics`에 `reset-horizon`
+      검사 추가(node→store→writable→adapters→daemon→**reset-horizon**→config→notify): 오프너 1개면
+      warning(최악 잡 id·project·`resets in Nd`+`+N more`, `show`/`retry`/`cancel` 힌트), 없으면 ok
+      (사용 지평선 표기). doctor는 순수 판정 유지 — CLI `runDoctor`가 시계·`maxResetHorizonMsFromEnv(env)
+      ?? DEFAULT_MAX_RESET_HORIZON_MS`로 facts 수집(가드 `off`여도 doctor는 warning이 무해하므로 기본
+      지평선으로 자문). core doctor +9 테스트(경계·상태 필터·정렬·null/파싱불가·비양수 horizon·warning
+      메시지·+N more), 실제 빌드 CLI e2e로 먼-미래 잡→warning·within-horizon→ok·`off`도 기본으로 자문·
+      커스텀 `1h` 지평선이 3h 리셋 플래그 확인. branch `claude/wizardly-pascal-cpqmha`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

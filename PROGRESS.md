@@ -2259,3 +2259,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay doctor` 큐 내 먼-미래 리셋 검사] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-cpqmha`)
+- **왜:** 세션 72(파서 지평선 가드)의 명시적 후속 후보. 파서는 나쁜 리셋이 큐에 *들어오는 것*을
+  막지만, 이미 먼-미래 리셋에 파킹된 잡(가드 도입 전 큐잉·`import` 이관·가드 `off`일 때 파킹)은
+  스케줄러가 resetAt을 다시 보지 않아 수일/수년 조용히 대기한다. doctor가 지금까지 잡지 못하던
+  바로 그 "silent failure" 부류 — 큐 사이드에서 마저 겨냥.
+- **한 일 (branch `claude/wizardly-pascal-cpqmha`):**
+  - core `doctor.ts`: 순수 `farFutureResets(jobs, nowMs, horizonMs)` 신설 — `waiting_for_reset` 상태만,
+    `nowMs+horizonMs` 초과 리셋만 골라 먼-미래 순 정렬. 파서와 **동일한** `isPlausibleReset` 경계를
+    재사용해 enqueue-time과 doctor 판정이 한 규칙. null/파싱불가 resetAt·과거-due 리셋은 스킵,
+    비양수/비유한 horizon은 "가드 없음"→빈배열. `FarFutureReset`/`ResetHorizonFacts` 타입 + `runDiagnostics`에
+    `reset-horizon` 검사 추가(node→store→writable→adapters→daemon→**reset-horizon**→config→notify):
+    오프너 있으면 warning(최악 잡 id·project·`resets in Nd`+`+N more`, `show`/`retry`/`cancel` 힌트),
+    없으면 ok(사용 지평선 표기).
+  - CLI `commands.ts` `runDoctor`가 시계·`maxResetHorizonMsFromEnv(env) ?? DEFAULT_MAX_RESET_HORIZON_MS`로
+    facts 수집(가드 `off`여도 doctor는 warning이 무해하므로 기본 8일 지평선으로 자문). doctor는 순수
+    판정 계층 유지 — 시계/env는 CLI에서만.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 648 · cli 354/1skip · dashboard 9**; core doctor.test +9: farFutureResets 경계·상태 필터·
+  정렬·null/파싱불가·비양수 horizon 7 + runDiagnostics warning/+N more 2, 기존 count 테스트 갱신).
+  **실제 빌드 CLI e2e**(mock 아님): 먼-미래(2099) waiting 잡→`reset-horizon` warning("resets in 26433d"),
+  within-horizon(2h) 리셋→ok, `AGENTRELAY_MAX_RESET_HORIZON=off`여도 기본 8일로 자문(within→ok),
+  커스텀 `AGENTRELAY_MAX_RESET_HORIZON=1h`가 3h 리셋을 warning으로 플래그함을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에 먼-미래
+  리셋 잡 경고 노출(세션 30/34 하트비트 카드 패턴 재사용), `recover`에 먼-미래 리셋 잡 재-큐 옵션,
+  과거-쪽 극단(수년 전 epoch)도 misparse 신호로 보고. README/ARCHITECTURE(🧭 코워크).
