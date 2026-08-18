@@ -82,7 +82,12 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
-const PATTERNS: RateLimitPattern[] = [
+/**
+ * The built-in, tool-agnostic rate-limit patterns, tried in order after any
+ * adapter-supplied `extraPatterns`. Exported so diagnostics (see
+ * {@link explainRateLimitMessage}) can report each pattern's result by name.
+ */
+export const GENERIC_PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
     name: "iso-timestamp",
@@ -222,10 +227,154 @@ export function parseRateLimitMessage(text: string, options: ParseOptions = {}):
 
   if (!LOOKS_LIKE_RATE_LIMIT.test(text)) return null;
 
-  for (const pattern of PATTERNS) {
+  for (const pattern of GENERIC_PATTERNS) {
     const hit = tryPattern(pattern, text, now, maxFutureMs);
     if (hit) return hit;
   }
 
   return null;
+}
+
+/**
+ * Where a pattern came from in an {@link ExplainReport}: an adapter's
+ * `extraPatterns` (always tried, highest priority) or the built-in generic set.
+ */
+export type PatternSource = "adapter" | "generic";
+
+/**
+ * Why a pattern whose regex matched was *not* the one AgentRelay selected:
+ * - `unresolved`  — the regex matched but `resolve` couldn't produce a valid date.
+ * - `implausible` — a reset resolved but landed beyond the future horizon guard.
+ * - `prefiltered` — a generic pattern whose regex matched, but the text never
+ *   tripped the generic pre-filter, so the real parser never consults it.
+ * - `superseded`  — a usable reset resolved, but an earlier pattern was already
+ *   selected (the real parser stops at the first hit; shown here for insight).
+ * `null` on a trace whose regex didn't match at all, or on the selected one.
+ */
+export type PatternSkipReason = "unresolved" | "implausible" | "prefiltered" | "superseded";
+
+/** Per-pattern result of running the parser in diagnostic ({@link explainRateLimitMessage}) mode. */
+export interface PatternTrace {
+  name: string;
+  source: PatternSource;
+  /** Did the pattern's regex match the text at all. */
+  regexMatched: boolean;
+  /** The substring the regex matched, or `null` when it didn't match. */
+  rawMatch: string | null;
+  /** The resolved reset (ISO), present when the pattern produced a usable date. */
+  resetAt: string | null;
+  /** Why this pattern wasn't selected despite matching; `null` if selected or no match. */
+  skipped: PatternSkipReason | null;
+  /** True on the single pattern `parseRateLimitMessage` would actually use. */
+  selected: boolean;
+}
+
+/**
+ * A full diagnostic trace of parsing `text`: which patterns matched, which
+ * resolved a reset, which one won, and whether the generic pre-filter tripped.
+ * Powers `agentrelay parse --explain`, turning a bare "No rate-limit detected"
+ * into an actionable per-pattern breakdown.
+ */
+export interface ExplainReport {
+  /** Did the generic pre-filter recognize the text as rate-limit-y. */
+  looksLikeRateLimit: boolean;
+  /** Did any pattern get selected (equivalent to `parseRateLimitMessage != null`). */
+  matched: boolean;
+  /** Name of the selected pattern, or `null` when nothing matched. */
+  selectedPattern: string | null;
+  /** Every pattern tried, adapter extras first then generics, in evaluation order. */
+  traces: PatternTrace[];
+}
+
+/**
+ * Evaluate *every* pattern against `text` and report each one's outcome, rather
+ * than stopping at the first hit like {@link parseRateLimitMessage}. Selection
+ * semantics mirror the real parser exactly (adapter extras always eligible;
+ * generic patterns eligible only when the pre-filter trips; first usable reset
+ * wins), so `selectedPattern` always equals what the parser would pick — the
+ * extra traces just explain *why* the others lost. Pure aside from `now`.
+ */
+export function explainRateLimitMessage(text: string, options: ParseOptions = {}): ExplainReport {
+  const now = options.now ?? new Date();
+  const maxFutureMs = options.maxFutureMs;
+  const looksLikeRateLimit = LOOKS_LIKE_RATE_LIMIT.test(text);
+
+  const traces: PatternTrace[] = [];
+  let selectedPattern: string | null = null;
+
+  const evaluate = (pattern: RateLimitPattern, source: PatternSource, eligible: boolean) => {
+    const match = text.match(pattern.regex);
+    if (!match) {
+      traces.push({
+        name: pattern.name,
+        source,
+        regexMatched: false,
+        rawMatch: null,
+        resetAt: null,
+        skipped: null,
+        selected: false,
+      });
+      return;
+    }
+    const rawMatch = match[0];
+    // A generic pattern whose regex matched but that the real parser never
+    // reaches because the pre-filter didn't trip.
+    if (!eligible) {
+      traces.push({
+        name: pattern.name,
+        source,
+        regexMatched: true,
+        rawMatch,
+        resetAt: null,
+        skipped: "prefiltered",
+        selected: false,
+      });
+      return;
+    }
+    const resetDate = pattern.resolve(match, now);
+    if (!resetDate || Number.isNaN(resetDate.getTime())) {
+      traces.push({
+        name: pattern.name,
+        source,
+        regexMatched: true,
+        rawMatch,
+        resetAt: null,
+        skipped: "unresolved",
+        selected: false,
+      });
+      return;
+    }
+    if (!isPlausibleReset(resetDate, now, maxFutureMs)) {
+      traces.push({
+        name: pattern.name,
+        source,
+        regexMatched: true,
+        rawMatch,
+        resetAt: null,
+        skipped: "implausible",
+        selected: false,
+      });
+      return;
+    }
+    const resetAt = resetDate.toISOString();
+    if (selectedPattern === null) {
+      selectedPattern = pattern.name;
+      traces.push({ name: pattern.name, source, regexMatched: true, rawMatch, resetAt, skipped: null, selected: true });
+    } else {
+      traces.push({
+        name: pattern.name,
+        source,
+        regexMatched: true,
+        rawMatch,
+        resetAt,
+        skipped: "superseded",
+        selected: false,
+      });
+    }
+  };
+
+  for (const pattern of options.extraPatterns ?? []) evaluate(pattern, "adapter", true);
+  for (const pattern of GENERIC_PATTERNS) evaluate(pattern, "generic", looksLikeRateLimit);
+
+  return { looksLikeRateLimit, matched: selectedPattern !== null, selectedPattern, traces };
 }

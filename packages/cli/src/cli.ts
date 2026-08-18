@@ -87,7 +87,14 @@ import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "./overdue.js";
-import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
+import {
+  buildExplainReport,
+  buildParseReport,
+  renderExplainReport,
+  renderExplainReportJson,
+  renderParseReport,
+  renderParseReportJson,
+} from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
@@ -1877,8 +1884,9 @@ export function buildCli(): Command {
     )
     .argument("[text...]", "Message to parse; if omitted, read from stdin (e.g. pipe your agent's output)")
     .option("-t, --tool <tool>", `Use one tool's adapter patterns before the generic ones: ${ALL_TOOLS.join(", ")}`)
+    .option("--explain", "Show every pattern tried and why each matched, was skipped, or lost (diagnose non-matches)")
     .option("--json", "Print the result as JSON (machine-readable, for scripts/jq)")
-    .action(async (textParts: string[], opts: { tool?: string; json?: boolean }) => {
+    .action(async (textParts: string[], opts: { tool?: string; explain?: boolean; json?: boolean }) => {
       let text = (textParts ?? []).join(" ");
       if (!text) {
         if (process.stdin.isTTY) {
@@ -1892,6 +1900,15 @@ export function buildCli(): Command {
       if (tool !== undefined && !ALL_TOOLS.includes(tool as AgentTool)) {
         console.error(`Unknown tool: ${tool}. Valid: ${ALL_TOOLS.join(", ")}.`);
         process.exitCode = 1;
+        return;
+      }
+      if (opts.explain) {
+        const data = buildExplainReport(text, { tool: tool as AgentTool | undefined });
+        if (opts.json) {
+          console.log(renderExplainReportJson(data));
+          return;
+        }
+        console.log(renderExplainReport(data, { color: Boolean(process.stdout.isTTY) }));
         return;
       }
       const report = buildParseReport(text, { tool: tool as AgentTool | undefined });

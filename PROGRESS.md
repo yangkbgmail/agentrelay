@@ -2259,3 +2259,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+---
+
+### 2026-08-18 — `agentrelay parse --explain` 진단 모드 (자기 발굴)
+
+- **한 일 (branch `claude/wizardly-pascal-2tpzf6`):**
+  - core `parser.ts`: 순수 `explainRateLimitMessage(text, options)` + `ExplainReport`/`PatternTrace`/
+    `PatternSource`/`PatternSkipReason` 신설. 어댑터 extraPatterns→제네릭 순으로 **모든** 패턴을 평가해
+    각 trace(regexMatched·rawMatch·resetAt·skipped·selected)를 순서대로 수집. 선택 의미론은 실 파서와
+    100% 일치(어댑터 항상 적격, 제네릭은 pre-filter 트립 시만 적격, 첫 usable 리셋 승리) →
+    `selectedPattern`은 `parseRateLimitMessage`가 고를 그 패턴. 밀린 사유는 `unresolved`(매치했으나 유효
+    날짜 실패)·`implausible`(지평선 밖)·`prefiltered`(제네릭 regex는 맞았으나 텍스트가 rate-limit-y 아님)·
+    `superseded`(usable했으나 앞 패턴 승)로 구분. 내부 `PATTERNS`를 `GENERIC_PATTERNS`로 export.
+  - CLI `parse.ts`: `buildExplainReport`/`renderExplainReport`(패턴별 ✓/·/✗ 글리프 + pre-filter 판정 +
+    선택 리셋 카운트다운)·`renderExplainReportJson`(trace별 `resetInMs`). `agentrelay parse --explain
+    [--json] [--tool]` 배선. 기존 `parse`(첫 매치) 동작 불변 — `--explain`은 opt-in. 새 매칭 로직 0줄.
+- **왜:** `parse`는 지금까지 "첫 매치" 또는 "미검출"만 알려줘, 실전 wording이 안 잡힐 때 원인 파악이
+  불가능했다. 파서 커버리지 디버깅은 이 도구가 경쟁 도구 대비 내세울 핵심 차별점이라, 어떤 패턴이
+  왜 이겼는지/밀렸는지 한눈에 보여주는 진단이 실사용 가치가 크다.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 646 · cli 360/1skip · dashboard 9**; parser.test +8, parse.test +6). **실제 빌드
+  CLI e2e**(mock 아님): 매치(iso-timestamp 선택+카운트다운, 나머지 no match)·미검출(pre-filter "not
+  rate-limit-y")·codex 어댑터(제네릭 relative-duration이 "try again in "만 부분 매치 → `unresolved`로
+  드러남 — 진단 가치 실증)·superseded(iso 승, relative-duration은 "already won")·`--json`(trace별
+  resetInMs) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `parse --explain`에
+  샘플 wording 카탈로그(`parse --samples`)로 파서가 아는 포맷을 예시 출력, 또는 `doctor`가 최근 미검출
+  이력을 표면화. 파서 패턴 자체 확장(주간 "1 week" wording 등)은 지평선 8일과 상호작용 검토 필요.
+  README/ARCHITECTURE/ROADMAP은 🧭 코워크 소유라 건드리지 않음.

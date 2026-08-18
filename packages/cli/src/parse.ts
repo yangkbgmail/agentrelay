@@ -4,8 +4,8 @@
 // would resume. Kept as pure functions here (no stdin/clock unless injected),
 // separate from the commander wiring in cli.ts, so the exact output is testable.
 
-import type { AgentTool, RateLimitInfo } from "@agentrelay/core";
-import { resolveAdapter } from "@agentrelay/core";
+import type { AgentTool, ExplainReport, PatternTrace, RateLimitInfo } from "@agentrelay/core";
+import { explainRateLimitMessage, resolveAdapter } from "@agentrelay/core";
 import { formatCountdown } from "./status.js";
 
 const BOLD = "\x1b[1m";
@@ -49,6 +49,104 @@ export function buildParseReport(text: string, options: { tool?: AgentTool; now?
 
 function paint(code: string, cell: string, color: boolean): string {
   return color ? `${code}${cell}${RESET}` : cell;
+}
+
+const RED = "\x1b[31m";
+
+/**
+ * Run the diagnostic parser (every pattern, not just the first hit) against
+ * `text` with the given tool's adapter patterns tried first. Pure: `now` is the
+ * only ambient input, defaulted inside core when omitted. Powers `parse --explain`.
+ */
+export function buildExplainReport(
+  text: string,
+  options: { tool?: AgentTool; now?: Date } = {}
+): { tool: AgentTool; report: ExplainReport } {
+  const adapter = resolveAdapter({ tool: options.tool });
+  const report = explainRateLimitMessage(text, {
+    extraPatterns: adapter.patterns,
+    ...(options.now ? { now: options.now } : {}),
+  });
+  return { tool: adapter.tool, report };
+}
+
+/** Human label + color for why a matched pattern wasn't the one selected. */
+function skipLabel(skip: PatternTrace["skipped"]): { text: string; color: string } {
+  switch (skip) {
+    case "unresolved":
+      return { text: "matched, but no valid reset time", color: YELLOW };
+    case "implausible":
+      return { text: "reset too far out — rejected by horizon guard", color: YELLOW };
+    case "prefiltered":
+      return { text: "regex matched, but text isn't rate-limit-y (skipped)", color: DIM };
+    case "superseded":
+      return { text: "usable, but an earlier pattern already won", color: DIM };
+    default:
+      return { text: "", color: DIM };
+  }
+}
+
+/**
+ * Render a full per-pattern breakdown for `parse --explain`. Every pattern tried
+ * is listed with a status glyph so a user can see exactly why a message matched
+ * — or why it didn't. Pure: no I/O; `now` only feeds the reset countdown.
+ */
+export function renderExplainReport(
+  data: { tool: AgentTool; report: ExplainReport },
+  options: { now?: number; color?: boolean } = {}
+): string {
+  const color = options.color ?? false;
+  const now = options.now ?? Date.now();
+  const { tool, report } = data;
+
+  const header = report.matched
+    ? `${paint(GREEN, "Rate limit detected", color)} ${paint(DIM, `(adapter: ${tool}, pattern: ${report.selectedPattern})`, color)}`
+    : `${paint(YELLOW, "No rate-limit detected", color)} ${paint(DIM, `(adapter: ${tool})`, color)}`;
+
+  const prefilter = report.looksLikeRateLimit
+    ? paint(DIM, "pre-filter: looks rate-limit-y — generic patterns were tried", color)
+    : paint(DIM, "pre-filter: not rate-limit-y — only adapter patterns were tried", color);
+
+  const lines = [header, prefilter, ""];
+  for (const trace of report.traces) {
+    const src = paint(DIM, `[${trace.source}]`, color);
+    if (trace.selected) {
+      const countdown = trace.resetAt ? ` ${paint(DIM, `(in ${formatCountdown(trace.resetAt, now)})`, color)}` : "";
+      lines.push(
+        `  ${paint(GREEN, "✓", color)} ${paint(BOLD, trace.name, color)} ${src} → ${trace.resetAt}${countdown}`
+      );
+      lines.push(`      ${paint(DIM, `matched ${JSON.stringify(trace.rawMatch)}`, color)}`);
+    } else if (!trace.regexMatched) {
+      lines.push(
+        `  ${paint(DIM, "·", color)} ${paint(DIM, trace.name, color)} ${src} ${paint(DIM, "no match", color)}`
+      );
+    } else {
+      const label = skipLabel(trace.skipped);
+      const glyph = trace.skipped === "implausible" || trace.skipped === "unresolved" ? RED : DIM;
+      lines.push(
+        `  ${paint(glyph, "✗", color)} ${paint(BOLD, trace.name, color)} ${src} ${paint(label.color, label.text, color)}`
+      );
+      lines.push(`      ${paint(DIM, `matched ${JSON.stringify(trace.rawMatch)}`, color)}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+/** Render the explain report as JSON (machine-readable). Pure aside from `now`. */
+export function renderExplainReportJson(
+  data: { tool: AgentTool; report: ExplainReport },
+  options: { now?: number } = {}
+): string {
+  const now = options.now ?? Date.now();
+  const traces = data.report.traces.map((t) => {
+    let resetInMs: number | null = null;
+    if (t.resetAt) {
+      const target = new Date(t.resetAt).getTime();
+      if (!Number.isNaN(target)) resetInMs = target - now;
+    }
+    return { ...t, resetInMs };
+  });
+  return JSON.stringify({ tool: data.tool, ...data.report, traces }, null, 2);
 }
 
 /**
