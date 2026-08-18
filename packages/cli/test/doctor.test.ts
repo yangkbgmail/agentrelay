@@ -48,6 +48,50 @@ describe("runDoctor", () => {
     expect(store.message).toContain("1 active");
   });
 
+  it("warns when a queued job's reset is implausibly far in the future", () => {
+    const nowMs = Date.parse("2026-08-18T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const far = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    // 60 days out — well past the default 8-day horizon.
+    queue.markWaitingForReset(far.id, new Date(nowMs + 60 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain(far.id);
+  });
+
+  it("does not warn on reset-horizon for a reset inside the window", () => {
+    const nowMs = Date.parse("2026-08-18T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const soon = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(soon.id, new Date(nowMs + 2 * 60 * 60_000).toISOString()); // 2h out
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs });
+    expect(find(report, "reset-horizon").level).toBe("ok");
+  });
+
+  it("reports reset-horizon guard off when AGENTRELAY_MAX_RESET_HORIZON=off", () => {
+    const nowMs = Date.parse("2026-08-18T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const far = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(far.id, new Date(nowMs + 365 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+      nowMs,
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+  });
+
   it("errors when the store file is corrupt", () => {
     writeFileSync(storePath, "{ this is not valid json", "utf8");
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });

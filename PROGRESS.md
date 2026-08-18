@@ -2259,3 +2259,24 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### 2026-08-18 — `doctor` 먼-미래 리셋 잡 경고 검사(reset-horizon)
+- **한 일 (branch `claude/wizardly-pascal-q9x5y4`):**
+  - core `doctor.ts`: 순수 `findFarFutureResets(jobs, nowMs, horizonMs)` 추가 — 활성 상태
+    (queued/waiting_for_reset/resuming)이면서 파싱 가능한 유한 `resetAt`을 가진 잡 중 `resetAt > now+horizon`
+    인 것만 골라 `FarFutureReset[]`(jobId·project·resetAt·overshootMs) 반환. 종말 잡·null/파싱불가 resetAt은
+    스킵, 비양수·비유한·null/undefined horizon=가드 비활성→빈 배열, 입력 순서 보존. `FarFutureReset`·
+    `ResetHorizonFacts` 타입 + `DiagnosticInput.resetHorizon` 배선. 새 `reset-horizon` 검사를
+    `runDiagnostics`에 추가 — 가드 off면 OK "guard disabled", 지평선 밖 잡 없으면 OK, 있으면 warning
+    (가장 멀리 나간 잡을 먼저 지목, 지평선 초과분 표기, `show`/`cancel` 힌트).
+  - CLI `runDoctor`: 파서와 동일한 `maxResetHorizonMsFromEnv(env)`로 지평선 해소 + `nowMs`(주입 가능,
+    기본 `Date.now()`)로 스캔해 `resetHorizon` 팩트 구성. 렌더/JSON은 기존 검사 파이프라인 그대로 사용(수정 0줄).
+  - **왜:** 직전 세션의 리셋 지평선 가드(parser `isPlausibleReset`)는 새 감지에만 적용 — 가드 도입 전
+    큐잉됐거나 `import`로 들어왔거나 `AGENTRELAY_MAX_RESET_HORIZON=off`로 감지된 잡은 여전히 수일/수년 조용히
+    대기 가능. `status`엔 멀쩡히 보여 알아채기 어려운 "silent failure"를 진단이 잡도록 한 것.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 650 · cli 357/1skip · dashboard 9**; core doctor.test +14, cli doctor.test +3, 카운트 테스트 갱신).
+  **실제 빌드 CLI e2e**(mock 아님): 8d 기본 지평선에서 60일 리셋 잡 warning(52d past)·`off`면 guard disabled·
+  `90d`면 창 안이라 OK·`--json`에 `reset-horizon` 검사 포함 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recover`/overdue에도
+  먼-미래 리셋 잡 별도 리포트, 과거-쪽 극단(수년 전 epoch) misparse 신호 보고. README/ARCHITECTURE(🧭 코워크).

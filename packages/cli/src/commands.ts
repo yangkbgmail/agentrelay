@@ -49,6 +49,7 @@ import {
   evaluateWait,
   exportJobs,
   findConfigField,
+  findFarFutureResets,
   hasConfigErrors,
   heartbeatStaleAfterMs,
   type ImportFormat,
@@ -1318,7 +1319,7 @@ export interface DoctorOptions {
   env?: Record<string, string | undefined>;
   /** Running Node version. Defaults to `process.version`. Injectable for tests. */
   nodeVersion?: string;
-  /** "Now" (epoch ms) used to age the heartbeat. Defaults to `Date.now()`. Injectable for tests. */
+  /** "Now" (epoch ms) used to age the heartbeat and judge far-future resets. Defaults to `Date.now()`. Injectable for tests. */
   nowMs?: number;
 }
 
@@ -1467,6 +1468,14 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // --- reset-horizon facts. Resolve the same horizon the parser guard uses,
+  // then scan already-queued jobs for a reset beyond it — one that predates the
+  // guard, arrived via `import`, or was detected with the guard disabled would
+  // otherwise wait silently for days/years while looking healthy in `status`.
+  const resetHorizonMs = maxResetHorizonMsFromEnv(env);
+  const nowMs = options.nowMs ?? Date.now();
+  const farFutureResets = findFarFutureResets(jobs, nowMs, resetHorizonMs);
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1486,6 +1495,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    resetHorizon: { horizonMs: resetHorizonMs, jobs: farFutureResets },
   });
 }
 
