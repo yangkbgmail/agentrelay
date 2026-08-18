@@ -2259,3 +2259,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay doctor` 먼-미래 리셋(reset-horizon) 검사] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-edyqc9`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 세션 72가
+  "다음 할 일"로 지목한 자기 발굴 후속을 골랐다 — 세션 72의 parse-time plausibility 가드(`isPlausibleReset`)는
+  *새* 잡의 큐잉만 막을 뿐, 가드 이전/비활성 상태에서 이미 스토어에 들어간 먼-미래 `resetAt` 잡은 그대로 남아
+  수일/수년 조용히 대기한다(이 프로젝트가 doctor·recover로 반복해 겨냥해온 "silent failure" 부류). doctor에
+  그 진단용 거울을 추가.
+- **한 일 (branch `claude/wizardly-pascal-edyqc9`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, now, maxFutureMs?)`(waiting_for_reset + 파싱 가능
+    `resetAt`이면서 `resetMs > now+maxFutureMs`인 잡만 골라 `{id, resetAt, beyondHorizonByMs}` 반환; 비양수·
+    비유한·nullish maxFutureMs=가드없음→[]; `now` 주입=시계 미접촉) + `FarFutureReset`/`ResetHorizonFacts`
+    타입 + `DiagnosticInput.resetHorizon` 추가. `runDiagnostics`에 `reset-horizon` 검사를 daemon과 config
+    사이에 삽입: 가드 비활성=ok(경계 없음), 플래그 0개=ok, 하나 이상=warning(에러 아님 — 리셋이 정당하게
+    길 수도 있어 사용자 판단; furthest 카운트다운·짧은 id 3개+"+N more" elision·`show`/`retry`/`cancel` 힌트).
+  - CLI `commands.ts` `runDoctor`가 `maxResetHorizonMsFromEnv(env)`(스케줄러가 쓰는 것과 동일 지평선)로
+    `selectFarFutureResets`를 호출해 `resetHorizon` 팩트 구성 → 두 표면(파서 가드·doctor 진단)이 같은 경계 공유.
+    새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과
+  (**core 649(+10) · cli 354/1skip · dashboard 9**; doctor.test에 selectFarFutureResets 5 + reset-horizon
+  check 5 신규, 기존 카운트 단언 ok 5→6 갱신). **실제 빌드 CLI e2e**(mock 아님): 임시 스토어에 2h(정상)+30일(먼
+  미래) 대기 잡을 심고 `doctor`가 30일 잡을 `reset-horizon` warning으로 플래그(furthest ~30d out, 짧은 id),
+  `AGENTRELAY_MAX_RESET_HORIZON=off`면 "guard disabled" ok, `--json`이 해당 check를 노출함을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `agentrelay overdue`/전용
+  커맨드로 먼-미래 리셋 잡만 나열(doctor는 요약만), 또는 과거-쪽 극단(수년 전 epoch) misparse 신호 보고.
+  stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

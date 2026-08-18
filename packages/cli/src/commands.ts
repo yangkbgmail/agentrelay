@@ -84,6 +84,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   sampleConfigJson,
   scopeJobs,
+  selectFarFutureResets,
   selectStuckResumingJobs,
   serializeDaemonHeartbeat,
   setConfigValue,
@@ -1467,6 +1468,13 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // --- reset-horizon facts. The parse-time guard keeps a misparse *out* of the
+  // queue, but a job enqueued before it existed (or while it was disabled) can
+  // already be parked implausibly far out and would never resume usefully. Use
+  // the same horizon the relay enforces (env-resolved) so both surfaces agree.
+  const horizonMs = maxResetHorizonMsFromEnv(env);
+  const farFuture = selectFarFutureResets(jobs, options.nowMs ?? Date.now(), horizonMs);
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1486,6 +1494,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    resetHorizon: { horizonMs, farFuture },
   });
 }
 
