@@ -55,6 +55,56 @@ describe("runDoctor", () => {
     expect(report.ok).toBe(false);
   });
 
+  it("warns when a job is parked on an implausibly far-future reset", () => {
+    const nowMs = Date.parse("2026-08-18T00:00:00.000Z");
+    const farReset = new Date(nowMs + 30 * 24 * 60 * 60_000).toISOString(); // 30 days out (> 8d default)
+    const queue = new RelayQueue(storePath);
+    const parked = queue.enqueue({ project: "web", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(parked.id, farReset);
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain(parked.id.slice(0, 8));
+    expect(check.message).toContain("(web)");
+    // Note: report.ok may still be false here because the `claude` binary isn't on
+    // PATH in this empty test env (adapters error) — that's orthogonal to this
+    // check. The reset-horizon finding itself is a warning, verified above.
+  });
+
+  it("keeps reset-horizon OK for an in-horizon reset", () => {
+    const nowMs = Date.parse("2026-08-18T00:00:00.000Z");
+    const soon = new Date(nowMs + 2 * 60 * 60_000).toISOString(); // 2h out
+    const queue = new RelayQueue(storePath);
+    const parked = queue.enqueue({ project: "web", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(parked.id, soon);
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs });
+    expect(find(report, "reset-horizon").level).toBe("ok");
+  });
+
+  it("skips the reset-horizon check when the guard is disabled via env", () => {
+    const nowMs = Date.parse("2026-08-18T00:00:00.000Z");
+    const farReset = new Date(nowMs + 3650 * 24 * 60 * 60_000).toISOString();
+    const queue = new RelayQueue(storePath);
+    const parked = queue.enqueue({ project: "web", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(parked.id, farReset);
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+      nowMs,
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+  });
+
   it("errors when the config file is malformed", () => {
     const configPath = join(dir, "agentrelay.config.json");
     writeFileSync(configPath, "{ broken", "utf8");

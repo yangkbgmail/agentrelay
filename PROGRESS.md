@@ -2259,3 +2259,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay doctor` 먼-미래 리셋 파킹 검사(reset-horizon)] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-76eunx`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 세션 72가
+  "다음 할 일"로 명시한 후속 후보 중 **`doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가**를 선택. 세션 72의
+  파서 가드는 **새** 탐지가 지평선 밖 resetAt로 큐잉되는 것만 막는다 — 가드 도입 전 이미 파킹됐거나 가드가
+  비활성인 상태에서 큐잉된 잡은 스케줄러가 `now>=resetAt`이 될 때까지 안 깨우므로 수개월/수년 조용히 대기.
+  이 프로젝트가 doctor·recover 등으로 반복해 겨냥해온 "silent failure"를 **큐 쪽에서** 완성하는 자기 발굴 항목.
+- **한 일 (branch `claude/wizardly-pascal-76eunx`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, nowMs, maxFutureMs)` 신설 — `waiting_for_reset` 잡만
+    대상으로 파서의 `isPlausibleReset`을 **재사용**해 "너무 먼" 경계를 탐지-시 가드와 **동일**하게 판정
+    (과거 리셋=이미 풀림이라 즉시 재개 안전→미플래그, null/off maxFutureMs=가드없음→미플래그, 파싱불가/null
+    resetAt=별개 문제라 스킵). `FarFutureReset`/`ResetHorizonFacts` 타입 + `DiagnosticInput.resetHorizon` 추가,
+    `runDiagnostics`에 `reset-horizon` 검사 배선(순서 node→store→writable→adapters→**reset-horizon**→daemon→
+    config→notify): 가드 비활성=ok(옵트아웃)·파킹 0=ok·전부 지평선 내=ok(N개 표기)·하나라도 밖=warning
+    (잡 id 8자+project 나열 + `agentrelay show`/`cancel`/`AGENTRELAY_MAX_RESET_HORIZON` 힌트).
+  - CLI `commands.ts` `runDoctor`가 `maxResetHorizonMsFromEnv(env)`로 지평선을, 주입가능 `nowMs`로 클록을 잡아
+    `selectFarFutureResets`로 facts 조립(heartbeat 클록도 같은 `nowMs`로 통일). 렌더러(`doctor.ts`)는 체크를
+    제네릭하게 그리므로 수정 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 651 · cli 357/1skip · dashboard 9**; core doctor.test +12[selectFarFutureResets 7 + reset-horizon
+  검사 5], cli doctor.test +3). **실제 빌드 CLI e2e**(mock 아님): 30일 뒤 리셋으로 파킹한 `waiting_for_reset`
+  잡에 대해 기본 지평선(8d)에서 `reset-horizon` **warning**(잡 8자 id+project 표기), `AGENTRELAY_MAX_RESET_HORIZON=off`면
+  "guard is disabled" ok, `=60d`면 "all 1 waiting job(s) reset within the plausible 60d horizon" ok 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도 먼-미래 파킹
+  잡 배지 노출(세션 33 하트비트 카드 패턴 재사용), 또는 과거-쪽 극단(수년 전 epoch) misparse 신호 리포트.
+  stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
