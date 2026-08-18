@@ -870,6 +870,26 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 Gemini CLI 어댑터 — Google `gemini` 툴의 rate-limit wording(`RESOURCE_EXHAUSTED`의
+      `retryDelay: "56s"` 필드) 인식. 자기 발굴 항목 — claude-code/codex-cli/generic 3종만 있었고
+      Gemini CLI는 실전에서 흔한 4번째 툴인데 그 고유 포맷(gRPC RetryInfo의 초 단위 `retryDelay`)을
+      어떤 기존 패턴도 잡지 못했다(generic엔 초 패턴 없음, codex는 "try again in Xs" 산문 wording만,
+      http-retry-after는 헤더 wording 필요).
+      (완료 — `types.ts`의 `AgentTool` 유니온에 `gemini-cli` 추가, `@agentrelay/core/adapters.ts`에
+      `GEMINI_CLI_ADAPTER`(binaries `["gemini"]`) + 순수 `GEMINI_RETRY_DELAY_PATTERN`
+      (`name: "gemini-retry-delay"`, 정규식 `/retryDelay["']?\s*[:=]\s*["']?(\d+(?:\.\d+)?)\s*s\b/i`)
+      신설 — `retryDelay` 키에 붙은 초 지연을 따옴표/`:`·`=`/공백 관용해 매치, `Math.ceil`로 올림해
+      너무 일찍 재개 안 함, 비양수/비유한은 null로 폴스루. Codex 초 패턴과 대칭으로 generic이 아닌
+      어댑터 패턴에 둬 임의 출력의 stray `retryDelay`가 다른 툴 리셋으로 오독되지 않게 함. `ADAPTERS`
+      레지스트리·`inferToolFromCommand`(gemini→gemini-cli)·`stats.ts`의 `ALL_TOOLS`(byTool zero-fill)·
+      `import.ts`의 `VALID_TOOLS`·CLI run/tools 헬프 텍스트에 배선. 새 스케줄러/집계 로직 0줄 — 어댑터의
+      `detectRateLimit`가 이미 extraPatterns를 최우선 시도하고 generic 패턴으로 폴백. adapters.test +7
+      (gemini 바이너리 추론·resolveAdapter·레지스트리 키·retryDelay 파싱·unquoted/`=`/공백 관용·프랙셔널
+      올림·generic 미매치·generic 폴백) + stats.test byTool 3개 shape 갱신(gemini-cli:0). 실제 빌드 CLI
+      e2e로 `parse --tool gemini-cli '…retryDelay":"56s"…'`→`gemini-retry-delay` 매치(in 1m)·generic은
+      "No rate-limit detected"·gemini 어댑터의 "Resets in 30m" 폴백·run --help에 gemini-cli 노출 확인.
+      core 645 · cli 354/1skip · dashboard 9 전 테스트 통과. branch `claude/wizardly-pascal-kc0i79`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

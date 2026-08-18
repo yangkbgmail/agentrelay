@@ -2259,3 +2259,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 74 — Gemini CLI 어댑터(RESOURCE_EXHAUSTED retryDelay 인식)] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-kc0i79`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  200+개 열린 PR/브랜치가 stats 분산·watch·parser 변형·신규 커맨드로 극도로 포화 상태라, 명명된
+  브랜치 토픽을 스캔해 **어떤 브랜치에도 없는** 실제 커버리지 갭을 발굴: 어댑터가 claude-code/
+  codex-cli/generic 3종뿐이고, 실전에서 흔한 **Gemini CLI(`gemini`)** 는 미지원. 그 고유 rate-limit
+  포맷(Google API 429 `RESOURCE_EXHAUSTED`의 gRPC RetryInfo `retryDelay: "56s"`)을 어떤 기존 패턴도
+  못 잡음 — generic엔 초 패턴이 없고, codex는 "try again in Xs" 산문 wording만, http-retry-after는
+  헤더 wording 필요. (`aider-adapter` 브랜치는 별개 툴이라 비충돌.)
+- **한 일 (branch `claude/wizardly-pascal-kc0i79`):**
+  - `types.ts`: `AgentTool` 유니온에 `gemini-cli` 추가.
+  - core `adapters.ts`: `GEMINI_CLI_ADAPTER`(binaries `["gemini"]`) + 순수 `GEMINI_RETRY_DELAY_PATTERN`
+    (`name: "gemini-retry-delay"`, `/retryDelay["']?\s*[:=]\s*["']?(\d+(?:\.\d+)?)\s*s\b/i`) 신설 —
+    `retryDelay` 키에 붙은 초 지연을 따옴표/`:`·`=`/공백 관용해 매치, `Math.ceil` 올림으로 조기 재개
+    방지, 비양수/비유한은 null로 폴스루. Codex 초 패턴과 대칭으로 generic이 아닌 어댑터 패턴에 둠
+    (stray `retryDelay` 오독 방지). `ADAPTERS` 레지스트리·`inferToolFromCommand`에 배선.
+  - `stats.ts`의 `ALL_TOOLS`(byTool zero-fill)·`import.ts`의 `VALID_TOOLS`·CLI run/tools 헬프 텍스트에
+    gemini-cli 반영. 새 스케줄러/집계 로직 0줄 — `detectRateLimit`가 이미 extraPatterns 최우선 시도 후
+    generic 폴백.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 645 · cli 354/1skip · dashboard 9**; adapters.test +7, stats.test byTool 3 갱신).
+  **실제 빌드 CLI e2e**(mock 아님): `parse --tool gemini-cli '…retryDelay":"56s"…'`→`gemini-retry-delay`
+  매치(in 1m), generic은 "No rate-limit detected", gemini 어댑터의 "Resets in 30m" generic 폴백,
+  `run --help`에 gemini-cli 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — Gemini CLI의 일일
+  쿼터(시각 기반) wording이나 `RESOURCE_EXHAUSTED` 산문 메시지 수집(🧭 협업), 또는 `aider`·Copilot CLI
+  등 추가 어댑터. stats 분산/watch·parser 변형은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
