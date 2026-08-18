@@ -184,6 +184,17 @@
       tick-mode 하트비트 기록(cron 사용자도 생존 신호). `runDoctor`가 `nowMs` 주입 가능(테스트용).
       heartbeat.test.ts 13 + doctor daemon 6 + scheduler onTick 2 + CLI 7케이스, 실제 빌드 CLI로
       before/after·daemon 수명주기·stale 경고 e2e 검증. branch `claude/wizardly-pascal-hb7k2m`)
+- [x] 👷 `doctor` 먼-미래 리셋 잡 경고 검사 — 큐에 이미 들어간 `waiting_for_reset` 잡의 `resetAt`이
+      신뢰 지평선(기본 8일) 밖이면 경고. 파서 가드는 *탐지 시점*만 막으므로, 가드 도입 전이나
+      `AGENTRELAY_MAX_RESET_HORIZON=off`로 큐잉된 misparse 잡은 수일/수년 조용히 대기 — 이 프로젝트가
+      반복 겨냥하는 "silent failure" 부류.
+      (완료 — `core/doctor.ts`: 순수 헬퍼 `farFutureResetJobs(jobs, now, maxFutureMs)`(`waiting_for_reset`
+      +파스가능 `resetAt` 잡만; 과거 리셋은 이미 풀린 한도라 허용, `queued`/터미널·null/불량 resetAt·null
+      지평선은 스킵 — `isPlausibleReset` 재사용) + `HorizonFacts`/`FarFutureReset` + `reset-horizon` 체크
+      (지평선 밖 잡=warning[worst-first 나열+cancel 힌트], 없으면 ok, 가드 off면 "검사 안 함" ok).
+      CLI `runDoctor`가 `maxResetHorizonMsFromEnv(env)`+`farFutureResetJobs`로 배선(파서 가드와 동일 env).
+      렌더러/대시보드 수정 0줄(체크 배열 구동). doctor.test +10(farFuture 7·runDiagnostics 3) + CLI +3케이스,
+      실제 빌드 CLI e2e로 300일 잡 경고·off 비활성 확인. branch `claude/wizardly-pascal-horizon-doctor`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

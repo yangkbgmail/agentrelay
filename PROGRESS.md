@@ -2259,3 +2259,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `doctor` 큐 내 먼-미래 리셋 잡 경고 검사] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-horizon-doctor`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  직전 세션(72)이 "다음 할 일"로 남긴 인접 후보 — 세션 72가 파서에 *탐지 시점* plausibility 가드를
+  넣었지만, **가드 도입 전이나 `AGENTRELAY_MAX_RESET_HORIZON=off`로 이미 큐잉된** misparse 잡은 여전히
+  먼-미래 `resetAt`으로 조용히 대기한다. 아무것도 재검하지 않으니 수일/수년 무음 — 이 프로젝트가
+  doctor·recover 등으로 반복 겨냥해온 "silent failure" 부류. 열린 PR 어디에도 없는 실제 갭.
+- **한 일 (branch `claude/wizardly-pascal-horizon-doctor`):**
+  - core `doctor.ts`: 순수 헬퍼 `farFutureResetJobs(jobs, now, maxFutureMs)` — `waiting_for_reset`이고
+    파스가능한 `resetAt`을 가진 잡 중 지평선 밖(`!isPlausibleReset`)인 것만 추림. 과거 리셋은 이미
+    풀린 한도라 즉시 재개가 안전하므로 허용, `queued`/터미널·null/불량 resetAt·null 지평선은 스킵.
+    파서의 `isPlausibleReset` 재사용(중복 로직 0). `HorizonFacts`/`FarFutureReset` 타입 + `reset-horizon`
+    체크 추가: 지평선 밖 잡=warning(개수·worst 잡 id·거리 + `show`/`cancel` 힌트), 없으면 ok,
+    가드 off(`maxFutureMs===null`)면 "검사 안 함" ok(거짓 all-clear 대신 명시).
+  - CLI `runDoctor`: `maxResetHorizonMsFromEnv(env)`(파서 가드와 **동일 env var**)로 지평선 산출,
+    `farFutureResetJobs(jobs, now, ...)`로 `HorizonFacts` 구성해 `runDiagnostics`에 배선. 렌더러는
+    체크 배열을 그대로 그리므로 수정 0줄, 대시보드도 무영향.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 648 · cli 357/1skip · dashboard 9**; doctor.test +10[farFuture 7·runDiagnostics 3], CLI +3케이스,
+  기존 counts 테스트 ok 5→6 갱신). **실제 빌드 CLI e2e**(mock 아님): 300일 밖 잡을 심으면
+  `reset-horizon` warning(worst ~300d out + cancel 힌트)이 뜨고 overall은 `healthy (with warnings)`,
+  `AGENTRELAY_MAX_RESET_HORIZON=off`면 "guard is disabled" ok로 검사 스킵 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recover`/`prune`이
+  먼-미래 리셋 잡도 처리 대상으로 볼지, 또는 과거-쪽 극단(수년 전 resetAt)도 misparse 신호로 경고할지.
+  stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

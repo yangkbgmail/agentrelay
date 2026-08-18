@@ -103,6 +103,63 @@ describe("runDoctor", () => {
     expect(adapters.message).toContain("no queued jobs");
   });
 
+  it("warns when a waiting job is parked beyond the reset horizon", () => {
+    const queue = new RelayQueue(storePath);
+    // Use `node` (on PATH in the test env) so the adapters check stays OK and
+    // the horizon warning is the only non-OK check — proving it passes overall.
+    const job = queue.enqueue({ project: "p", tool: "generic", command: ["node"], cwd: dir });
+    // Park it 300 days out — well past the default 8-day horizon (a misparse).
+    const nowMs = Date.UTC(2026, 7, 18);
+    queue.markWaitingForReset(job.id, new Date(nowMs + 300 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+
+    // Pass PATH so the adapters check resolves `node` (else it errors on its own
+    // and would flip report.ok, muddying the "warning alone still passes" check).
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { PATH: process.env.PATH },
+      nodeVersion: "v22.5.0",
+      nowMs,
+    });
+    const horizon = find(report, "reset-horizon");
+    expect(horizon.level).toBe("warning");
+    expect(horizon.message).toContain(job.id);
+    expect(horizon.hint).toContain("agentrelay cancel");
+    // A horizon warning alone still passes overall (no error-level check).
+    expect(report.ok).toBe(true);
+  });
+
+  it("passes reset-horizon when a waiting job resets within the horizon", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    const nowMs = Date.UTC(2026, 7, 18);
+    queue.markWaitingForReset(job.id, new Date(nowMs + 2 * 60 * 60_000).toISOString()); // 2h out
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs });
+    expect(find(report, "reset-horizon").level).toBe("ok");
+  });
+
+  it("does not check reset-horizon when the guard is disabled via env", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    const nowMs = Date.UTC(2026, 7, 18);
+    queue.markWaitingForReset(job.id, new Date(nowMs + 300 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+      nowMs,
+    });
+    const horizon = find(report, "reset-horizon");
+    expect(horizon.level).toBe("ok");
+    expect(horizon.message).toContain("disabled");
+  });
+
   it("errors when a queued job's binary is missing from PATH", () => {
     const queue = new RelayQueue(storePath);
     queue.enqueue({ project: "p", tool: "claude-code", command: ["definitely-not-installed-xyz"], cwd: dir });
