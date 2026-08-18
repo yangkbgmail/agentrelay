@@ -537,7 +537,7 @@ export function buildCli(): Command {
     .argument("<command...>", 'Command to run, e.g. agentrelay run -- claude -p "continue"')
     .option(
       "--tool <tool>",
-      "Agent tool adapter to use (claude-code | codex-cli | generic). Inferred from the command when omitted."
+      "Agent tool adapter to use (claude-code | codex-cli | gemini-cli | generic). Inferred from the command when omitted."
     )
     .option(
       "-p, --project <name>",
@@ -1456,7 +1456,9 @@ export function buildCli(): Command {
 
   program
     .command("tools")
-    .description("List the agent tools in play (claude-code/codex-cli/generic) with per-tool job counts and next reset")
+    .description(
+      "List the agent tools in play (claude-code/codex-cli/gemini-cli/generic) with per-tool job counts and next reset"
+    )
     .option("-w, --watch [seconds]", "Continuously refresh the index with live reset countdowns (Ctrl-C to exit)")
     .option("--json", "Print the summary as JSON (machine-readable, for scripts/CI)")
     .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")

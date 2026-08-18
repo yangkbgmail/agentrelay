@@ -82,6 +82,30 @@ const CLAUDE_USAGE_LIMIT_EPOCH_PATTERN: RateLimitPattern = {
   },
 };
 
+/**
+ * Google's Gemini API (which the Gemini CLI, `gemini`, talks to) returns HTTP
+ * 429 `RESOURCE_EXHAUSTED` errors carrying a gRPC `RetryInfo` detail whose
+ * `retryDelay` field names how long to wait, e.g. `"retryDelay": "56s"` or
+ * `retryDelay: 30s`. The value is always a seconds count with an `s` suffix.
+ * None of the generic patterns catch this: `relative-duration` only understands
+ * hours/minutes, `http-retry-after` requires the `retry-after` header wording,
+ * and the Codex seconds pattern keys on prose ("try again in 20s"), not this
+ * structured field name. Match the delay attached to a `retryDelay` key
+ * (tolerating quotes / `:` or `=` / surrounding whitespace) and round up so we
+ * never resume before the quota window actually reopens. Kept as a Gemini
+ * adapter pattern rather than a generic one so a stray `retryDelay` elsewhere in
+ * arbitrary output only counts for tools that actually speak this dialect.
+ */
+const GEMINI_RETRY_DELAY_PATTERN: RateLimitPattern = {
+  name: "gemini-retry-delay",
+  regex: /retryDelay["']?\s*[:=]\s*["']?(\d+(?:\.\d+)?)\s*s\b/i,
+  resolve: (m, now) => {
+    const seconds = parseFloat(m[1]);
+    if (!Number.isFinite(seconds) || seconds <= 0) return null;
+    return new Date(now.getTime() + Math.ceil(seconds * 1000));
+  },
+};
+
 export const CLAUDE_CODE_ADAPTER: AgentAdapter = makeAdapter({
   tool: "claude-code",
   displayName: "Claude Code",
@@ -96,6 +120,13 @@ export const CODEX_CLI_ADAPTER: AgentAdapter = makeAdapter({
   patterns: [CODEX_SECONDS_PATTERN],
 });
 
+export const GEMINI_CLI_ADAPTER: AgentAdapter = makeAdapter({
+  tool: "gemini-cli",
+  displayName: "Gemini CLI",
+  binaries: ["gemini"],
+  patterns: [GEMINI_RETRY_DELAY_PATTERN],
+});
+
 export const GENERIC_ADAPTER: AgentAdapter = makeAdapter({
   tool: "generic",
   displayName: "Generic agent",
@@ -107,6 +138,7 @@ export const GENERIC_ADAPTER: AgentAdapter = makeAdapter({
 export const ADAPTERS: Record<AgentTool, AgentAdapter> = {
   "claude-code": CLAUDE_CODE_ADAPTER,
   "codex-cli": CODEX_CLI_ADAPTER,
+  "gemini-cli": GEMINI_CLI_ADAPTER,
   generic: GENERIC_ADAPTER,
 };
 
