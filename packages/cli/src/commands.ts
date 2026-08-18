@@ -29,6 +29,7 @@ import type {
   WritableFacts,
 } from "@agentrelay/core";
 import {
+  ADAPTERS,
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
@@ -55,6 +56,7 @@ import {
   type ImportParseError,
   type ImportResult,
   type IneligibleJob,
+  inferToolFromCommand,
   isJobScopeActive,
   type JobCsvColumn,
   type JobScope,
@@ -207,6 +209,72 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   });
 
   return { exitCode, queuedJob: queue.getById(job.id) ?? null };
+}
+
+/** How the tool adapter for a run was chosen. */
+export type ToolSource = "explicit" | "inferred" | "default";
+
+/**
+ * A non-executing preview of what `agentrelay run` would do with a command:
+ * which tool adapter classifies it, the project label the job would carry, the
+ * store it would land in, and the reset-horizon guard in effect. Assembled by
+ * {@link previewRun} and rendered by the CLI so users can sanity-check setup
+ * ("is my `codex` command detected as codex-cli?", "why is this job labeled
+ * `src`?") before committing to a long run.
+ */
+export interface RunPreview {
+  command: string[];
+  cwd: string;
+  project: string;
+  tool: AgentTool;
+  displayName: string;
+  /** Whether the tool came from --tool (explicit), argv[0] (inferred), or the generic fallback (default). */
+  toolSource: ToolSource;
+  storePath: string;
+  /** Names of the adapter's tool-specific rate-limit patterns (generic patterns always also apply). */
+  extraPatterns: string[];
+  /** Reset-horizon guard in ms, or null when the guard is disabled. */
+  resetHorizonMs: number | null;
+}
+
+export interface PreviewRunOptions {
+  command: string[];
+  cwd?: string;
+  tool?: AgentTool;
+  project?: string;
+  storePath?: string;
+  /** Injected for tests; defaults to process.env (drives the reset-horizon guard). */
+  env?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Resolve — without spawning anything — how `agentrelay run` would treat a
+ * command: the adapter (and whether it was explicit / inferred / the generic
+ * default), the project label, the target store, the adapter's extra rate-limit
+ * patterns, and the reset-horizon guard. Pure aside from reading `cwd`, the
+ * store default, and the environment; performs no I/O and never mutates a store.
+ */
+export function previewRun(options: PreviewRunOptions): RunPreview {
+  const cwd = options.cwd ?? process.cwd();
+  const command = options.command;
+  const env = options.env ?? process.env;
+
+  const explicit = options.tool && ADAPTERS[options.tool] ? options.tool : undefined;
+  const inferred = explicit ? undefined : inferToolFromCommand(command);
+  const adapter = resolveAdapter({ tool: options.tool, command });
+  const toolSource: ToolSource = explicit ? "explicit" : inferred ? "inferred" : "default";
+
+  return {
+    command,
+    cwd,
+    project: resolveProjectName(cwd, options.project),
+    tool: adapter.tool,
+    displayName: adapter.displayName,
+    toolSource,
+    storePath: options.storePath ?? defaultStorePath(),
+    extraPatterns: adapter.patterns.map((p) => p.name),
+    resetHorizonMs: maxResetHorizonMsFromEnv(env),
+  };
 }
 
 export interface DaemonOptions {

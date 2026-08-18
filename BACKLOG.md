@@ -870,6 +870,23 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay run --dry-run` — 명령을 실제 spawn하지 않고 AgentRelay가 그 명령을 어떻게
+      분류하는지(추론된 툴/어댑터+출처, 프로젝트 라벨, 대상 스토어, 감시할 rate-limit 패턴, 리셋
+      지평선 가드) 미리 보여주는 셋업/디버깅 진단. 자기 발굴 항목 — "왜 잡이 `src`로 라벨됐나",
+      "내 codex/aider 명령이 제대로 감지되나", "어느 스토어에 쓰나"에 실행 전 답한다.
+      (완료 — `run`은 지금까지 실제로 spawn해봐야만 툴/라벨 분류를 알 수 있었다. `parse`는 rate-limit
+      *메시지*를 테스트하지만 *명령* 자체가 어떤 어댑터·프로젝트 라벨을 받는지는 미지수였다. CLI
+      `commands.ts`에 순수 `previewRun(options)`+`RunPreview`/`ToolSource` 신설 — `resolveAdapter`·
+      `inferToolFromCommand`·`resolveProjectName`·`maxResetHorizonMsFromEnv`를 재사용해 spawn/enqueue
+      없이 {command,cwd,project,tool,displayName,toolSource(explicit/inferred/default),storePath,
+      extraPatterns,resetHorizonMs}를 해소(I/O·스토어 변경 0). CLI `run.ts`에 순수 `renderRunPreview`
+      (라벨 정렬 블록 + 툴 출처 설명 + 어댑터 전용 패턴[제네릭은 항상 추가 적용] + 지평선 가드/off,
+      color 게이트)·`renderRunPreviewJson`(`{generatedAt,dryRun:true,preview}`). `run`에 `-n,--dry-run`
+      +`--json` 배선 — dry-run이면 분류만 출력하고 spawn 0·exit 0, `--json`은 기계 판독. 새 파서/
+      스케줄러/core 로직 0줄. cli run.test 13케이스 신규(previewRun 분류 7 + 렌더 5 + JSON 1),
+      실제 빌드 CLI e2e로 codex 추론·스토어 미생성·explicit --tool/-p override·generic 폴백·--json·
+      horizon off·help 노출 검증. branch `claude/wizardly-pascal-run-dryrun`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

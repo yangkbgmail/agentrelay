@@ -61,6 +61,7 @@ import {
   listStatus,
   listStoreBackups,
   previewRestoreStore,
+  previewRun,
   pruneJobs,
   readHealthReport,
   readLocationReport,
@@ -92,6 +93,7 @@ import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
 import { type RecoverResult, renderRecover, renderRecoverJson } from "./recover.js";
+import { renderRunPreview, renderRunPreviewJson } from "./run.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
   formatUtcOffsetLabel,
@@ -543,8 +545,37 @@ export function buildCli(): Command {
       "-p, --project <name>",
       "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
     )
-    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
+    .option(
+      "-n, --dry-run",
+      "Preview how AgentRelay would classify this command (tool adapter, project label, target store, watched patterns) without running it"
+    )
+    .option("--json", "With --dry-run, print the preview as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        '  agentrelay run -- claude -p "continue the refactor"\n' +
+        "  # check tool detection / project label before a long run\n" +
+        '  agentrelay run --dry-run -- codex exec "fix the failing test"'
+    )
+    .action(async (command: string[], opts: { tool?: string; project?: string; dryRun?: boolean; json?: boolean }) => {
       const { store } = program.opts();
+
+      // Dry run: resolve and print the classification, spawn nothing, exit 0.
+      if (opts.dryRun) {
+        const preview = previewRun({
+          command,
+          storePath: store,
+          tool: opts.tool as AgentTool | undefined,
+          project: opts.project,
+        });
+        console.log(
+          opts.json
+            ? renderRunPreviewJson(preview)
+            : renderRunPreview(preview, { color: Boolean(process.stdout.isTTY) })
+        );
+        return;
+      }
+
       const result = await runCommand({
         command,
         storePath: store,
