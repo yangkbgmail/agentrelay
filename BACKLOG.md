@@ -870,6 +870,27 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay parse --explain` — 첫 매치/미검출만 알려주던 `parse`를, **모든 패턴을 하나씩**
+      돌려 각각이 매치했는지·리셋을 해소했는지·왜 선택에서 밀렸는지 보여주는 진단 모드로 확장.
+      자기 발굴 항목 — 실전 rate-limit wording이 안 잡힐 때 "왜 안 잡혔지?"를 답할 방법이 없었다
+      (경쟁 도구 대비 파서 커버리지 디버깅이 핵심 차별점).
+      (완료 — core `parser.ts`에 순수 `explainRateLimitMessage(text, options)` + `ExplainReport`/
+      `PatternTrace`/`PatternSource`/`PatternSkipReason` 신설: 어댑터 extraPatterns→제네릭 순으로
+      **모든** 패턴을 평가해 각 `PatternTrace`(regexMatched·rawMatch·resetAt·skipped·selected)를
+      순서대로 수집. 선택 의미론은 실 파서와 100% 일치(어댑터는 항상 적격, 제네릭은 pre-filter가
+      트립할 때만 적격, 첫 usable 리셋이 승리) → `selectedPattern`은 `parseRateLimitMessage`가 고를
+      바로 그 패턴, 나머지 trace는 **왜 밀렸는지**(`unresolved`=매치했으나 유효 날짜 실패,
+      `implausible`=지평선 밖, `prefiltered`=제네릭 regex는 맞았으나 텍스트가 rate-limit-y 아님,
+      `superseded`=usable했으나 앞 패턴이 이미 승) 설명. 내부 `PATTERNS`를 `GENERIC_PATTERNS`로
+      export. CLI `parse.ts`에 `buildExplainReport`/`renderExplainReport`(패턴별 글리프 ✓/·/✗ +
+      pre-filter 판정 + 선택 리셋 카운트다운)·`renderExplainReportJson`(trace별 `resetInMs`) 추가,
+      `agentrelay parse --explain [--json] [--tool]` 배선. 기존 `parse`(첫 매치) 동작 불변 —
+      `--explain`은 opt-in. 새 스케줄러/파서 매칭 로직 0줄(평가 순서는 실 파서 재현). core parser
+      +8케이스(선택 일치·전체 trace·prefiltered·unresolved·implausible·superseded·adapter 우선) +
+      cli parse +6케이스. 실제 빌드 CLI e2e로 매치/미검출/codex 어댑터(제네릭 relative-duration이
+      "try again in "만 부분 매치→unresolved로 드러남)/superseded/JSON 검증. branch
+      `claude/wizardly-pascal-2tpzf6`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

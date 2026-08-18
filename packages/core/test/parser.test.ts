@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_MAX_RESET_HORIZON_MS,
+  explainRateLimitMessage,
   isPlausibleReset,
   maxResetHorizonMsFromEnv,
   parseRateLimitMessage,
+  type RateLimitPattern,
 } from "../src/parser.js";
 
 describe("parseRateLimitMessage", () => {
@@ -336,6 +338,97 @@ describe("isPlausibleReset", () => {
     expect(isPlausibleReset(new Date(now.getTime() + horizon), now, horizon)).toBe(true); // exactly at the edge
     expect(isPlausibleReset(new Date(now.getTime() + horizon + 1), now, horizon)).toBe(false);
     expect(isPlausibleReset(new Date(now.getTime() - 999 * horizon), now, horizon)).toBe(true); // past is fine
+  });
+});
+
+describe("explainRateLimitMessage", () => {
+  const traceFor = (report: ReturnType<typeof explainRateLimitMessage>, name: string) =>
+    report.traces.find((t) => t.name === name);
+
+  it("selects the same pattern parseRateLimitMessage would, and marks it", () => {
+    const text = "Usage limit. It resets at 2026-07-13T05:00:00Z.";
+    const report = explainRateLimitMessage(text);
+    const parsed = parseRateLimitMessage(text);
+    expect(report.matched).toBe(true);
+    expect(report.selectedPattern).toBe(parsed?.pattern);
+    expect(report.selectedPattern).toBe("iso-timestamp");
+    const selected = report.traces.filter((t) => t.selected);
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.name).toBe("iso-timestamp");
+    expect(selected[0]?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+    expect(selected[0]?.skipped).toBeNull();
+  });
+
+  it("reports every pattern, matched or not, in evaluation order", () => {
+    const report = explainRateLimitMessage("nothing to see here");
+    // No adapter extras + all 7 generic patterns are always listed.
+    expect(report.traces).toHaveLength(7);
+    expect(report.traces.every((t) => !t.regexMatched)).toBe(true);
+    expect(report.matched).toBe(false);
+    expect(report.selectedPattern).toBeNull();
+    expect(report.looksLikeRateLimit).toBe(false);
+  });
+
+  it("flags a generic regex hit as prefiltered when the pre-filter never trips", () => {
+    // The five-hour-window regex matches "5-hour limit", but the surrounding
+    // text trips none of the pre-filter keywords, so the real parser skips it.
+    const report = explainRateLimitMessage("quota bumped to 5-hour limit next week");
+    expect(report.looksLikeRateLimit).toBe(false);
+    const fallback = traceFor(report, "five-hour-window-fallback");
+    expect(fallback?.regexMatched).toBe(true);
+    expect(fallback?.skipped).toBe("prefiltered");
+    expect(fallback?.selected).toBe(false);
+    expect(report.matched).toBe(false);
+  });
+
+  it("marks a matched-but-unresolvable pattern as unresolved", () => {
+    // ISO regex matches the shape but the date is invalid (month 99).
+    const report = explainRateLimitMessage("usage limit resets at 2026-99-99T05:00:00Z");
+    const iso = traceFor(report, "iso-timestamp");
+    expect(iso?.regexMatched).toBe(true);
+    expect(iso?.skipped).toBe("unresolved");
+    expect(iso?.resetAt).toBeNull();
+  });
+
+  it("marks a plausibly-shaped but too-far-out reset as implausible", () => {
+    const now = new Date("2026-01-01T00:00:00Z");
+    const report = explainRateLimitMessage("usage limit, try again in 30 days", {
+      now,
+      maxFutureMs: DEFAULT_MAX_RESET_HORIZON_MS, // 8 days
+    });
+    const rel = traceFor(report, "relative-duration");
+    expect(rel?.regexMatched).toBe(true);
+    expect(rel?.skipped).toBe("implausible");
+    expect(report.matched).toBe(false);
+  });
+
+  it("marks a later usable pattern as superseded once one is selected", () => {
+    // Both an ISO timestamp and a relative duration appear; iso-timestamp wins,
+    // relative-duration also resolves but loses.
+    const now = new Date("2026-07-12T00:00:00Z");
+    const report = explainRateLimitMessage("usage limit resets at 2026-07-13T05:00:00Z, or try again in 2h", { now });
+    expect(report.selectedPattern).toBe("iso-timestamp");
+    const rel = traceFor(report, "relative-duration");
+    expect(rel?.regexMatched).toBe(true);
+    expect(rel?.skipped).toBe("superseded");
+    expect(rel?.resetAt).not.toBeNull(); // still shown for insight
+    expect(rel?.selected).toBe(false);
+  });
+
+  it("tries adapter extraPatterns first and can select one", () => {
+    const now = new Date("2026-07-12T00:00:00Z");
+    const extra: RateLimitPattern = {
+      name: "test-cooldown",
+      regex: /cooldown:\s*(\d+)s\b/i,
+      resolve: (m, n) => new Date(n.getTime() + parseInt(m[1], 10) * 1000),
+    };
+    // "cooldown: 20s" doesn't trip the generic pre-filter, so only the adapter
+    // pattern is eligible — proving adapter extras are tried unconditionally.
+    const report = explainRateLimitMessage("throttled, cooldown: 20s", { now, extraPatterns: [extra] });
+    expect(report.looksLikeRateLimit).toBe(false);
+    expect(report.traces[0]?.name).toBe("test-cooldown");
+    expect(report.traces[0]?.source).toBe("adapter");
+    expect(report.selectedPattern).toBe("test-cooldown");
   });
 });
 
