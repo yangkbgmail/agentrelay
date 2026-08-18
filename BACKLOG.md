@@ -28,6 +28,15 @@
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
+- [x] 👷 `agentrelay reschedule <id> <when>` — 대기 중 잡의 리셋 시각을 수동 보정.
+      (완료 — 파서가 리셋을 잘못 추정했거나, 제공자 대시보드에서 실제 리셋을 알게 됐을 때
+      `cancel`+재실행(시도 이력 소실) 없이 리셋 시각만 고친다. `retry`(즉시·시도 0으로 리셋)와
+      달리 시도 횟수·이력을 보존하는 "시각 정정". `<when>`은 `now`/상대 오프셋(`+2h`·`+30m`·
+      `-15m`·무부호 `45m`=미래)/절대 ISO(`2026-08-18T15:00:00Z`) 지원. core에 순수
+      `resolveRescheduleTime`(파싱)·`canReschedule`(가드: queued/waiting만, resuming·종료 상태는
+      retry로 안내)·`RelayQueue.reschedule` 추가, CLI `rescheduleJob`+`reschedule` 커맨드 배선.
+      core+cli 유닛 테스트 추가(control 26·queue 19·commands 83), pnpm build/test 전체 그린,
+      실제 CLI 엔드투엔드 스모크 확인. branch `claude/wizardly-pascal-p3jus6`)
 - [x] 👷 Codex CLI 등 다른 에이전트 툴 어댑터.
       (완료 — `@agentrelay/core`에 `adapters.ts` 신설: `AgentAdapter` 인터페이스 +
       `CLAUDE_CODE_ADAPTER`/`CODEX_CLI_ADAPTER`/`GENERIC_ADAPTER` + `ADAPTERS` 레지스트리.

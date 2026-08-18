@@ -1,3 +1,4 @@
+import { parseDuration } from "./prune.js";
 import type { JobStatus, RelayJob } from "./types.js";
 
 /**
@@ -39,6 +40,75 @@ export function canCancel(job: RelayJob): ControlResult {
 export function canRequeue(job: RelayJob): ControlResult {
   if (job.status === "resuming") return { ok: false, reason: "job is currently resuming; wait for it to finish" };
   return { ok: true };
+}
+
+/**
+ * Statuses whose reset time a user may correct with `agentrelay reschedule`.
+ * Only pending jobs the scheduler still owns — a queued job that has yet to be
+ * parked, or one already `waiting_for_reset`. Finished jobs are revived with
+ * `retry`, not rescheduled.
+ */
+export const RESCHEDULABLE_STATUSES: readonly JobStatus[] = ["queued", "waiting_for_reset"];
+
+/**
+ * Whether `job`'s reset time may be corrected in place. Unlike `retry` (which
+ * forces a job — finished or not — to resume *now* and resets its attempt
+ * budget), reschedule only nudges the reset of a still-pending job and keeps
+ * its attempts/history intact. In-flight (`resuming`) jobs are refused to avoid
+ * racing the running command; terminal jobs are pointed at `retry` instead.
+ */
+export function canReschedule(job: RelayJob): ControlResult {
+  if (job.status === "resuming") return { ok: false, reason: "job is currently resuming; wait for it to finish" };
+  if (job.status === "completed") return { ok: false, reason: "job already completed — use retry to run it again" };
+  if (job.status === "failed") return { ok: false, reason: "job already failed — use retry to run it again" };
+  if (job.status === "cancelled") return { ok: false, reason: "job is cancelled — use retry to revive it" };
+  return { ok: true };
+}
+
+export interface ResolveWhenResult {
+  /** The resolved absolute reset time as an ISO string (only when parsing succeeded). */
+  at?: string;
+  /** Present only when parsing failed — a human-readable reason. */
+  error?: string;
+}
+
+const SIGNED_DURATION_RE = /^([+-]?)(\d+(?:\.\d+)?)(ms|s|m|h|d)$/i;
+
+/**
+ * Resolve a user-supplied reset time-spec (from `agentrelay reschedule`) into an
+ * absolute ISO timestamp. Accepts three forms:
+ *
+ *  - `now` — resume as soon as the next tick runs.
+ *  - a relative offset from now — `+2h`, `+30m`, `-15m`, or a bare `45m`
+ *    (unsigned is treated as future). A negative offset lands in the past, which
+ *    simply makes the job due immediately.
+ *  - an absolute instant — anything `Date` can parse, e.g. `2026-08-18T15:00:00Z`
+ *    or `2026-08-18 15:00`.
+ *
+ * Returns `{ error }` (never throws) for empty or unparseable input so the CLI
+ * can print a precise message instead of writing a garbage reset into the store.
+ */
+export function resolveRescheduleTime(spec: string, now: Date = new Date()): ResolveWhenResult {
+  const trimmed = spec.trim();
+  if (!trimmed) return { error: "no time given (try `now`, `+2h`, or an ISO timestamp)" };
+
+  if (trimmed.toLowerCase() === "now") return { at: now.toISOString() };
+
+  const signed = SIGNED_DURATION_RE.exec(trimmed);
+  if (signed) {
+    const magnitude = parseDuration(`${signed[2]}${signed[3]}`);
+    if (magnitude === null) return { error: `could not parse duration "${trimmed}"` };
+    const deltaMs = signed[1] === "-" ? -magnitude : magnitude;
+    return { at: new Date(now.getTime() + deltaMs).toISOString() };
+  }
+
+  const absolute = new Date(trimmed);
+  if (Number.isNaN(absolute.getTime())) {
+    return {
+      error: `could not parse "${trimmed}" as a time (use \`now\`, a relative offset like \`+2h\`, or an ISO timestamp)`,
+    };
+  }
+  return { at: absolute.toISOString() };
 }
 
 /** One job that a bulk-control guard rejected, paired with the reason why. */

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { canCancel, canRequeue, partitionForControl, resolveJobId } from "../src/control.js";
+import {
+  canCancel,
+  canRequeue,
+  canReschedule,
+  partitionForControl,
+  resolveJobId,
+  resolveRescheduleTime,
+} from "../src/control.js";
 import type { JobStatus, RelayJob } from "../src/types.js";
 
 function job(id: string, status: JobStatus): RelayJob {
@@ -47,6 +54,74 @@ describe("canRequeue", () => {
     const result = canRequeue(job("a", "resuming"));
     expect(result.ok).toBe(false);
     expect(result.reason).toContain("resuming");
+  });
+});
+
+describe("canReschedule", () => {
+  it("allows rescheduling still-pending jobs", () => {
+    for (const status of ["queued", "waiting_for_reset"] as JobStatus[]) {
+      expect(canReschedule(job("a", status)).ok).toBe(true);
+    }
+  });
+
+  it("rejects a job that is currently resuming", () => {
+    const result = canReschedule(job("a", "resuming"));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("resuming");
+  });
+
+  it("rejects terminal jobs and points them at retry", () => {
+    for (const status of ["completed", "failed", "cancelled"] as JobStatus[]) {
+      const result = canReschedule(job("a", status));
+      expect(result.ok).toBe(false);
+      expect(result.reason).toMatch(/retry/);
+    }
+  });
+});
+
+describe("resolveRescheduleTime", () => {
+  const now = new Date("2026-08-18T12:00:00.000Z");
+
+  it("resolves `now` (case-insensitive) to the current instant", () => {
+    expect(resolveRescheduleTime("now", now)).toEqual({ at: now.toISOString() });
+    expect(resolveRescheduleTime("  NOW ", now)).toEqual({ at: now.toISOString() });
+  });
+
+  it("adds a signed relative offset to now", () => {
+    expect(resolveRescheduleTime("+2h", now)).toEqual({ at: "2026-08-18T14:00:00.000Z" });
+    expect(resolveRescheduleTime("+30m", now)).toEqual({ at: "2026-08-18T12:30:00.000Z" });
+  });
+
+  it("treats a bare (unsigned) duration as a future offset", () => {
+    expect(resolveRescheduleTime("45m", now)).toEqual({ at: "2026-08-18T12:45:00.000Z" });
+    expect(resolveRescheduleTime("1d", now)).toEqual({ at: "2026-08-19T12:00:00.000Z" });
+  });
+
+  it("allows a negative offset (lands in the past → due immediately)", () => {
+    expect(resolveRescheduleTime("-15m", now)).toEqual({ at: "2026-08-18T11:45:00.000Z" });
+  });
+
+  it("accepts an absolute ISO timestamp and normalises it", () => {
+    expect(resolveRescheduleTime("2026-08-18T15:00:00Z", now)).toEqual({ at: "2026-08-18T15:00:00.000Z" });
+  });
+
+  it("errors on empty input", () => {
+    const result = resolveRescheduleTime("   ", now);
+    expect(result.at).toBeUndefined();
+    expect(result.error).toBeTruthy();
+  });
+
+  it("errors on unparseable input", () => {
+    const result = resolveRescheduleTime("whenever", now);
+    expect(result.at).toBeUndefined();
+    expect(result.error).toContain("could not parse");
+  });
+
+  it("rejects an unknown duration unit rather than misparsing it", () => {
+    // 'y' (years) is not a supported unit and is not a valid Date either.
+    const result = resolveRescheduleTime("2y", now);
+    expect(result.at).toBeUndefined();
+    expect(result.error).toBeTruthy();
   });
 });
 
