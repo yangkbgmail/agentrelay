@@ -2259,3 +2259,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — doctor 먼-미래 리셋 잡 검사(큐에 남은 misparse 리셋)] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-l8bkd1`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72가 다음 할 일로 명시한 인접 후보 — "`doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가"를 골랐다.
+  세션 72의 파서 지평선 가드(#723, main 병합됨)는 detection *시점*에만 먼-미래 리셋을 드롭한다.
+  가드가 생기기 *전에* 큐에 들어갔거나 가드를 끈 채(`=off`) 들어간 잡은 여전히 스토어에 앉아 수일/수년
+  조용히 대기 — doctor가 반복해 겨냥해온 무음 실패인데 정작 doctor가 못 잡던 갭.
+- **한 일 (branch `claude/wizardly-pascal-l8bkd1`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, {nowMs, horizonMs})`(clock 주입 →
+    테스트 가능; `waiting_for_reset` 잡만 대상[스케줄러가 resetAt에 대기하는 유일 상태]; resetAt
+    누락/파싱불가 스킵; null·≤0·비유한 horizonMs=가드 비활성 → 빈 배열; 스토어 순서 보존) +
+    `FarFutureReset`/`ResetHorizonFacts` 타입 + `DiagnosticInput.resetHorizon`. `runDiagnostics`에
+    **reset-horizon** 검사 추가(daemon↔config 사이): 지평선 null=검사 비활성 OK, 위반 0=OK, 위반
+    있으면 warning(개수·첫 잡 짧은 id·project·resetAt·`+N more` + retry/cancel/show·시계 확인 힌트).
+    error 아님 — 드문 진짜 긴 창일 수 있으니 실패 대신 경보(파서 가드와 상보).
+  - CLI `commands.ts` `runDoctor`가 기존 `maxResetHorizonMsFromEnv(env)`로 지평선을 얻어(가드 `off`면
+    검사도 비활성) `selectFarFutureResets`로 facts 수집 후 `runDiagnostics`에 배선. `nowMs` 주입 유지.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm format`→`pnpm ci:lint`(Biome 0에러)→
+  `pnpm test` 전 패키지 통과(**core 649 · cli 357/1skip · dashboard 9**; core doctor +10[selectFarFutureResets
+  7 + resetHorizonCheck 3], cli doctor +3[OK/warn/disabled]). **실제 빌드 CLI e2e**(mock 아님): 손으로
+  쓴 스토어(1년 뒤·1시간 뒤 리셋 2잡)에 대해 기본 지평선(8d)은 1년 잡을 warn·1시간 잡은 무시,
+  `AGENTRELAY_MAX_RESET_HORIZON=off`면 "disabled", `730d`면 OK, `--json`은 warning 체크 라운드트립 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recover`가 먼-미래
+  리셋 잡을 즉시 재큐로 당기는 옵션, 대시보드에 먼-미래 리셋 배지. stats 분산/watch·epoch ms는 PR 포화라
+  지양. README/ARCHITECTURE(🧭 코워크).

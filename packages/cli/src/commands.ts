@@ -84,6 +84,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   sampleConfigJson,
   scopeJobs,
+  selectFarFutureResets,
   selectStuckResumingJobs,
   serializeDaemonHeartbeat,
   setConfigValue,
@@ -1467,6 +1468,16 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // --- reset-horizon facts. The parser now drops implausibly far-future resets,
+  // but jobs enqueued before that guard (or while it was off) can still sit in
+  // the store waiting days/years. Scan for them using the same horizon the guard
+  // uses, so a user who disabled the guard (`=off`) sees the check disabled too.
+  const horizonMs = maxResetHorizonMsFromEnv(env);
+  const resetHorizon = {
+    horizonMs,
+    jobs: selectFarFutureResets(jobs, { nowMs: options.nowMs ?? Date.now(), horizonMs }),
+  };
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1486,6 +1497,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    resetHorizon,
   });
 }
 

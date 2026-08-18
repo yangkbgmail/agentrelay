@@ -870,6 +870,22 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay doctor` 먼-미래 리셋 잡 검사 — 파서 지평선 가드(세션 72)가 만들어지기 *전에*
+      큐에 들어갔거나 가드가 꺼진 채로 들어간, `resetAt`이 지평선 밖(기본 8일)인 `waiting_for_reset`
+      잡을 감지. 그런 잡은 수일/수년 조용히 대기하며 아무것도 재개 안 됨(doctor가 겨냥해온 무음 실패).
+      (완료 — 세션 72는 detection *시점*에 먼-미래 리셋을 드롭하지만, 이미 스토어에 앉아 있는 잡은
+      그대로 방치됐다. `@agentrelay/core/doctor.ts`에 순수 `selectFarFutureResets(jobs, {nowMs, horizonMs})`
+      추가(clock 주입 → 테스트 가능; `waiting_for_reset`만 대상[스케줄러가 resetAt에 대기하는 유일 상태];
+      resetAt 누락/파싱불가는 스킵; null·≤0·비유한 horizonMs=가드 비활성으로 빈 배열; 스토어 순서 보존) +
+      `FarFutureReset`/`ResetHorizonFacts` 타입 + `DiagnosticInput.resetHorizon`. `runDiagnostics`에
+      **reset-horizon** 검사 추가(daemon↔config 사이): 지평선 null=검사 비활성 OK, 위반 0=OK, 위반 있으면
+      warning(개수·첫 잡 짧은id·project·resetAt·`+N more` + retry/cancel/show·시계 확인 힌트) — error 아님
+      (드문 진짜 긴 창일 수 있으니 실패 대신 경보). CLI `runDoctor`가 기존 `maxResetHorizonMsFromEnv(env)`로
+      지평선을 얻어(가드 `off`면 검사도 비활성) `selectFarFutureResets`로 facts 수집. core doctor +10
+      (selectFarFutureResets 7 + resetHorizonCheck 3) · CLI +3(OK/warn/disabled), 실제 빌드 CLI e2e로
+      기본 지평선 warn·`off` disabled·`730d` OK·`--json` 라운드트립 확인(core 649·cli 357/1skip·dashboard 9).
+      branch `claude/wizardly-pascal-l8bkd1`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
