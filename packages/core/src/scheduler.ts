@@ -196,7 +196,7 @@ export class RelayScheduler {
       message: `Resuming job for ${job.project} (attempt ${attemptNumber})`,
     });
 
-    const { output, exitCode, error } = await this.runCommand(job);
+    const { output, exitCode, error, signal } = await this.runCommand(job);
     const tail = output.slice(-this.outputTailLength);
     // Use the tool's adapter so tool-specific rate-limit wording (e.g. Codex's
     // seconds-based waits) is recognized on resume, not just at enqueue time.
@@ -228,7 +228,12 @@ export class RelayScheduler {
       return this.reload(job.id);
     }
 
-    const failed = error !== null || (exitCode !== null && exitCode !== 0);
+    // A process killed by a signal (SIGKILL from the OOM killer, a timeout, a
+    // manual kill) reports `exitCode === null` with a non-null `signal`. Treat
+    // that as a failure, not a success — otherwise a killed agent would be
+    // silently marked completed even though its work never finished (the exact
+    // "silent failure" class this relay guards against).
+    const failed = error !== null || signal !== null || (exitCode !== null && exitCode !== 0);
     if (!failed) {
       this.queue.markCompleted(job.id, tail);
       await this.notify({
@@ -242,7 +247,11 @@ export class RelayScheduler {
 
     // Transient failure (spawn error or non-zero exit with no rate-limit signal):
     // back off exponentially and retry, until the attempt cap is reached.
-    const reason = error ? String(error) : `command exited with code ${exitCode}`;
+    const reason = error
+      ? String(error)
+      : signal !== null
+        ? `command terminated by signal ${signal}`
+        : `command exited with code ${exitCode}`;
     if (isRetryExhausted(this.retryPolicy, attemptNumber)) {
       const msg = `Failed after ${attemptNumber} attempt(s): ${reason}`;
       this.queue.markFailed(job.id, msg, tail);
@@ -272,7 +281,9 @@ export class RelayScheduler {
     return job;
   }
 
-  private runCommand(job: RelayJob): Promise<{ output: string; exitCode: number | null; error: Error | null }> {
+  private runCommand(
+    job: RelayJob
+  ): Promise<{ output: string; exitCode: number | null; signal: string | null; error: Error | null }> {
     return new Promise((resolve) => {
       let output = "";
       let child: ChildProcessWithoutNullStreams;
@@ -281,7 +292,7 @@ export class RelayScheduler {
       } catch (err) {
         // Synchronous spawn failure (e.g. bad cwd) — surface as a transient error
         // so the caller can apply the retry policy rather than dropping the job.
-        resolve({ output, exitCode: null, error: err as Error });
+        resolve({ output, exitCode: null, signal: null, error: err as Error });
         return;
       }
 
@@ -292,10 +303,14 @@ export class RelayScheduler {
         output += chunk.toString();
       });
       child.on("error", (err) => {
-        resolve({ output, exitCode: null, error: err as Error });
+        resolve({ output, exitCode: null, signal: null, error: err as Error });
       });
-      child.on("close", (code) => {
-        resolve({ output, exitCode: code ?? 0, error: null });
+      // `close` reports `(code, signal)`: on a normal exit `code` is the numeric
+      // status and `signal` is null; when the process was killed by a signal
+      // `code` is null and `signal` names it. Keep `code` null-preserving (do not
+      // coerce to 0) so a signal kill is distinguishable from a clean exit.
+      child.on("close", (code, signal) => {
+        resolve({ output, exitCode: code, signal: signal ?? null, error: null });
       });
     });
   }

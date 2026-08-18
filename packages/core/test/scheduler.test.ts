@@ -24,8 +24,10 @@ function fakeSpawnFn(outputs: Record<string, string>): SpawnFn {
 }
 
 // Fake ChildProcess that closes with a given exit code (default 0) and,
-// optionally, emits an `error` event instead of closing cleanly.
-function fakeSpawnWith(opts: { output?: string; exitCode?: number; error?: Error }): SpawnFn {
+// optionally, emits an `error` event instead of closing cleanly, or is
+// terminated by a signal (`close` fires with `(null, signal)`, mirroring how
+// Node reports a process killed by e.g. SIGKILL).
+function fakeSpawnWith(opts: { output?: string; exitCode?: number; error?: Error; signal?: string }): SpawnFn {
   return () => {
     const emitter = new EventEmitter() as any;
     emitter.stdout = new EventEmitter();
@@ -34,6 +36,8 @@ function fakeSpawnWith(opts: { output?: string; exitCode?: number; error?: Error
       if (opts.output) emitter.stdout.emit("data", Buffer.from(opts.output));
       if (opts.error) {
         emitter.emit("error", opts.error);
+      } else if (opts.signal) {
+        emitter.emit("close", null, opts.signal);
       } else {
         emitter.emit("close", opts.exitCode ?? 0);
       }
@@ -200,6 +204,42 @@ describe("RelayScheduler", () => {
     const [result] = await scheduler.tick(now);
     expect(result.status).toBe("waiting_for_reset");
     expect(result.resetAt).toBe(new Date(now.getTime() + 90_000).toISOString());
+  });
+
+  it("treats a signal-killed resume as a transient failure, not a silent completion", async () => {
+    // A resume whose agent process is killed by a signal (OOM killer, timeout,
+    // manual kill) closes with `code === null` and a signal name. It must not be
+    // mistaken for a clean exit-0 success — the work never finished.
+    dueJob(); // resetAt = Date.now() - 1000
+    const now = new Date(Date.now() + 1000);
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnWith({ output: "partial work", signal: "SIGKILL" }),
+      retryPolicy: { maxAttempts: 5, baseDelayMs: 60_000, factor: 2, maxDelayMs: 3_600_000, jitter: 0 },
+    });
+
+    const [result] = await scheduler.tick(now);
+    expect(result.status).toBe("waiting_for_reset"); // retried, not completed
+    expect(result.resetAt).toBe(new Date(now.getTime() + 60_000).toISOString());
+    expect(result.lastError).toContain("terminated by signal SIGKILL");
+  });
+
+  it("marks a job failed when signal kills persist past maxAttempts", async () => {
+    const job = dueJob();
+    queue.markResuming(job.id); // attempts -> 1
+    queue.markResuming(job.id); // attempts -> 2
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnWith({ signal: "SIGKILL" }),
+      retryPolicy: { maxAttempts: 3, baseDelayMs: 1000, factor: 2, maxDelayMs: 10_000, jitter: 0 },
+    });
+
+    // Attempt 3 == maxAttempts, still killed -> failed rather than looping.
+    const [result] = await scheduler.tick();
+    expect(result.status).toBe("failed");
+    expect(result.lastError).toContain("terminated by signal SIGKILL");
   });
 
   it("retries a spawn/child error rather than dropping the job", async () => {

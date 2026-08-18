@@ -2259,3 +2259,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 스케줄러: 시그널로 죽은 재개를 성공으로 오인하던 무음 실패 버그 수정] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-1mi9ap`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 열린
+  PR 200+개(파서·stats·watch·doctor·어댑터·신규 커맨드)를 두 페이지 키워드 스캔한 결과 신규 기능은
+  극도로 포화(특히 세션 72가 후속 후보로 남긴 "doctor 먼-미래 리셋 경고 검사"조차 PR #726·727·729·
+  733·734·735·738·741·742·743·745·748로 십수 개 중복). 그래서 신규 기능 대신 **어떤 열린 PR에도 없는**
+  실제 코드 결함을 병합된 main에서 발굴 — `scheduler.ts` `runCommand`의 `close` 핸들러가 시그널 종료를
+  성공으로 오인하던 무음 실패(이 릴레이가 doctor·recover·reset-horizon으로 반복해 겨냥해온 바로 그 부류).
+- **버그:** `child.on("close", (code) => resolve({ exitCode: code ?? 0 }))`. 프로세스가 시그널로
+  종료되면 Node는 `code=null, signal='SIGKILL'`을 넘기는데, `?? 0`이 이를 exit 0으로 만들어 `failed`
+  판정을 통과 → 작업을 끝내지 못하고 죽은(OOM 킬러·timeout·수동 kill) 잡이 조용히 `completed` 처리됨.
+- **한 일 (branch `claude/wizardly-pascal-1mi9ap`):**
+  - core `scheduler.ts`: `runCommand`가 `(code, signal)`을 모두 캡처, `exitCode`를 null-보존(`?? 0`
+    제거)해 시그널 종료를 클린 종료와 구분. `resume`의 `failed`에 `signal !== null` 추가 → 시그널 킬을
+    non-zero 종료와 동일하게 **일시 실패**로 취급(지수 백오프 재시도, maxAttempts 초과 시 `failed`,
+    무한 루프 없음). 사유는 `command terminated by signal <SIG>`로 기록. rate-limit 우선순위·정상
+    종료·에러 이벤트 경로는 불변(하위호환).
+  - scheduler.test +2: SIGKILL 재개→`waiting_for_reset`(백오프 60s)+lastError에 시그널 표기 /
+    시그널 킬이 maxAttempts 초과 시 `failed`. `fakeSpawnWith`에 `signal` 옵션 추가(`close(null, sig)`).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 641**[scheduler.test 22→24] **· cli 354/1skip · dashboard 9**).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — resume 워치독
+  (행 걸린 자식 프로세스 타임아웃 kill; 이 수정이 그 kill을 올바르게 실패로 흘려보내는 토대) 또는
+  `runCommand`의 stdout/stderr 무한 버퍼링 상한. 신규 커맨드·파서·stats 변형은 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
