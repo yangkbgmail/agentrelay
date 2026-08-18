@@ -123,6 +123,40 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 3 * 60_000).toISOString());
   });
 
+  it("does not let an earlier keyword-only phrase shadow a later valid duration", () => {
+    // Regression: agent CLIs print multi-sentence output where a keyword phrase
+    // ("try again in …") can appear in prose before the real duration. The
+    // relative-duration groups are all optional, so the leading "try again in "
+    // matched first, resolved to null, and the actual "try again in 30m" was
+    // missed. tryPattern now scans every occurrence and keeps the first that
+    // resolves.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("We'll ask you to try again in a moment — try again in 30m.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.rawMatch).toContain("30m");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
+
+  it("scans past a leading unresolvable 'retry in' occurrence to a real one", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit. Please retry in a bit; retry in 2h.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
+  it("returns a later plausible reset when an earlier occurrence is beyond the horizon", () => {
+    // First "try again in 30 days" is dropped by the plausibility guard; the
+    // scan continues within the same pattern and keeps the sane 15m occurrence.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("try again in 30 days (if the outage persists), otherwise try again in 15m.", {
+      now,
+      maxFutureMs: DEFAULT_MAX_RESET_HORIZON_MS,
+    });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 15 * 60_000).toISOString());
+  });
+
   it("parses a unix epoch retry_after field", () => {
     const result = parseRateLimitMessage("rate_limit_error retry_after=1752345600");
     expect(result).not.toBeNull();

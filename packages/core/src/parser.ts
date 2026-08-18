@@ -188,24 +188,43 @@ const PATTERNS: RateLimitPattern[] = [
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
 const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
 
+/**
+ * Return a global-flag clone of a pattern's regex so we can iterate *every*
+ * occurrence with `matchAll` (which requires `g`). The original pattern regexes
+ * are authored without `g` (single-match style), and cloning avoids mutating the
+ * shared `lastIndex` of the module-level regex objects across calls.
+ */
+function globalize(regex: RegExp): RegExp {
+  return regex.global ? regex : new RegExp(regex.source, `${regex.flags}g`);
+}
+
 function tryPattern(
   pattern: RateLimitPattern,
   text: string,
   now: Date,
   maxFutureMs?: number | null
 ): RateLimitInfo | null {
-  const match = text.match(pattern.regex);
-  if (!match) return null;
-  const resetDate = pattern.resolve(match, now);
-  if (!resetDate || Number.isNaN(resetDate.getTime())) return null;
-  // Drop an implausibly far-out reset so a misparse can't park a job forever;
-  // the caller keeps scanning for a saner pattern (or gets `null`).
-  if (!isPlausibleReset(resetDate, now, maxFutureMs)) return null;
-  return {
-    resetAt: resetDate.toISOString(),
-    rawMatch: match[0],
-    pattern: pattern.name,
-  };
+  // Scan *all* occurrences of the pattern, not just the first. Several patterns
+  // have entirely optional capture groups (e.g. relative-duration matches the
+  // bare phrase "try again in " with no number), so an earlier prose mention
+  // ("we'll ask you to try again in a moment — try again in 30m") would match
+  // first, resolve to null, and shadow a perfectly valid later occurrence. By
+  // returning the first match that resolves to a valid *and* plausible reset, a
+  // leading unresolvable hit no longer swallows a real one. Every pattern has a
+  // mandatory keyword prefix, so no match is zero-width and the loop terminates.
+  for (const match of text.matchAll(globalize(pattern.regex))) {
+    const resetDate = pattern.resolve(match, now);
+    if (!resetDate || Number.isNaN(resetDate.getTime())) continue;
+    // Drop an implausibly far-out reset so a misparse can't park a job forever;
+    // keep scanning this pattern for a saner occurrence.
+    if (!isPlausibleReset(resetDate, now, maxFutureMs)) continue;
+    return {
+      resetAt: resetDate.toISOString(),
+      rawMatch: match[0],
+      pattern: pattern.name,
+    };
+  }
+  return null;
 }
 
 export function parseRateLimitMessage(text: string, options: ParseOptions = {}): RateLimitInfo | null {

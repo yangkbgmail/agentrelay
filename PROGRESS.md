@@ -2259,3 +2259,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 파서 `tryPattern` 전-매치 스캔(첫-매치 shadowing 버그 수정)] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-yaozt7`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 200+개(618–749 전량 + 456–617 키워드 스캔)를 확인해 **어떤 열린 PR에도 없는** 코어
+  정확성 버그를 발굴했다: `parser.ts`의 `tryPattern`이 `text.match`로 패턴의 **첫 매치만** 시도한다는 점.
+  `relative-duration` 등은 캡처 그룹이 전부 optional이라, "try again in a moment — try again in 30m"처럼
+  키워드 문구가 산문에 먼저 등장하면 첫 매치("try again in ")가 `resolve→null`로 끝나고, 뒤의 유효한
+  "try again in 30m"를 놓쳐 **잡이 조용히 재개 안 되는** silent-failure가 된다. 실제 에이전트 CLI는
+  여러 문장/줄로 출력하므로 현실적. (열린 PR 672·621은 "and/쉼표 연결어" 절삭 버그, 613은 사전필터
+  드롭, 587은 `parse --scan` CLI — 전부 별개. 한 줄 안 shadowing은 어느 것도 못 잡음.)
+- **한 일 (branch `claude/wizardly-pascal-yaozt7`):**
+  - core `parser.ts`: `tryPattern`이 `text.match`(첫 매치) 대신 `text.matchAll`로 패턴의 **모든 occurrence**를
+    순회하며, `resolve`가 유효하고(`isPlausibleReset` 통과) 파싱되는 **첫 매치**를 반환하도록 변경. 앞선
+    해소불가 매치가 뒤의 진짜 매치를 더 이상 가리지 않는다("first hit wins" 의미는 유지 — 유효한 첫 매치가
+    이김). 순수 헬퍼 `globalize(regex)` 추가(모듈 레벨 정규식의 공유 `lastIndex` 오염 없이 `matchAll`용
+    global-flag 클론). 모든 패턴이 필수 키워드 접두를 가져 zero-width 매치가 없으므로 루프 종료 보장.
+    plausibility 가드도 매치별로 적용 — 앞 occurrence가 지평선 밖이면 스킵하고 같은 패턴 내 saner
+    occurrence를 계속 스캔.
+  - 기존 동작 완전 하위호환: 첫 매치가 유효하던 모든 케이스는 동일 결과(첫 유효 매치 반환).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm format`+`pnpm ci:lint`(Biome 0에러)→`pnpm test`
+  전 패키지 통과(**core 642 · cli 354/1skip · dashboard 9**; parser.test +3: 키워드-only 문구 뒤 유효
+  duration·해소불가 "retry in" 뒤 실제 매치·지평선 밖 앞 occurrence 뒤 saner 매치). **실제 빌드 CLI e2e**:
+  `parse "…try again in a moment — try again in 30m."`가 이전엔 미검출이던 것을 이제 "try again in 30m"·
+  relative-duration으로 정확히 검출함을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `parse --scan` 계열
+  줄단위 진단 대신 코어에서 여러 rate-limit 매치가 있을 때 **가장 이른 리셋**을 고르는 정책 옵션,
+  "2 months"→"2 minutes" 오독 방지(단위 경계 강화). 신규 커맨드·stats 변형·타임존은 PR 포화라 지양.
