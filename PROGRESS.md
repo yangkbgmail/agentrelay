@@ -2259,3 +2259,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay run --dry-run` 명령 분류 미리보기] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-run-dryrun`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  **먼저 발굴한 `show --watch`가 이미 열린 PR #712(동일 기능, 종료 시 자동 종료라는 더 나은 변형)와
+  중복임을 확인**하고 폐기 — 프로젝트가 반복 경고해 온 중복 PR 루프를 피했다. 열린 PR 30개(reset-horizon
+  doctor 10+ 중복·타임존 파서·epoch ms·config schema·stats --attempts 등)를 전부 스캔해 **어떤 열린
+  PR에도 없는** 갭을 재발굴: `run`은 실제 spawn해봐야만 툴/프로젝트 라벨 분류를 알 수 있고, `parse`는
+  rate-limit *메시지*만 테스트할 뿐 *명령* 자체의 어댑터/라벨 분류를 실행 전에 보여주지 못했다.
+- **한 일 (branch `claude/wizardly-pascal-run-dryrun`):**
+  - CLI `commands.ts`: 순수 `previewRun(options)` + `RunPreview`/`ToolSource` 신설 — `resolveAdapter`·
+    `inferToolFromCommand`·`resolveProjectName`·`maxResetHorizonMsFromEnv`를 재사용해 spawn/enqueue 없이
+    {command,cwd,project,tool,displayName,toolSource(explicit/inferred/default),storePath,extraPatterns,
+    resetHorizonMs}를 해소. I/O·스토어 변경 0(cwd·기본 스토어·env만 읽음).
+  - CLI `run.ts` 신설: 순수 `renderRunPreview`(라벨 정렬 블록 + 툴 출처 설명 + 어댑터 전용 패턴[제네릭은
+    항상 추가 적용됨] + 지평선 가드/off, color 게이트)·`renderRunPreviewJson`(`{generatedAt,dryRun:true,
+    preview}`).
+  - CLI `cli.ts`: `run`에 `-n,--dry-run` + `--json` + addHelpText 예시 배선 — dry-run이면 분류만 출력하고
+    **spawn 0·exit 0**, `--json`은 기계 판독 덤프. 새 파서/스케줄러/core 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 639 · cli 367/1skip[run.test +13] · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  `run --dry-run -- codex exec …`가 codex-cli 추론·스토어 미생성(nothing executed) 확인, `--tool generic
+  -p backend` override, 미지 명령 generic 폴백, `--json`(dryRun:true), `AGENTRELAY_MAX_RESET_HORIZON=off`
+  반영, `run --help`에 `-n, --dry-run` 노출 검증.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `run --dry-run`이
+  실제로 rate-limit을 흉내낸 샘플 출력으로 감지까지 시뮬레이트하는 옵션, `next --watch`(단일 라인 라이브).
+  단, PR 포화 주제(reset-horizon doctor·타임존 파서·epoch ms·stats 변형·show --watch[#712])는 지양.
+  README/ARCHITECTURE(🧭 코워크).
