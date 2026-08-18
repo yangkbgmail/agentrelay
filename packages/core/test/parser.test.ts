@@ -350,6 +350,15 @@ describe("maxResetHorizonMsFromEnv", () => {
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "2d" })).toBe(2 * 24 * 60 * 60_000);
   });
 
+  it("accepts a week-denominated horizon (regression: `1w`/`2w` used to disable the guard)", () => {
+    // Claude's longest usage window is weekly, so a user setting a week-based
+    // horizon is expecting a *guard*, not a silent disable. Before `parseDuration`
+    // understood `w`, these fell through to null (guard off) — the exact silent
+    // failure the horizon guard exists to prevent.
+    expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "1w" })).toBe(7 * 24 * 60 * 60_000);
+    expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "2w" })).toBe(14 * 24 * 60 * 60_000);
+  });
+
   it("disables the guard for 0/off/none/unparseable", () => {
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "0" })).toBeNull();
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "off" })).toBeNull();

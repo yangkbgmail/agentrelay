@@ -73,7 +73,12 @@ export function selectPrunableJobs(jobs: RelayJob[], options: PruneOptions = {})
   return { prune, keep };
 }
 
-const DURATION_RE = /^(\d+(?:\.\d+)?)\s*(ms|s|m|h|d)$/i;
+// `ms` is listed before `s` in the alternation so "500ms" matches the
+// millisecond unit rather than stopping at a bare "s". `w` (weeks) is included
+// because Claude's longest usage window is *weekly*, so retention thresholds
+// and the reset-plausibility horizon are naturally expressed as `1w`/`2w`;
+// without it those values silently fell through to `null` (see UNIT_MS).
+const DURATION_RE = /^(\d+(?:\.\d+)?)\s*(ms|s|m|h|d|w)$/i;
 
 const UNIT_MS: Record<string, number> = {
   ms: 1,
@@ -81,13 +86,18 @@ const UNIT_MS: Record<string, number> = {
   m: 60_000,
   h: 3_600_000,
   d: 86_400_000,
+  w: 604_800_000, // 7 * 86_400_000
 };
 
 /**
- * Parses a human duration like `7d`, `24h`, `30m`, `90s`, `500ms` into
+ * Parses a human duration like `7d`, `24h`, `30m`, `90s`, `500ms`, or `2w` into
  * milliseconds. Returns `null` for anything it doesn't understand (empty
  * string, missing/unknown unit, negative) so callers can report a clear error
  * instead of silently pruning with a garbage threshold.
+ *
+ * Supported units: `ms`, `s`, `m`, `h`, `d`, `w` (weeks). A week is a fixed 7
+ * days — no calendar/DST arithmetic, matching how every other unit is a fixed
+ * multiple of milliseconds.
  */
 export function parseDuration(input: string): number | null {
   const match = DURATION_RE.exec(input.trim());
