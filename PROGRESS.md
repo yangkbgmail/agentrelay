@@ -2259,3 +2259,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay doctor` 먼-미래 리셋 잡 검사(store-side plausibility)] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-9xbkxh`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72(파서 미래-지평선 가드)가 "다음 할 일"로 명시한 후속 인접 후보 중 하나 — 파서 가드는 **파싱
+  시점**에 먼-미래 리셋을 떨어뜨리지만, 가드가 생기기 전 큐에 들어갔거나 가드를 껐을 때 파킹된 잡은
+  여전히 스토어에서 수일/수년 조용히 대기하며 재개 안 됨. 이 프로젝트가 doctor·recover로 반복해 겨냥한
+  "silent failure" 부류의 store-side 짝을 골랐다.
+- **한 일 (branch `claude/wizardly-pascal-9xbkxh`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, nowMs, horizonMs)` + `FarFutureReset`/
+    `ResetHorizonFacts` 신설. `queued`/`waiting_for_reset` 잡만(resuming은 이미 재실행 중, terminal은 재개
+    안 함) `resetAt > nowMs+horizonMs`인 것을 초과분(`overMs`)과 함께 반환. null/파싱불가 `resetAt`는
+    시계 없어 스킵, null·비유한·비양수 `horizonMs`는 가드 off로 `[]`. `DiagnosticInput.resetHorizon` 추가,
+    새 `reset-horizon` 검사(순서: daemon→**reset-horizon**→config): 지평선 밖 잡 있으면 warning(가장 심한
+    잡을 예시, `show`/`retry`/`cancel` 힌트), 없으면 ok, 가드 off면 ok. 하드 에러 아닌 warning(셋업은
+    정상이나 특정 잡이 무음으로 갇힌 신호).
+  - CLI `runDoctor`가 단일 캡처 `nowMs`와 env 지평선(`maxResetHorizonMsFromEnv`)으로 팩트 수집. doctor
+    렌더러는 검사 제너릭이라 수정 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 651 · cli 357/1skip · dashboard 9**; core doctor +11, cli doctor +3, `counts.ok` 5→6 갱신).
+  **실제 빌드 CLI e2e**(mock 아님): 90d 리셋 잡→기본 8d 지평선 밖 warning(가장 심한 svc-far만 예시,
+  2h svc-near는 통과), `AGENTRELAY_MAX_RESET_HORIZON=off`면 "guard is off" ok, `--json`이 reset-horizon
+  검사를 그대로 노출함을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에 먼-미래
+  리셋 잡 배지 노출(세션 31 하트비트 카드 후속), 또는 `recover`가 먼-미래 파킹 잡도 즉시-due로 회수할지.
+  stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

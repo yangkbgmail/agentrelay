@@ -48,6 +48,54 @@ describe("runDoctor", () => {
     expect(store.message).toContain("1 active");
   });
 
+  it("warns when a waiting job is parked with a reset far beyond the horizon", () => {
+    const nowMs = Date.parse("2026-08-18T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const jobRec = queue.enqueue({ project: "svc-a", tool: "claude-code", command: ["claude"], cwd: dir });
+    // 90 days out — well past the default 8-day horizon.
+    queue.markWaitingForReset(jobRec.id, new Date(nowMs + 90 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("1 waiting job is");
+    expect(check.message).toContain("svc-a");
+    expect(check.hint).toContain("agentrelay retry");
+    // the reset-horizon check itself is a warning (not an error).
+    expect(report.counts.warning).toBeGreaterThanOrEqual(1);
+  });
+
+  it("is OK for a reset within the horizon", () => {
+    const nowMs = Date.parse("2026-08-18T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const jobRec = queue.enqueue({ project: "svc-a", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(jobRec.id, new Date(nowMs + 2 * 60 * 60_000).toISOString()); // 2h out
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs });
+    expect(find(report, "reset-horizon").level).toBe("ok");
+  });
+
+  it("reports the reset-horizon guard as off when disabled via env", () => {
+    const nowMs = Date.parse("2026-08-18T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const jobRec = queue.enqueue({ project: "svc-a", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(jobRec.id, new Date(nowMs + 90 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+      nowMs,
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("guard is off");
+  });
+
   it("errors when the store file is corrupt", () => {
     writeFileSync(storePath, "{ this is not valid json", "utf8");
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });

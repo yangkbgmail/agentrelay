@@ -870,6 +870,23 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay doctor` 먼-미래 리셋 잡 검사 — 이미 큐에 들어간 잡 중 리셋 시각이 지평선을 넘어
+      과도하게 먼 미래로 파킹된 것을 경고. 자기 발굴 항목 — 세션 72의 plausibility 가드는 **파싱 시점**에
+      먼-미래 리셋을 떨어뜨리지만, 가드가 생기기 전에 큐에 들어갔거나 가드를 껐을 때 파킹된 잡은 여전히
+      스토어에서 수일/수년 대기하며 조용히 재개 안 됨 — doctor가 이 잔여를 잡는 store-side 짝.
+      (완료 — `@agentrelay/core/doctor.ts`에 순수 `selectFarFutureResets(jobs, nowMs, horizonMs)` +
+      `FarFutureReset`/`ResetHorizonFacts` 신설: `queued`/`waiting_for_reset` 잡만(resuming은 이미 재실행 중,
+      terminal은 재개 안 함) `resetAt > nowMs+horizonMs`인 것을 골라 초과분(`overMs`)과 함께 반환. null/
+      파싱불가 `resetAt`는 판단할 시계 없어 스킵, null·비유한·비양수 `horizonMs`는 가드 off로 `[]`(파서
+      `maxResetHorizonMsFromEnv`가 `off`/`0`에서 주는 값과 동일 의미). `DiagnosticInput`에 `resetHorizon`
+      추가, 새 `reset-horizon` 검사(순서: daemon→**reset-horizon**→config): 하나라도 지평선 밖=warning
+      (가장 심한 잡을 예시로 `<id8> in "<project>" is Nd past it`, `show`/`retry`/`cancel` 힌트), 전부 안이면
+      ok, 가드 off면 ok("guard is off"). 하드 에러 아닌 warning — 셋업은 정상이나 특정 잡이 무음으로 갇힌
+      신호. CLI `runDoctor`가 단일 캡처 `nowMs`와 env 지평선(`maxResetHorizonMsFromEnv`)으로 팩트 수집,
+      렌더러는 검사 제너릭이라 수정 0줄. core doctor +11(selectFarFutureResets 8·reset-horizon 검사 3) +
+      cli doctor +3, `counts.ok` 5→6 단언 갱신. 실제 빌드 CLI e2e로 90d 리셋→8d 지평선 밖 warning(가장 심한
+      svc-far만, 2h svc-near는 통과)·`off`면 ok·`--json` 노출 확인. branch `claude/wizardly-pascal-9xbkxh`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
