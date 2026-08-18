@@ -244,6 +244,18 @@ export class RelayQueue {
   }
 
   /**
+   * Correct a pending job's reset time in place (user-initiated). Parks the job
+   * in `waiting_for_reset` with the given `resetAt` and — deliberately unlike
+   * {@link requeueNow} — **preserves `attempts` and `lastError`**: this is a
+   * time correction (the parser guessed the reset wrong, or the real reset is
+   * known from the provider dashboard), not a fresh retry. Callers guard
+   * eligibility via {@link canReschedule}. A no-op if the id is unknown.
+   */
+  reschedule(id: string, at: string) {
+    this.update(id, { status: "waiting_for_reset", resetAt: at });
+  }
+
+  /**
    * Reclaim a job orphaned mid-resume: a resume loop that died between
    * {@link markResuming} and a terminal mark leaves the job stuck in `resuming`,
    * where no `listDue` tick will ever pick it up again. This moves it back to

@@ -2259,3 +2259,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay reschedule <id> <when>` 대기 잡 리셋 시각 수동 보정] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-p3jus6`)
+
+- **왜:** 파서가 리셋을 잘못 추정하거나(오탐/타임존), 사용자가 제공자 대시보드에서 실제 리셋을
+  알게 된 경우, 지금까지는 `cancel`+재실행(시도 이력 소실·처음부터) 또는 `retry`(즉시 재개,
+  시도 0으로 리셋)밖에 없었다. "시각만 정정"하는 중간 경로가 없었음 — 이번에 그 공백을 메움.
+- **한 일 (branch `claude/wizardly-pascal-p3jus6`):**
+  - core `control.ts`: 순수 `resolveRescheduleTime(spec, now?)` — `now`/부호 상대 오프셋
+    (`+2h`·`+30m`·`-15m`·무부호 `45m`=미래)/절대 ISO를 절대 ISO로 정규화, 파싱 실패는 throw
+    없이 `{ error }`. `canReschedule(job)` 가드 — queued/waiting_for_reset만 허용, resuming은
+    in-flight라 거부, 종료 상태(completed/failed/cancelled)는 "retry로 안내". `parseDuration` 재사용.
+  - core `queue.ts`: `RelayQueue.reschedule(id, at)` — `requeueNow`과 달리 **attempts·lastError
+    보존**(시각 정정이지 재시도 아님).
+  - cli `commands.ts`: `rescheduleJob(idOrPrefix, when, storePath)` — 시각 파싱→id 해석→가드→
+    `reschedule`, `formatCountdown`으로 사람용 카운트다운 메시지. cli `cli.ts`에 `reschedule
+    <id> <when>` 커맨드 배선(id 프리픽스 지원).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm test` 전 패키지 통과
+  (**core 651 · cli 359/1skip · dashboard 9**; control.test +11, queue.test +1, commands.test +5).
+  **실제 빌드 CLI e2e**(mock 아님): rate-limit 잡을 심고 `reschedule +45m`/절대 ISO/`now`가
+  정확한 리셋·카운트다운으로 반영되고, 미파싱 시각·미지의 id는 스토어를 건드리지 않고 exit 1로
+  거부됨을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `reschedule
+  --all`(스코프 일괄 보정)·`reschedule`에 `--json`, 또는 잡 대기 시각 편집을 대시보드 UI로.
+  parser/doctor/stats·watch 계열은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

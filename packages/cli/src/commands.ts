@@ -37,6 +37,7 @@ import {
   type ConfigValueSource,
   canCancel,
   canRequeue,
+  canReschedule,
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
@@ -79,6 +80,7 @@ import {
   resolveConfigWritePath,
   resolveEffectiveConfig,
   resolveJobId,
+  resolveRescheduleTime,
   retryPolicyFromEnv,
   runDiagnostics,
   SETTABLE_CONFIG_KEYS,
@@ -95,6 +97,7 @@ import {
   waitExitCode,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
+import { formatCountdown } from "./status.js";
 import type { VerifyReport } from "./verify.js";
 
 /**
@@ -512,6 +515,43 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
       ok: true,
       job: updated,
       message: `job ${shortId(job.id)} (${job.project}) queued to resume now — run "agentrelay tick" or the daemon to pick it up`,
+    };
+  } finally {
+    queue.close();
+  }
+}
+
+/**
+ * Correct a pending job's reset time by full id or short prefix. `when` is a
+ * time-spec accepted by {@link resolveRescheduleTime} (`now`, a relative offset
+ * like `+2h`/`-15m`, or an absolute ISO instant). Unlike {@link retryJob}, the
+ * job's attempt count and history are preserved — this is a time fix, not a
+ * fresh run. Terminal and in-flight jobs are rejected with an explanatory
+ * message (they're pointed at `retry` instead).
+ */
+export function rescheduleJob(idOrPrefix: string, when: string, storePath?: string): JobControlResult {
+  const resolvedAt = resolveRescheduleTime(when);
+  if (resolvedAt.error || !resolvedAt.at) {
+    return { ok: false, job: null, message: `cannot reschedule: ${resolvedAt.error ?? "invalid time"}` };
+  }
+
+  const queue = openQueue(storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { ok: false, job: null, message: resolved.error ?? "job not found" };
+
+    const job = jobs.find((j) => j.id === resolved.id) as RelayJob;
+    const guard = canReschedule(job);
+    if (!guard.ok) return { ok: false, job, message: `cannot reschedule ${shortId(job.id)}: ${guard.reason}` };
+
+    queue.reschedule(job.id, resolvedAt.at);
+    const updated = queue.getById(job.id) ?? null;
+    const countdown = formatCountdown(resolvedAt.at);
+    return {
+      ok: true,
+      job: updated,
+      message: `job ${shortId(job.id)} (${job.project}) rescheduled to resume at ${resolvedAt.at} (${countdown})`,
     };
   } finally {
     queue.close();
