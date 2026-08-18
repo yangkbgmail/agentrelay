@@ -870,6 +870,23 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay doctor` 먼-미래 리셋 잡 경고 검사 — 파서 지평선 가드(직전 세션)의 후속. 가드는
+      *새* 미스파스가 큐에 들어오는 것만 막는데, 가드 도입 전에 이미 큐에 들어왔거나 `AGENTRELAY_MAX_
+      RESET_HORIZON=off`로 들어온 잡은 여전히 리셋 시각이 수일/수년 뒤라 조용히 영원히 대기할 수 있다
+      (프로젝트가 반복해 겨냥하는 "silent failure" 부류). doctor가 라이브 큐를 파서와 **동일한 지평선**으로
+      교차 점검해 잡아낸다. 자기 발굴 항목.
+      (완료 — `@agentrelay/core/doctor.ts`에 순수 `selectFarFutureResets(jobs, {nowMs, maxFutureMs})`
+      (활성 잡 중 `resetAt`이 `now+maxFutureMs`를 넘는 것만; 과거 리셋=이미 due라 안전하므로 제외,
+      null/파싱불가 resetAt은 스킵, maxFutureMs null/비양수/비유한=가드 없음→빈 배열로 `isPlausibleReset`
+      계약 미러, 스토어 삽입 순서 보존) + `FarFutureReset`/`ResetHorizonFacts` 타입 + `DiagnosticInput.
+      resetHorizon` 추가. `runDiagnostics`에 `reset-horizon` 검사 배선(node→store→writable→adapters→
+      daemon→**reset-horizon**→config→notify): 가드 비활성이면 정보성 OK("disabled"), 지평선 밖 잡 있으면
+      warning(개수 + 가장 먼 잡 예시 `<8자id> in <project> resumes in <기간>` + `agentrelay show/cancel`
+      힌트, error 아님 — 정당한 리셋일 수도 있고 취소/재큐는 사람 판단), 없으면 OK. CLI `commands.ts`
+      `runDoctor`가 `maxResetHorizonMsFromEnv(env)` + now로 팩트 수집해 배선(기존 heartbeat 팩트 옆).
+      core doctor +12(selectFarFutureResets 8 경계·상태·가드 + reset-horizon 검사 4) + cli doctor +3
+      (실제 빌드 CLI e2e: 365일 리셋→warning·2h→ok·`off`→disabled). branch `claude/wizardly-pascal-oatxr6`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

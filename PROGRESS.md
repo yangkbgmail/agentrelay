@@ -2259,3 +2259,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+## 세션 45 (2026-08-18) — `doctor` 먼-미래 리셋 잡 경고 검사
+
+- **배경:** BACKLOG의 👷 명시 항목이 전부 완료라 CLAUDE.md 지침대로 신규 개선 항목을 발굴.
+  직전 세션(reset-horizon)의 "다음 할 일"이 명시적으로 남긴 인접 후보 — "`doctor`에 큐 내 먼-미래
+  리셋 잡 경고 검사 추가"를 구현. 파서 지평선 가드는 *새* 미스파스가 큐에 들어오는 것만 막는데,
+  가드 도입 전에 이미 들어왔거나 `AGENTRELAY_MAX_RESET_HORIZON=off`로 들어온 잡은 리셋 시각이
+  수일/수년 뒤라 조용히 영원히 대기할 수 있다 — 이 프로젝트가 doctor·recover 등으로 반복해 겨냥해온
+  "silent failure" 부류.
+- **한 일 (branch `claude/wizardly-pascal-oatxr6`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, {nowMs, maxFutureMs})`(활성 잡 중 `resetAt`이
+    `now+maxFutureMs`를 넘는 것만 골라냄 — 과거 리셋=이미 due라 안전하므로 제외, null/파싱불가 resetAt은
+    스킵, maxFutureMs null/비양수/비유한=가드 없음→빈 배열로 `isPlausibleReset` 계약 미러, 스토어 삽입
+    순서 보존) + `FarFutureReset`/`ResetHorizonFacts` 타입 + `DiagnosticInput.resetHorizon` 추가.
+  - `runDiagnostics`에 `reset-horizon` 검사 배선(순서 node→store→writable→adapters→daemon→
+    **reset-horizon**→config→notify): 가드 비활성이면 정보성 OK("disabled"), 지평선 밖 잡이 있으면
+    warning(개수 + 가장 먼 잡을 예시로 `<8자id> in <project> resumes in <기간>` + `agentrelay show`/
+    `cancel` 힌트, **error 아님** — 정당한 리셋일 수도 있고 취소·재큐는 사람 판단), 없으면 OK.
+  - CLI `commands.ts` `runDoctor`가 `maxResetHorizonMsFromEnv(env)` + now로 팩트를 수집해 배선(기존
+    heartbeat 팩트 옆). 새 core 로직은 전부 순수 — 파일시스템/env 미접촉.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 663 · cli 357/1skip · dashboard 9**; core doctor.test +12, cli doctor.test +3). **실제 빌드
+  CLI e2e**(mock 아님): 365일 뒤 리셋 잡 → `reset-horizon` warning("resumes in 365d")이면서 report.ok는
+  true(warning은 전체 실패 아님), 2h 리셋 → ok, `AGENTRELAY_MAX_RESET_HORIZON=off` → "disabled" ok 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도 동일
+  먼-미래 리셋 경고 노출(heartbeat 카드 패턴 재사용), `recover`가 먼-미래 리셋 잡을 즉시 due로 되돌릴지,
+  과거-쪽 극단(수년 전 epoch) misparse 신호 보고. README/ARCHITECTURE는 🧭 코워크 소유.

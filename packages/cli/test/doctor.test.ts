@@ -201,6 +201,59 @@ describe("runDoctor", () => {
       chmodSync(join(dir, "readonly"), 0o700);
     }
   });
+
+  it("warns when a queued job has a reset time beyond the horizon", () => {
+    const queue = new RelayQueue(storePath);
+    // Use `node` as the command so the adapters check passes (it's on PATH),
+    // isolating this assertion to the reset-horizon warning.
+    const job = queue.enqueue({ project: "big-refactor", tool: "generic", command: ["node"], cwd: dir });
+    // A misparse could park a job ~1 year out — well beyond the 8-day horizon.
+    const farReset = new Date(Date.now() + 365 * 24 * 60 * 60_000).toISOString();
+    queue.markWaitingForReset(job.id, farReset);
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      // Pass the real PATH so the adapters check resolves `node` (else that
+      // check errors and would mask the point of this test).
+      env: { AGENTRELAY_SLACK_WEBHOOK: "https://s", PATH: process.env.PATH },
+      nodeVersion: "v22.5.0",
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("big-refactor");
+    expect(check.hint).toContain("agentrelay cancel");
+    // A warning must not fail the overall report.
+    expect(report.ok).toBe(true);
+  });
+
+  it("is OK when a waiting job's reset is within the horizon", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(job.id, new Date(Date.now() + 2 * 60 * 60_000).toISOString()); // 2h
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    expect(find(report, "reset-horizon").level).toBe("ok");
+  });
+
+  it("does not check the horizon when the guard is disabled", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(job.id, new Date(Date.now() + 365 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+  });
 });
 
 describe("renderDoctor", () => {

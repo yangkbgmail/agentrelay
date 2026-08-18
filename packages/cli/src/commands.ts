@@ -84,6 +84,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   sampleConfigJson,
   scopeJobs,
+  selectFarFutureResets,
   selectStuckResumingJobs,
   serializeDaemonHeartbeat,
   setConfigValue,
@@ -1467,6 +1468,14 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // --- reset-horizon facts. Cross-check every waiting job's reset time against
+  // the same horizon the parser uses to reject misparses. A far-future reset
+  // that's already in the queue (from before the guard, or with the guard off)
+  // would silently wait for days/years — the exact silent failure to surface.
+  const maxFutureMs = maxResetHorizonMsFromEnv(env);
+  const nowMs = options.nowMs ?? Date.now();
+  const farFuture = selectFarFutureResets(jobs, { nowMs, maxFutureMs });
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1486,6 +1495,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    resetHorizon: { maxFutureMs, farFuture },
   });
 }
 

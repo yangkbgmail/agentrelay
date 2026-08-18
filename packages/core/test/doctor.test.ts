@@ -7,6 +7,7 @@ import {
   isSupportedNode,
   parseNodeVersion,
   runDiagnostics,
+  selectFarFutureResets,
 } from "../src/doctor.js";
 import type { RelayJob } from "../src/types.js";
 
@@ -39,6 +40,7 @@ function input(overrides: Partial<DiagnosticInput> = {}): DiagnosticInput {
     notify: { slackWebhook: "https://hooks.slack.com/x" },
     adapters: { binaries: [] },
     heartbeat: { present: false },
+    resetHorizon: { maxFutureMs: 8 * 24 * 60 * 60_000, farFuture: [] },
     ...overrides,
   };
 }
@@ -241,7 +243,7 @@ describe("runDiagnostics", () => {
     const report = runDiagnostics(input({ nodeVersion: "v20.0.0", notify: {} }));
     expect(report.counts.error).toBe(1); // node
     expect(report.counts.warning).toBe(1); // notify
-    expect(report.counts.ok).toBe(5); // store + store-writable + adapters + daemon + config
+    expect(report.counts.ok).toBe(6); // store + store-writable + adapters + daemon + reset-horizon + config
     expect(report.ok).toBe(false);
   });
 
@@ -389,5 +391,114 @@ describe("distinctActiveBinaries", () => {
   it("skips a malformed job with an empty command[0]", () => {
     const jobs = [job({ status: "queued", command: ["   "] }), job({ status: "queued", command: [] as string[] })];
     expect(distinctActiveBinaries(jobs)).toEqual([]);
+  });
+});
+
+describe("selectFarFutureResets", () => {
+  const NOW = Date.parse("2026-07-12T00:00:00.000Z");
+  const HORIZON = 8 * 24 * 60 * 60_000; // 8 days
+  const iso = (ms: number) => new Date(NOW + ms).toISOString();
+
+  it("flags an active job whose reset is beyond the horizon", () => {
+    const jobs = [
+      job({ id: "far1", status: "waiting_for_reset", resetAt: iso(30 * 24 * 60 * 60_000) }), // 30 days out
+    ];
+    const result = selectFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: HORIZON });
+    expect(result).toEqual([
+      { jobId: "far1", project: "demo", resetAt: iso(30 * 24 * 60 * 60_000), msUntilReset: 30 * 24 * 60 * 60_000 },
+    ]);
+  });
+
+  it("keeps a reset that is within the horizon", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: iso(2 * 60 * 60_000) })]; // 2h
+    expect(selectFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: HORIZON })).toEqual([]);
+  });
+
+  it("treats the exact horizon boundary as still plausible", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: iso(HORIZON) })];
+    expect(selectFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: HORIZON })).toEqual([]);
+  });
+
+  it("ignores past resets (already due — safe to resume)", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: iso(-100 * 24 * 60 * 60_000) })];
+    expect(selectFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: HORIZON })).toEqual([]);
+  });
+
+  it("ignores terminal jobs even with a far-future reset", () => {
+    const jobs = [job({ status: "completed", resetAt: iso(30 * 24 * 60 * 60_000) })];
+    expect(selectFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: HORIZON })).toEqual([]);
+  });
+
+  it("skips jobs with null or unparseable resetAt", () => {
+    const jobs = [
+      job({ status: "waiting_for_reset", resetAt: null }),
+      job({ status: "waiting_for_reset", resetAt: "not-a-date" }),
+    ];
+    expect(selectFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: HORIZON })).toEqual([]);
+  });
+
+  it("returns empty when the guard is disabled (null/non-positive/non-finite)", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: iso(365 * 24 * 60 * 60_000) })];
+    expect(selectFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: null })).toEqual([]);
+    expect(selectFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: 0 })).toEqual([]);
+    expect(selectFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: Number.POSITIVE_INFINITY })).toEqual([]);
+  });
+
+  it("preserves store insertion order across multiple far-future jobs", () => {
+    const jobs = [
+      job({ id: "b", status: "queued", resetAt: iso(50 * 24 * 60 * 60_000) }),
+      job({ id: "a", status: "resuming", resetAt: iso(20 * 24 * 60 * 60_000) }),
+    ];
+    expect(selectFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: HORIZON }).map((r) => r.jobId)).toEqual(["b", "a"]);
+  });
+});
+
+describe("reset-horizon check", () => {
+  const farFuture = {
+    jobId: "abcdef1234",
+    project: "demo",
+    resetAt: "2027-01-01T00:00:00.000Z",
+    msUntilReset: 30 * 24 * 60 * 60_000,
+  };
+
+  it("is OK when no job is beyond the horizon", () => {
+    const report = runDiagnostics(input({ resetHorizon: { maxFutureMs: 8 * 24 * 60 * 60_000, farFuture: [] } }));
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(report.ok).toBe(true);
+  });
+
+  it("is OK (informational) when the guard is disabled", () => {
+    const report = runDiagnostics(input({ resetHorizon: { maxFutureMs: null, farFuture: [] } }));
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+  });
+
+  it("warns and names the worst offender when a job is beyond the horizon", () => {
+    const report = runDiagnostics(
+      input({ resetHorizon: { maxFutureMs: 8 * 24 * 60 * 60_000, farFuture: [farFuture] } })
+    );
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("abcdef12"); // 8-char id prefix
+    expect(check.message).toContain("demo");
+    expect(check.hint).toContain("agentrelay cancel");
+    expect(report.ok).toBe(true); // warning, not error
+  });
+
+  it("picks the furthest-out job as the example", () => {
+    const closer = {
+      jobId: "closer00",
+      project: "p",
+      resetAt: "2027-01-01T00:00:00.000Z",
+      msUntilReset: 10 * 24 * 60 * 60_000,
+    };
+    const report = runDiagnostics(
+      input({ resetHorizon: { maxFutureMs: 8 * 24 * 60 * 60_000, farFuture: [closer, farFuture] } })
+    );
+    const check = find(report, "reset-horizon");
+    expect(check.message).toContain("2 queued job(s)");
+    expect(check.message).toContain("abcdef12"); // the 30-day one, not the 10-day one
   });
 });

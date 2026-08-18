@@ -145,6 +145,43 @@ export interface AdapterFacts {
   binaries: BinaryFact[];
 }
 
+/**
+ * One active job whose reset time sits implausibly far in the future — beyond
+ * the reset horizon the parser uses to reject misparses. Surfaced by
+ * {@link selectFarFutureResets}.
+ */
+export interface FarFutureReset {
+  /** The job's id (full, so the message can print a short prefix). */
+  jobId: string;
+  /** Project label, for a human-recognisable message. */
+  project: string;
+  /** The stored `resetAt` (ISO string) that's out past the horizon. */
+  resetAt: string;
+  /** Milliseconds from `now` until that reset (always positive, beyond horizon). */
+  msUntilReset: number;
+}
+
+/**
+ * Facts about queued jobs whose reset time is implausibly far in the future.
+ *
+ * The parser's reset-horizon guard (see `isPlausibleReset`) stops *new*
+ * misparses from entering the queue, but jobs queued before the guard existed —
+ * or while `AGENTRELAY_MAX_RESET_HORIZON` was disabled — can already be holding a
+ * reset days or years out, silently waiting forever. This is exactly the "silent
+ * failure" class the relay keeps targeting, so `doctor` cross-checks the live
+ * queue against the same horizon.
+ */
+export interface ResetHorizonFacts {
+  /**
+   * The horizon (ms) used to judge, from `AGENTRELAY_MAX_RESET_HORIZON`. `null`
+   * when the guard is disabled — the check then reports OK without inspecting
+   * jobs, mirroring the parser's "no guard" behaviour.
+   */
+  maxFutureMs: number | null;
+  /** Active jobs whose `resetAt` is beyond `now + maxFutureMs`. */
+  farFuture: FarFutureReset[];
+}
+
 /** Everything {@link runDiagnostics} needs — collected by the CLI, judged here. */
 export interface DiagnosticInput {
   /** Running Node version string, e.g. `process.version` ("v22.5.0"). */
@@ -155,6 +192,7 @@ export interface DiagnosticInput {
   notify: NotifyFacts;
   adapters: AdapterFacts;
   heartbeat: HeartbeatFacts;
+  resetHorizon: ResetHorizonFacts;
 }
 
 /** Minimum supported Node version — mirrors the packages' `engines.node`. */
@@ -186,6 +224,39 @@ export function distinctActiveBinaries(jobs: RelayJob[]): { binary: string; need
     counts.set(binary, (counts.get(binary) ?? 0) + 1);
   }
   return [...counts.entries()].map(([binary, neededBy]) => ({ binary, neededBy }));
+}
+
+/**
+ * The *active* jobs whose `resetAt` is further out than `maxFutureMs` past
+ * `nowMs` — i.e. a reset time no real rate-limit would produce, the fingerprint
+ * of a misparsed message that slipped into the queue. Pure so `doctor` and tests
+ * share the rule.
+ *
+ * Only future-side implausibility is flagged (a *past* reset just means the job
+ * is due to resume, which is fine). Jobs with no `resetAt` or an unparseable one
+ * are skipped — they have no far-future time to judge. When `maxFutureMs` is
+ * `null`/non-positive/non-finite the guard is off and the result is always empty,
+ * matching `isPlausibleReset`'s "no guard" contract. Results keep the store's
+ * insertion order for a stable report.
+ */
+export function selectFarFutureResets(
+  jobs: RelayJob[],
+  opts: { nowMs: number; maxFutureMs: number | null }
+): FarFutureReset[] {
+  const { nowMs, maxFutureMs } = opts;
+  if (maxFutureMs === null || !Number.isFinite(maxFutureMs) || maxFutureMs <= 0) return [];
+  const horizon = nowMs + maxFutureMs;
+  const out: FarFutureReset[] = [];
+  for (const job of jobs) {
+    if (!ACTIVE_STATUSES.has(job.status)) continue;
+    if (!job.resetAt) continue;
+    const resetMs = Date.parse(job.resetAt);
+    if (Number.isNaN(resetMs)) continue;
+    if (resetMs > horizon) {
+      out.push({ jobId: job.id, project: job.project, resetAt: job.resetAt, msUntilReset: resetMs - nowMs });
+    }
+  }
+  return out;
 }
 
 /**
@@ -224,9 +295,12 @@ export function isSupportedNode(version: string): boolean {
  * 5. **daemon** — a resume loop (daemon/tick) is alive, cross-referenced with
  *    how many jobs are waiting: waiting jobs with no live loop is a warning
  *    (they won't resume), otherwise absence is just an informational OK.
- * 6. **config** — the config file (if any) loads and validates; a broken file
+ * 6. **reset-horizon** — no queued job is waiting on an implausibly far-future
+ *    reset time (the fingerprint of a misparse that would silently wait for
+ *    days/years); a match is a warning.
+ * 7. **config** — the config file (if any) loads and validates; a broken file
  *    is an error, semantic warnings are surfaced as warnings.
- * 7. **notify** — at least one notification channel is set (absence is a
+ * 8. **notify** — at least one notification channel is set (absence is a
  *    warning, not an error: notifications are optional but you'd want to know
  *    the relay can't reach you).
  */
@@ -238,6 +312,7 @@ export function runDiagnostics(input: DiagnosticInput): DiagnosticReport {
   checks.push(writableCheck(input.writable));
   checks.push(adapterCheck(input.adapters));
   checks.push(daemonCheck(input.heartbeat, input.store));
+  checks.push(resetHorizonCheck(input.resetHorizon));
   checks.push(configCheck(input.config));
   checks.push(notifyCheck(input.notify));
 
@@ -419,6 +494,41 @@ function daemonCheck(heartbeat: HeartbeatFacts, store: StoreFacts): DiagnosticCh
     name: "daemon",
     level: "ok",
     message: "no resume loop running, and no jobs are waiting to resume",
+  };
+}
+
+/**
+ * Judges the queue against the reset horizon. When the guard is disabled
+ * (`maxFutureMs === null`) there's nothing to compare against, so it's an
+ * informational OK. Otherwise any active job whose reset is beyond the horizon
+ * is almost certainly a misparse that would sit waiting for days/years — a
+ * warning (not an error: the reset *could* be legitimate, and the fix is a human
+ * decision to cancel/re-queue).
+ */
+function resetHorizonCheck(facts: ResetHorizonFacts): DiagnosticCheck {
+  if (facts.maxFutureMs === null) {
+    return {
+      name: "reset-horizon",
+      level: "ok",
+      message: "reset-horizon guard disabled — not checking for far-future reset times",
+    };
+  }
+  const { farFuture } = facts;
+  const horizon = humanizeAge(facts.maxFutureMs);
+  if (farFuture.length === 0) {
+    return {
+      name: "reset-horizon",
+      level: "ok",
+      message: `no queued job has a reset time beyond the ${horizon} horizon`,
+    };
+  }
+  const worst = farFuture.reduce((a, b) => (b.msUntilReset > a.msUntilReset ? b : a));
+  const shortId = worst.jobId.slice(0, 8);
+  return {
+    name: "reset-horizon",
+    level: "warning",
+    message: `${farFuture.length} queued job(s) have a reset time beyond the ${horizon} horizon (e.g. ${shortId} in ${worst.project} resumes in ${humanizeAge(worst.msUntilReset)}) — likely a misparsed rate-limit message`,
+    hint: "Inspect with `agentrelay show <id>`; if it's a misparse, `agentrelay cancel <id>` and re-run the job.",
   };
 }
 
