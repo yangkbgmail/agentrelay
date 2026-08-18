@@ -2259,3 +2259,34 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay doctor` 먼-미래 리셋 잡 경고 검사] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-doctor-horizon`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 직전
+  세션 72가 "다음 할 일"로 명시한 두 후속 후보 중 **`doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가**를
+  골랐다. 세션 72의 파서 미래-지평선 가드는 **파스 시점**에만 먼-미래 리셋을 막을 뿐, 이미 큐에 들어간
+  잡(가드 도입 전 큐잉, 또는 `AGENTRELAY_MAX_RESET_HORIZON=off`로 큐잉)은 여전히 수일/수년 뒤 리셋을
+  기다리며 조용히 재개 안 되는 "silent failure"가 남아 있었다 — 이 프로젝트가 doctor/recover로 반복해
+  겨냥해온 바로 그 무음 실패 부류. 자기완결적 순수 추가라 회귀 위험 최소.
+- **한 일 (branch `claude/wizardly-pascal-doctor-horizon`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, nowMs, horizonMs?)`(파서 `isPlausibleReset`의
+    큐-사이드 거울 — `waiting_for_reset`+파싱 가능 `resetAt`이면서 `resetMs > now+horizon`인 잡만 골라
+    가장 먼 순→id tie-break 정렬. `nowMs` 주입이라 순수·시계 미접촉, 비양수/null horizon=가드 없음→빈
+    배열) + `countWaitingWithReset`(대기+파싱가능 resetAt 분모) + `FarFutureReset`/`ResetHorizonFacts`
+    타입 신설. 기본 임계값은 세션 72의 `DEFAULT_MAX_RESET_HORIZON_MS`(8d) 재사용(파서와 동일 값).
+  - `runDiagnostics`에 여섯 번째 검사 `reset-horizon` 추가(순서: node→store→writable→adapters→daemon→
+    **reset-horizon**→config→notify). 가드 비활성(horizonMs null)=OK(사용자가 무한 대기 opt-in)·먼-미래
+    잡 0=OK(검사한 대기 잡 수 표기)·있으면 warning(worst 잡 project/id/resetAt 명시 + `agentrelay show`/
+    `cancel` 힌트). warning이라 report는 fail 안 함(daemon 검사와 동일한 무음-실패 severity 정책).
+  - CLI `runDoctor`가 `maxResetHorizonMsFromEnv(env)`(파서와 **동일 해소** — 두 표면 임계값 일치)로
+    임계값을 잡고 `options.nowMs ?? Date.now()`로 `selectFarFutureResets`/`countWaitingWithReset`를 호출해
+    `ResetHorizonFacts` 구성. 새 파서/스케줄러 로직 0줄 — 세션 72 인프라 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 649 · cli 357/1skip · dashboard 9**; core doctor.test 42→51[+9: check 4·selectFarFutureResets 5·
+  countWaitingWithReset 1], cli doctor.test +3). 기존 "counts levels" 테스트의 ok 카운트 5→6 갱신. **실제
+  빌드 CLI e2e**(mock 아님): 30일(far)+2h(near) 대기 잡 2개를 임시 스토어에 심고 `doctor` 실행 — 기본
+  8d 지평선에서 web-app 30일 잡을 warning으로 정확히 지목(worst project/id/resetAt + show/cancel 힌트),
+  `AGENTRELAY_MAX_RESET_HORIZON=off`면 "guard is disabled" OK, `=60d`면 둘 다 within OK 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 세션 72가 남긴 나머지
+  하나(과거-쪽 극단[수년 전 epoch]도 misparse 신호로 보고), 또는 이 doctor 검사를 `health`/대시보드에도
+  노출(현재는 `doctor` 전용). stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/
+  ARCHITECTURE(🧭 코워크).

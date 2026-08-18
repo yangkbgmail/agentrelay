@@ -201,6 +201,58 @@ describe("runDoctor", () => {
       chmodSync(join(dir, "readonly"), 0o700);
     }
   });
+
+  // Reset-horizon tests use a real on-PATH binary so the adapters check passes
+  // and `report.ok` reflects only the reset-horizon verdict under test.
+  const withFakeTool = (env: Record<string, string> = {}) => {
+    const binName = "faketool";
+    const binPath = join(dir, binName);
+    writeFileSync(binPath, "#!/bin/sh\necho hi\n", "utf8");
+    chmodSync(binPath, 0o755);
+    return { binName, env: { PATH: dir, AGENTRELAY_SLACK_WEBHOOK: "https://s", ...env } };
+  };
+
+  it("reports reset-horizon OK when a waiting job resets soon", () => {
+    const { binName, env } = withFakeTool();
+    const queue = new RelayQueue(storePath);
+    const jobA = queue.enqueue({ project: "p", tool: "generic", command: [binName], cwd: dir });
+    queue.markWaitingForReset(jobA.id, new Date(Date.now() + 2 * 60 * 60_000).toISOString()); // 2h out
+    queue.close();
+    const report = runDoctor({ storePath, cwd: dir, env, nodeVersion: "v22.5.0" });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("1 waiting job(s) all reset within");
+    expect(report.ok).toBe(true);
+  });
+
+  it("warns about a waiting job parked on a far-future reset (misparse)", () => {
+    const { binName, env } = withFakeTool();
+    const queue = new RelayQueue(storePath);
+    const jobA = queue.enqueue({ project: "web", tool: "generic", command: [binName], cwd: dir });
+    // 30 days out — well past the default 8-day horizon.
+    queue.markWaitingForReset(jobA.id, new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+    const report = runDoctor({ storePath, cwd: dir, env, nodeVersion: "v22.5.0" });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("1 of 1 waiting job(s)");
+    expect(check.message).toContain(jobA.id);
+    expect(check.hint).toContain(`agentrelay show ${jobA.id}`);
+    // warnings alone still pass overall
+    expect(report.ok).toBe(true);
+  });
+
+  it("does not check far-future resets when the horizon guard is disabled", () => {
+    const { binName, env } = withFakeTool({ AGENTRELAY_MAX_RESET_HORIZON: "off" });
+    const queue = new RelayQueue(storePath);
+    const jobA = queue.enqueue({ project: "web", tool: "generic", command: [binName], cwd: dir });
+    queue.markWaitingForReset(jobA.id, new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+    const report = runDoctor({ storePath, cwd: dir, env, nodeVersion: "v22.5.0" });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("guard is disabled");
+  });
 });
 
 describe("renderDoctor", () => {
