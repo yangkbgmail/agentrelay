@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_MAX_RESET_HORIZON_MS,
+  ianaOffsetMinutes,
   isPlausibleReset,
   maxResetHorizonMsFromEnv,
   parseRateLimitMessage,
+  resolveTimeZone,
 } from "../src/parser.js";
 
 describe("parseRateLimitMessage", () => {
@@ -30,8 +32,11 @@ describe("parseRateLimitMessage", () => {
     expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
   });
 
-  it("parses the real Claude Code wording: 'reset at 5pm' (hour + meridiem, no minutes)", () => {
+  it("parses the real Claude Code wording: 'reset at 5pm (America/New_York)' honoring the named zone", () => {
     // Actual message: "Claude usage limit reached. Your limit will reset at 5pm (America/New_York)."
+    // July 12 2026 is EDT (UTC-4), so 5pm New York == 21:00 UTC the same day.
+    // Asserting the absolute instant keeps this test independent of the machine's
+    // own time zone.
     const now = new Date("2026-07-12T08:00:00Z"); // 08:00 UTC
     const result = parseRateLimitMessage(
       "Claude usage limit reached. Your limit will reset at 5pm (America/New_York).",
@@ -39,9 +44,45 @@ describe("parseRateLimitMessage", () => {
     );
     expect(result).not.toBeNull();
     expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-07-12T21:00:00.000Z");
+  });
+
+  it("honors an explicit (UTC) zone on a minute-precise clock time", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 3:00pm (UTC).", { now });
+    expect(result?.pattern).toBe("clock-time");
+    expect(result?.resetAt).toBe("2026-07-12T15:00:00.000Z");
+  });
+
+  it("honors a numeric (UTC+9) offset zone", () => {
+    // 9am at UTC+9 == 00:00 UTC. now is before that, so same UTC day.
+    const now = new Date("2026-07-11T20:00:00Z");
+    const result = parseRateLimitMessage("resets at 9am (UTC+9)", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-07-12T00:00:00.000Z");
+  });
+
+  it("honors an IANA zone with no DST (Asia/Seoul, +09:00)", () => {
+    const now = new Date("2026-07-11T20:00:00Z");
+    const result = parseRateLimitMessage("Your limit will reset at 9am (Asia/Seoul).", { now });
+    expect(result?.resetAt).toBe("2026-07-12T00:00:00.000Z");
+  });
+
+  it("rolls a zoned clock time to the next day when already past", () => {
+    // 3pm UTC, but now is 4pm UTC — already past today, so tomorrow.
+    const now = new Date("2026-07-12T16:00:00Z");
+    const result = parseRateLimitMessage("Resets at 3pm (UTC).", { now });
+    expect(result?.resetAt).toBe("2026-07-13T15:00:00.000Z");
+  });
+
+  it("falls back to local time for an unrecognized zone", () => {
+    // "(Pacific Time)" is not a resolvable IANA name or numeric offset, so the
+    // wall time is read in the machine's local zone (historical behavior).
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Resets at 5pm (Pacific Time).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
     const resetDate = new Date(result!.resetAt);
     expect(resetDate.getHours()).toBe(17); // 5pm local
-    expect(resetDate.getMinutes()).toBe(0);
     expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
   });
 
@@ -355,5 +396,54 @@ describe("maxResetHorizonMsFromEnv", () => {
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "off" })).toBeNull();
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "none" })).toBeNull();
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "banana" })).toBeNull();
+  });
+});
+
+describe("resolveTimeZone", () => {
+  it("maps UTC/GMT/Z to a fixed zero offset", () => {
+    for (const spec of ["UTC", "gmt", "Z", " utc "]) {
+      const fn = resolveTimeZone(spec);
+      expect(fn).not.toBeNull();
+      expect(fn!(0)).toBe(0);
+      expect(fn!(Date.UTC(2026, 0, 1))).toBe(0);
+    }
+  });
+
+  it("parses signed numeric offsets, with or without a UTC/GMT prefix", () => {
+    expect(resolveTimeZone("UTC+9")!(0)).toBe(9 * 60);
+    expect(resolveTimeZone("GMT-5")!(0)).toBe(-5 * 60);
+    expect(resolveTimeZone("UTC+09:00")!(0)).toBe(9 * 60);
+    expect(resolveTimeZone("-0530")!(0)).toBe(-(5 * 60 + 30));
+    expect(resolveTimeZone("+05:45")!(0)).toBe(5 * 60 + 45);
+  });
+
+  it("rejects out-of-range offsets", () => {
+    expect(resolveTimeZone("UTC+15")).toBeNull();
+    expect(resolveTimeZone("+09:75")).toBeNull();
+  });
+
+  it("resolves IANA names (with a slash) via the Intl database, tracking DST", () => {
+    const ny = resolveTimeZone("America/New_York");
+    expect(ny).not.toBeNull();
+    expect(ny!(Date.UTC(2026, 6, 1))).toBe(-4 * 60); // July: EDT (UTC-4)
+    expect(ny!(Date.UTC(2026, 0, 1))).toBe(-5 * 60); // January: EST (UTC-5)
+  });
+
+  it("rejects ambiguous abbreviations and unrecognized specs (local fallback)", () => {
+    expect(resolveTimeZone("PST")).toBeNull(); // no slash → not accepted
+    expect(resolveTimeZone("Pacific Time")).toBeNull();
+    expect(resolveTimeZone("Not/AZone")).toBeNull();
+    expect(resolveTimeZone("")).toBeNull();
+  });
+});
+
+describe("ianaOffsetMinutes", () => {
+  it("returns the offset in minutes east of UTC", () => {
+    expect(ianaOffsetMinutes("Asia/Seoul", Date.UTC(2026, 6, 1))).toBe(9 * 60);
+    expect(ianaOffsetMinutes("UTC", Date.UTC(2026, 6, 1))).toBe(0);
+  });
+
+  it("returns null for an unrecognized zone", () => {
+    expect(ianaOffsetMinutes("Not/AZone", 0)).toBeNull();
   });
 });

@@ -82,6 +82,117 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/**
+ * A function mapping a UTC instant (ms) to that zone's UTC offset in minutes
+ * east of UTC at that instant (so a fixed-offset zone is constant, while an
+ * IANA zone varies across DST). Returned by {@link resolveTimeZone}.
+ */
+type ZoneOffsetFn = (utcMs: number) => number;
+
+/**
+ * Offset (minutes east of UTC) of an IANA time zone at a given UTC instant.
+ * Uses the built-in `Intl` database (Node ships full ICU on ≥ 22), so no extra
+ * dependency and no hand-maintained DST tables. Returns `null` for an
+ * unrecognized zone (the caller then falls back to local time).
+ */
+export function ianaOffsetMinutes(zone: string, utcMs: number): number | null {
+  try {
+    const dtf = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    const map: Record<string, string> = {};
+    for (const part of dtf.formatToParts(new Date(utcMs))) map[part.type] = part.value;
+    const asUtc = Date.UTC(+map.year, +map.month - 1, +map.day, +map.hour, +map.minute, +map.second);
+    return Math.round((asUtc - utcMs) / 60_000);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve a time-zone spec taken from a rate-limit message's parenthetical
+ * (e.g. `reset at 5pm (America/New_York)`) into an offset function, or `null`
+ * when the spec is not something we can resolve deterministically — in which
+ * case the caller keeps the historical behavior of interpreting the wall-clock
+ * time in the machine's local zone. Recognized forms:
+ *   - `UTC` / `GMT` / `Z`                         → fixed 0
+ *   - `UTC+9` / `GMT-5` / `UTC+09:00` / `+05:30`  → fixed numeric offset
+ *   - IANA names containing a slash (`Asia/Seoul`) → DST-aware via `Intl`
+ * Bare abbreviations like `PST`/`KST` are intentionally *not* accepted: they
+ * are ambiguous (e.g. `CST` = US Central or China Standard), so we fall back to
+ * local time rather than guess. Pure and exported for direct unit testing.
+ */
+export function resolveTimeZone(raw: string): ZoneOffsetFn | null {
+  const s = raw.trim();
+  if (s === "") return null;
+  if (/^(?:utc|gmt|z)$/i.test(s)) return () => 0;
+  // "UTC+9", "GMT-05:30", "+09:00", "-0530", "UTC+5" — an optional UTC/GMT prefix
+  // followed by a signed hh[:mm] offset.
+  const offsetMatch = s.match(/^(?:utc|gmt)?\s*([+-])(\d{1,2})(?::?(\d{2}))?$/i);
+  if (offsetMatch) {
+    const sign = offsetMatch[1] === "-" ? -1 : 1;
+    const hh = parseInt(offsetMatch[2], 10);
+    const mm = offsetMatch[3] ? parseInt(offsetMatch[3], 10) : 0;
+    if (hh > 14 || mm > 59) return null; // beyond any real UTC offset
+    const offset = sign * (hh * 60 + mm);
+    return () => offset;
+  }
+  // IANA name: require a slash so we never accept an ambiguous abbreviation.
+  if (s.includes("/") && ianaOffsetMinutes(s, 0) !== null) {
+    return (utcMs) => ianaOffsetMinutes(s, utcMs) ?? 0;
+  }
+  return null;
+}
+
+/**
+ * Next future instant matching wall-clock `hour:minute` in a zone described by
+ * `offsetAt`. Finds "today" in that zone from `now`, builds the candidate, and
+ * rolls to tomorrow if it's already past — the same next-occurrence contract the
+ * local-time clock patterns use, but honoring the message's zone.
+ */
+function nextClockInstant(hour: number, minute: number, now: Date, offsetAt: ZoneOffsetFn): Date {
+  const nowMs = now.getTime();
+  // Wall-clock "now" in the target zone: its UTC calendar fields ARE the local
+  // date/time in that zone once we shift by the offset.
+  const wallNow = new Date(nowMs + offsetAt(nowMs) * 60_000);
+  const year = wallNow.getUTCFullYear();
+  const month = wallNow.getUTCMonth();
+  const day = wallNow.getUTCDate();
+  for (let addDays = 0; addDays <= 1; addDays++) {
+    const guessUtc = Date.UTC(year, month, day + addDays, hour, minute);
+    // Offset near the *target* wall time (handles a DST change between now and
+    // the reset), then map the wall time back to a real UTC instant.
+    const instant = guessUtc - offsetAt(guessUtc) * 60_000;
+    if (addDays === 1 || instant > nowMs) return new Date(instant);
+  }
+  // Unreachable (the addDays===1 branch always returns), but keeps TS happy.
+  return new Date(nowMs);
+}
+
+/**
+ * Resolve a clock-time reset (`hour:minute`, optional zone) to the next future
+ * instant. When a zone is present and recognized, the wall time is interpreted
+ * in that zone; otherwise it falls back to the machine's local time (the
+ * historical behavior, preserved so zone-less messages are unaffected).
+ */
+function resolveClockReset(hour: number, minute: number, now: Date, zoneRaw?: string): Date {
+  const offsetAt = zoneRaw ? resolveTimeZone(zoneRaw) : null;
+  if (offsetAt) return nextClockInstant(hour, minute, now, offsetAt);
+  const candidate = new Date(now);
+  candidate.setHours(hour, minute, 0, 0);
+  if (candidate.getTime() <= now.getTime()) {
+    candidate.setDate(candidate.getDate() + 1);
+  }
+  return candidate;
+}
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
@@ -93,21 +204,19 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
-    // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
+    // "resets at 3:00pm" / "resets at 15:00" / "resets at 3:00pm (America/New_York)"
+    // (assume today, or tomorrow if already past). A trailing parenthetical time
+    // zone, when recognized, is honored (see resolveClockReset); otherwise the
+    // wall time is read in the machine's local zone.
     name: "clock-time",
-    regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
+    regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?(?:\s*\(([^)]+)\))?/i,
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       const minute = parseInt(m[2], 10);
       const meridiem = m[3]?.toLowerCase();
       if (meridiem === "pm" && hour < 12) hour += 12;
       if (meridiem === "am" && hour === 12) hour = 0;
-      const candidate = new Date(now);
-      candidate.setHours(hour, minute, 0, 0);
-      if (candidate.getTime() <= now.getTime()) {
-        candidate.setDate(candidate.getDate() + 1);
-      }
-      return candidate;
+      return resolveClockReset(hour, minute, now, m[4]);
     },
   },
   {
@@ -115,24 +224,19 @@ const PATTERNS: RateLimitPattern[] = [
     // This is the wording Claude Code actually prints ("Your limit will reset
     // at 5pm (America/New_York)."), which the minute-requiring clock-time
     // pattern above misses. Meridiem is required: a bare "reset at 5" (no
-    // colon, no am/pm) is too ambiguous to treat as a clock time. The named
-    // timezone in the message is ignored — the hour is interpreted in local
-    // time, same known limitation as clock-time (a real reset is a future
-    // instant, so rolling to tomorrow when already past keeps us safe).
+    // colon, no am/pm) is too ambiguous to treat as a clock time. A trailing
+    // parenthetical time zone, when recognized, is honored so a machine in a
+    // different zone still resumes at the right instant (see resolveClockReset);
+    // an unrecognized zone falls back to local-time interpretation.
     name: "clock-time-meridiem",
-    regex: /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b/i,
+    regex: /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b(?:\s*\(([^)]+)\))?/i,
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       if (hour > 12) return null; // 13pm etc. is not a valid 12-hour clock time
       const meridiem = m[2].toLowerCase();
       if (meridiem === "pm" && hour < 12) hour += 12;
       if (meridiem === "am" && hour === 12) hour = 0;
-      const candidate = new Date(now);
-      candidate.setHours(hour, 0, 0, 0);
-      if (candidate.getTime() <= now.getTime()) {
-        candidate.setDate(candidate.getDate() + 1);
-      }
-      return candidate;
+      return resolveClockReset(hour, 0, now, m[3]);
     },
   },
   {
