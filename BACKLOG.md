@@ -184,6 +184,20 @@
       tick-mode 하트비트 기록(cron 사용자도 생존 신호). `runDoctor`가 `nowMs` 주입 가능(테스트용).
       heartbeat.test.ts 13 + doctor daemon 6 + scheduler onTick 2 + CLI 7케이스, 실제 빌드 CLI로
       before/after·daemon 수명주기·stale 경고 e2e 검증. branch `claude/wizardly-pascal-hb7k2m`)
+- [x] 👷 파서 — 산문형 "after &lt;기간&gt;" 상대 대기 인식 (relative-after-duration).
+      (완료 — 기존 `relative-duration`은 "in"만("try again in 2h"), `http-retry-after`는 하이픈+콜론
+      헤더 형태(`Retry-After: 3600`)만 인식해서, 많은 HTTP API·에이전트 CLI가 산문으로 쓰는
+      "retry after 30 minutes" / "try again after 2 hours" / "resets after 45m" / "available again
+      after 1d 4h" / "come back after 15m" 는 pre-filter는 통과하나 어떤 패턴도 매칭 못 해 조용히
+      null — "한도는 감지했는데 재개 시각을 못 잡는" 무음 실패였다. `parser.ts`에 순수
+      `resolveDaysHoursMinutes` 헬퍼(두 상대 패턴 공유, 단위 없으면 null) 추출 후 새 패턴
+      `relative-after-duration` 추가(연결어 "after", 리드인 verb: try again/retry/resets/available
+      (again)/come back/back). 각 단위 뒤 `\b` 앵커로 "after 5 months"류가 "5 m(inutes)"로 오독돼
+      잡을 5분 뒤 파킹하는 오탐 방지(→ null). pre-filter에 `after\s+\d+\s*[dhm]` arm 추가(리드인이
+      "resets"/"available"뿐일 때도 통과). 초 단위는 generic 비대상(어댑터 영역, relative-duration과
+      동일). 헤더 형태는 하이픈이라 disjoint — `Retry-After:`는 여전히 http-retry-after. parser.test
+      +10케이스(각 wording·pre-filter 통과·word-boundary 오탐·헤더 회귀·in>after 우선순위). branch
+      `claude/wizardly-pascal-7bwzmr`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

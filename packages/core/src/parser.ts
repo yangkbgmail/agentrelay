@@ -82,6 +82,26 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/**
+ * Shared resolver for the two prose relative-duration patterns (`... in <D>` and
+ * `... after <D>`). Given the captured day/hour/minute groups (any may be
+ * `undefined`), returns the reset instant that many days+hours+minutes past
+ * `now`, or `null` when no unit was present (all zero/absent) — the caller then
+ * treats it as "no parseable time" rather than resolving to `now` itself.
+ */
+function resolveDaysHoursMinutes(
+  days: string | undefined,
+  hours: string | undefined,
+  minutes: string | undefined,
+  now: Date
+): Date | null {
+  const d = days ? Number.parseInt(days, 10) : 0;
+  const h = hours ? Number.parseInt(hours, 10) : 0;
+  const m = minutes ? Number.parseInt(minutes, 10) : 0;
+  if (d === 0 && h === 0 && m === 0) return null;
+  return new Date(now.getTime() + ((d * 24 + h) * 60 + m) * 60_000);
+}
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
@@ -143,13 +163,25 @@ const PATTERNS: RateLimitPattern[] = [
     name: "relative-duration",
     regex:
       /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
-    resolve: (m, now) => {
-      const days = m[1] ? parseInt(m[1], 10) : 0;
-      const hours = m[2] ? parseInt(m[2], 10) : 0;
-      const minutes = m[3] ? parseInt(m[3], 10) : 0;
-      if (days === 0 && hours === 0 && minutes === 0) return null;
-      return new Date(now.getTime() + ((days * 24 + hours) * 60 + minutes) * 60_000);
-    },
+    resolve: (m, now) => resolveDaysHoursMinutes(m[1], m[2], m[3], now),
+  },
+  {
+    // The "after" preposition instead of "in": "retry after 30 minutes" /
+    // "try again after 2 hours" / "resets after 45m" / "available again after
+    // 1d 4h" / "come back after 15m". Many HTTP APIs and agent CLIs phrase the
+    // cooldown as a prose "retry after <duration>" (distinct from the *header*
+    // `Retry-After: <n>` which is hyphen+colon and handled by http-retry-after).
+    // The generic relative-duration above only recognizes "in", so this wording
+    // otherwise passes the pre-filter but matches nothing and is silently
+    // dropped — exactly the "we detected a limit but couldn't schedule a resume"
+    // failure this relay guards against. Seconds are deliberately not handled
+    // (adapter territory, same as relative-duration). Each unit is anchored with
+    // a trailing word boundary so a longer word like "months"/"hourly" can't be
+    // misread as m/h (e.g. "after 5 months" resolves to null, not 5 minutes).
+    name: "relative-after-duration",
+    regex:
+      /(?:try again|retry|resets?|available(?:\s+again)?|come back|back)\s+after\s+(?:(\d+)\s*(?:days?|d)\b)?\s*(?:(\d+)\s*(?:hours?|h)\b)?\s*(?:(\d+)\s*(?:minutes?|mins?|m)\b)?/i,
+    resolve: (m, now) => resolveDaysHoursMinutes(m[1], m[2], m[3], now),
   },
   {
     // Unix epoch seconds embedded in structured error payloads, e.g.
@@ -185,8 +217,13 @@ const PATTERNS: RateLimitPattern[] = [
   },
 ];
 
-/** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+/**
+ * Quick pre-filter so we don't run every regex on every line of noisy CLI
+ * output. The `after\s+\d+\s*[dhm]` arm admits the prose "… after <duration>"
+ * wording (see the relative-after-duration pattern) whose lead-in verb —
+ * "resets"/"available"/"come back" — isn't otherwise in this list.
+ */
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after|after\s+\d+\s*[dhm])/i;
 
 function tryPattern(
   pattern: RateLimitPattern,
