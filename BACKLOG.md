@@ -870,6 +870,20 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 파서 `tryPattern` 전-매치 스캔 — 첫 매치가 뒤의 유효 리셋을 가리던(shadowing) 코어 버그 수정.
+      자기 발굴 항목 — `tryPattern`이 `text.match`로 패턴의 첫 매치만 시도했다. `relative-duration` 등은
+      캡처 그룹이 전부 optional이라 "try again in a moment — try again in 30m"처럼 키워드 문구가 산문에
+      먼저 나오면 첫 매치가 `resolve→null`로 끝나 뒤의 유효한 "try again in 30m"를 놓쳐 잡이 조용히
+      재개 안 되는 silent-failure가 됐다(에이전트 CLI는 여러 문장으로 출력하므로 현실적).
+      (완료 — `parser.ts` `tryPattern`이 `text.match`(첫 매치) 대신 `text.matchAll`로 모든 occurrence를
+      순회하며 `resolve` 유효+`isPlausibleReset` 통과하는 첫 매치를 반환. 순수 `globalize(regex)` 헬퍼로
+      모듈 정규식 `lastIndex` 오염 없이 global-flag 클론. 모든 패턴이 필수 키워드 접두를 가져 zero-width
+      매치 없음→루프 종료 보장. plausibility 가드도 매치별 적용(앞 occurrence가 지평선 밖이면 스킵하고
+      같은 패턴 내 saner occurrence 계속 스캔). 첫 매치가 유효하던 모든 케이스는 동일 결과=완전 하위호환.
+      parser.test +3(키워드-only 문구 뒤 유효 duration·해소불가 "retry in" 뒤 실제 매치·지평선 밖 앞
+      occurrence 뒤 saner 매치), 실제 빌드 CLI `parse` e2e로 이전 미검출→"try again in 30m" 검출 확인.
+      branch `claude/wizardly-pascal-yaozt7`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
