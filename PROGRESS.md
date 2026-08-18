@@ -2259,3 +2259,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — doctor: 큐 내 먼-미래 리셋 잡 경고 검사(reset-horizon)] (2026-08-18, 무인 자율 세션, branch `claude/doctor-reset-horizon`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  직전 세션(72, `reset-horizon`)이 남긴 인접 후속 후보 "`doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가"를
+  골랐다 — 방금 병합된 파서 지평선 가드(#723) 위에 얹는 **사후 안전망**이라 열린 PR 어디에도 없고, 이
+  프로젝트가 반복해 겨냥해온 "silent failure" 부류를 정확히 겨냥한다.
+- **동기:** 파서 가드는 rate-limit **감지 시점**에만 먼-미래 resetAt를 드롭한다. 하지만 가드가 꺼진 채
+  (`AGENTRELAY_MAX_RESET_HORIZON=off`) 파킹됐거나, 가드 도입 전 스토어이거나, 외부 도구가 심은 잡은
+  여전히 먼-미래 resetAt로 조용히 수일~수년 대기할 수 있다. `doctor`가 매 실행마다 그런 잡을 잡아낸다.
+- **한 일 (branch `claude/doctor-reset-horizon`):**
+  - core `doctor.ts`: 순수 `farFutureResetJobs(jobs, nowMs, maxFutureMs)`(활성 잡만 대상, resetAt
+    미설정/파싱불가 스킵, null·비양수·비유한 지평선=가드없음→빈 결과, 삽입순 보존) + `scheduledResetCount`
+    (활성·파싱가능 resetAt 카운트) + `ResetHorizonFacts`/`FarFutureResetJob` 타입 + `resetHorizonCheck`
+    추가. `runDiagnostics`가 daemon 다음(6번째)으로 호출 — 가장 먼 잡을 대표로 지목하고 지평선/대기시간을
+    humanize. 문서 주석의 체크 목록도 6→8로 갱신.
+  - CLI `commands.ts` `runDoctor`: `maxResetHorizonMsFromEnv(env)`+`nowMs`로 `resetHorizon` fact 수집해
+    `runDiagnostics`에 배선. 렌더러(`doctor.ts` CLI)는 `report.checks` 제네릭 순회라 **수정 0줄**.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 649 · cli 354/1skip · dashboard 9**; core doctor.test +11, 기존 카운트 테스트 5ok→6ok 갱신).
+  **실제 빌드 CLI e2e**(mock 아님): 2030년 리셋 활성 잡 스토어에 `doctor --store` → reset-horizon이
+  `1 job(s) … 8d horizon … job farjob (refactor) resumes in 1231d` warning 렌더, `AGENTRELAY_MAX_RESET_HORIZON=off`면
+  "guard is disabled" OK, 지평선 내 잡만이면 "all 1 scheduled reset(s) are within the 8d horizon" OK 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단(수년 전
+  epoch) resetAt도 misparse 신호로 doctor가 보고할지, `doctor --json`에 far-future 잡 목록을 구조화 필드로
+  노출할지. stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
