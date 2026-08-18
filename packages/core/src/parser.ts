@@ -62,7 +62,7 @@ export function isPlausibleReset(resetAt: Date, now: Date, maxFutureMs?: number 
  * Resolve the reset horizon (ms) from `AGENTRELAY_MAX_RESET_HORIZON`. Unset →
  * {@link DEFAULT_MAX_RESET_HORIZON_MS}. An explicit `0`/`off`/`none`/`disabled`
  * (or any non-positive / unparseable duration) → `null`, meaning the guard is
- * disabled. Anything else is parsed as a duration (`25h`, `2d`, `90m`, …).
+ * disabled. Anything else is parsed as a duration (`25h`, `2d`, `90m`, `1w`, …).
  */
 export function maxResetHorizonMsFromEnv(env: NodeJS.ProcessEnv = process.env): number | null {
   const raw = env.AGENTRELAY_MAX_RESET_HORIZON?.trim();

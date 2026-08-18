@@ -358,6 +358,7 @@ describe("CONFIG_FIELDS / setConfigValue / unsetConfigValue", () => {
 
   it("validates duration fields at set time", () => {
     expect(setConfigValue({}, "autoPrune.after", "14d")).toEqual({ autoPrune: { after: "14d" } });
+    expect(setConfigValue({}, "autoPrune.after", "2w")).toEqual({ autoPrune: { after: "2w" } });
     expect(() => setConfigValue({}, "autoPrune.after", "banana")).toThrow(/duration/);
   });
 

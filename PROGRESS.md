@@ -2259,3 +2259,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 공용 `parseDuration`에 주(week) 단위 추가] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-mx43k7`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 230+개가 stats·parser·watch·신규 커맨드로 극도 포화라, 전체 PR 제목을 키워드 스캔해
+  **어떤 열린 PR에도 없는** 실제 갭을 발굴: 공용 `parseDuration`(prune.ts)이 ms/s/m/h/d만 알고
+  주(week)를 모른다는 점. 주간 단위 week PR들(#553/#536 등)은 파서의 `relative-duration`(에이전트
+  출력 메시지)만 다루고, 리텐션·필터·리셋 지평선을 지배하는 이 **설정 duration** 헬퍼는 손대지 않음.
+- **왜(가치):** `parseDuration`은 `--since/--until` 스코프, `--grace`, prune `--older-than`,
+  wait `--interval/--timeout`, config `autoPrune.after/every`, 그리고 `AGENTRELAY_MAX_RESET_HORIZON`
+  까지 광범위하게 재사용된다. Claude의 최장 사용량 창은 **주간**이라 `1w`/`2w`가 자연스러운 표기인데,
+  기존엔 이들이 조용히 `null`로 떨어졌다. 특히 리셋-지평선에서 `AGENTRELAY_MAX_RESET_HORIZON=2w`는
+  가드를 **의도와 반대로 조용히 비활성화**시키는 silent-failure 풋건 — 이 프로젝트가 반복해 겨냥해온
+  부류다.
+- **한 일 (branch `claude/wizardly-pascal-mx43k7`):**
+  - core `prune.ts`: `DURATION_RE`에 `w` 추가(+`ms`를 `s`보다 먼저 두는 순서 주석화), `UNIT_MS.w =
+    604_800_000`(7일 고정, DST/달력 산술 없음 — 다른 단위와 동일하게 ms의 고정 배수). JSDoc에 지원
+    단위·주=7일 명시. **순수 추가**라 기존 입력 동작 불변.
+  - `config.ts`·`parser.ts`: duration 예시/에러 메시지(`set`/`validateConfig`)와 지평선 env 문서에
+    `2w`/`1w` 반영해 문서와 실제 수용 형식을 일치.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 641**[prune.test +5·parser.test +2·config.test +1] · cli 354/1skip · dashboard 9).
+  **실제 빌드 CLI e2e**(mock 아님): `config set autoPrune.after 2w`가 수용·저장되고, `banana`는 갱신된
+  `… "500ms" or "2w"` 힌트로 거부됨을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `parseDuration`이
+  받아들이는 단위 목록을 `--help`/에러 문자열에서 단일 상수로 중앙화(현재 여러 곳에 하드코딩), 혹은
+  스토어 다중 writer 경합(daemon+CLI 동시 flush의 lost-update) 완화. week PR들은 파서 쪽이라 지양.
+  README/ARCHITECTURE(🧭 코워크).

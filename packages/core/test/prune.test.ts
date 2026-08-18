@@ -92,12 +92,22 @@ describe("parseDuration", () => {
     expect(parseDuration(" 2h ")).toBe(7_200_000);
   });
 
+  it("parses weeks (`w`) as a fixed 7 days", () => {
+    expect(parseDuration("1w")).toBe(604_800_000); // 7 * 86_400_000
+    expect(parseDuration("2w")).toBe(1_209_600_000);
+    expect(parseDuration("0.5w")).toBe(302_400_000); // half a week
+    expect(parseDuration(" 2W ")).toBe(1_209_600_000); // case-insensitive + trimmed
+    // A week equals seven days by construction.
+    expect(parseDuration("1w")).toBe(parseDuration("7d"));
+  });
+
   it("returns null for invalid input", () => {
     expect(parseDuration("")).toBeNull();
     expect(parseDuration("10")).toBeNull(); // no unit
     expect(parseDuration("10x")).toBeNull(); // unknown unit
     expect(parseDuration("abc")).toBeNull();
     expect(parseDuration("-5m")).toBeNull();
+    expect(parseDuration("1ww")).toBeNull(); // trailing junk after a valid unit
   });
 });
 
