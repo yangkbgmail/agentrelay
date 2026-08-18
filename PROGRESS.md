@@ -2259,3 +2259,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 파서: 산문형 "after <기간>" 상대 대기 인식 (relative-after-duration)] (2026-08-18, 무인 자율 세션, branch `claude/wizardly-pascal-7bwzmr`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 419개(고유 제목)를 페이지별로 전수 스캔해 **어떤 열린 PR에도 없는** 실제 파서 갭을 발굴.
+  세션 71이 경고한 stats 분산·watch·epoch ms·타임존·reset-horizon(10+ PR 포화) 클러스터를 피함.
+- **발굴한 갭:** 기존 `relative-duration`은 연결어 "in"만 인식("try again in 2h"), `http-retry-after`는
+  하이픈+콜론 헤더 형태(`Retry-After: 3600`)만 인식한다. 그래서 많은 HTTP API·에이전트 CLI가 산문으로
+  쓰는 **"retry after 30 minutes" / "try again after 2 hours" / "resets after 45m" / "available again
+  after 1d 4h" / "come back after 15m"** 는 pre-filter(`retry.?after`)는 통과하지만 어떤 패턴도 매칭하지
+  못해 조용히 null — 이 릴레이가 반복해 겨냥해온 "한도는 감지했는데 재개 시각을 못 잡는" 무음 실패다.
+- **한 일 (branch `claude/wizardly-pascal-7bwzmr`):**
+  - core `parser.ts`: 두 상대 패턴이 공유하는 순수 헬퍼 `resolveDaysHoursMinutes(d,h,m,now)` 추출
+    (단위가 하나도 없으면 null → 호출부가 "해석 불가"로 처리). 기존 `relative-duration`의 인라인
+    resolve를 이 헬퍼로 교체(동작 불변, 기존 테스트 그대로 통과).
+  - 새 패턴 `relative-after-duration` 추가: 연결어 "after", 리드인 verb `try again|retry|resets?|
+    available(again)?|come back|back`. 각 단위 뒤 `\b` 앵커로 "after 5 months"류가 "5 m(inutes)"로
+    오독돼 잡을 5분 뒤 파킹하는 오탐을 원천 차단(→ null). 헤더의 하이픈(`Retry-After:`)과 disjoint라
+    헤더는 여전히 `http-retry-after`가 처리. 초 단위는 generic 비대상(어댑터 영역, relative-duration과 동일).
+  - pre-filter `LOOKS_LIKE_RATE_LIMIT`에 `after\s+\d+\s*[dhm]` arm 추가 — 리드인이 "resets"/"available"
+    뿐이라 기존 arm에 안 걸리는 "resets after 45m" 같은 맨몸 문장도 통과시킴.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 120파일)→
+  `pnpm test` 전 패키지 통과(**core 649**[parser.test +10] · cli 354/1skip · dashboard 9). **실제 빌드
+  CLI e2e**(mock 아님): `parse "retry after 30 minutes"`→`relative-after-duration`·30m, 맨몸
+  `parse "resets after 45m"`→매칭(pre-filter 통과), `parse "try again after 5 months"`→"No rate-limit
+  detected"(오탐 없음), `Retry-After: 3600`→여전히 `http-retry-after`(1h) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — "for <기간>"
+  전치사형("blocked for 2h"), "back in <기간>", 기존 `relative-duration`에도 동일한 `\b` 단위 앵커를
+  역이식(현재 "in 5 months" 오탐 잔존; PR #578과 중복 주의). stats 분산/watch·타임존·reset-horizon은
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

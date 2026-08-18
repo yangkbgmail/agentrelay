@@ -144,6 +144,80 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("iso-timestamp");
   });
 
+  // --- prose "after <duration>" relative wording (relative-after-duration) ---
+
+  it("parses 'retry after 30 minutes' (the 'after' preposition, not 'in')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Too Many Requests. Please retry after 30 minutes.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("relative-after-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
+
+  it("parses 'try again after 2 hours'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again after 2 hours.", { now });
+    expect(result?.pattern).toBe("relative-after-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
+  it("parses a bare 'resets after 45m' that only trips the pre-filter via 'after <duration>'", () => {
+    // "resets after …" has no "at"/"in", "try again", or "rate limit" text — the
+    // pre-filter must still admit it through its `after <duration>` arm.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("resets after 45m", { now });
+    expect(result?.pattern).toBe("relative-after-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 45 * 60_000).toISOString());
+  });
+
+  it("parses a combined 'available again after 1d 4h'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Quota exhausted — available again after 1d 4h.", { now });
+    expect(result?.pattern).toBe("relative-after-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + (24 + 4) * 60 * 60_000).toISOString());
+  });
+
+  it("parses 'come back after 15m'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("You are rate limited. Come back after 15m.", { now });
+    expect(result?.pattern).toBe("relative-after-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 15 * 60_000).toISOString());
+  });
+
+  it("is case-insensitive for the 'after' form", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("USAGE LIMIT REACHED. RETRY AFTER 90M.", { now });
+    expect(result?.pattern).toBe("relative-after-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
+  });
+
+  it("does not misread a longer unit word as minutes/hours ('after 5 months')", () => {
+    // Word boundaries after each unit letter keep "months" from matching "m" and
+    // parking the job 5 minutes out. No valid unit -> no reset -> null.
+    expect(parseRateLimitMessage("Rate limit hit, try again after 5 months.")).toBeNull();
+  });
+
+  it("returns null for 'after' with no duration ('come back after lunch')", () => {
+    expect(parseRateLimitMessage("You are rate limited. Come back after lunch.")).toBeNull();
+  });
+
+  it("keeps the HTTP Retry-After header on its own pattern (hyphen+colon, not the prose 'after')", () => {
+    // Regression: the prose "after" form must not steal the header form, which is
+    // hyphenated and colon-delimited — they resolve very differently.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("HTTP 429 Too Many Requests\nRetry-After: 3600", { now });
+    expect(result?.pattern).toBe("http-retry-after");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 3600 * 1000).toISOString());
+  });
+
+  it("prefers the 'in' relative-duration when both 'in' and 'after' forms appear", () => {
+    // relative-duration is listed first, so an "in" form wins the tie.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("try again in 20m, or retry after 2 hours", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 20 * 60_000).toISOString());
+  });
+
   // --- edge-case regression coverage (BACKLOG: 다양한 rate-limit 메시지 포맷) ---
 
   it("returns null for an empty string", () => {
