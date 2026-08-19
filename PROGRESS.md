@@ -2259,3 +2259,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — fix: daemon poll interval 방어(NaN/0/음수 busy-loop + doctor 생존 감지 붕괴 차단)] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-9lcn9b`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 200+개를 목록·키워드로 스캔한 결과 doctor reset-horizon(10+ 중복)·파서 타임존·stats·watch·
+  신규 커맨드 등 거의 모든 증분이 포화 상태. 스케줄러·큐·파서·metrics를 정독해 **어떤 열린 PR에도 없는**
+  실제 무음 실패 버그를 발굴: `agentrelay daemon --interval`의 잘못된 값 방어 부재.
+- **버그(다중 무음 실패):** `daemon --interval abc`→`parseInt`이 NaN, `--interval 0`/음수가 들어오면
+  `NaN ?? 30_000`이 nullish라 NaN을 못 걸러 (1) `setInterval(fn, NaN)`이 0ms **버스트 루프**가 되고
+  (CPU 점유 + 스토어 최대속도 재기록), (2) 같은 값이 하트비트로 흘러 `heartbeatStaleAfterMs(mode, NaN)=NaN`
+  → `ageMs<=NaN`은 항상 false → `doctor`가 재개 루프를 영원히 "죽음"으로 판정, (3) 하트비트 파일엔
+  `JSON.stringify(NaN)="null"`이 기록돼 `parseDaemonHeartbeat`가 "하트비트 없음"으로 오판. 이 프로젝트가
+  doctor·recover·verify로 반복해 겨냥해온 바로 그 "silent failure" 부류.
+- **한 일 (branch `claude/wizardly-pascal-9lcn9b`):**
+  - core `scheduler.ts`: 순수 `normalizePollIntervalMs(value)` + `DEFAULT_POLL_INTERVAL_MS`(30_000) 추가
+    (`normalizeMaxConcurrent` 미러링) — 유한·양수만 통과, 그 외(undefined·NaN·Infinity·0·음수)는 기본값 폴백.
+    `RelayScheduler` 생성자가 `?? 30_000` 대신 이 헬퍼를 사용해 **모든 호출자**(CLI·대시보드·테스트·미래) 방어.
+  - CLI `commands.ts` `startDaemon`: 스케줄러·하트비트 기록·배너가 공유하는 단일 `pollIntervalMs`를 정규화
+    (NaN이 하트비트에 `null`로 기록되던 것을 30000으로 교정).
+  - CLI `cli.ts` `daemon` 액션: `parseInt` 대신 `Number`로 엄격 파싱(`"5s"`도 junk로 거부), 비유한·비양수면
+    stderr에 명확한 경고를 찍고 기본값으로 진행(조용히 spin하지 않음).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 642 · cli 354/1skip · dashboard 9**; scheduler.test +3: 유한·양수 유지[분수·1ms]·`??`가 못 잡는
+  값 폴백·정규화 후 heartbeatStaleAfterMs 유한 유지=doctor 생존 감지 회귀). **실제 빌드 CLI e2e**(mock 아님):
+  `--interval abc`/`0`→경고+30s 폴백(버스트 없음)·`--interval 5000`→깨끗한 5s·실행 중 하트비트가 `null` 아닌
+  `pollIntervalMs:30000` 기록 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `daemon --interval`에
+  하한 floor(예: 아주 작은 양수 5ms도 실질 busy-loop)를 둘지, `AGENTRELAY_*` 수치 env(재시도·백오프 등)에
+  동일한 NaN 방어가 필요한 곳 점검. doctor/stats/watch/파서·타임존은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

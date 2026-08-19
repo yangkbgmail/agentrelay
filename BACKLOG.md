@@ -870,6 +870,26 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 fix: daemon poll interval 방어(NaN/0/음수 → busy-loop + doctor 생존 감지 붕괴 차단). 자기 발굴
+      항목 — `agentrelay daemon --interval <ms>`가 잘못된 값(`--interval abc`→`parseInt`이 NaN,
+      `--interval 0`/음수)을 받으면 `NaN ?? 30_000`이 nullish라 NaN을 못 걸러 `setInterval(fn, NaN)`이
+      0ms **버스트 루프**가 되고(CPU 한 코어 점유 + 스토어를 최대 속도로 재기록), 같은 값이 하트비트로
+      흘러 `heartbeatStaleAfterMs(mode, NaN)=NaN`이 되며(`ageMs<=NaN`은 항상 false → doctor가 루프를
+      영원히 "죽음"으로 판정), 하트비트 파일엔 `JSON.stringify(NaN)="null"`이 기록돼 doctor가 아예
+      "하트비트 없음"으로 오판하는 다중 무음 실패였다. 열린 PR 200+개를 키워드 스캔(interval/poll/데몬)해
+      **어떤 PR에도 없음** 확인 후 구현.
+      (완료 — `@agentrelay/core/scheduler.ts`에 순수 `normalizePollIntervalMs(value)` +
+      `DEFAULT_POLL_INTERVAL_MS`(30_000) 추가(`normalizeMaxConcurrent` 미러링): 유한·양수만 통과,
+      그 외(undefined·NaN·Infinity·0·음수)는 기본값으로 폴백. `RelayScheduler` 생성자가
+      `?? 30_000` 대신 이 헬퍼를 사용해 **모든 호출자**(CLI·대시보드·테스트·미래)를 방어. CLI
+      `startDaemon`이 스케줄러·하트비트 기록·배너에 쓰는 단일 `pollIntervalMs`를 정규화(NaN이 하트비트
+      파일에 `null`로 기록되던 것을 유효한 30000으로 교정). CLI `daemon` 액션은 `parseInt` 대신 `Number`로
+      엄격 파싱(`"5s"`도 junk로 거부)하고, 값이 비유한·비양수면 stderr에 명확한 경고를 찍고 기본값으로
+      진행(조용히 spin하지 않음). scheduler.test +3(유한·양수 유지[분수·1ms 포함]·`??`가 못 잡는 값 폴백·
+      정규화 후 heartbeatStaleAfterMs가 유한 유지=doctor 생존 감지 회귀). 실제 빌드 CLI e2e로
+      `--interval abc`/`0`→경고+30s 폴백(버스트 없음)·`--interval 5000`→깨끗한 5s·실행 중 하트비트가
+      `null` 아닌 `pollIntervalMs:30000` 기록 확인. branch `claude/wizardly-pascal-9lcn9b`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

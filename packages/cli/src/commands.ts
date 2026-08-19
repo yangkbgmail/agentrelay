@@ -63,6 +63,7 @@ import {
   loadConfigFile,
   maxConcurrentFromEnv,
   maxResetHorizonMsFromEnv,
+  normalizePollIntervalMs,
   notifiersFromEnv,
   parseConfig,
   parseDaemonHeartbeat,
@@ -369,7 +370,10 @@ export function startDaemon(options: DaemonOptions = {}) {
   const autoPruneEveryMs = autoPruneEveryMsFromEnv() ?? undefined;
   const autoPruneEveryTicks = autoPruneEveryTicksFromEnv() ?? undefined;
   const maxConcurrent = maxConcurrentFromEnv();
-  const pollIntervalMs = options.pollIntervalMs ?? 30_000;
+  // Clamp the interval so a NaN/0/negative value (e.g. a bad `--interval`)
+  // can't turn the poll loop into a 0 ms busy-loop or make the heartbeat's
+  // staleness threshold NaN — both fed from this one value (see below).
+  const pollIntervalMs = normalizePollIntervalMs(options.pollIntervalMs);
   const logLine = (line: string) => {
     // eslint-disable-next-line no-console
     console.log(line);

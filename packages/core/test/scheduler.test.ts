@@ -3,9 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { heartbeatStaleAfterMs } from "../src/heartbeat.js";
 import { RelayQueue } from "../src/queue.js";
 import type { SpawnFn } from "../src/scheduler.js";
-import { RelayScheduler } from "../src/scheduler.js";
+import { DEFAULT_POLL_INTERVAL_MS, normalizePollIntervalMs, RelayScheduler } from "../src/scheduler.js";
 import type { RelayJob } from "../src/types.js";
 
 // Minimal fake ChildProcess: emits given stdout data then closes.
@@ -549,5 +550,32 @@ describe("RelayScheduler", () => {
 
     expect(results.map((j) => j.project)).toEqual(dueOrder);
     expect(results.every((j) => j.status === "completed")).toBe(true);
+  });
+});
+
+describe("normalizePollIntervalMs", () => {
+  it("keeps a finite, positive interval unchanged (including fractional and tiny values)", () => {
+    expect(normalizePollIntervalMs(30_000)).toBe(30_000);
+    expect(normalizePollIntervalMs(1)).toBe(1);
+    expect(normalizePollIntervalMs(1500.5)).toBe(1500.5);
+  });
+
+  it("falls back to the default for values a `?? 30_000` guard would miss", () => {
+    // NaN is the real-world case: `parseInt("abc", 10)` / `Number("5s")` → NaN,
+    // which is neither null nor undefined, so `?? 30_000` lets it through.
+    expect(normalizePollIntervalMs(Number.NaN)).toBe(DEFAULT_POLL_INTERVAL_MS);
+    expect(normalizePollIntervalMs(Number.POSITIVE_INFINITY)).toBe(DEFAULT_POLL_INTERVAL_MS);
+    expect(normalizePollIntervalMs(0)).toBe(DEFAULT_POLL_INTERVAL_MS);
+    expect(normalizePollIntervalMs(-5)).toBe(DEFAULT_POLL_INTERVAL_MS);
+    expect(normalizePollIntervalMs(undefined)).toBe(DEFAULT_POLL_INTERVAL_MS);
+  });
+
+  it("keeps the heartbeat staleness threshold finite even for a bad requested interval", () => {
+    // Regression: an unclamped NaN interval made heartbeatStaleAfterMs NaN, so
+    // `ageMs <= NaN` was always false and doctor could never see the loop alive.
+    // Normalizing at the boundary keeps the derived threshold a real number.
+    const staleAfter = heartbeatStaleAfterMs("daemon", normalizePollIntervalMs(Number.NaN));
+    expect(Number.isFinite(staleAfter)).toBe(true);
+    expect(staleAfter).toBeGreaterThan(0);
   });
 });

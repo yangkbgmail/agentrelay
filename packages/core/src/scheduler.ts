@@ -15,6 +15,31 @@ const defaultSpawn: SpawnFn = (command, cwd) => {
   return spawn(cmd, args, { cwd });
 };
 
+/**
+ * Default poll cadence (ms) for the resume loop when none is given — or when a
+ * caller passes an unusable one. 30s, the historical default.
+ */
+export const DEFAULT_POLL_INTERVAL_MS = 30_000;
+
+/**
+ * Clamp a requested poll interval to a usable value. The interval flows into
+ * two independent places: `setInterval()` (the poll cadence) and the heartbeat's
+ * staleness math (`heartbeatStaleAfterMs = pollIntervalMs * factor`). A
+ * non-finite, zero, or negative value — e.g. `parseInt("abc")` → `NaN`, or an
+ * explicit `--interval 0` — would otherwise turn `setInterval` into a 0 ms
+ * busy-loop (pegging a CPU core and rewriting the JSON store as fast as it can)
+ * *and* make the staleness threshold `NaN`, so `ageMs <= NaN` is always false
+ * and `agentrelay doctor` can never see the loop as alive: a compounding silent
+ * failure. Anything that isn't a finite number greater than 0 falls back to
+ * {@link DEFAULT_POLL_INTERVAL_MS}. A plain `?? 30_000` guard can't catch this
+ * because `NaN` is neither `null` nor `undefined`. Kept pure and separate so the
+ * clamping rule is unit-testable without a live scheduler.
+ */
+export function normalizePollIntervalMs(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return DEFAULT_POLL_INTERVAL_MS;
+  return value;
+}
+
 export interface SchedulerOptions {
   queue: RelayQueue;
   pollIntervalMs?: number;
@@ -110,7 +135,7 @@ export class RelayScheduler {
 
   constructor(options: SchedulerOptions) {
     this.queue = options.queue;
-    this.pollIntervalMs = options.pollIntervalMs ?? 30_000;
+    this.pollIntervalMs = normalizePollIntervalMs(options.pollIntervalMs);
     this.spawnFn = options.spawnFn ?? defaultSpawn;
     this.notify = options.notify ?? (() => {});
     this.outputTailLength = options.outputTailLength ?? 2000;
