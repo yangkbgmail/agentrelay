@@ -2259,3 +2259,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 74 — `parse` 진단 리셋 plausibility 주석(과거 misparse 신호)] (2026-08-19, 무인 자율 세션, branch `claude/parser-reset-past-signal`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  원격 738 브랜치로 극도로 포화된 상태라, 브랜치명을 스캔해 **어떤 열린 브랜치에도 없는** 신뢰성 갭을
+  발굴했다: 세션 72가 남긴 후속 후보 두 개 중 "과거-쪽 극단(수년 전 epoch)도 misparse 신호로 보고"가
+  미착수였고(doctor-reset-horizon은 이미 세션 73이 처리), 동시에 `parse` 진단이 일부러 지평선 가드를
+  적용하지 않아 "relay가 실제로 이 먼-미래 리셋을 드롭한다"는 사실을 사용자에게 못 알려주는 갭도 있었다.
+- **한 일 (branch `claude/parser-reset-past-signal`):**
+  - core `parser.ts`: 순수 `classifyResetPlausibility(resetAt, now, {maxFutureMs, maxPastMs})` →
+    `ResetPlausibility`(`"ok"`/`"too-far-future"`/`"too-far-past"`). 미래는 기존 `isPlausibleReset`와 동일
+    의미(스케줄러가 드롭하는 부류), 과거는 **advisory 전용** — 과거 리셋은 즉시 재개가 안전이라 아무것도
+    드롭하지 않고 진단에서만 misparse 신호로 표시. 비유한 resetAt·비활성 bound는 `"ok"`.
+    `DEFAULT_MAX_RESET_PAST_MS`(대칭 8일) + `maxResetPastMsFromEnv`(`AGENTRELAY_MAX_RESET_PAST`, 미설정=기본,
+    `0`/`off`/`none`/파싱불가=null) 추가 — `maxResetHorizonMsFromEnv`와 미러.
+  - CLI `parse.ts`: 순수 `classifyReport`(no-match/unparseable→null, 사람용·JSON 렌더가 공유) +
+    `renderParseReport`가 too-far-future면 지평선 값과 `AGENTRELAY_MAX_RESET_HORIZON`을 짚는 ⚠ 경고,
+    too-far-past면 "N일 과거 — misparse" ⚠ 경고를 리셋 라인 뒤에 추가. `--json`은 `plausibility` 필드 추가.
+    `parse` 커맨드가 `maxResetHorizonMsFromEnv()`/`maxResetPastMsFromEnv()`로 배선. **buildParseReport 자체는
+    가드 미적용**(raw 파스 유지) — 주석만 판정을 덧붙이므로 기존 동작 불변.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm format`→`pnpm ci:lint`(Biome 0에러)→`pnpm test`
+  전 패키지 통과(**core 647 · cli 360/1skip · dashboard 9**; parser.test +8, cli parse.test +6). **실제 빌드
+  CLI e2e**(mock 아님): 기본 8일 지평선에서 `resets at 2027-01-01`은 "beyond the reset horizon (8d)" 경고,
+  `2020-01-01`은 "2422d in the past — likely a misparse" 경고, `try again in 2h`는 무주석, `HORIZON=off`면
+  `--json` plausibility가 `"ok"`로 떨어짐 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `doctor`가 큐 내 과거-쪽
+  극단 resetAt 잡을 경고하도록 확장(현재는 먼-미래만), 또는 스케줄러가 too-far-past를 로그로 남길지 관찰.
+  stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

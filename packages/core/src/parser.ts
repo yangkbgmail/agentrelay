@@ -73,6 +73,76 @@ export function maxResetHorizonMsFromEnv(env: NodeJS.ProcessEnv = process.env): 
 }
 
 /**
+ * Default lower bound for a plausible reset: a reset that lands more than this
+ * far *before* `now` is almost certainly a misparse, not a real "already
+ * lifted" limit. Mirrors {@link DEFAULT_MAX_RESET_HORIZON_MS} (8 days) so the
+ * two horizons are symmetric and easy to reason about: a fresh parse should
+ * never resolve a reset more than a week in the past, and when it does the
+ * usual culprit is epoch-unit confusion (seconds read as ms, or vice-versa),
+ * a wrong timezone, or a stale message — all of which land the reset wildly
+ * off, not a few hours out.
+ */
+export const DEFAULT_MAX_RESET_PAST_MS = DEFAULT_MAX_RESET_HORIZON_MS;
+
+/**
+ * How a resolved reset sits relative to `now` and the configured horizons.
+ * `"ok"` is inside both bounds (or the relevant bound is disabled). The other
+ * two are misparse signals: `"too-far-future"` overshoots the future horizon
+ * (the same class the scheduler's guard drops — see {@link isPlausibleReset}),
+ * `"too-far-past"` undershoots the past horizon (a fresh parse landing deep in
+ * the past). Unlike the future guard, the past classification is *advisory*
+ * only — a reset in the past is safe to resume immediately, so nothing is
+ * dropped; it's surfaced to help a user spot a misparse in diagnostics.
+ */
+export type ResetPlausibility = "ok" | "too-far-future" | "too-far-past";
+
+/** Options for {@link classifyResetPlausibility}: independent future/past bounds. */
+export interface ResetPlausibilityOptions {
+  /** Future horizon (ms). Non-positive / non-finite / nullish disables it. */
+  maxFutureMs?: number | null;
+  /** Past horizon (ms). Non-positive / non-finite / nullish disables it. */
+  maxPastMs?: number | null;
+}
+
+/** True when a horizon value is an active bound (finite and strictly positive). */
+function isActiveBound(ms: number | null | undefined): ms is number {
+  return ms !== undefined && ms !== null && Number.isFinite(ms) && ms > 0;
+}
+
+/**
+ * Classify a resolved `resetAt` against `now` and the given horizons. Pure and
+ * side-effect free. A non-finite `resetAt` (an unparseable date) classifies as
+ * `"ok"` — the caller decides how to treat "no usable time". The future bound
+ * is checked before the past bound, but they can never both trip for one time.
+ */
+export function classifyResetPlausibility(
+  resetAt: Date,
+  now: Date,
+  options: ResetPlausibilityOptions = {}
+): ResetPlausibility {
+  const t = resetAt.getTime();
+  const n = now.getTime();
+  if (!Number.isFinite(t) || !Number.isFinite(n)) return "ok";
+  if (isActiveBound(options.maxFutureMs) && t > n + options.maxFutureMs) return "too-far-future";
+  if (isActiveBound(options.maxPastMs) && t < n - options.maxPastMs) return "too-far-past";
+  return "ok";
+}
+
+/**
+ * Resolve the past horizon (ms) from `AGENTRELAY_MAX_RESET_PAST`, mirroring
+ * {@link maxResetHorizonMsFromEnv}: unset/blank → {@link DEFAULT_MAX_RESET_PAST_MS};
+ * `0`/`off`/`none`/`disabled`/`no` (or any non-positive / unparseable duration)
+ * → `null` (disabled); anything else parsed as a duration.
+ */
+export function maxResetPastMsFromEnv(env: NodeJS.ProcessEnv = process.env): number | null {
+  const raw = env.AGENTRELAY_MAX_RESET_PAST?.trim();
+  if (raw === undefined || raw === "") return DEFAULT_MAX_RESET_PAST_MS;
+  if (/^(0|off|none|disabled|no)$/i.test(raw)) return null;
+  const parsed = parseDuration(raw);
+  return parsed !== null && parsed > 0 ? parsed : null;
+}
+
+/**
  * A single rate-limit message matcher. Exposed so agent adapters can contribute
  * tool-specific patterns without reaching into the parser internals.
  */
