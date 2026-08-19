@@ -2259,3 +2259,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay slowest` 최장-해결 잡 순위] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-wehswj`)
+- **배경:** 세션 시작 시 명시적 👷 백로그 항목은 전부 완료(`[x]`), 미완은 🧭(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐이라 건드리지 않음. 열린 PR 30여 개가 적체돼 있고 특히 "doctor
+  reset-horizon" 검사가 16개+ 중복 구현돼 있어, 그와 **명확히 구별되는 새 개선 항목**을 발굴했다.
+  코드를 읽던 중 `stats`는 해결 시간의 **분포**(avg/median/p90/p95/p99)만 집계할 뿐 **어떤 개별
+  잡이 그 꼬리를 끌어당겼는지**(가장 오래 릴레이가 돌본 실제 잡)를 짚어주는 수단이 전혀 없다는
+  빈틈을 확인했다.
+- **한 일:** `agentrelay slowest` 신규 구현.
+  - `@agentrelay/core/slowest.ts` 신설(순수·무 I/O): `buildSlowestReport(jobs, {limit})`가 종료 잡
+    (completed/failed)의 라이프사이클 span(`updatedAt-createdAt`)을 내림차순 랭킹. `stats`와 **동일
+    정책** 재현 — cancelled·미종료 잡 제외, 파싱 불가·음수 span(클럭 스큐)은 스킵. `limit`은 `entries`만
+    트림하고 `totalResolved`/`maxResolutionMs`/`totalResolutionMs`는 전수 유지(정직한 "N more not shown"),
+    span 동률은 createdAt→id 결정론 타이브레이크. index.ts export.
+  - CLI `packages/cli/src/slowest.ts`에 순수 `renderSlowest`(ID·PROJECT·TOOL·TRIES·RESOLUTION 표 +
+    totals/worst/avg 푸터, `formatDurationMs` 재사용)·`renderSlowestJson`(--json)·`NO_SLOWEST_MESSAGE`.
+    `agentrelay slowest [-n/--limit(기본10)] [--status/--tool/--project/--since/--until] [--json]`을
+    cli.ts에 배선 — 공용 `buildScope`·`scopeJobs` 재사용, 잘못된 limit/status/tool은 exit 1.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 650 · cli 361/1skip · dashboard 9**; core slowest.test +11, cli slowest.test +7).
+  **실제 빌드 CLI e2e**(mock 아님): 4-job 스토어(completed 3h30m·failed 1h·completed 15m·waiting)에서
+  `slowest`가 종료 잡 3개만 3h30m→1h→15m로 랭킹(대기 잡 제외), `--limit 1`은 최악 1행+"2 more not
+  shown", `--project api`는 스코프 2행, `--json`은 report 전체 구조 출력, `--limit 0`/`--status bogus`는
+  exit 1, 빈 스토어는 `NO_SLOWEST_MESSAGE` 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `slowest`의 역
+  (가장 빨리 풀린 잡)이나 tool/project별 slowest 롤업. doctor reset-horizon·stats watch·파서 변형은
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

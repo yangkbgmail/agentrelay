@@ -14,6 +14,7 @@ import type {
 import {
   ALL_TOOLS,
   buildOverdueReport,
+  buildSlowestReport,
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
@@ -93,6 +94,7 @@ import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
 import { type RecoverResult, renderRecover, renderRecoverJson } from "./recover.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
+import { renderSlowest, renderSlowestJson } from "./slowest.js";
 import {
   formatUtcOffsetLabel,
   renderGroupedStats,
@@ -984,6 +986,72 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderOverdue(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
+    });
+
+  program
+    .command("slowest")
+    .description(
+      "Rank resolved jobs by how long the relay took to resolve them — the outliers behind `stats` percentiles"
+    )
+    .option("-n, --limit <n>", "Show at most N rows (the totals still count all resolved jobs)", "10")
+    .option("-s, --status <statuses>", "Only include jobs with these comma-separated statuses (completed/failed)")
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--json", "Print the report as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # the 10 tasks the relay babysat longest\n" +
+        "  agentrelay slowest\n" +
+        "  # the single worst offender\n" +
+        "  agentrelay slowest --limit 1\n" +
+        "  # slowest jobs for one project, last week only\n" +
+        "  agentrelay slowest --project api --since 7d\n" +
+        "\n`slowest` names the specific jobs behind the `stats` resolution-time\n" +
+        "percentiles (avg/median/p90/p95/p99) — resolution = updatedAt − createdAt\n" +
+        "for completed/failed jobs (cancelled and unfinished jobs are excluded)."
+    )
+    .action((opts: ScopeOpts & { limit?: string; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      let limit: number | undefined;
+      if (opts.limit !== undefined) {
+        const n = Number.parseInt(opts.limit, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+          process.exitCode = 1;
+          return;
+        }
+        limit = n;
+      }
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+      const scopeNote = built.active ? built.note : undefined;
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const report = buildSlowestReport(jobs, { limit });
+
+      if (opts.json) {
+        console.log(
+          renderSlowestJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            report,
+          })
+        );
+        return;
+      }
+      console.log(renderSlowest(report, { color: Boolean(process.stdout.isTTY), scopeNote }));
     });
 
   program
