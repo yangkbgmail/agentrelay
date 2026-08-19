@@ -4,6 +4,7 @@ import { mapWithConcurrency, normalizeMaxConcurrent } from "./concurrency.js";
 import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
 import type { RelayQueue } from "./queue.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
+import { normalizeMaxRuntimeMs } from "./runtime.js";
 import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
 
 export type Notifier = (payload: NotifyPayload) => void | Promise<void>;
@@ -71,6 +72,16 @@ export interface SchedulerOptions {
    * {@link maxResetHorizonMsFromEnv}.
    */
   maxResetHorizonMs?: number | null;
+  /**
+   * Wall-clock execution limit (ms) for a single resumed command. A resume that
+   * runs longer than this is killed (SIGTERM) and surfaced as a transient
+   * failure, so a hung agent process can't block the tick — and with it every
+   * other queued job — indefinitely. `null`/omitted (the default) disables the
+   * limit: a legitimate run may take arbitrarily long. Non-positive/non-finite
+   * values also disable it. Wired from `AGENTRELAY_MAX_RUNTIME` at the CLI; see
+   * {@link maxRuntimeMsFromEnv}.
+   */
+  maxRuntimeMs?: number | null;
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
   /**
@@ -102,6 +113,7 @@ export class RelayScheduler {
   private autoPruneEveryTicks: number;
   private maxConcurrent: number;
   private maxResetHorizonMs: number | null;
+  private maxRuntimeMs: number | null;
   private lastPruneAtMs: number | null = null;
   private pruneTickCounter = 0;
   private onPrune?: (pruned: RelayJob[]) => void;
@@ -121,6 +133,7 @@ export class RelayScheduler {
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
     this.maxConcurrent = normalizeMaxConcurrent(options.maxConcurrent);
     this.maxResetHorizonMs = options.maxResetHorizonMs ?? null;
+    this.maxRuntimeMs = normalizeMaxRuntimeMs(options.maxRuntimeMs);
     this.onPrune = options.onPrune;
     this.onTick = options.onTick;
   }
@@ -285,6 +298,40 @@ export class RelayScheduler {
         return;
       }
 
+      // A resume that overruns the runtime limit is killed and reported as a
+      // transient failure, so a hung child can't block the tick forever. The
+      // flag is checked in the close/error handlers so the kill is surfaced as a
+      // timeout regardless of whether the process exits by signal or code.
+      let settled = false;
+      let timedOut = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const finish = (result: { output: string; exitCode: number | null; error: Error | null }) => {
+        if (settled) return;
+        settled = true;
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        resolve(result);
+      };
+      const timeoutError = () => new Error(`resume timed out after ${this.maxRuntimeMs}ms and was killed`);
+      if (this.maxRuntimeMs !== null) {
+        timer = setTimeout(() => {
+          timedOut = true;
+          try {
+            child.kill("SIGTERM");
+          } catch {
+            // Best-effort: if the kill itself throws, the timeout error still
+            // resolves the promise below (or via the eventual close/error).
+          }
+          // A process that ignores SIGTERM would otherwise still hang the tick;
+          // resolve now so the relay moves on and the retry policy applies.
+          finish({ output, exitCode: null, error: timeoutError() });
+        }, this.maxRuntimeMs);
+        // Don't let a pending timeout keep the process alive on its own.
+        timer.unref?.();
+      }
+
       child.stdout?.on("data", (chunk) => {
         output += chunk.toString();
       });
@@ -292,10 +339,12 @@ export class RelayScheduler {
         output += chunk.toString();
       });
       child.on("error", (err) => {
-        resolve({ output, exitCode: null, error: err as Error });
+        finish({ output, exitCode: null, error: timedOut ? timeoutError() : (err as Error) });
       });
       child.on("close", (code) => {
-        resolve({ output, exitCode: code ?? 0, error: null });
+        finish(
+          timedOut ? { output, exitCode: null, error: timeoutError() } : { output, exitCode: code ?? 0, error: null }
+        );
       });
     });
   }

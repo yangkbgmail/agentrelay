@@ -63,6 +63,7 @@ import {
   loadConfigFile,
   maxConcurrentFromEnv,
   maxResetHorizonMsFromEnv,
+  maxRuntimeMsFromEnv,
   notifiersFromEnv,
   parseConfig,
   parseDaemonHeartbeat,
@@ -369,6 +370,7 @@ export function startDaemon(options: DaemonOptions = {}) {
   const autoPruneEveryMs = autoPruneEveryMsFromEnv() ?? undefined;
   const autoPruneEveryTicks = autoPruneEveryTicksFromEnv() ?? undefined;
   const maxConcurrent = maxConcurrentFromEnv();
+  const maxRuntimeMs = maxRuntimeMsFromEnv();
   const pollIntervalMs = options.pollIntervalMs ?? 30_000;
   const logLine = (line: string) => {
     // eslint-disable-next-line no-console
@@ -393,6 +395,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent,
     maxResetHorizonMs: maxResetHorizonMsFromEnv(),
+    maxRuntimeMs,
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
@@ -418,6 +421,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     `[agentrelay] daemon started, watching ${storePath} every ${pollIntervalMs / 1000}s` +
       (remoteNotify ? " (notifications on)" : "") +
       (maxConcurrent > 1 ? ` (max ${maxConcurrent} concurrent)` : "") +
+      (maxRuntimeMs !== null ? ` (max runtime ${Math.round(maxRuntimeMs / 1000)}s)` : "") +
       autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks)
   );
   return scheduler;
@@ -433,6 +437,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent: maxConcurrentFromEnv(),
     maxResetHorizonMs: maxResetHorizonMsFromEnv(),
+    maxRuntimeMs: maxRuntimeMsFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
   });
   const processed = await scheduler.tick();

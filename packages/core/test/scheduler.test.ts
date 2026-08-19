@@ -4,9 +4,37 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RelayQueue } from "../src/queue.js";
+import { DEFAULT_RETRY_POLICY } from "../src/retry.js";
 import type { SpawnFn } from "../src/scheduler.js";
 import { RelayScheduler } from "../src/scheduler.js";
 import type { RelayJob } from "../src/types.js";
+
+// Fake ChildProcess whose exit timing we control, and that records kill() calls.
+// With `closeAfterMs` omitted the process never closes on its own (a "hang"),
+// so only the scheduler's runtime limit can settle the resume.
+function fakeSpawnControllable(opts: { output?: string; exitCode?: number; closeAfterMs?: number }): {
+  spawnFn: SpawnFn;
+  killed: () => boolean;
+} {
+  let wasKilled = false;
+  const spawnFn: SpawnFn = () => {
+    const emitter = new EventEmitter() as any;
+    emitter.stdout = new EventEmitter();
+    emitter.stderr = new EventEmitter();
+    emitter.kill = () => {
+      wasKilled = true;
+      return true;
+    };
+    if (opts.output) {
+      setTimeout(() => emitter.stdout.emit("data", Buffer.from(opts.output as string)), 0);
+    }
+    if (typeof opts.closeAfterMs === "number") {
+      setTimeout(() => emitter.emit("close", opts.exitCode ?? 0), opts.closeAfterMs);
+    }
+    return emitter;
+  };
+  return { spawnFn, killed: () => wasKilled };
+}
 
 // Minimal fake ChildProcess: emits given stdout data then closes.
 function fakeSpawnFn(outputs: Record<string, string>): SpawnFn {
@@ -143,6 +171,57 @@ describe("RelayScheduler", () => {
     const results = await scheduler.tick();
     expect(results).toHaveLength(1);
     expect(results[0].status).toBe("waiting_for_reset");
+  });
+
+  it("kills a hung resume that overruns maxRuntimeMs and marks it failed", async () => {
+    // A child that never emits `close` would block the tick forever. With a
+    // runtime limit set, the scheduler kills it and surfaces a transient
+    // failure; maxAttempts:1 turns that into a terminal `failed` immediately.
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const { spawnFn, killed } = fakeSpawnControllable({}); // never closes
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn,
+      maxRuntimeMs: 15,
+      retryPolicy: { ...DEFAULT_RETRY_POLICY, maxAttempts: 1 },
+    });
+
+    const results = await scheduler.tick();
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe("failed");
+    expect(results[0].lastError).toMatch(/timed out/i);
+    expect(killed()).toBe(true);
+  });
+
+  it("does not kill a resume that finishes within maxRuntimeMs", async () => {
+    // A generous limit must not disturb a normal, quick resume: the timer is
+    // cleared on close and the process is never killed.
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const { spawnFn, killed } = fakeSpawnControllable({
+      output: "All done, task finished successfully.",
+      exitCode: 0,
+      closeAfterMs: 0,
+    });
+    const scheduler = new RelayScheduler({ queue, spawnFn, maxRuntimeMs: 60_000 });
+
+    const results = await scheduler.tick();
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe("completed");
+    expect(killed()).toBe(false);
   });
 
   it("does not touch jobs that are not yet due", async () => {
