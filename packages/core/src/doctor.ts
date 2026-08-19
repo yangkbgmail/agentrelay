@@ -145,6 +145,75 @@ export interface AdapterFacts {
   binaries: BinaryFact[];
 }
 
+/**
+ * One `waiting_for_reset` job whose `resetAt` lands implausibly far in the
+ * future — beyond the parser's reset horizon. This is the *forward* mirror of
+ * `overdue`: where an overdue job should already have resumed, a far-future one
+ * is parked so far out (days or years) it effectively never will. Almost always
+ * the fingerprint of a misparse — wrong epoch units, a bad timezone, a giant
+ * relative duration — that slipped in before the horizon guard was enabled (or
+ * while it was turned off). Computed purely from the job list, an injected
+ * `nowMs`, and the horizon, so `doctor` can flag it without a stack trace.
+ */
+export interface FarFutureReset {
+  /** The waiting job parked beyond the horizon. */
+  job: RelayJob;
+  /** How far past `now` its reset lands, in ms (always > the horizon). */
+  aheadMs: number;
+}
+
+/**
+ * The `waiting_for_reset` jobs whose `resetAt` is more than `maxFutureMs` past
+ * `nowMs`, worst-first (furthest-out reset ranked first). Pure — takes an
+ * injected clock and horizon, touches no disk/env — so the CLI and tests share
+ * one rule. A non-positive / non-finite / nullish `maxFutureMs` means "guard
+ * disabled" and yields an empty list (nothing is ever "too far out"), matching
+ * {@link isPlausibleReset}'s own no-guard semantics. Only `waiting_for_reset`
+ * jobs are considered: they're the ones parked *on* a reset time, so a bad
+ * reset there is what actually strands a job (mirrors `overdue`'s scope). Jobs
+ * with a null/unparseable `resetAt` are skipped — there's no time to judge.
+ */
+export function selectFarFutureResets(
+  jobs: RelayJob[],
+  nowMs: number,
+  maxFutureMs: number | null | undefined
+): FarFutureReset[] {
+  if (maxFutureMs === undefined || maxFutureMs === null || !Number.isFinite(maxFutureMs) || maxFutureMs <= 0) {
+    return [];
+  }
+  const cutoff = nowMs + maxFutureMs;
+  const flagged: FarFutureReset[] = [];
+  for (const job of jobs) {
+    if (job.status !== "waiting_for_reset" || job.resetAt === null) continue;
+    const resetMs = Date.parse(job.resetAt);
+    if (Number.isNaN(resetMs) || resetMs <= cutoff) continue;
+    flagged.push({ job, aheadMs: resetMs - nowMs });
+  }
+  // Furthest-out first; tie-break by createdAt then id for a stable ranking.
+  flagged.sort((a, b) => {
+    if (a.aheadMs !== b.aheadMs) return b.aheadMs - a.aheadMs;
+    if (a.job.createdAt !== b.job.createdAt) return a.job.createdAt < b.job.createdAt ? -1 : 1;
+    if (a.job.id === b.job.id) return 0;
+    return a.job.id < b.job.id ? -1 : 1;
+  });
+  return flagged;
+}
+
+/**
+ * Facts about waiting jobs parked beyond the reset horizon, gathered by the CLI
+ * (which owns the wall clock and the resolved horizon) before judging.
+ */
+export interface HorizonFacts {
+  /**
+   * The horizon applied, in ms — mirrors the parser's `maxFutureMs` guard.
+   * `null` means the guard is disabled (env set to `off`/`0`), so the check is
+   * skipped as an informational OK.
+   */
+  maxFutureMs: number | null;
+  /** Waiting jobs whose reset lands beyond the horizon, worst-first. Empty = healthy. */
+  entries: FarFutureReset[];
+}
+
 /** Everything {@link runDiagnostics} needs — collected by the CLI, judged here. */
 export interface DiagnosticInput {
   /** Running Node version string, e.g. `process.version` ("v22.5.0"). */
@@ -155,6 +224,7 @@ export interface DiagnosticInput {
   notify: NotifyFacts;
   adapters: AdapterFacts;
   heartbeat: HeartbeatFacts;
+  horizon: HorizonFacts;
 }
 
 /** Minimum supported Node version — mirrors the packages' `engines.node`. */
@@ -224,9 +294,12 @@ export function isSupportedNode(version: string): boolean {
  * 5. **daemon** — a resume loop (daemon/tick) is alive, cross-referenced with
  *    how many jobs are waiting: waiting jobs with no live loop is a warning
  *    (they won't resume), otherwise absence is just an informational OK.
- * 6. **config** — the config file (if any) loads and validates; a broken file
+ * 6. **reset-horizon** — no waiting job is parked implausibly far in the future
+ *    (beyond the parser horizon), which would be a misparse stranding a job
+ *    forever (warning). Skipped-as-OK when the guard is disabled.
+ * 7. **config** — the config file (if any) loads and validates; a broken file
  *    is an error, semantic warnings are surfaced as warnings.
- * 7. **notify** — at least one notification channel is set (absence is a
+ * 8. **notify** — at least one notification channel is set (absence is a
  *    warning, not an error: notifications are optional but you'd want to know
  *    the relay can't reach you).
  */
@@ -238,6 +311,7 @@ export function runDiagnostics(input: DiagnosticInput): DiagnosticReport {
   checks.push(writableCheck(input.writable));
   checks.push(adapterCheck(input.adapters));
   checks.push(daemonCheck(input.heartbeat, input.store));
+  checks.push(horizonCheck(input.horizon));
   checks.push(configCheck(input.config));
   checks.push(notifyCheck(input.notify));
 
@@ -419,6 +493,40 @@ function daemonCheck(heartbeat: HeartbeatFacts, store: StoreFacts): DiagnosticCh
     name: "daemon",
     level: "ok",
     message: "no resume loop running, and no jobs are waiting to resume",
+  };
+}
+
+/**
+ * Judges whether any waiting job is parked implausibly far in the future. This
+ * is the forward counterpart to the `overdue` command: an overdue job should
+ * already have resumed, a far-future one is parked so far out it never will.
+ * A populated list is almost always a misparse (see {@link selectFarFutureResets}).
+ * Warning, not error — the reset *could* be a genuinely long window — but one
+ * you'd want to inspect. Skipped-as-OK when the horizon guard is disabled.
+ */
+function horizonCheck(horizon: HorizonFacts): DiagnosticCheck {
+  if (horizon.maxFutureMs === null) {
+    return {
+      name: "reset-horizon",
+      level: "ok",
+      message: "reset-horizon guard is disabled — not checking for far-future resets",
+    };
+  }
+  if (horizon.entries.length === 0) {
+    return {
+      name: "reset-horizon",
+      level: "ok",
+      message: `no waiting jobs are parked beyond the ${humanizeAge(horizon.maxFutureMs)} reset horizon`,
+    };
+  }
+  const count = horizon.entries.length;
+  const worst = horizon.entries[0];
+  const worstId = worst.job.id.slice(0, 8);
+  return {
+    name: "reset-horizon",
+    level: "warning",
+    message: `${count} waiting job(s) reset more than ${humanizeAge(horizon.maxFutureMs)} out (worst: ${worstId} in ${humanizeAge(worst.aheadMs)}) — likely a misparsed reset that will never resume`,
+    hint: `Inspect with \`agentrelay show ${worstId}\`; cancel or retry a mis-parked job with \`agentrelay cancel/retry <id>\`.`,
   };
 }
 

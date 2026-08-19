@@ -143,6 +143,53 @@ describe("runDoctor", () => {
     expect(report.ok).toBe(true);
   });
 
+  it("reports reset-horizon OK when no waiting job is parked beyond the horizon", () => {
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    // Waiting on a reset a couple hours out — well within the default 8d horizon.
+    queue.markWaitingForReset(j.id, new Date(Date.now() + 2 * 60 * 60_000).toISOString());
+    queue.close();
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    const horizon = find(report, "reset-horizon");
+    expect(horizon.level).toBe("ok");
+    expect(horizon.message).toContain("no waiting jobs are parked beyond");
+  });
+
+  it("warns on reset-horizon when a waiting job is parked implausibly far out", () => {
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    // 30 days out — beyond the default 8d horizon, the fingerprint of a misparse.
+    queue.markWaitingForReset(j.id, new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+    });
+    const horizon = find(report, "reset-horizon");
+    expect(horizon.level).toBe("warning");
+    expect(horizon.message).toContain("1 waiting job(s)");
+    expect(horizon.hint).toContain("agentrelay show");
+    // The horizon check itself only warns — it never fails the report on its own.
+  });
+
+  it("skips the reset-horizon check when the guard is disabled via env", () => {
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+    });
+    const horizon = find(report, "reset-horizon");
+    expect(horizon.level).toBe("ok");
+    expect(horizon.message).toContain("disabled");
+  });
+
   it("reports store-writable OK for a writable store directory", () => {
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
     const writable = find(report, "store-writable");

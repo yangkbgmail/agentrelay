@@ -2259,3 +2259,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — doctor 먼-미래 리셋(reset-horizon) 검사] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-oy3fvt`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72가 "다음 할 일"로 남긴 인접 후보 — **`doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가** —
+  를 골랐다. 세션 72의 파서 지평선 가드는 *앞으로* 들어올 misparse를 막지만, 가드가 없던 시절이나
+  `AGENTRELAY_MAX_RESET_HORIZON=off`였을 때 **이미 큐에 파킹된** 먼-미래 잡은 잡아내지 못한다.
+  이 프로젝트가 doctor/overdue/recover로 반복 겨냥해온 "silent failure"(영원히 재개 안 되는 잡)의
+  미탐 갭. `overdue`(이미 지났어야 할 재개)의 **미래 방향 거울**.
+- **한 일 (branch `claude/wizardly-pascal-oy3fvt`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, nowMs, maxFutureMs)` + `FarFutureReset`
+    (job·aheadMs)·`HorizonFacts` 신설. `waiting_for_reset` 잡 중 `resetAt`이 `nowMs+maxFutureMs`를
+    넘는 것만 골라 먼-것부터 정렬(createdAt→id 타이브레이크). 파서 `isPlausibleReset`와 동일한
+    no-guard 의미(null/비유한/≤0 → 빈 배열), overdue와 동일 스코프. null/파싱불가 resetAt·비대기 잡 제외.
+  - `DiagnosticInput`에 `horizon: HorizonFacts` 추가 + `runDiagnostics`에 daemon 다음 `reset-horizon`
+    검사(가드 비활성=OK·먼-미래 없음=OK·있으면 warning + worst id/aheadMs + `agentrelay show`/`cancel/retry`
+    힌트). warning-only라 report는 실패시키지 않음.
+  - CLI `commands.ts` `runDoctor`가 `maxResetHorizonMsFromEnv(env)`로 지평선 해소(파서/스케줄러와
+    동일 소스)해 `selectFarFutureResets`로 facts 구성 — 라이브 가드와 doctor가 같은 임계값에 합의.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 648 · cli 357/1skip · dashboard 9**; core doctor +9, cli doctor +3). **실제 빌드
+  CLI e2e**(mock 아님): 30일 뒤 리셋으로 파킹한 `waiting_for_reset` 잡에 대해 기본 지평선(8d)에서
+  `reset-horizon` warning(`1 waiting job(s) reset more than 8d out (worst: … in 30d)` + `agentrelay show`
+  힌트), `AGENTRELAY_MAX_RESET_HORIZON=off`면 "guard is disabled" OK, 인간용 출력이 `!`/`↳`로 렌더됨을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
+  (수년 전 epoch)을 misparse 신호로 보고, 또는 대시보드에 먼-미래 파킹 잡 배지 노출.
+  stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
