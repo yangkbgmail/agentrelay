@@ -2259,3 +2259,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `doctor` 먼-미래 리셋 검사(큐-측 지평선 가드)] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-1uib0y`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72가 명시적으로 남긴 다음-후보 "`doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가"를 골랐다.
+  파서는 이제 **새** 탐지를 8일 지평선으로 가드하지만, 이미 스토어에 파킹된 잡(가드 이전 enqueue·
+  느슨한 env 지평선·타 머신 import)은 여전히 먼-미래 `resetAt`을 들고 조용히 영원히 대기 — doctor·
+  recover가 반복해 겨냥해온 "silent stall" 부류인데 정작 doctor가 못 잡던 갭.
+- **한 일 (branch `claude/wizardly-pascal-1uib0y`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, {nowMs, horizonMs})`(활성 잡만, `resetAt`이
+    `now+horizonMs` 초과인 것만; 과거 리셋 허용, 종료 잡·null·파싱불가 스킵, horizon null/비유한/
+    비양수=가드 비활성→빈 배열, 삽입 순서 보존) + `FarFutureReset`·`ResetHorizonFacts` 타입 추가.
+    `runDiagnostics`에 `reset-horizon` 검사(순서 node→store→writable→adapters→daemon→**reset-horizon**
+    →config→notify): 가드 비활성=OK[안내], 위반 0=OK, 위반 있으면 warning(개수+최악 잡 카운트다운 +
+    `show`/`cancel`/`retry` 힌트) — error 아님(정말 먼 미래인 정상 케이스 존재).
+  - CLI `commands.ts` `runDoctor`: `maxResetHorizonMsFromEnv`로 파서와 동일 지평선 해소, `nowMs`를
+    한 번만 계산(heartbeat와 공유)해 `selectFarFutureResets`로 위반 수집→`resetHorizon` fact 전달.
+    스케줄러·파서는 무수정(새 순수 로직만 추가).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 651 · cli 357/1skip · dashboard 9**; core doctor.test +12, cli doctor.test +3).
+  실제 빌드 CLI e2e(mock 아님): 286일 뒤 리셋 잡→`! reset-horizon … worst: job abc123ff in 286d`
+  warning, `AGENTRELAY_MAX_RESET_HORIZON=off`면 `✔ … guard is disabled`, 2h 리셋은 OK 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도
+  먼-미래 리셋 잡 배지 노출(세션 30/40 하트비트 카드 옆), 또는 `doctor`가 과거-쪽 극단(수년 전
+  epoch) resetAt도 misparse 신호로 별도 리포트. stats 분산/watch·summary --watch·epoch ms는 PR
+  포화라 지양. README/ARCHITECTURE(🧭 코워크).

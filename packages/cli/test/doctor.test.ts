@@ -201,6 +201,53 @@ describe("runDoctor", () => {
       chmodSync(join(dir, "readonly"), 0o700);
     }
   });
+
+  it("warns when a queued job holds an implausibly far-future reset", () => {
+    const nowMs = Date.parse("2026-08-19T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    // 60 days out — well beyond the 8-day default horizon.
+    queue.markWaitingForReset(job.id, new Date(nowMs + 60 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("1 queued job(s)");
+    expect(check.hint).toContain(`agentrelay show ${job.id}`);
+    // reset-horizon itself is only a warning, never an error.
+    expect(check.level).not.toBe("error");
+  });
+
+  it("is ok when a queued job's reset is within the horizon", () => {
+    const nowMs = Date.parse("2026-08-19T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(job.id, new Date(nowMs + 2 * 60 * 60_000).toISOString()); // 2h out
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs });
+    expect(find(report, "reset-horizon").level).toBe("ok");
+  });
+
+  it("reports the guard as disabled when AGENTRELAY_MAX_RESET_HORIZON=off", () => {
+    const nowMs = Date.parse("2026-08-19T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(job.id, new Date(nowMs + 90 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+      nowMs,
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+  });
 });
 
 describe("renderDoctor", () => {
