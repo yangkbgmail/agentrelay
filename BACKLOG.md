@@ -870,6 +870,24 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay completion nushell` — Nushell 탭 완성 스크립트 생성(bash/zsh에 이은 세 번째 셸).
+      (완료 — 자기 발굴 항목. 열린 PR ~200개를 키워드 스캔한 결과 completion 확장은 fish/powershell만
+      겨냥돼 있고 **nushell은 어떤 PR·브랜치도 안 건드림**(0 매치)이라 중복 없는 갭이었다. core
+      `completion.ts`의 `CompletionShell`에 `"nushell"` 추가 + `COMPLETION_SHELLS` 확장. 순수
+      `generateNushell(spec)` 신설: 프로그램과 각 (하위)커맨드마다 `export extern "agentrelay …" [ … ]`
+      정의를 방출 — nushell이 각 extern을 알려진 커맨드로 등록하므로 `agentrelay <TAB>`가 하위커맨드
+      이름을, 커맨드가 줄에 있으면 그 시그니처의 플래그를 완성. 롱(`--`) 플래그만 방출(nushell은 숏
+      플래그를 `--long (-s)`로 롱과 짝지어야 하는데 spec에 그 짝 정보가 없어 bare `-w`는 유효 nushell로
+      못 냄 — bash/zsh도 플래그 *이름*만 완성하므로 동작 일치), 각 시그니처 끝에 `...rest: string` 통과
+      인자를 붙여 스위치로 렌더된 플래그의 *값*과 미선언 인자를 실제 바이너리로 그대로 포워딩(extern은
+      완성용이지 CLI 재검증용이 아님). 모든 커맨드에 `--help`, 프로그램엔 `--version`. 기존
+      `assertSafeToken`으로 플래그·커맨드 토큰 방어. CLI `cli.ts`의 completion 커맨드는 spec 기반이라
+      배열 확장만으로 자동 배선(설명·헬프 예시에 nushell 추가). 새 파서/스케줄러 로직 0줄. core
+      completion.test +6(헤더·program extern·per-command extern·rest 통과·bare 숏 드롭·per-subcommand
+      extern·롱 플래그 dedupe) + shell helper 단언 갱신. 실제 빌드 CLI e2e로 41개 extern·괄호 균형·
+      하위커맨드 extern·`fish`는 여전히 exit 1(valid 목록에 nushell 노출) 검증. branch
+      `claude/completion-nushell`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

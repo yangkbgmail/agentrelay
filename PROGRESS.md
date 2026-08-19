@@ -2259,3 +2259,34 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay completion nushell` (Nushell 탭 완성)] (2026-08-19, 무인 자율 세션, branch `claude/completion-nushell`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72가 "다음 할 일"로 제안한 `doctor` 먼-미래 리셋 검사는 이미 **~28개의 열린 PR**이
+  똑같이 구현 중이라(reset-horizon 중복 스탬피드) 29번째 중복을 피했다. 대신 열린 PR ~200개
+  (#534–#784) 전체 제목을 스캔해, completion 확장은 fish/powershell만 겨냥돼 있고 **nushell은
+  어떤 PR·브랜치도 안 건드림**(0 매치)임을 확인해 중복 없는 실질 갭을 골랐다.
+- **한 일 (branch `claude/completion-nushell`):**
+  - core `completion.ts`: `CompletionShell`에 `"nushell"` 추가, `COMPLETION_SHELLS` 확장,
+    `generateCompletion` 디스패치에 nushell 분기. 순수 `generateNushell(spec)` 신설 —
+    프로그램과 각 (하위)커맨드마다 `export extern "agentrelay …" [ … ]` 정의 방출. nushell이 각
+    extern을 알려진 커맨드로 등록하므로 `agentrelay <TAB>`가 하위커맨드 이름을, 커맨드가 줄에
+    있으면 그 시그니처의 플래그를 완성한다.
+  - 롱(`--`) 플래그만 방출: nushell은 숏 플래그를 `--long (-s)`로 롱과 짝지어야 하는데 spec에
+    그 짝 정보가 없어 bare `-w`는 유효 nushell로 못 냄(bash/zsh도 플래그 이름만 완성 → 동작 일치).
+    각 시그니처 끝에 `...rest: string` 통과 인자를 붙여 스위치로 렌더된 플래그의 *값*·미선언 인자를
+    실제 바이너리로 그대로 포워딩(extern은 완성용이지 CLI 재검증용 아님). 모든 커맨드에 `--help`,
+    프로그램엔 `--version`. 기존 `assertSafeToken`으로 플래그·커맨드 토큰 인젝션 방어 재사용.
+  - CLI `cli.ts`의 completion 커맨드는 spec 기반이라 배열 확장만으로 자동 배선 — 설명 문구·헬프
+    예시에 nushell 추가. 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 646 · cli 354/1skip · dashboard 9**; completion.test +6 + shell helper 단언 갱신).
+  **실제 빌드 CLI e2e**(mock 아님): `completion nushell`이 41개 `export extern`(program+40 커맨드/
+  하위커맨드)·괄호 균형·`agentrelay config init` 하위커맨드 extern·`...rest` 통과 인자를 방출하고,
+  `completion fish`는 여전히 exit 1("Valid: bash, zsh, nushell")임을 확인. (nushell 미설치라 구조
+  검증까지.)
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). **주의: 열린 PR이 200개+로 극도
+  포화 상태이고 대량 중복(reset-horizon ×~28, summary --watch ×~10, eta --watch ×~11, stats
+  --attempts ×~6, fish completion ×4 등)이 심각 — 코워크/소유자에게 중복 정리·플릿 조율 필요를
+  알림. 후속 인접 후보: completion 값-인식 강화(플래그가 값을 받는지 spec에 실어 nushell 시그니처
+  타입 부여), 또는 아직 0매치인 셸(nu 외). README/ARCHITECTURE(🧭 코워크).
