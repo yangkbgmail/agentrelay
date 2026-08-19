@@ -92,6 +92,23 @@ function ResumeLoopCard({ heartbeat }: { heartbeat: HeartbeatStatus | undefined 
   );
 }
 
+function StoreCorruptBanner({ store }: { store: JobsSnapshot["store"] | undefined }) {
+  if (!store?.corrupt) return null;
+  return (
+    <div className="store-corrupt-banner" role="alert">
+      <strong>Job store was unreadable.</strong> The file couldn&apos;t be parsed, so it was moved aside and the queue
+      started empty — the jobs below may be missing.{" "}
+      {store.backupPath ? (
+        <>
+          A backup was saved to <code>{store.backupPath}</code>. Recover it with <code>agentrelay restore</code>.
+        </>
+      ) : (
+        <>The file could not be moved aside; check the store directory&apos;s permissions.</>
+      )}
+    </div>
+  );
+}
+
 /**
  * A single rollup row, flattened from either a {@link ProjectBreakdown} (keyed
  * by project) or a {@link ToolBreakdown} (keyed by tool). Both core summaries
@@ -263,6 +280,8 @@ export default function DashboardClient() {
           Could not read the job store: {fetchError}
         </div>
       )}
+
+      <StoreCorruptBanner store={snapshot?.store} />
 
       <ResumeLoopCard heartbeat={snapshot?.heartbeat} />
 

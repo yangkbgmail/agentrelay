@@ -870,6 +870,20 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 대시보드 스토어 손상 노출 — `jobs.json`이 깨졌을 때 대시보드가 조용히 빈 큐로 표시하던 갭을 메움.
+      자기 발굴 항목 — CLI는 손상 스토어를 만나면 `openQueue`의 `onCorrupt`로 stderr 경고를 내지만,
+      대시보드 `readJobsSnapshot`은 `onCorrupt` 없이 `new RelayQueue(storePath)`를 써서 로더가 깨진
+      파일을 옆으로 치우고 빈 큐로 폴백하면 **아무 표시 없이** 빈 큐를 렌더 — 실제 데이터 유실을 숨겼다.
+      (완료 — `apps/dashboard/lib/jobs.ts`의 `JobsSnapshot`에 `store: StoreState`(corrupt·backupPath) 추가,
+      `readJobsSnapshot`이 CLI와 동일하게 `onCorrupt` 콜백으로 손상 여부·치워둔 백업 경로를 캡처. 클라이언트
+      `dashboard-client.tsx`에 `StoreCorruptBanner`(손상 시 경고 배너 — 백업 경로 표시 + `agentrelay restore`
+      복구 힌트, 못 치웠으면 권한 확인 안내, heartbeat concerning 배너 패턴 미러). `globals.css`에
+      `.store-corrupt-banner`(status-warning 보더). 손상은 **일회성 이벤트** — 로더가 파일을 치우면 다음
+      읽기는 클린이라 배너는 그 폴 프레임에만 뜬다(정상 동작). jobs.test.ts +3(corrupt→store.corrupt/backupPath·
+      healthy→false·absent→false, 기존 corrupt 테스트는 유지). 실제 빌드 대시보드 `next start`+임시 스토어
+      e2e로 첫 `/api/jobs`가 `corrupt:true`+backupPath 반환, 두 번째(이미 복구)는 `corrupt:false` 확인.
+      branch `claude/dashboard-store-corrupt-banner`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -35,6 +35,26 @@ export interface JobsSnapshot {
    * #1 silent failure: jobs queued to resume with nothing running to resume them.
    */
   heartbeat: HeartbeatStatus;
+  /**
+   * Whether the store file was unreadable when this snapshot was read. The queue
+   * loader moves a corrupt `jobs.json` aside and starts fresh, so without this
+   * the dashboard would silently show an empty queue as if nothing were wrong —
+   * hiding real data loss. When `corrupt` is true the dashboard shows a banner
+   * (mirroring the CLI's stderr warning) pointing at the moved-aside backup so
+   * the user can `agentrelay restore` it.
+   */
+  store: StoreState;
+}
+
+/** State of the store file for a single {@link JobsSnapshot} read. */
+export interface StoreState {
+  /** True when the store file existed but could not be parsed as a job array. */
+  corrupt: boolean;
+  /**
+   * Where the unreadable file was moved to (`jobs.json.corrupt-<ts>`), or null
+   * when the queue couldn't move it aside. Only set when `corrupt` is true.
+   */
+  backupPath: string | null;
 }
 
 /**
@@ -59,7 +79,16 @@ function readHeartbeatStatus(storePath: string, jobs: RelayJob[], nowMs: number)
  * reflects what the CLI/daemon last wrote (no separate server, no cache).
  */
 export function readJobsSnapshot(storePath: string = defaultStorePath()): JobsSnapshot {
-  const queue = new RelayQueue(storePath);
+  // Capture corruption the same way the CLI does (its `openQueue` warns on
+  // stderr) so the dashboard can surface it instead of silently showing the
+  // empty queue the loader falls back to.
+  const store: StoreState = { corrupt: false, backupPath: null };
+  const queue = new RelayQueue(storePath, {
+    onCorrupt: ({ backupPath }) => {
+      store.corrupt = true;
+      store.backupPath = backupPath;
+    },
+  });
   const jobs = queue.listAll();
   queue.close();
   const nowMs = Date.now();
@@ -71,5 +100,6 @@ export function readJobsSnapshot(storePath: string = defaultStorePath()): JobsSn
     projects: summarizeProjects(jobs),
     tools: summarizeTools(jobs),
     heartbeat: readHeartbeatStatus(storePath, jobs, nowMs),
+    store,
   };
 }
