@@ -2259,3 +2259,25 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 대시보드 "Upcoming resumes" 재개 런웨이 카드] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-ye7bsh`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 100+개(파서·stats·doctor·신규 커맨드가 극단적으로 포화; 특히 doctor "먼-미래 리셋" 검사는
+  30개 이상 중복 PR)라 충돌을 피하려 **대시보드**(열린 PR 5개뿐)에서 실제 갭을 발굴: CLI `agentrelay
+  upcoming`(재개 예정 타임라인)은 있으나 대시보드에는 그 런웨이가 없어, 잡 테이블이 "다음에 무엇이
+  언제 재개되는지"의 순서를 못 보여줬다.
+- **한 일 (branch `claude/wizardly-pascal-ye7bsh`):**
+  - `apps/dashboard/lib/jobs.ts`: core `buildUpcomingTimeline(jobs, now, UPCOMING_LIMIT=8)` 재사용 →
+    `JobsSnapshot.upcoming`(`UpcomingTimeline`)을 매 폴링 반환. 순서/dueNow/hidden 로직을 core에서
+    빌려와 CLI·스케줄러 `listDue`와 드리프트 없음(ResumeLoopCard=doctor, RollupCard=projects/tools 미러링과
+    동일 철학). 8개로 트림하되 totalWaiting/hidden은 전체 집계.
+  - `dashboard-client.tsx`: `UpcomingCard` — 서버가 정한 순서/포지션대로 렌더하되 행별 카운트다운·"due
+    now"는 기존 잡 테이블처럼 라이브 `now` 시계로 매초 재계산(리셋 시각은 폴링 사이 불변이라 서버 순서
+    유효). 대기 0개면 숨김, 초과분은 "+N more not shown" 푸터. summary 타일 다음·rollup 앞 배치. `.upcoming-*` CSS.
+- **검증:** `pnpm install`→`pnpm build`(Next 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과
+  (**core 639 · cli 354/1skip · dashboard 13**; jobs.test +5: 빈 런웨이·soonest-first·position·past=dueNow·
+  UPCOMING_LIMIT 트림+hidden). **실제 빌드 대시보드** `next start`+시드 스토어 `/api/jobs` curl로 upcoming이
+  soonest-first(sooner→later) 정렬·완료 잡 제외로 반환됨을 e2e 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — UpcomingCard 행에 tool
+  배지/클릭 시 상세, 대시보드에 `eta`(전체 큐 캐치업 ETA) 카드. PR 포화 영역(파서/stats/doctor/summary
+  --watch/epoch ms)은 지양. README/ARCHITECTURE(🧭 코워크).

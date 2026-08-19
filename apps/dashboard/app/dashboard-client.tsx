@@ -1,6 +1,13 @@
 "use client";
 
-import type { HeartbeatStatus, JobStatus, ProjectBreakdown, RelayJob, ToolBreakdown } from "@agentrelay/core";
+import type {
+  HeartbeatStatus,
+  JobStatus,
+  ProjectBreakdown,
+  RelayJob,
+  ToolBreakdown,
+  UpcomingTimeline,
+} from "@agentrelay/core";
 import { useEffect, useState } from "react";
 import type { JobsSnapshot } from "../lib/jobs";
 
@@ -174,6 +181,64 @@ function RollupCard({
   );
 }
 
+/**
+ * The forward-looking resume runway: `waiting_for_reset` jobs ordered by when
+ * they come due (mirror of `agentrelay upcoming`). The order and membership are
+ * computed server-side by core's `buildUpcomingTimeline` (so they never drift
+ * from the CLI/scheduler), but each row's countdown and its "due now" state are
+ * recomputed here against the live `now` clock so the runway ticks every second
+ * — reset times don't change between polls, so the server ordering stays valid.
+ */
+function UpcomingCard({ upcoming, now }: { upcoming: UpcomingTimeline | undefined; now: number }) {
+  if (!upcoming || upcoming.totalWaiting === 0) return null;
+
+  return (
+    <section className="upcoming-card" aria-label="Upcoming resumes">
+      <div className="upcoming-head">
+        <h2 className="rollup-title">Upcoming resumes</h2>
+        <span className="upcoming-count numeric">
+          {upcoming.totalWaiting} waiting
+          {upcoming.dueNow > 0 && <span className="upcoming-due"> · {upcoming.dueNow} due now</span>}
+        </span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th className="numeric">#</th>
+            <th>Project / job</th>
+            <th>Command</th>
+            <th className="numeric">Resets in</th>
+            <th className="numeric">Reset at</th>
+          </tr>
+        </thead>
+        <tbody>
+          {upcoming.entries.map((entry) => {
+            const resetMs = entry.job.resetAt ? new Date(entry.job.resetAt).getTime() : Number.NaN;
+            const due = !Number.isNaN(resetMs) && resetMs <= now;
+            return (
+              <tr key={entry.job.id} className={due ? "upcoming-due-row" : undefined}>
+                <td className="numeric">{entry.position}</td>
+                <td>
+                  <div>{entry.job.project}</div>
+                  <div className="job-id">{entry.job.id.slice(0, 8)}</div>
+                </td>
+                <td className="cmd">{entry.job.command.join(" ")}</td>
+                <td className="numeric">{formatCountdown(entry.job.resetAt, now)}</td>
+                <td className="numeric">{formatClock(entry.job.resetAt)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {upcoming.hidden > 0 && (
+        <div className="upcoming-more">
+          +{upcoming.hidden} more waiting job{upcoming.hidden === 1 ? "" : "s"} not shown
+        </div>
+      )}
+    </section>
+  );
+}
+
 function StatusBadge({ status }: { status: JobStatus }) {
   const meta = STATUS_META[status] ?? { label: status, colorVar: "var(--ink-muted)" };
   return (
@@ -303,6 +368,8 @@ export default function DashboardClient() {
           <div className="value numeric">{summary?.total ?? "–"}</div>
         </div>
       </section>
+
+      <UpcomingCard upcoming={snapshot?.upcoming} now={now} />
 
       {hasRollup && (
         <section className="rollup-grid" aria-label="Rollups by project and tool">

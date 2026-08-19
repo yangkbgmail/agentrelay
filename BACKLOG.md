@@ -870,6 +870,21 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 대시보드 "Upcoming resumes"(재개 예정 런웨이) 카드 — CLI `agentrelay upcoming`을 대시보드에
+      미러링. 그동안 대시보드 잡 테이블은 생성일 역순 평면 목록이라 "다음에 무엇이, 언제 재개되는지"의
+      순서(런웨이)를 보여주지 못했다.
+      (완료 — 서버 `apps/dashboard/lib/jobs.ts`가 core `buildUpcomingTimeline(jobs, now, UPCOMING_LIMIT)`을
+      재사용해 `JobsSnapshot.upcoming`(`UpcomingTimeline`)을 매 폴링 반환 — 순서/`dueNow`/`hidden` 로직을
+      core에서 그대로 빌려와 CLI·스케줄러 `listDue`와 절대 드리프트 안 함(ResumeLoopCard=doctor, RollupCard=
+      projects/tools 미러링과 동일 철학). `UPCOMING_LIMIT=8`로 트림하되 `totalWaiting`/`hidden`은 전체 집계.
+      클라이언트 `UpcomingCard`가 서버가 정한 순서/포지션대로 렌더하되, 행별 카운트다운·"due now" 상태는
+      기존 잡 테이블처럼 라이브 `now` 시계로 매초 재계산(리셋 시각은 폴링 사이 불변이라 서버 순서 유효).
+      대기 잡 0개면 카드 숨김, 초과분은 "+N more … not shown" 푸터. summary 타일 다음·rollup 앞에 배치.
+      `.upcoming-*` CSS 추가. jobs.test.ts +5(빈 런웨이·soonest-first 정렬·position·past=dueNow·
+      UPCOMING_LIMIT 트림+hidden). `pnpm build`(Next 클린)·`biome ci` 0에러·전 테스트 통과(core 639·cli
+      354/1skip·dashboard 13), 빌드된 대시보드 `next start`+시드 스토어 `/api/jobs` curl로 upcoming 정렬
+      (sooner→later)·완료 잡 제외 e2e 확인. branch `claude/wizardly-pascal-ye7bsh`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

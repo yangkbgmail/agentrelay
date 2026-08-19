@@ -144,6 +144,47 @@ main {
   overflow-x: auto;
 }
 
+.upcoming-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow-x: auto;
+  margin: 24px 0;
+}
+
+.upcoming-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.upcoming-head .rollup-title {
+  border-bottom: none;
+}
+
+.upcoming-count {
+  padding: 12px 14px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.upcoming-due {
+  color: var(--status-warning);
+}
+
+.upcoming-due-row td {
+  color: var(--status-warning);
+}
+
+.upcoming-more {
+  padding: 10px 14px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  border-top: 1px solid var(--hairline);
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

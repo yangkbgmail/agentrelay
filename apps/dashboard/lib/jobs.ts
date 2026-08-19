@@ -1,6 +1,14 @@
 import { readFileSync } from "node:fs";
-import type { HeartbeatStatus, ProjectsSummary, QueueSummary, RelayJob, ToolsSummary } from "@agentrelay/core";
+import type {
+  HeartbeatStatus,
+  ProjectsSummary,
+  QueueSummary,
+  RelayJob,
+  ToolsSummary,
+  UpcomingTimeline,
+} from "@agentrelay/core";
 import {
+  buildUpcomingTimeline,
   countActiveJobs,
   daemonHeartbeatPath,
   defaultStorePath,
@@ -11,6 +19,13 @@ import {
   summarizeProjects,
   summarizeTools,
 } from "@agentrelay/core";
+
+/**
+ * How many soonest-due jobs the upcoming-resume runway shows at once. The card
+ * stays compact on a busy queue while `totalWaiting`/`hidden` still report the
+ * full set so the footer can honestly say "N more not shown".
+ */
+export const UPCOMING_LIMIT = 8;
 
 export interface JobsSnapshot {
   storePath: string;
@@ -35,6 +50,15 @@ export interface JobsSnapshot {
    * #1 silent failure: jobs queued to resume with nothing running to resume them.
    */
   heartbeat: HeartbeatStatus;
+  /**
+   * Forward-looking resume runway (mirror of `agentrelay upcoming`): the
+   * `waiting_for_reset` jobs ordered by when they come due, so the dashboard can
+   * show "what resumes next, and after that". Reuses core's
+   * `buildUpcomingTimeline`, so the order/due-now logic never drifts from the
+   * CLI or the scheduler's `listDue`. Trimmed to {@link UPCOMING_LIMIT} rows;
+   * `totalWaiting`/`hidden` still reflect the full set.
+   */
+  upcoming: UpcomingTimeline;
 }
 
 /**
@@ -71,5 +95,6 @@ export function readJobsSnapshot(storePath: string = defaultStorePath()): JobsSn
     projects: summarizeProjects(jobs),
     tools: summarizeTools(jobs),
     heartbeat: readHeartbeatStatus(storePath, jobs, nowMs),
+    upcoming: buildUpcomingTimeline(jobs, nowMs, UPCOMING_LIMIT),
   };
 }
