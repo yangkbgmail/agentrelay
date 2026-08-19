@@ -241,6 +241,45 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  // --- rate-limit reset headers (ratelimit-reset-header) ---
+
+  it("parses a GitHub-style x-ratelimit-reset epoch header", () => {
+    const result = parseRateLimitMessage("HTTP 429\nx-ratelimit-reset: 1752345600");
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("parses an Anthropic-style ratelimit reset header carrying an RFC 3339 instant", () => {
+    const result = parseRateLimitMessage("anthropic-ratelimit-unified-reset: 2026-08-19T12:00:00Z");
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe("2026-08-19T12:00:00.000Z");
+  });
+
+  it("matches the reset header case-insensitively and with an equals separator", () => {
+    const result = parseRateLimitMessage("X-RateLimit-Reset=1752345600");
+    expect(result?.pattern).toBe("ratelimit-reset-header");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("does not misread a duration-style reset header value (OpenAI x-ratelimit-reset-requests: 1s)", () => {
+    // The value "1s" is neither a 10-digit epoch nor an ISO instant, so the
+    // header pattern must not match — and nothing else recognizes bare seconds
+    // in the generic parser, so the whole message resolves to null.
+    const result = parseRateLimitMessage("x-ratelimit-reset-requests: 1s");
+    expect(result).toBeNull();
+  });
+
+  it("does not truncate an 11+ digit millisecond value into a reset-header epoch", () => {
+    // 13-digit ms epoch must not be read as a 10-digit seconds epoch.
+    const result = parseRateLimitMessage("x-ratelimit-reset: 1752345600000");
+    expect(result).toBeNull();
+  });
+
+  it("falls through a malformed ISO value in a reset header instead of an invalid date", () => {
+    const result = parseRateLimitMessage("anthropic-ratelimit-unified-reset: 2026-13-40T99:99:99Z");
+    expect(result).toBeNull();
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [

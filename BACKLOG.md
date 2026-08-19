@@ -870,6 +870,23 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 파서: rate-limit **리셋(reset) 헤더** 인식 — HTTP API를 프록시하는 에이전트가 429에서 그대로
+      덤프하는 `x-ratelimit-reset: <epoch>`(GitHub 등)·`anthropic-ratelimit-*-reset: <RFC3339>`(Anthropic
+      API) 헤더를 리셋 시각으로 파싱. 자기 발굴 항목 — 기존 파서는 상대 지연 헤더 `Retry-After`만 잡고,
+      리셋 시각을 **절대적으로** 담는 이 헤더군을 놓쳤다. AgentRelay가 감싸는 Claude Code가 곧 Anthropic
+      API 프록시라 실전에서 가장 신뢰도 높은 신호인데도.
+      (완료 — `@agentrelay/core/parser.ts`의 generic `PATTERNS`에 `ratelimit-reset-header` 패턴 추가:
+      정규식 `/[\w-]*ratelimit[\w-]*reset[\w-]*\s*[:=]\s*(?:(<ISO8601>)|(\d{10})(?!\d))/i`로 헤더 키가
+      "ratelimit"→"reset" 순서를 포함(하이픈/언더스코어·대소문자 관용)할 때 값이 10자리 unix epoch초
+      **또는** RFC 3339 절대시각이면 리셋으로 해소. `Retry-After`(상대 지연)·JSON `retry_after`(epoch)와
+      키가 겹치지 않아 상호 오매치 없음. epoch는 정확히 10자리(초)로 제한 + `(?!\d)`로 11+자리 밀리초
+      값이 잘려 오독되지 않게, ISO 파싱 실패는 null 폴스루. OpenAI식 duration 값
+      (`x-ratelimit-reset-requests: 1s`)은 epoch도 ISO도 아니라 매치 안 되고 폴스루(오독 방지).
+      새 스케줄러/어댑터 로직 0줄 — 어댑터의 `detectRateLimit`가 이미 generic 패턴을 그대로 사용.
+      parser.test에 6케이스 추가(GitHub epoch·Anthropic RFC3339·대소문자+`=` 구분자·duration 값 미매치·
+      13자리 ms 미절단·잘못된 ISO 폴스루). 실제 빌드 CLI `parse` e2e로 epoch/ISO 매치·duration 값
+      "No rate-limit detected" 확인. core 645 전 테스트 통과. branch `claude/wizardly-pascal-st51bh`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
