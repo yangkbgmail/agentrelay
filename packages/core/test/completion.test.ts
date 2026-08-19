@@ -20,13 +20,14 @@ const SPEC: CompletionSpec = {
 };
 
 describe("completion shell helpers", () => {
-  it("COMPLETION_SHELLS lists bash and zsh", () => {
-    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh"]);
+  it("COMPLETION_SHELLS lists bash, zsh, and nushell", () => {
+    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh", "nushell"]);
   });
 
   it("isCompletionShell accepts known shells and rejects others", () => {
     expect(isCompletionShell("bash")).toBe(true);
     expect(isCompletionShell("zsh")).toBe(true);
+    expect(isCompletionShell("nushell")).toBe(true);
     expect(isCompletionShell("fish")).toBe(false);
     expect(isCompletionShell("")).toBe(false);
     expect(isCompletionShell("BASH")).toBe(false);
@@ -97,6 +98,65 @@ describe("generateCompletion — zsh", () => {
     // parent command lists subcommands
     expect(script).toContain("'init'");
     expect(script).toContain("'validate'");
+  });
+});
+
+describe("generateCompletion — nushell", () => {
+  const script = generateCompletion("nushell", SPEC);
+
+  it("starts with the nushell completion header", () => {
+    expect(script.startsWith("# nushell completion for agentrelay")).toBe(true);
+  });
+
+  it("emits an extern for the program with global options plus help/version", () => {
+    expect(script).toContain('export extern "agentrelay" [');
+    expect(script).toContain("--store");
+    expect(script).toContain("--config");
+    expect(script).toContain("--version");
+  });
+
+  it("emits an extern per command carrying its long flags and --help", () => {
+    expect(script).toContain('export extern "agentrelay run" [');
+    expect(script).toContain('export extern "agentrelay status" [');
+    // status flags, --help appended
+    expect(script).toContain("--watch");
+    expect(script).toContain("--help");
+  });
+
+  it("ends every signature with a ...rest catch-all so values pass through", () => {
+    expect(script).toContain("...rest: string");
+    // one per extern
+    expect(script.match(/\.\.\.rest: string/g)?.length).toBe(script.match(/^export extern/gm)?.length);
+  });
+
+  it("drops bare short flags (no long/short pairing in the spec)", () => {
+    // status carries -r; nushell can't render a bare short flag, so it's omitted.
+    const statusBlock = script.slice(
+      script.indexOf('export extern "agentrelay status"'),
+      script.indexOf("]", script.indexOf('export extern "agentrelay status"'))
+    );
+    expect(statusBlock).not.toContain("-r");
+    expect(statusBlock).toContain("--sort");
+  });
+
+  it("emits an extern per subcommand of a parent command", () => {
+    expect(script).toContain('export extern "agentrelay config" [');
+    expect(script).toContain('export extern "agentrelay config init" [');
+    expect(script).toContain('export extern "agentrelay config validate" [');
+    expect(script).toContain('export extern "agentrelay config show" [');
+    // show's long flags survive; init's bare -f is dropped but --force stays.
+    expect(script).toContain("--show-secrets");
+    expect(script).toContain("--force");
+  });
+
+  it("dedupes repeated long flags while keeping first-seen order", () => {
+    const dup = generateCompletion("nushell", {
+      program: "x",
+      options: [],
+      commands: [{ name: "c", options: ["--json", "--json", "-j"] }],
+    });
+    const block = dup.slice(dup.indexOf('export extern "x c"'));
+    expect(block.match(/--json/g)?.length).toBe(1);
   });
 });
 

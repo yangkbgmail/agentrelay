@@ -4,17 +4,17 @@
 // only way to get it is to hand the shell a completion script.
 //
 // This module holds only the pure *rendering*: given a description of the
-// command tree (a `CompletionSpec`), produce a valid bash or zsh completion
-// script as a string. The CLI derives the spec from the live commander program
-// (so it never drifts from the real command surface) and prints the script; the
-// generator here is filesystem/commander-free so it's trivially unit-testable
-// and deterministic.
+// command tree (a `CompletionSpec`), produce a valid bash, zsh, or nushell
+// completion script as a string. The CLI derives the spec from the live
+// commander program (so it never drifts from the real command surface) and
+// prints the script; the generator here is filesystem/commander-free so it's
+// trivially unit-testable and deterministic.
 
 /** Shells we can emit a completion script for. */
-export type CompletionShell = "bash" | "zsh";
+export type CompletionShell = "bash" | "zsh" | "nushell";
 
 /** Every shell `agentrelay completion` accepts, in a stable order. */
-export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh"] as const;
+export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh", "nushell"] as const;
 
 /** Type guard: is `value` one of the shells we support? */
 export function isCompletionShell(value: string): value is CompletionShell {
@@ -76,8 +76,8 @@ function wordList(words: string[], kind: string): string {
 
 /**
  * Generate a completion script for `shell` from `spec`. The returned string is a
- * complete, self-contained script the user can `source` (bash) or drop on their
- * `$fpath` (zsh).
+ * complete, self-contained script the user can `source` (bash), drop on their
+ * `$fpath` (zsh), or `source`/`use` from their config (nushell).
  */
 export function generateCompletion(shell: CompletionShell, spec: CompletionSpec): string {
   assertSafeToken(spec.program, "program name");
@@ -86,6 +86,7 @@ export function generateCompletion(shell: CompletionShell, spec: CompletionSpec)
     for (const sub of cmd.subcommands ?? []) assertSafeToken(sub.name, "subcommand name");
   }
   if (shell === "bash") return generateBash(spec);
+  if (shell === "nushell") return generateNushell(spec);
   return generateZsh(spec);
 }
 
@@ -266,5 +267,59 @@ ${caseArms.join("\n")}
   esac
 }
 ${fn} "$@"
+`;
+}
+
+/**
+ * Nushell: a set of `export extern` definitions — one for the program and one
+ * per (sub)command. Nushell registers each `extern "agentrelay status"` as a
+ * known command, so typing `agentrelay <TAB>` completes subcommand names and,
+ * once a command is on the line, its flags from that extern's signature.
+ *
+ * Only long (`--`) flags are emitted: nushell signature syntax pairs a short
+ * flag with a long one (`--long (-s)`), and our spec doesn't carry that pairing,
+ * so a bare `-w` can't be rendered as valid nushell. This matches the bash/zsh
+ * output, which also completes flag *names* (not their values). Every command
+ * still gets `--help`; the program also gets `--version`.
+ *
+ * Each signature ends with a `...rest: string` catch-all so nushell forwards any
+ * flag *values* (our flags are rendered as bare switches, since the spec doesn't
+ * say which take an argument) and any undeclared args straight through to the
+ * real binary — the extern is for completion, never to re-validate the CLI.
+ */
+function generateNushell(spec: CompletionSpec): string {
+  // Long-form flags only, deduped, with the always-present extras appended.
+  const longFlags = (options: string[], extras: string[]): string[] =>
+    uniq([...options, ...extras].filter((o) => o.startsWith("--")));
+
+  const externs: string[] = [];
+  const emit = (fullName: string, flags: string[]): void => {
+    // fullName is a space-joined path of already-validated command tokens; the
+    // flags still need checking (their `--` prefix stripped for the token rule).
+    for (const f of flags) assertSafeToken(f.replace(/^--/, ""), "nushell flag");
+    const lines = [...flags.map((f) => `  ${f}`), "  ...rest: string"];
+    externs.push(`export extern "${fullName}" [\n${lines.join("\n")}\n]`);
+  };
+
+  // The program itself: global options + help/version.
+  emit(spec.program, longFlags(spec.options, ["--help", "--version"]));
+
+  for (const cmd of spec.commands) {
+    const subs = cmd.subcommands ?? [];
+    if (subs.length > 0) {
+      // A parent command (e.g. `config`): its own extern, then one per child.
+      emit(`${spec.program} ${cmd.name}`, longFlags([], ["--help"]));
+      for (const sub of subs) {
+        emit(`${spec.program} ${cmd.name} ${sub.name}`, longFlags(sub.options, ["--help"]));
+      }
+    } else {
+      emit(`${spec.program} ${cmd.name}`, longFlags(cmd.options, ["--help"]));
+    }
+  }
+
+  return `# nushell completion for ${spec.program}
+# Install: save this to a file (e.g. ${spec.program}.nu) and \`source\` it from
+# your config.nu, or place it on $env.NU_LIB_DIRS and \`use\` it.
+${externs.join("\n\n")}
 `;
 }
