@@ -869,6 +869,23 @@
       비양수=가드없음·isPlausibleReset 경계·env 기본/파싱/비활성) + scheduler.test +2(먼-미래 resume 드롭→
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
+- [x] 👷 `agentrelay parse` 진단에 리셋 plausibility 주석 — 지평선 밖(미래)·수상한 과거(misparse 신호)를
+      표시. 자기 발굴 항목(세션 72 후속) — `parse`는 일부러 지평선 가드를 적용하지 않아 raw 파스를 보여주지만,
+      "왜 내 잡이 안 큐잉됐지?"를 디버깅하는 사용자에게 **relay가 실제로 이 먼-미래 리셋을 드롭한다**는 사실을
+      전혀 알려주지 못했고, 파서가 과거 쪽은 아예 경계하지 않아 epoch 단위 혼동으로 수년 전에 떨어진 misparse도
+      묵묵히 통과했다.
+      (완료 — core `parser.ts`에 순수 `classifyResetPlausibility(resetAt, now, {maxFutureMs, maxPastMs})`
+      → `ResetPlausibility`(`"ok"`/`"too-far-future"`/`"too-far-past"`) 신설: 미래는 기존 지평선과 동일 의미,
+      과거는 **advisory 전용**(과거 리셋=즉시 재개 안전이라 드롭 안 함, 진단에서만 misparse 신호로 표시).
+      비유한 resetAt/비활성 bound는 `"ok"`. `DEFAULT_MAX_RESET_PAST_MS`(대칭 8일) + `maxResetPastMsFromEnv`
+      (`AGENTRELAY_MAX_RESET_PAST`, 미설정=기본, `0`/`off`/`none`/파싱불가=null[비활성]) 추가 —
+      `maxResetHorizonMsFromEnv`와 미러. CLI `parse.ts`에 순수 `classifyReport`(no-match/unparseable→null) +
+      `renderParseReport`가 too-far-future면 지평선 값과 `AGENTRELAY_MAX_RESET_HORIZON`을 짚는 경고,
+      too-far-past면 "N일 과거 — misparse" 경고를 붙이고, `--json`은 `plausibility` 필드를 추가. `parse` 커맨드가
+      `maxResetHorizonMsFromEnv()`/`maxResetPastMsFromEnv()`로 배선. parser.test +8(classify 미래/과거 경계·
+      비활성 bound·unparseable + past-env 기본/파싱/비활성) + cli parse.test +6(json plausibility·classifyReport·
+      3종 주석·가드 off 시 무주석). 실제 빌드 CLI e2e로 먼-미래=지평선 경고·수년 전=misparse 경고·2h=무주석·
+      `HORIZON=off`면 json plausibility "ok" 확인. branch `claude/parser-reset-past-signal`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

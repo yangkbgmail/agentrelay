@@ -33,6 +33,8 @@ import {
   isCompletionShell,
   isJobScopeActive,
   JOB_CSV_COLUMNS,
+  maxResetHorizonMsFromEnv,
+  maxResetPastMsFromEnv,
   parseCsvColumns,
   parseDuration,
   renderPrometheusMetrics,
@@ -1895,11 +1897,12 @@ export function buildCli(): Command {
         return;
       }
       const report = buildParseReport(text, { tool: tool as AgentTool | undefined });
+      const horizons = { maxFutureMs: maxResetHorizonMsFromEnv(), maxPastMs: maxResetPastMsFromEnv() };
       if (opts.json) {
-        console.log(renderParseReportJson(report));
+        console.log(renderParseReportJson(report, horizons));
         return;
       }
-      console.log(renderParseReport(report, { color: Boolean(process.stdout.isTTY) }));
+      console.log(renderParseReport(report, { color: Boolean(process.stdout.isTTY), ...horizons }));
     });
 
   const config = program.command("config").description("Manage the agentrelay.config.json defaults file");

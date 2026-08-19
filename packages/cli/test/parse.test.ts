@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildParseReport, renderParseReport, renderParseReportJson } from "../src/parse.js";
+import { buildParseReport, classifyReport, renderParseReport, renderParseReportJson } from "../src/parse.js";
+
+const DAY = 24 * 60 * 60_000;
+const HORIZON = 8 * DAY; // matches core DEFAULT_MAX_RESET_HORIZON_MS / PAST
 
 const NOW = new Date("2026-07-20T12:00:00.000Z");
 const NOW_MS = NOW.getTime();
@@ -90,5 +93,67 @@ describe("renderParseReportJson", () => {
     expect(parsed.matched).toBe(false);
     expect(parsed.resetAt).toBeNull();
     expect(parsed.resetInMs).toBeNull();
+  });
+
+  it("includes a plausibility field driven by the horizons", () => {
+    const near = buildParseReport("try again in 2h", { now: NOW });
+    expect(
+      JSON.parse(renderParseReportJson(near, { now: NOW_MS, maxFutureMs: HORIZON, maxPastMs: HORIZON })).plausibility
+    ).toBe("ok");
+
+    const far = buildParseReport("resets at 2026-09-30T12:00:00Z", { now: NOW }); // ~72 days out
+    expect(
+      JSON.parse(renderParseReportJson(far, { now: NOW_MS, maxFutureMs: HORIZON, maxPastMs: HORIZON })).plausibility
+    ).toBe("too-far-future");
+
+    const noMatch = buildParseReport("all good", { now: NOW });
+    expect(
+      JSON.parse(renderParseReportJson(noMatch, { now: NOW_MS, maxFutureMs: HORIZON, maxPastMs: HORIZON })).plausibility
+    ).toBeNull();
+  });
+});
+
+describe("classifyReport", () => {
+  it("classifies against the supplied horizons and null when unusable", () => {
+    const near = buildParseReport("try again in 3h", { now: NOW });
+    expect(classifyReport(near, { now: NOW_MS, maxFutureMs: HORIZON, maxPastMs: HORIZON })).toBe("ok");
+
+    const far = buildParseReport("resets at 2026-08-30T12:00:00Z", { now: NOW }); // >8 days out
+    expect(classifyReport(far, { now: NOW_MS, maxFutureMs: HORIZON, maxPastMs: HORIZON })).toBe("too-far-future");
+
+    // A far-past absolute timestamp (e.g. an epoch-unit misparse) reads as a misparse.
+    const past = buildParseReport("resets at 2026-01-01T00:00:00Z", { now: NOW });
+    expect(classifyReport(past, { now: NOW_MS, maxFutureMs: HORIZON, maxPastMs: HORIZON })).toBe("too-far-past");
+
+    const noMatch = buildParseReport("nothing here", { now: NOW });
+    expect(classifyReport(noMatch, { now: NOW_MS, maxFutureMs: HORIZON, maxPastMs: HORIZON })).toBeNull();
+  });
+});
+
+describe("renderParseReport plausibility annotation", () => {
+  it("warns and names the env var when the reset overshoots the future horizon", () => {
+    const far = buildParseReport("resets at 2026-09-30T12:00:00Z", { now: NOW });
+    const out = renderParseReport(far, { now: NOW_MS, color: false, maxFutureMs: HORIZON, maxPastMs: HORIZON });
+    expect(out).toContain("beyond the reset horizon");
+    expect(out).toContain("AGENTRELAY_MAX_RESET_HORIZON");
+  });
+
+  it("warns that a far-past reset is likely a misparse", () => {
+    const past = buildParseReport("resets at 2026-01-01T00:00:00Z", { now: NOW });
+    const out = renderParseReport(past, { now: NOW_MS, color: false, maxFutureMs: HORIZON, maxPastMs: HORIZON });
+    expect(out).toContain("in the past");
+    expect(out).toContain("misparse");
+  });
+
+  it("adds no annotation for a plausible reset", () => {
+    const near = buildParseReport("try again in 2h", { now: NOW });
+    const out = renderParseReport(near, { now: NOW_MS, color: false, maxFutureMs: HORIZON, maxPastMs: HORIZON });
+    expect(out).not.toContain("⚠");
+  });
+
+  it("adds no future annotation when the horizon guard is disabled", () => {
+    const far = buildParseReport("resets at 2026-09-30T12:00:00Z", { now: NOW });
+    const out = renderParseReport(far, { now: NOW_MS, color: false, maxFutureMs: null, maxPastMs: HORIZON });
+    expect(out).not.toContain("beyond the reset horizon");
   });
 });

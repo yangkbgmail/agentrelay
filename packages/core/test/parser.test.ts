@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyResetPlausibility,
   DEFAULT_MAX_RESET_HORIZON_MS,
+  DEFAULT_MAX_RESET_PAST_MS,
   isPlausibleReset,
   maxResetHorizonMsFromEnv,
+  maxResetPastMsFromEnv,
   parseRateLimitMessage,
 } from "../src/parser.js";
 
@@ -355,5 +358,71 @@ describe("maxResetHorizonMsFromEnv", () => {
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "off" })).toBeNull();
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "none" })).toBeNull();
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "banana" })).toBeNull();
+  });
+});
+
+describe("classifyResetPlausibility", () => {
+  const now = new Date("2026-07-12T10:00:00Z");
+  const day = 24 * 60 * 60_000;
+  const bounds = { maxFutureMs: DEFAULT_MAX_RESET_HORIZON_MS, maxPastMs: DEFAULT_MAX_RESET_PAST_MS };
+
+  it("returns ok for a reset inside both horizons", () => {
+    expect(classifyResetPlausibility(new Date(now.getTime() + 2 * day), now, bounds)).toBe("ok");
+    expect(classifyResetPlausibility(new Date(now.getTime() - 2 * 60_000), now, bounds)).toBe("ok"); // a few min past
+    expect(classifyResetPlausibility(now, now, bounds)).toBe("ok"); // exactly now
+  });
+
+  it("flags a reset past the future horizon", () => {
+    expect(classifyResetPlausibility(new Date(now.getTime() + 30 * day), now, bounds)).toBe("too-far-future");
+    // exactly at the edge is still ok; one ms beyond trips it
+    expect(classifyResetPlausibility(new Date(now.getTime() + DEFAULT_MAX_RESET_HORIZON_MS), now, bounds)).toBe("ok");
+    expect(classifyResetPlausibility(new Date(now.getTime() + DEFAULT_MAX_RESET_HORIZON_MS + 1), now, bounds)).toBe(
+      "too-far-future"
+    );
+  });
+
+  it("flags a reset before the past horizon as a misparse signal", () => {
+    expect(classifyResetPlausibility(new Date(now.getTime() - 30 * day), now, bounds)).toBe("too-far-past");
+    // a year-off epoch-unit misparse lands deep in the past
+    expect(classifyResetPlausibility(new Date("1970-01-21T00:00:00Z"), now, bounds)).toBe("too-far-past");
+    // exactly at the past edge is ok; one ms beyond trips it
+    expect(classifyResetPlausibility(new Date(now.getTime() - DEFAULT_MAX_RESET_PAST_MS), now, bounds)).toBe("ok");
+    expect(classifyResetPlausibility(new Date(now.getTime() - DEFAULT_MAX_RESET_PAST_MS - 1), now, bounds)).toBe(
+      "too-far-past"
+    );
+  });
+
+  it("treats a disabled/absent bound as unbounded on that side", () => {
+    const farFuture = new Date(now.getTime() + 999 * day);
+    const farPast = new Date(now.getTime() - 999 * day);
+    expect(classifyResetPlausibility(farFuture, now, {})).toBe("ok");
+    expect(classifyResetPlausibility(farFuture, now, { maxFutureMs: 0, maxPastMs: null })).toBe("ok");
+    expect(classifyResetPlausibility(farPast, now, { maxPastMs: null })).toBe("ok");
+    // one side bounded, the other open
+    expect(classifyResetPlausibility(farPast, now, { maxFutureMs: day })).toBe("ok");
+    expect(classifyResetPlausibility(farFuture, now, { maxFutureMs: day })).toBe("too-far-future");
+  });
+
+  it("returns ok for an unparseable reset date", () => {
+    expect(classifyResetPlausibility(new Date("not-a-date"), now, bounds)).toBe("ok");
+  });
+});
+
+describe("maxResetPastMsFromEnv", () => {
+  it("defaults to the past horizon when unset or blank", () => {
+    expect(maxResetPastMsFromEnv({})).toBe(DEFAULT_MAX_RESET_PAST_MS);
+    expect(maxResetPastMsFromEnv({ AGENTRELAY_MAX_RESET_PAST: "  " })).toBe(DEFAULT_MAX_RESET_PAST_MS);
+  });
+
+  it("parses an explicit duration", () => {
+    expect(maxResetPastMsFromEnv({ AGENTRELAY_MAX_RESET_PAST: "12h" })).toBe(12 * 60 * 60_000);
+    expect(maxResetPastMsFromEnv({ AGENTRELAY_MAX_RESET_PAST: "3d" })).toBe(3 * 24 * 60 * 60_000);
+  });
+
+  it("disables the past guard for 0/off/none/unparseable", () => {
+    expect(maxResetPastMsFromEnv({ AGENTRELAY_MAX_RESET_PAST: "0" })).toBeNull();
+    expect(maxResetPastMsFromEnv({ AGENTRELAY_MAX_RESET_PAST: "off" })).toBeNull();
+    expect(maxResetPastMsFromEnv({ AGENTRELAY_MAX_RESET_PAST: "none" })).toBeNull();
+    expect(maxResetPastMsFromEnv({ AGENTRELAY_MAX_RESET_PAST: "banana" })).toBeNull();
   });
 });
