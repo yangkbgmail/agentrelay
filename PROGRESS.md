@@ -2259,3 +2259,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay doctor` 먼-미래 리셋 잡 검사(reset-horizon)] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-bzx3pp`)
+
+- **배경:** 세션 72의 파서 지평선 가드는 **파스 시점**에 새 잡을 막지만, 가드 도입 전 큐잉됐거나
+  `AGENTRELAY_MAX_RESET_HORIZON=off`로 들어온 기존 잡은 여전히 먼-미래 `resetAt`을 달고
+  `waiting_for_reset`에 앉아 조용히 영원히 대기할 수 있었다. 이 프로젝트가 doctor·recover 등으로
+  반복해 겨냥해온 "silent failure" 부류의 마지막 갭. 세션 72의 "다음 할 일"로 명시된 인접 후보.
+- **한 일 (branch `claude/wizardly-pascal-bzx3pp`):**
+  - core `doctor.ts`: 순수 `farFutureResetJobs(jobs, {now, maxFutureMs})` + `ResetFacts`/`FarFutureReset`
+    타입 신설 — `waiting_for_reset` 잡만 대상으로 `resetAt`을 파싱, 파서의 `isPlausibleReset`(파스 시점과
+    **동일 판정**)로 지평선 밖 잡을 골라 먼-미래 순(worst-first) 정렬. null/파싱불가 `resetAt`은 스킵,
+    null/비양수 `maxFutureMs`는 가드 비활성.
+  - `runDiagnostics`에 `reset-horizon` 검사 추가(node→store→writable→adapters→daemon→**reset-horizon**→
+    config→notify): 가드 비활성=informational OK, 먼-미래 잡 없음=OK(대기 잡 수 표기), 하나라도 있으면
+    warning(개수+worst 잡 id+ETA, `show`/`cancel`/`retry` 힌트).
+  - CLI `commands.ts` `runDoctor`가 `maxResetHorizonMsFromEnv(env)` + 주입 가능한 `now`로 `ResetFacts`
+    구성. `doctor` 렌더러는 체크 목록에 제네릭이라 수정 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 650 · cli 357/1skip · dashboard 9**; core doctor +11, cli doctor +3). **실제 빌드 CLI e2e**:
+  2099년 리셋을 단 waiting 잡에 대해 기본 지평선(8d)은 `reset-horizon` warning(worst 26432d 미스파스),
+  `AGENTRELAY_MAX_RESET_HORIZON=off`는 "guard is disabled" OK 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도
+  먼-미래 리셋 잡 배지 노출, `recover`가 먼-미래 파킹 잡을 즉시-due로 되살리는 옵션. README/ARCHITECTURE(🧭 코워크).

@@ -178,6 +178,63 @@ describe("runDoctor", () => {
     expect(report!.ok).toBe(false);
   });
 
+  it("warns when a waiting job is parked with an implausibly far-future reset", () => {
+    const queue = new RelayQueue(storePath);
+    // Use `node` (guaranteed on PATH) as the command so the adapters check
+    // stays OK and only the reset-horizon warning is in play.
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["node"], cwd: dir });
+    queue.markWaitingForReset(j.id, "2099-01-01T00:00:00.000Z"); // decades out
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_SLACK_WEBHOOK: "https://s", PATH: process.env.PATH }, // default 8-day horizon
+      nodeVersion: "v22.5.0",
+      nowMs: Date.parse("2026-08-19T00:00:00.000Z"),
+    });
+    const reset = find(report, "reset-horizon");
+    expect(reset.level).toBe("warning");
+    expect(reset.message).toContain(j.id);
+    expect(reset.hint).toContain(`agentrelay show ${j.id}`);
+  });
+
+  it("is OK when a waiting job's reset is within the horizon", () => {
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, "2026-08-20T00:00:00.000Z"); // ~1 day out
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs: Date.parse("2026-08-19T00:00:00.000Z"),
+    });
+    const reset = find(report, "reset-horizon");
+    expect(reset.level).toBe("ok");
+    expect(reset.message).toContain("1 waiting job(s)");
+  });
+
+  it("reports the reset-horizon guard as disabled via AGENTRELAY_MAX_RESET_HORIZON=off", () => {
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, "2099-01-01T00:00:00.000Z");
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_SLACK_WEBHOOK: "https://s", AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+      nowMs: Date.parse("2026-08-19T00:00:00.000Z"),
+    });
+    const reset = find(report, "reset-horizon");
+    expect(reset.level).toBe("ok");
+    expect(reset.message).toContain("disabled");
+  });
+
   // Root bypasses directory permission bits, so a chmod-based read-only probe
   // can't be exercised as root — skip there rather than assert a false result.
   const asRoot = typeof process.getuid === "function" && process.getuid() === 0;
