@@ -2259,3 +2259,22 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 파서: rate-limit 리셋(reset) 헤더 인식(`x-ratelimit-reset`/`anthropic-ratelimit-*-reset`)] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-st51bh`)
+- 한 일: BACKLOG의 👷(클로드 코드) 항목이 전부 완료라 자기 발굴 개선을 구현. 기존 파서는 상대 지연
+  헤더 `Retry-After`만 잡고, 리셋 시각을 **절대적으로** 담는 rate-limit *reset* 헤더군을 놓치고 있었다.
+  이 도구가 감싸는 Claude Code가 곧 Anthropic API 프록시라 429에서 이 헤더가 실전 최고 신뢰 신호인데도.
+  - `@agentrelay/core/parser.ts` generic `PATTERNS`에 `ratelimit-reset-header` 추가:
+    `/[\w-]*ratelimit[\w-]*reset[\w-]*\s*[:=]\s*(?:(<ISO8601>)|(\d{10})(?!\d))/i`. 헤더 키가
+    "ratelimit"→"reset" 순서를 포함할 때(하이픈/언더스코어·대소문자 관용) 값이 10자리 unix epoch초
+    **또는** RFC 3339 절대시각이면 리셋으로 해소. `Retry-After`·JSON `retry_after`와 키가 안 겹쳐 상호
+    오매치 없음. epoch는 정확히 10자리+`(?!\d)`로 11+자리 ms 값 오독 방지, ISO 파싱 실패는 null 폴스루.
+    OpenAI식 duration 값(`x-ratelimit-reset-requests: 1s`)은 epoch도 ISO도 아니라 폴스루(오독 방지).
+  - 새 스케줄러/어댑터 로직 0줄 — 어댑터 `detectRateLimit`가 이미 generic 패턴을 그대로 사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 645 · cli 354/1skip · dashboard 9**; parser.test +6). **실제 빌드 CLI e2e**(mock 아님):
+  `parse "x-ratelimit-reset: 1752345600"`·`parse "anthropic-ratelimit-unified-reset: 2026-08-19T12:00:00Z"`가
+  `ratelimit-reset-header`로 매치·절대 리셋 표시, `parse "x-ratelimit-reset-requests: 1s"`는 "No rate-limit
+  detected" 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — OpenAI식 duration
+  reset 헤더 값(`1s`/`6m0s`) 파싱, `doctor`에 큐 내 먼-미래 리셋 잡 경고. README/ARCHITECTURE(🧭 코워크).

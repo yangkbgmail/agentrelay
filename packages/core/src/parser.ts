@@ -160,6 +160,31 @@ const PATTERNS: RateLimitPattern[] = [
     resolve: (m) => new Date(parseInt(m[1], 10) * 1000),
   },
   {
+    // Rate-limit *reset* headers that agent CLIs proxying an HTTP API dump
+    // verbatim on a 429. Unlike `Retry-After` (a relative delay handled below),
+    // these carry the absolute instant the window resets — the most reliable
+    // signal there is. Two real-world value shapes are recognized:
+    //   - unix epoch seconds:  `x-ratelimit-reset: 1752345600`     (GitHub etc.)
+    //   - RFC 3339 timestamp:  `anthropic-ratelimit-unified-reset: 2026-08-19T12:00:00Z`
+    // The header key must contain "ratelimit" *before* "reset" (case-insensitive,
+    // hyphen/underscore agnostic), so this stays disjoint from the `Retry-After`
+    // header and the JSON `retry_after` epoch field above. Values that are
+    // neither a 10-digit epoch nor an ISO instant (e.g. OpenAI's duration-style
+    // `x-ratelimit-reset-requests: 1s`) simply don't match here and fall through
+    // rather than being misread. Epoch is capped at exactly 10 digits (seconds)
+    // so an 11+ digit millisecond value isn't truncated into a wrong instant.
+    name: "ratelimit-reset-header",
+    regex:
+      /[\w-]*ratelimit[\w-]*reset[\w-]*\s*[:=]\s*(?:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)|(\d{10})(?!\d))/i,
+    resolve: (m) => {
+      if (m[1] !== undefined) {
+        const d = new Date(m[1]);
+        return Number.isNaN(d.getTime()) ? null : d;
+      }
+      return new Date(parseInt(m[2], 10) * 1000);
+    },
+  },
+  {
     // The standard HTTP `Retry-After` response header (RFC 9110 §10.2.3), which
     // agent CLIs proxying an HTTP API often dump verbatim on a 429. Two forms:
     //   - delay-seconds:  `Retry-After: 3600`   -> that many seconds from now
