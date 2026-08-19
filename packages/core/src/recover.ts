@@ -66,10 +66,17 @@ function updatedMs(iso: string): number {
  * Identify jobs stuck in `resuming` past the staleness threshold. Pure and
  * non-mutating.
  *
- * A `resuming` job whose `updatedAt` can't be parsed is treated as stuck: a loop
- * actively running the job always writes a valid, fresh timestamp, so an
- * unparseable one can only come from a store no live loop is maintaining — safe
- * to reclaim rather than strand forever.
+ * A live loop writes a fresh `updatedAt` (= the current instant) the moment it
+ * enters `resuming`, so a `resuming` job whose `updatedAt` is either unparseable
+ * *or* dated in the future can't have come from a live run — both can only come
+ * from a store no live loop is maintaining. They're treated as maximally suspect
+ * (infinitely old): reclaimed at every threshold — including `stuckAfterMs: 0`,
+ * which the contract promises selects *all* `resuming` jobs — and sorted first.
+ * The future case is not hypothetical: a backward wall-clock step between
+ * `markResuming` and this check (an NTP correction, a VM suspend/resume, a drift
+ * reset) leaves an orphan dated ahead of `now`, which a naive `now - updatedAt`
+ * would score as a *negative* age and, being below any non-negative threshold,
+ * strand forever — the exact failure this module exists to prevent.
  */
 export function selectStuckResumingJobs(jobs: RelayJob[], options: StuckResumingOptions): StuckResumingReport {
   const stuckAfterMs =
@@ -82,15 +89,18 @@ export function selectStuckResumingJobs(jobs: RelayJob[], options: StuckResuming
     if (job.status !== "resuming") continue;
     resuming += 1;
     const ms = updatedMs(job.updatedAt);
-    // Unparseable timestamp → treat as infinitely old (definitely not a live run).
-    const age = Number.isNaN(ms) ? Number.POSITIVE_INFINITY : nowMs - ms;
+    // Unparseable OR future-dated `updatedAt` → no live loop wrote it, so treat
+    // it as infinitely old (definitely not a live run) rather than letting a
+    // negative age slip it under the threshold.
+    const suspect = Number.isNaN(ms) || ms > nowMs;
+    const age = suspect ? Number.POSITIVE_INFINITY : nowMs - ms;
     if (age >= stuckAfterMs) {
-      stuck.push({ job, ageKey: Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms });
+      stuck.push({ job, ageKey: suspect ? Number.NEGATIVE_INFINITY : ms });
     }
   }
 
-  // Oldest-stuck first: smaller `updatedAt` ms = longer waiting. Unparseable
-  // timestamps (ageKey -Infinity) sort first as the most suspect.
+  // Oldest-stuck first: smaller `updatedAt` ms = longer waiting. Unparseable and
+  // future-dated timestamps (ageKey -Infinity) sort first as the most suspect.
   stuck.sort((a, b) => a.ageKey - b.ageKey);
 
   return {
