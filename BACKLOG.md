@@ -870,6 +870,20 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay slowest` — 해결 시간이 가장 긴 개별 잡 순위(`stats` 백분위수 뒤의 이상치 노출).
+      (완료 — `stats`는 해결 시간의 **분포**(avg/median/p90/p95/p99)만 보여줄 뿐, **어떤 개별 잡이
+      가장 오래 걸렸는지**(꼬리를 끌어당긴 실제 잡)를 짚어주지 못했다. `@agentrelay/core/slowest.ts`
+      신설(순수·무 I/O): `buildSlowestReport(jobs, {limit})` → 종료 잡(completed/failed)의 라이프사이클
+      span(`updatedAt-createdAt`)을 내림차순 랭킹. `stats`와 **동일 정책** — cancelled·미종료 잡 제외,
+      타임스탬프 파싱 불가·음수 span(클럭 스큐)은 스킵. `limit`은 `entries`만 트림하고 `totalResolved`/
+      `maxResolutionMs`/`totalResolutionMs`는 전수 유지("N more not shown" 정직 보고), span 동률은
+      createdAt→id 결정론 타이브레이크. CLI `packages/cli/src/slowest.ts`에 순수 `renderSlowest`
+      (ID·PROJECT·TOOL·TRIES·RESOLUTION 표 + totals/worst/avg 푸터, `formatDurationMs` 재사용)·
+      `renderSlowestJson`(--json). `agentrelay slowest [-n/--limit] [--status/--tool/--project/--since/
+      --until] [--json]` 배선(공용 `buildScope`·`scopeJobs` 재사용, 잘못된 limit/status/tool은 exit 1).
+      slowest.test 11 + CLI slowest.test 7 신규, 실제 빌드 CLI e2e로 랭킹·--limit·--project 스코프·
+      --json·에러 exit 검증. branch `claude/wizardly-pascal-wehswj`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
