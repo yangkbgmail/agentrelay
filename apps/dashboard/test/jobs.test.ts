@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type DaemonHeartbeat, daemonHeartbeatPath, RelayQueue, serializeDaemonHeartbeat } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readJobsSnapshot } from "../lib/jobs";
+import { readJobsSnapshot, UPCOMING_LIMIT } from "../lib/jobs";
 
 describe("readJobsSnapshot", () => {
   let dir: string;
@@ -133,5 +133,62 @@ describe("readJobsSnapshot", () => {
     writeFileSync(daemonHeartbeatPath(storePath), "{ broken", "utf8");
     const snapshot = readJobsSnapshot(storePath);
     expect(snapshot.heartbeat.state).toBe("absent");
+  });
+
+  it("returns an empty upcoming runway when nothing is waiting", () => {
+    const queue = new RelayQueue(storePath);
+    const done = queue.enqueue({ project: "p", tool: "generic", command: ["echo"], cwd: dir });
+    queue.markCompleted(done.id, "ok");
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.upcoming.entries).toEqual([]);
+    expect(snapshot.upcoming.totalWaiting).toBe(0);
+    expect(snapshot.upcoming.hidden).toBe(0);
+    expect(snapshot.upcoming.dueNow).toBe(0);
+  });
+
+  it("orders the upcoming runway soonest-due first and numbers positions", () => {
+    const queue = new RelayQueue(storePath);
+    // Enqueue out of reset order; the runway must sort by reset time, not insert order.
+    const later = queue.enqueue({ project: "later", tool: "generic", command: ["a"], cwd: dir });
+    queue.markWaitingForReset(later.id, "2099-06-01T00:00:00.000Z");
+    const sooner = queue.enqueue({ project: "sooner", tool: "generic", command: ["b"], cwd: dir });
+    queue.markWaitingForReset(sooner.id, "2099-01-01T00:00:00.000Z");
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.upcoming.totalWaiting).toBe(2);
+    expect(snapshot.upcoming.entries.map((e) => e.job.project)).toEqual(["sooner", "later"]);
+    expect(snapshot.upcoming.entries.map((e) => e.position)).toEqual([1, 2]);
+    expect(snapshot.upcoming.hidden).toBe(0);
+  });
+
+  it("counts past-reset jobs as due now", () => {
+    const queue = new RelayQueue(storePath);
+    const due = queue.enqueue({ project: "p", tool: "generic", command: ["echo"], cwd: dir });
+    queue.markWaitingForReset(due.id, "2000-01-01T00:00:00.000Z");
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.upcoming.dueNow).toBe(1);
+    expect(snapshot.upcoming.entries[0]?.due).toBe(true);
+  });
+
+  it("trims the runway to UPCOMING_LIMIT while still counting the hidden overflow", () => {
+    const queue = new RelayQueue(storePath);
+    const overflow = 2;
+    for (let i = 0; i < UPCOMING_LIMIT + overflow; i++) {
+      const job = queue.enqueue({ project: `p${i}`, tool: "generic", command: ["echo", String(i)], cwd: dir });
+      // Distinct future reset times so ordering is deterministic (i=0 is soonest).
+      queue.markWaitingForReset(job.id, `2099-01-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`);
+    }
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.upcoming.totalWaiting).toBe(UPCOMING_LIMIT + overflow);
+    expect(snapshot.upcoming.entries).toHaveLength(UPCOMING_LIMIT);
+    expect(snapshot.upcoming.hidden).toBe(overflow);
+    expect(snapshot.upcoming.entries[0]?.job.project).toBe("p0");
   });
 });
