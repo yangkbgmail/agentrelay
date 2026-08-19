@@ -33,6 +33,7 @@ import {
   isCompletionShell,
   isJobScopeActive,
   JOB_CSV_COLUMNS,
+  normalizePollIntervalMs,
   parseCsvColumns,
   parseDuration,
   renderPrometheusMetrics,
@@ -560,7 +561,18 @@ export function buildCli(): Command {
     .option("-i, --interval <ms>", "Poll interval in milliseconds", "30000")
     .action((opts: { interval: string }) => {
       const { store } = program.opts();
-      startDaemon({ storePath: store, pollIntervalMs: parseInt(opts.interval, 10) });
+      // Parse strictly (Number, not parseInt — so "5s" is rejected as junk
+      // rather than silently read as 5). An unusable value would busy-loop the
+      // daemon and break doctor's liveness check, so warn and fall back to the
+      // default instead of silently spinning.
+      const requested = Number(opts.interval);
+      const pollIntervalMs = normalizePollIntervalMs(requested);
+      if (!Number.isFinite(requested) || requested <= 0) {
+        console.error(
+          `[agentrelay] ignoring invalid --interval "${opts.interval}"; using ${pollIntervalMs / 1000}s instead.`
+        );
+      }
+      startDaemon({ storePath: store, pollIntervalMs });
       // Keep the process alive; RelayScheduler uses setInterval internally.
     });
 
