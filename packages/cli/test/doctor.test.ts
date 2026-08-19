@@ -178,6 +178,66 @@ describe("runDoctor", () => {
     expect(report!.ok).toBe(false);
   });
 
+  it("reset-horizon OK when a parked job resets within the horizon", () => {
+    const at = "2026-08-19T00:00:00.000Z";
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, new Date(Date.parse(at) + 2 * 60 * 60_000).toISOString()); // 2h out
+    queue.close();
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs: Date.parse(at),
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("all 1 waiting job(s)");
+  });
+
+  it("reset-horizon warns about a job parked far past the horizon", () => {
+    const at = "2026-08-19T00:00:00.000Z";
+    const queue = new RelayQueue(storePath);
+    // Use `node` (resolvable on PATH) so the unrelated adapters check stays OK
+    // and this test isolates the reset-horizon warning's effect on report.ok.
+    const j = queue.enqueue({ project: "web", tool: "generic", command: ["node"], cwd: dir });
+    queue.markWaitingForReset(j.id, new Date(Date.parse(at) + 30 * 24 * 60 * 60_000).toISOString()); // 30d out
+    queue.close();
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_SLACK_WEBHOOK: "https://s", PATH: process.env.PATH ?? "" },
+      nodeVersion: "v22.5.0",
+      nowMs: Date.parse(at),
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("1 of 1 waiting job(s)");
+    expect(check.message).toContain("(web)");
+    expect(check.hint).toContain("agentrelay show");
+    // a warning alone still passes overall
+    expect(report.ok).toBe(true);
+  });
+
+  it("reset-horizon reports the guard disabled via env", () => {
+    const at = "2026-08-19T00:00:00.000Z";
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "web", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, new Date(Date.parse(at) + 365 * 24 * 60 * 60_000).toISOString()); // 1y out
+    queue.close();
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_SLACK_WEBHOOK: "https://s", AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+      nowMs: Date.parse(at),
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("guard disabled");
+  });
+
   // Root bypasses directory permission bits, so a chmod-based read-only probe
   // can't be exercised as root — skip there rather than assert a false result.
   const asRoot = typeof process.getuid === "function" && process.getuid() === 0;

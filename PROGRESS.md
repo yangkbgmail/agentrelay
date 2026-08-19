@@ -2259,3 +2259,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+---
+
+### 2026-08-19 · 세션 62 — `agentrelay doctor` 먼-미래 리셋 검사(파킹된 잡의 silent failure 잡기)
+
+- **한 일 (branch `claude/wizardly-pascal-b94e3b`):**
+  - **동기:** 세션 61의 리셋-지평선 가드는 **파싱 시점**에만 적용된다. 가드 도입 전 파킹됐거나 다른
+    머신에서 import됐거나 `AGENTRELAY_MAX_RESET_HORIZON=off`로 큐잉된 기존 잡은 여전히 먼-미래 resetAt으로
+    조용히 영원 대기할 수 있는데, `doctor`는 이를 잡지 못했다(세션 61이 "다음 할 일"로 지목한 항목).
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, {nowMs, horizonMs})` + `FarFutureResetFact`/
+    `ResetHorizonFacts` 신설 — `waiting_for_reset` 잡 중 `resetAt`이 파싱되고 `nowMs+horizonMs`를 넘긴
+    것만 골라 `{checked, farFuture}`(null/파싱불가 resetAt·비대기 상태 스킵, 첫 등장 순서 보존).
+    `runDiagnostics`에 `reset-horizon` 검사 추가(node→store→writable→adapters→daemon→**reset-horizon**→
+    config→notify): 가드 비활성=OK(의도적 스킵 명시), 전부 지평선 내/대기 없음=OK, 초과=warning("M of N
+    … parked past the Nd reset horizon" + 예시 잡 + show/retry/cancel 힌트). warning이라 exit 0 유지.
+  - CLI `commands.ts`의 `runDoctor`가 `maxResetHorizonMsFromEnv(env)`로 지평선 해소(off면 스캔 스킵) +
+    `nowMs`(테스트 주입 가능) 기준 `selectFarFutureResets` 호출해 facts 구성. 파서·스케줄러 로직 0줄,
+    세션 61의 env 헬퍼 그대로 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 649 · cli 357/1skip · dashboard 9**; core doctor +10, cli doctor +3). **실제 빌드 CLI e2e**:
+  30d·2h 두 잡 파킹 → 기본 지평선(8d)에서 "1 of 2 waiting job(s) parked past the 8d reset horizon … aaaa1111
+  (web) resets in ~30d" 경고(2h 잡 제외)·exit 0, `AGENTRELAY_MAX_RESET_HORIZON=off`면 "guard disabled" OK,
+  `--json`에 reset-horizon 필드 방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도 먼-미래
+  리셋 잡 배지 노출, `agentrelay recover`에 먼-미래 파킹 잡 재큐 옵션, 과거-쪽 극단(수년 전 epoch)도
+  misparse 신호로 보고. README/ARCHITECTURE는 🧭 코워크 소유.

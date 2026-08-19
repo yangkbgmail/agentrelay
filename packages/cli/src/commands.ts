@@ -84,6 +84,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   sampleConfigJson,
   scopeJobs,
+  selectFarFutureResets,
   selectStuckResumingJobs,
   serializeDaemonHeartbeat,
   setConfigValue,
@@ -1467,6 +1468,20 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // --- reset-horizon facts. Scan parked jobs for a reset time implausibly far
+  // out (a misparse/stale entry that would sit forever). The parse-time guard
+  // only stops *new* such resets; already-parked ones need catching here. Uses
+  // the same env-resolved horizon; when the guard is disabled, skip the scan.
+  const horizonMs = maxResetHorizonMsFromEnv(env);
+  const nowMs = options.nowMs ?? Date.now();
+  const resetHorizon =
+    horizonMs === null
+      ? { horizonMs, checkedCount: 0, farFuture: [] }
+      : (() => {
+          const { checked, farFuture } = selectFarFutureResets(jobs, { nowMs, horizonMs });
+          return { horizonMs, checkedCount: checked, farFuture };
+        })();
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1483,6 +1498,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
       webhookUrl: env.AGENTRELAY_WEBHOOK_URL,
     },
     adapters: { binaries },
+    resetHorizon,
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),

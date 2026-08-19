@@ -7,6 +7,7 @@ import {
   isSupportedNode,
   parseNodeVersion,
   runDiagnostics,
+  selectFarFutureResets,
 } from "../src/doctor.js";
 import type { RelayJob } from "../src/types.js";
 
@@ -38,6 +39,7 @@ function input(overrides: Partial<DiagnosticInput> = {}): DiagnosticInput {
     config: { path: null, loadError: null, issues: [] },
     notify: { slackWebhook: "https://hooks.slack.com/x" },
     adapters: { binaries: [] },
+    resetHorizon: { horizonMs: 8 * 24 * 60 * 60_000, checkedCount: 0, farFuture: [] },
     heartbeat: { present: false },
     ...overrides,
   };
@@ -241,7 +243,7 @@ describe("runDiagnostics", () => {
     const report = runDiagnostics(input({ nodeVersion: "v20.0.0", notify: {} }));
     expect(report.counts.error).toBe(1); // node
     expect(report.counts.warning).toBe(1); // notify
-    expect(report.counts.ok).toBe(5); // store + store-writable + adapters + daemon + config
+    expect(report.counts.ok).toBe(6); // store + store-writable + adapters + daemon + reset-horizon + config
     expect(report.ok).toBe(false);
   });
 
@@ -361,6 +363,117 @@ describe("runDiagnostics", () => {
       expect(daemon.level).toBe("ok");
       expect(daemon.message).toContain("tick");
     });
+  });
+
+  describe("reset-horizon check", () => {
+    const HORIZON = 8 * 24 * 60 * 60_000;
+
+    it("is OK when no jobs are waiting on a reset", () => {
+      const report = runDiagnostics(input({ resetHorizon: { horizonMs: HORIZON, checkedCount: 0, farFuture: [] } }));
+      const check = find(report, "reset-horizon");
+      expect(check.level).toBe("ok");
+      expect(check.message).toContain("no jobs waiting");
+    });
+
+    it("is OK when every waiting job resets within the horizon", () => {
+      const report = runDiagnostics(input({ resetHorizon: { horizonMs: HORIZON, checkedCount: 3, farFuture: [] } }));
+      const check = find(report, "reset-horizon");
+      expect(check.level).toBe("ok");
+      expect(check.message).toContain("all 3 waiting job(s)");
+      expect(check.message).toContain("8d horizon");
+    });
+
+    it("warns when a job is parked past the horizon, with an example and hint", () => {
+      const report = runDiagnostics(
+        input({
+          resetHorizon: {
+            horizonMs: HORIZON,
+            checkedCount: 4,
+            farFuture: [
+              { id: "abcdef1234", project: "web", resetAt: "2027-01-01T00:00:00.000Z", msUntil: 30 * 24 * 60 * 60_000 },
+            ],
+          },
+        })
+      );
+      const check = find(report, "reset-horizon");
+      expect(check.level).toBe("warning");
+      expect(check.message).toContain("1 of 4 waiting job(s)");
+      expect(check.message).toContain("abcdef12 (web)");
+      expect(check.message).toContain("30d");
+      expect(check.hint).toContain("agentrelay show");
+      // a warning doesn't fail the report
+      expect(report.ok).toBe(true);
+    });
+
+    it("is OK (skipped) when the horizon guard is disabled", () => {
+      const report = runDiagnostics(input({ resetHorizon: { horizonMs: null, checkedCount: 0, farFuture: [] } }));
+      const check = find(report, "reset-horizon");
+      expect(check.level).toBe("ok");
+      expect(check.message).toContain("guard disabled");
+    });
+  });
+});
+
+describe("selectFarFutureResets", () => {
+  const NOW = Date.parse("2026-08-19T00:00:00.000Z");
+  const HORIZON = 8 * 24 * 60 * 60_000;
+
+  it("flags a waiting job whose reset is beyond now + horizon", () => {
+    const far = new Date(NOW + 30 * 24 * 60 * 60_000).toISOString();
+    const jobs = [job({ status: "waiting_for_reset", project: "web", resetAt: far })];
+    const { checked, farFuture } = selectFarFutureResets(jobs, { nowMs: NOW, horizonMs: HORIZON });
+    expect(checked).toBe(1);
+    expect(farFuture).toHaveLength(1);
+    expect(farFuture[0].project).toBe("web");
+    expect(farFuture[0].msUntil).toBe(30 * 24 * 60 * 60_000);
+  });
+
+  it("does not flag a reset within the horizon but still counts it as checked", () => {
+    const near = new Date(NOW + 2 * 60 * 60_000).toISOString();
+    const jobs = [job({ status: "waiting_for_reset", resetAt: near })];
+    const { checked, farFuture } = selectFarFutureResets(jobs, { nowMs: NOW, horizonMs: HORIZON });
+    expect(checked).toBe(1);
+    expect(farFuture).toHaveLength(0);
+  });
+
+  it("treats exactly at the horizon as within (not flagged)", () => {
+    const edge = new Date(NOW + HORIZON).toISOString();
+    const jobs = [job({ status: "waiting_for_reset", resetAt: edge })];
+    const { farFuture } = selectFarFutureResets(jobs, { nowMs: NOW, horizonMs: HORIZON });
+    expect(farFuture).toHaveLength(0);
+  });
+
+  it("only considers waiting_for_reset jobs — not queued/resuming/terminal", () => {
+    const far = new Date(NOW + 30 * 24 * 60 * 60_000).toISOString();
+    const jobs = [
+      job({ status: "queued", resetAt: far }),
+      job({ status: "resuming", resetAt: far }),
+      job({ status: "completed", resetAt: far }),
+      job({ status: "waiting_for_reset", resetAt: far }),
+    ];
+    const { checked, farFuture } = selectFarFutureResets(jobs, { nowMs: NOW, horizonMs: HORIZON });
+    expect(checked).toBe(1);
+    expect(farFuture).toHaveLength(1);
+  });
+
+  it("skips jobs with a null or unparseable resetAt", () => {
+    const jobs = [
+      job({ status: "waiting_for_reset", resetAt: null }),
+      job({ status: "waiting_for_reset", resetAt: "not-a-date" }),
+    ];
+    const { checked, farFuture } = selectFarFutureResets(jobs, { nowMs: NOW, horizonMs: HORIZON });
+    expect(checked).toBe(0);
+    expect(farFuture).toHaveLength(0);
+  });
+
+  it("preserves first-appearance order of flagged jobs", () => {
+    const far = (days: number) => new Date(NOW + days * 24 * 60 * 60_000).toISOString();
+    const jobs = [
+      job({ status: "waiting_for_reset", project: "a", resetAt: far(20) }),
+      job({ status: "waiting_for_reset", project: "b", resetAt: far(40) }),
+    ];
+    const { farFuture } = selectFarFutureResets(jobs, { nowMs: NOW, horizonMs: HORIZON });
+    expect(farFuture.map((f) => f.project)).toEqual(["a", "b"]);
   });
 });
 
