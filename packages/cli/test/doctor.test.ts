@@ -48,6 +48,48 @@ describe("runDoctor", () => {
     expect(store.message).toContain("1 active");
   });
 
+  it("warns when a waiting job is parked with a far-future reset (default horizon)", () => {
+    const queue = new RelayQueue(storePath);
+    const parked = queue.enqueue({ project: "web-app", tool: "claude-code", command: ["claude"], cwd: dir });
+    const farFuture = new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString(); // 30 days out
+    queue.markWaitingForReset(parked.id, farFuture);
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("1 waiting job(s)");
+    expect(check.message).toContain("web-app");
+    expect(check.message).toContain(parked.id.slice(0, 8));
+  });
+
+  it("does not flag a far-future reset when the horizon guard is disabled", () => {
+    const queue = new RelayQueue(storePath);
+    const parked = queue.enqueue({ project: "web-app", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(parked.id, new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+  });
+
+  it("is ok when a waiting job's reset is within the horizon", () => {
+    const queue = new RelayQueue(storePath);
+    const parked = queue.enqueue({ project: "web-app", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(parked.id, new Date(Date.now() + 2 * 60 * 60_000).toISOString()); // 2h out
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    expect(find(report, "reset-horizon").level).toBe("ok");
+  });
+
   it("errors when the store file is corrupt", () => {
     writeFileSync(storePath, "{ this is not valid json", "utf8");
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });

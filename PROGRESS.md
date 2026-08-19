@@ -2259,3 +2259,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `doctor` 먼-미래 리셋 잡 검사(reset-horizon)] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-4j3btr`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72가 "다음 할 일"로 명시한 후속 — 세션 72의 파서 plausibility 가드(미래 지평선)는 *새* 미스파싱
+  리셋이 큐에 들어오는 것만 enqueue 시점에 막을 뿐, **이미 파킹된** 먼-미래 `resetAt` 잡(가드 이전에
+  들어왔거나, `AGENTRELAY_MAX_RESET_HORIZON=off`일 때, 또는 더 긴 지평선에서 들어온)은 그대로
+  `waiting_for_reset`에 남아 수일/수년 조용히 대기 → 이 프로젝트가 doctor·recover로 반복 겨냥해온
+  바로 그 "silent failure". 가드가 소급 수정할 수 없는 갭이라 doctor가 라이브 큐를 스캔해 경고.
+- **한 일 (branch `claude/wizardly-pascal-4j3btr`):**
+  - core `doctor.ts`: 순수 `farFutureResetJobs(jobs, nowMs, maxFutureMs)` + `ResetHorizonFacts`/
+    `FarFutureResetFact` 신설 — `waiting_for_reset` 잡 중 `resetAt`이 `now+maxFutureMs`를 넘는 것만
+    추림. 파서의 `isPlausibleReset`을 재사용해 enqueue-time 가드와 **동일 판정**(과거 리셋은 이미 풀린
+    한도라 허용, null/파싱불가 `resetAt`은 스킵, 가드 null/비양수/비유한이면 빈 목록=옵트아웃 존중),
+    결과는 `aheadMs` 내림차순(worst-first)이라 리포트 예시가 최악 잡. `DiagnosticInput`에 `resetHorizon`
+    추가, `runDiagnostics`가 daemon↔config 사이에 `reset-horizon` 검사 삽입: 가드 비활성=OK, 파킹
+    없음=OK, 하나라도 있으면 **warning**(error 아님 — 정보성: 개수 + 최악 예시[short id·project·
+    "~Nd out"] + `show`/`retry`/`cancel` 힌트). 렌더러는 제네릭이라 무수정.
+  - CLI `commands.ts` `runDoctor`: `maxResetHorizonMsFromEnv(env)`로 지평선 해소(파서 가드와 동일 env),
+    `farFutureResetJobs(jobs, now, horizonMs)`로 `resetHorizon` 팩트 구성. 새 파서/스케줄러 로직 0줄 —
+    전부 세션 72의 검증된 지평선 인프라 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 649 · cli 357/1skip · dashboard 9**; core doctor +11[farFutureResetJobs 6 + check 4 +
+  counts], cli doctor +3). **실제 빌드 CLI e2e**(mock 아님): `_MAX_RESET_HORIZON=off`로 30일 리셋 잡을
+  큐에 심고 → 기본 8d 지평선 `doctor`가 `reset-horizon` warning("1 waiting job(s) … beyond the 8d horizon,
+  e.g. 85eb6916 in web-app resets ~30d out")·`--json` 노출·exit 0(warning) 확인 → `off`면 "guard disabled"
+  OK → `retry`로 due-now 재큐 후 지평선 내로 들어와 OK 전환 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도 먼-미래
+  파킹 잡 배지 노출(하트비트 카드 옆), `agentrelay recover`에 먼-미래 잡을 due-now로 끌어오는 `--horizon`
+  옵션. stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

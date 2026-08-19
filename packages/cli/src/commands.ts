@@ -48,6 +48,7 @@ import {
   evaluateHeartbeat,
   evaluateWait,
   exportJobs,
+  farFutureResetJobs,
   findConfigField,
   hasConfigErrors,
   heartbeatStaleAfterMs,
@@ -1467,6 +1468,10 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // Same reset horizon the parser's enqueue-time guard uses, so `doctor`'s scan
+  // of already-parked jobs agrees with what would be blocked on the way in.
+  const horizonMs = maxResetHorizonMsFromEnv(env);
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1486,6 +1491,13 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    // --- reset-horizon facts. Scans the live queue for jobs parked with an
+    // implausibly far-future reset (a misparse the enqueue-time guard can't undo
+    // retroactively). Same horizon the parser guard uses, resolved from env.
+    resetHorizon: {
+      horizonMs,
+      farFuture: farFutureResetJobs(jobs, options.nowMs ?? Date.now(), horizonMs),
+    },
   });
 }
 
