@@ -2259,3 +2259,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay doctor` 먼-미래 리셋(reset-horizon) 검사] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-dso8br`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72가 "다음 할 일"로 직접 지목한 후속 인접 항목 — `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 —
+  을 골랐다. 자기완결적이고 이 도구가 반복해 겨냥해온 "silent failure" 계열에 정확히 들어맞는다.
+- **발굴한 갭:** 세션 72의 파서 지평선 가드는 rate-limit **감지 시점**에만 먼-미래 리셋을 드롭한다.
+  하지만 잡은 (a) 가드 이전에 파킹됐거나 (b) `agentrelay import`로 들어왔거나 (c) `AGENTRELAY_MAX_RESET_HORIZON=off`
+  로 큐잉되면 여전히 수일/수년 뒤 `resetAt`을 지닌 채 `waiting_for_reset`에 조용히 앉아 있을 수 있다 —
+  표면상 아무 문제 없어 보이지만 현실적으로 영원히 재개 안 됨. `doctor`는 지금까지 이를 못 잡았다.
+- **한 일 (branch `claude/wizardly-pascal-dso8br`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, nowMs, maxFutureMs)`(활성 잡 중 `resetAt`이
+    `nowMs+maxFutureMs`를 넘는 것만; 파서 `isPlausibleReset` 미래 경계 미러 + 초과량 `overshootMs`도
+    산출; 종료 잡·null/파싱불가 resetAt·과거 리셋 제외; 비양수 maxFutureMs=가드 오프로 빈 배열; 첫
+    등장 순서 보존) + `FarFutureResetJob`/`HorizonFacts` 타입 + `DiagnosticInput.horizon` 추가. `runDiagnostics`에
+    6번째 검사 `reset-horizon` 배선 — 가드 비활성=informational OK, 초과 0=OK, ≥1=warning(개수·최악 잡
+    id[8자]·project·resetAt·초과 기간 + `show`/`cancel`/`retry` 힌트). 렌더러는 일반적이라 CLI `doctor.ts`
+    수정 0줄.
+  - CLI `commands.ts` `runDoctor`가 `maxResetHorizonMsFromEnv(env)`로 파서와 **같은 지평선 bound**를 재사용,
+    `nowMs`(주입 가능) 기준으로 `selectFarFutureResets` 호출해 `HorizonFacts` 구성(가드 오프면 `{enabled:false}`).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 650 · cli 357/1skip · dashboard 9**; core doctor +11, cli doctor +3). **실제 빌드 CLI e2e**(mock
+  아님): 임시 스토어에 100일 뒤 리셋 잡을 심어 기본 8d 지평선에서 `reset-horizon` warning
+  (`1 queued job(s) … ~92d past it` + `agentrelay show/cancel/retry` 힌트) 렌더, `AGENTRELAY_MAX_RESET_HORIZON=off`
+  면 "reset-horizon guard disabled" OK 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도 먼-미래
+  리셋 배지 노출(세션 33 하트비트 카드 패턴 재사용), 또는 과거-쪽 극단(수년 전 resetAt)도 misparse
+  신호로 doctor에서 경고. stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

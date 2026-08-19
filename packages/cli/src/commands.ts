@@ -21,6 +21,7 @@ import type {
   HealthReport,
   HeartbeatFacts,
   HeartbeatMode,
+  HorizonFacts,
   JobStatus,
   Notifier,
   PruneOptions,
@@ -84,6 +85,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   sampleConfigJson,
   scopeJobs,
+  selectFarFutureResets,
   selectStuckResumingJobs,
   serializeDaemonHeartbeat,
   setConfigValue,
@@ -1467,6 +1469,17 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // --- reset-horizon facts. A job parked at an implausibly far-future reset
+  // (a misparse that predates the parser guard, arrived via `import`, or was
+  // enqueued with the guard off) waits days/years with nothing obviously wrong.
+  // Reuse the same bound the parser uses; a null bound means the guard is off.
+  const horizonMs = maxResetHorizonMsFromEnv(env);
+  const nowMs = options.nowMs ?? Date.now();
+  const horizon: HorizonFacts =
+    horizonMs !== null && horizonMs > 0
+      ? { enabled: true, maxFutureMs: horizonMs, farFuture: selectFarFutureResets(jobs, nowMs, horizonMs) }
+      : { enabled: false, farFuture: [] };
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1486,6 +1499,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    horizon,
   });
 }
 

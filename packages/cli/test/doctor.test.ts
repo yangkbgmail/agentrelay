@@ -201,6 +201,52 @@ describe("runDoctor", () => {
       chmodSync(join(dir, "readonly"), 0o700);
     }
   });
+
+  const NOW_MS = Date.parse("2026-07-12T00:00:00.000Z");
+  const DAY_MS = 24 * 60 * 60_000;
+
+  it("warns when a queued job is parked at an implausibly far-future reset", () => {
+    const queue = new RelayQueue(storePath);
+    const parked = queue.enqueue({ project: "alpha", tool: "claude-code", command: ["claude"], cwd: dir });
+    // 90 days out, well beyond the default 8-day horizon.
+    queue.markWaitingForReset(parked.id, new Date(NOW_MS + 90 * DAY_MS).toISOString());
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs: NOW_MS });
+    const horizon = find(report, "reset-horizon");
+    expect(horizon.level).toBe("warning");
+    expect(horizon.message).toContain("1 queued job(s)");
+    expect(horizon.message).toContain("alpha");
+    expect(horizon.hint).toMatch(/agentrelay (show|cancel|retry)/);
+  });
+
+  it("does not warn for a reset comfortably within the horizon", () => {
+    const queue = new RelayQueue(storePath);
+    const parked = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(parked.id, new Date(NOW_MS + 2 * 60 * 60_000).toISOString()); // 2h out
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs: NOW_MS });
+    expect(find(report, "reset-horizon").level).toBe("ok");
+  });
+
+  it("reports the guard as disabled when AGENTRELAY_MAX_RESET_HORIZON=off", () => {
+    const queue = new RelayQueue(storePath);
+    const parked = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(parked.id, new Date(NOW_MS + 90 * DAY_MS).toISOString());
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+      nowMs: NOW_MS,
+    });
+    const horizon = find(report, "reset-horizon");
+    expect(horizon.level).toBe("ok");
+    expect(horizon.message).toMatch(/disabled/);
+  });
 });
 
 describe("renderDoctor", () => {
