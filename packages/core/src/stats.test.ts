@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   computeActivityHeatmap,
+  computeAttemptsDistribution,
   computeDailyTrend,
   computeHourlyDistribution,
   computeStats,
@@ -745,5 +746,50 @@ describe("computeActivityHeatmap", () => {
   it("offset 0 matches the default UTC bucketing", () => {
     const jobs = [job({ createdAt: "2026-07-20T09:15:00.000Z" })];
     expect(computeActivityHeatmap(jobs, 0)).toEqual(computeActivityHeatmap(jobs));
+  });
+});
+
+describe("computeAttemptsDistribution", () => {
+  it("returns an empty array for no jobs", () => {
+    expect(computeAttemptsDistribution([])).toEqual([]);
+  });
+
+  it("buckets jobs by their attempt count, zero-filled and contiguous from 0", () => {
+    const jobs = [job({ attempts: 1 }), job({ attempts: 1 }), job({ attempts: 3 }), job({ attempts: 0 })];
+    expect(computeAttemptsDistribution(jobs)).toEqual([
+      { attempts: 0, count: 1 },
+      { attempts: 1, count: 2 },
+      { attempts: 2, count: 0 }, // zero-filled gap
+      { attempts: 3, count: 1 },
+    ]);
+  });
+
+  it("ranges up to the busiest observed attempt count", () => {
+    const dist = computeAttemptsDistribution([job({ attempts: 5 })]);
+    expect(dist).toHaveLength(6); // 0..5
+    expect(dist[5]).toEqual({ attempts: 5, count: 1 });
+    expect(dist[0]).toEqual({ attempts: 0, count: 0 });
+  });
+
+  it("floors negative attempts to 0 and skips non-finite values (defensive)", () => {
+    const jobs = [job({ attempts: -2 }), job({ attempts: Number.NaN }), job({ attempts: 2 })];
+    expect(computeAttemptsDistribution(jobs)).toEqual([
+      { attempts: 0, count: 1 }, // the -2 job, floored
+      { attempts: 1, count: 0 },
+      { attempts: 2, count: 1 },
+    ]);
+  });
+
+  it("truncates fractional attempts toward zero", () => {
+    const dist = computeAttemptsDistribution([job({ attempts: 2.9 })]);
+    expect(dist[2]).toEqual({ attempts: 2, count: 1 });
+    expect(dist).toHaveLength(3);
+  });
+
+  it("does not mutate its input", () => {
+    const jobs = [job({ attempts: 2 })];
+    const before = JSON.stringify(jobs);
+    computeAttemptsDistribution(jobs);
+    expect(JSON.stringify(jobs)).toBe(before);
   });
 });

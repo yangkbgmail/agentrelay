@@ -870,6 +870,19 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay stats --attempts` — 잡별 재개 시도 횟수(0·1·2·3+회) 분포 히스토그램. 헤드라인의
+      `retriedJobs`(attempts>1 단일 카운트)를 넘어 "리밋이 얼마나 끈질긴가"의 전체 shape를 노출. 자기 발굴
+      항목 — `--hours`/`--weekday`/`--heatmap`과 동일한 순수-추가 히스토그램 패턴이라 회귀 위험 최소.
+      (완료 — core `stats.ts`에 순수 `computeAttemptsDistribution(jobs)` + `AttemptsBucket`(attempts·count):
+      각 잡의 `job.attempts`를 0부터 최다 관측값까지 연속·zero-fill 버킷팅(리밋 정책상 값 작아 범위 안정),
+      빈 스토어는 빈 배열·비유한 스킵·음수는 0 floor(방어적). 창·시계 불필요(attempts는 잡의 절대 속성).
+      CLI `stats.ts`에 순수 `renderAttempts`(최다 버킷 스케일 ASCII 막대+빈 버킷 dim 점+총계·평균
+      attempts/job 푸터)·`renderStatsJson`에 옵셔널 `attempts` 필드(요청 시에만 방출, 기존 JSON shape
+      불변). `cli.ts` `stats`에 `--attempts` 배선 — 일회성·`--json`·`--watch` 세 뷰 + 기존 스코프 필터·
+      `--hours`/`--weekday`/`--heatmap`/`--trend`와 조합 가능. 새 파서/스케줄러 로직 0줄. core stats +6 +
+      cli stats +5 신규 테스트, 실제 빌드 CLI e2e로 0·1·2(빈 gap)·3 버킷 렌더·avg 1.3·`--json` 방출·기본
+      JSON 미포함·help/completion 노출 검증. branch `claude/wizardly-pascal-judq0q`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
