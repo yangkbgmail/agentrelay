@@ -870,6 +870,22 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 fix(core): `recover` — 시계 역행(clock skew)으로 미래 시각이 찍힌 `resuming` 잡이 절대
+      회수 안 되던 무음 실패 수정. 자기 발굴 항목(코드 감사로 발견). `selectStuckResumingJobs`는
+      `age = now - updatedAt`으로 나이를 재는데, `markResuming` 직후·`recover` 실행 사이에 벽시계가
+      **뒤로 튀면**(NTP 보정·VM suspend/resume·드리프트 리셋) `updatedAt`이 `now`보다 미래가 되어
+      age가 **음수**가 된다. 선정 게이트는 `age >= stuckAfterMs`(임계값은 `max(0,…)`이라 항상 ≥0)라,
+      음수 나이는 `--older-than 0s`("전부 회수")를 포함해 **모든 임계값에서 탈락** → 그 잡은 `resuming`에
+      영원히 갇힘(이 모듈이 막으려는 바로 그 실패). 게다가 파싱 불가 `updatedAt`은 회수되는데(테스트로
+      보장) 미래 시각은 조용히 방치돼 내부 모순이었다.
+      (완료 — `recover.ts`의 나이 계산을 `suspect = Number.isNaN(ms) || ms > nowMs`로 확장 —
+      파싱불가 **또는** 미래 시각이면 "라이브 루프가 쓸 수 없는 값"으로 보고 age를 `+Infinity`로 취급
+      (모든 임계값에서 회수, `stuckAfterMs:0`="전부" 계약 준수), `ageKey`도 `-Infinity`로 둬 가장
+      의심스러운 잡으로 맨 앞 정렬. 순수·비변이 유지, 기존 과거-시각/파싱불가 케이스 동작 불변(기존
+      테스트 무변경). recover.test +3(미래→stuck·미래@0s→회수·suspect 정렬 우선), 실제 빌드 CLI e2e로
+      2h 미래 `resuming` 잡이 `recover --older-than 0s`·기본 30m 둘 다에서 회수됨을 확인.
+      branch `claude/wizardly-pascal-recover-future-skew`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

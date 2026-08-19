@@ -2259,3 +2259,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — fix(core): recover가 시계 역행으로 미래 시각 찍힌 resuming 잡을 절대 회수 못 하던 무음 실패 수정] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-recover-future-skew`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진, 남은 미완료는 🧭 코워크 소유. 그런데 **열린 PR
+  적체가 극심**(130+개)해 인접 기능 아이디어가 전부 15배씩 중복돼 있었다(reset-horizon doctor 검사만
+  #734·#766·#764…등 15개+, fish completion 4개, tsv/CV/attempts 다수). 새 기능 PR은 16번째 중복이 될
+  뿐이라, **중복이 아닌 실제 버그**를 찾는 게 훨씬 가치 높다고 판단. 덜 churn된 순수 모듈(scheduler/
+  queue/prune/backup/control/concurrency/recover)을 코드 감사해 열린 어떤 PR도 안 다루는 진짜 버그를 발굴.
+- **발굴한 버그 (recover.ts):** `selectStuckResumingJobs`가 `age = now - updatedAt`으로 나이를 재는데,
+  `markResuming`↔`recover` 사이 벽시계가 뒤로 튀면(NTP 보정·VM suspend/resume·드리프트 리셋) `updatedAt`이
+  미래가 되어 age가 **음수**. 게이트가 `age >= stuckAfterMs`(≥0)라 음수 나이는 `--older-than 0s`("전부")
+  포함 모든 임계값에서 탈락 → 그 잡은 `resuming`에 영원히 갇힘(모듈이 막으려는 바로 그 무음 실패).
+  파싱불가 `updatedAt`은 회수되는데 미래 시각은 방치되는 내부 모순도 있었다. 서브에이전트 감사 +
+  `dist/recover.js` 프로브로 경험적 확인(threshold 0에서도 stuck=[]).
+- **한 일 (branch `claude/wizardly-pascal-recover-future-skew`):**
+  - `recover.ts`: 나이 판정을 `suspect = Number.isNaN(ms) || ms > nowMs`로 확장 — 파싱불가 **또는**
+    미래 시각이면 라이브 루프가 쓸 수 없는 값이므로 age를 `+Infinity`로(모든 임계값에서 회수,
+    `stuckAfterMs:0`="전부" 계약 준수), `ageKey`도 `-Infinity`로 둬 가장 의심스러운 잡으로 맨 앞 정렬.
+    함수/옵션 doc 코멘트에 미래-시각(clock-skew) 케이스 명시. 순수·비변이 유지, 기존 과거-시각/파싱불가
+    동작 불변.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 642 · cli 354/1skip · dashboard 9**; recover.test +3). **실제 빌드 CLI e2e**(mock 아님):
+  2h 미래 `updatedAt` 찍힌 `resuming` 잡을 임시 스토어에 심고 `recover --older-than 0s`·기본 30m 둘 다에서
+  "Would recover 1 job"으로 회수됨을 확인(수정 전이면 둘 다 stranded).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 참고로 reset-horizon doctor 검사는
+  이미 PR 15개+ 중복이라 **의도적으로 열지 않음**(로컬 tag `dup-reset-horizon-wip`에 작업 보존). 서브에이전트가
+  함께 지목한 하위 후보: scheduler `outputTailLength===0`이면 `slice(-0)`가 전체 반환, `restore()`의 안전
+  백업이 keepLast 미지정으로 사용자 보존 의도를 무시하고 10개로 로테이트. README/ARCHITECTURE는 🧭 코워크.

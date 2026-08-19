@@ -31,6 +31,11 @@ function agoIso(ms: number): string {
   return new Date(NOW - ms).toISOString();
 }
 
+/** ISO string for `ms` after NOW (a clock-skewed, future-dated timestamp). */
+function aheadIso(ms: number): string {
+  return new Date(NOW + ms).toISOString();
+}
+
 describe("selectStuckResumingJobs", () => {
   it("selects resuming jobs older than the threshold and ignores fresh ones", () => {
     const jobs = [
@@ -69,6 +74,38 @@ describe("selectStuckResumingJobs", () => {
     const jobs = [job({ id: "corrupt", updatedAt: "not-a-date" })];
     const report = selectStuckResumingJobs(jobs, { nowMs: NOW });
     expect(report.stuck.map((j) => j.id)).toEqual(["corrupt"]);
+  });
+
+  it("treats a future-dated updatedAt as stuck (clock skew, not a live run)", () => {
+    // A backward wall-clock step between markResuming and recover leaves an
+    // orphan dated ahead of now. A naive `now - updatedAt` scores this as a
+    // negative age that slips under every threshold — it must be reclaimed.
+    const jobs = [job({ id: "future", updatedAt: aheadIso(5 * 60_000) })];
+    const report = selectStuckResumingJobs(jobs, { nowMs: NOW });
+    expect(report.stuck.map((j) => j.id)).toEqual(["future"]);
+  });
+
+  it("reclaims a future-dated job even at stuckAfterMs 0 (contract: 0 = all)", () => {
+    const jobs = [job({ id: "future", updatedAt: aheadIso(90 * 60_000) })];
+    const report = selectStuckResumingJobs(jobs, { nowMs: NOW, stuckAfterMs: 0 });
+    expect(report.stuck.map((j) => j.id)).toEqual(["future"]);
+  });
+
+  it("sorts future-dated / unparseable suspects ahead of merely-old jobs", () => {
+    const jobs = [
+      job({ id: "old", updatedAt: agoIso(3 * 60 * 60_000) }), // 3h old
+      job({ id: "future", updatedAt: aheadIso(10 * 60_000) }), // clock-skewed
+      job({ id: "corrupt", updatedAt: "not-a-date" }),
+    ];
+    const report = selectStuckResumingJobs(jobs, { nowMs: NOW });
+    // Both suspects (ageKey -Infinity) sort before the finite-age "old" job.
+    expect(report.stuck.map((j) => j.id).slice(-1)).toEqual(["old"]);
+    expect(
+      report.stuck
+        .map((j) => j.id)
+        .slice(0, 2)
+        .sort()
+    ).toEqual(["corrupt", "future"]);
   });
 
   it("with stuckAfterMs 0 selects every resuming job regardless of age", () => {
