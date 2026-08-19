@@ -2259,3 +2259,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 대시보드 스토어 손상 노출(store-corrupt banner)] (2026-08-19, 무인 자율 세션, branch `claude/dashboard-store-corrupt-banner`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72의 "다음 할 일"(doctor 먼-미래 리셋 검사)을 먼저 시도했으나, 열린 PR을 스캔하니 **동일
+  기능이 이미 PR #734 등 ~15개로 극도로 포화**돼 있어 중복이라 폐기했다. 포화 영역(doctor/parser/
+  stats 변형)을 피해 **거의 미탐색 영역인 대시보드**에서 실제 무결성 갭을 발굴: 대시보드
+  `readJobsSnapshot`이 `onCorrupt` 콜백 없이 큐를 열어, `jobs.json`이 깨지면 로더가 파일을 옆으로
+  치우고 빈 큐로 폴백할 때 **아무 표시 없이** 빈 큐를 렌더 — CLI는 `openQueue`로 stderr 경고를 내는데
+  대시보드만 침묵해 실제 데이터 유실을 숨겼다.
+- **한 일 (branch `claude/dashboard-store-corrupt-banner`):**
+  - `apps/dashboard/lib/jobs.ts`: `JobsSnapshot`에 `store: StoreState`(corrupt·backupPath) 추가,
+    `readJobsSnapshot`이 CLI와 동일하게 `onCorrupt`로 손상 여부·치워둔 백업 경로 캡처(로직은 전부 core
+    `RelayQueue`에 위임, 새 판정 코드 0줄).
+  - `apps/dashboard/app/dashboard-client.tsx`: `StoreCorruptBanner` — 손상 시 경고 배너(백업 경로 +
+    `agentrelay restore` 복구 힌트, 못 치웠으면 권한 확인 안내). heartbeat concerning 배너 패턴 미러,
+    fetchError 배너와 ResumeLoopCard 사이에 배치.
+  - `apps/dashboard/app/globals.css`: `.store-corrupt-banner`(status-warning 보더).
+- **설계 노트:** 손상은 **일회성 이벤트** — 로더가 깨진 파일을 `jobs.json.corrupt-<ts>`로 치우면 다음
+  읽기는 클린(빈 스토어)이라 배너는 손상이 감지된 그 폴 프레임에만 뜬다. 이는 실제 파일 상태를 정확히
+  반영하는 올바른 동작(치워진 뒤엔 더 이상 손상 아님).
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm format`→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 639 · cli 354/1skip · dashboard 12**; jobs.test +3: corrupt→store.corrupt/backupPath·
+  healthy→false·absent→false). **실제 빌드 대시보드 e2e**(mock 아님): `next start` + 임시 스토어에서
+  루트 페이지 워밍업 후 손상 `jobs.json`을 심고 `/api/jobs`를 호출 → 첫 읽기 `store:{corrupt:true,
+  backupPath:"…/jobs.json.corrupt-…"}`, 두 번째(로더가 이미 치움) `corrupt:false` 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드 store-writable
+  경고(doctor의 store-writable 검사를 대시보드에도), 또는 대시보드에 큐 통계(성공률/해결시간) 카드.
+  doctor reset-horizon·parser 타임존·stats 변형은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

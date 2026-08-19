@@ -250,6 +250,26 @@ details.tail pre {
   background: var(--surface);
 }
 
+.store-corrupt-banner {
+  margin: 16px 0 0;
+  padding: 10px 14px;
+  border: 1px solid var(--status-warning);
+  border-left: 3px solid var(--status-warning);
+  border-radius: 8px;
+  color: var(--ink-primary);
+  background: var(--surface);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.store-corrupt-banner code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--page);
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
 .resume-loop {
   margin: 16px 0 0;
   padding: 12px 16px;

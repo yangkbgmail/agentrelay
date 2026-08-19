@@ -88,6 +88,29 @@ describe("readJobsSnapshot", () => {
     expect(snapshot.summary.total).toBe(0);
   });
 
+  it("flags a corrupt store and names the moved-aside backup", () => {
+    writeFileSync(storePath, "{ not json !!", "utf8");
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.store.corrupt).toBe(true);
+    expect(snapshot.store.backupPath).toContain("jobs.json.corrupt-");
+  });
+
+  it("reports a healthy store as not corrupt", () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "p", tool: "generic", command: ["echo"], cwd: dir });
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.store.corrupt).toBe(false);
+    expect(snapshot.store.backupPath).toBeNull();
+  });
+
+  it("reports an absent store (first run) as not corrupt", () => {
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.store.corrupt).toBe(false);
+    expect(snapshot.store.backupPath).toBeNull();
+  });
+
   it("reports an absent resume loop when no heartbeat file exists", () => {
     const snapshot = readJobsSnapshot(storePath);
     expect(snapshot.heartbeat.state).toBe("absent");
