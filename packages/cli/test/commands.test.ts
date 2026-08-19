@@ -12,16 +12,19 @@ import {
   getConfigValue,
   importStore,
   initConfig,
+  isProcessAlive,
   listStatus,
   listStoreBackups,
   previewRestoreStore,
   pruneJobs,
+  readDaemonLockDecision,
   restoreStore,
   retryJob,
   runCommand,
   setConfigFile,
   showConfig,
   showJob,
+  startDaemon,
   unsetConfigFile,
   validateConfigFile,
   waitForJob,
@@ -1069,5 +1072,115 @@ describe("waitForJob", () => {
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
     expect(result.message).toMatch(/no job matches/);
+  });
+});
+
+describe("isProcessAlive", () => {
+  it("reports the current process as alive", () => {
+    expect(isProcessAlive(process.pid)).toBe(true);
+  });
+
+  it("reports a non-existent pid as dead", () => {
+    // A very high pid is exceedingly unlikely to exist.
+    expect(isProcessAlive(2_000_000_000)).toBe(false);
+  });
+
+  it("treats invalid pids as dead", () => {
+    expect(isProcessAlive(0)).toBe(false);
+    expect(isProcessAlive(-1)).toBe(false);
+    expect(isProcessAlive(1.5)).toBe(false);
+    expect(isProcessAlive(Number.NaN)).toBe(false);
+  });
+});
+
+describe("daemon single-instance guard", () => {
+  let dir: string;
+  let storePath: string;
+  let hbPath: string;
+  const started: Array<{ stop: () => void } | null> = [];
+
+  const writeHeartbeat = (fields: Record<string, unknown>) => {
+    writeFileSync(hbPath, JSON.stringify(fields, null, 2), "utf8");
+  };
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-daemon-test-"));
+    storePath = join(dir, "jobs.json");
+    hbPath = join(dir, "daemon.json");
+    writeFileSync(storePath, "[]", "utf8");
+  });
+
+  afterEach(() => {
+    for (const s of started) s?.stop();
+    started.length = 0;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("reads a start decision when no heartbeat exists", () => {
+    const decision = readDaemonLockDecision(storePath, process.pid, Date.now());
+    expect(decision.action).toBe("start");
+  });
+
+  it("refuses when a fresh daemon heartbeat with a live pid is present", () => {
+    writeHeartbeat({
+      pid: process.pid,
+      mode: "daemon",
+      startedAt: new Date().toISOString(),
+      lastTickAt: new Date().toISOString(),
+      pollIntervalMs: 30_000,
+    });
+    // selfPid differs from the recorded pid so it reads as a competing daemon.
+    const decision = readDaemonLockDecision(storePath, process.pid + 1, Date.now());
+    expect(decision.action).toBe("refuse");
+    expect(decision.holder?.pid).toBe(process.pid);
+  });
+
+  it("takes over a heartbeat whose pid is dead", () => {
+    writeHeartbeat({
+      pid: 2_000_000_000,
+      mode: "daemon",
+      startedAt: new Date().toISOString(),
+      lastTickAt: new Date().toISOString(),
+      pollIntervalMs: 30_000,
+    });
+    const decision = readDaemonLockDecision(storePath, process.pid, Date.now());
+    expect(decision.action).toBe("start");
+    expect(decision.reason).toMatch(/no longer running/i);
+  });
+
+  it("startDaemon returns null and does not start when the guard refuses", () => {
+    // pid 1 (init) is always alive on POSIX and never equal to our pid, so the
+    // guard reads it as a competing live daemon and refuses.
+    writeHeartbeat({
+      pid: 1,
+      mode: "daemon",
+      startedAt: new Date().toISOString(),
+      lastTickAt: new Date().toISOString(),
+      pollIntervalMs: 30_000,
+    });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const scheduler = startDaemon({ storePath });
+    started.push(scheduler);
+    expect(scheduler).toBeNull();
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it("startDaemon --force starts despite a refusing guard", () => {
+    writeHeartbeat({
+      pid: 1,
+      mode: "daemon",
+      startedAt: new Date().toISOString(),
+      lastTickAt: new Date().toISOString(),
+      pollIntervalMs: 30_000,
+    });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const scheduler = startDaemon({ storePath, force: true });
+    started.push(scheduler);
+    expect(scheduler).not.toBeNull();
+    scheduler?.stop();
+    errSpy.mockRestore();
+    logSpy.mockRestore();
   });
 });

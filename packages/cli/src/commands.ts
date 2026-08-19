@@ -17,6 +17,7 @@ import type {
   AgentTool,
   BackupResult,
   ConfigIssue,
+  DaemonLockDecision,
   DiagnosticReport,
   HealthReport,
   HeartbeatFacts,
@@ -44,6 +45,7 @@ import {
   type EffectiveConfigEntry,
   type ExportFormat,
   envKeyForConfigKey,
+  evaluateDaemonLock,
   evaluateHealth,
   evaluateHeartbeat,
   evaluateWait,
@@ -218,6 +220,12 @@ export interface DaemonOptions {
    * (AGENTRELAY_SLACK_WEBHOOK and/or AGENTRELAY_WEBHOOK_URL, or silent skip).
    */
   remoteNotify?: Notifier | null;
+  /**
+   * Bypass the single-instance guard and start even when another daemon looks
+   * to be running. For the rare intentional case (a wedged daemon you can't
+   * signal, deliberate double-store setups). Defaults to false.
+   */
+  force?: boolean;
 }
 
 /**
@@ -255,6 +263,43 @@ export function removeDaemonHeartbeat(storePath: string): void {
   } catch {
     // best-effort; a stale file just reads as stale and expires on its own.
   }
+}
+
+/**
+ * Whether `pid` names a live process on this machine. Probes with the signal-0
+ * trick: `process.kill(pid, 0)` sends no signal but throws if the process is
+ * gone (`ESRCH`) — and succeeds, or throws `EPERM` (exists but not ours), if it
+ * lives. A non-positive/invalid pid is treated as dead. Never throws.
+ */
+export function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Read the heartbeat next to the store and judge whether it's safe to start a
+ * new daemon — the filesystem + pid-probe half of the single-instance guard;
+ * the decision rules live in `@agentrelay/core` ({@link evaluateDaemonLock}).
+ * A missing/garbled heartbeat reads as "no loop running" → always safe to start.
+ */
+export function readDaemonLockDecision(
+  storePath: string,
+  selfPid: number = process.pid,
+  nowMs: number = Date.now()
+): DaemonLockDecision {
+  let heartbeat = null;
+  try {
+    heartbeat = parseDaemonHeartbeat(readFileSync(daemonHeartbeatPath(storePath), "utf8"));
+  } catch {
+    // Missing/unreadable heartbeat → no loop to guard against.
+  }
+  const pidAlive = heartbeat ? isProcessAlive(heartbeat.pid) : false;
+  return evaluateDaemonLock(heartbeat, { nowMs, selfPid, pidAlive });
 }
 
 /**
@@ -361,8 +406,22 @@ function autoPruneBanner(
   return parts.length ? ` (auto-prune on, ${parts.join(" + ")})` : " (auto-prune on)";
 }
 
-export function startDaemon(options: DaemonOptions = {}) {
+export function startDaemon(options: DaemonOptions = {}): RelayScheduler | null {
   const storePath = options.storePath ?? defaultStorePath();
+  // Single-instance guard: refuse to start a second daemon on the same store —
+  // two would both see a job come due and double-spawn its command. --force wins.
+  const lock = readDaemonLockDecision(storePath);
+  if (lock.action === "refuse" && !options.force) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[agentrelay] not starting: ${lock.reason}.\n` + "Stop it first, or pass --force to run a second daemon anyway."
+    );
+    return null;
+  }
+  if (lock.action === "refuse" && options.force) {
+    // eslint-disable-next-line no-console
+    console.error(`[agentrelay] --force: starting anyway despite ${lock.reason}.`);
+  }
   const queue = openQueue(storePath);
   const remoteNotify = options.remoteNotify === undefined ? notifiersFromEnv() : options.remoteNotify;
   const autoPrune = autoPruneOptionsFromEnv();
