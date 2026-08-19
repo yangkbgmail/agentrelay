@@ -869,6 +869,24 @@
       비양수=가드없음·isPlausibleReset 경계·env 기본/파싱/비활성) + scheduler.test +2(먼-미래 resume 드롭→
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
+- [x] 👷 데몬 단일 인스턴스 가드(single-instance lock) — 같은 스토어에 두 번째 `agentrelay daemon`이
+      뜨면 두 데몬이 같은 due 잡을 동시에 감지·재개해 명령을 **이중 실행**하는 무음 실패를 차단.
+      자기 발굴 항목 — 열린 PR 400+개를 키워드 스캔했으나 락/단일 인스턴스/singleton 가드는 하나도 없었고,
+      프로젝트가 doctor·recover·reset-horizon으로 반복해 겨냥해온 "silent failure" 부류의 미개척 갭.
+      (완료 — 이미 디스크에 있는 하트비트(`daemon.json`: pid·mode·lastTickAt·pollIntervalMs)를 락 신호로
+      재활용. `@agentrelay/core/lock.ts` 신설(순수): `evaluateDaemonLock(existing, {nowMs, selfPid,
+      pidAlive, staleAfterMs?})` → `{action:"start"|"refuse", reason, holder?}`. 규칙 순서 — 하트비트
+      없음=start / tick-mode=start(one-shot는 이미 종료돼 락 미보유, pid 재사용 오탐 방지) / 자기 pid=start
+      / stale(`heartbeatStaleAfterMs` 재사용, 파싱불가 lastTickAt도 stale)=takeover start / pid 죽음=
+      takeover start / 신선+살아있는 pid=refuse. 순수 계층이라 파일·`process.kill`·시계 무접촉.
+      CLI `commands.ts`에 `isProcessAlive(pid)`(signal-0 프로브, EPERM=존재, 비정수·≤0=죽음, throw 안 함)·
+      `readDaemonLockDecision(store, selfPid?, nowMs?)`(하트비트 읽기+pid 프로브→코어 판정) 추가. `startDaemon`이
+      시작 전 가드 확인 → refuse면 stderr 안내 후 `null` 반환(미시작), `DaemonOptions.force`/CLI `daemon
+      --force`로 우회(경고 후 시작). CLI `daemon` 액션이 null이면 exit 1. **TOCTOU 한계 정직 문서화**(동시
+      콜드 스타트는 못 막고, 이미 한 tick 이상 돌던 데몬은 확실히 잡음 — 사용자가 실제 겪는 케이스).
+      lock.test +10(전 분기·경계·override·tick 미보유·파싱불가) + CLI isProcessAlive 3 + guard 5케이스.
+      실제 빌드 CLI e2e로 살아있는 pid=refuse(exit 1)·죽은 pid=takeover·`--force`=시작 확인.
+      core 649·cli 362/1skip·dashboard 9 전 통과 + demo 스모크 그린. branch `claude/wizardly-pascal-ivam89`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

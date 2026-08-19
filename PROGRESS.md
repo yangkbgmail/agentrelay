@@ -2259,3 +2259,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 데몬 단일 인스턴스 가드(single-instance lock)] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-ivam89`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 열린 PR
+  400+개를 4페이지에 걸쳐 제목 스캔한 결과 doctor reset-horizon(30+개)·파서 변형·stats 변형·watch 계열·
+  신규 커맨드로 극도로 포화. `lock`/`instance`/`singleton`/`두 데몬`/`concurrent` 키워드로 전수 스캔했으나
+  **락/단일 인스턴스 가드는 단 하나도 없었다** → 실제 미개척 신뢰성 갭 확정. 같은 스토어에 데몬이 둘 뜨면
+  같은 due 잡을 동시에 감지해 명령을 이중 실행하는 무음 실패(이 프로젝트가 doctor·recover·reset-horizon으로
+  반복 겨냥해온 부류).
+- **한 일 (branch `claude/wizardly-pascal-ivam89`):**
+  - core `lock.ts` 신설(순수): `evaluateDaemonLock(existing, {nowMs, selfPid, pidAlive, staleAfterMs?})`
+    → `{action:"start"|"refuse", reason, holder?}`. 이미 디스크에 있는 하트비트(`daemon.json`)를 락 신호로
+    재활용 — 규칙: 없음=start / tick-mode=start(one-shot는 락 미보유) / 자기 pid=start / stale=takeover /
+    죽은 pid=takeover / 신선+살아있는 pid=refuse. `heartbeatStaleAfterMs` 재사용으로 doctor의 stale 판정과
+    일치. 파일·`process.kill`·시계 무접촉(전부 주입).
+  - CLI `commands.ts`: `isProcessAlive(pid)`(signal-0 프로브, EPERM=존재, 비정수/≤0=죽음, throw 안 함) +
+    `readDaemonLockDecision(store, selfPid?, nowMs?)`(하트비트 읽기+pid 프로브→코어 판정). `startDaemon`이
+    시작 전 가드 확인 → refuse면 stderr 안내 후 `null` 반환(미시작). `DaemonOptions.force`/CLI `daemon --force`로
+    우회. `cli.ts` daemon 액션이 `null`이면 `process.exitCode=1`.
+  - TOCTOU 한계를 코드 주석·BACKLOG에 정직히 문서화(동시 콜드 스타트는 미보장, 이미 돌던 데몬은 확실히 차단).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome exit 0)→`pnpm test` 전 패키지
+  통과(**core 649**[+10 lock]·**cli 362/1skip**[+8: isProcessAlive 3 + guard 5]·**dashboard 9**) + `pnpm demo`
+  스모크 그린. **실제 빌드 CLI e2e**(mock 아님): 살아있는 pid 하트비트=refuse(exit 1), 죽은 pid=takeover start,
+  `--force`=refuse 무시하고 시작, 하트비트 없음=정상 시작 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `doctor`에 "다른 데몬이
+  이미 돌고 있음/락 보유자" 정보 체크 추가, `tick`에도 동일 가드(동시 tick 이중 재개 방지) 적용 검토.
+  README/ARCHITECTURE는 🧭 코워크.
