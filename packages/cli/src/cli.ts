@@ -60,10 +60,12 @@ import {
   type JobControlResult,
   listStatus,
   listStoreBackups,
+  pauseRelay,
   previewRestoreStore,
   pruneJobs,
   readHealthReport,
   readLocationReport,
+  readPauseState,
   recoverJobs,
   restoreStore,
   retryJob,
@@ -75,6 +77,7 @@ import {
   showJob,
   startDaemon,
   tickOnce,
+  unpauseRelay,
   unsetConfigFile,
   validateConfigFile,
   waitForJob,
@@ -90,6 +93,14 @@ import { renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "./ove
 import { buildParseReport, renderParseReport, renderParseReportJson } from "./parse.js";
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
+import {
+  renderPauseResult,
+  renderPauseResultJson,
+  renderPauseStatus,
+  renderPauseStatusJson,
+  renderUnpauseResult,
+  renderUnpauseResultJson,
+} from "./pause.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
 import { type RecoverResult, renderRecover, renderRecoverJson } from "./recover.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
@@ -569,8 +580,14 @@ export function buildCli(): Command {
     .description("Run a single scheduler pass immediately (useful when driven by external cron/Routines)")
     .action(async () => {
       const { store } = program.opts();
+      // Surface a pause so "no due jobs" isn't mistaken for an empty queue when
+      // the relay is actually held. Read before the tick — the marker doesn't
+      // change during a one-shot pass.
+      const paused = readPauseState(store ?? defaultStorePath()) !== null;
       const processed = await tickOnce(store);
-      if (processed.length === 0) {
+      if (paused) {
+        console.log("[agentrelay] paused — resumes held (run 'agentrelay unpause' to resume).");
+      } else if (processed.length === 0) {
         console.log("[agentrelay] no due jobs.");
       } else {
         for (const job of processed) {
@@ -2160,6 +2177,66 @@ export function buildCli(): Command {
         console.log(renderRecoverJson(result, store ?? defaultStorePath(), new Date(now).toISOString()));
       } else {
         console.log(renderRecover(result, { color: Boolean(process.stdout.isTTY), now }));
+      }
+    });
+
+  program
+    .command("pause")
+    .description("Globally hold all resumes (jobs stay queued, countdowns keep ticking) until 'unpause'")
+    .argument("[reason]", "Optional note for why the relay is paused (echoed back on unpause)")
+    .option("--status", "Just report whether the relay is currently paused, without changing anything")
+    .option("--json", "Output machine-readable JSON")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # hold every auto-resume while you investigate a flaky agent\n" +
+        "  agentrelay pause 'debugging auth flow'\n" +
+        "  # check the current state without changing it\n" +
+        "  agentrelay pause --status\n" +
+        "  # let the backlog flow again\n" +
+        "  agentrelay unpause\n"
+    )
+    .action((reason: string | undefined, opts: { status?: boolean; json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+      const color = Boolean(process.stdout.isTTY);
+
+      // --status is a read-only query: report the current pause state and stop.
+      if (opts.status) {
+        const state = readPauseState(store ?? defaultStorePath());
+        if (opts.json) {
+          console.log(renderPauseStatusJson(state, store ?? defaultStorePath(), new Date(now).toISOString()));
+        } else {
+          console.log(renderPauseStatus(state, { now, color }));
+        }
+        return;
+      }
+
+      try {
+        const result = pauseRelay({ storePath: store, reason, now: new Date(now) });
+        if (opts.json) {
+          console.log(renderPauseResultJson(result, new Date(now).toISOString()));
+        } else {
+          console.log(renderPauseResult(result, { now, color }));
+        }
+      } catch (err) {
+        console.error(`Failed to pause relay: ${err instanceof Error ? err.message : String(err)}`);
+        process.exitCode = 1;
+      }
+    });
+
+  program
+    .command("unpause")
+    .description("Clear a global pause so due jobs resume again on the next tick")
+    .option("--json", "Output machine-readable JSON")
+    .action((opts: { json?: boolean }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+      const result = unpauseRelay(store);
+      if (opts.json) {
+        console.log(renderUnpauseResultJson(result, new Date(now).toISOString()));
+      } else {
+        console.log(renderUnpauseResult(result, { now, color: Boolean(process.stdout.isTTY) }));
       }
     });
 

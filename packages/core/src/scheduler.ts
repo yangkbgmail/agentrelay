@@ -71,6 +71,18 @@ export interface SchedulerOptions {
    * {@link maxResetHorizonMsFromEnv}.
    */
   maxResetHorizonMs?: number | null;
+  /**
+   * Global "hold all resumes" gate, consulted at the start of every
+   * {@link tick}. When it returns `true` the tick resumes no job and runs no
+   * auto-prune, but still fires {@link onTick} so the daemon's liveness
+   * heartbeat keeps advancing (a *paused* relay is alive, not dead). Jobs stay
+   * queued with their countdowns intact, so clearing the pause lets the whole
+   * backlog flow on the next tick. Kept as an injected callback (not file I/O
+   * here) so the scheduler stays free of marker-file concerns; the CLI wires it
+   * to the `paused.json` marker beside the store. Omitted/undefined = never
+   * paused (the historical behavior).
+   */
+  isPaused?: () => boolean;
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
   /**
@@ -102,6 +114,7 @@ export class RelayScheduler {
   private autoPruneEveryTicks: number;
   private maxConcurrent: number;
   private maxResetHorizonMs: number | null;
+  private isPaused: () => boolean;
   private lastPruneAtMs: number | null = null;
   private pruneTickCounter = 0;
   private onPrune?: (pruned: RelayJob[]) => void;
@@ -121,6 +134,7 @@ export class RelayScheduler {
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
     this.maxConcurrent = normalizeMaxConcurrent(options.maxConcurrent);
     this.maxResetHorizonMs = options.maxResetHorizonMs ?? null;
+    this.isPaused = options.isPaused ?? (() => false);
     this.onPrune = options.onPrune;
     this.onTick = options.onTick;
   }
@@ -139,6 +153,14 @@ export class RelayScheduler {
 
   /** Runs one polling cycle immediately. Exposed for tests and manual `agentrelay tick`. */
   async tick(referenceTime: Date = new Date()): Promise<RelayJob[]> {
+    // Global pause gate: hold every resume (and skip store maintenance) while
+    // the relay is paused, but still refresh liveness below so the daemon reads
+    // as alive-and-holding rather than dead. Due jobs are left untouched — their
+    // countdowns keep ticking and they resume once the pause is cleared.
+    if (this.isPaused()) {
+      await this.fireOnTick(referenceTime);
+      return [];
+    }
     const due = this.queue.listDue(referenceTime);
     // Resume with bounded concurrency (default 1 = serial, unchanged). Results
     // stay in due-order regardless of which resume finishes first.
@@ -146,14 +168,23 @@ export class RelayScheduler {
     this.runAutoPrune(referenceTime);
     // Refresh liveness last, so a heartbeat write reflects a fully completed
     // tick. Best-effort: a failing hook must never stop the relay loop.
-    if (this.onTick) {
-      try {
-        await this.onTick(referenceTime);
-      } catch {
-        // Ignore — liveness bookkeeping is best-effort.
-      }
-    }
+    await this.fireOnTick(referenceTime);
     return processed;
+  }
+
+  /**
+   * Fire the liveness callback, swallowing any error — heartbeat bookkeeping is
+   * best-effort and must never stop (or crash) the relay loop. Shared by the
+   * normal tick path and the paused early-return so a held relay still reports
+   * as alive.
+   */
+  private async fireOnTick(referenceTime: Date): Promise<void> {
+    if (!this.onTick) return;
+    try {
+      await this.onTick(referenceTime);
+    } catch {
+      // Ignore — liveness bookkeeping is best-effort.
+    }
   }
 
   /**
