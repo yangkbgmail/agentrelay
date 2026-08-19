@@ -870,6 +870,27 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 스케줄러: 재개 실행 시간 상한(`AGENTRELAY_MAX_RUNTIME`) — 행 걸린(hung) 에이전트 프로세스가
+      릴레이 루프를 영원히 막는 "silent failure" 차단. 자기 발굴 항목 — 열린 PR 180+개를 전수 스캔한 결과,
+      이 프로젝트가 반복 겨냥해온 무음 실패 부류(PATH 부재·store 쓰기 불가·죽은 daemon·먼-미래 리셋·
+      signal-death·NaN interval)는 전부 PR이 있는데, **재개된 자식 프로세스가 `close`를 영원히 안 내보내
+      틱 전체를 정지시키는 케이스만 어디에도 없었다**. 기본 직렬(serial) 재개에서 잡 하나가 멈추면 그 틱은
+      끝나지 않고, 다른 대기 잡이 하나도 재개되지 않으며 daemon 하트비트도 멈춰 릴레이가 조용히 정지한다.
+      (완료 — `@agentrelay/core/runtime.ts` 신설(순수·파일시스템 미접촉): `maxRuntimeMsFromEnv`
+      (`AGENTRELAY_MAX_RUNTIME` 기간 파싱; **기본 OFF** — 미설정·빈 값·`0`/`off`/`none`/`disabled`/`no`·
+      파싱불가·비양수는 전부 null[제한 없음], 기존 `parseDuration` 재사용 → 오타가 실수로 정상 실행을
+      죽이지 않음. 리셋 지평선과 달리 기본값이 없는 이유: 정상 에이전트 실행은 임의로 길 수 있어 무턱대고
+      죽이면 실제 작업을 버림) + `normalizeMaxRuntimeMs`(옵션값→양의 유한수 또는 null, 두 진입점 동작
+      일치). `RelayScheduler`에 `maxRuntimeMs` 옵션 추가 → `runCommand`가 제한 설정 시 `setTimeout`으로
+      감시하다 초과하면 자식을 `SIGTERM`으로 죽이고 즉시 transient 에러로 resolve(SIGTERM 무시 프로세스도
+      틱을 못 막게). 결과는 기존 재시도 정책을 그대로 타 백오프 재시도→maxAttempts 초과 시 `failed`.
+      `settled` 가드로 중복 resolve 방지, close/error 핸들러가 `timedOut`을 확인해 코드/시그널 종료 무관하게
+      타임아웃으로 표기, 타이머는 `unref()`로 프로세스를 잡아두지 않음. `code ?? 0`(정상 종료) 의미는
+      불변. CLI daemon/tick이 `maxRuntimeMsFromEnv()`로 배선, 데몬 배너에 "(max runtime Ns)". core
+      runtime.test +6(기본 OFF·기간 파싱·off-words·오타/음수 무시·normalize 경계) + scheduler.test +2(hung
+      재개 kill→failed[lastError "timed out"]·제한 내 완료는 kill 안 함). 실제 빌드 CLI e2e로 배너
+      on/off 확인(core 647·cli 354/1skip·dashboard 9 전 통과). branch `claude/wizardly-pascal-p9f537`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

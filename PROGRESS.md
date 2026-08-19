@@ -2259,3 +2259,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 스케줄러 재개 실행 시간 상한(AGENTRELAY_MAX_RUNTIME)] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-p9f537`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 열린
+  PR 180+개를 전수 스캔해 **어떤 열린 PR에도 없는** 신뢰성 갭을 발굴: 이 프로젝트가 반복 겨냥해온 무음
+  실패 부류(PATH·store 쓰기·죽은 daemon·먼-미래 리셋·signal-death·NaN interval)는 전부 PR이 있는데,
+  재개된 자식 프로세스가 `close`를 영원히 안 내보내 **틱 전체를 정지**시키는 케이스만 미해결. 직렬 재개에서
+  잡 하나가 멈추면 그 틱이 끝나지 않고 다른 대기 잡이 하나도 재개되지 않으며 하트비트도 멈춰 릴레이가
+  조용히 정지한다.
+- **한 일 (branch `claude/wizardly-pascal-p9f537`):**
+  - core `runtime.ts` 신설(순수): `maxRuntimeMsFromEnv`(`AGENTRELAY_MAX_RUNTIME` 파싱, **기본 OFF** —
+    미설정·`0`/`off`/`none`/`disabled`/`no`·파싱불가·비양수는 null[제한 없음], `parseDuration` 재사용) +
+    `normalizeMaxRuntimeMs`(옵션값→양의 유한수 또는 null). 리셋 지평선과 달리 기본 제한을 두지 않은 이유:
+    정상 에이전트 실행은 임의로 길 수 있어 무턱대고 죽이면 실제 작업을 버림 → 명시적 opt-in만.
+  - `RelayScheduler`에 `maxRuntimeMs` 옵션 추가 → `runCommand`가 제한 설정 시 `setTimeout` 감시, 초과 시
+    자식 `SIGTERM` kill + 즉시 transient 에러로 resolve(SIGTERM 무시 프로세스도 틱을 못 막게). 결과는
+    기존 재시도 정책을 그대로 타 백오프→maxAttempts 초과 시 `failed`. `settled` 가드로 중복 resolve 방지,
+    close/error 핸들러가 `timedOut`을 확인해 코드/시그널 종료 무관하게 타임아웃 표기, 타이머 `unref()`.
+    정상 종료의 `code ?? 0` 의미는 불변(signal-death 이슈와 직교).
+  - CLI daemon/tick이 `maxRuntimeMsFromEnv()`로 배선, 데몬 배너에 "(max runtime Ns)".
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 647 · cli 354/1skip · dashboard 9**; runtime.test +6, scheduler.test +2). **실제 빌드 CLI
+  e2e**(mock 아님): `AGENTRELAY_MAX_RUNTIME` 미설정 시 배너에 런타임 표기 없음, `=45s` 설정 시
+  "(max runtime 45s)" 표기 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — SIGTERM 후 유예(grace)
+  뒤 SIGKILL 에스컬레이션, `config.ts`에 maxRuntime 파리티(설정 파일 지원), `run` 초기 실행에도 동일 상한
+  적용, `doctor`에 "설정된 런타임 상한" 노출. reset-horizon·stats 분산·watch·신규 파서 wording은 PR
+  포화라 지양. README/ARCHITECTURE(🧭 코워크).
