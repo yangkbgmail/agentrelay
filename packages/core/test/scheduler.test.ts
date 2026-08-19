@@ -474,6 +474,83 @@ describe("RelayScheduler", () => {
     expect(queue.getById(job.id)?.status).toBe("completed");
   });
 
+  it("resumes no job while isPaused() is true, leaving due jobs queued", async () => {
+    const job = queue.enqueue({ project: "p", tool: "claude-code", command: ["cmd"], cwd: dir });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString()); // due now
+
+    let spawned = false;
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: () => {
+        spawned = true;
+        return fakeSpawnFn({ cmd: "ok" })(["cmd"], dir);
+      },
+      isPaused: () => true,
+    });
+
+    const processed = await scheduler.tick();
+    expect(processed).toEqual([]); // nothing resumed
+    expect(spawned).toBe(false); // no child process was launched
+    // The job is untouched — still waiting, ready to resume once unpaused.
+    expect(queue.getById(job.id)?.status).toBe("waiting_for_reset");
+  });
+
+  it("still fires onTick (heartbeat) while paused so the daemon reads as alive", async () => {
+    const seen: number[] = [];
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({}),
+      isPaused: () => true,
+      onTick: (referenceTime) => {
+        seen.push(referenceTime.getTime());
+      },
+    });
+
+    await scheduler.tick(new Date(1000));
+    expect(seen).toEqual([1000]);
+  });
+
+  it("resumes normally once isPaused() flips back to false (pause is not a job mutation)", async () => {
+    const job = queue.enqueue({ project: "p", tool: "claude-code", command: ["cmd"], cwd: dir });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString()); // due now
+
+    let paused = true;
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({ cmd: "All done." }),
+      isPaused: () => paused,
+    });
+
+    // First tick: held.
+    expect(await scheduler.tick()).toEqual([]);
+    expect(queue.getById(job.id)?.status).toBe("waiting_for_reset");
+
+    // Unpause and tick again: the same job now resumes to completion.
+    paused = false;
+    const processed = await scheduler.tick();
+    expect(processed).toHaveLength(1);
+    expect(processed[0].status).toBe("completed");
+  });
+
+  it("skips auto-prune while paused (store maintenance is held too)", async () => {
+    const finished = queue.enqueue({ project: "p", tool: "claude-code", command: ["cmd"], cwd: dir });
+    queue.markCompleted(finished.id, "done");
+
+    const pruned: RelayJob[][] = [];
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({}),
+      isPaused: () => true,
+      autoPrune: { olderThanMs: 0 }, // no age filter → would sweep every finished job if not paused
+      onPrune: (jobs) => pruned.push(jobs),
+    });
+
+    await scheduler.tick();
+    // Nothing pruned while paused; the finished job is still in the store.
+    expect(pruned).toEqual([]);
+    expect(queue.getById(finished.id)?.status).toBe("completed");
+  });
+
   // A spawn fn that reports how many child processes are alive at once, so a
   // test can prove resumes actually overlap (or don't) under a concurrency cap.
   function trackingSpawnFn(track: { inFlight: number; peak: number }): SpawnFn {

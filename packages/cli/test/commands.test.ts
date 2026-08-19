@@ -14,14 +14,17 @@ import {
   initConfig,
   listStatus,
   listStoreBackups,
+  pauseRelay,
   previewRestoreStore,
   pruneJobs,
+  readPauseState,
   restoreStore,
   retryJob,
   runCommand,
   setConfigFile,
   showConfig,
   showJob,
+  unpauseRelay,
   unsetConfigFile,
   validateConfigFile,
   waitForJob,
@@ -1069,5 +1072,68 @@ describe("waitForJob", () => {
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
     expect(result.message).toMatch(/no job matches/);
+  });
+});
+
+describe("pauseRelay / unpauseRelay / readPauseState", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cli-pause-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("reports not paused before any pause marker is written", () => {
+    expect(readPauseState(storePath)).toBeNull();
+  });
+
+  it("pauses, persists a marker beside the store, and reads it back", () => {
+    const result = pauseRelay({ storePath, reason: "debugging", now: new Date("2026-08-19T10:00:00.000Z") });
+    expect(result.alreadyPaused).toBe(false);
+    expect(result.state).toEqual({ pausedAt: "2026-08-19T10:00:00.000Z", reason: "debugging" });
+    // Marker landed next to the store, not inside jobs.json.
+    expect(existsSync(join(dir, "paused.json"))).toBe(true);
+    expect(existsSync(storePath)).toBe(false);
+    expect(readPauseState(storePath)).toEqual(result.state);
+  });
+
+  it("preserves the original pausedAt when re-pausing, updating only the reason", () => {
+    pauseRelay({ storePath, reason: "first", now: new Date("2026-08-19T10:00:00.000Z") });
+    const again = pauseRelay({ storePath, reason: "second", now: new Date("2026-08-19T12:00:00.000Z") });
+    expect(again.alreadyPaused).toBe(true);
+    expect(again.state.pausedAt).toBe("2026-08-19T10:00:00.000Z"); // unchanged
+    expect(again.state.reason).toBe("second"); // refreshed
+  });
+
+  it("keeps the existing reason when re-pausing without a new one", () => {
+    pauseRelay({ storePath, reason: "keep me", now: new Date("2026-08-19T10:00:00.000Z") });
+    const again = pauseRelay({ storePath, now: new Date("2026-08-19T11:00:00.000Z") });
+    expect(again.state.reason).toBe("keep me");
+  });
+
+  it("unpauses, removing the marker and reporting the prior state", () => {
+    pauseRelay({ storePath, reason: "x", now: new Date("2026-08-19T10:00:00.000Z") });
+    const result = unpauseRelay(storePath);
+    expect(result.wasPaused).toBe(true);
+    expect(result.previous?.reason).toBe("x");
+    expect(existsSync(join(dir, "paused.json"))).toBe(false);
+    expect(readPauseState(storePath)).toBeNull();
+  });
+
+  it("is a harmless no-op to unpause when nothing was paused", () => {
+    const result = unpauseRelay(storePath);
+    expect(result.wasPaused).toBe(false);
+    expect(result.previous).toBeNull();
+  });
+
+  it("treats a corrupt marker as not paused (fails open)", () => {
+    pauseRelay({ storePath, now: new Date("2026-08-19T10:00:00.000Z") });
+    writeFileSync(join(dir, "paused.json"), "not json {{", "utf8");
+    expect(readPauseState(storePath)).toBeNull();
   });
 });

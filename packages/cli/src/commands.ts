@@ -64,10 +64,13 @@ import {
   maxConcurrentFromEnv,
   maxResetHorizonMsFromEnv,
   notifiersFromEnv,
+  type PauseState,
   parseConfig,
   parseDaemonHeartbeat,
   parseImportJobs,
+  parsePauseState,
   partitionForControl,
+  pauseFilePath,
   planImport,
   RelayQueue,
   RelayScheduler,
@@ -86,6 +89,7 @@ import {
   scopeJobs,
   selectStuckResumingJobs,
   serializeDaemonHeartbeat,
+  serializePauseState,
   setConfigValue,
   summarizeImportPlan,
   unsetConfigValue,
@@ -283,6 +287,104 @@ export function readHeartbeatFacts(storePath: string, nowMs: number = Date.now()
   };
 }
 
+/**
+ * Read the pause marker beside the store into a {@link PauseState}, or `null`
+ * when the relay isn't paused (marker absent) or the marker is unreadable/
+ * corrupt. Never throws — a garbled marker fails open (reads as not paused) so a
+ * bad file can't silently wedge the queue shut. This is the reader half the
+ * daemon/tick wire into the scheduler's `isPaused` gate.
+ */
+export function readPauseState(storePath: string): PauseState | null {
+  let raw: string;
+  try {
+    raw = readFileSync(pauseFilePath(storePath), "utf8");
+  } catch {
+    return null;
+  }
+  return parsePauseState(raw);
+}
+
+/**
+ * Write the pause marker atomically (temp file + rename) so a concurrent reader
+ * never sees a half-written record. Unlike the best-effort heartbeat, a failure
+ * here throws: a `pause` that silently didn't persist would leave the user
+ * believing the relay is held when it isn't.
+ */
+function writePauseMarker(storePath: string, state: PauseState): void {
+  const path = pauseFilePath(storePath);
+  const body = serializePauseState(state);
+  const tmp = `${path}.tmp-${process.pid}-${writeProbeSeq++}`;
+  const dir = dirname(path);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  try {
+    writeFileSync(tmp, body, "utf8");
+    renameSync(tmp, path);
+  } catch (err) {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      // best-effort cleanup; ignore
+    }
+    throw err;
+  }
+}
+
+export interface PauseRelayOptions {
+  storePath?: string;
+  /** Optional human note for *why* the relay is being paused. */
+  reason?: string;
+  /** Injected for tests; defaults to the real wall clock. */
+  now?: Date;
+}
+
+export interface PauseRelayResult {
+  /** The pause marker now on disk. */
+  state: PauseState;
+  /** True when a pause was already in effect before this call. */
+  alreadyPaused: boolean;
+  storePath: string;
+}
+
+/**
+ * Pause the relay: write the marker so the scheduler holds every resume. When a
+ * pause is already in effect the original `pausedAt` is preserved (so "paused
+ * since" stays honest) and only a newly supplied reason updates the note —
+ * re-pausing is a safe no-op that can refresh the reason, never a reset.
+ */
+export function pauseRelay(options: PauseRelayOptions = {}): PauseRelayResult {
+  const storePath = options.storePath ?? defaultStorePath();
+  const existing = readPauseState(storePath);
+  const now = options.now ?? new Date();
+  const newReason = options.reason !== undefined && options.reason.trim() !== "" ? options.reason : undefined;
+  const state: PauseState = existing
+    ? { pausedAt: existing.pausedAt, reason: newReason ?? existing.reason }
+    : { pausedAt: now.toISOString(), reason: newReason };
+  writePauseMarker(storePath, state);
+  return { state, alreadyPaused: existing !== null, storePath };
+}
+
+export interface UnpauseRelayResult {
+  /** True when a pause was in effect and has now been cleared. */
+  wasPaused: boolean;
+  /** The pause state that was cleared (null when nothing was paused). */
+  previous: PauseState | null;
+  storePath: string;
+}
+
+/**
+ * Clear the pause marker so resumes flow again on the next tick. Idempotent:
+ * unpausing when nothing was paused is a harmless no-op, reported as such.
+ */
+export function unpauseRelay(storePath?: string): UnpauseRelayResult {
+  const resolved = storePath ?? defaultStorePath();
+  const previous = readPauseState(resolved);
+  if (previous !== null) {
+    // Only touch the file when something is actually there to remove.
+    rmSync(pauseFilePath(resolved), { force: true });
+  }
+  return { wasPaused: previous !== null, previous, storePath: resolved };
+}
+
 export interface HealthOptions {
   storePath?: string;
   /** Injected for tests; defaults to the real wall clock. */
@@ -387,6 +489,9 @@ export function startDaemon(options: DaemonOptions = {}) {
       lastTickAt: at.toISOString(),
       pollIntervalMs,
     });
+  // Re-read the pause marker every tick (cheap, one small file) so `agentrelay
+  // pause`/`unpause` from another process takes effect on the very next cycle
+  // without restarting the daemon.
   const scheduler = new RelayScheduler({
     queue,
     pollIntervalMs,
@@ -396,6 +501,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
+    isPaused: () => readPauseState(storePath) !== null,
     onPrune: (pruned) => logLine(`[agentrelay] auto-pruned ${pruned.length} finished job(s)`),
     onTick: (referenceTime) => beat(referenceTime),
     notify: async (payload) => {
@@ -418,7 +524,8 @@ export function startDaemon(options: DaemonOptions = {}) {
     `[agentrelay] daemon started, watching ${storePath} every ${pollIntervalMs / 1000}s` +
       (remoteNotify ? " (notifications on)" : "") +
       (maxConcurrent > 1 ? ` (max ${maxConcurrent} concurrent)` : "") +
-      autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks)
+      autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks) +
+      (readPauseState(storePath) !== null ? " (PAUSED — resumes held; run 'agentrelay unpause')" : "")
   );
   return scheduler;
 }
@@ -434,6 +541,9 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     maxConcurrent: maxConcurrentFromEnv(),
     maxResetHorizonMs: maxResetHorizonMsFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
+    // A one-shot `tick` honors the same pause marker a running daemon does, so a
+    // cron-driven relay is held too while paused.
+    isPaused: () => readPauseState(resolvedStore) !== null,
   });
   const processed = await scheduler.tick();
   // Record that a (typically cron-driven) tick ran, so `doctor` can tell the

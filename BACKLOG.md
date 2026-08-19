@@ -870,6 +870,29 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay pause` / `unpause` — 전역 "모든 재개 보류" 스위치. 자기 발굴 항목 —
+      잡별 제어(`snooze`/`cancel`/`retry`)와 캐치업 대기(`drain`/`wait`)는 있지만, 데몬을
+      죽이지 않고 **릴레이 전체를 잠깐 멈추되 잡은 큐에 그대로 두는**(카운트다운 계속) 스위치가
+      없었다. 열린 PR 100+개를 키워드 스캔해 어디에도 없는 실제 운영 갭임을 확인.
+      (완료 — `@agentrelay/core/pause.ts` 신설(순수·파일시스템 미접촉): `pauseFilePath(storePath)`
+      (heartbeat `daemon.json`과 동일하게 스토어 옆 `paused.json` 마커) + `PauseState`
+      (`pausedAt`·optional `reason`) + `serializePauseState`/`parsePauseState`(불량 JSON·비객체·
+      pausedAt 누락/비문자열은 null, 비문자열 reason은 드롭=전방호환) + `isPauseActive`(null=
+      **fail-open**, 손상 마커가 큐를 조용히 잠그지 못하게). `RelayScheduler`에 주입형
+      `isPaused?: () => boolean` 게이트 추가 — tick 시작에서 true면 재개·auto-prune 전부 스킵하되
+      `onTick`(하트비트)는 계속 발화해 데몬이 "죽음"이 아닌 "살아서 보류 중"으로 읽히고, due 잡은
+      불변(카운트다운 유지, unpause 후 다음 tick에 정상 재개). 파일 I/O는 스케줄러 밖(기존 설계
+      유지) — CLI `commands.ts`가 `readPauseState`(never-throw)·`writePauseMarker`(원자적 tmp+
+      rename, 실패 시 throw — 조용한 미영속 방지)·`pauseRelay`(재-pause는 원 `pausedAt` 보존·
+      reason만 갱신)·`unpauseRelay`(마커 제거, 미일시정지는 무해 no-op)로 배선, daemon/one-shot
+      tick 둘 다 `isPaused: () => readPauseState(store) !== null` 연결. CLI `pause.ts` 순수 렌더
+      (`renderPauseResult`/`renderUnpauseResult`/`renderPauseStatus` + Json 변형, "paused N ago"·
+      "held for N" 상대시각). `agentrelay pause [reason] [--status] [--json]`·`unpause [--json]`
+      서브커맨드, daemon 배너·`tick`이 일시정지 상태 표기. core pause 16 + scheduler +4(paused=
+      재개 0·spawn 0·잡 불변, paused여도 onTick 발화, unpause 후 정상 재개, paused면 prune 스킵)
+      + cli commands +7 신규 테스트, 실제 빌드 CLI e2e로 pause→tick 보류→unpause→tick 완료
+      전 경로 검증. branch `claude/wizardly-pascal-feud8o`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

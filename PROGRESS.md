@@ -2259,3 +2259,35 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay pause` / `unpause` 전역 재개 보류 스위치] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-feud8o`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 100+개(#650–#777)를 키워드로 스캔하니 `doctor` 먼-미래 리셋 검사만 25개+ PR로 극도로
+  포화(세션 72의 "다음 할 일" 후보였으나 이미 다수가 선점), 파서 타임존/epoch-ms·stats 분산/attempts·
+  Gemini/Aider 어댑터·eta/windows 등도 다 채워져 있었다. **어떤 열린 PR에도 없는** 실제 운영 갭을
+  발굴: 데몬을 죽이지 않고 릴레이 전체를 잠깐 멈추되 잡은 큐에 그대로 두는 전역 스위치가 없음.
+  잡별 제어(`snooze`/`cancel`/`retry`)·캐치업 대기(`drain`/`wait`)와 명확히 구분되는 새 축.
+- **한 일 (branch `claude/wizardly-pascal-feud8o`):**
+  - core `pause.ts` 신설(순수·파일시스템 미접촉): `pauseFilePath`(heartbeat `daemon.json`과 동일하게
+    스토어 옆 `paused.json` 마커 — jobs.json 스키마 불변, 큐와 레이스 없음) + `PauseState`
+    (`pausedAt`·optional `reason`) + `serializePauseState`/`parsePauseState`(불량 JSON·비객체·pausedAt
+    누락/비문자열은 null, 비문자열 reason은 드롭=전방호환) + `isPauseActive`(null=**fail-open** →
+    손상/부재 마커가 큐를 조용히 잠그지 못함, 진행이 본분인 재개 루프의 안전 기본값).
+  - `RelayScheduler`에 주입형 `isPaused?: () => boolean` 게이트: tick 시작에서 true면 재개·auto-prune
+    전부 스킵하되 `onTick`(하트비트)은 계속 발화(공용 `fireOnTick` 헬퍼로 추출) → 데몬이 "죽음"이 아닌
+    "살아서 보류 중"으로 읽히고, due 잡은 불변(카운트다운 유지, unpause 후 다음 tick에 정상 재개).
+    파일 I/O는 스케줄러 밖(기존 onTick/onPrune 콜백 설계와 동일).
+  - CLI `commands.ts`: `readPauseState`(never-throw)·`writePauseMarker`(원자적 tmp+rename, 실패 시
+    throw — 조용한 미영속 방지)·`pauseRelay`(재-pause는 원 `pausedAt` 보존·reason만 갱신)·`unpauseRelay`
+    (마커 제거, 미일시정지는 무해 no-op). daemon/one-shot tick 둘 다 `isPaused: () => readPauseState(store)
+    !== null`로 배선, daemon 배너·`tick`이 일시정지 상태 표기. CLI `pause.ts` 순수 렌더
+    (`renderPauseResult`/`renderUnpauseResult`/`renderPauseStatus` + Json, "paused N ago"·"held for N").
+    `agentrelay pause [reason] [--status] [--json]`·`unpause [--json]` 서브커맨드.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 659**[pause 16 + scheduler +4]·**cli 361/1skip**[commands +7]·**dashboard 9**). **실제 빌드
+  CLI e2e**(mock 아님): due 잡 시딩→`pause`→`tick`이 "paused — resumes held" 출력하며 잡은
+  `waiting_for_reset` 유지→`unpause`→`tick`이 같은 잡을 `completed`로 재개, `pause --status --json`·
+  미일시정지 `unpause` no-op 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에
+  일시정지 배지 노출, `doctor`/`status`에 "relay paused" 표기, 자동 만료(pause TTL). doctor 먼-미래
+  리셋·파서 타임존/epoch-ms·stats 분산은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

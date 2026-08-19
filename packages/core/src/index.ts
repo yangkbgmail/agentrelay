@@ -19,6 +19,7 @@ export * from "./overdue.js";
 export * from "./parser.js";
 export * from "./paths.js";
 export * from "./patterns.js";
+export * from "./pause.js";
 export * from "./projects.js";
 export * from "./prune.js";
 export * from "./queue.js";
