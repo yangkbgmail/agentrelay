@@ -2259,3 +2259,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — doctor `reset-horizon` 검사: 큐에 이미 갇힌 먼-미래 리셋 잡 경고] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-b96544`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72(파서 리셋 plausibility 가드, #723 병합)의 "다음 할 일"에 적힌 후속 후보 —
+  `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가 — 를 구현. 파서 가드는 **새** 오탐만 막지만,
+  가드 이전에 큐잉됐거나 `AGENTRELAY_MAX_RESET_HORIZON=off`로 큐잉된 잡은 이미 스토어에 갇혀
+  수일/수년 조용히 대기할 수 있다(이 프로젝트가 doctor·recover로 반복 겨냥해온 "silent failure").
+  열린 PR 제목 스캔 결과 이 큐-측 진단은 어떤 열린 PR에도 없음.
+- **한 일 (branch `claude/wizardly-pascal-b96544`):**
+  - core `doctor.ts`: 순수 헬퍼 `farFutureResetJobs(jobs, now, maxHorizonMs)` 신설 —
+    active 잡(queued/waiting_for_reset/resuming) 중 `resetAt`이 `now + horizon`을 넘는 것만
+    `{jobId, project, resetAt, overshootMs}`로 반환(삽입 순서 유지). null/비유한/비양수 horizon=
+    가드 비활성 → 빈 배열. resetAt 없음·파싱불가는 스킵(이 검사의 책임 아님).
+  - `ResetHorizonFacts`(maxHorizonMs·farFuture) + `FarFutureResetJob` 타입 추가,
+    `DiagnosticInput`에 `resetHorizon` 필드 배선, `runDiagnostics`에 6번째 검사
+    `resetHorizonCheck` 추가(daemon 뒤·config 앞). 먼-미래 잡 있으면 **warning**(에러 아님 —
+    스토어 자체는 정상, 조치는 개별 재큐잉/취소), 없으면 ok, 가드 off면 no-op ok. 힌트는
+    `agentrelay retry <id>`(즉시 재큐잉으로 오탐 리셋 제거) / `agentrelay cancel <id>`.
+  - CLI `commands.ts` `runDoctor`: 파서와 동일한 `maxResetHorizonMsFromEnv(env)`로 horizon을
+    해소하고 `farFutureResetJobs`로 facts 구성(옵션 `nowMs` 주입 가능) → doctor와 가드가
+    "너무 먼" 기준을 공유. 기존 검사·렌더러·`doctor --json`은 필드 추가만이라 하위호환.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 648**[doctor.test +19], **cli 356/1skip**[doctor.test +2], **dashboard 9**).
+  **실제 빌드 CLI e2e**(mock 아님): 갇힌 `resetAt:2099-01-01` 잡을 심은 스토어에서
+  `doctor`가 `reset-horizon` warning(8d horizon, ~26424d 초과)을 렌더, `--json`도 동일,
+  `AGENTRELAY_MAX_RESET_HORIZON=off`면 "guard disabled" ok로 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
+  (수년 전 epoch로 즉시 재개되는 misparse)도 doctor에서 신호로 보고할지, dashboard에도 먼-미래
+  리셋 배너 노출. stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

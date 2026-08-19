@@ -48,6 +48,39 @@ describe("runDoctor", () => {
     expect(store.message).toContain("1 active");
   });
 
+  it("warns when an active job is parked with an implausibly far-future reset", () => {
+    const queue = new RelayQueue(storePath);
+    const stranded = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    // A misparse could produce a reset years out; well past the default 8-day horizon.
+    queue.markWaitingForReset(stranded.id, "2099-01-01T00:00:00.000Z");
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("far-future reset");
+    expect(check.message).toContain(stranded.id);
+    // reset-horizon is a warning, so it alone must not fail the report
+    expect(check.level).not.toBe("error");
+  });
+
+  it("does not flag a far-future reset when the horizon guard is disabled", () => {
+    const queue = new RelayQueue(storePath);
+    const stranded = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(stranded.id, "2099-01-01T00:00:00.000Z");
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+  });
+
   it("errors when the store file is corrupt", () => {
     writeFileSync(storePath, "{ this is not valid json", "utf8");
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
