@@ -1,6 +1,7 @@
 import type { DailyActivity, HourlyActivity, RelayJob, WeekdayActivity } from "@agentrelay/core";
 import {
   computeActivityHeatmap,
+  computeAttemptsDistribution,
   computeDailyTrend,
   computeHourlyDistribution,
   computeStats,
@@ -16,6 +17,7 @@ import {
   NO_GROUP_MESSAGE,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
+  renderAttempts,
   renderGroupedStats,
   renderGroupedStatsJson,
   renderHeatmap,
@@ -613,5 +615,68 @@ describe("renderStatsWatchFrame", () => {
     expect(out.split("\n")[0]).toContain("agentrelay stats");
     expect(out).toContain("across 2 tool(s)");
     expect(out.endsWith(body)).toBe(true);
+  });
+});
+
+describe("renderAttempts", () => {
+  it("renders a header, one row per attempt bucket (0..max), and a footer with the average", () => {
+    const dist = computeAttemptsDistribution([
+      job({ attempts: 1 }),
+      job({ attempts: 1 }),
+      job({ attempts: 1 }),
+      job({ attempts: 2 }),
+    ]);
+    const out = renderAttempts(dist);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("by attempts");
+    // header + 2 rows (0..1? no: max is 2 → rows 0,1,2) + footer
+    // buckets are 0,1,2 → 3 rows
+    expect(lines).toHaveLength(1 + 3 + 1);
+    // count appears at the end of each row.
+    expect(out).toMatch(/1 .* 3/);
+    expect(out).toMatch(/2 .* 1/);
+    // avg = (1*3 + 2*1) / 4 = 1.25
+    expect(lines[lines.length - 1]).toContain("4 job(s), avg 1.3 attempt(s)/job");
+  });
+
+  it("scales bars to the busiest bucket and draws blocks only for non-empty buckets", () => {
+    const dist = computeAttemptsDistribution([
+      job({ attempts: 1 }),
+      job({ attempts: 1 }),
+      job({ attempts: 1 }),
+      job({ attempts: 3 }),
+    ]);
+    const out = renderAttempts(dist);
+    const rows = out.split("\n");
+    const peakRow = rows.find((r) => /^\s+1\s/.test(r)) ?? "";
+    const gapRow = rows.find((r) => /^\s+2\s/.test(r)) ?? "";
+    expect(peakRow).toContain("█");
+    expect(gapRow).not.toContain("█"); // zero-filled gap bucket
+    expect((peakRow.match(/█/g) ?? []).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("returns a 'none' body for an empty distribution", () => {
+    const out = renderAttempts([]);
+    expect(out).toContain("by attempts");
+    expect(out).toContain("none");
+    expect(out).not.toContain("█");
+  });
+
+  it("round-trips a store subset through computeAttemptsDistribution + renderAttempts", () => {
+    const out = renderAttempts(computeAttemptsDistribution([job({ attempts: 0 }), job({ attempts: 2 })]));
+    // buckets 0,1,2 → the average is (0 + 2) / 2 = 1.0
+    expect(out).toContain("2 job(s), avg 1.0 attempt(s)/job");
+  });
+});
+
+describe("renderStatsJson attempts field", () => {
+  it("omits `attempts` by default but includes it when provided", () => {
+    const stats = computeStats([job()]);
+    const without = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x" }));
+    expect("attempts" in without).toBe(false);
+    const attempts = computeAttemptsDistribution([job({ attempts: 0 }), job({ attempts: 2 })]);
+    const withAttempts = JSON.parse(renderStatsJson(stats, "/tmp/s.json", { generatedAt: "x", attempts }));
+    expect(withAttempts.attempts).toHaveLength(3); // buckets 0,1,2
+    expect(withAttempts.attempts[2]).toEqual({ attempts: 2, count: 1 });
   });
 });

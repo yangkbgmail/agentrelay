@@ -2259,3 +2259,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay stats --attempts` 재시도 분포 히스토그램] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-judq0q`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  기존 커맨드 surface와 진행중인 descriptive 브랜치(stats 분산 지표·watch 변형·파서 계열·notify·
+  dashboard 등)를 스캔해 **어느 것에도 없는** 순수-추가 개선 항목을 발굴했다: `stats`는 헤드라인에
+  `totalAttempts`·`retriedJobs`(attempts>1 단일 카운트)만 있고, 잡들이 실제로 **몇 번의 재개 시도**로
+  풀렸는지의 전체 분포(0·1·2·3+회)를 보는 수단이 없었다 — 리밋이 얼마나 "끈질긴지"를 한눈에 보는 지표.
+  세션 58·59·60의 `--hours`/`--weekday`/`--heatmap`과 동일한 히스토그램 패턴이라 회귀 위험 최소.
+- **한 일 (branch `claude/wizardly-pascal-judq0q`):**
+  - core `stats.ts`: 순수 `computeAttemptsDistribution(jobs)` + `AttemptsBucket`(attempts·count) 신설 —
+    각 잡의 `job.attempts`를 버킷팅해 0부터 최다 관측값까지 **연속·zero-fill**(리밋 정책상 값이 작아
+    범위 안정). 빈 스토어는 빈 배열, 비유한 attempts는 스킵, 음수는 0으로 floor(방어적; 큐는 음수를
+    쓰지 않지만 손편집 스토어에도 정직). `--hours`/`--weekday`처럼 창도 시계도 불필요(attempts는 잡의
+    절대 속성). `export *`로 index 자동 노출.
+  - CLI `stats.ts`: 순수 `renderAttempts(buckets)`(최다 버킷에 스케일된 ASCII 막대 + 빈 버킷 dim 점 +
+    총계·평균 attempts/job 푸터, `--hours` 렌더 관례 일치)·`renderStatsJson`에 옵셔널 `attempts` 필드
+    (요청 시에만 방출, 기존 JSON shape 불변). `cli.ts` `stats`에 `--attempts` 배선 — 일회성·`--json`·
+    `--watch` 세 뷰 모두 적용, 기존 스코프 필터(--status/--tool/--project/--since/--until) 및
+    `--hours`/`--weekday`/`--heatmap`/`--trend`와도 조합 가능. 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 645 · cli 359/1skip · dashboard 9**; core stats +6, cli stats +5). **실제 빌드 CLI e2e**
+  (mock 아님): attempts {0,1,1,3} 4-잡 스토어에서 `--attempts`가 0·1·2(빈 gap 점)·3 버킷을 스케일 막대로
+  렌더하고 "avg 1.3 attempt(s)/job" 푸터, `--json`은 `attempts` 배열을 정확히 방출, 기본 `--json`은
+  `attempts` 키 미포함, help/completion에 `--attempts` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에 재시도
+  분포 노출, `--attempts --local`은 무의미(attempts는 시간축 아님)이므로 불필요. README/ARCHITECTURE(🧭 코워크).

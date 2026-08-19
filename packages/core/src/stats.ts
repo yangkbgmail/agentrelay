@@ -377,6 +377,45 @@ export function computeActivityHeatmap(jobs: RelayJob[], offsetMinutes = 0): Act
   return { cells, total, maxCell };
 }
 
+export interface AttemptsBucket {
+  /** Number of resume attempts a job has accrued (0 = queued, not yet run). */
+  attempts: number;
+  /** Jobs that have been resumed exactly this many times. */
+  count: number;
+}
+
+/**
+ * Buckets jobs by their resume-attempt count (`job.attempts`), so `agentrelay
+ * stats --attempts` can show how "sticky" rate-limits are — a store where most
+ * jobs resolve on attempt 1 means limits clear cleanly, while a long tail of 3+
+ * attempts means jobs keep re-hitting the wall before finishing. Unlike the
+ * per-status `retriedJobs` headline (a single "attempts > 1" count), this is the
+ * full shape of the retry distribution. Pure and non-mutating: no I/O, no clock.
+ *
+ * The result is contiguous from 0 up to the busiest observed attempt count,
+ * zero-filled for empty buckets so the histogram has a stable shape (attempt
+ * counts are bounded by the retry policy in practice, so the range stays small).
+ * Returns an empty array when there are no jobs. Non-finite attempt values are
+ * skipped; a negative count is floored to 0 defensively (the queue never writes
+ * one, but the aggregate stays honest if a store is hand-edited).
+ */
+export function computeAttemptsDistribution(jobs: RelayJob[]): AttemptsBucket[] {
+  const counts = new Map<number, number>();
+  let max = -1;
+  for (const job of jobs) {
+    if (!Number.isFinite(job.attempts)) continue;
+    const attempts = Math.max(0, Math.trunc(job.attempts));
+    counts.set(attempts, (counts.get(attempts) ?? 0) + 1);
+    if (attempts > max) max = attempts;
+  }
+  if (max < 0) return [];
+  const buckets: AttemptsBucket[] = [];
+  for (let a = 0; a <= max; a++) {
+    buckets.push({ attempts: a, count: counts.get(a) ?? 0 });
+  }
+  return buckets;
+}
+
 /** Statuses whose lifecycle span counts as a relay-driven resolution. */
 const RESOLVED_STATUSES: JobStatus[] = ["completed", "failed"];
 
