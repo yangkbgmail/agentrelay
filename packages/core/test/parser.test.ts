@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_MAX_RESET_HORIZON_MS,
   isPlausibleReset,
+  isValidTimeZone,
   maxResetHorizonMsFromEnv,
+  nextClockInstant,
   parseRateLimitMessage,
+  timeZoneOffsetMs,
+  zonedWallToUtc,
 } from "../src/parser.js";
 
 describe("parseRateLimitMessage", () => {
@@ -30,8 +34,10 @@ describe("parseRateLimitMessage", () => {
     expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
   });
 
-  it("parses the real Claude Code wording: 'reset at 5pm' (hour + meridiem, no minutes)", () => {
+  it("parses the real Claude Code wording and honors the named timezone: 'reset at 5pm (America/New_York)'", () => {
     // Actual message: "Claude usage limit reached. Your limit will reset at 5pm (America/New_York)."
+    // 2026-07-12 is EDT (UTC-4), so 5pm New York == 21:00 UTC. The result must be
+    // that exact instant regardless of the machine's local timezone.
     const now = new Date("2026-07-12T08:00:00Z"); // 08:00 UTC
     const result = parseRateLimitMessage(
       "Claude usage limit reached. Your limit will reset at 5pm (America/New_York).",
@@ -39,10 +45,7 @@ describe("parseRateLimitMessage", () => {
     );
     expect(result).not.toBeNull();
     expect(result?.pattern).toBe("clock-time-meridiem");
-    const resetDate = new Date(result!.resetAt);
-    expect(resetDate.getHours()).toBe(17); // 5pm local
-    expect(resetDate.getMinutes()).toBe(0);
-    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+    expect(result?.resetAt).toBe("2026-07-12T21:00:00.000Z");
   });
 
   it("parses 'resets at 10 AM' with a space before the meridiem, rolling to tomorrow if past", () => {
@@ -72,6 +75,70 @@ describe("parseRateLimitMessage", () => {
   it("does not treat a bare 'reset at 5' (no minutes, no meridiem) as a clock time", () => {
     // Too ambiguous — could be "5 hours", "5th", etc. Requiring am/pm keeps us safe.
     expect(parseRateLimitMessage("Rate limit hit, reset at 5.")).toBeNull();
+  });
+
+  it("honors a timezone on the minute-precise clock-time pattern (winter, EST)", () => {
+    // 2026-01-15 is EST (UTC-5), so 3:30pm New York == 20:30 UTC.
+    const now = new Date("2026-01-15T08:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 3:30pm (America/New_York).", { now });
+    expect(result?.pattern).toBe("clock-time");
+    expect(result?.resetAt).toBe("2026-01-15T20:30:00.000Z");
+  });
+
+  it("honors a timezone on a 24-hour clock time without parentheses", () => {
+    // 2026-01-15 London is GMT (UTC+0), so 15:00 == 15:00 UTC.
+    const now = new Date("2026-01-15T08:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 15:00 Europe/London.", { now });
+    expect(result?.pattern).toBe("clock-time");
+    expect(result?.resetAt).toBe("2026-01-15T15:00:00.000Z");
+  });
+
+  it("rolls the zoned reset to tomorrow when today's wall time has already passed", () => {
+    // now is 2026-07-12T22:00Z == 18:00 EDT, already past 5pm NY today, so next 5pm
+    // NY is 2026-07-13T21:00Z.
+    const now = new Date("2026-07-12T22:00:00Z");
+    const result = parseRateLimitMessage("Your limit will reset at 5pm (America/New_York).", { now });
+    expect(result?.resetAt).toBe("2026-07-13T21:00:00.000Z");
+  });
+
+  it("falls back to local time when the captured timezone is not a real IANA zone", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    // "Mars/Phobos" trips the Region/City shape but isn't a valid zone → same as no zone.
+    const withBadZone = parseRateLimitMessage("Resets at 5pm (Mars/Phobos).", { now });
+    const withoutZone = parseRateLimitMessage("Resets at 5pm.", { now });
+    expect(withBadZone?.resetAt).toBe(withoutZone?.resetAt);
+    expect(withBadZone?.pattern).toBe("clock-time-meridiem");
+  });
+
+  describe("timezone helpers", () => {
+    it("isValidTimeZone recognizes real zones and rejects junk", () => {
+      expect(isValidTimeZone("America/New_York")).toBe(true);
+      expect(isValidTimeZone("Europe/London")).toBe(true);
+      expect(isValidTimeZone("UTC")).toBe(true);
+      expect(isValidTimeZone("Mars/Phobos")).toBe(false);
+      expect(isValidTimeZone("")).toBe(false);
+    });
+
+    it("timeZoneOffsetMs is DST-aware", () => {
+      const hourMs = 60 * 60_000;
+      // EDT in July (UTC-4), EST in January (UTC-5).
+      expect(timeZoneOffsetMs("America/New_York", new Date("2026-07-12T12:00:00Z"))).toBe(-4 * hourMs);
+      expect(timeZoneOffsetMs("America/New_York", new Date("2026-01-15T12:00:00Z"))).toBe(-5 * hourMs);
+      expect(timeZoneOffsetMs("UTC", new Date("2026-07-12T12:00:00Z"))).toBe(0);
+    });
+
+    it("zonedWallToUtc converts a wall time in a zone to the correct UTC instant", () => {
+      expect(zonedWallToUtc(2026, 7, 12, 17, 0, "America/New_York").toISOString()).toBe("2026-07-12T21:00:00.000Z");
+      expect(zonedWallToUtc(2026, 1, 15, 17, 0, "America/New_York").toISOString()).toBe("2026-01-15T22:00:00.000Z");
+    });
+
+    it("nextClockInstant rolls forward and honors the zone", () => {
+      const now = new Date("2026-07-12T22:00:00Z"); // 18:00 EDT
+      // 5pm NY already passed today → tomorrow 5pm NY.
+      expect(nextClockInstant(now, 17, 0, "America/New_York").toISOString()).toBe("2026-07-13T21:00:00.000Z");
+      // 11pm NY (23:00 EDT == 03:00Z next day) is still ahead of 18:00 EDT today.
+      expect(nextClockInstant(now, 23, 0, "America/New_York").toISOString()).toBe("2026-07-13T03:00:00.000Z");
+    });
   });
 
   it("parses a relative duration like '4h32m'", () => {

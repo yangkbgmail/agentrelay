@@ -2259,3 +2259,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 파서 clock-time 명시 타임존 인식] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-9yarzo`)
+- **배경:** 세션 시작 시 열린 👷 백로그 항목 0개(전부 완료), main=현재 브랜치 동일(이전 PR #723 병합됨).
+  CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다. 코드를 읽던 중 `parser.ts`의 clock-time/
+  clock-time-meridiem 패턴 주석에 "the named timezone in the message is ignored — the hour is
+  interpreted in local time"라는 **문서화된 correctness 한계**를 발견했다. 실전에서 이 도구가 가장 자주
+  마주치는 실제 Claude wording이 "Your limit will reset at 5pm (America/New_York)."인데, 머신 로컬 TZ가
+  뉴욕이 아니면 리셋 시각을 오프셋만큼 어긋나게 해소 → 너무 이르게 재개하면 한도에 또 걸리고, 너무 늦게
+  재개하면 몇 시간을 낭비. 이 프로젝트가 반복해 겨냥해온 "silent failure" 부류라 최우선 발굴 항목으로 선정.
+- **한 일 (branch `claude/wizardly-pascal-9yarzo`):**
+  - core `parser.ts`에 순수 헬퍼 신설: `isValidTimeZone(tz)`(Intl로 IANA 존 검증, throw 없음)·
+    `timeZoneOffsetMs(tz, date)`(DST 인식 — `formatToParts`로 그 순간 벽시계를 역산해 zone−UTC 오프셋)·
+    `zonedWallToUtc(y,mo,d,h,mi,tz)`(존 벽시계→UTC 인스턴트, DST 전환 대비 2-pass)·
+    `nextClockInstant(now,hour,minute,tz?)`(다음 미래 벽시계 인스턴트 — 유효 존이면 그 존에서 해소,
+    없거나 미인식이면 로컬 폴백, 이미 지났으면 다음 날로 롤).
+  - 공유 정규식 조각 `TZ_SUFFIX`(선택적 괄호 + `Region/City` 형태 IANA 이름만 캡처 → 일반 단어 오탐 방지)를
+    `clock-time`·`clock-time-meridiem` 두 패턴 정규식에 붙이고, 캡처한 존을 `nextClockInstant`에 전달.
+    setHours 로컬 계산을 `nextClockInstant`로 대체. **존이 없거나 미인식(예: `Mars/Phobos`)이면 기존 로컬
+    시각 동작 그대로**(하위호환) — 다른 패턴/스케줄러/어댑터 수정 0줄, `index.ts`는 `export *`라 신규 헬퍼 자동 노출.
+- **검증:** `pnpm install`→`pnpm ci:lint`(Biome 0에러)→`pnpm build`(Next 포함 클린)→`pnpm test` 전 패키지
+  통과(**core 647(+8) · cli 354/1skip · dashboard 9**; parser.test +12 = 존 인식 5 + 헬퍼 유닛 7). 기존
+  로컬-시각 단언 테스트 1개는 이제 타임존 인식이 정답이라 정확한 UTC 인스턴트 단언으로 갱신. **실제 빌드
+  CLI e2e**(mock 아님): `parse "…5pm (America/New_York)"`→`2026-08-19T21:00:00Z`(EDT UTC-4),
+  `15:00 Europe/London`→`14:00Z`(BST UTC+1, **DST 인식**), 무존/미인식(`Mars/Phobos`)→로컬 폴백(17:00Z) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 타임존 **약어**(PST/ET 등)
+  매핑은 모호성 때문에 지양, 대신 iso-timestamp에 타임존 미포함 시 존 힌트 활용 검토. README/ARCHITECTURE(🧭 코워크).

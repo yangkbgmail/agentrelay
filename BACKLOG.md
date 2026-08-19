@@ -870,6 +870,22 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 파서: 시각(clock-time) 패턴의 명시 타임존 인식 — "reset at 5pm (America/New_York)"의
+      괄호 타임존을 존중해 리셋 시각을 **그 존 기준**으로 해소(기존엔 머신 로컬 시각으로 오해석).
+      자기 발굴 항목 — parser.ts 주석에 "the named timezone in the message is ignored … local time"라고
+      명시돼 있던 문서화된 한계였다. 헤드리스로 에이전트를 감싸는 이 도구가 실전에서 마주치는 실제 Claude
+      wording이 바로 이 포맷인데, 머신 TZ가 America/New_York이 아니면 오프셋만큼 어긋난 시각에 재개해
+      한도에 또 걸리거나(너무 이르게) 몇 시간을 낭비(너무 늦게)하는 무음 실패를 냈다.
+      (완료 — `@agentrelay/core/parser.ts`에 순수 헬퍼 신설: `isValidTimeZone`(Intl로 IANA 존 검증,
+      throw 없음)·`timeZoneOffsetMs`(DST 인식 오프셋, formatToParts로 그 순간의 벽시계 역산)·
+      `zonedWallToUtc`(존 벽시계→UTC 인스턴트, DST 전환 대비 2-pass)·`nextClockInstant`(다음 미래 벽시계
+      인스턴트, 유효 존이면 그 존에서 해소·아니면 로컬 폴백, 이미 지났으면 내일로 롤). 공유 정규식 조각
+      `TZ_SUFFIX`(괄호 선택적 `Region/City` IANA 이름만 캡처 — 일반 단어 오탐 방지)를 `clock-time`·
+      `clock-time-meridiem` 두 패턴에 붙여 캡처한 존을 `nextClockInstant`에 전달. **존이 없거나
+      미인식(예: `Mars/Phobos`)이면 기존 로컬 시각 동작 그대로**(하위호환). parser.test +12(존 인식 5 +
+      헬퍼 유닛 7). 실제 빌드 CLI `parse` e2e로 5pm America/New_York(EDT)→21:00Z·15:00 Europe/London(BST)→
+      14:00Z(DST 인식)·무존/미인식→로컬 폴백 확인. branch `claude/wizardly-pascal-9yarzo`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
