@@ -48,6 +48,7 @@ import {
   evaluateHeartbeat,
   evaluateWait,
   exportJobs,
+  farFutureResets,
   findConfigField,
   hasConfigErrors,
   heartbeatStaleAfterMs,
@@ -1486,6 +1487,16 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    // --- reset-horizon facts. Flags active jobs parked with an implausibly
+    // far-future reset (a misparse from before session 72's parser guard, or
+    // enqueued with the guard disabled) that would silently never resume.
+    resetHorizon: {
+      maxFutureMs: maxResetHorizonMsFromEnv(env),
+      farFuture: farFutureResets(jobs, {
+        nowMs: options.nowMs ?? Date.now(),
+        maxFutureMs: maxResetHorizonMsFromEnv(env),
+      }),
+    },
   });
 }
 
