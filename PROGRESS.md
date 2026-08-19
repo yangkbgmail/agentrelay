@@ -2259,3 +2259,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay doctor` 먼-미래 리셋 잡 경고] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-gy5pk6`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72(파서 reset-horizon 가드)의 PROGRESS "다음 할 일"에 명시된 인접 후속을 골랐다: 가드는 앞으로
+  들어올 미스파스를 *파스타임*에 막지만, 이미 스토어에 앉아 있는 잡(가드 이전에 큐잉됐거나 `off`로
+  실행된)은 손대지 못한다 → 잡이 수일/수년 조용히 대기하는 "silent failure"가 그대로 남음. doctor가
+  이를 진단하도록 확장. 열린 PR 포화 영역(stats 분산·watch·epoch ms 등)은 피함.
+- **한 일 (branch `claude/wizardly-pascal-gy5pk6`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, nowMs, horizonMs)` — 활성 잡
+    (queued/waiting_for_reset/resuming) 중 파싱 가능한 resetAt이 `now+horizon` 밖인 것만 골라 가장 먼 것
+    우선 정렬. 과거 리셋(이미 풀린 한도)·미파싱 resetAt·종료 상태 제외, `null`/비양수/비유한 horizon은
+    "가드 없음"으로 `[]`. `FarFutureReset`/`ResetHorizonFacts` 타입 + `resetHorizonCheck` 추가, `DiagnosticInput`에
+    `resetHorizon` 필드, `runDiagnostics`에 daemon↔config 사이 6번째 체크로 배선. 가드 비활성=ok(not
+    checking), 밖에 있는 잡 없음=ok, 하나 이상=**warning**(error 아님 — 리셋이 합당할 수도 있으나 알려주는
+    게 목적)으로 최악 잡 short-id·프로젝트·카운트다운·"and N more" + show/retry/cancel 힌트.
+  - CLI `commands.ts` `runDoctor`: `maxResetHorizonMsFromEnv(env)`·`selectFarFutureResets(jobs, now, horizon)`
+    로 facts 수집해 배선. `doctor.ts` 렌더러는 제네릭이라 무수정.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 650 · cli 354/1skip · dashboard 9**; doctor.test +11[selectFarFutureResets 7 + check 4],
+  기존 카운트 테스트 5→6 갱신). **실제 빌드 CLI e2e**(mock 아님): far(30d)+near(2h) 2-잡 스토어에서 기본
+  지평선은 far 잡을 warning으로 최악 표시(short-id `aaaaaaaa`, project web, 30d), `AGENTRELAY_MAX_RESET_HORIZON=off`
+  면 ok(not checking), `--json`도 동일 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `agentrelay overdue`가
+  이 먼-미래 잡을 별도 축으로 노출할지, 대시보드에 reset-horizon 경고 배지 추가. stats 분산/watch·epoch ms는
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

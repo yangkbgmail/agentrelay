@@ -869,6 +869,21 @@
       비양수=가드없음·isPlausibleReset 경계·env 기본/파싱/비활성) + scheduler.test +2(먼-미래 resume 드롭→
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
+- [x] 👷 `agentrelay doctor` 먼-미래 리셋 잡 경고 — 파스타임 plausibility 가드가 생기기 *전에* 큐잉됐거나
+      가드를 끈(`AGENTRELAY_MAX_RESET_HORIZON=off`) 상태로 파킹된, 리셋이 지평선 밖에 있는 활성 잡을
+      doctor가 진단·경고. 세션 72(reset-horizon 가드)의 후속 — 가드는 앞으로 들어올 미스파스를 막지만
+      이미 스토어에 앉아 있는 잡은 손대지 못하므로, 잡이 수일/수년 조용히 대기하는 "silent failure"가
+      그대로 남아 있었다.
+      (완료 — `@agentrelay/core/doctor.ts`에 순수 `selectFarFutureResets(jobs, nowMs, horizonMs)`
+      (활성 잡[queued/waiting_for_reset/resuming] 중 파싱 가능한 resetAt이 `now+horizon` 밖인 것만,
+      과거·미파싱 resetAt·종료 상태 제외, `null`/비양수/비유한 horizon=가드없음→[], 가장 먼 것 우선 정렬)
+      + `FarFutureReset`/`ResetHorizonFacts` 타입 + `resetHorizonCheck` 추가. `runDiagnostics`에 6번째
+      체크로 배선(가드 비활성=ok "not checking", 밖에 있는 잡 없음=ok, 하나 이상=warning으로 최악 잡
+      short-id·프로젝트·카운트다운·"and N more" 표시 + show/retry/cancel 힌트; error 아님=리셋이 합당할
+      수도 있으나 알려주는 게 목적). CLI `runDoctor`가 `maxResetHorizonMsFromEnv(env)`·`selectFarFutureResets`
+      로 facts 수집, 렌더러는 제네릭이라 무수정. doctor.test +11(selectFarFutureResets 7 + check 4),
+      기존 카운트 테스트 5→6 갱신. 실제 빌드 CLI e2e로 기본 지평선 30일 잡 warning·`off` 면 ok(미체크)·
+      `--json` 확인. branch `claude/wizardly-pascal-gy5pk6`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
