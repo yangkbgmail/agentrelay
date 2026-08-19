@@ -2259,3 +2259,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay doctor` 먼-미래 리셋 잡 경고 검사] (2026-08-19, 무인 자율 세션, branch `claude/wizardly-pascal-9s87y9`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72의 "다음 할 일"이 명시한 인접 후속 — 세션 72가 추가한 plausibility 가드는 *새* 잡이 큐에
+  들어가는 것만 막아, 가드 이전에 파킹됐거나(또는 가드 비활성 시) 이미 큐에 앉아 있는 먼-미래 리셋
+  잡은 여전히 수일/수년 조용히 대기한다. 이 프로젝트가 doctor·recover 등으로 반복해 겨냥해온
+  "silent failure" 부류를 `doctor` 표면에서 잡도록 확장.
+- **한 일 (branch `claude/wizardly-pascal-9s87y9`):**
+  - core `doctor.ts`: 순수 `farFutureResets(jobs, nowMs, horizonMs)` 신설 — 활성 잡(queued/
+    waiting_for_reset/resuming) 중 `resetAt`이 `now + horizonMs`를 **초과**하는 것만 골라 먼 순으로
+    정렬해 반환. 종료 잡(재개 안 함)·null·파싱불가 `resetAt`·컷오프 정확히 일치는 제외, horizonMs가
+    null/비양수/비유한이면 `[]`(가드 없음). `FarFutureReset`(id·project·resetAt·beyondHorizonMs)·
+    `ResetHorizonFacts`(horizonMs·farFuture) 타입 + `DiagnosticInput.resetHorizon` 추가.
+  - `runDiagnostics`에 **reset-horizon** 검사 추가(순서 node→store→writable→adapters→daemon→
+    **reset-horizon**→config→notify): 가드 비활성이거나 해당 잡 0개면 OK, 있으면 **warning**(에러
+    아님 — 사용자가 가드를 끈 정당한 경우도 있으나 대개 misparse) — "N active job(s) … beyond 8d,
+    e.g. <8자 id> (<project>) resets <ISO>" 메시지 + `show`/`cancel` 힌트.
+  - CLI `runDoctor`가 `maxResetHorizonMsFromEnv(env)`+`nowMs`(테스트 주입 가능)로 `farFutureResets`를
+    호출해 `ResetHorizonFacts` 구성. 새 파서/스케줄러 로직 0줄 — 세션 72의 horizon 인프라 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 646 · cli 356/1skip · dashboard 9**; core doctor +8·cli doctor +2). **실제 빌드
+  CLI e2e**(mock 아님): 기본 지평선(8d)에서 2099-01-01 리셋 파킹 잡→reset-horizon **warning**,
+  `AGENTRELAY_MAX_RESET_HORIZON=off`→"guard disabled" OK, 2h 리셋(지평선 안)→"no active job … more
+  than 8d out" OK 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `doctor`가 과거-쪽
+  극단(수년 전 epoch로 misparse된 즉시-due 잡)도 신호로 볼지, 또는 대시보드 카드에 먼-미래 리셋
+  경고 노출(세션 31 하트비트 카드 패턴 재사용). stats 분산/watch·summary --watch·epoch ms는 PR
+  포화라 지양. README/ARCHITECTURE(🧭 코워크).

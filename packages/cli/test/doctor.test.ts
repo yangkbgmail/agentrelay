@@ -92,6 +92,53 @@ describe("runDoctor", () => {
     expect(report.ok).toBe(true);
   });
 
+  it("warns when a parked job has an implausibly far-future reset", () => {
+    // A resolvable binary so the adapter check stays OK — we're isolating the
+    // reset-horizon verdict, and a missing binary would fail doctor on its own.
+    const binPath = join(dir, "claude");
+    writeFileSync(binPath, "#!/bin/sh\necho hi\n", "utf8");
+    chmodSync(binPath, 0o755);
+
+    const queue = new RelayQueue(storePath);
+    const parked = queue.enqueue({ project: "worker", tool: "claude-code", command: ["claude"], cwd: dir });
+    // 30 days out — well past the default 8-day horizon.
+    const at = "2026-08-11T00:00:00.000Z";
+    queue.markWaitingForReset(parked.id, at);
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { PATH: dir, AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs: Date.parse("2026-07-12T00:00:00.000Z"),
+    });
+    const horizon = find(report, "reset-horizon");
+    expect(horizon.level).toBe("warning");
+    expect(horizon.message).toContain("1 active job(s)");
+    expect(horizon.message).toContain("worker");
+    expect(horizon.hint).toContain("agentrelay cancel");
+    expect(report.ok).toBe(true); // a warning does not fail doctor
+  });
+
+  it("reset-horizon is OK when the guard is disabled via env", () => {
+    const queue = new RelayQueue(storePath);
+    const parked = queue.enqueue({ project: "worker", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(parked.id, "2099-01-01T00:00:00.000Z");
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off", AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs: Date.parse("2026-07-12T00:00:00.000Z"),
+    });
+    const horizon = find(report, "reset-horizon");
+    expect(horizon.level).toBe("ok");
+    expect(horizon.message).toContain("disabled");
+  });
+
   it("reports adapters OK when there are no active jobs to resume", () => {
     const queue = new RelayQueue(storePath);
     const done = queue.enqueue({ project: "p", tool: "claude-code", command: ["nope-binary"], cwd: dir });
