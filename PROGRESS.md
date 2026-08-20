@@ -2259,3 +2259,25 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+## 세션 45 (2026-08-20) — 파서: 절대 시각 트리거 어휘 확장
+
+- **배경:** BACKLOG의 👷 항목이 전부 완료라 CLAUDE.md 지침대로 신규 개선 발굴. 절대 시각(ISO·시계)
+  패턴이 오직 `reset(s) at`만 트리거로 인식 — 상대 시간 패턴이 이미 `try again in`/`retry in`을
+  받는 것과 비대칭. 실제 에이전트/API는 같은 절대 순간을 `try again at 3pm`·`available again at …`·
+  `retry at …`·`come back at …`로도 표현하므로, 이 표현들이 감지 누락돼 "정상 완료"로 오인 →
+  조용히 재개 안 됨(이 도구가 막으려는 바로 그 무음 실패).
+- **한 일 (branch `claude/wizardly-pascal-j9v7ba`):**
+  - core `parser.ts`: 공유 `AT_TRIGGER` 상수 도입
+    (`(?:reset[s]?|try again|retry|(?:available|back|come back)(?:\s+again)?)\s+at\s+`). 세 절대-시각
+    패턴(`iso-timestamp`·`clock-time`·`clock-time-meridiem`)이 이를 공유 — 넘버드 캡처 그룹 인덱스
+    불변. `\s+at\s+`가 그대로 뒤따르므로 시각 없는 "try again at your convenience"(숫자 없음)는
+    기존대로 null. `LOOKS_LIKE_RATE_LIMIT` 프리필터도 새 어휘 통과하도록 확장 — 부수적으로 기존에
+    프리필터를 못 넘던 `retry in 5h`(상대)도 이제 통과.
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과
+  (**core 646 · cli 354/1skip · dashboard 9**; parser.test +7). **실제 빌드 CLI e2e**(mock 아님):
+  `parse "…try again at 9pm."`→clock-time-meridiem(21:00 리셋), `parse "…Retry in 5h."`→
+  relative-duration(+5h), `parse "…try again at your convenience."`→미감지(정상 종료) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 절대 시각의
+  named timezone(`(America/New_York)`) 실제 해석(현재는 로컬 시간 가정, 문서화된 한계),
+  요일+시각("resets Monday 9am") 인식. README/ARCHITECTURE는 🧭 코워크 소유.

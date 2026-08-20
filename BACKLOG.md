@@ -870,6 +870,21 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 파서: 절대 시각 리셋의 트리거 어휘 확장 — 지금까지 절대 시각(ISO·시계) 패턴은 오직
+      `reset(s) at`만 인식했으나, 실제 에이전트/API 메시지는 같은 절대 순간을 `try again at 3pm`,
+      `available again at …`, `retry at …`, `come back at …`처럼도 표현한다. 상대 시간 패턴이 이미
+      `try again in`/`retry in`을 받는 것과 대칭이 안 맞아, 절대 시각을 이렇게 표현한 rate-limit이
+      감지되지 않고 "정상 완료"로 오인돼 조용히 재개가 누락될 수 있었다(자기 발굴 항목).
+      (완료 — `parser.ts`에 공유 `AT_TRIGGER` 상수 도입: `(?:reset[s]?|try again|retry|(?:available|back|come back)(?:\s+again)?)\s+at\s+`.
+      `iso-timestamp`·`clock-time`·`clock-time-meridiem` 세 패턴이 이 상수를 공유(넘버드 캡처 그룹
+      인덱스 불변). `\s+at\s+`가 그대로 뒤따르므로 "try again"만 있고 시각이 없으면(숫자 없음)
+      기존대로 매치 안 됨. `LOOKS_LIKE_RATE_LIMIT` 프리필터도 새 어휘를 통과시키도록 확장 —
+      부수적으로 기존에 프리필터를 못 넘던 `retry in 5h`(상대)도 이제 통과. parser.test +7
+      (try again at ISO·try again at 9pm·available again at 3:30pm·retry at 10 AM·come back at 6pm·
+      시각 없는 vague는 null 유지·retry in 5h 프리필터 통과). 실제 빌드 CLI `parse` e2e로
+      "try again at 9pm"→clock-time-meridiem, "Retry in 5h"→relative-duration, vague→미감지 확인.
+      core 646·cli 354/1skip·dashboard 9 전 테스트 + Biome ci 통과. branch `claude/wizardly-pascal-j9v7ba`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
