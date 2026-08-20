@@ -870,6 +870,25 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay wait --all` — 특정 잡 하나가 아니라 **활성 큐 전체가 드레인될 때까지** 블록.
+      자기 발굴 항목 — 기존 `wait <id>`는 단일 잡만 따라가므로, "릴레이가 돌보던 모든 잡이 끝나면
+      배포/후속 단계를 실행"하는 CI/스크립트 게이트를 만들 수 없었다(잡마다 id를 뽑아 여러 번 `wait`를
+      엮어야 했다).
+      (완료 — `@agentrelay/core/wait.ts`에 순수 집계 로직 추가: `tallyWaitAll(snapshots)`(추적 중인 잡
+      스냅샷 집합을 pending/completed/failed/cancelled/missing로 버킷팅; null=스토어에서 사라진 잡)
+      + `isWaitAllDone`(pending 0이면 종료) + `waitAllExitCode(tally, timedOut)`(단일-잡 규약을 집합으로
+      환원: 실패>취소>클린, timeout=124; 사라진 잡[missing]은 완료 후 prune된 것일 수 있어 양성 처리라
+      단독으론 코드를 올리지 않음). CLI `waitForAllJobs()`는 시작 시 활성 잡(queued/waiting/resuming) id
+      집합을 한 번 확정(선택적 `--tool`/`--project` 스코프)하고, 매 인터벌마다 각 id를 재조회해 별도
+      daemon/tick 프로세스의 진행을 관찰 — clock/sleeper/reader 주입 가능(테스트용). `wait` 커맨드는
+      `<id>`를 optional로 바꾸고 `--all`/`--tool`/`--project` 추가(id와 `--all` 상호배타, `--tool/--project`는
+      `--all` 전용). `--json`은 `renderWaitAllJson`(tracked·tally·timedOut·exitCode·ids). core wait.test
+      +7(tally 버킷팅·isWaitAllDone·exitCode 우선순위/타임아웃/missing 양성) + cli commands.test
+      +7(빈 큐 즉시 exit0·전부 terminal·폴링 후 집계·실패→exit1·타임아웃→124·tool/project 스코프·
+      사라진 잡 양성). 실제 빌드 CLI e2e로 빈 큐 즉시 드레인·타임아웃 124·라이브 mid-wait 드레인(잡을
+      완료로 뒤집으니 ~0.7s 후 exit0)·스코프·상호배타 가드 확인. lint/build 클린, 전 테스트 통과
+      (core 646·cli 361/1skip·dashboard 9). branch `claude/wizardly-pascal-lxqlnw`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

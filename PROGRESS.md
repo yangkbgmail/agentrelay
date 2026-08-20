@@ -2259,3 +2259,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay wait --all` 활성 큐 전체 드레인 대기] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-lxqlnw`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 30개를 제목 스캔한 결과 파서·doctor(reset-horizon)·stats·dashboard·completion·config에
+  극도로 몰려 있어, 이 영역을 피해 **어떤 열린 PR에도 없는** 실사용 갭을 발굴했다: 기존 `wait <id>`는
+  단일 잡만 따라가므로 "릴레이가 돌보던 모든 잡이 끝나면 후속 단계 실행"하는 CI/스크립트 게이트를
+  만들 수 없다(잡마다 id를 뽑아 여러 `wait`를 엮어야 함).
+- **한 일 (branch `claude/wizardly-pascal-lxqlnw`):**
+  - core `wait.ts`: 순수 집계 로직 추가 — `tallyWaitAll(snapshots)`(추적 잡 스냅샷을
+    pending/completed/failed/cancelled/missing로 버킷팅; null=사라진 잡) + `isWaitAllDone`(pending 0이면
+    종료) + `waitAllExitCode(tally, timedOut)`(단일-잡 규약을 집합으로 환원: 실패1>취소2>클린0,
+    timeout=124; missing은 완료 후 prune 가능성이라 양성 처리로 단독 코드 상승 없음). index로 재노출.
+  - CLI `commands.ts` `waitForAllJobs()`: 시작 시 활성 잡(queued/waiting/resuming) id 집합을 한 번 확정
+    (선택적 `--tool`/`--project` 스코프), 매 인터벌마다 각 id 재조회로 별도 daemon/tick 프로세스 진행
+    관찰. clock/sleeper/reader 주입 가능. 빈 집합은 즉시 exit0(공허 드레인). `wait.ts`(cli)에
+    `renderWaitAllJson`(tracked·tally·timedOut·exitCode·ids).
+  - `cli.ts` `wait` 커맨드: `<id>`를 optional로 바꾸고 `--all`/`--tool`/`--project` 추가(id와 `--all`
+    상호배타, `--tool/--project`는 `--all` 전용 가드). 완성 스펙은 live program에서 파생돼 자동 반영.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 646 · cli 361/1skip · dashboard 9**; core wait.test +7, cli commands.test +7). **실제 빌드
+  CLI e2e**(mock 아님): 빈 큐 즉시 드레인(exit0), 활성 2잡+짧은 타임아웃→124(pending 2), tool 스코프,
+  라이브 mid-wait(백그라운드로 잡을 completed로 뒤집으니 ~0.7s 후 "all 1 job(s) drained (1 completed)"
+  exit0), id+`--all` 상호배타·id 없이 `--all` 없음·`--tool` 단독 가드 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `wait --all`에
+  진행률 표시(--quiet 아닐 때 폴링마다 pending N 갱신), 또는 `--any`(첫 잡이 끝나면 반환) 변형.
+  파서·doctor·stats·dashboard는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

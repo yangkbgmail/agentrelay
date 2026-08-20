@@ -24,6 +24,7 @@ import {
   showJob,
   unsetConfigFile,
   validateConfigFile,
+  waitForAllJobs,
   waitForJob,
 } from "../src/commands.js";
 import { isConfigDiagnosticInvocation, renderEffectiveConfig, resolveProjectName } from "../src/config.js";
@@ -1069,5 +1070,129 @@ describe("waitForJob", () => {
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
     expect(result.message).toMatch(/no job matches/);
+  });
+});
+
+describe("waitForAllJobs", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-waitall-cli-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function enqueue(project = "demo", tool: RelayJob["tool"] = "claude-code"): string {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project, tool, command: ["claude"], cwd: dir });
+    queue.close();
+    return job.id;
+  }
+
+  it("returns immediately (exit 0) when there are no active jobs", async () => {
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await waitForAllJobs({ storePath, sleep });
+    expect(result.exitCode).toBe(0);
+    expect(result.ids).toEqual([]);
+    expect(result.message).toMatch(/no active jobs/);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("returns immediately when every tracked job is already terminal", async () => {
+    const a = enqueue();
+    const b = enqueue();
+    const queue = new RelayQueue(storePath);
+    queue.markCompleted(a, "ok");
+    queue.markCompleted(b, "ok");
+    queue.close();
+    // Nothing is active anymore, so nothing is tracked → clean drain.
+    const result = await waitForAllJobs({ storePath, sleep: vi.fn() });
+    expect(result.ids).toEqual([]);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("polls until the whole tracked set settles, then aggregates the outcome", async () => {
+    const a = enqueue();
+    const b = enqueue();
+    const activeA = { id: a, status: "queued" } as RelayJob;
+    const activeB = { id: b, status: "waiting_for_reset" } as RelayJob;
+    const doneA = { ...activeA, status: "completed" } as RelayJob;
+    const doneB = { ...activeB, status: "completed" } as RelayJob;
+    // poll 0: both active; poll 1: a done, b active; poll 2: both done.
+    const frames: Record<string, RelayJob>[] = [
+      { [a]: activeA, [b]: activeB },
+      { [a]: doneA, [b]: activeB },
+      { [a]: doneA, [b]: doneB },
+    ];
+    let i = 0;
+    const readJobs = (ids: string[]) => {
+      const frame = frames[Math.min(i++, frames.length - 1)];
+      return ids.map((id) => frame[id] ?? null);
+    };
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const result = await waitForAllJobs({ storePath, readJobs, sleep, now: () => 0 });
+    expect(result.exitCode).toBe(0);
+    expect(result.timedOut).toBe(false);
+    expect(result.tally.completed).toBe(2);
+    expect(result.message).toMatch(/all 2 job\(s\) drained/);
+    // Slept twice while the set was still draining.
+    expect(sleep).toHaveBeenCalledTimes(2);
+  });
+
+  it("maps a set that ends with a failure to exit 1", async () => {
+    const a = enqueue();
+    enqueue(); // a second active job that will complete cleanly
+    const readJobs = (ids: string[]) =>
+      ids.map((id) => ({ id, status: id === a ? "failed" : "completed" }) as RelayJob);
+    const result = await waitForAllJobs({ storePath, readJobs, sleep: vi.fn(), now: () => 0 });
+    expect(result.exitCode).toBe(1);
+    expect(result.tally).toMatchObject({ failed: 1, completed: 1 });
+  });
+
+  it("times out (exit 124) while jobs are still pending", async () => {
+    enqueue();
+    let clock = 0;
+    const now = () => clock;
+    const sleep = vi.fn().mockImplementation(async (ms: number) => {
+      clock += ms;
+    });
+    // Reader always reports the job as still active.
+    const readJobs = (ids: string[]) => ids.map((id) => ({ id, status: "queued" }) as RelayJob);
+    const result = await waitForAllJobs({ storePath, readJobs, sleep, intervalMs: 1000, timeoutMs: 2500, now });
+    expect(result.exitCode).toBe(124);
+    expect(result.timedOut).toBe(true);
+    expect(result.message).toMatch(/timed out; 1 of 1 job\(s\) still pending/);
+  });
+
+  it("scopes the tracked set by --tool/--project at start", async () => {
+    enqueue("web", "claude-code");
+    enqueue("api", "codex-cli");
+    // Only the codex job should be tracked; report it done immediately.
+    const readJobs = (ids: string[]) => ids.map((id) => ({ id, status: "completed" }) as RelayJob);
+    const result = await waitForAllJobs({ storePath, readJobs, sleep: vi.fn(), tools: ["codex-cli"], now: () => 0 });
+    expect(result.ids).toHaveLength(1);
+    expect(result.tally.completed).toBe(1);
+
+    const byProject = await waitForAllJobs({
+      storePath,
+      readJobs,
+      sleep: vi.fn(),
+      projects: ["web"],
+      now: () => 0,
+    });
+    expect(byProject.ids).toHaveLength(1);
+  });
+
+  it("treats a job that vanishes mid-wait as benign (exit 0)", async () => {
+    enqueue();
+    const readJobs = (ids: string[]) => ids.map(() => null);
+    const result = await waitForAllJobs({ storePath, readJobs, sleep: vi.fn(), now: () => 0 });
+    expect(result.exitCode).toBe(0);
+    expect(result.tally.missing).toBe(1);
+    expect(result.message).toMatch(/1 vanished/);
   });
 });

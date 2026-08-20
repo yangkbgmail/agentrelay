@@ -77,6 +77,7 @@ import {
   tickOnce,
   unsetConfigFile,
   validateConfigFile,
+  waitForAllJobs,
   waitForJob,
 } from "./commands.js";
 import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } from "./config.js";
@@ -119,7 +120,7 @@ import { renderSummary, renderSummaryJson } from "./summary.js";
 import { renderTools, renderToolsJson, renderToolsWatchFrame } from "./tools.js";
 import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
 import { renderVerify, renderVerifyJson } from "./verify.js";
-import { renderWaitJson } from "./wait.js";
+import { renderWaitAllJson, renderWaitJson } from "./wait.js";
 
 /**
  * Split a comma-separated CLI option (e.g. `--status completed,failed`) into
@@ -989,54 +990,114 @@ export function buildCli(): Command {
   program
     .command("wait")
     .description(
-      "Block until a job finishes, then exit with a code reflecting the outcome (0 completed, 1 failed, 2 cancelled, 124 timeout)"
+      "Block until a job finishes (or --all: the whole active queue drains), then exit with a code reflecting the outcome (0 completed, 1 failed, 2 cancelled, 124 timeout)"
     )
-    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .argument("[id]", "Job id or a short id prefix (see `agentrelay status`); omit when using --all")
+    .option("--all", "Wait for every active job to drain instead of a single id (scope with --tool/--project)")
+    .option("-t, --tool <tools>", "With --all: only wait on jobs run with these comma-separated tools")
+    .option("-p, --project <projects>", "With --all: only wait on jobs in these comma-separated projects")
     .option("--timeout <duration>", "Give up after this long (e.g. 30m, 6h); default: wait forever")
     .option("--interval <duration>", "How often to poll the store (default 2s)", "2s")
     .option("--json", "Print the final result as JSON (machine-readable, for scripts/jq)")
     .option("-q, --quiet", "Suppress the human status line (the exit code still reflects the outcome)")
-    .action(async (id: string, opts: { timeout?: string; interval?: string; json?: boolean; quiet?: boolean }) => {
-      const { store } = program.opts();
+    .action(
+      async (
+        id: string | undefined,
+        opts: {
+          all?: boolean;
+          tool?: string;
+          project?: string;
+          timeout?: string;
+          interval?: string;
+          json?: boolean;
+          quiet?: boolean;
+        }
+      ) => {
+        const { store } = program.opts();
 
-      const intervalMs = parseDuration(opts.interval ?? "2s");
-      if (intervalMs === null || intervalMs <= 0) {
-        console.error(`[agentrelay] Invalid --interval: ${opts.interval}. Use forms like 500ms, 2s, 1m.`);
-        process.exitCode = 1;
-        return;
-      }
-
-      let timeoutMs: number | null = null;
-      if (opts.timeout !== undefined) {
-        timeoutMs = parseDuration(opts.timeout);
-        if (timeoutMs === null || timeoutMs < 0) {
-          console.error(`[agentrelay] Invalid --timeout: ${opts.timeout}. Use forms like 30m, 6h, 90s.`);
+        const intervalMs = parseDuration(opts.interval ?? "2s");
+        if (intervalMs === null || intervalMs <= 0) {
+          console.error(`[agentrelay] Invalid --interval: ${opts.interval}. Use forms like 500ms, 2s, 1m.`);
           process.exitCode = 1;
           return;
         }
-      }
 
-      // A blocking command with no visible progress is confusing; let the user
-      // know it's waiting (stderr, so --json stdout stays clean).
-      if (!opts.quiet && !opts.json) {
-        console.error(`[agentrelay] waiting for job ${id} to finish… (Ctrl-C to stop)`);
-      }
+        let timeoutMs: number | null = null;
+        if (opts.timeout !== undefined) {
+          timeoutMs = parseDuration(opts.timeout);
+          if (timeoutMs === null || timeoutMs < 0) {
+            console.error(`[agentrelay] Invalid --timeout: ${opts.timeout}. Use forms like 30m, 6h, 90s.`);
+            process.exitCode = 1;
+            return;
+          }
+        }
 
-      const result = await waitForJob(id, { storePath: store, intervalMs, timeoutMs });
+        if (opts.all) {
+          if (id) {
+            console.error("[agentrelay] Pass either a job id or --all, not both.");
+            process.exitCode = 1;
+            return;
+          }
 
-      if (!result.ok) {
-        console.error(`[agentrelay] ${result.message}`);
-        process.exitCode = 1;
-        return;
-      }
+          const tools = opts.tool !== undefined ? splitList(opts.tool) : undefined;
+          if (tools) {
+            const invalid = tools.filter((t) => !ALL_TOOLS.includes(t as AgentTool));
+            if (invalid.length > 0) {
+              console.error(`[agentrelay] Unknown tool(s): ${invalid.join(", ")}. Valid: ${ALL_TOOLS.join(", ")}.`);
+              process.exitCode = 1;
+              return;
+            }
+          }
+          const projects = opts.project !== undefined ? splitList(opts.project) : undefined;
 
-      if (opts.json) {
-        console.log(renderWaitJson(result, store));
-      } else if (!opts.quiet) {
-        console.log(`[agentrelay] ${result.message}`);
+          if (!opts.quiet && !opts.json) {
+            console.error("[agentrelay] waiting for the active queue to drain… (Ctrl-C to stop)");
+          }
+
+          const result = await waitForAllJobs({ storePath: store, intervalMs, timeoutMs, tools, projects });
+
+          if (opts.json) {
+            console.log(renderWaitAllJson(result, store));
+          } else if (!opts.quiet) {
+            console.log(`[agentrelay] ${result.message}`);
+          }
+          process.exitCode = result.exitCode;
+          return;
+        }
+
+        if (!id) {
+          console.error("[agentrelay] Provide a job id, or --all to wait for every active job.");
+          process.exitCode = 1;
+          return;
+        }
+        if (opts.tool !== undefined || opts.project !== undefined) {
+          console.error("[agentrelay] --tool/--project only apply with --all.");
+          process.exitCode = 1;
+          return;
+        }
+
+        // A blocking command with no visible progress is confusing; let the user
+        // know it's waiting (stderr, so --json stdout stays clean).
+        if (!opts.quiet && !opts.json) {
+          console.error(`[agentrelay] waiting for job ${id} to finish… (Ctrl-C to stop)`);
+        }
+
+        const result = await waitForJob(id, { storePath: store, intervalMs, timeoutMs });
+
+        if (!result.ok) {
+          console.error(`[agentrelay] ${result.message}`);
+          process.exitCode = 1;
+          return;
+        }
+
+        if (opts.json) {
+          console.log(renderWaitJson(result, store));
+        } else if (!opts.quiet) {
+          console.log(`[agentrelay] ${result.message}`);
+        }
+        process.exitCode = result.exitCode;
       }
-      process.exitCode = result.exitCode;
-    });
+    );
 
   program
     .command("paths")
