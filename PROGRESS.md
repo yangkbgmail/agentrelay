@@ -2259,3 +2259,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay stats --compare <기간>` 두 기간 추세 비교] (2026-08-20, 무인 자율 세션, branch `claude/stats-compare-window`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 여전히 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  기존 `--since/--until`(세션 26)은 한 시간 창의 절대 지표만 보여줄 뿐, "이번 주가 지난 주보다 나아졌나"를
+  답하려면 두 번 실행해 눈으로 대조해야 했다. 릴레이 효과의 **추세**를 한 번에 보여주는 자기 발굴 항목.
+- **한 일 (branch `claude/stats-compare-window`):**
+  - core `stats.ts`: 순수 `TrendDirection`/`MetricDelta`/`compareMetric(cur,prev)`(current−previous 델타·
+    ratio[|previous| 기준, previous=0이면 null이되 절대 델타는 유지]·direction up/down/flat; 한쪽이라도
+    null이면 "n/a"로 "무데이터→수치"를 가짜 변화로 오표기 안 함) + `StatsComparison`/`compareStats(cur,prev)`
+    (총량·완료·실패·취소·성공률·시도·재시도·해결수·avg/median/p90 해결시간을 필드별 `MetricDelta`로;
+    시간 의미는 호출자 소관이라 임의 두 스냅샷에 동작) 추가.
+  - CLI `stats.ts`: 순수 `renderComparison`(metric/current/previous/change 정렬 표 — 변화를 지표별 호오
+    극성에 따라 초록[개선]/빨강[악화]/dim[flat·n/a]으로 채색: 성공률·완료 up=초록, 실패·해결지연·재시도
+    up=빨강, 원시 카운트=중립; ▲/▼/–/· 글리프) + `renderComparisonJson`(--json, window 경계 에코).
+  - cli.ts `stats --compare <기간>`: 두 인접·서로소 창(current=[now−w,now], previous=[now−2w,now−w))을
+    기존 `scopeJobs`로 걸러 각각 `computeStats`→`compareStats`→렌더. `--status/--tool/--project`는 양 창에
+    동일 적용, `--since/--until/--group-by/--trend/--hours/--weekday/--heatmap/--watch`와 상호배타(조합 시
+    exit 1), 파싱 불가 기간도 exit 1.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 651 · cli 363/1skip · dashboard 9**; core stats.test +9, cli stats.test +8)→`pnpm demo` 초록.
+  **실제 빌드 CLI e2e**(mock 아님): 7개 잡을 현재/이전 7d 창에 심은 임시 스토어로 `stats --compare 7d`가
+  jobs 4v3 ▲+1·completed 3v1 ▲+2·failed 1v2 ▼-1·success rate 75%v33% ▲+42pp·p90 3h42m 등 표를 출력,
+  `--tool claude-code`로 scope 라인 표시, `--since 3d` 조합/`nonsense` 기간이 각각 exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `--compare`에 비율(%)
+  열 추가, `stats --group-by`와 결합한 그룹별 추세 비교, 대시보드에 기간 대비 델타 노출.
+  README/ARCHITECTURE는 🧭 코워크 영역이라 지양.

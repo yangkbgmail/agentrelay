@@ -17,6 +17,7 @@ import {
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
+  compareStats,
   computeActivityHeatmap,
   computeDailyTrend,
   computeErrorBreakdown,
@@ -95,6 +96,8 @@ import { type RecoverResult, renderRecover, renderRecoverJson } from "./recover.
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
   formatUtcOffsetLabel,
+  renderComparison,
+  renderComparisonJson,
   renderGroupedStats,
   renderGroupedStatsJson,
   renderHeatmap,
@@ -1090,6 +1093,10 @@ export function buildCli(): Command {
     .option("--weekday", "Also show a day-of-week activity histogram (jobs created per weekday, Sun–Sat)")
     .option("--heatmap", "Also show a weekday × hour-of-day activity heatmap (when in the week jobs cluster)")
     .option(
+      "--compare <duration>",
+      "Compare the last <duration> against the equally-long window before it (e.g. 7d, 24h) — trend deltas"
+    )
+    .option(
       "--local",
       "Bucket the --hours/--weekday/--heatmap histograms by this machine's local time zone instead of UTC"
     )
@@ -1110,7 +1117,9 @@ export function buildCli(): Command {
         "  # which weekdays rate-limits cluster on\n" +
         "  agentrelay stats --weekday\n" +
         "  # when in the week (weekday × hour) rate-limits cluster\n" +
-        "  agentrelay stats --heatmap"
+        "  agentrelay stats --heatmap\n" +
+        "  # is the relay doing better this week than last?\n" +
+        "  agentrelay stats --compare 7d"
     )
     .action(
       (opts: {
@@ -1124,6 +1133,7 @@ export function buildCli(): Command {
         hours?: boolean;
         weekday?: boolean;
         heatmap?: boolean;
+        compare?: string;
         local?: boolean;
         json?: boolean;
         watch?: string | boolean;
@@ -1167,6 +1177,73 @@ export function buildCli(): Command {
           }
           scope.projects = requested;
           noteParts.push(`project=${requested.join(",")}`);
+        }
+
+        // --compare is its own mode: metrics for the last <duration> vs. the
+        // equally-long window immediately before it. It honours --status/--tool/
+        // --project (both windows are scoped the same way) but is mutually
+        // exclusive with the other time/view flags, which would be ambiguous
+        // layered on top of a two-window diff.
+        if (opts.compare !== undefined) {
+          const conflicts: string[] = [];
+          if (opts.since !== undefined) conflicts.push("--since");
+          if (opts.until !== undefined) conflicts.push("--until");
+          if (opts.groupBy !== undefined) conflicts.push("--group-by");
+          if (opts.trend !== undefined && opts.trend !== false) conflicts.push("--trend");
+          if (opts.hours) conflicts.push("--hours");
+          if (opts.weekday) conflicts.push("--weekday");
+          if (opts.heatmap) conflicts.push("--heatmap");
+          if (opts.watch !== undefined) conflicts.push("--watch");
+          if (conflicts.length > 0) {
+            console.error(`--compare cannot be combined with: ${conflicts.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+
+          const windowMs = parseDuration(opts.compare);
+          if (windowMs === null || windowMs <= 0) {
+            console.error(`Invalid --compare duration: "${opts.compare}". Use e.g. 7d, 24h, 30m.`);
+            process.exitCode = 1;
+            return;
+          }
+
+          // Two contiguous, disjoint windows: current = [now - w, now],
+          // previous = [now - 2w, now - w). The −1 keeps a job created exactly
+          // on the boundary in the current window only (both bounds inclusive).
+          const currentTo = now;
+          const currentFrom = now - windowMs;
+          const previousTo = currentFrom - 1;
+          const previousFrom = currentFrom - windowMs;
+
+          const baseActive = isJobScopeActive(scope);
+          const baseNote = baseActive ? noteParts.join(" ") : undefined;
+
+          const allJobs = listStatus(store);
+          const currentJobs = scopeJobs(allJobs, { ...scope, createdFrom: currentFrom, createdTo: currentTo });
+          const previousJobs = scopeJobs(allJobs, { ...scope, createdFrom: previousFrom, createdTo: previousTo });
+          const comparison = compareStats(computeStats(currentJobs), computeStats(previousJobs));
+
+          if (opts.json) {
+            console.log(
+              renderComparisonJson(comparison, store, {
+                scope: baseActive ? scope : undefined,
+                windowMs,
+                currentFrom,
+                currentTo,
+                previousFrom,
+                previousTo,
+              })
+            );
+            return;
+          }
+          console.log(
+            renderComparison(comparison, {
+              color: Boolean(process.stdout.isTTY),
+              windowLabel: opts.compare,
+              scopeNote: baseNote,
+            })
+          );
+          return;
         }
 
         // Time window: --since/--until are "N ago" durations relative to now, so
