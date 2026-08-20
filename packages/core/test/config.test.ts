@@ -36,6 +36,7 @@ describe("configToEnv", () => {
       notify: { slackWebhook: "https://slack", webhookUrl: "https://hook", webhookAuth: "Bearer x" },
       retry: { maxAttempts: 3, baseDelayMs: 1000, factor: 3, maxDelayMs: 9000 },
       autoPrune: { enabled: true, after: "3d", keep: 20, every: "1h", everyTicks: 50 },
+      scheduler: { maxConcurrent: 4, maxResetHorizon: "12h" },
     };
     expect(configToEnv(config)).toEqual({
       AGENTRELAY_STORE: "/tmp/jobs.json",
@@ -51,6 +52,8 @@ describe("configToEnv", () => {
       AGENTRELAY_AUTOPRUNE_KEEP: "20",
       AGENTRELAY_AUTOPRUNE_EVERY: "1h",
       AGENTRELAY_AUTOPRUNE_EVERY_TICKS: "50",
+      AGENTRELAY_MAX_CONCURRENT: "4",
+      AGENTRELAY_MAX_RESET_HORIZON: "12h",
     });
   });
 
@@ -94,6 +97,18 @@ describe("parseConfig", () => {
 
   it("rejects NaN/Infinity numbers", () => {
     expect(() => parseConfig({ retry: { factor: Number.POSITIVE_INFINITY } })).toThrow(/finite number/);
+  });
+
+  it("parses the scheduler group and type-checks its fields", () => {
+    expect(parseConfig({ scheduler: { maxConcurrent: 4, maxResetHorizon: "12h" } })).toEqual({
+      scheduler: { maxConcurrent: 4, maxResetHorizon: "12h" },
+    });
+    expect(() => parseConfig({ scheduler: { maxConcurrent: "lots" } }, "cfg")).toThrow(
+      /cfg\.scheduler\.maxConcurrent must be a finite number/
+    );
+    expect(() => parseConfig({ scheduler: { maxResetHorizon: 8 } }, "cfg")).toThrow(
+      /cfg\.scheduler\.maxResetHorizon must be a string/
+    );
   });
 });
 
@@ -155,8 +170,13 @@ describe("sampleConfig", () => {
     expect(sample.notify).toBeDefined();
     expect(sample.retry).toBeDefined();
     expect(sample.autoPrune).toBeDefined();
+    expect(sample.scheduler).toBeDefined();
     // A brand-new user should not accidentally enable destructive auto-prune.
     expect(sample.autoPrune?.enabled).toBe(false);
+    // Scheduler defaults must mirror the framework defaults so writing the
+    // sample file changes nothing until the user tweaks a value.
+    expect(sample.scheduler?.maxConcurrent).toBe(1);
+    expect(sample.scheduler?.maxResetHorizon).toBe("8d");
   });
 
   it("renders pretty JSON with a trailing newline that parses back", () => {
@@ -238,6 +258,34 @@ describe("validateConfig", () => {
   it("warns on an empty store path", () => {
     const issues = validateConfig({ store: "   " });
     expect(issues).toEqual([expect.objectContaining({ level: "warning", path: "store" })]);
+  });
+
+  it("errors on a non-integer or below-1 scheduler.maxConcurrent", () => {
+    expect(validateConfig({ scheduler: { maxConcurrent: 0 } })).toEqual([
+      expect.objectContaining({ level: "error", path: "scheduler.maxConcurrent" }),
+    ]);
+    expect(validateConfig({ scheduler: { maxConcurrent: 2.5 } })).toEqual([
+      expect.objectContaining({ level: "error", path: "scheduler.maxConcurrent" }),
+    ]);
+  });
+
+  it("accepts scheduler.maxConcurrent of 1 or greater", () => {
+    expect(validateConfig({ scheduler: { maxConcurrent: 1 } })).toEqual([]);
+    expect(validateConfig({ scheduler: { maxConcurrent: 8 } })).toEqual([]);
+  });
+
+  it("accepts a scheduler.maxResetHorizon duration or a disabling sentinel", () => {
+    expect(validateConfig({ scheduler: { maxResetHorizon: "8d" } })).toEqual([]);
+    expect(validateConfig({ scheduler: { maxResetHorizon: "25h" } })).toEqual([]);
+    for (const sentinel of ["off", "none", "0", "disabled", "no"]) {
+      expect(validateConfig({ scheduler: { maxResetHorizon: sentinel } })).toEqual([]);
+    }
+  });
+
+  it("errors on a scheduler.maxResetHorizon that is neither a duration nor a sentinel", () => {
+    expect(validateConfig({ scheduler: { maxResetHorizon: "someday" } })).toEqual([
+      expect.objectContaining({ level: "error", path: "scheduler.maxResetHorizon" }),
+    ]);
   });
 
   it("hasConfigErrors is true only when an error-level issue exists", () => {

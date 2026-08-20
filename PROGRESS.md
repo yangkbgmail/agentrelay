@@ -2259,3 +2259,35 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 설정 파일 scheduler 그룹(maxConcurrent·maxResetHorizon)] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-86st38`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 200+개(doctor reset-horizon만 12개+, 파서 변형·stats 지표·어댑터·completion·watch·dashboard
+  카드 등)가 극도로 포화 상태라, config.ts를 직접 감사해 **어떤 열린 PR에도 없는** 실제 일관성 갭을
+  발굴했다: 설정 파일 스키마(`AgentRelayConfig`)가 store/notify/retry/autoPrune만 다루고, 병합된
+  스케줄러 노브 `AGENTRELAY_MAX_CONCURRENT`(바운드 동시 재개, #201/#555)·`AGENTRELAY_MAX_RESET_HORIZON`
+  (리셋 plausibility 지평선, 세션 72 #723)는 **env 전용**이라 매 셸에서 재export가 필요했다. config
+  CRUD 생태계(get/set/unset/show/validate/init)에 뚫린 구멍.
+- **한 일 (branch `claude/wizardly-pascal-86st38`):**
+  - core `config.ts`: `AgentRelayConfig`에 `scheduler?{maxConcurrent?:number, maxResetHorizon?:string}`
+    그룹 추가. `parseConfig`(타입 검증)·`configToEnv`(→ 두 `AGENTRELAY_*`로 1:1 투영)·`cloneConfig`·
+    `sampleConfig`(기본 maxConcurrent 1·maxResetHorizon "8d" = 프레임워크 기본과 일치 → 샘플 작성이
+    동작 불변)·`CONFIG_FIELDS`/`CONFIG_ENV_KEYS`(인덱스 정렬 유지 — 드리프트 sync 테스트가 강제)·
+    `ConfigGroup`(+"scheduler")·`validateConfig` 전 계층 배선. `maxConcurrent`은 정수≥1 검증(env는
+    <1을 조용히 1로 floor하지만 설정 파일은 의도적 편집이라 앞단에서 잡음), `maxResetHorizon`은
+    `duration`이 아닌 `string`으로 저장(비활성 sentinel `off`/`none`/`0`도 표현 가능해야 하므로) +
+    순수 `isResetHorizonValue`(sentinel OR 파싱 가능 duration만 허용, `maxResetHorizonMsFromEnv`와 동일 집합).
+  - CLI `config.ts`: GROUP_LABELS/GROUP_ORDER에 scheduler 추가 → `config show`가 그룹으로 렌더. 새 CLI
+    커맨드 로직 0줄 — 기존 config CRUD가 새 키를 자동 노출, daemon/tick은 이미 `maxConcurrentFromEnv`/
+    `maxResetHorizonMsFromEnv`로 읽으므로 config→env 투영으로 값이 자동으로 스케줄러까지 흐름.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 644**[config.test 64] · cli 354/1skip · dashboard 9). config.test +6케이스
+  (configToEnv 매핑·sample 기본값·parseConfig 타입·validate maxConcurrent 정수≥1·horizon sentinel/
+  duration/거부). **실제 빌드 CLI e2e**(mock 아님): `config init`이 scheduler 그룹을 기본값으로 씀,
+  `config set/unset`이 새 키에 도달, `config show`가 값을 [config-file]로 귀속, set 시점 검증이
+  잘못된 값 거부(`maxConcurrent 0`·`maxResetHorizon someday` → exit 1), **`daemon` 배너가 설정 파일
+  `maxConcurrent=4`를 읽어 "(max 4 concurrent)" 표시** — 값이 실제로 스케줄러까지 흐름을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `agentrelay run`의
+  `--project`처럼 CLI 플래그로도 `--max-concurrent`/`--max-reset-horizon`를 daemon/tick에 직접 노출(현재는
+  env/config만), 또는 대시보드에 현재 유효 scheduler 설정 표시. stats 분산/watch·파서 변형·doctor
+  reset-horizon은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
