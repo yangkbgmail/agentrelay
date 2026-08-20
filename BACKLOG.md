@@ -870,6 +870,21 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay next`·`eta`에 스코프 필터(`--tool`/`--project`/`--since`/`--until`) 추가 — 전방
+      커맨드 4형제 중 `upcoming`·`overdue`엔 이미 있지만 `next`·`eta`엔 없던 일관성 갭을 메움. 자기
+      발굴 항목 — "웹 프로젝트만 다음에 언제 재개되나", "codex-cli 부분집합은 언제 다 따라잡히나"를
+      큐 전체가 아닌 부분집합으로 물을 수 있게 함.
+      (완료 — 새 core 로직 0줄: 전부 기존 검증된 순수 `scopeJobs`(stats.ts) + CLI 공용 `buildScope`
+      (status/status/tool/project/since/until 검증·note 생성) 재사용. `next`·`eta` 액션이 `listStatus`
+      결과에 `scopeJobs`를 **먼저** 적용한 뒤 `selectNextResume`/`computeQueueEta`에 넘김(now 한 번
+      계산해 --since/--until 경계와 카운트다운이 동일 기준). `--status`는 두 커맨드 모두 waiting_for_reset
+      전용이라 의미 없어 제외(upcoming/overdue와 동일). 렌더: `renderNext`/`renderEta`에 `scopeNote?`
+      옵션 추가 → 활성 시 dim `[scope: …]` 라인(빈 부분집합에도 표기), `renderNextJson`/`renderEtaJson`에
+      `scope?` 에코 추가(undefined는 `JSON.stringify`가 드롭 → 무스코프 JSON shape 불변). 잘못된
+      tool/status·파싱 불가 기간·빈 범위(since<until)는 exit 1. cli next.test +6·eta.test +6, 실제 빌드
+      CLI e2e로 `next --project api`(부분집합의 다음 재개)·`eta --tool codex-cli`(부분집합 캐치업)·
+      `--json` scope 에코·invalid tool/빈 범위 exit 1 검증. branch `claude/next-eta-scope`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
