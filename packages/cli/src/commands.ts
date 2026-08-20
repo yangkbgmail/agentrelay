@@ -84,6 +84,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   sampleConfigJson,
   scopeJobs,
+  selectFarFutureResets,
   selectStuckResumingJobs,
   serializeDaemonHeartbeat,
   setConfigValue,
@@ -1467,6 +1468,15 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // --- reset-horizon facts. A queued job parked on a far-future reset (a
+  // misparse: bad epoch unit, huge relative window, rolled timezone) waits
+  // silently for days/years. The parser drops such resets at detection time,
+  // but jobs enqueued before that guard — or with it disabled — can still sit
+  // in the store, so doctor flags them. Uses the same env-resolved horizon the
+  // relay loop enforces so "flagged" matches "would be dropped now".
+  const horizonMs = maxResetHorizonMsFromEnv(env);
+  const now = new Date(options.nowMs ?? Date.now());
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1486,6 +1496,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    horizon: { maxFutureMs: horizonMs, farFuture: selectFarFutureResets(jobs, now, horizonMs) },
   });
 }
 

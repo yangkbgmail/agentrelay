@@ -48,6 +48,50 @@ describe("runDoctor", () => {
     expect(store.message).toContain("1 active");
   });
 
+  it("warns when a queued job is parked on a far-future reset (likely misparse)", () => {
+    const nowMs = Date.parse("2026-08-20T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, "2030-01-01T00:00:00.000Z"); // ~3.5y out, way past the 8d horizon
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs });
+    const horizon = find(report, "reset-horizon");
+    expect(horizon.level).toBe("warning");
+    expect(horizon.message).toContain(j.id);
+    expect(horizon.hint).toContain(`agentrelay show ${j.id}`);
+  });
+
+  it("passes reset-horizon when a queued reset is within the window", () => {
+    const nowMs = Date.parse("2026-08-20T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, "2026-08-21T00:00:00.000Z"); // 1d out, well inside 8d
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs });
+    expect(find(report, "reset-horizon").level).toBe("ok");
+  });
+
+  it("marks reset-horizon informational when the guard is disabled via env", () => {
+    const nowMs = Date.parse("2026-08-20T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, "2030-01-01T00:00:00.000Z");
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+      nowMs,
+    });
+    const horizon = find(report, "reset-horizon");
+    expect(horizon.level).toBe("ok");
+    expect(horizon.message).toContain("disabled");
+  });
+
   it("errors when the store file is corrupt", () => {
     writeFileSync(storePath, "{ this is not valid json", "utf8");
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });

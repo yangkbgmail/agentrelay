@@ -2259,3 +2259,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+
+### [세션 73 — doctor: 큐 내 먼-미래 리셋 잡 경고(reset-horizon 체크)] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-pq5tud`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72가 파서에 `isPlausibleReset`/`DEFAULT_MAX_RESET_HORIZON_MS`(8일 지평선)를 추가하며 **후속
+  후보**로 명시한 "`doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가"를 골랐다. 파서 가드는 **감지
+  시점**에만 걸러 새 잡을 막지만, 그 가드가 생기기 전 큐잉됐거나 `AGENTRELAY_MAX_RESET_HORIZON=off`
+  로 들어온 잡은 여전히 스토어에 남아 수일/수년 조용히 대기할 수 있다 — doctor가 반복해 겨냥해온
+  "silent failure" 부류. PR 포화 영역(stats 분산·watch·epoch ms 등)은 지양.
+- **한 일 (branch `claude/wizardly-pascal-pq5tud`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, now, maxFutureMs)`(활성 잡 중 `resetAt`이
+    `now+horizon`을 넘는 것만 골라 `{jobId, project, resetAt, aheadMs}`로 반환; null/0/비유한/undefined
+    horizon=가드 없음→빈 배열; resetAt 없음·파싱불가·과거 리셋은 스킵) + `FarFutureReset`/`HorizonFacts`
+    타입 + `horizonCheck`(가드 off→정보성 OK, 초과 잡 0→OK, 있으면 최악(가장 먼) 잡을 앞세운 warning +
+    `agentrelay show <id>` 힌트). `DiagnosticInput.horizon?`는 **옵셔널**이라 미제공 시 체크 미방출 →
+    기존 호출자·스토어 하위호환. `runDiagnostics`가 daemon 다음, config 앞에 조건부로 배선.
+  - CLI `commands.ts` `runDoctor`: `maxResetHorizonMsFromEnv(env)`로 릴레이 루프와 **동일한** 지평선을
+    해소하고(=flagged가 곧 would-be-dropped와 일치) `selectFarFutureResets(jobs, now, horizonMs)`로
+    `horizon` 팩트를 채워 넘김. `nowMs` 주입 지원(테스트/재현성). 렌더러는 체크를 일반적으로 순회하므로
+    수정 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 649 · cli 357/1skip · dashboard 9**; core doctor.test +14, cli doctor.test +3). **실제 빌드
+  CLI e2e**(mock 아님): 2030-01-01 리셋의 waiting 잡을 심은 스토어에서 기본 8d 지평선은 `! reset-horizon
+  1 queued job ... in ~1230d` 경고 + show 힌트, `AGENTRELAY_MAX_RESET_HORIZON=off`는 "guard disabled"
+  정보성 OK, `=5000d`는 2030을 덮어 "no queued job resets beyond the 5000d horizon" OK 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `doctor`에 과거-쪽
+  극단(수년 전 epoch) misparse 경고 추가, 또는 warning 시 `agentrelay cancel <id>` 원클릭 안내 강화.
+  stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
