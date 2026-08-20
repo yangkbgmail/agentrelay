@@ -2259,3 +2259,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 69 — `agentrelay formats` 인식 포맷 카탈로그] (2026-08-20, 무인 자율 세션)
+- **배경:** 세션 시작 시 열린 PR 50개(#759~#808, 다수가 "doctor reset-horizon" 중복), BACKLOG의
+  👷 항목은 전부 완료. CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다. 코드를 읽던 중 갭 발견:
+  `parse`(메시지 하나를 파서로 테스트)와 `patterns`(스토어에서 실제 발화한 패턴 집계)는 있지만,
+  "AgentRelay가 대체 어떤 rate-limit 문구를 인식하나?"를 런타임에 미리 볼 방법이 전혀 없었다
+  (제네릭 `PATTERNS`는 private, 어댑터 패턴도 열거 수단 없음). 열린 50 PR 어느 것도 이 카탈로그를
+  다루지 않아 중복 위험 없음.
+- **한 일 (branch `claude/wizardly-pascal-formats`):**
+  - core `parser.ts`: 최소 export `GENERIC_PATTERN_NAMES`(파서 시도 순서 그대로, readonly) 추가.
+  - core `catalog.ts` 신설(순수·파일시스템/시계 미접촉): `PatternDoc`(name·scope·tool?·description·
+    example) + `PATTERN_CATALOG`(제네릭 7 + 어댑터 2, 각 패턴에 설명 + 실제 매치되는 canonical 예시) +
+    `getPatternCatalog({tool?})`(툴 미지정=전체, 지정 시 제네릭+그 툴 어댑터만; 항상 fresh copy) +
+    `knownAdapterPatternNames()`(live `ADAPTERS`에서 파생). **자기 검증 테스트**: 모든 예시가 문서화된
+    패턴 이름으로 실제 파싱되고(제네릭=`parseRateLimitMessage`, 어댑터=`resolveAdapter().detectRateLimit`),
+    알려진 모든 패턴이 카탈로그에 존재함을 단언 → 새 패턴을 문서화 없이 추가하면 테스트 실패(드리프트 방지).
+  - CLI `formats.ts` 신설: 순수 `renderCatalog`(제네릭/어댑터 툴별 그룹, 설명+예시, color 게이트)·
+    `renderCatalogJson`. `agentrelay formats [-t/--tool] [--json]` 배선, 잘못된 tool은 exit 1,
+    completion 자동 포함. 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 649 · cli 360/1skip · dashboard 9**; catalog.test +10, formats.test +6). **실제 빌드 CLI
+  e2e**(mock 아님): `formats`가 9개 포맷을 제네릭/어댑터 그룹으로 렌더, `--tool codex-cli`은 codex
+  어댑터 섹션만, `--json`은 9개 이름 추출, 잘못된 tool은 exit 1, `completion bash`에 `formats` 포함 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 코워크 병합). 후속 인접 후보 — `formats`에
+  각 패턴의 정규식 소스도 노출(`--verbose`)할지, README에 인식 포맷 표 자동 생성. 열린 50 PR 정리(중복
+  doctor reset-horizon 통합)는 코워크/병합 권한 영역. README/ARCHITECTURE(🧭 코워크).
