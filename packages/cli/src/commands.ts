@@ -41,6 +41,7 @@ import {
   countActiveJobs,
   daemonHeartbeatPath,
   distinctActiveBinaries,
+  distinctFarFutureResets,
   type EffectiveConfigEntry,
   type ExportFormat,
   envKeyForConfigKey,
@@ -511,7 +512,7 @@ export function retryJob(idOrPrefix: string, storePath?: string): JobControlResu
     return {
       ok: true,
       job: updated,
-      message: `job ${shortId(job.id)} (${job.project}) queued to resume now — run "agentrelay tick" or the daemon to pick it up`,
+      message: `job ${shortId(job.id)} (${job.project}) queued to resume now — run \"agentrelay tick\" or the daemon to pick it up`,
     };
   } finally {
     queue.close();
@@ -918,7 +919,7 @@ export function unsetConfigFile(options: ConfigUnsetOptions): ConfigMutateResult
   const path = resolveConfigWritePath({ path: options.path, cwd: options.cwd, env: options.env });
 
   if (!existsSync(path)) {
-    return { ok: false, path, message: `No config file at ${path} to remove "${options.key}" from.` };
+    return { ok: false, path, message: `No config file at ${path} to remove \"${options.key}\" from.` };
   }
 
   let current: AgentRelayConfig;
@@ -995,7 +996,7 @@ export interface RestoreStoreOptions {
   /**
    * Which snapshot to restore. Either a filesystem path to any snapshot file
    * (absolute or relative to cwd), or — for this store's own rotating snapshots —
-   * `"latest"`, a snapshot basename, or its sortable stamp. Defaults to `"latest"`.
+   * `\"latest\"`, a snapshot basename, or its sortable stamp. Defaults to `\"latest\"`.
    */
   selector?: string;
   /** Snapshot the current store before overwriting it (default: true). */
@@ -1024,7 +1025,7 @@ function resolveRestoreSource(storePath: string, selector: string): string {
   }
   const entry = resolveBackup(names, storeName, selector);
   if (!entry) {
-    throw new Error(`No snapshot matches "${selector}" for ${storePath}. Try \`agentrelay backup --list\`.`);
+    throw new Error(`No snapshot matches \"${selector}\" for ${storePath}. Try \`agentrelay backup --list\`.`);
   }
   return join(dir, entry.name);
 }
@@ -1283,7 +1284,7 @@ export interface ConfigGetResult {
  * as `config set`/`unset`, mapping each to its env var via
  * {@link envKeyForConfigKey} and reading the effective value from the shared
  * env > file > default resolution. An unknown key fails (no guessing); a known
- * key with no override resolves to `value: undefined`, `source: "default"`.
+ * key with no override resolves to `value: undefined`, `source: \"default\"`.
  */
 export function getConfigValue(options: ConfigGetOptions): ConfigGetResult {
   const { key } = options;
@@ -1292,7 +1293,7 @@ export function getConfigValue(options: ConfigGetOptions): ConfigGetResult {
     return {
       ok: false,
       key,
-      message: `Unknown config key "${key}". Valid keys: ${SETTABLE_CONFIG_KEYS.join(", ")}`,
+      message: `Unknown config key \"${key}\". Valid keys: ${SETTABLE_CONFIG_KEYS.join(", ")}`,
     };
   }
   const result = showConfig({ path: options.path, cwd: options.cwd, env: options.env });
@@ -1318,7 +1319,7 @@ export interface DoctorOptions {
   env?: Record<string, string | undefined>;
   /** Running Node version. Defaults to `process.version`. Injectable for tests. */
   nodeVersion?: string;
-  /** "Now" (epoch ms) used to age the heartbeat. Defaults to `Date.now()`. Injectable for tests. */
+  /** \"Now\" (epoch ms) used to age the heartbeat. Defaults to `Date.now()`. Injectable for tests. */
   nowMs?: number;
 }
 
@@ -1467,6 +1468,18 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // --- queued-reset-horizon facts. The parse-time guard drops implausibly
+  // far-future resets *before* they get queued, but a store written before
+  // the guard existed (or under a laxer horizon, or with the guard off) can
+  // still hold ghost jobs whose resetAt won't come due for weeks/years. Use
+  // the same horizon the parser applies so both sides agree on "far".
+  const nowMs = options.nowMs ?? Date.now();
+  const maxFutureResetMs = maxResetHorizonMsFromEnv(env);
+  const farFutureResets = distinctFarFutureResets(jobs, {
+    now: new Date(nowMs),
+    maxFutureMs: maxFutureResetMs,
+  });
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1486,6 +1499,8 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    farFutureResets,
+    maxFutureResetMs,
   });
 }
 
