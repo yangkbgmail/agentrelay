@@ -145,6 +145,28 @@ export interface AdapterFacts {
   binaries: BinaryFact[];
 }
 
+/**
+ * A single `waiting_for_reset` job whose `resetAt` sits beyond the reset
+ * horizon — i.e. so far in the future that the scheduler's `listDue` gate
+ * won't release it for days/years. The parse-time horizon guard now drops
+ * such resets *before* they're queued, but older stores (created before the
+ * guard existed, or when the horizon has since been shortened, or with the
+ * guard turned off via `AGENTRELAY_MAX_RESET_HORIZON=off`) can still contain
+ * these ghost jobs. `doctor` surfaces them so the user isn't left wondering
+ * why nothing is resuming.
+ */
+export interface FarFutureResetFact {
+  id: string;
+  project: string;
+  /** ISO string as stored on the job — echoed verbatim for a copy-pasteable id. */
+  resetAt: string;
+  /**
+   * How far beyond `now` the reset lies, in ms. Always positive — a job with
+   * a `resetAt <= now` is due right now, not stuck in the future.
+   */
+  futureMs: number;
+}
+
 /** Everything {@link runDiagnostics} needs — collected by the CLI, judged here. */
 export interface DiagnosticInput {
   /** Running Node version string, e.g. `process.version` ("v22.5.0"). */
@@ -155,6 +177,21 @@ export interface DiagnosticInput {
   notify: NotifyFacts;
   adapters: AdapterFacts;
   heartbeat: HeartbeatFacts;
+  /**
+   * `waiting_for_reset` jobs whose `resetAt` is beyond the parser horizon —
+   * see {@link FarFutureResetFact}. Empty when the queue is clean. The CLI
+   * builds this by calling {@link distinctFarFutureResets} with the same
+   * horizon the parser uses (see `maxResetHorizonMsFromEnv`).
+   */
+  farFutureResets: FarFutureResetFact[];
+  /**
+   * The reset horizon (ms) that produced {@link farFutureResets}. Used only
+   * for the check's message so a user knows *which* horizon is being applied
+   * (default 8d vs. a shortened env override). `null`/`undefined` means the
+   * parse-time guard is disabled — the check reports OK-skipped either way,
+   * because a disabled guard has no threshold to check against.
+   */
+  maxFutureResetMs?: number | null;
 }
 
 /** Minimum supported Node version — mirrors the packages' `engines.node`. */
@@ -186,6 +223,50 @@ export function distinctActiveBinaries(jobs: RelayJob[]): { binary: string; need
     counts.set(binary, (counts.get(binary) ?? 0) + 1);
   }
   return [...counts.entries()].map(([binary, neededBy]) => ({ binary, neededBy }));
+}
+
+/**
+ * Waiting jobs whose `resetAt` sits further ahead than `maxFutureMs` — the
+ * queue-side twin of the parser's plausibility guard. The parse-time guard
+ * (`isPlausibleReset`) stops far-future resets from *entering* the queue,
+ * but it can't help with jobs that were parked before the guard existed, or
+ * queued while the guard was disabled, or resurrected from a backup written
+ * under a laxer horizon. This walks the live store so `doctor` can flag them.
+ *
+ * Pure: no clock, no filesystem. Callers pass an explicit `now` (the CLI
+ * threads `options.nowMs` for reproducible reports).
+ *
+ * Rules:
+ * - Only `waiting_for_reset` jobs count — those are the ones the scheduler's
+ *   `listDue` gate holds. `queued`/`resuming` are handled by other paths.
+ * - A missing / unparseable / non-future `resetAt` is *not* stuck-in-the-future
+ *   (it's ready or malformed differently) — skipped so we don't cry wolf.
+ * - `maxFutureMs` must be a positive finite number; otherwise nothing is
+ *   "beyond the horizon" and an empty list is returned (the caller's check
+ *   should skip too when the guard is disabled).
+ * - Results are sorted worst-first (largest `futureMs`) so `doctor`'s message
+ *   naturally highlights the most egregious ghost.
+ */
+export function distinctFarFutureResets(
+  jobs: RelayJob[],
+  options: { now: Date; maxFutureMs: number | null | undefined }
+): FarFutureResetFact[] {
+  const { now, maxFutureMs } = options;
+  if (maxFutureMs === undefined || maxFutureMs === null || !Number.isFinite(maxFutureMs) || maxFutureMs <= 0) {
+    return [];
+  }
+  const nowMs = now.getTime();
+  const threshold = nowMs + maxFutureMs;
+  const out: FarFutureResetFact[] = [];
+  for (const job of jobs) {
+    if (job.status !== "waiting_for_reset" || job.resetAt === null) continue;
+    const resetMs = Date.parse(job.resetAt);
+    if (!Number.isFinite(resetMs)) continue;
+    if (resetMs <= threshold) continue;
+    out.push({ id: job.id, project: job.project, resetAt: job.resetAt, futureMs: resetMs - nowMs });
+  }
+  out.sort((a, b) => b.futureMs - a.futureMs);
+  return out;
 }
 
 /**
@@ -224,9 +305,12 @@ export function isSupportedNode(version: string): boolean {
  * 5. **daemon** — a resume loop (daemon/tick) is alive, cross-referenced with
  *    how many jobs are waiting: waiting jobs with no live loop is a warning
  *    (they won't resume), otherwise absence is just an informational OK.
- * 6. **config** — the config file (if any) loads and validates; a broken file
+ * 6. **queued-reset-horizon** — no waiting job's `resetAt` sits beyond the
+ *    parser horizon; ghosts left behind by an older store or a disabled
+ *    guard are a warning (they'll never come due).
+ * 7. **config** — the config file (if any) loads and validates; a broken file
  *    is an error, semantic warnings are surfaced as warnings.
- * 7. **notify** — at least one notification channel is set (absence is a
+ * 8. **notify** — at least one notification channel is set (absence is a
  *    warning, not an error: notifications are optional but you'd want to know
  *    the relay can't reach you).
  */
@@ -238,6 +322,7 @@ export function runDiagnostics(input: DiagnosticInput): DiagnosticReport {
   checks.push(writableCheck(input.writable));
   checks.push(adapterCheck(input.adapters));
   checks.push(daemonCheck(input.heartbeat, input.store));
+  checks.push(queuedResetHorizonCheck(input.farFutureResets, input.maxFutureResetMs));
   checks.push(configCheck(input.config));
   checks.push(notifyCheck(input.notify));
 
@@ -420,6 +505,69 @@ function daemonCheck(heartbeat: HeartbeatFacts, store: StoreFacts): DiagnosticCh
     level: "ok",
     message: "no resume loop running, and no jobs are waiting to resume",
   };
+}
+
+/**
+ * Judges whether any `waiting_for_reset` job is stuck beyond the parser
+ * horizon. Rule:
+ *
+ * - Guard disabled (`maxFutureMs` null/undefined) → OK, "guard is off, skipped".
+ *   With no threshold there's nothing to measure against, and the user has
+ *   explicitly opted out via `AGENTRELAY_MAX_RESET_HORIZON=off`.
+ * - Guard on and no ghosts → OK, echoing the horizon so the user sees which
+ *   value is being applied.
+ * - Guard on and one or more ghosts → warning, naming the worst offender's
+ *   id + how far past the horizon it sits, with a hint pointing at the
+ *   `cancel` / `retry` controls that let the user unstick them.
+ *
+ * Warning (not error) matches the severity of "resume loop stopped" — the
+ * relay isn't broken, just a specific job won't unstick on its own.
+ */
+function queuedResetHorizonCheck(
+  ghosts: FarFutureResetFact[],
+  maxFutureMs: number | null | undefined
+): DiagnosticCheck {
+  if (maxFutureMs === undefined || maxFutureMs === null || !Number.isFinite(maxFutureMs) || maxFutureMs <= 0) {
+    return {
+      name: "queued-reset-horizon",
+      level: "ok",
+      message: "reset-horizon guard is disabled (AGENTRELAY_MAX_RESET_HORIZON=off) — skipped",
+    };
+  }
+  const horizon = humanizeDuration(maxFutureMs);
+  if (ghosts.length === 0) {
+    return {
+      name: "queued-reset-horizon",
+      level: "ok",
+      message: `no waiting job has a resetAt beyond the ${horizon} horizon`,
+    };
+  }
+  const worst = ghosts[0];
+  const worstFuture = humanizeDuration(worst.futureMs);
+  const shortId = worst.id.length > 8 ? worst.id.slice(0, 8) : worst.id;
+  const others = ghosts.length > 1 ? ` (and ${ghosts.length - 1} more)` : "";
+  return {
+    name: "queued-reset-horizon",
+    level: "warning",
+    message: `${ghosts.length} waiting job(s) have a resetAt beyond the ${horizon} horizon — e.g. ${shortId} (${worst.project}) resets in ${worstFuture}${others} — they won't come due on their own`,
+    hint: "Cancel with `agentrelay cancel <id>` or retry now with `agentrelay retry <id>`.",
+  };
+}
+
+/**
+ * Compact human duration like "45s", "10m", "3h", "8d" — sibling of
+ * {@link humanizeAge} but tuned for larger horizons where "days" beats
+ * "192h". Both share the same rounding style so a `daemon` age and a
+ * `queued-reset-horizon` future age read consistently.
+ */
+function humanizeDuration(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h}h`;
+  return `${Math.round(h / 24)}d`;
 }
 
 function configCheck(config: ConfigFacts): DiagnosticCheck {
