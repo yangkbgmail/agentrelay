@@ -2259,3 +2259,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 파서: 콜론 구분 카운트다운 시계(HH:MM:SS / MM:SS) 인식] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-colon-countdown`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72가 후속으로 제안한 "doctor 먼-미래 리셋 검사"는 열린 PR을 스캔하니 **20개 넘게 중복 구현**
+  중(main 보호로 병합이 밀려 매 무기억 세션이 같은 후속을 반복 발굴하는 전형적 중복 루프)이라 지양.
+  200+개 열린 PR 제목을 키워드 스캔해 **어떤 열린 PR에도 없는** 실제 파서 갭을 발굴했다.
+- **발굴한 갭:** 파서의 `relative-duration`은 남은 대기를 `4h32m`/`45m`/`1d 4h`처럼 **문자 단위**로만
+  인식한다. 하지만 라이브 "Retrying in 04:59…" 스피너나 일부 CLI는 남은 대기를 돌아가는 **콜론 시계**
+  (`04:32:10` HH:MM:SS / `15:30` MM:SS)로 렌더하는데, d/h/m 문자가 없어 기존 패턴이 통째로 놓쳐 잡이
+  큐잉 안 됐다. 절대형 `clock-time`(`reset at 15:00`)은 `at` 커넥터라 별개.
+- **한 일 (branch `claude/wizardly-pascal-colon-countdown`):**
+  - core `parser.ts`에 순수 `relative-clock-countdown` 패턴 추가 — 정규식
+    `/(?:try again|resets?|retry(?:ing)?)\s+in\s+(?:(\d{1,3}):)?(\d{1,2}):(\d{2})\b/i`로 `in` 커넥터 뒤
+    2~3부 콜론 시계를 해소. `in` 필수라 절대형 `clock-time`과 disjoint, 커넥터 없는 벌거벗은 콜론
+    숫자(id·타임스탬프)는 무시. 3부=HH:MM:SS, 2부=MM:SS(카운트다운 관례 — 작은 해석은 살짝 이른
+    재개→재감지·재큐로 안전, 절대 지연 파킹 아님). 초 ≥60·시가 있을 때 분 ≥60은 시계 아님→null
+    폴스루, `00:00`도 null. `relative-duration` 앞에 배치하되 콜론 vs 문자 정규식이 disjoint라
+    상호 shadowing 없음. 새 스케줄러/CLI 코드 0줄 — `parse` 커맨드·어댑터 경로가 자동 노출.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 645 · cli 354/1skip · dashboard 9**; parser.test +6). **실제 빌드 CLI e2e**(mock
+  아님): `parse "Retrying in 04:32:10…"`→`relative-clock-countdown`·resets in 4h 32m, `try again in
+  15:30`→15m, `Resets at 15:00`→`clock-time`(절대, 비카운트다운), `resets in 4h32m`→`relative-duration`
+  (무회귀), `resets in 12:61`→"No rate-limit detected"(초 범위초과 폴스루) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 파서 후보 — 콜론 시계의
+  ISO 8601 지속시간(`PT2H30M`) 변형, 또는 실사용 Claude/Codex 콜론 카운트다운 wording 추가 수집(🧭 협업).
+  doctor 먼-미래 리셋·stats 분산/watch·summary --watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
