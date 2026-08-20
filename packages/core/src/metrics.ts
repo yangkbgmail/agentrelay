@@ -1,3 +1,4 @@
+import type { HeartbeatStatus } from "./heartbeat.js";
 import type { RelayStats } from "./stats.js";
 import { ALL_TOOLS } from "./stats.js";
 import { ALL_STATUSES } from "./summary.js";
@@ -20,6 +21,19 @@ export interface PrometheusOptions {
    * prefixed with `_` so the emitted names always parse.
    */
   prefix?: string;
+  /**
+   * The resume loop's liveness ({@link HeartbeatStatus} from `evaluateHeartbeat`,
+   * the same judgement `health`/`doctor`/the dashboard use). When supplied, two
+   * extra gauges are emitted so the single most important thing this relay
+   * guards — "is a loop alive to service waiting jobs?" — is *scrapable*, not
+   * just visible via `doctor`'s checklist or `health`'s exit code:
+   *   - `<prefix>_resume_loop_up`  — 1 when alive, 0 when stale/absent.
+   *   - `<prefix>_heartbeat_age_seconds` — age of the last tick (present only
+   *     when a heartbeat exists, so a scraper never records a misleading 0).
+   * Omitting this field keeps the output byte-for-byte as before (backward
+   * compatible for callers that only want the aggregate job gauges).
+   */
+  heartbeat?: HeartbeatStatus;
 }
 
 const DEFAULT_PREFIX = "agentrelay";
@@ -150,6 +164,32 @@ export function renderPrometheusMetrics(stats: RelayStats, options: PrometheusOp
         `${metric}{${label("stat", "max")}} ${formatValue(t.maxResolutionMs / 1000)}`,
       ])
     );
+  }
+
+  // Resume-loop liveness. This is the property AgentRelay exists to protect: a
+  // job can be queued and its reset time can pass, but nothing resumes unless a
+  // daemon/tick loop is running. Emitting it as a gauge lets a scraper alert on
+  // `resume_loop_up == 0 and jobs_active > 0` — the exact silent failure.
+  const hb = options.heartbeat;
+  if (hb !== undefined) {
+    lines.push(
+      ...metricFamily(
+        name("resume_loop_up"),
+        "1 when the resume loop (daemon/tick) is alive, 0 when stale or absent.",
+        [`${name("resume_loop_up")} ${formatValue(hb.state === "alive" ? 1 : 0)}`]
+      )
+    );
+    // Age is only meaningful when a heartbeat actually exists; when absent there
+    // is no last tick to measure, so omit the sample rather than emit a bogus 0.
+    if (hb.ageMs !== undefined) {
+      lines.push(
+        ...metricFamily(
+          name("heartbeat_age_seconds"),
+          "Seconds since the resume loop's last tick (now - lastTickAt).",
+          [`${name("heartbeat_age_seconds")} ${formatValue(hb.ageMs / 1000)}`]
+        )
+      );
+    }
   }
 
   return `${lines.join("\n")}\n`;

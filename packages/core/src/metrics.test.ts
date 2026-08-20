@@ -126,3 +126,69 @@ describe("renderPrometheusMetrics", () => {
     expect(text).not.toContain("agentrelay_jobs ");
   });
 });
+
+describe("renderPrometheusMetrics resume-loop liveness", () => {
+  const stats = computeStats([job()]);
+
+  it("omits liveness gauges entirely when no heartbeat is supplied (backward compatible)", () => {
+    const text = renderPrometheusMetrics(stats);
+    expect(text).not.toContain("resume_loop_up");
+    expect(text).not.toContain("heartbeat_age_seconds");
+  });
+
+  it("emits resume_loop_up 1 and heartbeat_age_seconds when the loop is alive", () => {
+    const s = parseSamples(
+      renderPrometheusMetrics(stats, {
+        heartbeat: {
+          state: "alive",
+          mode: "daemon",
+          pid: 123,
+          lastTickAt: "2026-07-13T00:00:00.000Z",
+          ageMs: 30_000, // 30s → 30 seconds
+          staleAfterMs: 90_000,
+          concerning: false,
+          waitingJobs: 2,
+        },
+      })
+    );
+    expect(s.get("agentrelay_resume_loop_up")).toBe(1);
+    expect(s.get("agentrelay_heartbeat_age_seconds")).toBe(30);
+  });
+
+  it("emits resume_loop_up 0 for a stale loop but still reports its age", () => {
+    const s = parseSamples(
+      renderPrometheusMetrics(stats, {
+        heartbeat: {
+          state: "stale",
+          mode: "daemon",
+          pid: 123,
+          lastTickAt: "2026-07-13T00:00:00.000Z",
+          ageMs: 600_000,
+          staleAfterMs: 90_000,
+          concerning: true,
+          waitingJobs: 2,
+        },
+      })
+    );
+    expect(s.get("agentrelay_resume_loop_up")).toBe(0);
+    expect(s.get("agentrelay_heartbeat_age_seconds")).toBe(600);
+  });
+
+  it("emits resume_loop_up 0 and omits age when the loop is absent (no bogus 0 age)", () => {
+    const text = renderPrometheusMetrics(stats, {
+      heartbeat: { state: "absent", concerning: false, waitingJobs: 0 },
+    });
+    const s = parseSamples(text);
+    expect(s.get("agentrelay_resume_loop_up")).toBe(0);
+    expect(text).not.toContain("heartbeat_age_seconds");
+  });
+
+  it("prefixes the liveness gauges too", () => {
+    const text = renderPrometheusMetrics(stats, {
+      prefix: "my-relay",
+      heartbeat: { state: "alive", ageMs: 1000, concerning: false, waitingJobs: 0 },
+    });
+    expect(text).toContain("my_relay_resume_loop_up ");
+    expect(text).toContain("my_relay_heartbeat_age_seconds ");
+  });
+});

@@ -2259,3 +2259,34 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay metrics` 재개 루프 liveness 게이지] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-3rvipl`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 문서/리서치뿐). 열린 PR
+  200+개가 stats 분산·watch 변형·parser·doctor-horizon 등으로 극도로 포화(브랜치 스캔으로 확인:
+  doctor far-future만 6개 브랜치 중복). 세션 70~72가 경고한 포화 클러스터를 모두 피해, `metrics`(Prometheus)
+  표면에서 어떤 열린 PR에도 없는 실제 갭을 발굴.
+- **발굴한 갭:** `renderPrometheusMetrics`는 집계 잡 게이지(총/상태별/툴별/active/terminal/attempts/성공률/
+  해결시간)만 노출하고, **이 도구가 존재하는 이유** — "대기 잡을 서비스할 재개 루프가 살아있는가" — 는
+  스크레이프 표면에서 빠져 있었다. `health`(exit code)·`doctor`(체크리스트)·대시보드(카드)는 모두
+  하트비트를 노출하는데 정작 모니터링용 Prometheus만 누락 → 스크레이프 기반 알람(`루프 죽음 + 잡 방치`)을
+  걸 수 없었다.
+- **한 일 (branch `claude/wizardly-pascal-3rvipl`):**
+  - core `metrics.ts`의 `PrometheusOptions`에 optional `heartbeat?: HeartbeatStatus`(기존
+    `evaluateHeartbeat` 판정 — health/doctor/대시보드와 **동일 소스**라 네 표면이 일치) 추가. 공급 시
+    두 게이지 방출: `agentrelay_resume_loop_up`(alive=1, stale/absent=0 — 항상 방출해 스크레이퍼가
+    안정적 시계열로 알람 가능) + `agentrelay_heartbeat_age_seconds`(마지막 tick 경과초, 하트비트
+    **존재 시에만** 방출 → absent에 오해성 0 age 안 찍음, 기존 null-omit 규칙과 대칭). heartbeat
+    미공급 시 출력 바이트 불변(하위호환 — 기존 metrics.test 그대로 통과).
+  - CLI `commands.ts`에 `readHeartbeatStatus(storePath, nowMs)`(파일+시계 절반, 순수 판정은 core 위임,
+    절대 throw 안 함) 신설 — waiting 수는 **스토어 전체**에서 집계(liveness는 데몬의 전역 속성이라
+    `--status`/`--since`/`--tool` 스코프에 무관). `metrics` 액션이 이를 읽어 배선, 헬프에 두 게이지 +
+    알람룰(`resume_loop_up == 0 and jobs_active > 0` → 잡 방치) 문서화.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 644 · cli 354/1skip · dashboard 9**; metrics.test +5: 미공급=미방출/alive=1+age/stale=0+age
+  유지/absent=0+age생략/prefix 적용). **실제 빌드 CLI e2e**(mock 아님): waiting 잡 1개 스토어에서 하트비트
+  파일 부재→`resume_loop_up 0`(age 생략)+`jobs_active 1`(알람 조건 충족), 신선한 daemon 하트비트→
+  `resume_loop_up 1`+`heartbeat_age_seconds 0.162`, stale(오래된 lastTick)→`resume_loop_up 0`+`age 27724`
+  방출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — dashboard의 metrics
+  텍스트 엔드포인트(`/api/metrics`)로 같은 게이지 노출, `jobs_active`를 heartbeat의 waiting 정의와 명시
+  정렬. stats 분산/watch·summary --watch·parser·doctor-horizon은 PR 포화라 지양. README/ARCHITECTURE(🧭).
