@@ -870,6 +870,26 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay doctor`에 큐 내 먼-미래 리셋 잡 검사(reset-horizon) — 파서 지평선 가드가
+      새 잡을 걸러도 이전 빌드·수동 편집·좁아진 지평선으로 남아 있는 far-future `resetAt` 잡은
+      릴레이가 조용히 수십 일 대기하는 원인이 된다. `doctor`가 사전에 잡을 수 있어야 함.
+      (완료 — `@agentrelay/core/doctor.ts`에 `FarFutureResetFact`·`HorizonFacts` 타입 + 순수
+      `findFarFutureResets(jobs, {nowMs, maxFutureMs})`(활성 잡만 집계, `resetAt` 없거나 파싱
+      불가는 스킵, 오름차순 정렬 대신 overshoot **내림차순**으로 최악 후보를 먼저 보고;
+      비양수/비유한 maxFutureMs는 빈 배열=가드 없음) + `horizonCheck`(순수) 검사 추가.
+      `DiagnosticInput.horizon`은 optional — 기존 CLI 호출자 하위호환. `runDiagnostics` 실행
+      순서: node→store→writable→adapters→**reset-horizon**→daemon→config→notify. CLI
+      `runDoctor`가 이미 로드한 `jobs`와 `maxResetHorizonMsFromEnv(env)`로 사실 채움(가드
+      비활성 시 `maxFutureMs: null`로 검사가 즉시 OK). warning 메시지엔 카운트·지평선 라벨·
+      최악 8자 id·프로젝트·overshoot 기간이 포함되고, hint는 `agentrelay show <id>`와 지평선
+      확대 방법을 안내. 새 파일 0줄 — 전부 기존 검증된 파서 유틸(`maxResetHorizonMsFromEnv`)과
+      doctor 구조 재사용. core `findFarFutureResets` 7 + `runDiagnostics reset-horizon` 4 +
+      CLI runDoctor 3 신규 테스트, **실제 빌드된 CLI e2e**(mock 아님): 60일 반의무래 far-future
+      잡 심고 → 기본 8d 지평선에서 "1 active job … worst is bd9c14e2 (faraway), 52d past
+      horizon" 워닝, `AGENTRELAY_MAX_RESET_HORIZON=off`면 "guard is disabled" OK, 근시일 잡
+      단독은 "every active job's reset is within the 8d horizon" OK, `--json`에도 farFuture
+      목록 포함 확인. branch `claude/wizardly-pascal-650xbb`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

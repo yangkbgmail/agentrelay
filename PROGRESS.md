@@ -2257,5 +2257,36 @@
   `AGENTRELAY_MAX_RESET_HORIZON=off`면 30일 리셋 큐잉(30d 카운트다운), 2h 리셋은 정상 큐잉, `parse`
   진단은 지평선 미적용으로 30일 파스를 그대로 표시함을 확인.
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
-  (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
+  (수년 전 epoch)도 misparse signal로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay doctor` 큐 내 먼-미래 리셋 잡 경고(reset-horizon)] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-650xbb`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72(파서 rate-limit 리셋 plausibility 가드)가 "다음 할 일"로 남긴 후속 후보 **"`doctor`에
+  큐 내 먼-미래 리셋 잡 경고 검사 추가"**를 in-scope 👷 항목으로 선정. 세션 72가 파서 이슈만 잡고
+  이미 큐에 들어있는 잡·수동 편집·좁아진 지평선으로 남은 잡은 못 잡던 갭을 메움.
+- **한 일 (branch `claude/wizardly-pascal-650xbb`):** **doctor에 reset-horizon 검사**.
+  - core `doctor.ts`: 신규 타입 `FarFutureResetFact`(id·project·resetAt·overshootMs) +
+    `HorizonFacts`(maxFutureMs·farFuture[]) + `DiagnosticInput.horizon?`(optional로 하위호환).
+    순수 `findFarFutureResets(jobs, {nowMs, maxFutureMs})`: **활성** 상태(queued/waiting_for_reset/
+    resuming)만 대상(터미널 잡 제외 — 리셋은 과거일뿐), `resetAt` 없거나 `Date.parse` 실패는 스킵,
+    overshoot **내림차순** 정렬로 최악 후보를 먼저 보고. 비양수/비유한 maxFutureMs는 즉시 빈 배열
+    (가드 없음). 순수 `horizonCheck` 판정: maxFutureMs=null이면 "guard is disabled" OK,
+    farFuture=[]면 "every … within the Nd horizon" OK, 그 외 warning + 카운트·최악 8자 id·프로젝트
+    라벨·overshoot 기간 + hint(`agentrelay show <id>`·지평선 확대 방법). `runDiagnostics` 실행 순서
+    node→store→writable→adapters→**reset-horizon**→daemon→config→notify. 헬퍼 `humanizeSpan`(초·분·
+    시·일 자동), `shortId`(하이픈 제거 후 8자).
+  - CLI `commands.ts`: `findFarFutureResets`·기존 `maxResetHorizonMsFromEnv` import 재사용해
+    `runDoctor`가 `horizon` 사실을 채움 — 가드 비활성 시 `{maxFutureMs: null, farFuture: []}`로
+    검사가 즉시 OK로 스킵. 이미 로드한 `jobs`·`options.nowMs` 재사용(새 I/O 0).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 651 · cli 357/1skip · dashboard 9**; core doctor +11, CLI doctor +3). **실제
+  빌드된 CLI e2e**(mock 아님): 60일 후 `resetAt` 잡을 직접 스토어에 심고 → 기본 8d 지평선에서
+  "1 active job has a reset beyond the horizon of 8d — worst is bd9c14e2 (faraway), 52d past horizon"
+  warning, `AGENTRELAY_MAX_RESET_HORIZON=off`면 "guard is disabled — no far-future check" OK,
+  근시일(+2h) 잡 단독은 "every active job's reset is within the 8d horizon" OK, `doctor --json`에도
+  reset-horizon 체크와 warning level이 포함됨을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도
+  far-future reset 경고 배지 표출(하트비트 카드처럼), `overdue`처럼 별도 `agentrelay horizon` 커맨드로
+  경고 잡만 나열, `stats`에 far-future 카운트 필드 추가. stats 분산/watch·summary --watch·epoch ms는
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

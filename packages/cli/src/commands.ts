@@ -49,6 +49,7 @@ import {
   evaluateWait,
   exportJobs,
   findConfigField,
+  findFarFutureResets,
   hasConfigErrors,
   heartbeatStaleAfterMs,
   type ImportFormat,
@@ -1486,6 +1487,17 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    // --- reset-horizon facts. New parsers filter far-future resets at ingest,
+    // but jobs queued by older builds, hand-edited stores, or a horizon that
+    // was widened then narrowed can still carry a reset that's unreachably
+    // out — the relay would silently wait for that entire span. Enumerate any
+    // survivors so the pure judge can warn.
+    horizon: (() => {
+      const maxFutureMs = maxResetHorizonMsFromEnv(env);
+      if (maxFutureMs === null) return { maxFutureMs: null, farFuture: [] };
+      const nowMs = options.nowMs ?? Date.now();
+      return { maxFutureMs, farFuture: findFarFutureResets(jobs, { nowMs, maxFutureMs }) };
+    })(),
   });
 }
 

@@ -4,6 +4,7 @@ import {
   countActiveJobs,
   type DiagnosticInput,
   distinctActiveBinaries,
+  findFarFutureResets,
   isSupportedNode,
   parseNodeVersion,
   runDiagnostics,
@@ -389,5 +390,130 @@ describe("distinctActiveBinaries", () => {
   it("skips a malformed job with an empty command[0]", () => {
     const jobs = [job({ status: "queued", command: ["   "] }), job({ status: "queued", command: [] as string[] })];
     expect(distinctActiveBinaries(jobs)).toEqual([]);
+  });
+});
+
+describe("findFarFutureResets", () => {
+  const NOW = new Date("2026-08-20T00:00:00.000Z").getTime();
+  const HORIZON = 8 * 24 * 60 * 60_000; // 8d
+
+  it("returns empty when no job is active", () => {
+    const jobs = [job({ status: "completed", resetAt: new Date(NOW + 30 * 24 * 60 * 60_000).toISOString() })];
+    expect(findFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: HORIZON })).toEqual([]);
+  });
+
+  it("returns empty when every reset is inside the horizon", () => {
+    const jobs = [
+      job({ status: "waiting_for_reset", resetAt: new Date(NOW + 2 * 60 * 60_000).toISOString() }),
+      job({ status: "queued", resetAt: new Date(NOW + 6 * 24 * 60 * 60_000).toISOString() }),
+    ];
+    expect(findFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: HORIZON })).toEqual([]);
+  });
+
+  it("flags an active job whose reset overshoots the horizon", () => {
+    const at = new Date(NOW + 30 * 24 * 60 * 60_000).toISOString();
+    const jobs = [job({ id: "abcdef01-1", status: "waiting_for_reset", project: "web", resetAt: at })];
+    const facts = findFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: HORIZON });
+    expect(facts).toHaveLength(1);
+    expect(facts[0].id).toBe("abcdef01-1");
+    expect(facts[0].project).toBe("web");
+    expect(facts[0].resetAt).toBe(at);
+    // 30d - 8d = 22d = 22 * 86400_000 ms
+    expect(facts[0].overshootMs).toBe(22 * 24 * 60 * 60_000);
+  });
+
+  it("orders results by furthest overshoot first", () => {
+    const closer = new Date(NOW + 10 * 24 * 60 * 60_000).toISOString(); // +2d over
+    const farther = new Date(NOW + 40 * 24 * 60 * 60_000).toISOString(); // +32d over
+    const jobs = [
+      job({ id: "closer", status: "queued", resetAt: closer }),
+      job({ id: "farther", status: "queued", resetAt: farther }),
+    ];
+    const facts = findFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: HORIZON });
+    expect(facts.map((f) => f.id)).toEqual(["farther", "closer"]);
+  });
+
+  it("ignores terminal jobs even with a far reset", () => {
+    const jobs = [
+      job({ status: "completed", resetAt: new Date(NOW + 30 * 24 * 60 * 60_000).toISOString() }),
+      job({ status: "failed", resetAt: new Date(NOW + 30 * 24 * 60 * 60_000).toISOString() }),
+      job({ status: "cancelled", resetAt: new Date(NOW + 30 * 24 * 60 * 60_000).toISOString() }),
+    ];
+    expect(findFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: HORIZON })).toEqual([]);
+  });
+
+  it("skips jobs without a resetAt or with an unparseable one", () => {
+    const jobs = [job({ status: "queued", resetAt: null }), job({ status: "queued", resetAt: "not-a-timestamp" })];
+    expect(findFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: HORIZON })).toEqual([]);
+  });
+
+  it("returns empty when maxFutureMs is non-positive or non-finite", () => {
+    const at = new Date(NOW + 30 * 24 * 60 * 60_000).toISOString();
+    const jobs = [job({ status: "queued", resetAt: at })];
+    expect(findFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: 0 })).toEqual([]);
+    expect(findFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: -1 })).toEqual([]);
+    expect(findFarFutureResets(jobs, { nowMs: NOW, maxFutureMs: Number.POSITIVE_INFINITY })).toEqual([]);
+  });
+});
+
+describe("runDiagnostics: reset-horizon", () => {
+  const NOW = new Date("2026-08-20T00:00:00.000Z").getTime();
+  const HORIZON = 8 * 24 * 60 * 60_000;
+
+  it("skips the check when no horizon facts are provided (back-compat)", () => {
+    const report = runDiagnostics(input());
+    expect(report.checks.find((c) => c.name === "reset-horizon")).toBeUndefined();
+  });
+
+  it("reports OK when the guard is disabled", () => {
+    const report = runDiagnostics(input({ horizon: { maxFutureMs: null, farFuture: [] } }));
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+  });
+
+  it("reports OK when no active job's reset overshoots the horizon", () => {
+    const report = runDiagnostics(input({ horizon: { maxFutureMs: HORIZON, farFuture: [] } }));
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("8d");
+  });
+
+  it("warns and names the worst offender when a reset overshoots", () => {
+    const at = new Date(NOW + 30 * 24 * 60 * 60_000).toISOString();
+    const report = runDiagnostics(
+      input({
+        horizon: {
+          maxFutureMs: HORIZON,
+          farFuture: [
+            { id: "bd9c14e2-aaaa-4444-8888-000000000001", project: "web", resetAt: at, overshootMs: 22 * 86_400_000 },
+          ],
+        },
+      })
+    );
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("1 active job");
+    expect(check.message).toContain("bd9c14e2");
+    expect(check.message).toContain("web");
+    expect(check.hint).toContain("agentrelay show bd9c14e2");
+    expect(check.hint).toContain("AGENTRELAY_MAX_RESET_HORIZON");
+  });
+
+  it("pluralizes and counts when multiple jobs overshoot", () => {
+    const report = runDiagnostics(
+      input({
+        horizon: {
+          maxFutureMs: HORIZON,
+          farFuture: [
+            { id: "a", project: "web", resetAt: "2026-09-30T00:00:00Z", overshootMs: 5 * 86_400_000 },
+            { id: "b", project: "cli", resetAt: "2026-10-10T00:00:00Z", overshootMs: 15 * 86_400_000 },
+          ],
+        },
+      })
+    );
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toMatch(/2 active jobs/);
   });
 });

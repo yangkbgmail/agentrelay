@@ -201,6 +201,54 @@ describe("runDoctor", () => {
       chmodSync(join(dir, "readonly"), 0o700);
     }
   });
+
+  it("warns when a queued job's resetAt overshoots the plausibility horizon", () => {
+    const queue = new RelayQueue(storePath);
+    // Force a far-future reset via markWaitingForReset — parsers filter at ingest
+    // now, but hand-edited stores and older builds are exactly what this
+    // check exists to catch.
+    const enq = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    const farFuture = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(); // +60d
+    queue.markWaitingForReset(enq.id, farFuture);
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("1 active job");
+    expect(check.hint).toContain("agentrelay show");
+  });
+
+  it("skips the reset-horizon check when the guard is disabled via env", () => {
+    const queue = new RelayQueue(storePath);
+    const enq = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    const farFuture = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
+    queue.markWaitingForReset(enq.id, farFuture);
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+  });
+
+  it("reports reset-horizon OK when every queued job's reset is within the horizon", () => {
+    const queue = new RelayQueue(storePath);
+    const enq = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    const soon = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(); // +2h
+    queue.markWaitingForReset(enq.id, soon);
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("within the");
+  });
 });
 
 describe("renderDoctor", () => {
