@@ -74,6 +74,47 @@ describe("parseRateLimitMessage", () => {
     expect(parseRateLimitMessage("Rate limit hit, reset at 5.")).toBeNull();
   });
 
+  it("parses 'resets at midnight' as 00:00 local, rolling to tomorrow if past", () => {
+    const now = new Date("2026-07-12T09:00:00"); // 09:00 local, before next midnight
+    const result = parseRateLimitMessage("Usage limit reached. Resets at midnight.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-word");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(0);
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'try again at noon' as 12:00 local", () => {
+    const now = new Date("2026-07-12T08:00:00"); // 08:00 local, before noon
+    const result = parseRateLimitMessage("Rate limit hit — try again at noon.", { now });
+    expect(result?.pattern).toBe("clock-word");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(12);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("treats 'midday' as noon (12:00)", () => {
+    const now = new Date("2026-07-12T08:00:00");
+    const result = parseRateLimitMessage("Usage limit reached. Resets at midday.", { now });
+    expect(result?.pattern).toBe("clock-word");
+    expect(new Date(result!.resetAt).getHours()).toBe(12);
+  });
+
+  it("rolls 'resets at noon' to tomorrow when noon has already passed today", () => {
+    const now = new Date("2026-07-12T15:00:00"); // 15:00 local, after noon
+    const result = parseRateLimitMessage("Usage limit reached. Resets at noon.", { now });
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(12);
+    expect(resetDate.getDate()).toBe(13); // next day
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("does not match unrelated words containing the fragment (e.g. 'nooning')", () => {
+    // \b after the word keeps 'noon' from matching inside a longer token.
+    expect(parseRateLimitMessage("Usage limit reached. Resets at noontime celebration.")).toBeNull();
+  });
+
   it("parses a relative duration like '4h32m'", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Rate limit exceeded, try again in 4h32m.", { now });
