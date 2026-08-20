@@ -201,6 +201,40 @@ describe("runDoctor", () => {
       chmodSync(join(dir, "readonly"), 0o700);
     }
   });
+
+  it("warns when a queued job resets implausibly far in the future", () => {
+    const queue = new RelayQueue(storePath);
+    const far = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    const soon = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    const oneYear = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+    const twoHours = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+    queue.markWaitingForReset(far.id, oneYear);
+    queue.markWaitingForReset(soon.id, twoHours);
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("1 queued job(s)");
+    expect(check.message).toContain(far.id);
+  });
+
+  it("skips the reset-horizon check as OK when the guard is disabled", () => {
+    const queue = new RelayQueue(storePath);
+    const far = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(far.id, new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString());
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+  });
 });
 
 describe("renderDoctor", () => {

@@ -2259,3 +2259,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay doctor` 먼-미래 리셋 잡 경고 검사] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-u8gwgk`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72가 후속 인접 후보로 명시한 "`doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가"를 채택 — 세션 72의
+  파서 지평선 가드는 **탐지 시점**에만 먼-미래 리셋을 막지만, 가드 도입 전(또는 `off`로 비활성일 때)
+  큐잉된 잡은 스토어에 남아 수일/수년 조용히 대기할 수 있고 doctor가 이를 잡지 못했다. 이 프로젝트가
+  doctor·recover 등으로 반복해 겨냥해온 "silent failure" 부류의 인접 확장.
+- **한 일 (branch `claude/wizardly-pascal-u8gwgk`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResetJobs(jobs, {nowMs, maxFutureMs})`(활성 잡만, `resetAt`이
+    `now+maxFutureMs` 초과 시 finding; 과거 리셋=이미 due라 스킵, null/파싱불가 resetAt·종료 잡 스킵,
+    가드 비활성[null/비양수/비유한]이면 [] → 옵트아웃 무영향, 스토어 순서 보존) + `ResetHorizonFinding`/
+    `ResetHorizonFacts` 타입 + `DiagnosticInput.resetHorizon` 추가. `runDiagnostics`에 `reset-horizon` 검사
+    배치(…adapters→daemon→**reset-horizon**→config→notify): 가드 off면 no-op OK, 깨끗하면 OK, 먼-미래 잡
+    있으면 **warning**(개수+첫 오프렌더 id/project/resetAt+"(+N more)", `show`/`cancel`/`retry` 힌트) —
+    error 아님(잡은 유효, 미스파싱 의심일 뿐이라 재개 자체를 막지 않음).
+  - CLI `commands.ts` `runDoctor`가 큐 잡 + `nowMs` + `maxResetHorizonMsFromEnv(env)`로 `resetHorizon`
+    팩트를 구성 — 파서와 doctor가 **동일** 지평선(`AGENTRELAY_MAX_RESET_HORIZON`)을 공유하므로 탐지 가드와
+    진단이 항상 일치. 순수 판정은 전부 core에, 시계/스토어 접근은 CLI에(기존 doctor 계약 유지).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 648 · cli 356/1skip · dashboard 9**; core doctor.test +10, cli doctor.test +2). **실제 빌드
+  CLI e2e**(mock 아님): 임시 스토어에 1년 뒤 리셋 잡 1 + 2h 리셋 잡 1 심고 `doctor` → `reset-horizon`이
+  "1 queued job(s) reset beyond the 8d horizon … e.g. aaaa1111"로 warning, `AGENTRELAY_MAX_RESET_HORIZON=off`면
+  "reset-horizon guard disabled"로 OK 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도 먼-미래
+  리셋 잡 배지 노출(세션 32 하트비트 카드 패턴 재사용), 또는 `agentrelay recover`가 먼-미래 리셋 잡을
+  즉시-due로 되돌리는 옵션(`--reset-horizon`). stats 분산/watch·epoch ms는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).
