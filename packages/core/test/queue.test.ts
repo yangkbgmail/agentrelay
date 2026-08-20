@@ -50,6 +50,29 @@ describe("RelayQueue", () => {
     expect(job.lastRateLimit).toBeNull();
   });
 
+  it("defaults priority to 0 and normalizes a supplied priority on enqueue", () => {
+    const def = queue.enqueue({ project: "demo", tool: "generic", command: ["x"], cwd: "/tmp" });
+    expect(def.priority).toBe(0);
+    const hi = queue.enqueue({ project: "demo", tool: "generic", command: ["x"], cwd: "/tmp", priority: 5.9 });
+    expect(hi.priority).toBe(5); // truncated toward zero
+  });
+
+  it("lists due jobs highest-priority first (equal priority tie-broken by earliest reset)", () => {
+    const mk = (project: string, priority: number, resetOffsetMs: number) => {
+      const job = queue.enqueue({ project, tool: "generic", command: ["x"], cwd: "/tmp", priority });
+      queue.markWaitingForReset(job.id, new Date(Date.now() - 10_000 + resetOffsetMs).toISOString());
+      return job;
+    };
+    // Enqueue out of priority order; all reset times are already in the past (due).
+    mk("low", 0, 0);
+    mk("urgent", 10, 5000);
+    mk("mid-late", 5, 3000);
+    mk("mid-early", 5, 1000);
+
+    const order = queue.listDue(new Date()).map((j) => j.project);
+    expect(order).toEqual(["urgent", "mid-early", "mid-late", "low"]);
+  });
+
   it("persists rate-limit detection provenance when parking a job", () => {
     const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
     const resetAt = new Date(Date.now() + 60_000).toISOString();

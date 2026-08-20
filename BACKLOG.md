@@ -870,6 +870,23 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 잡 재개 우선순위(`agentrelay run --priority <n>`) — 리셋 창이 열려 여러 잡이 한 tick에 동시에
+      due일 때(하나의 리셋 시각을 공유하는 "resume herd") 어떤 잡을 먼저 재개할지 사용자가 지정. 자기
+      발굴 항목 — 지금까지 `listDue`는 스토어 삽입 순서(임의)로 반환해 중요한 잡이 다른 잡 뒤로 밀릴 수
+      있었다. 열린 PR 500+개를 제목 스캔해 `priority`가 **어떤 열린 PR에도 없음**을 확인하고 발굴.
+      (완료 — `@agentrelay/core/priority.ts` 신설(순수): `DEFAULT_PRIORITY`(0), `jobPriority(job)`(레거시
+      스토어 필드 부재·NaN/Infinity/비수치는 0으로 흡수), `normalizePriority(value)`(비유한·nullish=0,
+      소수는 0 방향 절삭, 음수 허용=기본 아래로 디프리오), `compareByPriority`(우선순위 desc → resetAt asc
+      [가장 오래 기다린 창 먼저, 공정] → createdAt asc[FIFO] → id 사전순, 완전 결정론적), `sortByPriority`
+      (비파괴 새 배열). `RelayJob`·`CreateJobInput`에 optional `priority` 추가(하위호환), `enqueue`가
+      `normalizePriority`로 저장, `listDue`가 필터 후 `sortByPriority`로 반환 → 스케줄러가 우선순위 순으로
+      재개. CLI `run --priority <n>`(정수 검증, 비정수는 exit 1), `show`는 기본(0)이 아닐 때만 `priority`
+      라인 렌더(공통 케이스 출력 불변). `import.ts`가 export→import 왕복에서 비-0 priority 보존(0/부재/무효는
+      키 생략 → 레거시 왕복 동일). priority.test 13 + queue.test +2(기본 0·절삭, listDue 우선순위 순) +
+      scheduler.test +1(재개 순서 10→5→0) + import.test +2 + show.test +1. 실제 빌드 CLI e2e로 `run
+      --priority 10/1/0` 저장·`--priority abc` exit 1·`show`가 priority 10 렌더/0은 생략·listDue가
+      10:urgent→1:low→0:default 순 재개 확인. branch `claude/wizardly-pascal-job-priority`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

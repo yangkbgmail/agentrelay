@@ -550,4 +550,33 @@ describe("RelayScheduler", () => {
     expect(results.map((j) => j.project)).toEqual(dueOrder);
     expect(results.every((j) => j.status === "completed")).toBe(true);
   });
+
+  it("resumes due jobs in priority order (highest first)", async () => {
+    const spawnFn: SpawnFn = () => {
+      const emitter = new EventEmitter() as any;
+      emitter.stdout = new EventEmitter();
+      emitter.stderr = new EventEmitter();
+      setTimeout(() => emitter.emit("close", 0), 0);
+      return emitter;
+    };
+    const seedDuePriority = (project: string, priority: number) => {
+      const job = queue.enqueue({
+        project,
+        tool: "claude-code",
+        command: ["claude", "-p", project],
+        cwd: dir,
+        priority,
+      });
+      queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+    };
+    // Enqueue out of priority order.
+    seedDuePriority("low", 0);
+    seedDuePriority("urgent", 100);
+    seedDuePriority("mid", 5);
+
+    const scheduler = new RelayScheduler({ queue, spawnFn });
+    const results = await scheduler.tick();
+
+    expect(results.map((j) => j.project)).toEqual(["urgent", "mid", "low"]);
+  });
 });

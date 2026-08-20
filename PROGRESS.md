@@ -2259,3 +2259,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 잡 재개 우선순위(`agentrelay run --priority`)] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-job-priority`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 500+개(#104~#800)를 제목·키워드로 스캔해 **어떤 열린 PR에도 없는** 실제 기능 갭을 발굴:
+  `priority`(0건). 지금까지 `listDue`는 스토어 삽입 순서(임의)로 due 잡을 반환해, 하나의 리셋 시각을
+  공유하는 "resume herd"에서 **중요한 잡이 임의로 뒤로 밀릴** 수 있었다. dedup(#657/#557)·label
+  (#136/#622)·note(#583)는 이미 PR 존재 → 회피.
+- **한 일 (branch `claude/wizardly-pascal-job-priority`):**
+  - core `priority.ts` 신설(순수·파일시스템/클럭 미접촉): `DEFAULT_PRIORITY`(0), `jobPriority`(레거시
+    스토어 필드 부재·NaN/Infinity/비수치 → 0 흡수), `normalizePriority`(비유한·nullish→0, 소수는 0
+    방향 절삭, 음수 허용), `compareByPriority`(우선순위 desc → resetAt asc[가장 오래 기다린 창 먼저]
+    → createdAt asc[FIFO] → id 사전순, 완전 결정론), `sortByPriority`(비파괴).
+  - `types.ts`: `RelayJob`·`CreateJobInput`에 optional `priority` 추가(하위호환). `queue.ts`: `enqueue`가
+    `normalizePriority`로 저장, `listDue`가 필터 후 `sortByPriority`로 반환 → 스케줄러 재개 순서가
+    우선순위 순. `import.ts`: export→import 왕복에서 비-0 priority 보존(0/부재/무효는 키 생략 → 레거시
+    왕복 동일). CLI `run --priority <n>`(정수 검증, 비정수 exit 1), `show`는 기본(0) 아닐 때만 priority
+    라인 렌더(공통 케이스 출력 불변).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 657 · cli 355/1skip · dashboard 9**; priority.test +13·queue.test +2·scheduler.test
+  +1·import.test +2·show.test +1). **실제 빌드 CLI e2e**(mock 아님): `run --priority 10/1/0` 저장 확인·
+  `run --priority abc` → exit 1·`show`가 priority 10 렌더/priority 0은 라인 생략·`listDue`가
+  10:urgent→1:low→0:default 순으로 재개.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `agentrelay reprioritize
+  <id> <n>`(대기 잡 우선순위 사후 변경), `status`/`stats`에 priority 컬럼/정렬, 대시보드 priority 표기.
+  stats 분산/watch·doctor reset-horizon·파서 변형은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

@@ -138,6 +138,20 @@ describe("validateJobRecord", () => {
       if (result.ok) expect(result.job.lastRateLimit).toBeUndefined();
     }
   });
+
+  it("preserves a non-default priority and truncates it to an integer", () => {
+    const result = validateJobRecord({ ...job(), priority: 7.8 });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.job.priority).toBe(7);
+  });
+
+  it("omits priority when absent, zero, or invalid (default round-trips as no key)", () => {
+    for (const value of [undefined, 0, Number.NaN, "5", null]) {
+      const result = validateJobRecord({ ...job(), priority: value });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.job.priority).toBeUndefined();
+    }
+  });
 });
 
 describe("parseImportJobs (json)", () => {

@@ -53,6 +53,14 @@ export interface RelayJob {
    * rate limit has been detected yet.
    */
   lastRateLimit?: RateLimitDetection | null;
+  /**
+   * Resume priority. When several jobs come due in the same tick (e.g. many
+   * jobs sharing one reset window), the scheduler resumes higher-priority jobs
+   * first. Higher number = sooner. Optional so stores written before this field
+   * existed load without migration; a missing/invalid value is treated as the
+   * default `0` (see {@link jobPriority}).
+   */
+  priority?: number;
 }
 
 export interface CreateJobInput {
@@ -60,6 +68,12 @@ export interface CreateJobInput {
   tool: AgentTool;
   command: string[];
   cwd: string;
+  /**
+   * Optional resume priority (higher = resumed first among due jobs). Defaults
+   * to `0`. Normalized to a finite integer on enqueue (see
+   * {@link normalizePriority}).
+   */
+  priority?: number;
 }
 
 export interface RetryPolicy {

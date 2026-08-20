@@ -543,13 +543,28 @@ export function buildCli(): Command {
       "-p, --project <name>",
       "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
     )
-    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
+    .option(
+      "--priority <n>",
+      "Resume priority (integer, higher = resumed first when several jobs come due together; default 0)"
+    )
+    .action(async (command: string[], opts: { tool?: string; project?: string; priority?: string }) => {
       const { store } = program.opts();
+      let priority: number | undefined;
+      if (opts.priority !== undefined) {
+        const parsed = Number(opts.priority);
+        if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+          console.error(`[agentrelay] invalid --priority "${opts.priority}": expected an integer (e.g. 10, 0, -5).`);
+          process.exitCode = 1;
+          return;
+        }
+        priority = parsed;
+      }
       const result = await runCommand({
         command,
         storePath: store,
         tool: opts.tool as AgentTool | undefined,
         project: opts.project,
+        priority,
       });
       process.exitCode = result.exitCode;
     });

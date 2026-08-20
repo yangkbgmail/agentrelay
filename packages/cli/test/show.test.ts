@@ -65,6 +65,13 @@ describe("renderJobDetail", () => {
     expect(out).not.toContain("resets in");
   });
 
+  it("shows the priority line only when priority is non-default", () => {
+    expect(renderJobDetail(job(), { now: NOW })).not.toContain("priority");
+    expect(renderJobDetail(job({ priority: 0 }), { now: NOW })).not.toContain("priority");
+    expect(renderJobDetail(job({ priority: 10 }), { now: NOW })).toContain("priority   10");
+    expect(renderJobDetail(job({ priority: -3 }), { now: NOW })).toContain("priority   -3");
+  });
+
   it("annotates the updated timestamp with the lifecycle span", () => {
     const out = renderJobDetail(job(), { now: NOW });
     expect(out).toContain("(1m 0s later)");

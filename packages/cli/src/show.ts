@@ -4,7 +4,7 @@
 // Pure functions here (separate from the commander wiring in cli.ts) so the
 // output is unit-testable without a store, a TTY, or a spawned process.
 
-import type { JobStatus, RelayJob } from "@agentrelay/core";
+import { type JobStatus, jobPriority, type RelayJob } from "@agentrelay/core";
 import { formatDurationMs } from "./stats.js";
 import { formatCountdown } from "./status.js";
 
@@ -91,6 +91,12 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
     lines.push(`  ${label("resets in")} ${formatCountdown(job.resetAt, now)} ${d(`(${job.resetAt})`)}`);
   }
   lines.push(`  ${label("attempts")} ${job.attempts}`);
+  // Only surface priority when it isn't the default, so the common case keeps
+  // its familiar compact detail block.
+  const priority = jobPriority(job);
+  if (priority !== 0) {
+    lines.push(`  ${label("priority")} ${priority}`);
+  }
 
   const detection = job.lastRateLimit;
   if (detection) {

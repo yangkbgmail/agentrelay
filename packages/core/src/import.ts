@@ -146,6 +146,13 @@ export function validateJobRecord(value: unknown): { ok: true; job: RelayJob } |
   // round-trips to an identical shape (null ≈ absent).
   const lastRateLimit = parseRateLimitDetection(value.lastRateLimit);
 
+  // Preserve resume priority when the source carries a valid finite number;
+  // absent/invalid means the default (0), so we omit the key rather than
+  // writing a redundant 0 (keeps legacy-store round-trips identical).
+  const rawPriority = value.priority;
+  const priority =
+    typeof rawPriority === "number" && Number.isFinite(rawPriority) ? Math.trunc(rawPriority) : undefined;
+
   return {
     ok: true,
     job: {
@@ -162,6 +169,7 @@ export function validateJobRecord(value: unknown): { ok: true; job: RelayJob } |
       lastError: lastError.value,
       lastOutputTail: lastOutputTail.value,
       ...(lastRateLimit ? { lastRateLimit } : {}),
+      ...(priority !== undefined && priority !== 0 ? { priority } : {}),
     },
   };
 }

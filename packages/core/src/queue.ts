@@ -30,6 +30,7 @@ import {
   selectRotatableBackups,
 } from "./backup.js";
 import { type ImportOptions, type ImportResult, planImport, summarizeImportPlan } from "./import.js";
+import { normalizePriority, sortByPriority } from "./priority.js";
 import { type PruneOptions, selectPrunableJobs } from "./prune.js";
 import type { CreateJobInput, JobStatus, RateLimitDetection, RelayJob } from "./types.js";
 
@@ -177,6 +178,7 @@ export class RelayQueue {
       lastError: null,
       lastOutputTail: null,
       lastRateLimit: null,
+      priority: normalizePriority(input.priority),
     };
     this.jobs.set(job.id, job);
     this.flush();
@@ -438,8 +440,10 @@ export class RelayQueue {
   listDue(referenceTime: Date = new Date()): RelayJob[] {
     this.load();
     const ref = referenceTime.getTime();
-    return Array.from(this.jobs.values()).filter(
+    const due = Array.from(this.jobs.values()).filter(
       (job) => job.status === "waiting_for_reset" && job.resetAt !== null && new Date(job.resetAt).getTime() <= ref
     );
+    // Resume the most important jobs first when several share a reset window.
+    return sortByPriority(due);
   }
 }
