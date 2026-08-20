@@ -95,6 +95,7 @@ import {
   waitExitCode,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
+import { forwardSignals, signalExitCode } from "./signals.js";
 import type { VerifyReport } from "./verify.js";
 
 /**
@@ -162,6 +163,14 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
     const [cmd, ...args] = options.command;
     const child = spawn(cmd, args, { cwd, stdio: ["inherit", "pipe", "pipe"] });
 
+    // Forward SIGINT/SIGTERM/SIGHUP from the parent (agentrelay) to the wrapped
+    // child. Without this, Ctrl-C on a `agentrelay run -- claude ...` orphans
+    // the agent (parent-only kill scenarios) or races the child's exit before
+    // we can persist any rate-limit detection (TTY foreground-group scenarios).
+    // The disposer is called from both `close` and `error` so the listeners are
+    // guaranteed to come off before the promise resolves.
+    const disposeSignals = forwardSignals(process, child);
+
     child.stdout.on("data", (chunk) => {
       stdout.write(chunk);
       buffered += chunk.toString();
@@ -170,8 +179,17 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
       stderr.write(chunk);
       buffered += chunk.toString();
     });
-    child.on("close", (code) => resolve([code ?? 0, buffered]));
+    child.on("close", (code, signal) => {
+      disposeSignals();
+      // A child killed by a signal reports `code === null` and a `signal` name.
+      // POSIX convention: exit code = 128 + signal number. We only need the
+      // exact value for the three signals we forward, so a small lookup table
+      // (kept next to FORWARDED_SIGNALS) avoids pulling in os-signal utilities.
+      const exit = code ?? (signal ? signalExitCode(signal) : 0);
+      resolve([exit, buffered]);
+    });
     child.on("error", (err) => {
+      disposeSignals();
       buffered += `\n${String(err)}`;
       resolve([1, buffered]);
     });
