@@ -870,6 +870,36 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 스케줄러/`run` 잡 출력 링버퍼링 + `AGENTRELAY_OUTPUT_TAIL` 배선 — 잡의 combined stdout/stderr가
+      메모리에 무제한 축적되어 데몬(및 `run` 래퍼)이 OOM으로 죽는 무음 실패를 링버퍼로 차단하고, 지금까지
+      프로그램 옵션에만 있던 `outputTailLength`를 env로 노출. 자기 발굴 항목(어떤 열린 PR에도 없음).
+      (완료 — `RelayScheduler.runCommand`와 CLI `runCommand`(run 진입점) 양쪽에서 `output += chunk.toString()`
+      로 combined stdout/stderr를 **무제한 축적** 후 마지막에 딱 한 번 `slice(-N)` 하고 있었다. 목표
+      유즈케이스가 "Claude Code / Codex CLI를 하루 종일 감싸는 것"인데 이런 에이전트는 rate-limit banner 전에
+      종종 MB, 드물게 GB 단위 스트리밍 토큰을 뱉는다 → 릴레이 데몬(장기 실행) 또는 `run` 래퍼의 RSS가 그대로
+      부풀어 OOM 가능. 이 저장소가 heartbeat/doctor/recover/notifier retry로 반복 방어해온 "릴레이 루프 절대
+      죽이지 말라" 계약의 정반대. 파서는 어차피 tail만 필요하고 disk 지속되는 `lastOutputTail`도 bounded라,
+      스트리밍을 링버퍼로 자르면 파서 계약 유지+메모리 상한 확보. 부수 갭: `SchedulerOptions.outputTailLength`는
+      프로그램 옵션만 있고 CLI/env로 세팅할 방법이 없어 하드코딩 2000자에 묶여 있었다.
+      `@agentrelay/core/output.ts` 신설(순수·시계/파일시스템 미접촉): `DEFAULT_OUTPUT_TAIL_LENGTH`(2000, 역사적
+      기본값 보존) + `OutputTail` 인터페이스 + `createOutputTail(maxChars?)` — 매 append마다 `chunk.length >= cap`은
+      chunk에서 바로 slice(fast path, 큰 청크가 이전 버퍼와 concat되기 전에 잘라 O(cap)), 그 외는 concat 후
+      slice, 항상 cap 이하 유지. 비유한/음수 cap은 0(disabled)으로 collapse해 릴레이 루프 절대 죽이지 않음.
+      순수 `parseOutputTailLength(input,{defaultValue})` — 정수 파싱(decimals floor), 미지/빈/공백/NaN/negative/
+      Infinity는 default 폴백(오타로 tail이 조용히 사라져 rate-limit 감지가 무음 실패하는 footgun 방지), `0`은
+      명시 disable로 보존. 순수 `outputTailLengthFromEnv(env)` — `AGENTRELAY_OUTPUT_TAIL` 읽어 위 파서로 정규화.
+      `RelayScheduler.runCommand` 재작성 — `createOutputTail(this.outputTailLength)`로 링버퍼링, stdout/stderr
+      handler가 `tail.append(chunk.toString())`만 호출(누적 문자열 없음). 스케줄러 상단의 `slice(-outputTailLength)`는
+      방어적 no-op으로 남기고 이유 주석. CLI `commands.ts`의 `runCommand`도 동일한 링버퍼 재사용 — stdout/stderr는
+      여전히 live pass-through, buffered 카피만 bounded. daemon/tick 스케줄러 옵션에
+      `outputTailLength: outputTailLengthFromEnv()` 배선. core `output.test.ts` 18케이스 + scheduler.test 회귀
+      2케이스(100KB 스트리밍 후 tail<=200 + freshest banner survives / 1.2MB noise+banner에서 resume이 여전히
+      rate-limit 재감지=파서 계약 유지 증명). Biome auto-fix로 import 정렬 정규화. 실제 빌드 CLI e2e로 200KB
+      urandom+base64 노이즈 뒤 banner shell 스크립트를 `agentrelay run` 래핑→스토어 704 바이트 bounded +
+      `waiting_for_reset` + `relative-duration` 감지, tick resume에서 기본 tail 정확히 2000자·`OK-END-MARKER`
+      포함, `AGENTRELAY_OUTPUT_TAIL=100`이면 100자, `AGENTRELAY_OUTPUT_TAIL=abc` 오타는 조용히 3자로 안 만들고
+      기본값 2000으로 폴백(footgun 방지) 확인. branch `claude/wizardly-pascal-sfosl9`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

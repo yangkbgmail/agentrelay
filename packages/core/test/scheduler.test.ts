@@ -159,6 +159,89 @@ describe("RelayScheduler", () => {
     expect(results).toHaveLength(0);
   });
 
+  it("caps lastOutputTail via outputTailLength (ring-buffered streaming)", async () => {
+    // A chatty agent that emits many chunks before the rate-limit banner would
+    // historically accumulate every byte into one string in the daemon's RSS.
+    // With the ring buffer in runCommand, `lastOutputTail` must be bounded by
+    // `outputTailLength` no matter how much streamed through — and the tail
+    // must still contain the freshest content (i.e. the banner).
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["chatty"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const chunk = "x".repeat(1000);
+    const banner = "\nAll done. task finished successfully.\n";
+    const chattySpawn: SpawnFn = () => {
+      const emitter = new EventEmitter() as any;
+      emitter.stdout = new EventEmitter();
+      emitter.stderr = new EventEmitter();
+      setTimeout(() => {
+        // 100 chunks × 1000 chars = 100_000 chars streamed, but the tail cap
+        // below is 200 — the ring buffer must keep only the final ~200 chars.
+        for (let i = 0; i < 100; i++) emitter.stdout.emit("data", Buffer.from(chunk));
+        emitter.stdout.emit("data", Buffer.from(banner));
+        emitter.emit("close", 0);
+      }, 0);
+      return emitter;
+    };
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: chattySpawn,
+      outputTailLength: 200,
+    });
+    const results = await scheduler.tick();
+    expect(results).toHaveLength(1);
+    const persisted = results[0];
+    expect(persisted.status).toBe("completed");
+    expect(persisted.lastOutputTail).not.toBeNull();
+    expect(persisted.lastOutputTail!.length).toBeLessThanOrEqual(200);
+    // Freshest content survives — the banner is the last thing emitted.
+    expect(persisted.lastOutputTail!.endsWith(banner)).toBe(true);
+  });
+
+  it("still detects a rate-limit banner emitted after megabytes of prior chunks", async () => {
+    // Regression: the parser only ever sees the ring-buffered tail, so this
+    // proves detection still works when the banner arrives after the buffer
+    // has already cycled many times.
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["chatty-limited"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const noise = "noise-".repeat(200_000); // ~1.2 MB of leading junk
+    const banner = "Usage limit reached. Resets in 2h.";
+    const chattySpawn: SpawnFn = () => {
+      const emitter = new EventEmitter() as any;
+      emitter.stdout = new EventEmitter();
+      emitter.stderr = new EventEmitter();
+      setTimeout(() => {
+        emitter.stdout.emit("data", Buffer.from(noise));
+        emitter.stdout.emit("data", Buffer.from(banner));
+        emitter.emit("close", 0);
+      }, 0);
+      return emitter;
+    };
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: chattySpawn,
+      outputTailLength: 500, // ample room for the banner
+    });
+    const results = await scheduler.tick();
+    expect(results).toHaveLength(1);
+    // Parser saw the tail → job re-queued at a fresh resetAt, not marked completed.
+    expect(results[0].status).toBe("waiting_for_reset");
+    expect(results[0].resetAt).not.toBeNull();
+  });
+
   function dueJob() {
     const job = queue.enqueue({
       project: "demo",

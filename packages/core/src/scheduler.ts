@@ -1,6 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { resolveAdapter } from "./adapters.js";
 import { mapWithConcurrency, normalizeMaxConcurrent } from "./concurrency.js";
+import { createOutputTail, DEFAULT_OUTPUT_TAIL_LENGTH } from "./output.js";
 import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
 import type { RelayQueue } from "./queue.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
@@ -20,7 +21,13 @@ export interface SchedulerOptions {
   pollIntervalMs?: number;
   spawnFn?: SpawnFn;
   notify?: Notifier;
-  /** Keep the last N chars of combined stdout/stderr for debugging. */
+  /**
+   * Keep the last N chars of combined stdout/stderr for debugging. Also caps
+   * the ring buffer used while the child is streaming, so a runaway chatty
+   * child cannot balloon the daemon's memory. Defaults to
+   * {@link DEFAULT_OUTPUT_TAIL_LENGTH}; wire from the environment via
+   * {@link outputTailLengthFromEnv}.
+   */
   outputTailLength?: number;
   /** Retry/backoff/max-attempts policy. Defaults to {@link DEFAULT_RETRY_POLICY}. */
   retryPolicy?: RetryPolicy;
@@ -113,7 +120,7 @@ export class RelayScheduler {
     this.pollIntervalMs = options.pollIntervalMs ?? 30_000;
     this.spawnFn = options.spawnFn ?? defaultSpawn;
     this.notify = options.notify ?? (() => {});
-    this.outputTailLength = options.outputTailLength ?? 2000;
+    this.outputTailLength = options.outputTailLength ?? DEFAULT_OUTPUT_TAIL_LENGTH;
     this.retryPolicy = options.retryPolicy ?? DEFAULT_RETRY_POLICY;
     this.rng = options.rng ?? Math.random;
     this.autoPrune = options.autoPrune ?? null;
@@ -197,6 +204,10 @@ export class RelayScheduler {
     });
 
     const { output, exitCode, error } = await this.runCommand(job);
+    // `output` is already bounded to `this.outputTailLength` by the ring buffer
+    // in `runCommand`, so this slice is a defensive no-op; kept explicit so a
+    // future caller that swaps runCommand for an unbounded reader still can't
+    // persist a runaway tail to disk.
     const tail = output.slice(-this.outputTailLength);
     // Use the tool's adapter so tool-specific rate-limit wording (e.g. Codex's
     // seconds-based waits) is recognized on resume, not just at enqueue time.
@@ -274,28 +285,31 @@ export class RelayScheduler {
 
   private runCommand(job: RelayJob): Promise<{ output: string; exitCode: number | null; error: Error | null }> {
     return new Promise((resolve) => {
-      let output = "";
+      // Ring-buffer the combined stream so a chatty agent (Claude Code / Codex
+      // pouring MBs of tokens before the rate-limit banner) cannot balloon the
+      // daemon's RSS. The parser only ever needs the tail anyway.
+      const tail = createOutputTail(this.outputTailLength);
       let child: ChildProcessWithoutNullStreams;
       try {
         child = this.spawnFn(job.command, job.cwd);
       } catch (err) {
         // Synchronous spawn failure (e.g. bad cwd) — surface as a transient error
         // so the caller can apply the retry policy rather than dropping the job.
-        resolve({ output, exitCode: null, error: err as Error });
+        resolve({ output: tail.snapshot(), exitCode: null, error: err as Error });
         return;
       }
 
       child.stdout?.on("data", (chunk) => {
-        output += chunk.toString();
+        tail.append(chunk.toString());
       });
       child.stderr?.on("data", (chunk) => {
-        output += chunk.toString();
+        tail.append(chunk.toString());
       });
       child.on("error", (err) => {
-        resolve({ output, exitCode: null, error: err as Error });
+        resolve({ output: tail.snapshot(), exitCode: null, error: err as Error });
       });
       child.on("close", (code) => {
-        resolve({ output, exitCode: code ?? 0, error: null });
+        resolve({ output: tail.snapshot(), exitCode: code ?? 0, error: null });
       });
     });
   }

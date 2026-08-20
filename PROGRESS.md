@@ -2259,3 +2259,56 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 스케줄러/`run` 잡 출력 링버퍼링 + `AGENTRELAY_OUTPUT_TAIL` 배선] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-sfosl9`)
+- **항목 선정:** BACKLOG의 순수 👷 항목은 전부 완료([x])이고 남은 미완은 🧭 코워크 소유(README/ARCHITECTURE/
+  경쟁조사/샘플수집/성능분석)뿐. 열린 PR 50+개가 **doctor reset-horizon만 20+ 중복**·stats(--attempts/--compare)·
+  파서(clock-word/자연어/콜론카운트다운/reset 헤더)·데몬 방어·대시보드 배너·Gemini 어댑터·metric 노출·config
+  scheduler 그룹 등으로 극도 포화. 세션 72가 후속으로 지목한 후보(doctor 먼-미래 검사·과거 misparse) 둘 다
+  이미 다중 PR로 열려 있어 진입 불가. 코드를 정독해 **어떤 열린 PR에도 없는** 실제 메모리 안정성 갭을 발굴:
+- **발굴한 갭:** `RelayScheduler.runCommand`와 CLI `runCommand`(run 진입점) 양쪽에서 `output += chunk.toString()`
+  으로 combined stdout/stderr를 **무제한 축적**한 뒤 마지막에 딱 한 번 `slice(-N)`을 했다. 목표 유즈케이스가
+  "Claude Code / Codex CLI를 하루 종일 감싸는 것"인데 이런 에이전트는 rate-limit banner 전에 종종 MB, 드물게 GB
+  단위 스트리밍 토큰을 뱉는다. 그 순간마다 릴레이 데몬(장기 실행) 또는 `run` 래퍼의 RSS가 그대로 부풀어 OOM
+  가능성 — 이 저장소가 heartbeat/doctor/recover/notifier retry로 반복 방어해온 "릴레이 루프 절대 죽이지 말라"
+  계약의 정반대. 파서는 어차피 tail만 필요하고 disk 지속되는 `lastOutputTail`도 bounded라, 스트리밍을 링버퍼로
+  자르면 파서 계약 유지+메모리 상한 확보. 부수 갭: `SchedulerOptions.outputTailLength`는 프로그램 옵션만 있고
+  CLI/env로 세팅할 방법이 없어 하드코딩 2000자에 묶여 있었다.
+- **한 일 (branch `claude/wizardly-pascal-sfosl9`):**
+  - core `output.ts` 신설(순수·시계/파일시스템 미접촉): `DEFAULT_OUTPUT_TAIL_LENGTH`(2000, 역사적 기본값 보존) +
+    `OutputTail` 인터페이스 + `createOutputTail(maxChars?)` — 매 append마다 `chunk.length >= cap`은 chunk에서만
+    바로 slice(fast path, 큰 청크가 이전 버퍼와 concat되기 전에 잘라 O(cap)) 그 외는 concat 후 slice, 항상
+    cap 이하 유지. 비유한/음수 cap은 0(disabled)으로 collapse해 릴레이 루프 절대 죽이지 않음. 순수
+    `parseOutputTailLength(input,{defaultValue})` — 정수 파싱(decimals floor), 미지/빈/공백/NaN/negative/Infinity는
+    default 폴백(오타로 tail이 조용히 사라져 rate-limit 감지가 무음 실패하는 footgun 방지), `0`은 명시 disable로
+    보존. 순수 `outputTailLengthFromEnv(env=process.env)` — `AGENTRELAY_OUTPUT_TAIL` 읽어 위 파서로 정규화.
+    index.ts export.
+  - `RelayScheduler.runCommand` 재작성 — `createOutputTail(this.outputTailLength)`로 링버퍼링, stdout/stderr
+    handler가 `tail.append(chunk.toString())`만 호출(누적 문자열 없음), close/error resolver가 `tail.snapshot()`
+    반환. 스케줄러 상단의 `slice(-outputTailLength)`는 방어적 no-op으로 남기고 이유 주석(runCommand가 미래에
+    다른 리더로 교체되어도 disk 지속물이 unbounded로 새지 못하게). `SchedulerOptions.outputTailLength`의 JSDoc에
+    "링버퍼 상한 겸 tail 크기"라고 명시 + `outputTailLengthFromEnv` 링크. 기본값을 매직 넘버 2000에서
+    `DEFAULT_OUTPUT_TAIL_LENGTH`로 교체(단일 SoT).
+  - CLI `commands.ts`의 `runCommand`(사용자용 `agentrelay run` 진입점) 재작성 — 동일한 링버퍼 재사용, stdout/
+    stderr는 여전히 live pass-through, buffered 카피만 bounded. error 이벤트의 에러 메시지도 append로.
+    daemon/tick의 `RelayScheduler` 생성 옵션에 `outputTailLength: outputTailLengthFromEnv()` 배선(둘 다).
+  - 테스트: core `output.test.ts` **18케이스** 신설 — createOutputTail의 under-cap/over-cap/fast-path/스트레스
+    (10K chunks × 46자→64자 이하)/작은 청크 순서 보존/`≤0` disabled/NaN·Infinity disabled/default constructor,
+    parseOutputTailLength의 undefined/blank/숫자문자열/decimals floor/`0` 보존/negative·NaN·Infinity·1e309
+    fallback/커스텀 defaultValue, `outputTailLengthFromEnv`의 미설정=default/유효값/오타 fallback/`0` 보존.
+    스케줄러 테스트에 **회귀 2케이스**: `outputTailLength: 200` + 100 chunks×1000자 = 100KB 스트리밍 후에도
+    persisted `lastOutputTail.length <= 200` + freshest banner가 tail에 남음 / 1.2MB noise + banner에서도
+    resume이 여전히 rate-limit 재감지 → `waiting_for_reset` (파서 계약 유지 증명). Biome auto-fix로 import
+    정렬 정규화.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러/0경고, 122파일)→`pnpm test`
+  전 패키지 통과(**core 659** [output 18 + scheduler 2 신규] · **cli 354/1skip** · **dashboard 9**). **실제
+  빌드 CLI e2e**(mock 아님): 200KB urandom+base64 노이즈 뒤 banner를 뱉는 shell 스크립트를 `agentrelay run`으로
+  래핑 → 스토어 파일 704 바이트로 bounded + `waiting_for_reset` + `relative-duration` 패턴 감지. 200KB 노이즈+
+  `OK-END-MARKER`를 뱉는 완료 스크립트 tick으로 resume → 기본 tail 정확히 2000자·`OK-END-MARKER` 포함;
+  `AGENTRELAY_OUTPUT_TAIL=100`이면 정확히 100자; `AGENTRELAY_OUTPUT_TAIL=abc` 오타는 조용히 3자로 안 만들고
+  기본값 2000으로 폴백(footgun 방지 검증).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `AgentRelayConfig`에
+  `scheduler.outputTail` 필드 추가(단, config scheduler 그룹은 PR #789가 점유 중이라 그 PR merge 뒤 후속으로),
+  `doctor`가 `outputTailLength` 파싱을 리포트에 노출(현재는 스토어 정보만), `markWaitingForReset`에도 tail을
+  선택적으로 저장해 대시보드/`show`에서 "왜 rate-limited됐는지"의 마지막 컨텍스트 보이기. stats 분산/watch·
+  summary --watch·doctor reset-horizon·파서 자연어/헤더 계열은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
