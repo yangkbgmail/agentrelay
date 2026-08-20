@@ -203,6 +203,83 @@ describe("runDoctor", () => {
   });
 });
 
+describe("queued-reset-horizon (doctor)", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-horizon-test-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("is OK when no waiting job's resetAt is beyond the horizon", () => {
+    // A waiting job parked 2 hours ahead — well inside the default 8d horizon.
+    const nowMs = Date.parse("2026-07-19T00:00:00.000Z");
+    const soon = new Date(nowMs + 2 * 60 * 60_000).toISOString();
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, soon);
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0", nowMs });
+    const check = find(report, "queued-reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("horizon");
+  });
+
+  it("warns when a waiting job's resetAt is beyond the horizon", () => {
+    // 30 days ahead — well past the default 8d horizon.
+    const nowMs = Date.parse("2026-07-19T00:00:00.000Z");
+    const farFuture = new Date(nowMs + 30 * 24 * 60 * 60_000).toISOString();
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "ghost-proj", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, farFuture);
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      // adapters check would fail on a missing binary; give it a real one.
+      env: { PATH: "/usr/bin:/bin", AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs,
+    });
+    const check = find(report, "queued-reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("1 waiting job");
+    expect(check.message).toContain("ghost-proj");
+    expect(check.hint).toContain("agentrelay cancel");
+    // warnings alone don't fail the report.
+    expect(report.counts.warning).toBeGreaterThanOrEqual(1);
+  });
+
+  it("is OK-skipped when AGENTRELAY_MAX_RESET_HORIZON is off", () => {
+    // Same 30-day ghost as above — but with the guard disabled, doctor skips it.
+    const nowMs = Date.parse("2026-07-19T00:00:00.000Z");
+    const farFuture = new Date(nowMs + 30 * 24 * 60 * 60_000).toISOString();
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "ghost-proj", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, farFuture);
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off", AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs,
+    });
+    const check = find(report, "queued-reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+    expect(check.message).toContain("skipped");
+  });
+});
+
 describe("renderDoctor", () => {
   const report: DiagnosticReport = {
     ok: false,
