@@ -29,6 +29,7 @@ import type {
   WritableFacts,
 } from "@agentrelay/core";
 import {
+  ACTIVE_STATUSES,
   autoPruneEveryMsFromEnv,
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
@@ -56,6 +57,7 @@ import {
   type ImportResult,
   type IneligibleJob,
   isJobScopeActive,
+  isWaitAllDone,
   type JobCsvColumn,
   type JobScope,
   type LocationReport,
@@ -88,10 +90,13 @@ import {
   serializeDaemonHeartbeat,
   setConfigValue,
   summarizeImportPlan,
+  tallyWaitAll,
   unsetConfigValue,
   validateConfig,
   verifyStore,
+  type WaitAllTally,
   type WaitOutcome,
+  waitAllExitCode,
   waitExitCode,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
@@ -1609,6 +1614,152 @@ export async function waitForJob(idOrPrefix: string, options: WaitJobOptions = {
       };
     }
     if (job) options.onPoll?.(job, elapsed);
+    await sleep(intervalMs);
+  }
+}
+
+export interface WaitAllOptions {
+  storePath?: string;
+  /** How often to re-read the store while polling, in ms. Default 2000. */
+  intervalMs?: number;
+  /** Give up after this many ms of waiting. `null`/omitted = wait forever. */
+  timeoutMs?: number | null;
+  /** Injected clock (ms since epoch). Defaults to `Date.now`. */
+  now?: () => number;
+  /** Injected sleeper. Defaults to a `setTimeout`-based delay. */
+  sleep?: (ms: number) => Promise<void>;
+  /**
+   * Only wait on active jobs run with these tools (exact match). Empty/omitted
+   * = every tool. Applied when the tracked set is resolved at start.
+   */
+  tools?: string[];
+  /**
+   * Only wait on active jobs in these projects (exact match). Empty/omitted =
+   * every project. Applied when the tracked set is resolved at start.
+   */
+  projects?: string[];
+  /**
+   * Injected reader for the tracked set by full id, returning each job's current
+   * snapshot (or `null` if it vanished). Defaults to opening the store fresh on
+   * each poll so a *separate* daemon/tick process's writes are observed.
+   */
+  readJobs?: (ids: string[]) => (RelayJob | null)[];
+  /** Called once per still-pending poll with the live tally and elapsed ms. */
+  onPoll?: (tally: WaitAllTally, elapsedMs: number) => void;
+}
+
+export interface WaitAllResult {
+  /** Always `true` — resolving an empty set is a clean, vacuous drain, not an error. */
+  ok: boolean;
+  /** Full ids of the jobs tracked (resolved once at start; may be empty). */
+  ids: string[];
+  /** Terminal breakdown of the tracked set at the moment the wait ended. */
+  tally: WaitAllTally;
+  /** Whether the wait ended by hitting the timeout rather than fully draining. */
+  timedOut: boolean;
+  /** Human-readable line for the CLI to print. */
+  message: string;
+  exitCode: number;
+}
+
+function waitAllMessage(ids: string[], tally: WaitAllTally, timedOut: boolean): string {
+  if (ids.length === 0) return "no active jobs to wait for";
+  const parts: string[] = [];
+  if (tally.completed > 0) parts.push(`${tally.completed} completed`);
+  if (tally.failed > 0) parts.push(`${tally.failed} failed`);
+  if (tally.cancelled > 0) parts.push(`${tally.cancelled} cancelled`);
+  if (tally.missing > 0) parts.push(`${tally.missing} vanished`);
+  const breakdown = parts.length > 0 ? ` (${parts.join(", ")})` : "";
+  if (timedOut && tally.pending > 0) {
+    return `timed out; ${tally.pending} of ${ids.length} job(s) still pending${breakdown}`;
+  }
+  return `all ${ids.length} job(s) drained${breakdown}`;
+}
+
+/**
+ * Block until every active job in the store — optionally scoped to some
+ * tools/projects — reaches a terminal state, then return an aggregate outcome
+ * and exit code. Where {@link waitForJob} follows one job, this gates a script
+ * on the whole queue draining:
+ *
+ *   agentrelay wait --all --timeout 6h && deploy
+ *
+ * The tracked set of ids is resolved once at start (so jobs enqueued *after*
+ * the wait began don't extend it), then each id is re-read every interval as a
+ * separate daemon/tick process advances it. Pure reduction lives in core's
+ * {@link tallyWaitAll} / {@link waitAllExitCode}; this owns only the I/O loop,
+ * with the clock/sleeper/reader injectable for tests.
+ */
+export async function waitForAllJobs(options: WaitAllOptions = {}): Promise<WaitAllResult> {
+  const storePath = options.storePath ?? defaultStorePath();
+  const intervalMs = options.intervalMs ?? 2000;
+  const timeoutMs = options.timeoutMs ?? null;
+  const now = options.now ?? (() => Date.now());
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const tools = options.tools?.filter((t) => t.trim() !== "");
+  const projects = options.projects?.filter((p) => p.trim() !== "");
+
+  // Resolve the tracked set once: active jobs (queued/waiting/resuming) matching
+  // the optional tool/project filters. Tracking by full id keeps the set fixed
+  // even as the store churns.
+  const queue = openQueue(storePath);
+  let ids: string[];
+  try {
+    ids = queue
+      .listAll()
+      .filter((job) => ACTIVE_STATUSES.includes(job.status))
+      .filter((job) => !tools || tools.length === 0 || tools.includes(job.tool))
+      .filter((job) => !projects || projects.length === 0 || projects.includes(job.project))
+      .map((job) => job.id);
+  } finally {
+    queue.close();
+  }
+
+  if (ids.length === 0) {
+    const tally = tallyWaitAll([]);
+    return { ok: true, ids, tally, timedOut: false, message: waitAllMessage(ids, tally, false), exitCode: 0 };
+  }
+
+  const readJobs =
+    options.readJobs ??
+    ((wanted: string[]): (RelayJob | null)[] => {
+      const q = openQueue(storePath);
+      try {
+        return wanted.map((id) => q.getById(id) ?? null);
+      } finally {
+        q.close();
+      }
+    });
+
+  const start = now();
+  // First check is immediate so an already-settled set returns without a sleep.
+  // The deadline is checked before each sleep so `--timeout` can't be overshot
+  // by more than one interval.
+  while (true) {
+    const snapshots = readJobs(ids);
+    const tally = tallyWaitAll(snapshots);
+    if (isWaitAllDone(tally)) {
+      return {
+        ok: true,
+        ids,
+        tally,
+        timedOut: false,
+        message: waitAllMessage(ids, tally, false),
+        exitCode: waitAllExitCode(tally, false),
+      };
+    }
+    const elapsed = now() - start;
+    if (timeoutMs !== null && elapsed >= timeoutMs) {
+      return {
+        ok: true,
+        ids,
+        tally,
+        timedOut: true,
+        message: waitAllMessage(ids, tally, true),
+        exitCode: waitAllExitCode(tally, true),
+      };
+    }
+    options.onPoll?.(tally, elapsed);
     await sleep(intervalMs);
   }
 }

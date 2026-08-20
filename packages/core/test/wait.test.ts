@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { JobStatus, RelayJob } from "../src/types.js";
-import { evaluateWait, isTerminalStatus, WAIT_EXIT_CODES, waitExitCode } from "../src/wait.js";
+import {
+  evaluateWait,
+  isTerminalStatus,
+  isWaitAllDone,
+  tallyWaitAll,
+  WAIT_EXIT_CODES,
+  waitAllExitCode,
+  waitExitCode,
+} from "../src/wait.js";
 
 function job(status: JobStatus): RelayJob {
   return {
@@ -61,5 +69,53 @@ describe("evaluateWait", () => {
 
   it("treats a null (vanished) job as done/missing", () => {
     expect(evaluateWait(null)).toEqual({ done: true, outcome: "missing" });
+  });
+});
+
+describe("tallyWaitAll", () => {
+  it("returns an all-zero tally for an empty set", () => {
+    expect(tallyWaitAll([])).toEqual({ pending: 0, completed: 0, failed: 0, cancelled: 0, missing: 0 });
+  });
+
+  it("buckets each snapshot by its state, counting null as missing", () => {
+    const tally = tallyWaitAll([
+      job("queued"),
+      job("waiting_for_reset"),
+      job("resuming"),
+      job("completed"),
+      job("completed"),
+      job("failed"),
+      job("cancelled"),
+      null,
+    ]);
+    expect(tally).toEqual({ pending: 3, completed: 2, failed: 1, cancelled: 1, missing: 1 });
+  });
+});
+
+describe("isWaitAllDone", () => {
+  it("is done only when nothing is still pending", () => {
+    expect(isWaitAllDone(tallyWaitAll([job("completed"), null]))).toBe(true);
+    expect(isWaitAllDone(tallyWaitAll([job("queued")]))).toBe(false);
+  });
+});
+
+describe("waitAllExitCode", () => {
+  it("returns 124 when timed out with jobs still pending", () => {
+    expect(waitAllExitCode(tallyWaitAll([job("queued"), job("completed")]), true)).toBe(124);
+  });
+
+  it("ignores the timeout flag once everything has settled", () => {
+    expect(waitAllExitCode(tallyWaitAll([job("completed"), job("completed")]), true)).toBe(0);
+  });
+
+  it("prefers failure (1) over cancellation (2) over clean (0)", () => {
+    expect(waitAllExitCode(tallyWaitAll([job("failed"), job("cancelled")]), false)).toBe(1);
+    expect(waitAllExitCode(tallyWaitAll([job("cancelled"), job("completed")]), false)).toBe(2);
+    expect(waitAllExitCode(tallyWaitAll([job("completed")]), false)).toBe(0);
+  });
+
+  it("treats a vanished job as benign — missing alone never raises the code", () => {
+    expect(waitAllExitCode(tallyWaitAll([null, job("completed")]), false)).toBe(0);
+    expect(waitAllExitCode(tallyWaitAll([null]), false)).toBe(0);
   });
 });

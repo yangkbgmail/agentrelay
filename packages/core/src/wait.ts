@@ -57,3 +57,67 @@ export function evaluateWait(job: RelayJob | null): { done: boolean; outcome?: W
   if (isTerminalStatus(job.status)) return { done: true, outcome: job.status as WaitOutcome };
   return { done: false };
 }
+
+/**
+ * Terminal-state breakdown of a *set* of tracked jobs, for `agentrelay wait
+ * --all` — block a script until the whole active queue (or a scoped subset)
+ * drains, then branch on the aggregate result. Where {@link evaluateWait}
+ * follows one job, this reduces across many so a caller can gate on "everything
+ * the relay was working has settled".
+ */
+export interface WaitAllTally {
+  /** Tracked jobs still non-terminal and present (queued/waiting/resuming). */
+  pending: number;
+  /** Present jobs that reached `completed`. */
+  completed: number;
+  /** Present jobs that reached `failed`. */
+  failed: number;
+  /** Present jobs that reached `cancelled`. */
+  cancelled: number;
+  /** Tracked jobs no longer in the store (pruned/removed while waiting). */
+  missing: number;
+}
+
+/**
+ * Tally the current snapshots of a tracked set of jobs. Each entry is the
+ * latest snapshot of one job we're waiting on, or `null` if it vanished from
+ * the store mid-wait. Pure: the caller owns the polling loop and the timeout
+ * clock, so the reduction stays unit-testable without I/O.
+ */
+export function tallyWaitAll(jobs: (RelayJob | null)[]): WaitAllTally {
+  const tally: WaitAllTally = { pending: 0, completed: 0, failed: 0, cancelled: 0, missing: 0 };
+  for (const job of jobs) {
+    if (!job) {
+      tally.missing += 1;
+    } else if (!isTerminalStatus(job.status)) {
+      tally.pending += 1;
+    } else if (job.status === "completed") {
+      tally.completed += 1;
+    } else if (job.status === "failed") {
+      tally.failed += 1;
+    } else if (job.status === "cancelled") {
+      tally.cancelled += 1;
+    }
+  }
+  return tally;
+}
+
+/** True once no tracked job is still pending (every job settled or vanished). */
+export function isWaitAllDone(tally: WaitAllTally): boolean {
+  return tally.pending === 0;
+}
+
+/**
+ * Aggregate exit code for `wait --all`, mirroring the single-job convention
+ * ({@link WAIT_EXIT_CODES}) but reduced across the whole set: any failure → 1,
+ * else any cancellation → 2, else 0 (drained cleanly). A `timedOut` pass with
+ * jobs still pending → 124, matching GNU `timeout(1)`. A vanished (`missing`)
+ * job is benign — one that completed and was then pruned shouldn't fail a gate —
+ * so it never raises the code on its own.
+ */
+export function waitAllExitCode(tally: WaitAllTally, timedOut: boolean): number {
+  if (timedOut && tally.pending > 0) return WAIT_EXIT_CODES.timeout;
+  if (tally.failed > 0) return WAIT_EXIT_CODES.failed;
+  if (tally.cancelled > 0) return WAIT_EXIT_CODES.cancelled;
+  return WAIT_EXIT_CODES.completed;
+}
