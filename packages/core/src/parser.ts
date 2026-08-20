@@ -82,6 +82,22 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/**
+ * Day-of-week name -> `Date.getDay()` index (0 = Sunday … 6 = Saturday). Keyed
+ * by the first three letters, which uniquely identify every weekday, so both
+ * abbreviations ("mon", "tues", "thur") and full names ("monday", "thursday")
+ * collapse to the same key via `slice(0, 3)`.
+ */
+const WEEKDAY_INDEX: Record<string, number> = {
+  sun: 0,
+  mon: 1,
+  tue: 2,
+  wed: 3,
+  thu: 4,
+  fri: 5,
+  sat: 6,
+};
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
@@ -136,6 +152,48 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Day-of-week reset, e.g. "resets Monday at 9am", "try again on Friday at
+    // 15:00", "available again next Tuesday", "come back Sunday". Weekly usage
+    // windows often reset on a named weekday rather than a bare clock time, and
+    // none of the patterns above catch a message that names a day. The weekday
+    // may be abbreviated (mon/tues/thur) or full, optionally prefixed with
+    // "on"/"next" (both treated as filler). An "at <time>" clause is optional;
+    // without one the reset defaults to 00:00 (start of that day) — a slight
+    // under-estimate is self-correcting (the job resumes, and if still limited
+    // is simply re-queued), whereas over-waiting a full day is not. The reset
+    // resolves to the *nearest future* occurrence of that weekday: "next"
+    // included, since colloquial usage is inconsistent and the nearest instant
+    // is always the safe choice for a relay. Local time; a named timezone in
+    // the message is ignored, the same known limitation as the clock patterns.
+    name: "weekday-clock",
+    regex:
+      /(?:reset[s]?|try again|retry|available(?:\s+again)?|come back)\s+(?:on\s+)?(?:next\s+)?(mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:r(?:s(?:day)?)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/i,
+    resolve: (m, now) => {
+      const target = WEEKDAY_INDEX[m[1].slice(0, 3).toLowerCase()];
+      if (target === undefined) return null;
+      let hour = 0;
+      let minute = 0;
+      if (m[2] !== undefined) {
+        hour = parseInt(m[2], 10);
+        minute = m[3] ? parseInt(m[3], 10) : 0;
+        const meridiem = m[4]?.toLowerCase();
+        if (meridiem === "pm" && hour < 12) hour += 12;
+        if (meridiem === "am" && hour === 12) hour = 0;
+        if (hour > 23 || minute > 59) return null;
+      }
+      const candidate = new Date(now);
+      candidate.setHours(hour, minute, 0, 0);
+      // Advance day-by-day to the first matching weekday strictly after `now`.
+      // Bounded at 8 iterations (a full week plus margin) so a pathological
+      // input can never spin.
+      for (let i = 0; i < 8; i++) {
+        if (candidate.getDay() === target && candidate.getTime() > now.getTime()) return candidate;
+        candidate.setDate(candidate.getDate() + 1);
+      }
+      return null;
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
@@ -186,7 +244,8 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|try again|available\s+again|resets?\s+(at|in|(?:on\s+)?(?:next\s+)?(?:mon|tue|wed|thu|fri|sat|sun))|retry.?after)/i;
 
 function tryPattern(
   pattern: RateLimitPattern,

@@ -2259,3 +2259,25 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 파서: 요일 이름 리셋(`resets Monday at 9am`) 인식] (2026-08-20, 무인 자율 세션, branch `claude/parser-weekday-reset`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 문서/리서치뿐). 열린 PR
+  200+개(#570~#805)의 제목을 전수 스캔해 **어떤 열린 PR에도 없는** 파서 갭을 발굴: 주간 사용량 한도가
+  풀리는 시점을 **요일 이름**으로 알리는 메시지(`resets Monday at 9am`, `try again on Friday`)를 잡는
+  패턴이 전무했다. 기존엔 ISO·clock(at 5pm)·상대기간(in 2h)·epoch·헤더만 있었고 요일은 어디에도 없음.
+- **한 일 (branch `claude/parser-weekday-reset`):**
+  - core `parser.ts`: `WEEKDAY_INDEX`(요일 3글자 prefix→`Date.getDay()` 0-6 맵) + `weekday-clock` 패턴
+    추가. 트리거(`resets`/`try again`/`retry`/`available again`/`come back`) 뒤 `on`/`next` 필러(옵션) +
+    요일(약어 mon/tues/thur·전체명, 단어경계로 `monitor` 등 유사어 배제) + 선택적 `at <시각>`(12/24시·
+    am/pm, 잘못된 시/분은 null) 인식. 시각 미지정 시 그 날 00:00 기본(과소추정=재개→여전히 한도면 재큐잉
+    자기수정, 하루 과대 대기는 아님). `next` 포함 **최근접 미래 요일**로 해소(구어 불일치→릴레이엔 최근접이
+    안전). 로컬 시간·메시지 내 타임존 무시(기존 clock 패턴과 동일 한계, 8회 순회 상한으로 스핀 방지).
+  - 사전필터 `LOOKS_LIKE_RATE_LIMIT`에 요일 리셋 형태(`resets (on|next)? mon|tue|…`)와 `available again`
+    절 추가 → 요일형 메시지도 패턴에 도달. `resets at 5pm`은 여전히 `clock-time-meridiem`로 유지(섀도잉 X).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 645**[parser.test +7] · **cli 354/1skip** · **dashboard 9**). **실제 빌드 CLI `parse`
+  e2e**(오늘=2026-08-20 목): "Resets Monday at 9am"→다음 월요일 08-24 09:00, "Try again on Friday at
+  15:00"→내일 금요일 08-21 15:00, "Resets monitor dashboard"→미검출을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 요일+주간(`every Monday`)
+  반복 표현, `weekday-clock`에도 명시 타임존 존중(현재 PR들이 clock 패턴에 추가 중), 요일 범위(`until Monday`).
+  단, reset-horizon·stats 분산·watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
