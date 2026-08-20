@@ -255,6 +255,57 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
   });
 
+  // --- natural-language "article" relative waits (no digit) ---
+
+  it("parses the spelled-out 'try again in an hour'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, please try again in an hour.", { now });
+    expect(result?.pattern).toBe("relative-duration-article");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 60 * 60_000).toISOString());
+  });
+
+  it("parses 'resets in a minute'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached — resets in a minute.", { now });
+    expect(result?.pattern).toBe("relative-duration-article");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 60_000).toISOString());
+  });
+
+  it("parses 'retry in a day' as a 24-hour wait", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly usage limit reached, retry in a day.", { now });
+    expect(result?.pattern).toBe("relative-duration-article");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 24 * 60 * 60_000).toISOString());
+  });
+
+  it("parses the fractional 'in half an hour' as 30 minutes", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Slow down — try again in half an hour.", { now });
+    expect(result?.pattern).toBe("relative-duration-article");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
+
+  it("parses 'in half a day' as 12 hours", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached, try again in half a day.", { now });
+    expect(result?.pattern).toBe("relative-duration-article");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 12 * 60 * 60_000).toISOString());
+  });
+
+  it("still prefers the digit relative-duration over the article form", () => {
+    // "in 2 hours" must resolve numerically, not fall through to the article pattern.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("try again in 2 hours", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 2 * 60 * 60_000).toISOString());
+  });
+
+  it("does not treat a vague 'in a while' / 'in a moment' as a wait", () => {
+    // No recognized unit noun -> stays unparseable (caller completes normally).
+    expect(parseRateLimitMessage("Rate limit hit, try again in a while.")).toBeNull();
+    expect(parseRateLimitMessage("Usage limit reached, try again in a moment.")).toBeNull();
+  });
+
   // --- reset-time plausibility guard (maxFutureMs) ---
 
   it("ignores an implausibly far-future reset when a horizon is set", () => {

@@ -870,6 +870,20 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 파서: 자연어 관사/분수 상대 대기 인식(`try again in an hour` / `resets in a minute` /
+      `retry in a day` / `in half an hour`) — 숫자 없는 철자형 대기를 놓쳐 잡을 조용히 완료시키던 갭 차단.
+      자기 발굴 항목 — 숫자 상대 대기(`in 2 hours`)만 인식하고 실제 에러 문구에 흔한 관사형·분수형은
+      숫자가 없어 `null`로 폴스루 → rate-limit된 잡을 재큐잉하지 않고 정상 완료로 삼켰다(이 프로젝트가
+      반복해 겨냥해온 silent-failure).
+      (완료 — `@agentrelay/core/parser.ts`에 새 패턴 `relative-duration-article`
+      (`/(?:try again|resets?|retry)\s+in\s+(?:(half)\s+)?an?\s+(day|hour|minute|min)\b/i`): `a`/`an`
+      모두 허용(비문 "a hour"도 무해), `half`면 단위의 절반(`half an hour`→30m, `half a day`→12h).
+      숫자 `relative-duration` **뒤에** 두어 어떤 숫자형이든 여전히 우선, 인식 못 하는 명사
+      (`in a while`/`in a moment`)는 매치 안 돼 올바르게 미파스 유지. 순수 패턴만 추가 —
+      스케줄러/어댑터/CLI 수정 0줄. parser.test +7(관사형 hour/minute/day·분수 half hour/day·숫자 우선·
+      vague 미파스), 실제 빌드 CLI `parse` e2e로 an hour→1h·half an hour→30m 확인.
+      branch `claude/wizardly-pascal-j2wci1`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
