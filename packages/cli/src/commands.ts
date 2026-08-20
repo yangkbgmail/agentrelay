@@ -39,6 +39,7 @@ import {
   canRequeue,
   configToJson,
   countActiveJobs,
+  createOutputTail,
   daemonHeartbeatPath,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
@@ -64,6 +65,7 @@ import {
   maxConcurrentFromEnv,
   maxResetHorizonMsFromEnv,
   notifiersFromEnv,
+  outputTailLengthFromEnv,
   parseConfig,
   parseDaemonHeartbeat,
   parseImportJobs,
@@ -158,22 +160,27 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   const stderr = options.stderr ?? process.stderr;
 
   const [exitCode, output] = await new Promise<[number, string]>((resolve) => {
-    let buffered = "";
+    // Ring-buffer the combined stream so a long-running agent (Claude Code /
+    // Codex CLI streaming MBs of tokens before the rate-limit banner) cannot
+    // balloon this wrapper's RSS. `stdout`/`stderr` still see every chunk
+    // live via the pass-through above; only the buffered copy used for
+    // parsing is bounded.
+    const buffered = createOutputTail(outputTailLengthFromEnv());
     const [cmd, ...args] = options.command;
     const child = spawn(cmd, args, { cwd, stdio: ["inherit", "pipe", "pipe"] });
 
     child.stdout.on("data", (chunk) => {
       stdout.write(chunk);
-      buffered += chunk.toString();
+      buffered.append(chunk.toString());
     });
     child.stderr.on("data", (chunk) => {
       stderr.write(chunk);
-      buffered += chunk.toString();
+      buffered.append(chunk.toString());
     });
-    child.on("close", (code) => resolve([code ?? 0, buffered]));
+    child.on("close", (code) => resolve([code ?? 0, buffered.snapshot()]));
     child.on("error", (err) => {
-      buffered += `\n${String(err)}`;
-      resolve([1, buffered]);
+      buffered.append(`\n${String(err)}`);
+      resolve([1, buffered.snapshot()]);
     });
   });
 
@@ -393,6 +400,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent,
     maxResetHorizonMs: maxResetHorizonMsFromEnv(),
+    outputTailLength: outputTailLengthFromEnv(),
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
@@ -433,6 +441,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent: maxConcurrentFromEnv(),
     maxResetHorizonMs: maxResetHorizonMsFromEnv(),
+    outputTailLength: outputTailLengthFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
   });
   const processed = await scheduler.tick();
