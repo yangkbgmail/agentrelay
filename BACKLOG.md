@@ -870,6 +870,26 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay formats` — AgentRelay가 인식하는 rate-limit 메시지 포맷 카탈로그(제네릭 파서 패턴 +
+      툴 어댑터 패턴)를 설명·예시와 함께 열거. 자기 발굴 항목 — `parse`(메시지 하나를 테스트)와
+      `patterns`(스토어에서 실제로 발화한 패턴 집계)는 있었지만, "이 도구가 대체 어떤 문구를 감지하나?"를
+      런타임에서 미리 볼 방법이 전혀 없었다(파서 `PATTERNS`는 private).
+      (완료 — `@agentrelay/core/parser.ts`에 최소 export `GENERIC_PATTERN_NAMES`(파서 시도 순서 그대로,
+      readonly) 추가. `@agentrelay/core/catalog.ts` 신설(순수·파일시스템/시계 미접촉): `PatternDoc`
+      (name·scope[generic|adapter]·tool?·description·example) + `PATTERN_CATALOG`(제네릭 7 + 어댑터 2,
+      각 패턴에 한 줄 설명 + 실제로 매치되는 canonical 예시) + `getPatternCatalog({tool?})`(툴 미지정=전체,
+      툴 지정 시 제네릭 + 그 툴 어댑터 패턴만 — `resolveAdapter`의 계층화 미러, 항상 fresh copy) +
+      `knownAdapterPatternNames()`(live `ADAPTERS`에서 파생, 드리프트 테스트용). **자기 검증**: catalog.test가
+      (a) 모든 예시가 실제로 문서화된 패턴 이름으로 파싱되고(제네릭은 `parseRateLimitMessage`, 어댑터는
+      `resolveAdapter(tool).detectRateLimit`), (b) 제네릭/어댑터 알려진 모든 패턴이 카탈로그에 존재함을
+      단언 → 새 패턴을 문서화 없이 추가하면 테스트가 실패해 카탈로그가 파서와 절대 드리프트 못 함(파서
+      주석 "실제 관측된 포맷을 여기 추가하라"는 지침을 강제). CLI `packages/cli/src/formats.ts`에 순수
+      `renderCatalog`(제네릭/어댑터 툴별 그룹핑 + 설명 + 예시, color 게이트)·`renderCatalogJson`.
+      `agentrelay formats [-t/--tool] [--json]` 커맨드 배선, 잘못된 tool은 exit 1, completion 자동 포함.
+      새 파서/스케줄러 로직 0줄. core catalog 10 + cli formats 6 신규 테스트, 실제 빌드 CLI e2e로 전체
+      카탈로그·툴 스코프·`--json` 이름 추출·잘못된 tool exit 1·completion 포함 검증.
+      branch `claude/wizardly-pascal-formats`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

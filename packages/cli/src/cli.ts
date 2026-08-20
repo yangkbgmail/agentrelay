@@ -27,6 +27,7 @@ import {
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
   generateCompletion,
+  getPatternCatalog,
   groupStats,
   IMPORT_FORMATS,
   inferImportFormat,
@@ -83,6 +84,7 @@ import { defaultStorePath, renderEffectiveConfig, renderEffectiveConfigJson } fr
 import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderEta, renderEtaJson } from "./eta.js";
+import { renderCatalog, renderCatalogJson } from "./formats.js";
 import { renderHealth, renderHealthJson } from "./health.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
@@ -1900,6 +1902,41 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderParseReport(report, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("formats")
+    .description(
+      "List every rate-limit message format AgentRelay recognizes (generic + adapter patterns), each with an example"
+    )
+    .option(
+      "-t, --tool <tool>",
+      `Include only this tool's adapter patterns alongside the generic ones: ${ALL_TOOLS.join(", ")}`
+    )
+    .option("--json", "Print the catalog as JSON (machine-readable, for scripts/jq)")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  agentrelay formats                 # all recognized formats",
+        "  agentrelay formats --tool codex-cli  # generic + Codex adapter patterns",
+        "  agentrelay formats --json | jq '.formats[].name'",
+      ].join("\n")
+    )
+    .action((opts: { tool?: string; json?: boolean }) => {
+      const tool = opts.tool;
+      if (tool !== undefined && !ALL_TOOLS.includes(tool as AgentTool)) {
+        console.error(`Unknown tool: ${tool}. Valid: ${ALL_TOOLS.join(", ")}.`);
+        process.exitCode = 1;
+        return;
+      }
+      const formats = getPatternCatalog({ tool: tool as AgentTool | undefined });
+      if (opts.json) {
+        console.log(renderCatalogJson({ tool, formats }));
+        return;
+      }
+      console.log(renderCatalog(formats, { color: Boolean(process.stdout.isTTY) }));
     });
 
   const config = program.command("config").description("Manage the agentrelay.config.json defaults file");
