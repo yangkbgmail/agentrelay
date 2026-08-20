@@ -2259,3 +2259,36 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay doctor` 큐-사이드 리셋 지평선 검사(`queued-reset-horizon`)] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-z54k04`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 이미 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72의 "다음 할 일" 노트가 명시적으로 후속 빌더 항목을 남겨 뒀다: `doctor`에 큐 내 먼-미래
+  리셋 잡 경고 검사 추가. 세션 72의 파스-사이드 가드(`isPlausibleReset`)는 새로 들어오는 리셋만
+  거르므로, 가드 도입 전 저장된 스토어·가드가 꺼졌던 시점에 큐잉된 잡·라이터 지평선이 짧아진 뒤
+  남은 잡은 여전히 스토어에 파킹되어 `listDue`가 영원히 릴리스하지 않는 무음 실패 부류. 열린 PR
+  스캔 결과 어떤 PR도 이 검사를 다루지 않음.
+- **한 일 (branch `claude/wizardly-pascal-z54k04`):**
+  - core `doctor.ts`: `FarFutureResetFact`(id·project·resetAt·futureMs) + 순수
+    `distinctFarFutureResets(jobs, {now, maxFutureMs})` 신설. `waiting_for_reset` 잡 중 `resetAt`이
+    `now + maxFutureMs`를 넘는 것만 반환, 미래-쪽만 경계(파스 가드와 동일 규칙), 파싱 불가·null
+    `resetAt`은 스킵, worst-first 정렬. `maxFutureMs` null/비양수/비유한이면 빈 배열(가드 비활성).
+  - `DiagnosticInput`에 `farFutureResets`+`maxFutureResetMs` 추가. `runDiagnostics`에
+    `queuedResetHorizonCheck`를 daemon과 config 사이에 삽입: 가드 disabled=OK(skipped) / ghost 없음=OK
+    + 지평선 에코 / ghost 있음=warning + worst-offender(id·project·future)·"and N more"·`cancel`/`retry`
+    힌트. 완만한 warning은 파스 가드와 동일 severity — 릴레이 자체는 안 부서졌고 잡 하나가 스스로
+    안 풀릴 뿐. `humanizeDuration` sibling 헬퍼(`humanizeAge`와 같은 라운딩) 추가.
+  - CLI `commands.ts` `runDoctor`: `maxResetHorizonMsFromEnv(env)`로 파스와 **동일한** 지평선을 해소해
+    `distinctFarFutureResets`에 주입, `options.nowMs`를 기존 heartbeat/adapters 검사와 동일하게 사용
+    (테스트 결정론). 파스 가드가 `off`면 큐 검사도 자동 OK-skipped — 설정 한 곳으로 양 표면 판정이
+    일치.
+- **검증:** `pnpm install` → `pnpm build`(Next 포함 클린) → `pnpm ci:lint`(Biome 0에러) → `pnpm test`
+  전 패키지 통과(**core 648 · cli 357/1skip · dashboard 9**; core doctor +12, cli doctor +3). **실제
+  빌드 CLI e2e**(mock 아님): 30일 ghost 잡을 임시 스토어에 seed → `agentrelay doctor`가
+  `queued-reset-horizon` 검사를 `warning`으로 렌더(`1 waiting job(s) ... beyond the 8d horizon — e.g.
+  <short-id> (ghost) resets in 30d — they won't come due on their own` + `agentrelay cancel/retry`
+  힌트) / 동일 스토어에 `AGENTRELAY_MAX_RESET_HORIZON=off`를 주면 검사가 `ok` skipped로 전환(`reset-
+  horizon guard is disabled ... — skipped`) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도 같은
+  ghost-reset 위젯 노출, 또는 `agentrelay show <id>`가 `waiting_for_reset` 잡의 지평선 상태를 라인
+  하나로 추가. PR 포화 상태 유지: stats 분산/watch·summary --watch·epoch ms는 지양.
+  README/ARCHITECTURE(🧭 코워크).
