@@ -22,13 +22,14 @@ export const CAUGHT_UP_MESSAGE = "Queue is caught up — no jobs waiting for a r
  * so "1h 3m"/"2d 4h" match `stats`/`overdue` exactly. Pure: no ambient clock
  * unless `now` is omitted (used only to phrase already-due timelines).
  */
-export function renderEta(eta: QueueEta, options: { color?: boolean } = {}): string {
+export function renderEta(eta: QueueEta, options: { color?: boolean; scopeNote?: string } = {}): string {
   const color = options.color ?? false;
   const b = (s: string): string => (color ? `${BOLD}${s}${RESET}` : s);
   const d = (s: string): string => (color ? `${DIM}${s}${RESET}` : s);
   const g = (s: string): string => (color ? `${GREEN}${s}${RESET}` : s);
+  const scopeLine = options.scopeNote ? `\n${d(`[scope: ${options.scopeNote}]`)}` : "";
 
-  if (eta.caughtUp) return g(CAUGHT_UP_MESSAGE);
+  if (eta.caughtUp) return `${g(CAUGHT_UP_MESSAGE)}${scopeLine}`;
 
   const plural = eta.waiting === 1 ? "job" : "jobs";
   // etaMs<=0 means even the last reset has passed: everything is due but the
@@ -41,17 +42,21 @@ export function renderEta(eta: QueueEta, options: { color?: boolean } = {}): str
   facts.push(`last resets at ${eta.lastResetAt}`);
   if (eta.spanMs !== null && eta.spanMs > 0) facts.push(`spread over ${formatDurationMs(eta.spanMs)}`);
 
-  return `${head}\n${d(facts.join(", "))}.`;
+  return `${head}\n${d(facts.join(", "))}.${scopeLine}`;
 }
 
 /**
  * Machine-readable form for `--json` (scripts/jq): the full `QueueEta` plus the
  * store path and generation timestamp, matching the envelope of `next --json`.
+ * When a scope is active it is echoed under `scope` (same as `next`/`upcoming
+ * --json`); `undefined` is dropped by `JSON.stringify` so the unscoped shape is
+ * unchanged.
  */
 export function renderEtaJson(
   eta: QueueEta,
   storePath: string,
-  generatedAt: string = new Date().toISOString()
+  generatedAt: string = new Date().toISOString(),
+  scope?: Record<string, unknown>
 ): string {
-  return JSON.stringify({ storePath, generatedAt, eta }, null, 2);
+  return JSON.stringify({ storePath, generatedAt, scope, eta }, null, 2);
 }

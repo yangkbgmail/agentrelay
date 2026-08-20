@@ -85,4 +85,33 @@ describe("renderNextJson", () => {
     expect(parsed.next.dueInMs).toBe(-500);
     expect(parsed.next.waitingBehind).toBe(0);
   });
+
+  it("omits the scope key entirely when no scope is passed (unscoped shape unchanged)", () => {
+    const parsed = JSON.parse(renderNextJson(next(), "/tmp/store.json"));
+    expect("scope" in parsed).toBe(false);
+  });
+
+  it("echoes an active scope so a consumer can tell the result was filtered", () => {
+    const parsed = JSON.parse(
+      renderNextJson(next(), "/tmp/store.json", "2026-07-13T00:00:00.000Z", { projects: ["web"] })
+    );
+    expect(parsed.scope).toEqual({ projects: ["web"] });
+  });
+});
+
+describe("renderNext scope note", () => {
+  it("appends a dim [scope: …] line when a scope is active", () => {
+    const out = renderNext(next(), { now: NOW, scopeNote: "project=web" });
+    expect(out).toContain("[scope: project=web]");
+  });
+
+  it("still shows the scope note when the filtered subset is empty", () => {
+    const out = renderNext(null, { now: NOW, scopeNote: "tool=codex-cli" });
+    expect(out).toContain(NO_PENDING_MESSAGE);
+    expect(out).toContain("[scope: tool=codex-cli]");
+  });
+
+  it("adds nothing when no scope note is given", () => {
+    expect(renderNext(next(), { now: NOW })).not.toContain("[scope:");
+  });
 });

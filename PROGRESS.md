@@ -2259,3 +2259,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `next`·`eta` 스코프 필터(전방 커맨드 일관성 갭)] (2026-08-20, 무인 자율 세션, branch `claude/next-eta-scope`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진, 남은 미완료는 🧭 코워크 소유 문서/리서치뿐.
+  열린 PR 200+개가 doctor reset-horizon(중복 6+브랜치)·파서 포맷·stats 변형·watch 변형 등으로 극도로
+  포화. 전체 열린 PR 제목 + 원격 브랜치를 키워드 스캔해 **어떤 열린 PR/브랜치에도 없는** 실제 갭 발굴:
+  전방 커맨드 4형제(`next`/`upcoming`/`eta`/`overdue`) 중 `upcoming`·`overdue`엔 공용 스코프 필터
+  (`--tool`/`--project`/`--since`/`--until`)가 있는데 `next`·`eta`엔 없는 일관성 결함. (forecast/timeline은
+  이미 `claude/wizardly-pascal-forecast` 등이 차지 → 회피.)
+- **한 일 (branch `claude/next-eta-scope`):**
+  - `next`·`eta` 커맨드에 `-t/--tool`·`-p/--project`·`--since`·`--until` 옵션 추가(upcoming/overdue와
+    동일 문구·의미). `--status`는 두 커맨드가 waiting_for_reset 전용이라 무의미해 제외.
+  - 액션이 `now`를 한 번 계산 → 공용 `buildScope`로 검증(잘못된 값은 exit 1) → `listStatus` 결과에
+    `scopeJobs`를 **먼저** 적용한 뒤 `selectNextResume`/`computeQueueEta`에 넘김. **새 core 로직 0줄**
+    (전부 기존 검증된 순수 `scopeJobs` + `buildScope` 재사용).
+  - 렌더: `renderNext`/`renderEta`에 `scopeNote?` 옵션 → 활성 시 dim `[scope: …]` 라인(빈 부분집합에도),
+    `renderNextJson`/`renderEtaJson`에 `scope?` 에코(undefined는 `JSON.stringify`가 드롭 → 무스코프
+    JSON shape 불변). **기본(무스코프) 동작·출력 완전 불변 = 무위험.**
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(cli 364/1skip; next.test 13·eta.test 12로 각 +6). **실제 빌드 CLI e2e**(mock 아님): 2-프로젝트/2-툴
+  스토어에서 `next`(무스코프=soonest web@2h)·`next --project api`(부분집합=api@26h, scope note)·
+  `eta --tool codex-cli`(부분집합 캐치업 26h)·`next --project web --json`(scope `{"projects":["web"]}` 에코)·
+  `eta --tool bogus`(exit 1)·`next --since 1d --until 7d`(빈 범위 exit 1) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `next`/`eta`에도
+  `--watch` 추가(upcoming/overdue는 있음; 단 watch는 PR 포화라 지양), 또는 `summary`처럼 next에 `--status`
+  노출 재고. doctor reset-horizon·파서 포맷·stats 변형은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

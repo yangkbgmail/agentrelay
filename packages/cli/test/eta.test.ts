@@ -75,4 +75,33 @@ describe("renderEtaJson", () => {
     expect(parsed.eta.etaMs).toBe(5 * 60 * 60 * 1000);
     expect(parsed.eta.lastResetAt).toBe("2026-07-30T15:00:00.000Z");
   });
+
+  it("omits the scope key entirely when no scope is passed (unscoped shape unchanged)", () => {
+    const parsed = JSON.parse(renderEtaJson(eta(), "/tmp/store.json"));
+    expect("scope" in parsed).toBe(false);
+  });
+
+  it("echoes an active scope so a consumer can tell the result was filtered", () => {
+    const parsed = JSON.parse(
+      renderEtaJson(eta(), "/tmp/store.json", "2026-07-30T10:00:00.000Z", { tools: ["codex-cli"] })
+    );
+    expect(parsed.scope).toEqual({ tools: ["codex-cli"] });
+  });
+});
+
+describe("renderEta scope note", () => {
+  it("appends a dim [scope: …] line when a scope is active", () => {
+    const out = renderEta(eta(), { scopeNote: "tool=codex-cli" });
+    expect(out).toContain("[scope: tool=codex-cli]");
+  });
+
+  it("still shows the scope note on a caught-up (empty subset) report", () => {
+    const out = renderEta(caughtUp(), { scopeNote: "project=web" });
+    expect(out).toContain(CAUGHT_UP_MESSAGE);
+    expect(out).toContain("[scope: project=web]");
+  });
+
+  it("adds nothing when no scope note is given", () => {
+    expect(renderEta(eta())).not.toContain("[scope:");
+  });
 });

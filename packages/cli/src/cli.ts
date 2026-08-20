@@ -722,19 +722,35 @@ export function buildCli(): Command {
   program
     .command("next")
     .description("Show the single job the relay will resume next and how long until it's due")
+    .option("-t, --tool <tools>", `Only consider jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only consider jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only consider jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only consider jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("--json", "Print as JSON (machine-readable, for scripts/jq)")
     .option(
       "--exit-code",
       "Reflect state in the exit code (0 = a job is due now, 3 = pending but not yet due, 4 = nothing waiting)"
     )
-    .action((opts: { json?: boolean; exitCode?: boolean }) => {
+    .action((opts: ScopeOpts & { json?: boolean; exitCode?: boolean }) => {
       const { store } = program.opts();
-      const next = selectNextResume(listStatus(store));
+      const now = Date.now();
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const next = selectNextResume(jobs, now);
+      const scopeNote = built.active ? built.note : undefined;
+      const scopeEcho = built.active ? (built.scope as Record<string, unknown>) : undefined;
 
       if (opts.json) {
-        console.log(renderNextJson(next, store));
+        console.log(renderNextJson(next, store ?? defaultStorePath(), new Date().toISOString(), scopeEcho));
       } else {
-        console.log(renderNext(next, { color: Boolean(process.stdout.isTTY) }));
+        console.log(renderNext(next, { now, color: Boolean(process.stdout.isTTY), scopeNote }));
       }
 
       // Opt-in exit codes let scripts branch without jq: e.g. a cron that only
@@ -790,6 +806,10 @@ export function buildCli(): Command {
   program
     .command("eta")
     .description("Show when the whole queue is caught up — the countdown to the latest reset among waiting jobs")
+    .option("-t, --tool <tools>", `Only consider jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only consider jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only consider jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only consider jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("--json", "Print as JSON (machine-readable, for scripts/jq)")
     .option(
       "--exit-code",
@@ -800,19 +820,33 @@ export function buildCli(): Command {
       "\nExamples:\n" +
         "  # how long until the relay has nothing left to wait on?\n" +
         "  agentrelay eta\n" +
+        "  # just one project's subset\n" +
+        "  agentrelay eta --project my-app\n" +
         "  # poll until the queue is fully caught up\n" +
         "  until agentrelay eta --exit-code; do sleep 60; done\n" +
         "  # read the catch-up moment with jq\n" +
         "  agentrelay eta --json | jq -r '.eta.lastResetAt'"
     )
-    .action((opts: { json?: boolean; exitCode?: boolean }) => {
+    .action((opts: ScopeOpts & { json?: boolean; exitCode?: boolean }) => {
       const { store } = program.opts();
-      const eta = computeQueueEta(listStatus(store));
+      const now = Date.now();
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const eta = computeQueueEta(jobs, now);
+      const scopeNote = built.active ? built.note : undefined;
+      const scopeEcho = built.active ? (built.scope as Record<string, unknown>) : undefined;
 
       if (opts.json) {
-        console.log(renderEtaJson(eta, store ?? defaultStorePath()));
+        console.log(renderEtaJson(eta, store ?? defaultStorePath(), new Date().toISOString(), scopeEcho));
       } else {
-        console.log(renderEta(eta, { color: Boolean(process.stdout.isTTY) }));
+        console.log(renderEta(eta, { color: Boolean(process.stdout.isTTY), scopeNote }));
       }
 
       // Opt-in exit code: 0 when caught up (a poll loop can stop), 3 while any
