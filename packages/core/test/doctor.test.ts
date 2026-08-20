@@ -4,6 +4,7 @@ import {
   countActiveJobs,
   type DiagnosticInput,
   distinctActiveBinaries,
+  distinctFarFutureResets,
   isSupportedNode,
   parseNodeVersion,
   runDiagnostics,
@@ -39,6 +40,8 @@ function input(overrides: Partial<DiagnosticInput> = {}): DiagnosticInput {
     notify: { slackWebhook: "https://hooks.slack.com/x" },
     adapters: { binaries: [] },
     heartbeat: { present: false },
+    farFutureResets: [],
+    maxFutureResetMs: 8 * 24 * 60 * 60_000,
     ...overrides,
   };
 }
@@ -107,6 +110,7 @@ describe("runDiagnostics", () => {
     expect(find(report, "store").level).toBe("ok");
     expect(find(report, "store-writable").level).toBe("ok");
     expect(find(report, "adapters").level).toBe("ok");
+    expect(find(report, "queued-reset-horizon").level).toBe("ok");
     expect(find(report, "config").level).toBe("ok");
     expect(find(report, "notify").level).toBe("ok");
   });
@@ -241,7 +245,7 @@ describe("runDiagnostics", () => {
     const report = runDiagnostics(input({ nodeVersion: "v20.0.0", notify: {} }));
     expect(report.counts.error).toBe(1); // node
     expect(report.counts.warning).toBe(1); // notify
-    expect(report.counts.ok).toBe(5); // store + store-writable + adapters + daemon + config
+    expect(report.counts.ok).toBe(6); // store + store-writable + adapters + daemon + queued-reset-horizon + config
     expect(report.ok).toBe(false);
   });
 
@@ -389,5 +393,132 @@ describe("distinctActiveBinaries", () => {
   it("skips a malformed job with an empty command[0]", () => {
     const jobs = [job({ status: "queued", command: ["   "] }), job({ status: "queued", command: [] as string[] })];
     expect(distinctActiveBinaries(jobs)).toEqual([]);
+  });
+});
+
+describe("distinctFarFutureResets", () => {
+  const now = new Date("2026-07-12T00:00:00.000Z");
+  const oneDay = 24 * 60 * 60_000;
+
+  it("returns waiting jobs whose resetAt exceeds the horizon", () => {
+    const jobs = [
+      // 30 days ahead → past an 8d horizon.
+      job({
+        id: "stuck-1",
+        project: "alpha",
+        status: "waiting_for_reset",
+        resetAt: new Date(now.getTime() + 30 * oneDay).toISOString(),
+      }),
+      // 2h ahead → normal, inside the horizon.
+      job({
+        status: "waiting_for_reset",
+        resetAt: new Date(now.getTime() + 2 * 60 * 60_000).toISOString(),
+      }),
+    ];
+    const ghosts = distinctFarFutureResets(jobs, { now, maxFutureMs: 8 * oneDay });
+    expect(ghosts).toHaveLength(1);
+    expect(ghosts[0].id).toBe("stuck-1");
+    expect(ghosts[0].project).toBe("alpha");
+    expect(ghosts[0].futureMs).toBe(30 * oneDay);
+  });
+
+  it("ignores non-waiting jobs — even far-future resetAt on a completed job is moot", () => {
+    const jobs = [
+      job({
+        status: "completed",
+        resetAt: new Date(now.getTime() + 999 * oneDay).toISOString(),
+      }),
+      job({
+        status: "queued",
+        resetAt: new Date(now.getTime() + 999 * oneDay).toISOString(),
+      }),
+      job({
+        status: "resuming",
+        resetAt: new Date(now.getTime() + 999 * oneDay).toISOString(),
+      }),
+    ];
+    expect(distinctFarFutureResets(jobs, { now, maxFutureMs: 8 * oneDay })).toEqual([]);
+  });
+
+  it("ignores past resetAt — a due-now job isn't a stuck-in-the-future ghost", () => {
+    const jobs = [
+      job({
+        status: "waiting_for_reset",
+        resetAt: new Date(now.getTime() - 60_000).toISOString(),
+      }),
+    ];
+    expect(distinctFarFutureResets(jobs, { now, maxFutureMs: 8 * oneDay })).toEqual([]);
+  });
+
+  it("ignores null / unparseable resetAt", () => {
+    const jobs = [
+      job({ status: "waiting_for_reset", resetAt: null }),
+      job({ status: "waiting_for_reset", resetAt: "not-an-iso" }),
+    ];
+    expect(distinctFarFutureResets(jobs, { now, maxFutureMs: 8 * oneDay })).toEqual([]);
+  });
+
+  it("returns empty when the guard is disabled (null / 0 / non-finite maxFutureMs)", () => {
+    const stuck = [
+      job({
+        status: "waiting_for_reset",
+        resetAt: new Date(now.getTime() + 999 * oneDay).toISOString(),
+      }),
+    ];
+    expect(distinctFarFutureResets(stuck, { now, maxFutureMs: null })).toEqual([]);
+    expect(distinctFarFutureResets(stuck, { now, maxFutureMs: 0 })).toEqual([]);
+    expect(distinctFarFutureResets(stuck, { now, maxFutureMs: Number.POSITIVE_INFINITY })).toEqual([]);
+    expect(distinctFarFutureResets(stuck, { now, maxFutureMs: undefined })).toEqual([]);
+  });
+
+  it("sorts worst-offender first", () => {
+    const jobs = [
+      job({ id: "a", status: "waiting_for_reset", resetAt: new Date(now.getTime() + 30 * oneDay).toISOString() }),
+      job({ id: "b", status: "waiting_for_reset", resetAt: new Date(now.getTime() + 90 * oneDay).toISOString() }),
+      job({ id: "c", status: "waiting_for_reset", resetAt: new Date(now.getTime() + 15 * oneDay).toISOString() }),
+    ];
+    const ghosts = distinctFarFutureResets(jobs, { now, maxFutureMs: 8 * oneDay });
+    expect(ghosts.map((g) => g.id)).toEqual(["b", "a", "c"]);
+  });
+});
+
+describe("runDiagnostics queued-reset-horizon check", () => {
+  const eightDaysMs = 8 * 24 * 60 * 60_000;
+
+  it("is OK and echoes the horizon when nothing is stuck", () => {
+    const report = runDiagnostics(input({ farFutureResets: [], maxFutureResetMs: eightDaysMs }));
+    const check = find(report, "queued-reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("8d horizon");
+    expect(report.ok).toBe(true);
+  });
+
+  it("is OK-skipped when the parse-time guard is disabled", () => {
+    const stuck = [
+      { id: "abc12345def", project: "alpha", resetAt: "2029-01-01T00:00:00.000Z", futureMs: 90 * 86_400_000 },
+    ];
+    // Even if farFutureResets somehow held rows (defensive), a disabled guard should skip.
+    const report = runDiagnostics(input({ farFutureResets: stuck, maxFutureResetMs: null }));
+    const check = find(report, "queued-reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+    expect(check.message).toContain("skipped");
+  });
+
+  it("warns and names the worst offender when ghosts exist", () => {
+    const stuck = [
+      { id: "abc12345def", project: "alpha", resetAt: "2029-01-01T00:00:00.000Z", futureMs: 900 * 86_400_000 },
+      { id: "xyz98765ghi", project: "beta", resetAt: "2028-06-01T00:00:00.000Z", futureMs: 500 * 86_400_000 },
+    ];
+    const report = runDiagnostics(input({ farFutureResets: stuck, maxFutureResetMs: eightDaysMs }));
+    const check = find(report, "queued-reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("2 waiting job(s)");
+    expect(check.message).toContain("abc12345"); // short id, worst offender first
+    expect(check.message).toContain("alpha");
+    expect(check.message).toContain("and 1 more");
+    expect(check.hint).toContain("agentrelay cancel");
+    // Warnings never fail the overall report.
+    expect(report.ok).toBe(true);
   });
 });
