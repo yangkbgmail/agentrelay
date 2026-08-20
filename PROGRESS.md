@@ -2259,3 +2259,47 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay run` 자식 프로세스 시그널 forwarding(SIGINT/SIGTERM/SIGHUP)] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-eoi0zq`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72와 마찬가지로 열린 PR 400+개(dashboard 412, run 88, parser 119, doctor reset-horizon 50)로
+  극도로 포화 상태라, 전체 PR 제목을 여러 축으로 스캔해 **어떤 열린 PR에도 없는** 신뢰성 갭을 발굴:
+  `agentrelay run`이 자식 프로세스로 signal을 전혀 forward하지 않는 것. `packages/cli/src/commands.ts`의
+  `runCommand`는 `spawn(cmd, args, {stdio:["inherit","pipe","pipe"]})`로 자식을 띄운 뒤 SIGINT/SIGTERM/
+  SIGHUP 리스너를 붙이지 않아, (1) supervisor/`kill <pid>`가 wrapper에만 SIGTERM을 보내면 wrapper는
+  이를 무시하고 계속 실행되어 자식 에이전트가 orphan이 되며, (2) TTY 포어그라운드 그룹이 Ctrl-C를 받아
+  자식이 죽더라도 wrapper가 정상 clean-up(큐잉·알림) 흐름을 건너뛴다. 검색 확인: `signal SIGINT` 0건,
+  `forward signal child` 0건, `run ctrl-c` 3건(모두 `wait/summary` 관련이지 forward 아님), `graceful
+  shutdown` 0건 — 완벽한 whitespace.
+- **한 일 (branch `claude/wizardly-pascal-eoi0zq`):**
+  - CLI `packages/cli/src/signals.ts` **신설(순수)**: `FORWARDED_SIGNALS = ["SIGINT","SIGTERM","SIGHUP"]`
+    (SIGKILL/SIGSTOP은 uncatchable, SIGQUIT/SIGUSR*은 forwarding 의도가 애매해 의도적 제외) +
+    `ForwardedSignal` 타입 + 최소 `SignalHost`/`SignalTarget` 인터페이스(`ChildProcessWithoutNullStreams`와
+    호환되도록 `pid?: number | undefined`·`readonly killed: boolean`·`kill(signal): boolean`) +
+    `forwardSignals(host, child)`(각 signal에 리스너 붙이고, `dispose()` 클로저 반환 — 리스너 leak
+    방지, idempotent) + `forwardOne(child, signal)`(pid undefined·killed=true는 스킵, `kill()` throw는
+    삼킴 — 죽어가는 wrapper에 두 번째 실패를 얹지 않음) + `signalExitCode(signal)`(POSIX 128+signum
+    변환: SIGHUP=129·SIGINT=130·SIGTERM=143, 미인식 signal은 안전한 1 fallback — 0으로 위장해서 shell이
+    signaled child를 못 알아보게 하는 것보다 안전). 이 모듈은 파일시스템·시계 미접촉이라 완전 순수.
+  - CLI `packages/cli/src/commands.ts`: `runCommand`의 spawn 직후 `forwardSignals(process, child)` 호출 →
+    `disposer` 반환. `close`/`error` 두 resolve 경로 모두에서 disposer 호출로 signal 리스너 leak 방지.
+    `close` 콜백이 `(code, signal)`을 받도록 시그니처 확장 — signal로 죽은 자식은 `code === null`이라
+    기존 `code ?? 0`은 signal-killed 자식을 exit 0으로 위장했다. 새로 `signalExitCode(signal)`로 정확한
+    POSIX 코드를 반환(SIGTERM→143 등)해 shell/CI가 signaled 종료를 감지할 수 있게 함. import에
+    `./signals.js`의 두 함수 추가.
+- **검증:**
+  - `pnpm install`→`pnpm build` 클린(초기에 `pid` 필수 필드 타입 미스매치 → `pid?: number | undefined`로
+    수정) → `pnpm ci:lint`(Biome 0에러) → `pnpm test` **core 639 · cli 366/1skip · dashboard 9** 전 통과.
+    signals.test.ts에 12케이스 신설: signalExitCode 매핑 2 + forwardOne alive/no-pid/killed/kill-throws 4 +
+    forwardSignals 리스너 등록·forward·dispose·idempotent·stack-safe·mid-run-killed 6.
+  - **실제 빌드 CLI e2e**(mock 아님): (1) `run -- node -e "console.log('done')"` → 정상 exit 0,
+    (2) `run -- node -e "Usage limit reached. Resets in 30m."` → rate-limit 감지·큐잉 여전히 정상,
+    (3) 부모 프로세스가 wrapper pid에만 SIGTERM 전송 → wrapper의 자식 node가 SIGTERM handler에서
+    marker 파일 작성 후 exit 0 → wrapper도 exit 0로 종료(자식의 SIGTERM handler를 정상 실행할 시간을
+    벌어줌), (4) 동일 시나리오 SIGINT → marker "GOT_SIGINT" + wrapper exit 0, (5) 자식이 signal handler
+    없이 SIGTERM 받아 죽으면 wrapper exit 143(POSIX 128+15) — shell·CI가 signaled 종료를 정확히
+    감지 가능.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `daemon` 커맨드
+  아래의 `RelayScheduler` 재개 spawn도 동일 forwarder 배선(현재 daemon은 shutdown 시 자식 상태 관리
+  없음), 또는 `runCommand`에 자식 종료 후 detach된 grandchild 감지. dashboard/parser/doctor는 각각
+  400+/119/50개 PR로 포화 → 지양. README/ARCHITECTURE(🧭 코워크 소유).
