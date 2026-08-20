@@ -2259,3 +2259,25 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay run --cwd` 작업 디렉터리 플래그 + cwd 검증] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-4hruuu`)
+- **항목 선정:** BACKLOG의 미완료 항목은 전부 🧭 코워크 소유(문서/리서치)뿐이라, CLAUDE.md 지침대로
+  자기 발굴. 열린 PR 200+개가 파서·doctor(reset-horizon)·stats 분산 지표로 극도로 포화라, 그 흐름과
+  겹치지 않는 실제 갭을 찾았다: 코어 `RunOptions.cwd`는 이미 존재하는데 CLI `run`에 `--cwd` 플래그가
+  없어 항상 `process.cwd()`만 저장됐다. 저장된 cwd는 데몬이 재개 시 그대로 쓰므로, 다른 디렉터리/래퍼
+  스크립트에서 실행하면 재개가 엉뚱한 곳에서 돈다 — 이 프로젝트가 반복 겨냥해온 "silent failure" 부류.
+- **한 일 (branch `claude/wizardly-pascal-4hruuu`):**
+  - CLI `commands.ts`: 순수 `resolveRunCwd(cwd?)` 추가 — undefined면 `process.cwd()` 정규화(신뢰,
+    검증 안 함), 명시되면 `resolve`로 절대화 후 `statSync`로 존재·디렉터리 검증(미존재="does not exist",
+    파일="not a directory" 에러 throw). `runCommand`가 첫 줄에서 이를 호출 → spawn과 enqueue가 동일한
+    절대 cwd를 씀. 상대 `--cwd`가 절대 경로로 얼려져 재개 프로세스(자기 cwd 무관)가 올바른 곳에서 실행.
+  - CLI `cli.ts`: `run`에 `-C, --cwd <dir>` 옵션 추가 + 액션을 try/catch로 감싸 잘못된 cwd는 아무것도
+    스폰/큐잉하기 전에 exit 1로 깨끗이 실패(재개 무한 실패 잡 파킹 방지).
+  - **하위호환:** 무 cwd·절대 cwd 호출은 동작 불변. 상대 cwd만 절대화됨.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core · cli 357/1skip · dashboard 9**; commands.test +3: 상대 cwd→절대 저장·미존재 거부
+  [스토어 미생성 확인]·파일 거부). **실제 빌드 CLI e2e**(mock 아님): 상대 `-C proj`가 절대 경로로 저장·
+  project 파생, 미존재 `-C ./nope`·파일 `-C afile`는 exit 1로 미큐잉 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `run --note`로 잡에
+  자유 메모 필드(왜 이 잡이 중요한지)·show/export 노출, 혹은 daemon 재개 시 stale cwd(실행 후 삭제된
+  디렉터리) 감지. 파서/doctor/stats 분산은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

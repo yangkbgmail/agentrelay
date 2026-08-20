@@ -869,6 +869,19 @@
       비양수=가드없음·isPlausibleReset 경계·env 기본/파싱/비활성) + scheduler.test +2(먼-미래 resume 드롭→
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
+- [x] 👷 `agentrelay run --cwd <dir>` — 잡의 작업 디렉터리를 명시 지정. 자기 발굴 항목 — 코어
+      `RunOptions.cwd`는 이미 지원했으나 CLI 플래그가 없어 항상 `process.cwd()`만 저장됐고, 상대경로/
+      래퍼 스크립트/모노레포 하위 디렉터리에서 실행하면 재개가 엉뚱한 곳에서 돌 수 있었다. 저장된
+      `cwd`는 데몬이 (자기 cwd와 무관한 프로세스에서) 재개 시 그대로 쓰므로, (1) 상대 `--cwd`를 절대
+      경로로 정규화하고 (2) 존재하지 않거나 디렉터리가 아닌 경로는 스폰/큐잉 전에 조기 차단해
+      "재개 무한 실패" 부류의 무음 실패를 막는다.
+      (완료 — CLI `commands.ts`에 순수 `resolveRunCwd(cwd?)`: undefined면 `process.cwd()` 정규화(신뢰,
+      검증 안 함), 명시되면 `resolve` 후 `statSync`로 존재·디렉터리 검증(각각 "does not exist"/"not a
+      directory" 에러 throw). `runCommand`가 첫 줄에서 이를 호출 → spawn·enqueue 모두 절대 cwd 사용.
+      CLI `run`에 `-C, --cwd <dir>` 옵션 + 액션을 try/catch로 감싸 잘못된 cwd는 exit 1로 깨끗이 실패.
+      기존 호출(무 cwd·절대 cwd)은 동작 불변, 상대 cwd만 절대화됨(하위호환). commands.test +3(상대
+      cwd→절대 저장·미존재 거부[스토어 미생성 확인]·파일 거부) 통과. 실제 빌드 CLI e2e로 상대 `-C proj`
+      절대화 저장·미존재/파일 cwd exit 1·미큐잉 확인. branch `claude/wizardly-pascal-4hruuu`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
