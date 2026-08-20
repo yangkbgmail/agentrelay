@@ -4,6 +4,7 @@ import {
   countActiveJobs,
   type DiagnosticInput,
   distinctActiveBinaries,
+  findFarFutureResets,
   isSupportedNode,
   parseNodeVersion,
   runDiagnostics,
@@ -39,6 +40,7 @@ function input(overrides: Partial<DiagnosticInput> = {}): DiagnosticInput {
     notify: { slackWebhook: "https://hooks.slack.com/x" },
     adapters: { binaries: [] },
     heartbeat: { present: false },
+    resetHorizon: { horizonMs: 8 * 24 * 60 * 60_000, offenders: [] },
     ...overrides,
   };
 }
@@ -241,7 +243,7 @@ describe("runDiagnostics", () => {
     const report = runDiagnostics(input({ nodeVersion: "v20.0.0", notify: {} }));
     expect(report.counts.error).toBe(1); // node
     expect(report.counts.warning).toBe(1); // notify
-    expect(report.counts.ok).toBe(5); // store + store-writable + adapters + daemon + config
+    expect(report.counts.ok).toBe(6); // store + store-writable + adapters + daemon + reset-horizon + config
     expect(report.ok).toBe(false);
   });
 
@@ -389,5 +391,122 @@ describe("distinctActiveBinaries", () => {
   it("skips a malformed job with an empty command[0]", () => {
     const jobs = [job({ status: "queued", command: ["   "] }), job({ status: "queued", command: [] as string[] })];
     expect(distinctActiveBinaries(jobs)).toEqual([]);
+  });
+});
+
+describe("findFarFutureResets", () => {
+  const NOW = Date.parse("2026-08-20T12:00:00.000Z");
+  const HORIZON = 8 * 24 * 60 * 60_000; // 8d
+
+  it("returns active jobs whose resetAt is past now+horizon, farthest first", () => {
+    const jobs = [
+      job({ status: "waiting_for_reset", resetAt: "2028-01-01T00:00:00.000Z" }), // ~1.4y past
+      job({ status: "queued", resetAt: "2026-08-22T00:00:00.000Z" }), // well inside horizon
+      job({ status: "waiting_for_reset", resetAt: "2026-09-05T00:00:00.000Z" }), // ~8d past
+    ];
+    const offenders = findFarFutureResets(jobs, NOW, HORIZON);
+    expect(offenders.map((o) => o.resetAt)).toEqual(["2028-01-01T00:00:00.000Z", "2026-09-05T00:00:00.000Z"]);
+    expect(offenders[0].beyondMs).toBeGreaterThan(offenders[1].beyondMs);
+    expect(offenders[0].project).toBe("demo");
+  });
+
+  it("treats resets exactly at the horizon boundary as plausible (not offenders)", () => {
+    const at = new Date(NOW + HORIZON).toISOString();
+    const jobs = [job({ status: "waiting_for_reset", resetAt: at })];
+    expect(findFarFutureResets(jobs, NOW, HORIZON)).toEqual([]);
+  });
+
+  it("ignores terminal jobs and jobs without a resetAt", () => {
+    const jobs = [
+      job({ status: "completed", resetAt: "2030-01-01T00:00:00.000Z" }),
+      job({ status: "failed", resetAt: "2030-01-01T00:00:00.000Z" }),
+      job({ status: "cancelled", resetAt: "2030-01-01T00:00:00.000Z" }),
+      job({ status: "waiting_for_reset", resetAt: null }),
+    ];
+    expect(findFarFutureResets(jobs, NOW, HORIZON)).toEqual([]);
+  });
+
+  it("ignores past-side resets (already unblocked)", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: "2025-01-01T00:00:00.000Z" })];
+    expect(findFarFutureResets(jobs, NOW, HORIZON)).toEqual([]);
+  });
+
+  it("skips unparseable timestamps rather than reporting them", () => {
+    const jobs = [
+      job({ status: "waiting_for_reset", resetAt: "not-a-date" }),
+      job({ status: "waiting_for_reset", resetAt: "2030-01-01T00:00:00.000Z" }),
+    ];
+    const offenders = findFarFutureResets(jobs, NOW, HORIZON);
+    expect(offenders).toHaveLength(1);
+    expect(offenders[0].resetAt).toBe("2030-01-01T00:00:00.000Z");
+  });
+
+  it("returns empty when the horizon guard is disabled or non-positive", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: "2030-01-01T00:00:00.000Z" })];
+    expect(findFarFutureResets(jobs, NOW, null)).toEqual([]);
+    expect(findFarFutureResets(jobs, NOW, 0)).toEqual([]);
+    expect(findFarFutureResets(jobs, NOW, -1)).toEqual([]);
+    expect(findFarFutureResets(jobs, NOW, Number.POSITIVE_INFINITY)).toEqual([]);
+  });
+});
+
+describe("runDiagnostics — reset-horizon check", () => {
+  const NOW = Date.parse("2026-08-20T12:00:00.000Z");
+
+  it("is OK when no active job is past the horizon", () => {
+    const report = runDiagnostics(input({ resetHorizon: { horizonMs: 8 * 24 * 60 * 60_000, offenders: [] } }));
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("8d horizon");
+  });
+
+  it("is OK (no-op) when the guard is disabled", () => {
+    const report = runDiagnostics(input({ resetHorizon: { horizonMs: null, offenders: [] } }));
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+  });
+
+  it("warns when an active job is parked past the horizon and surfaces the worst offender", () => {
+    const offender = {
+      id: "abcdef01-2345-6789",
+      project: "site",
+      resetAt: "2028-01-01T00:00:00.000Z",
+      beyondMs: Date.parse("2028-01-01T00:00:00.000Z") - (NOW + 8 * 24 * 60 * 60_000),
+    };
+    const report = runDiagnostics(input({ resetHorizon: { horizonMs: 8 * 24 * 60 * 60_000, offenders: [offender] } }));
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("abcdef01");
+    expect(check.message).toContain("(site)");
+    expect(check.message).toContain("past the horizon");
+    expect(check.hint).toMatch(/agentrelay show abcdef01/);
+    expect(check.hint).toMatch(/agentrelay cancel abcdef01/);
+  });
+
+  it("mentions 'and N more' when multiple jobs are past the horizon", () => {
+    const mk = (id: string, resetAt: string, beyondMs: number) => ({
+      id,
+      project: "p",
+      resetAt,
+      beyondMs,
+    });
+    const report = runDiagnostics(
+      input({
+        resetHorizon: {
+          horizonMs: 8 * 24 * 60 * 60_000,
+          offenders: [
+            mk("aaaaaaaa", "2028-01-01T00:00:00.000Z", 500 * 24 * 60 * 60_000),
+            mk("bbbbbbbb", "2026-09-10T00:00:00.000Z", 13 * 24 * 60 * 60_000),
+            mk("cccccccc", "2026-09-05T00:00:00.000Z", 8 * 24 * 60 * 60_000),
+          ],
+        },
+      })
+    );
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("3 active job(s)");
+    expect(check.message).toContain("aaaaaaaa"); // worst named
+    expect(check.message).toContain("and 2 more");
   });
 });

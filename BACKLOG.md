@@ -870,6 +870,25 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay doctor` 큐-내 먼-미래 리셋(reset-horizon) 잡 경고 검사 — 세션 72의 파서 가드가
+      *새* 진입만 차단하는 반면, 가드 이전에 들어왔거나 `import`로 병합됐거나 가드가 `off`인 채
+      만들어진 잡은 지평선 밖 `resetAt`을 그대로 물고 조용히 수일/수년 대기한다. 이 부류의 무음
+      실패(예: 누락 PATH·읽기전용 스토어·죽은 데몬 등)를 doctor가 잡도록 후속 검사 추가. 세션 72의
+      "다음 할 일"이 명시적으로 지목한 후속 항목.
+      (완료 — `@agentrelay/core/doctor.ts`에 순수 `findFarFutureResets(jobs, nowMs, horizonMs)` 신설:
+      활성 잡의 `resetAt`이 `now+horizonMs` 초과인 offender를 초과 크기 내림차순 반환, 파서의
+      `isPlausibleReset`과 동일하게 미래 쪽만 경계, 종료 상태·null resetAt·파싱 불가 타임스탬프는
+      스킵(store 검사와 이중 보고 회피), `horizonMs` null/비양수/비유한이면 빈 배열. `DiagnosticInput`에
+      `resetHorizon: ResetHorizonFacts` + `resetHorizonCheck`: disabled→OK "no far-future check
+      performed", offenders 0→OK "no active job … beyond the Nd horizon", offenders 있음→warning
+      (에러 아님: 잡은 여전히 유효)로 최악 offender의 8자리 id·프로젝트·`beyondMs` 노출 + "M more"
+      카운트 + `agentrelay show/cancel` 힌트. helper `humanizeDurationMs`(일/시/분/초 콤팩트). CLI
+      `runDoctor`가 `maxResetHorizonMsFromEnv(env)`로 스케줄러와 **동일한** horizon 재사용(진단-스케줄러
+      불일치 방지) + `nowMs` 주입 가능. core doctor 15 + CLI doctor 3 신규 테스트, 실제 빌드 CLI e2e로
+      2036 리셋 잡→warning + `abcdef01 (site) … 3412d past the horizon` + show/cancel 힌트 렌더,
+      `AGENTRELAY_MAX_RESET_HORIZON=off`→disabled OK, 2h 리셋→OK, `--json` 8개 검사 순서 확인.
+      branch `claude/wizardly-pascal-ltvysg`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -203,6 +203,84 @@ describe("runDoctor", () => {
   });
 });
 
+describe("runDoctor — reset-horizon check", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-reset-horizon-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("warns when an active job is parked on a far-future reset (default 8d horizon)", () => {
+    // A real binary in this temp dir so the adapters PATH check doesn't fire an
+    // error and mask the reset-horizon warning we're testing here.
+    const binName = "faketool";
+    const binPath = join(dir, binName);
+    writeFileSync(binPath, "#!/bin/sh\necho hi\n", "utf8");
+    chmodSync(binPath, 0o755);
+
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "site", tool: "generic", command: [binName], cwd: dir });
+    // Ten years in the future — a classic misparsed-epoch signature.
+    queue.markWaitingForReset(job.id, "2036-01-01T00:00:00.000Z");
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { PATH: dir, AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs: Date.parse("2026-08-20T12:00:00.000Z"),
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("past the horizon");
+    expect(check.message).toContain("(site)");
+    expect(check.hint).toMatch(/agentrelay show /);
+    expect(report.ok).toBe(true); // warning alone does not fail the report
+  });
+
+  it("is OK when the only far-future reset belongs to a terminal job", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(job.id, "2036-01-01T00:00:00.000Z");
+    queue.markCompleted(job.id); // terminal — no longer parked awaiting resume
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: {},
+      nodeVersion: "v22.5.0",
+      nowMs: Date.parse("2026-08-20T12:00:00.000Z"),
+    });
+    expect(find(report, "reset-horizon").level).toBe("ok");
+  });
+
+  it("is a no-op OK when the guard is disabled via env", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(job.id, "2036-01-01T00:00:00.000Z");
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+      nowMs: Date.parse("2026-08-20T12:00:00.000Z"),
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+  });
+});
+
 describe("renderDoctor", () => {
   const report: DiagnosticReport = {
     ok: false,

@@ -49,6 +49,7 @@ import {
   evaluateWait,
   exportJobs,
   findConfigField,
+  findFarFutureResets,
   hasConfigErrors,
   heartbeatStaleAfterMs,
   type ImportFormat,
@@ -1467,6 +1468,15 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // --- reset-horizon facts. The parser now guards *new* rate-limit detections
+  // against wildly-future resets, but jobs parked on a far-future `resetAt` can
+  // still sit in the queue from before the guard existed, from `import`, or
+  // from a period when the guard was disabled. Mirror the same env-derived
+  // horizon so `doctor` uses the exact threshold the running loop enforces.
+  const horizonMs = maxResetHorizonMsFromEnv(env);
+  const nowMs = options.nowMs ?? Date.now();
+  const offenders = findFarFutureResets(jobs, nowMs, horizonMs);
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1486,6 +1496,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    resetHorizon: { horizonMs, offenders },
   });
 }
 

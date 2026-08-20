@@ -2259,3 +2259,35 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay doctor` 먼-미래 리셋(reset-horizon) 잡 경고 검사] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-ltvysg`)
+- **항목 선정:** BACKLOG의 남은 미완료는 전부 🧭 코워크 소유(문서/리서치). 세션 72의 "다음 할 일"이
+  명시적으로 후속 후보로 지목한 `doctor`의 큐-내 먼-미래 리셋 잡 경고 검사를 구현했다. 세션 72의
+  파서 가드는 *새* 진입만 차단할 뿐, 가드 이전에 큐에 들어왔거나 `import`로 병합됐거나 가드가
+  `off`인 채 만들어진 잡은 지평선 밖 `resetAt`을 그대로 물고 수일/수년 조용히 대기하는 상태였다.
+  이는 이 프로젝트가 반복해 겨냥해온 "silent failure" 부류(누락 PATH·읽기전용 스토어·죽은 데몬 등과
+  동급). 열린 PR 200+개를 키워드 스캔한 결과 이 지점을 겨냥한 PR은 없어 실질 갭이었다.
+- **한 일 (branch `claude/wizardly-pascal-ltvysg`):**
+  - core `doctor.ts`: 순수 `findFarFutureResets(jobs, nowMs, horizonMs)` 신설 —
+    활성(queued/waiting/resuming) 잡 중 `now+horizonMs`를 초과하는 `resetAt`을 초과 크기 내림차순
+    으로 정렬해 반환. 파서의 `isPlausibleReset` 정책을 그대로 미러링(미래 쪽만 경계 — 과거 리셋은
+    이미 풀린 한도라 허용). 종료 상태·`resetAt` null·파싱 불가 타임스탬프는 스킵(store 검사와 이중
+    보고 회피). `horizonMs`가 null/비양수/비유한이면 빈 배열(가드 없음).
+  - `DiagnosticInput`에 `resetHorizon: ResetHorizonFacts`(`horizonMs`/`offenders`) 추가 + 순수
+    `resetHorizonCheck`: 가드 disabled → OK "no far-future check performed", offenders 0 → OK
+    "no active job … beyond the Nd horizon", offenders 있음 → warning(에러 아님: 잡은 여전히
+    유효, 사용자 판단 필요)로 최악 offender 이름·프로젝트·초과 크기 노출 + "M more" 카운트 +
+    `agentrelay show/cancel <8자리>` 힌트. 새 helper `humanizeDurationMs`(일/시/분/초 콤팩트).
+  - CLI `commands.ts`의 `runDoctor`가 `maxResetHorizonMsFromEnv(env)`로 실행 중인 스케줄러와 **동일한**
+    horizon을 재사용해 팩트 수집(불일치 진단 방지) + `options.nowMs` 주입 가능.
+  - core doctor 15개 + CLI doctor 3개 신규 테스트(경계·터미널·null resetAt·파싱 불가·disabled·
+    다중 offender·환경변수 off).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 649·cli 357/1skip·dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 2036-01-01
+  reset 잡을 스토어에 심어 `doctor` 실행 → reset-horizon warning "1 active job(s) parked … worst:
+  abcdef01 (site) resets 2036-01-01T00:00:00.000Z, 3412d past the horizon" + show/cancel 힌트 렌더
+  확인. `AGENTRELAY_MAX_RESET_HORIZON=off`면 "guard is disabled" OK, 2h 리셋 잡은 정상 OK,
+  `--json`은 8개 검사 순서(node→store→writable→adapters→daemon→**reset-horizon**→config→notify) 유지.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드
+  `ResumeLoopCard` 근처에 지평선 밖 잡 배지 표시, `stats`에 지평선 밖 잡 카운트 지표. 파서/스케줄러
+  변형·watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

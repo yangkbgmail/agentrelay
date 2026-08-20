@@ -145,6 +145,39 @@ export interface AdapterFacts {
   binaries: BinaryFact[];
 }
 
+/** One active job parked on a reset time that lands implausibly far ahead. */
+export interface FarFutureReset {
+  /** Full job id. */
+  id: string;
+  /** The job's project label, for a human-recognizable pointer. */
+  project: string;
+  /** The stored reset time (ISO 8601). */
+  resetAt: string;
+  /** How far past the horizon (`now + horizonMs`) the reset lands, in ms. */
+  beyondMs: number;
+}
+
+/**
+ * Facts about active jobs whose reset time lands beyond the plausible horizon,
+ * gathered by the CLI (which has the clock and the reset-horizon setting) before
+ * judging. The parser guards *new* rate-limit detections against wildly-future
+ * resets (a misparsed epoch unit, a bad timezone), but a job can still be parked
+ * on such a reset if it entered the queue before that guard existed, was merged
+ * in via `import`, or was created while the guard was disabled. Those jobs wait
+ * silently for days/years and never resume in a useful window — exactly the
+ * "silent failure" class `doctor` exists to surface.
+ */
+export interface ResetHorizonFacts {
+  /** The active guard horizon in ms, or null when the guard is disabled. */
+  horizonMs: number | null;
+  /**
+   * Active jobs whose `resetAt` is beyond `now + horizonMs`, farthest-past-the
+   * -horizon first. Always empty when the guard is disabled (nothing to compare
+   * against) or no job is over the line.
+   */
+  offenders: FarFutureReset[];
+}
+
 /** Everything {@link runDiagnostics} needs — collected by the CLI, judged here. */
 export interface DiagnosticInput {
   /** Running Node version string, e.g. `process.version` ("v22.5.0"). */
@@ -155,6 +188,7 @@ export interface DiagnosticInput {
   notify: NotifyFacts;
   adapters: AdapterFacts;
   heartbeat: HeartbeatFacts;
+  resetHorizon: ResetHorizonFacts;
 }
 
 /** Minimum supported Node version — mirrors the packages' `engines.node`. */
@@ -186,6 +220,36 @@ export function distinctActiveBinaries(jobs: RelayJob[]): { binary: string; need
     counts.set(binary, (counts.get(binary) ?? 0) + 1);
   }
   return [...counts.entries()].map(([binary, neededBy]) => ({ binary, neededBy }));
+}
+
+/**
+ * Distinct active jobs whose `resetAt` lands beyond `nowMs + horizonMs`, sorted
+ * farthest-past-the-horizon first. Terminal jobs and jobs without a `resetAt`
+ * are skipped (nothing waiting to fire). Malformed / unparseable timestamps are
+ * skipped rather than reported — `doctor`'s job here is to catch the *far-future*
+ * silent-wait footgun, not to double-report the store-corruption class the
+ * `store` check already covers.
+ *
+ * Pass `horizonMs` as null / non-positive / non-finite to short-circuit to an
+ * empty result — the caller's guard is disabled, so there's no threshold to
+ * compare against.
+ */
+export function findFarFutureResets(jobs: RelayJob[], nowMs: number, horizonMs: number | null): FarFutureReset[] {
+  if (horizonMs === null || !Number.isFinite(horizonMs) || horizonMs <= 0 || !Number.isFinite(nowMs)) {
+    return [];
+  }
+  const threshold = nowMs + horizonMs;
+  const offenders: FarFutureReset[] = [];
+  for (const job of jobs) {
+    if (!ACTIVE_STATUSES.has(job.status)) continue;
+    if (!job.resetAt) continue;
+    const t = Date.parse(job.resetAt);
+    if (!Number.isFinite(t)) continue;
+    if (t <= threshold) continue;
+    offenders.push({ id: job.id, project: job.project, resetAt: job.resetAt, beyondMs: t - threshold });
+  }
+  offenders.sort((a, b) => b.beyondMs - a.beyondMs);
+  return offenders;
 }
 
 /**
@@ -224,9 +288,12 @@ export function isSupportedNode(version: string): boolean {
  * 5. **daemon** — a resume loop (daemon/tick) is alive, cross-referenced with
  *    how many jobs are waiting: waiting jobs with no live loop is a warning
  *    (they won't resume), otherwise absence is just an informational OK.
- * 6. **config** — the config file (if any) loads and validates; a broken file
+ * 6. **reset-horizon** — no active job is parked on a `resetAt` beyond the
+ *    plausibility horizon: those jobs wait silently for days/years, past what
+ *    the parser guard now blocks at entry.
+ * 7. **config** — the config file (if any) loads and validates; a broken file
  *    is an error, semantic warnings are surfaced as warnings.
- * 7. **notify** — at least one notification channel is set (absence is a
+ * 8. **notify** — at least one notification channel is set (absence is a
  *    warning, not an error: notifications are optional but you'd want to know
  *    the relay can't reach you).
  */
@@ -238,6 +305,7 @@ export function runDiagnostics(input: DiagnosticInput): DiagnosticReport {
   checks.push(writableCheck(input.writable));
   checks.push(adapterCheck(input.adapters));
   checks.push(daemonCheck(input.heartbeat, input.store));
+  checks.push(resetHorizonCheck(input.resetHorizon));
   checks.push(configCheck(input.config));
   checks.push(notifyCheck(input.notify));
 
@@ -419,6 +487,62 @@ function daemonCheck(heartbeat: HeartbeatFacts, store: StoreFacts): DiagnosticCh
     name: "daemon",
     level: "ok",
     message: "no resume loop running, and no jobs are waiting to resume",
+  };
+}
+
+/**
+ * Compact human duration ("45m", "3h", "5d", "42d") for how far past the
+ * horizon a reset lands. Separate from {@link humanizeAge} because that helper
+ * rounds and never returns days > 1 unit — here we want to make an out-of-range
+ * reset look as alarming as it is.
+ */
+function humanizeDurationMs(ms: number): string {
+  const abs = Math.max(0, Math.round(ms / 1000));
+  if (abs < 60) return `${abs}s`;
+  const m = Math.round(abs / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h}h`;
+  const d = Math.round(h / 24);
+  return `${d}d`;
+}
+
+/**
+ * Judges whether any active job is parked on a reset time that lands past the
+ * plausibility horizon. The parser guard blocks such resets at entry, but a
+ * job can still be parked on one if it entered before the guard existed, was
+ * imported, or was created while the guard was disabled — those jobs would
+ * silently wait for days/years and never fire in a useful window.
+ *
+ * Rules mirror the parser's own `isPlausibleReset` guard (only the future side
+ * is bounded; past-side resets are legitimate — they mean "already unblocked,
+ * resume now"). Disabled guard (`horizonMs=null`) or no offenders → OK.
+ */
+function resetHorizonCheck(facts: ResetHorizonFacts): DiagnosticCheck {
+  if (facts.horizonMs === null) {
+    return {
+      name: "reset-horizon",
+      level: "ok",
+      message: "reset-horizon guard is disabled — no far-future check performed",
+    };
+  }
+  const horizonHuman = humanizeDurationMs(facts.horizonMs);
+  if (facts.offenders.length === 0) {
+    return {
+      name: "reset-horizon",
+      level: "ok",
+      message: `no active job is parked on a reset beyond the ${horizonHuman} horizon`,
+    };
+  }
+  const worst = facts.offenders[0];
+  const shortId = worst.id.slice(0, 8);
+  const overBy = humanizeDurationMs(worst.beyondMs);
+  const tail = facts.offenders.length > 1 ? ` (and ${facts.offenders.length - 1} more)` : "";
+  return {
+    name: "reset-horizon",
+    level: "warning",
+    message: `${facts.offenders.length} active job(s) parked on a reset beyond the ${horizonHuman} horizon — worst: ${shortId} (${worst.project}) resets ${worst.resetAt}, ${overBy} past the horizon${tail}`,
+    hint: `Inspect with \`agentrelay show ${shortId}\`; use \`agentrelay cancel ${shortId}\` (or \`retry\` to fire now) if the reset is a misparse.`,
   };
 }
 
