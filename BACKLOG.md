@@ -870,6 +870,20 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 스케줄러 notifier 예외 격리 — throw/reject하는 알림자가 릴레이 루프를 깨지 못하게 방어.
+      자기 발굴 항목(실제 버그) — `onTick`·auto-prune·core `notifiersFromEnv`는 전부 "알림은
+      best-effort, 릴레이 루프를 절대 깨선 안 됨"을 지키는데, 정작 스케줄러 `resume()`의 다섯 개
+      `await this.notify(...)` 호출만 무방비였다. 주입 가능한 `SchedulerOptions.notify`가 throw/reject하면:
+      (1) 첫 "resumed" 알림은 명령 실행 **전**에 발화하므로 잡이 `resuming` 상태에 갇히고, (2)
+      `mapWithConcurrency`가 worker 예외를 잡지 않으므로(주석 명시) 같은 tick의 나머지 due 잡 전체가
+      재개되지 못했다 — 이 프로젝트가 반복해 겨냥해온 무음 실패(silent failure) 부류.
+      (완료 — `RelayScheduler`에 순수 `private async safeNotify(payload)` 추가: `try { await this.notify }
+      catch { /* best-effort */ }`로 `onTick`·auto-prune과 동일한 스왈로우 계약을 적용. `resume()`의
+      다섯 notify 호출을 전부 `safeNotify`로 교체(파서/스케줄러 결정 로직 0줄 변경, 순수 방어 계층만
+      추가). scheduler.test +2: throwing 동기 notifier에도 잡이 `completed` 도달, rejecting async
+      notifier에도 3-잡 due 배치 전원 `completed` 도달. 픽스 없이는 두 테스트가 정확히 그 예외를
+      전파하며 실패함을 확인(negative check). core 641 전 테스트 통과. branch `claude/wizardly-pascal-98vur7`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

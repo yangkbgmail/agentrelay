@@ -189,7 +189,7 @@ export class RelayScheduler {
     this.queue.markResuming(job.id);
     // markResuming just bumped attempts; this is the attempt we're running now.
     const attemptNumber = job.attempts + 1;
-    await this.notify({
+    await this.safeNotify({
       jobId: job.id,
       project: job.project,
       event: "resumed",
@@ -210,7 +210,7 @@ export class RelayScheduler {
       if (isRetryExhausted(this.retryPolicy, attemptNumber)) {
         const msg = `Still rate-limited after ${attemptNumber} attempt(s); giving up (maxAttempts=${this.retryPolicy.maxAttempts}).`;
         this.queue.markFailed(job.id, msg, tail);
-        await this.notify({ jobId: job.id, project: job.project, event: "failed", message: msg });
+        await this.safeNotify({ jobId: job.id, project: job.project, event: "failed", message: msg });
       } else {
         this.queue.markWaitingForReset(job.id, rateLimit.resetAt, {
           pattern: rateLimit.pattern,
@@ -218,7 +218,7 @@ export class RelayScheduler {
           resetAt: rateLimit.resetAt,
           detectedAt: new Date().toISOString(),
         });
-        await this.notify({
+        await this.safeNotify({
           jobId: job.id,
           project: job.project,
           event: "queued",
@@ -231,7 +231,7 @@ export class RelayScheduler {
     const failed = error !== null || (exitCode !== null && exitCode !== 0);
     if (!failed) {
       this.queue.markCompleted(job.id, tail);
-      await this.notify({
+      await this.safeNotify({
         jobId: job.id,
         project: job.project,
         event: "completed",
@@ -246,7 +246,7 @@ export class RelayScheduler {
     if (isRetryExhausted(this.retryPolicy, attemptNumber)) {
       const msg = `Failed after ${attemptNumber} attempt(s): ${reason}`;
       this.queue.markFailed(job.id, msg, tail);
-      await this.notify({ jobId: job.id, project: job.project, event: "failed", message: msg });
+      await this.safeNotify({ jobId: job.id, project: job.project, event: "failed", message: msg });
     } else {
       const delayMs = computeBackoffMs(this.retryPolicy, attemptNumber, this.rng);
       const retryAt = new Date(referenceTime.getTime() + delayMs).toISOString();
@@ -255,7 +255,7 @@ export class RelayScheduler {
         retryAt,
         `${reason} — backing off ${Math.round(delayMs / 1000)}s (attempt ${attemptNumber})`
       );
-      await this.notify({
+      await this.safeNotify({
         jobId: job.id,
         project: job.project,
         event: "queued",
@@ -270,6 +270,25 @@ export class RelayScheduler {
     const job = this.queue.getById(id);
     if (!job) throw new Error(`Job ${id} vanished from the queue`);
     return job;
+  }
+
+  /**
+   * Fire a notification without ever letting it break the relay loop. The
+   * notifier is host-injectable (`SchedulerOptions.notify`) and notifications
+   * are a best-effort side channel — the same contract `onTick`, auto-prune,
+   * and the built-in `notifiersFromEnv` already honor. Without this guard a
+   * notifier that threw or rejected would abort `resume()` mid-transition:
+   * it could strand a job in `resuming` (the "resumed" ping fires *before* the
+   * command runs) and, because a rejected worker aborts the tick's remaining
+   * resumes, block every other due job in the same tick from ever running.
+   * Any error is swallowed here so the relay keeps going.
+   */
+  private async safeNotify(payload: NotifyPayload): Promise<void> {
+    try {
+      await this.safeNotify(payload);
+    } catch {
+      // Ignore — notifications are best-effort and must not stop relaying.
+    }
   }
 
   private runCommand(job: RelayJob): Promise<{ output: string; exitCode: number | null; error: Error | null }> {

@@ -474,6 +474,52 @@ describe("RelayScheduler", () => {
     expect(queue.getById(job.id)?.status).toBe("completed");
   });
 
+  it("swallows a throwing notifier so the resumed job still reaches its terminal state", async () => {
+    const job = queue.enqueue({ project: "p", tool: "claude-code", command: ["cmd"], cwd: dir });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString()); // due now
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({ cmd: "All done." }),
+      // The very first notification ("resumed") fires before the command runs;
+      // without isolation this throw would strand the job in `resuming`.
+      notify: () => {
+        throw new Error("notifier exploded");
+      },
+    });
+
+    const processed = await scheduler.tick();
+    expect(processed).toHaveLength(1);
+    expect(processed[0].status).toBe("completed");
+    expect(queue.getById(job.id)?.status).toBe("completed");
+  });
+
+  it("swallows a rejecting async notifier so the rest of the due batch still resumes", async () => {
+    // Three due jobs; a notifier that rejects would abort the tick's serial
+    // resume loop after the first job, leaving the others stuck.
+    const jobs = [seedDue("a"), seedDue("b"), seedDue("c")];
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({
+        "claude -p a": "done",
+        "claude -p b": "done",
+        "claude -p c": "done",
+      }),
+      notify: async () => {
+        await Promise.resolve();
+        throw new Error("async notifier rejected");
+      },
+    });
+
+    const processed = await scheduler.tick();
+    expect(processed).toHaveLength(3);
+    // Every due job resumed and completed despite the rejecting notifier.
+    for (const job of jobs) {
+      expect(queue.getById(job.id)?.status).toBe("completed");
+    }
+  });
+
   // A spawn fn that reports how many child processes are alive at once, so a
   // test can prove resumes actually overlap (or don't) under a concurrency cap.
   function trackingSpawnFn(track: { inFlight: number; peak: number }): SpawnFn {

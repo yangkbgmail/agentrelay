@@ -2259,3 +2259,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 스케줄러 notifier 예외 격리(릴레이 루프 방어)] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-98vur7`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 200+개(707~810 등)를 키워드 스캔하니 파서/stats/doctor(특히 reset-horizon 검사만 20+ 중복)/
+  신규 커맨드/watch 변형으로 극도로 포화. 이 포화 지형에서 **어떤 열린 PR에도 없는** 실제 버그를 스케줄러
+  핵심 경로에서 발굴: `resume()`의 다섯 `await this.notify(...)`가 try/catch 없이 호출된다는 점.
+- **버그:** 코드베이스 곳곳(`onTick`·auto-prune·core `notifiersFromEnv`)은 "알림은 best-effort,
+  릴레이 루프를 절대 깨선 안 됨"을 명시·구현하는데 정작 스케줄러 자신의 notify만 무방비. 주입 가능한
+  `SchedulerOptions.notify`가 throw/reject하면 (1) 첫 "resumed" 알림이 명령 실행 **전** 발화하므로 잡이
+  `resuming`에 갇히고, (2) `mapWithConcurrency`가 worker 예외를 잡지 않으므로(주석 명시) 같은 tick의
+  나머지 due 잡 전체가 재개되지 못함 — 이 프로젝트가 반복해 겨냥해온 무음 실패 부류.
+- **한 일 (branch `claude/wizardly-pascal-98vur7`):**
+  - core `scheduler.ts`: `RelayScheduler`에 순수 `private async safeNotify(payload)` 추가(try/await/catch
+    스왈로우, `onTick`·auto-prune과 동일 계약). `resume()`의 다섯 notify 호출을 전부 `safeNotify`로 교체.
+    파서/스케줄러 결정 로직은 0줄 변경 — 순수 방어 계층만 삽입.
+  - scheduler.test +2: throwing 동기 notifier에도 잡이 `completed` 도달 / rejecting async notifier에도
+    3-잡 due 배치 전원 `completed` 도달.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 641 · cli 354/1skip · dashboard 9**; scheduler.test 22→24). **Negative check**:
+  픽스를 `safeNotify`→`notify`로 되돌리면 새 테스트 2개가 정확히 그 예외("notifier exploded"/"async
+  notifier rejected")를 전파하며 실패 → 픽스 복원 후 24/24 통과 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `runCommand`/spawn
+  경로의 잔여 예외 격리 감사, 또는 notify 실패를 완전히 삼키지 않고 선택적 `onNotifyError` 훅으로 관측
+  가능하게 노출. reset-horizon·stats 분산·watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
