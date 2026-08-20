@@ -63,6 +63,7 @@ import {
   previewRestoreStore,
   pruneJobs,
   readHealthReport,
+  readHeartbeatStatus,
   readLocationReport,
   recoverJobs,
   restoreStore,
@@ -1326,7 +1327,11 @@ export function buildCli(): Command {
         "  # scrape via the node_exporter textfile collector\n" +
         "  agentrelay metrics > /var/lib/node_exporter/textfile_collector/agentrelay.prom\n" +
         "  # only failed jobs from the last day\n" +
-        "  agentrelay metrics --status failed --since 1d"
+        "  agentrelay metrics --status failed --since 1d\n" +
+        "\nAlways includes resume-loop liveness (unaffected by the scope filters):\n" +
+        "  agentrelay_resume_loop_up        1 when the daemon/tick loop is alive, else 0\n" +
+        "  agentrelay_heartbeat_age_seconds seconds since the loop's last tick\n" +
+        "  # alert rule: resume_loop_up == 0 and jobs_active > 0 → jobs stranded"
     )
     .action((opts: ScopeOpts & { prefix?: string }) => {
       const { store } = program.opts();
@@ -1339,7 +1344,11 @@ export function buildCli(): Command {
       const allJobs = listStatus(store);
       const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
       const stats = computeStats(jobs);
-      process.stdout.write(renderPrometheusMetrics(stats, { prefix: opts.prefix }));
+      // Liveness is a global property of the daemon, not of the scoped subset —
+      // read it from the whole store so `--status`/`--since` filters don't skew
+      // whether the resume loop is reported up.
+      const heartbeat = readHeartbeatStatus(store);
+      process.stdout.write(renderPrometheusMetrics(stats, { prefix: opts.prefix, heartbeat }));
     });
 
   program

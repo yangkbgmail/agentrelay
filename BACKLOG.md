@@ -870,6 +870,24 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay metrics` 재개 루프 liveness 게이지 — Prometheus 스크레이프에 하트비트 노출.
+      자기 발굴 항목 — `metrics`(Prometheus)는 지금까지 집계 잡 게이지(총/상태별/툴별/성공률/해결시간)만
+      노출하고, 정작 **이 도구가 존재하는 이유**(대기 잡을 서비스할 재개 루프가 살아있는가)는 빠져
+      있었다. `health`(exit code)·`doctor`(체크리스트)·대시보드(카드)는 하트비트를 노출하는데
+      모니터링용 스크레이프 표면만 누락 → 스크레이프로는 "루프가 죽어 잡이 방치됨"을 알람 걸 수 없었다.
+      (완료 — core `metrics.ts`의 `PrometheusOptions`에 optional `heartbeat?: HeartbeatStatus`(기존
+      `evaluateHeartbeat` 판정 — health/doctor/대시보드와 동일 소스라 네 표면이 일치) 추가. 공급 시
+      두 게이지 방출: `agentrelay_resume_loop_up`(alive=1, stale/absent=0 — 항상 방출해 스크레이퍼가
+      안정적 시계열로 알람 가능) + `agentrelay_heartbeat_age_seconds`(마지막 tick 경과초, 하트비트
+      **존재 시에만** 방출 → absent에 오해성 0 age 안 찍음, 기존 null-omit 규칙과 대칭). **heartbeat
+      미공급 시 출력 바이트 불변**(하위호환). CLI `commands.ts`에 `readHeartbeatStatus(storePath, nowMs)`
+      (파일+시계 절반, 순수 판정은 core 위임, 절대 throw 안 함) 신설 — waiting 수는 **스토어 전체**에서
+      집계(liveness는 데몬의 전역 속성이라 `--status`/`--since` 스코프에 무관). `metrics` 액션이 이를
+      읽어 배선, 헬프에 게이지·알람룰(`resume_loop_up == 0 and jobs_active > 0`) 문서화. metrics.test
+      +5(미공급=미방출/alive=1+age/stale=0+age/absent=0+age생략/prefix 적용), 실제 빌드 CLI e2e로
+      하트비트 부재→up 0·신선→up 1+age 0.16s·stale→up 0+age 27724s 확인. branch
+      `claude/wizardly-pascal-3rvipl`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

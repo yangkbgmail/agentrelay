@@ -21,6 +21,7 @@ import type {
   HealthReport,
   HeartbeatFacts,
   HeartbeatMode,
+  HeartbeatStatus,
   JobStatus,
   Notifier,
   PruneOptions,
@@ -281,6 +282,26 @@ export function readHeartbeatFacts(storePath: string, nowMs: number = Date.now()
     ageMs: Math.max(0, nowMs - lastTick),
     staleAfterMs: heartbeatStaleAfterMs(hb.mode, hb.pollIntervalMs),
   };
+}
+
+/**
+ * Read and judge the resume-loop heartbeat into a {@link HeartbeatStatus} — the
+ * same value `health`/`doctor`/the dashboard use — so `metrics` can expose the
+ * loop's liveness as a Prometheus gauge. This is the filesystem + clock half;
+ * the liveness rule ({@link evaluateHeartbeat}) lives in `@agentrelay/core`.
+ * The waiting-job count is taken from the whole store (liveness is a global
+ * property of the daemon, independent of any metric scope filter). Never throws:
+ * a missing/garbled heartbeat is judged as `absent`.
+ */
+export function readHeartbeatStatus(storePath: string, nowMs: number = Date.now()): HeartbeatStatus {
+  const waitingJobs = countActiveJobs(listStatus(storePath));
+  let heartbeat = null;
+  try {
+    heartbeat = parseDaemonHeartbeat(readFileSync(daemonHeartbeatPath(storePath), "utf8"));
+  } catch {
+    // Missing/unreadable heartbeat → absent loop, judged below.
+  }
+  return evaluateHeartbeat(heartbeat, { nowMs, waitingJobs });
 }
 
 export interface HealthOptions {
