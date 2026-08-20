@@ -317,6 +317,66 @@ describe("parseRateLimitMessage", () => {
     const result = parseRateLimitMessage("try again in 30 days.", { now, maxFutureMs: 0 });
     expect(result?.pattern).toBe("relative-duration");
   });
+
+  // Absolute-time resets triggered by phrasings other than "reset(s) at" —
+  // "try again at …", "available again at …", "retry at …", "come back at …".
+  // These mirror the relative-duration pattern (which already accepts "try
+  // again in" / "retry in"), so an agent that expresses an *absolute* reset
+  // instant this way is recognized instead of being treated as a completion.
+  describe("absolute-time triggers beyond 'reset at'", () => {
+    it("parses 'try again at <ISO>' as an iso-timestamp", () => {
+      const result = parseRateLimitMessage("Rate limit exceeded. Please try again at 2026-07-13T05:00:00Z.");
+      expect(result?.pattern).toBe("iso-timestamp");
+      expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+    });
+
+    it("parses 'try again at 9pm' as a meridiem clock time", () => {
+      const now = new Date("2026-07-12T08:00:00Z");
+      const result = parseRateLimitMessage("Usage limit reached — try again at 9pm.", { now });
+      expect(result?.pattern).toBe("clock-time-meridiem");
+      const resetDate = new Date(result!.resetAt);
+      expect(resetDate.getHours()).toBe(21);
+      expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+    });
+
+    it("parses 'available again at 3:30pm' as a minute-precise clock time", () => {
+      const now = new Date("2026-07-12T08:00:00Z");
+      const result = parseRateLimitMessage("You've been rate-limited. Available again at 3:30pm.", { now });
+      expect(result?.pattern).toBe("clock-time");
+      const resetDate = new Date(result!.resetAt);
+      expect(resetDate.getHours()).toBe(15);
+      expect(resetDate.getMinutes()).toBe(30);
+    });
+
+    it("parses 'retry at 10 AM' (retry trigger, spaced meridiem)", () => {
+      const now = new Date("2026-07-12T20:00:00Z");
+      const result = parseRateLimitMessage("Rate limit hit. Retry at 10 AM.", { now });
+      expect(result?.pattern).toBe("clock-time-meridiem");
+      const resetDate = new Date(result!.resetAt);
+      expect(resetDate.getHours()).toBe(10);
+      expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+    });
+
+    it("parses 'come back at 6pm'", () => {
+      const now = new Date("2026-07-12T08:00:00Z");
+      const result = parseRateLimitMessage("Usage limit reached. Come back at 6pm.", { now });
+      expect(result?.pattern).toBe("clock-time-meridiem");
+      expect(new Date(result!.resetAt).getHours()).toBe(18);
+    });
+
+    it("still ignores 'try again at' with no parseable time (no digits)", () => {
+      // The AT_TRIGGER needs an actual absolute time after it; a vague phrase
+      // must not resolve to a bogus reset.
+      expect(parseRateLimitMessage("Rate limit hit. Please try again at your convenience.")).toBeNull();
+    });
+
+    it("lets 'retry in 5h' through the pre-filter (relative, retry phrasing)", () => {
+      const now = new Date("2026-07-12T10:00:00Z");
+      const result = parseRateLimitMessage("429 Too Many Requests. Retry in 5h.", { now });
+      expect(result?.pattern).toBe("relative-duration");
+      expect(result?.resetAt).toBe(new Date(now.getTime() + 5 * 60 * 60_000).toISOString());
+    });
+  });
 });
 
 describe("isPlausibleReset", () => {
