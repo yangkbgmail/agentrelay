@@ -73,6 +73,46 @@ export function maxResetHorizonMsFromEnv(env: NodeJS.ProcessEnv = process.env): 
 }
 
 /**
+ * Parse an ISO 8601 duration token (e.g. `PT1H30M`, `PT30S`, `P1DT2H`, `PT0.5S`,
+ * `P1W`) into milliseconds. Returns `null` for anything that isn't a well-formed
+ * duration with at least one component — including the bare designators `P`/`PT`.
+ *
+ * Only week/day/hour/minute/second components are supported. Calendar-relative
+ * years (`Y`) and months (the `M` that appears *before* `T`) are deliberately
+ * rejected (→ `null`): their length depends on the current date, so they can't
+ * be turned into a fixed number of milliseconds without ambiguity — and a
+ * rate-limit retry hint is never expressed in months anyway. The `M` *after*
+ * `T` is minutes, which is supported. A decimal fraction is accepted on any
+ * component (ISO allows it on the smallest; we're lenient).
+ *
+ * Pure and side-effect free so callers and tests can use it directly.
+ */
+export function parseIso8601DurationMs(token: string): number | null {
+  const match =
+    /^P(?:(\d+(?:\.\d+)?)W)?(?:(\d+(?:\.\d+)?)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/i.exec(
+      token.trim()
+    );
+  if (!match) return null;
+  const [, weeks, days, hours, minutes, seconds] = match;
+  // Bare "P" / "PT" (no components at all) is not a usable duration.
+  if (
+    weeks === undefined &&
+    days === undefined &&
+    hours === undefined &&
+    minutes === undefined &&
+    seconds === undefined
+  ) {
+    return null;
+  }
+  const w = weeks ? parseFloat(weeks) : 0;
+  const d = days ? parseFloat(days) : 0;
+  const h = hours ? parseFloat(hours) : 0;
+  const min = minutes ? parseFloat(minutes) : 0;
+  const s = seconds ? parseFloat(seconds) : 0;
+  return (((w * 7 + d) * 24 + h) * 60 + min) * 60_000 + s * 1000;
+}
+
+/**
  * A single rate-limit message matcher. Exposed so agent adapters can contribute
  * tool-specific patterns without reaching into the parser internals.
  */
@@ -177,6 +217,26 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // A `Retry-After` / `retryDelay` value expressed as an ISO 8601 duration,
+    // e.g. `Retry-After: PT1H30M`, `"retryAfter": "PT30S"`, `retry_delay=PT45M`.
+    // Some structured APIs (notably .NET / Azure-hosted services that serialize
+    // a `TimeSpan`) emit the retry hint this way instead of delay-seconds, so
+    // the numeric `http-retry-after` pattern above misses it. The two are
+    // disjoint: that one requires digits or an `…GMT` date after the colon,
+    // never a leading `P`. The captured token is validated by
+    // parseIso8601DurationMs, so a non-duration value (`retry-after: Ptolemy`)
+    // simply falls through instead of matching. A zero-length duration (`PT0S`)
+    // resolves to "now" — an immediate resume, same as `Retry-After: 0`.
+    name: "iso8601-duration",
+    regex:
+      /retry[-_ ]?(?:after|delay)"?\s*[=:]\s*"?(P(?:\d+(?:\.\d+)?W)?(?:\d+(?:\.\d+)?D)?(?:T(?:\d+(?:\.\d+)?H)?(?:\d+(?:\.\d+)?M)?(?:\d+(?:\.\d+)?S)?)?)/i,
+    resolve: (m, now) => {
+      const ms = parseIso8601DurationMs(m[1]);
+      if (ms === null) return null;
+      return new Date(now.getTime() + ms);
+    },
+  },
+  {
     // Generic "5-hour limit" mention with no explicit time -> assume a full 5h window from now.
     // Kept last and treated as a low-confidence fallback.
     name: "five-hour-window-fallback",
@@ -186,7 +246,7 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after|retry.?delay)/i;
 
 function tryPattern(
   pattern: RateLimitPattern,
