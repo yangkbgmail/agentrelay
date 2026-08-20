@@ -184,6 +184,18 @@
       tick-mode 하트비트 기록(cron 사용자도 생존 신호). `runDoctor`가 `nowMs` 주입 가능(테스트용).
       heartbeat.test.ts 13 + doctor daemon 6 + scheduler onTick 2 + CLI 7케이스, 실제 빌드 CLI로
       before/after·daemon 수명주기·stale 경고 e2e 검증. branch `claude/wizardly-pascal-hb7k2m`)
+- [x] 👷 파서 — 요일 이름 리셋(`resets Monday at 9am` / `try again on Friday at 15:00`) 인식.
+      (완료 — 주간 사용량 한도는 종종 특정 요일에 풀리는데, 기존 파서엔 요일을 이름으로 부르는
+      메시지를 잡는 패턴이 전혀 없었다. `parser.ts`에 `WEEKDAY_INDEX`(요일 3글자→`getDay()` 0-6
+      맵) + `weekday-clock` 패턴 추가: 트리거(`resets`/`try again`/`retry`/`available again`/
+      `come back`) 뒤 `on`/`next` 필러(옵션) + 요일(약어 mon/tues/thur·전체명) + 선택적
+      `at <시각>`(12/24시·am·pm) 인식. 시각 없으면 그 날 00:00로 기본(과소추정은 재개→여전히
+      한도면 재큐잉으로 자기수정, 하루 과대 대기는 아님). `next` 포함 **최근접 미래 요일**로 해소
+      (구어체가 일관되지 않아 릴레이엔 최근접이 안전). 로컬 시간·메시지 내 타임존은 무시(기존 clock
+      패턴과 동일 한계). `monitor` 같은 유사어는 단어경계로 걸러냄. `resets at 5pm`은 여전히
+      `clock-time-meridiem`로 유지(섀도잉 없음). 사전필터 `LOOKS_LIKE_RATE_LIMIT`에 요일/`available
+      again` 절 추가해 요일형 메시지도 도달. parser.test +7케이스, 실제 빌드 CLI `parse`로 e2e 검증
+      (Monday→다음 월요일, Friday→내일 금요일, monitor→미검출). branch `claude/parser-weekday-reset`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

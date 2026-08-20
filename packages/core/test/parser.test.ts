@@ -139,6 +139,68 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(expected);
   });
 
+  it("parses a weekday name with an explicit time ('resets Monday at 9am')", () => {
+    const now = new Date("2026-07-15T10:00:00Z"); // a Wednesday
+    const result = parseRateLimitMessage("Usage limit reached. Resets Monday at 9am.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("weekday-clock");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(1); // Monday, local
+    expect(reset.getHours()).toBe(9);
+    expect(reset.getMinutes()).toBe(0);
+    expect(reset.getTime()).toBeGreaterThan(now.getTime());
+    // Nearest future Monday is within a week.
+    expect(reset.getTime() - now.getTime()).toBeLessThanOrEqual(8 * 24 * 60 * 60_000);
+  });
+
+  it("parses 'try again on Friday at 15:00' (24h clock, 'on' filler)", () => {
+    const now = new Date("2026-07-15T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit hit. Try again on Friday at 15:00.", { now });
+    expect(result?.pattern).toBe("weekday-clock");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(5); // Friday
+    expect(reset.getHours()).toBe(15);
+    expect(reset.getMinutes()).toBe(0);
+    expect(reset.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("defaults to 00:00 when a weekday is named with no time ('available again next Tuesday')", () => {
+    const now = new Date("2026-07-15T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Available again next Tuesday.", { now });
+    expect(result?.pattern).toBe("weekday-clock");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(2); // Tuesday
+    expect(reset.getHours()).toBe(0);
+    expect(reset.getMinutes()).toBe(0);
+    expect(reset.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("rolls to next week when the named weekday is today but the time already passed", () => {
+    // Pin `now` to a known local weekday by asking for *that* weekday.
+    const now = new Date("2026-07-15T20:00:00Z");
+    const today = now.getDay();
+    const dayName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][today];
+    // Ask for the same weekday at an early hour that is already behind us.
+    const result = parseRateLimitMessage(`Usage limit reached. Resets ${dayName} at 1am.`, { now });
+    expect(result?.pattern).toBe("weekday-clock");
+    const reset = new Date(result!.resetAt);
+    expect(reset.getDay()).toBe(today);
+    expect(reset.getTime()).toBeGreaterThan(now.getTime());
+    // Since today's 1am is in the past, the nearest match is a full week out.
+    expect(reset.getTime() - now.getTime()).toBeGreaterThan(6 * 24 * 60 * 60_000);
+  });
+
+  it("does not treat a lookalike word like 'monitor' as a weekday", () => {
+    expect(parseRateLimitMessage("Rate limit hit. Resets monitor dashboard soon.")).toBeNull();
+  });
+
+  it("does not let the weekday pattern shadow a more specific clock time", () => {
+    const now = new Date("2026-07-15T08:00:00Z");
+    // "resets at 5pm" must stay clock-time-meridiem, not fall to weekday-clock.
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 5pm.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+  });
+
   it("prefers the more specific pattern when multiple could match", () => {
     const result = parseRateLimitMessage("Usage limit reached. It resets at 2026-07-13T05:00:00Z (in about 5 hours).");
     expect(result?.pattern).toBe("iso-timestamp");
