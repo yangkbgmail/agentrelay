@@ -52,6 +52,23 @@ export interface AgentRelayConfig {
     /** Minimum ticks between passes — maps to `AGENTRELAY_AUTOPRUNE_EVERY_TICKS`. */
     everyTicks?: number;
   };
+  /** Resume-loop (daemon/tick) scheduler settings. */
+  scheduler?: {
+    /**
+     * Max jobs resumed concurrently per tick — maps to `AGENTRELAY_MAX_CONCURRENT`.
+     * `1` (the default) keeps the historical serial behavior; raise it to drain a
+     * "resume herd" (many jobs sharing one reset time) in parallel.
+     */
+    maxConcurrent?: number;
+    /**
+     * Plausibility bound for a parsed rate-limit reset — maps to
+     * `AGENTRELAY_MAX_RESET_HORIZON`. A duration (`8d`, `25h`, `90m`, …) caps how
+     * far in the future a reset may land before it's treated as a misparse and
+     * ignored; `off`/`none`/`0` disables the guard. Kept as a string (not a bare
+     * duration) so the disabling sentinels remain expressible.
+     */
+    maxResetHorizon?: string;
+  };
 }
 
 /** Filename looked for in the current directory during config discovery. */
@@ -87,6 +104,10 @@ export function sampleConfig(): AgentRelayConfig {
       keep: 50,
       every: "1h",
       everyTicks: 20,
+    },
+    scheduler: {
+      maxConcurrent: 1,
+      maxResetHorizon: "8d",
     },
   };
 }
@@ -145,6 +166,10 @@ export const CONFIG_FIELDS: ConfigField[] = [
   { key: "autoPrune.keep", group: "autoPrune", type: "number" },
   { key: "autoPrune.every", group: "autoPrune", type: "duration" },
   { key: "autoPrune.everyTicks", group: "autoPrune", type: "number" },
+  { key: "scheduler.maxConcurrent", group: "scheduler", type: "number" },
+  // Not `duration`: the value may also be a disabling sentinel (`off`/`none`/`0`),
+  // so it's stored verbatim as a string and semantically checked in validateConfig.
+  { key: "scheduler.maxResetHorizon", group: "scheduler", type: "string" },
 ];
 
 /** Dotted keys of all settable config fields, in display order. */
@@ -208,6 +233,7 @@ function cloneConfig(config: AgentRelayConfig): AgentRelayConfig {
   if (config.notify) clone.notify = { ...config.notify };
   if (config.retry) clone.retry = { ...config.retry };
   if (config.autoPrune) clone.autoPrune = { ...config.autoPrune };
+  if (config.scheduler) clone.scheduler = { ...config.scheduler };
   return clone;
 }
 
@@ -404,6 +430,15 @@ export function parseConfig(value: unknown, source = "config"): AgentRelayConfig
       config.autoPrune.everyTicks = asNumber(autoPrune.everyTicks, `${source}.autoPrune.everyTicks`);
   }
 
+  if (root.scheduler !== undefined) {
+    const scheduler = asObject(root.scheduler, `${source}.scheduler`);
+    config.scheduler = {};
+    if (scheduler.maxConcurrent !== undefined)
+      config.scheduler.maxConcurrent = asNumber(scheduler.maxConcurrent, `${source}.scheduler.maxConcurrent`);
+    if (scheduler.maxResetHorizon !== undefined)
+      config.scheduler.maxResetHorizon = asString(scheduler.maxResetHorizon, `${source}.scheduler.maxResetHorizon`);
+  }
+
   return config;
 }
 
@@ -490,7 +525,33 @@ export function validateConfig(config: AgentRelayConfig): ConfigIssue[] {
     checkInteger(issues, "autoPrune.everyTicks", autoPrune.everyTicks, { min: 0 });
   }
 
+  const scheduler = config.scheduler;
+  if (scheduler) {
+    // At least 1: the env layer silently floors anything smaller to 1, but a
+    // config file is edited deliberately, so flag a nonsensical value up front.
+    checkInteger(issues, "scheduler.maxConcurrent", scheduler.maxConcurrent, { min: 1 });
+    const horizon = scheduler.maxResetHorizon;
+    if (horizon !== undefined && !isResetHorizonValue(horizon)) {
+      error(
+        "scheduler.maxResetHorizon",
+        `must be a duration like "8d", "25h" or "90m", or "off"/"none"/"0" to disable the guard`
+      );
+    }
+  }
+
   return issues;
+}
+
+/**
+ * True when a `scheduler.maxResetHorizon` string is meaningful to
+ * `maxResetHorizonMsFromEnv`: either a disabling sentinel (`0`/`off`/`none`/
+ * `disabled`/`no`) or a parseable duration. Mirrors that env parser's accepted
+ * set so `config validate` rejects exactly what the runtime would ignore.
+ */
+function isResetHorizonValue(value: string): boolean {
+  const trimmed = value.trim();
+  if (/^(0|off|none|disabled|no)$/i.test(trimmed)) return true;
+  return parseDuration(trimmed) !== null;
 }
 
 /** True when at least one issue is an error (validation should be treated as failed). */
@@ -552,11 +613,14 @@ export function configToEnv(config: AgentRelayConfig): Record<string, string> {
   set("AGENTRELAY_AUTOPRUNE_EVERY", config.autoPrune?.every);
   set("AGENTRELAY_AUTOPRUNE_EVERY_TICKS", config.autoPrune?.everyTicks);
 
+  set("AGENTRELAY_MAX_CONCURRENT", config.scheduler?.maxConcurrent);
+  set("AGENTRELAY_MAX_RESET_HORIZON", config.scheduler?.maxResetHorizon);
+
   return env;
 }
 
 /** Logical grouping of an {@link AgentRelayConfig} env var, used for display. */
-export type ConfigGroup = "store" | "notify" | "retry" | "autoPrune";
+export type ConfigGroup = "store" | "notify" | "retry" | "autoPrune" | "scheduler";
 
 /**
  * Metadata for one `AGENTRELAY_*` env var that the config file can populate.
@@ -586,6 +650,8 @@ export const CONFIG_ENV_KEYS: ConfigEnvKey[] = [
   { key: "AGENTRELAY_AUTOPRUNE_KEEP", group: "autoPrune" },
   { key: "AGENTRELAY_AUTOPRUNE_EVERY", group: "autoPrune" },
   { key: "AGENTRELAY_AUTOPRUNE_EVERY_TICKS", group: "autoPrune" },
+  { key: "AGENTRELAY_MAX_CONCURRENT", group: "scheduler" },
+  { key: "AGENTRELAY_MAX_RESET_HORIZON", group: "scheduler" },
 ];
 
 /** Where an effective config value came from, in precedence order. */

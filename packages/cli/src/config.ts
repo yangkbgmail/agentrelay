@@ -111,8 +111,9 @@ const GROUP_LABELS: Record<ConfigGroup, string> = {
   notify: "notify",
   retry: "retry",
   autoPrune: "auto-prune",
+  scheduler: "scheduler",
 };
-const GROUP_ORDER: ConfigGroup[] = ["store", "notify", "retry", "autoPrune"];
+const GROUP_ORDER: ConfigGroup[] = ["store", "notify", "retry", "autoPrune", "scheduler"];
 
 /**
  * Masks a secret value (webhook URL / auth token) for terminal display, keeping

@@ -870,6 +870,27 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 설정 파일에 `scheduler` 그룹 추가 — `AGENTRELAY_MAX_CONCURRENT`(바운드 동시 재개)·
+      `AGENTRELAY_MAX_RESET_HORIZON`(리셋 plausibility 지평선) 두 스케줄러 노브를 env뿐 아니라
+      `agentrelay.config.json`으로도 영속화. 자기 발굴 항목 — 다른 모든 `AGENTRELAY_*` 노브(store/
+      notify/retry/autoPrune)는 설정 파일로 설정 가능한데 이 둘만 env 전용이라 매 셸에서 재export가
+      필요했다(config CRUD 생태계의 빈 구멍).
+      (완료 — core `config.ts`의 `AgentRelayConfig`에 `scheduler?{maxConcurrent?,maxResetHorizon?}` 그룹
+      추가 + `parseConfig`(타입 검증)·`configToEnv`(→ `AGENTRELAY_MAX_CONCURRENT`/`AGENTRELAY_MAX_RESET_HORIZON`
+      투영)·`CONFIG_FIELDS`/`CONFIG_ENV_KEYS`(인덱스 정렬 유지, 드리프트 sync 테스트 통과)·`cloneConfig`·
+      `sampleConfig`(기본값 maxConcurrent 1·maxResetHorizon "8d" — 프레임워크 기본과 일치해 샘플 작성이
+      동작 불변)·`ConfigGroup`(+"scheduler")·`validateConfig` 전 계층 배선. `maxConcurrent`은 정수≥1
+      검증(env는 <1을 조용히 1로 floor하지만 설정 파일은 의도적 편집이라 앞단에서 잡음), `maxResetHorizon`은
+      `duration`이 아닌 `string`으로 저장(비활성 sentinel `off`/`none`/`0`도 표현 가능해야 하므로) +
+      순수 `isResetHorizonValue`가 sentinel 또는 파싱 가능 duration만 허용(env 파서와 정확히 동일 집합).
+      CLI `config.ts`의 GROUP_LABELS/GROUP_ORDER에 scheduler 추가 → `config show`가 그룹으로 렌더. 새
+      CLI 커맨드 로직 0줄 — 기존 config CRUD(get/set/unset/show/validate/init)가 새 키를 자동 노출,
+      daemon/tick은 이미 `maxConcurrentFromEnv`/`maxResetHorizonMsFromEnv`로 읽으므로 config→env 투영으로
+      자동 흐름. core config.test +6케이스(configToEnv 매핑·sample 기본값·parseConfig 타입·validate
+      maxConcurrent 정수≥1·horizon sentinel/duration/거부), 실제 빌드 CLI e2e로 config init 그룹·
+      set/unset·show [config-file] 귀속·set 시점 검증 거부(0·someday→exit 1)·**데몬 배너가 설정 파일
+      maxConcurrent=4를 읽어 "(max 4 concurrent)" 표시** 검증. branch `claude/wizardly-pascal-86st38`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
