@@ -2259,3 +2259,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `doctor` 먼-미래 리셋 잡 진단 검사(reset-horizon)] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-5pgvdh`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72가 "다음 할 일"로 명시한 자기 발굴 인접 후속을 구현했다: 세션 72의 parse-time 지평선 가드는
+  **새** 미스파스가 큐에 들어오는 것만 막는다. 하지만 가드 도입 전에 파킹됐거나 가드를 끈 채 파킹된
+  잡은 여전히 수일/수년 뒤 resetAt으로 큐에 남아 조용히 재개 안 될 수 있다. `doctor`는 지금까지
+  이를 감지하지 못했다 — 이 도구가 doctor·recover·health·overdue로 반복 겨냥해온 "silent failure" 부류.
+- **한 일 (branch `claude/wizardly-pascal-5pgvdh`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, nowMs, horizonMs)` 신설 — `waiting_for_reset`이면서
+    파싱 가능한 `resetAt`이 `nowMs + horizonMs`를 넘는 잡만 골라 가장 멀리 벗어난 순(overHorizonMs desc,
+    id tiebreak)으로 반환. 종료 잡의 stale resetAt·null/파싱불가·과거 리셋(이미 풀린 한도라 즉시 재개
+    안전)은 제외, 비양수·비유한 horizon은 스캔 비활성(빈 배열)으로 parser의 "가드 없음" 시맨틱과 일치.
+    `FarFutureJob`·`HorizonFacts`(horizonMs·guardEnabled·farFuture) 타입 + `DiagnosticInput.horizon` 추가.
+  - `runDiagnostics`에 `reset-horizon` 검사 추가(node→store→store-writable→adapters→daemon→**reset-horizon**
+    →config→notify): farFuture 비면 OK, 있으면 warning(개수·최악 잡 짧은 id·resetAt·지평선 초과량 표기 +
+    inspect/cancel 힌트). guardEnabled=false면 힌트가 `AGENTRELAY_MAX_RESET_HORIZON`가 꺼져 있음을 안내.
+  - CLI `commands.ts` `runDoctor`: `maxResetHorizonMsFromEnv(env)`로 설정 지평선 해소, disabled(null)면
+    진단 스캔엔 `DEFAULT_MAX_RESET_HORIZON_MS`(8d) 폴백 사용(런타임 가드가 꺼져 있어도 파킹된 잡은
+    노출) → `selectFarFutureResets`로 farFuture 구성, `guardEnabled = configuredHorizon !== null`.
+    heartbeat도 동일 `nowMs` 사용(테스트 결정성). CLI 렌더러는 제네릭이라 수정 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 649 · cli 358/1skip · dashboard 9**; core doctor +12[selectFarFutureResets 7 + reset-horizon
+  check 3 + counts 갱신], cli doctor +4). **실제 빌드 CLI e2e**(mock 아님): 60일 뒤 파킹 잡은 기본 8d
+  지평선에서 warning("52d past it"), 2h 뒤 파킹 잡은 OK, `AGENTRELAY_MAX_RESET_HORIZON=off`면 여전히
+  warning이되 힌트가 가드 꺼짐 안내, `=1h`면 3h 리셋도 far-future로 감지함을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도 동일
+  far-future 경고 노출(세션 31/36 하트비트 카드 패턴), `recover`에 먼-미래 잡 재파싱/취소 옵션 추가.
+  README/ARCHITECTURE(🧭 코워크).

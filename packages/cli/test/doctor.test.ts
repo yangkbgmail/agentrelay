@@ -377,6 +377,91 @@ describe("heartbeat helpers + doctor daemon check", () => {
   });
 });
 
+describe("doctor reset-horizon check", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-horizon-test-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Enqueue a job and park it waiting on the given resetAt. */
+  function parkJob(resetAt: string): string {
+    const queue = new RelayQueue(storePath);
+    const jobRec = queue.enqueue({ project: "p", tool: "claude-code", command: ["node"], cwd: dir });
+    queue.markWaitingForReset(jobRec.id, resetAt);
+    queue.close();
+    return jobRec.id;
+  }
+
+  it("is OK when a waiting job's reset is within the horizon", () => {
+    const nowMs = Date.parse("2026-08-20T00:00:00.000Z");
+    parkJob(new Date(nowMs + 2 * 60 * 60_000).toISOString()); // 2h out
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { PATH: process.env.PATH, AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs,
+    });
+    expect(find(report, "reset-horizon").level).toBe("ok");
+    expect(report.ok).toBe(true);
+  });
+
+  it("warns when a waiting job is parked implausibly far out", () => {
+    const nowMs = Date.parse("2026-08-20T00:00:00.000Z");
+    const id = parkJob(new Date(nowMs + 60 * 24 * 60 * 60_000).toISOString()); // 60 days out
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { PATH: process.env.PATH, AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs,
+    });
+    const horizon = find(report, "reset-horizon");
+    expect(horizon.level).toBe("warning");
+    expect(horizon.message).toContain("1 waiting job(s)");
+    expect(horizon.message).toContain(id.slice(0, 8));
+    // a warning alone doesn't fail the overall report
+    expect(report.ok).toBe(true);
+  });
+
+  it("uses the default horizon for the scan even when the live guard is disabled (off)", () => {
+    const nowMs = Date.parse("2026-08-20T00:00:00.000Z");
+    parkJob(new Date(nowMs + 60 * 24 * 60 * 60_000).toISOString()); // 60 days out
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { PATH: process.env.PATH, AGENTRELAY_MAX_RESET_HORIZON: "off", AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs,
+    });
+    const horizon = find(report, "reset-horizon");
+    expect(horizon.level).toBe("warning");
+    // hint tells the user the live guard is off
+    expect(horizon.hint).toContain("AGENTRELAY_MAX_RESET_HORIZON");
+  });
+
+  it("respects a tighter configured horizon", () => {
+    const nowMs = Date.parse("2026-08-20T00:00:00.000Z");
+    parkJob(new Date(nowMs + 3 * 60 * 60_000).toISOString()); // 3h out
+    // With a 1h horizon, a 3h reset is now "far future".
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { PATH: process.env.PATH, AGENTRELAY_MAX_RESET_HORIZON: "1h", AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs,
+    });
+    expect(find(report, "reset-horizon").level).toBe("warning");
+  });
+});
+
 describe("renderDoctorJson", () => {
   it("round-trips the report with a generatedAt stamp", () => {
     const report: DiagnosticReport = {
