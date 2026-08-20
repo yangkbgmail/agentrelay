@@ -136,6 +136,35 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Colon-delimited countdown clock, e.g. "try again in 04:32:10" (HH:MM:SS)
+    // or "resets in 15:30" (MM:SS). Live "Retrying in 04:59…" spinners and some
+    // CLIs render the remaining wait as a running clock rather than "4h32m", so
+    // the letter-unit `relative-duration` below misses it entirely (no d/h/m).
+    // The "in" connector is required, which keeps this disjoint from the
+    // absolute `clock-time` pattern ("reset **at** 15:00") and rejects bare
+    // colon-numbers (ids, timestamps) that aren't a wait. A two-part value is
+    // read as minutes:seconds (the countdown convention); reading the smaller
+    // interpretation errs toward a slightly early resume, which just re-detects
+    // the limit and re-queues — never a job idle past its reset. Unlike the
+    // seconds-only wording the Codex adapter owns, a colon clock is dominated by
+    // its hours/minutes, so carrying its seconds component here is natural.
+    name: "relative-clock-countdown",
+    regex: /(?:try again|resets?|retry(?:ing)?)\s+in\s+(?:(\d{1,3}):)?(\d{1,2}):(\d{2})\b/i,
+    resolve: (m, now) => {
+      const hours = m[1] ? parseInt(m[1], 10) : 0;
+      const minutes = parseInt(m[2], 10);
+      const seconds = parseInt(m[3], 10);
+      // Reject non-clock numbers: seconds always < 60, and minutes < 60 whenever
+      // an hours field is present (a genuine HH:MM:SS clock). A two-part MM:SS
+      // allows minutes up to 99 ("90:00" = 90 minutes).
+      if (seconds >= 60) return null;
+      if (m[1] && minutes >= 60) return null;
+      const totalSeconds = (hours * 60 + minutes) * 60 + seconds;
+      if (totalSeconds === 0) return null;
+      return new Date(now.getTime() + totalSeconds * 1000);
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they

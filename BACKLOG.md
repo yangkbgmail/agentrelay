@@ -870,6 +870,23 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 파서: 콜론 구분 카운트다운 시계 인식(`try again in 04:32:10` HH:MM:SS / `resets in 15:30` MM:SS).
+      자기 발굴 항목 — 라이브 "Retrying in 04:59…" 스피너·일부 CLI는 남은 대기를 `4h32m`가 아니라
+      돌아가는 시계로 렌더하는데, 기존 문자-단위 `relative-duration`(d/h/m 필요)이 이를 통째로 놓쳐
+      잡이 큐잉 안 되던 실사용 갭. 어떤 열린 PR에도 없던 포맷.
+      (완료 — `@agentrelay/core/parser.ts`에 순수 `relative-clock-countdown` 패턴 추가 — 정규식
+      `/(?:try again|resets?|retry(?:ing)?)\s+in\s+(?:(\d{1,3}):)?(\d{1,2}):(\d{2})\b/i`로 `in` 커넥터 뒤
+      2~3부 콜론 시계를 해소. `in` 필수라 절대형 `clock-time`(`reset **at** 15:00`)과 disjoint하고,
+      커넥터 없는 벌거벗은 콜론 숫자(id·타임스탬프)를 거른다. 3부는 HH:MM:SS, 2부는 MM:SS(카운트다운
+      관례 — 작은 해석은 살짝 이른 재개→재감지·재큐로 안전, 절대 지연 파킹 아님). 초 ≥60·시가 있을 때
+      분 ≥60은 시계가 아니므로 null 폴스루, 전부 0(`00:00`)도 null. Codex가 소유하는 초-only wording과
+      달리 콜론 시계는 시/분이 지배적이라 초 성분을 여기서 다루는 게 자연스럽다. `relative-duration`
+      **앞**에 배치하되 콜론 vs 문자 정규식이 disjoint라 상호 shadowing 없음. 새 스케줄러/CLI 코드 0줄 —
+      기존 `parse` 커맨드·어댑터 경로가 자동 노출. parser.test +6(HH:MM:SS·MM:SS·절대 at 비카운트다운·
+      초 범위초과 null·zero null·문자단위 무회귀). 실제 빌드 CLI `parse` e2e로 `04:32:10`→4h32m10s·
+      `15:30`→15m30s·`at 15:00`→clock-time·`4h32m`→relative-duration·`12:61`→미감지 확인.
+      branch `claude/wizardly-pascal-colon-countdown`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

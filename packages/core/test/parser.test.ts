@@ -83,6 +83,50 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(expected);
   });
 
+  it("parses a colon-delimited countdown clock 'in 04:32:10' (HH:MM:SS)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded. Retrying in 04:32:10…", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("relative-clock-countdown");
+    const expected = new Date(now.getTime() + ((4 * 60 + 32) * 60 + 10) * 1000).toISOString();
+    expect(result?.resetAt).toBe(expected);
+  });
+
+  it("parses a two-part countdown 'in 15:30' as minutes:seconds", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached, try again in 15:30.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("relative-clock-countdown");
+    const expected = new Date(now.getTime() + (15 * 60 + 30) * 1000).toISOString();
+    expect(result?.resetAt).toBe(expected);
+  });
+
+  it("does not treat an absolute 'reset at 15:00' as a countdown", () => {
+    // "at" is the absolute clock-time connector; only "in" is a countdown.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 15:00.", { now });
+    expect(result?.pattern).toBe("clock-time");
+  });
+
+  it("rejects a colon value with out-of-range seconds (not a clock)", () => {
+    // 61 seconds is not a valid clock component, so this falls through to null.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("resets in 12:61", { now });
+    expect(result).toBeNull();
+  });
+
+  it("rejects a zero countdown 'in 00:00' (nothing to wait for)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    expect(parseRateLimitMessage("try again in 00:00", { now })).toBeNull();
+  });
+
+  it("still parses letter-unit durations without a colon (no regression)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("resets in 4h32m", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + (4 * 60 + 32) * 60_000).toISOString());
+  });
+
   it("parses a relative duration with only minutes", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("resets in 45m", { now });
