@@ -2259,3 +2259,19 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 파서 clock-word: "midnight"/"noon"/"midday" 리셋 시각 인식] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-w7kgu3`)
+- **항목 선정:** BACKLOG의 👷 항목은 전부 완료([x]) 상태이고 열린 PR이 200+개로 극도 포화(reset-horizon
+  doctor·watch 변형·stats 지표·completion 셸·파서 타임존/epoch 등이 수십 건 중복). 전체 열린 PR 제목을
+  키워드 스캔해 **어떤 열린 PR에도 없는**(midnight/noon 0건) 실제 파서 갭을 발굴: 숫자 시각 패턴만 있고
+  사람·CLI가 흔히 쓰는 단어형 경계("resets at midnight" / "try again at noon")를 놓치고 있었다.
+- **한 일 (branch `claude/wizardly-pascal-w7kgu3`):** core `parser.ts`에 `clock-word` 패턴 추가 —
+  `midnight`→00:00, `noon`/`midday`→12:00, 기존 숫자 clock 패턴과 동일한 today/tomorrow 롤오버·로컬시간
+  해석·문서화된 타임존 미해석 한계 유지. 숫자 패턴 뒤·relative-duration 앞에 배치(충돌 없음). `\b` 경계로
+  "noontime" 등 부분 토큰 오탐 방지.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 644**[parser.test 48, +5]·**cli 354/1skip**·**dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  `parse "...reset at midnight."`→clock-word, 다음 00:00으로; `parse "...try again at noon."`→clock-word, 12:00으로 해소 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). ⚠️ **프로세스 신호**: 열린 PR 200+개가
+  머지되지 않고 중복 누적 중 — 사람(경빈)의 머지/정리 개입 필요. 후속 파서 인접 후보는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).

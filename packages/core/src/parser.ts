@@ -136,6 +136,28 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // "reset at midnight" / "resets at noon" / "try again at midnight" — humans
+    // and some CLIs name the daily boundary as a word instead of a number. The
+    // numeric clock patterns above require digits, so they miss this wording.
+    //   midnight     -> 00:00
+    //   noon / midday -> 12:00
+    // Interpreted in local time with the same today/tomorrow rollover as the
+    // numeric clock patterns (a real reset is a future instant, so rolling
+    // forward when the time is already past keeps us safe). Any named timezone
+    // in the message is ignored — the same documented limitation as clock-time.
+    name: "clock-word",
+    regex: /(?:reset[s]?|try again|available(?:\s+again)?)\s+at\s+(midnight|noon|midday)\b/i,
+    resolve: (m, now) => {
+      const hour = m[1].toLowerCase() === "midnight" ? 0 : 12;
+      const candidate = new Date(now);
+      candidate.setHours(hour, 0, 0, 0);
+      if (candidate.getTime() <= now.getTime()) {
+        candidate.setDate(candidate.getDate() + 1);
+      }
+      return candidate;
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
