@@ -142,13 +142,45 @@ export interface RunResult {
 }
 
 /**
+ * Resolve the working directory a `run` job should use, to an **absolute**
+ * path, validating an explicitly-provided one up front.
+ *
+ * Why this matters: the resolved `cwd` is stored on the queued job and reused
+ * verbatim when the daemon resumes it — often from a *different* process whose
+ * own cwd is unrelated. So a relative `--cwd` (or the ambient cwd) must be
+ * frozen to an absolute path now, or the resume would run in the wrong place.
+ * And a `--cwd` that points at a missing path, or a file rather than a
+ * directory, would let `run` enqueue a job that can never resume (spawn fails
+ * every time until it exhausts its attempts) — exactly the kind of silent
+ * failure this tool exists to prevent. We fail fast instead, before anything
+ * is queued.
+ *
+ * The ambient default (no `--cwd`) is trusted and only normalised, never
+ * rejected — `process.cwd()` is by definition a live directory.
+ */
+export function resolveRunCwd(cwd: string | undefined): string {
+  if (cwd === undefined) return resolve(process.cwd());
+  const abs = resolve(cwd);
+  let stat: ReturnType<typeof statSync>;
+  try {
+    stat = statSync(abs);
+  } catch {
+    throw new Error(`--cwd directory does not exist: ${abs}`);
+  }
+  if (!stat.isDirectory()) {
+    throw new Error(`--cwd is not a directory: ${abs}`);
+  }
+  return abs;
+}
+
+/**
  * Runs `command`, streaming its output live while also buffering it to scan
  * for a rate-limit message. If one is found, the command is enqueued for
  * automatic resume once the limit resets -- this is the core "wrap your
  * agent CLI invocation" entry point (`agentrelay run -- claude -p "..."`).
  */
 export async function runCommand(options: RunOptions): Promise<RunResult> {
-  const cwd = options.cwd ?? process.cwd();
+  const cwd = resolveRunCwd(options.cwd);
   // Pick the adapter from an explicit --tool, else infer from the command's
   // binary (e.g. `codex ...` -> codex-cli), else fall back to the generic one.
   const adapter = resolveAdapter({ tool: options.tool, command: options.command });

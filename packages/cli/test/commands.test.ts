@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -162,6 +162,55 @@ describe("runCommand", () => {
     // dir is a mkdtemp path; its last segment is the derived label, never blank.
     expect(result.queuedJob?.project).toBe(dir.split("/").filter(Boolean).pop());
     expect(result.queuedJob?.project?.trim()).not.toBe("");
+  });
+
+  it("stores the resolved absolute --cwd on the queued job", async () => {
+    // A relative --cwd must be frozen to an absolute path so the daemon (which
+    // resumes from an unrelated cwd) runs the command in the right place.
+    const nested = join(dir, "sub", "project");
+    mkdirSync(nested, { recursive: true });
+    const original = process.cwd();
+    process.chdir(dir);
+    try {
+      const result = await runCommand({
+        command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+        storePath,
+        cwd: "sub/project",
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+      });
+      expect(result.queuedJob?.cwd).toBe(nested);
+    } finally {
+      process.chdir(original);
+    }
+  });
+
+  it("rejects a --cwd that does not exist before queuing anything", async () => {
+    await expect(
+      runCommand({
+        command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+        storePath,
+        cwd: join(dir, "does-not-exist"),
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+      })
+    ).rejects.toThrow(/does not exist/);
+    // Nothing spawned, nothing queued.
+    expect(existsSync(storePath)).toBe(false);
+  });
+
+  it("rejects a --cwd that points at a file, not a directory", async () => {
+    const filePath = join(dir, "not-a-dir.txt");
+    writeFileSync(filePath, "i am a file");
+    await expect(
+      runCommand({
+        command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+        storePath,
+        cwd: filePath,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+      })
+    ).rejects.toThrow(/not a directory/);
   });
 });
 
