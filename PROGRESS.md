@@ -2259,3 +2259,24 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 파서: 자연어 관사/분수 상대 대기(`try again in an hour` / `in half an hour`) 인식] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-j2wci1`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐)이라
+  CLAUDE.md §작업 방식에 따라 새 개선 항목을 발굴. 파서는 숫자 상대 대기(`in 2 hours`)는 인식하지만
+  실제 에러 문구에 흔한 **철자 그대로의 관사형**(`try again in an hour`, `resets in a minute`,
+  `retry in a day`)과 **분수형**(`in half an hour`, `in half a day`)은 숫자가 없어 `null`로 폴스루 →
+  rate-limit된 잡을 재큐잉하지 않고 정상 완료로 삼켜버린다(이 프로젝트가 반복해 겨냥해온 silent-failure).
+- **한 일 (branch `claude/wizardly-pascal-j2wci1`):**
+  - core `parser.ts`에 새 패턴 `relative-duration-article` 추가:
+    `/(?:try again|resets?|retry)\s+in\s+(?:(half)\s+)?an?\s+(day|hour|minute|min)\b/i`.
+    `a`/`an` 모두 허용(비문 "a hour"도 무해), `half`가 있으면 단위의 절반(`half an hour`→30m,
+    `half a day`→12h). 숫자 `relative-duration` **뒤에** 두어 어떤 숫자형이든 여전히 우선하고,
+    인식 못 하는 명사(`in a while`/`in a moment`)는 매치 안 돼 올바르게 미파스 유지.
+  - 순수 패턴만 추가 — 스케줄러/어댑터/CLI 수정 0줄(기존 배선이 그대로 새 패턴을 사용).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 646 · cli 354/1skip · dashboard 9**; parser.test +7). **실제 빌드 CLI e2e**(mock 아님):
+  `agentrelay parse "…try again in an hour."`→`relative-duration-article`, resets in 1h 0m,
+  `"…try again in half an hour."`→30m 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 관사형 조합
+  (`in an hour and a half`→현재 60m로 과소평가)·`a couple of hours`·주(week) 단위(`in a week`).
+  stats 분산/watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

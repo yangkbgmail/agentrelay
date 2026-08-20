@@ -152,6 +152,29 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Natural-language "article" relative waits with no digit, e.g.
+    // "try again in an hour", "resets in a minute", "retry in a day", plus the
+    // fractional "half" forms ("in half an hour" -> 30m, "in half a day" -> 12h).
+    // The digit `relative-duration` pattern above requires a number, so these
+    // spelled-out waits fall through to `null` and silently complete a
+    // rate-limited job instead of requeueing it — the exact silent-failure class
+    // this relay guards against. Kept *after* relative-duration so any digit form
+    // still wins; "a"/"an" both accept (grammatical "a hour" is harmless), and an
+    // unrecognized noun ("in a while", "in a moment") simply doesn't match here
+    // and stays correctly unparseable.
+    name: "relative-duration-article",
+    regex: /(?:try again|resets?|retry)\s+in\s+(?:(half)\s+)?an?\s+(day|hour|minute|min)\b/i,
+    resolve: (m, now) => {
+      const unitMs = m[2].toLowerCase().startsWith("day")
+        ? 24 * 60 * 60_000
+        : m[2].toLowerCase() === "hour"
+          ? 60 * 60_000
+          : 60_000;
+      const ms = m[1] ? unitMs / 2 : unitMs;
+      return new Date(now.getTime() + ms);
+    },
+  },
+  {
     // Unix epoch seconds embedded in structured error payloads, e.g.
     // `retry_after=1752345600`, `retry_after: 1752345600`, or the JSON form
     // `"retry_after": 1752345600`.
