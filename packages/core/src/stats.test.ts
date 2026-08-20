@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  compareMetric,
+  compareStats,
   computeActivityHeatmap,
   computeDailyTrend,
   computeHourlyDistribution,
@@ -745,5 +747,103 @@ describe("computeActivityHeatmap", () => {
   it("offset 0 matches the default UTC bucketing", () => {
     const jobs = [job({ createdAt: "2026-07-20T09:15:00.000Z" })];
     expect(computeActivityHeatmap(jobs, 0)).toEqual(computeActivityHeatmap(jobs));
+  });
+});
+
+describe("compareMetric", () => {
+  it("computes an increase with sign, ratio, and direction", () => {
+    const d = compareMetric(12, 8);
+    expect(d).toEqual({ current: 12, previous: 8, delta: 4, ratio: 0.5, direction: "up" });
+  });
+
+  it("computes a decrease", () => {
+    const d = compareMetric(6, 10);
+    expect(d.delta).toBe(-4);
+    expect(d.ratio).toBeCloseTo(-0.4, 10);
+    expect(d.direction).toBe("down");
+  });
+
+  it("reports flat when unchanged (ratio 0)", () => {
+    expect(compareMetric(5, 5)).toEqual({ current: 5, previous: 5, delta: 0, ratio: 0, direction: "flat" });
+  });
+
+  it("is incomparable (n/a) when either side is null", () => {
+    expect(compareMetric(null, 5).direction).toBe("n/a");
+    expect(compareMetric(5, null).direction).toBe("n/a");
+    expect(compareMetric(null, null)).toEqual({
+      current: null,
+      previous: null,
+      delta: null,
+      ratio: null,
+      direction: "n/a",
+    });
+  });
+
+  it("leaves ratio null when the previous value is 0 (no baseline) but keeps the absolute delta", () => {
+    const d = compareMetric(3, 0);
+    expect(d.delta).toBe(3);
+    expect(d.ratio).toBeNull();
+    expect(d.direction).toBe("up");
+  });
+
+  it("uses |previous| for the ratio so a move from a negative baseline reads sensibly", () => {
+    // Not a real metric, but the math must be well-defined: −2 → −1 is a rise.
+    const d = compareMetric(-1, -2);
+    expect(d.delta).toBe(1);
+    expect(d.ratio).toBe(0.5);
+    expect(d.direction).toBe("up");
+  });
+});
+
+describe("compareStats", () => {
+  it("diffs headline metrics field by field between two snapshots", () => {
+    // Current window: 2 completed (spans 1m, 3m), 1 failed. Previous: 1 completed (2m), 1 failed.
+    const current = computeStats([
+      job({ status: "completed", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:01:00.000Z" }),
+      job({ status: "completed", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:03:00.000Z" }),
+      job({
+        status: "failed",
+        createdAt: "2026-07-13T00:00:00.000Z",
+        updatedAt: "2026-07-13T00:02:00.000Z",
+        attempts: 3,
+      }),
+    ]);
+    const previous = computeStats([
+      job({ status: "completed", createdAt: "2026-07-12T00:00:00.000Z", updatedAt: "2026-07-12T00:02:00.000Z" }),
+      job({ status: "failed", createdAt: "2026-07-12T00:00:00.000Z", updatedAt: "2026-07-12T00:02:00.000Z" }),
+    ]);
+    const cmp = compareStats(current, previous);
+
+    expect(cmp.total).toMatchObject({ current: 3, previous: 2, delta: 1, direction: "up" });
+    expect(cmp.completed).toMatchObject({ current: 2, previous: 1, delta: 1, direction: "up" });
+    expect(cmp.failed).toMatchObject({ current: 1, previous: 1, delta: 0, direction: "flat" });
+    // success rate: 2/3 ≈ 0.667 now vs 1/2 = 0.5 before → up.
+    expect(cmp.successRate.direction).toBe("up");
+    expect(cmp.successRate.current).toBeCloseTo(2 / 3, 4);
+    expect(cmp.successRate.previous).toBe(0.5);
+    // resolution median: current [1m,2m,3m] → 2m; previous [2m,2m] → 2m → flat.
+    expect(cmp.medianResolutionMs).toMatchObject({ current: 120_000, previous: 120_000, direction: "flat" });
+    expect(cmp.resolvedCount).toMatchObject({ current: 3, previous: 2 });
+    expect(cmp.retriedJobs).toMatchObject({ current: 1, previous: 0, direction: "up" });
+  });
+
+  it("surfaces n/a for a metric absent on one side (e.g. no resolved jobs before)", () => {
+    const current = computeStats([
+      job({ status: "completed", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:05:00.000Z" }),
+    ]);
+    const previous = computeStats([job({ status: "queued" })]); // nothing resolved
+    const cmp = compareStats(current, previous);
+    expect(cmp.successRate.previous).toBeNull();
+    expect(cmp.successRate.direction).toBe("n/a");
+    expect(cmp.avgResolutionMs.previous).toBeNull();
+    expect(cmp.avgResolutionMs.direction).toBe("n/a");
+    // Counts are still comparable (0 is a real value, not null).
+    expect(cmp.completed).toMatchObject({ current: 1, previous: 0, direction: "up" });
+  });
+
+  it("is all-zero-flat when comparing two empty snapshots", () => {
+    const cmp = compareStats(computeStats([]), computeStats([]));
+    expect(cmp.total).toMatchObject({ current: 0, previous: 0, delta: 0, direction: "flat" });
+    expect(cmp.successRate.direction).toBe("n/a"); // both null
   });
 });

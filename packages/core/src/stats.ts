@@ -591,3 +591,104 @@ export function groupStats(jobs: RelayJob[], dimension: GroupDimension): Grouped
     .map(([key, groupJobs]) => ({ key, count: groupJobs.length, stats: computeStats(groupJobs) }))
     .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.key.localeCompare(b.key)));
 }
+
+/**
+ * Which way a metric moved between two periods. `"flat"` means the value is
+ * identical on both sides; `"n/a"` means the two sides aren't comparable (at
+ * least one is `null`, e.g. a success rate before anything had resolved).
+ */
+export type TrendDirection = "up" | "down" | "flat" | "n/a";
+
+/**
+ * A single metric compared across two equal-length periods. All fields are
+ * plain numbers (or `null` when a side is absent), so this is trivially
+ * serializable and the CLI/dashboard decide how to colour it (whether "up" is
+ * good depends on the metric — up success rate good, up resolution time bad).
+ */
+export interface MetricDelta {
+  /** The metric's value in the current (more recent) period, or null. */
+  current: number | null;
+  /** The metric's value in the previous (older) period, or null. */
+  previous: number | null;
+  /** current − previous, or null when either side is null (incomparable). */
+  delta: number | null;
+  /**
+   * Relative change delta ÷ |previous|, a dimensionless fraction (0.25 = +25%),
+   * or null when either side is null or the previous value is 0 (no baseline to
+   * divide by — an absolute {@link delta} still describes the move).
+   */
+  ratio: number | null;
+  /** Sign of {@link delta}: up / down / flat, or n/a when incomparable. */
+  direction: TrendDirection;
+}
+
+/**
+ * Compare one metric's current vs. previous value. Pure. `null` on either side
+ * yields a `direction: "n/a"` delta (the CLI renders it as "n/a") rather than
+ * pretending a move happened — going from "no data" to a real number isn't a
+ * −∞→x change. When both sides are equal the direction is `"flat"` and delta 0.
+ */
+export function compareMetric(current: number | null, previous: number | null): MetricDelta {
+  if (current === null || previous === null) {
+    return { current, previous, delta: null, ratio: null, direction: "n/a" };
+  }
+  const delta = current - previous;
+  const ratio = previous !== 0 ? delta / Math.abs(previous) : null;
+  const direction: TrendDirection = delta > 0 ? "up" : delta < 0 ? "down" : "flat";
+  return { current, previous, delta, ratio, direction };
+}
+
+/**
+ * The headline metrics of two {@link RelayStats} snapshots compared field by
+ * field. Produced by {@link compareStats} so `agentrelay stats --compare` can
+ * answer "is the relay doing better than the period before?" — success rate,
+ * throughput, retry load, and resolution-time centrality/tail, each as a
+ * {@link MetricDelta}. Pure data: no rendering, no clock.
+ */
+export interface StatsComparison {
+  /** Total jobs created in each period. */
+  total: MetricDelta;
+  /** Jobs that completed successfully. */
+  completed: MetricDelta;
+  /** Jobs that ended in failure. */
+  failed: MetricDelta;
+  /** Jobs the user cancelled. */
+  cancelled: MetricDelta;
+  /** completed / (completed + failed), the fraction in [0, 1]. */
+  successRate: MetricDelta;
+  /** Sum of resume attempts across all jobs (relay workload). */
+  totalAttempts: MetricDelta;
+  /** Jobs resumed more than once (attempts > 1). */
+  retriedJobs: MetricDelta;
+  /** Resolved jobs contributing a resolution-time span. */
+  resolvedCount: MetricDelta;
+  /** Mean resolution time (ms). */
+  avgResolutionMs: MetricDelta;
+  /** Median (p50) resolution time (ms). */
+  medianResolutionMs: MetricDelta;
+  /** 90th-percentile resolution time (ms) — the tail. */
+  p90ResolutionMs: MetricDelta;
+}
+
+/**
+ * Compare two {@link RelayStats} snapshots (typically two adjacent time windows
+ * of equal length) field by field. Pure. The caller decides what the two
+ * snapshots represent — {@link compareStats} imposes no time semantics, it just
+ * diffs the numbers — so it works equally for "this week vs. last week" or any
+ * two arbitrary job subsets.
+ */
+export function compareStats(current: RelayStats, previous: RelayStats): StatsComparison {
+  return {
+    total: compareMetric(current.total, previous.total),
+    completed: compareMetric(current.byStatus.completed, previous.byStatus.completed),
+    failed: compareMetric(current.byStatus.failed, previous.byStatus.failed),
+    cancelled: compareMetric(current.byStatus.cancelled, previous.byStatus.cancelled),
+    successRate: compareMetric(current.successRate, previous.successRate),
+    totalAttempts: compareMetric(current.totalAttempts, previous.totalAttempts),
+    retriedJobs: compareMetric(current.retriedJobs, previous.retriedJobs),
+    resolvedCount: compareMetric(current.timing.resolvedCount, previous.timing.resolvedCount),
+    avgResolutionMs: compareMetric(current.timing.avgResolutionMs, previous.timing.avgResolutionMs),
+    medianResolutionMs: compareMetric(current.timing.medianResolutionMs, previous.timing.medianResolutionMs),
+    p90ResolutionMs: compareMetric(current.timing.p90ResolutionMs, previous.timing.p90ResolutionMs),
+  };
+}

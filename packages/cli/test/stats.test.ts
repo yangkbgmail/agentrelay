@@ -1,5 +1,6 @@
 import type { DailyActivity, HourlyActivity, RelayJob, WeekdayActivity } from "@agentrelay/core";
 import {
+  compareStats,
   computeActivityHeatmap,
   computeDailyTrend,
   computeHourlyDistribution,
@@ -13,9 +14,12 @@ import {
   formatDurationMs,
   formatSuccessRate,
   formatUtcOffsetLabel,
+  NO_COMPARE_MESSAGE,
   NO_GROUP_MESSAGE,
   NO_SCOPE_MATCH_MESSAGE,
   NO_STATS_MESSAGE,
+  renderComparison,
+  renderComparisonJson,
   renderGroupedStats,
   renderGroupedStatsJson,
   renderHeatmap,
@@ -613,5 +617,108 @@ describe("renderStatsWatchFrame", () => {
     expect(out.split("\n")[0]).toContain("agentrelay stats");
     expect(out).toContain("across 2 tool(s)");
     expect(out.endsWith(body)).toBe(true);
+  });
+});
+
+describe("renderComparison", () => {
+  // Current window: 3 completed, 1 failed. Previous: 1 completed, 2 failed.
+  const at = (d: number, h = 0) => `2026-07-${String(d).padStart(2, "0")}T${String(h).padStart(2, "0")}:00:00.000Z`;
+  const current = compareStats(
+    computeStats([
+      job({ status: "completed", createdAt: at(13), updatedAt: at(13, 1) }),
+      job({ status: "completed", createdAt: at(13), updatedAt: at(13, 2) }),
+      job({ status: "completed", createdAt: at(13), updatedAt: at(13, 3) }),
+      job({ status: "failed", createdAt: at(13), updatedAt: at(13, 4) }),
+    ]),
+    computeStats([
+      job({ status: "completed", createdAt: at(12), updatedAt: at(12, 2) }),
+      job({ status: "failed", createdAt: at(12), updatedAt: at(12, 2) }),
+      job({ status: "failed", createdAt: at(12), updatedAt: at(12, 2) }),
+    ])
+  );
+
+  it("renders a header naming both windows and a per-metric change column", () => {
+    const out = renderComparison(current, { windowLabel: "7d" });
+    expect(out).toContain("compare: current 7d vs previous 7d");
+    expect(out).toContain("metric");
+    expect(out).toContain("current");
+    expect(out).toContain("previous");
+    // jobs 4 vs 3 → +1 up
+    expect(out).toMatch(/jobs\s+4\s+3\s+▲ \+1/);
+    // completed 3 vs 1 → +2
+    expect(out).toMatch(/completed\s+3\s+1\s+▲ \+2/);
+    // failed 1 vs 2 → -1
+    expect(out).toMatch(/failed\s+1\s+2\s+▼ -1/);
+    // success rate 75% vs 33% → +42pp
+    expect(out).toContain("success rate");
+    expect(out).toMatch(/▲ \+42pp/);
+  });
+
+  it("shows a flat marker with no arrow for unchanged metrics", () => {
+    const same = compareStats(computeStats([job({ status: "queued" })]), computeStats([job({ status: "queued" })]));
+    const out = renderComparison(same, { windowLabel: "1d" });
+    expect(out).toMatch(/jobs\s+1\s+1\s+–/);
+  });
+
+  it("renders n/a for a metric absent on one side", () => {
+    const cmp = compareStats(
+      computeStats([job({ status: "completed", createdAt: at(13), updatedAt: at(13, 1) })]),
+      computeStats([job({ status: "queued" })])
+    );
+    const out = renderComparison(cmp, { windowLabel: "1d" });
+    // success rate: 100% now, n/a before → change n/a
+    expect(out).toMatch(/success rate\s+100%\s+n\/a\s+n\/a/);
+  });
+
+  it("returns the empty message when neither period has jobs", () => {
+    const cmp = compareStats(computeStats([]), computeStats([]));
+    expect(renderComparison(cmp, { windowLabel: "7d" })).toBe(NO_COMPARE_MESSAGE);
+  });
+
+  it("echoes a scope note when provided", () => {
+    const out = renderComparison(current, { windowLabel: "7d", scopeNote: "tool=claude-code" });
+    expect(out).toContain("scope: tool=claude-code");
+  });
+
+  it("emits ANSI colour codes only when color is on", () => {
+    const plain = renderComparison(current, { windowLabel: "7d", color: false });
+    const colored = renderComparison(current, { windowLabel: "7d", color: true });
+    expect(plain).not.toContain("\x1b[");
+    expect(colored).toContain("\x1b[");
+    // failed went up (bad) → red; completed up (good) → green somewhere.
+    expect(colored).toContain("\x1b[31m");
+    expect(colored).toContain("\x1b[32m");
+  });
+});
+
+describe("renderComparisonJson", () => {
+  it("serializes the comparison plus the window bounds", () => {
+    const cmp = compareStats(computeStats([job({ status: "completed" })]), computeStats([job({ status: "failed" })]));
+    const parsed = JSON.parse(
+      renderComparisonJson(cmp, "/tmp/jobs.json", {
+        generatedAt: "2026-07-13T00:00:00.000Z",
+        windowMs: 604_800_000,
+        currentFrom: 100,
+        currentTo: 200,
+        previousFrom: 0,
+        previousTo: 99,
+      })
+    );
+    expect(parsed.storePath).toBe("/tmp/jobs.json");
+    expect(parsed.window).toEqual({
+      windowMs: 604_800_000,
+      currentFrom: 100,
+      currentTo: 200,
+      previousFrom: 0,
+      previousTo: 99,
+    });
+    expect(parsed.comparison.completed).toMatchObject({ current: 1, previous: 0, direction: "up" });
+    expect(parsed.comparison.failed).toMatchObject({ current: 0, previous: 1, direction: "down" });
+  });
+
+  it("omits the window block when no bounds are supplied", () => {
+    const cmp = compareStats(computeStats([]), computeStats([]));
+    const parsed = JSON.parse(renderComparisonJson(cmp, "/tmp/jobs.json", { generatedAt: "x" }));
+    expect(parsed.window).toBeUndefined();
   });
 });

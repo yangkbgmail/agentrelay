@@ -870,6 +870,25 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay stats --compare <기간>` — 최근 N일/시간 지표를 직전 동일 길이 창과 나란히 비교
+      (릴레이가 지난 기간보다 나아졌는지 추세 델타로 한눈에). 자기 발굴 항목 — `--since/--until`(세션 26)은
+      한 창의 절대 지표만 보여줄 뿐, "이번 주 vs 지난 주"를 답하려면 두 번 실행해 눈으로 대조해야 했다.
+      (완료 — `@agentrelay/core/stats.ts`에 순수 `TrendDirection`/`MetricDelta`/`compareMetric(cur,prev)`
+      (current−previous 델타·ratio[|previous| 기준, previous=0이면 null이되 절대 델타는 유지]·direction
+      up/down/flat; 한쪽이라도 null이면 direction "n/a"로 "무데이터→수치"를 가짜 변화로 오표기하지 않음) +
+      `StatsComparison`/`compareStats(cur,prev)`(총량·완료·실패·취소·성공률·시도·재시도·해결수·avg/median/
+      p90 해결시간을 필드별 `MetricDelta`로; 시간 의미는 호출자 소관이라 임의 두 스냅샷에 동작) 신설.
+      CLI `stats.ts`에 순수 `renderComparison`(metric/current/previous/change 정렬 표 — 변화는 지표별
+      호오 극성에 따라 초록[개선]/빨강[악화]/dim[flat·n/a]으로 채색: 성공률·완료 up=초록, 실패·해결지연·
+      재시도 up=빨강, 원시 카운트=중립; ▲/▼/–/· 글리프)·`renderComparisonJson`(--json, window 경계 에코).
+      cli.ts `stats --compare <기간>`는 두 인접·서로소 창(current=[now−w,now], previous=[now−2w,now−w))을
+      기존 `scopeJobs`로 걸러 각각 `computeStats`→`compareStats`; `--status/--tool/--project`는 양 창에
+      동일 적용, `--since/--until/--group-by/--trend/--hours/--weekday/--heatmap/--watch`와는 상호배타(조합
+      시 exit 1), 파싱 불가 기간도 exit 1. 새 core 순수함수는 전부 유닛 테스트, 렌더러도 색·flat·n/a·빈-기간·
+      scope·JSON 커버. core stats.test +9 · cli stats.test +8, 실제 빌드 CLI e2e로 표/scope/충돌/에러 검증.
+      전 테스트 통과(core 651 · cli 363/1skip · dashboard 9)·Biome 0에러·`pnpm demo` 초록.
+      branch `claude/stats-compare-window`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

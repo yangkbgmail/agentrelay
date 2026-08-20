@@ -11,7 +11,9 @@ import type {
   HourlyActivity,
   JobScope,
   JobStatus,
+  MetricDelta,
   RelayStats,
+  StatsComparison,
   WeekdayActivity,
 } from "@agentrelay/core";
 import { isJobScopeActive, WEEKDAY_NAMES } from "@agentrelay/core";
@@ -175,6 +177,195 @@ export function renderStatsWatchFrame(
 
 /** Shown by `stats --group-by` when the store (or scoped subset) has no jobs. */
 export const NO_GROUP_MESSAGE = "No jobs to group.";
+
+const GREEN = "\x1b[32m";
+const RED = "\x1b[31m";
+
+/** Shown by `stats --compare` when neither the current nor previous window has any jobs. */
+export const NO_COMPARE_MESSAGE = "No jobs in either period to compare.";
+
+/**
+ * Whether an *increase* in a metric is good, bad, or neither — used only to
+ * colour the change column of `--compare`. Success rate and throughput going up
+ * is good; failures, retries, and resolution latency going up is bad; raw job
+ * counts are informational.
+ */
+type Polarity = "higher-better" | "lower-better" | "neutral";
+
+/** Signed integer with an explicit `+` for positive values ("+4", "0", "-2"). */
+function formatSignedInt(n: number): string {
+  return n > 0 ? `+${n}` : `${n}`;
+}
+
+/** Signed compact duration delta: "+2m 30s", "-1h 0m", "0" for no change. */
+function formatSignedDurationMs(ms: number): string {
+  if (ms === 0) return "0";
+  return `${ms > 0 ? "+" : "-"}${formatDurationMs(Math.abs(ms))}`;
+}
+
+/** Signed success-rate delta in percentage points: "+5pp", "0pp", "-4pp". */
+function formatSignedPercentPoints(fraction: number): string {
+  const pp = Math.round(fraction * 100);
+  return pp > 0 ? `+${pp}pp` : `${pp}pp`;
+}
+
+/** One metric's row spec for the `--compare` table. */
+interface CompareRow {
+  label: string;
+  delta: MetricDelta;
+  polarity: Polarity;
+  /** Renders a value cell (current/previous), or "n/a" for null. */
+  formatValue: (v: number | null) => string;
+  /** Renders the signed change magnitude from a non-null delta. */
+  formatChange: (delta: number) => string;
+}
+
+/** The arrow + colour for a delta given the metric's polarity. */
+function changeGlyph(
+  delta: MetricDelta,
+  polarity: Polarity,
+  color: boolean
+): { arrow: string; wrap: (s: string) => string } {
+  const paint = (code: string) => (s: string) => (color ? `${code}${s}${RESET}` : s);
+  const dim = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+  if (delta.direction === "n/a") return { arrow: "·", wrap: dim };
+  if (delta.direction === "flat") return { arrow: "–", wrap: dim };
+  const up = delta.direction === "up";
+  const good = polarity === "higher-better" ? up : polarity === "lower-better" ? !up : null;
+  const wrap = good === null ? (s: string) => s : good ? paint(GREEN) : paint(RED);
+  return { arrow: up ? "▲" : "▼", wrap };
+}
+
+/**
+ * Renders a two-period comparison table: current vs. previous value and the
+ * signed change for each headline metric, with the change coloured green/red by
+ * whether it's an improvement (success rate up = green; failures/latency up =
+ * red; raw counts neutral). Pure: no I/O, no clock. `color` gates ANSI codes.
+ * `windowLabel` describes the period length (e.g. "7d"); `scopeNote` echoes any
+ * active `--status/--tool/--project` filter.
+ */
+export function renderComparison(
+  comparison: StatsComparison,
+  options: { color?: boolean; windowLabel?: string; scopeNote?: string } = {}
+): string {
+  const color = options.color ?? false;
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+
+  if (comparison.total.current === 0 && comparison.total.previous === 0) {
+    return NO_COMPARE_MESSAGE;
+  }
+
+  const countValue = (v: number | null) => (v === null ? "n/a" : String(v));
+  const rateValue = (v: number | null) => formatSuccessRate(v);
+  const durValue = (v: number | null) => (v === null ? "n/a" : formatDurationMs(v));
+
+  const rows: CompareRow[] = [
+    {
+      label: "jobs",
+      delta: comparison.total,
+      polarity: "neutral",
+      formatValue: countValue,
+      formatChange: formatSignedInt,
+    },
+    {
+      label: "completed",
+      delta: comparison.completed,
+      polarity: "higher-better",
+      formatValue: countValue,
+      formatChange: formatSignedInt,
+    },
+    {
+      label: "failed",
+      delta: comparison.failed,
+      polarity: "lower-better",
+      formatValue: countValue,
+      formatChange: formatSignedInt,
+    },
+    {
+      label: "cancelled",
+      delta: comparison.cancelled,
+      polarity: "neutral",
+      formatValue: countValue,
+      formatChange: formatSignedInt,
+    },
+    {
+      label: "success rate",
+      delta: comparison.successRate,
+      polarity: "higher-better",
+      formatValue: rateValue,
+      formatChange: formatSignedPercentPoints,
+    },
+    {
+      label: "total attempts",
+      delta: comparison.totalAttempts,
+      polarity: "lower-better",
+      formatValue: countValue,
+      formatChange: formatSignedInt,
+    },
+    {
+      label: "retried jobs",
+      delta: comparison.retriedJobs,
+      polarity: "lower-better",
+      formatValue: countValue,
+      formatChange: formatSignedInt,
+    },
+    {
+      label: "resolved",
+      delta: comparison.resolvedCount,
+      polarity: "neutral",
+      formatValue: countValue,
+      formatChange: formatSignedInt,
+    },
+    {
+      label: "avg resolution",
+      delta: comparison.avgResolutionMs,
+      polarity: "lower-better",
+      formatValue: durValue,
+      formatChange: formatSignedDurationMs,
+    },
+    {
+      label: "median resolution",
+      delta: comparison.medianResolutionMs,
+      polarity: "lower-better",
+      formatValue: durValue,
+      formatChange: formatSignedDurationMs,
+    },
+    {
+      label: "p90 resolution",
+      delta: comparison.p90ResolutionMs,
+      polarity: "lower-better",
+      formatValue: durValue,
+      formatChange: formatSignedDurationMs,
+    },
+  ];
+
+  // Column widths from the widest rendered cell so the table aligns regardless
+  // of value magnitude (durations vs. small counts).
+  const labelW = Math.max(...rows.map((r) => r.label.length), "metric".length);
+  const curCells = rows.map((r) => r.formatValue(r.delta.current));
+  const prevCells = rows.map((r) => r.formatValue(r.delta.previous));
+  const curW = Math.max(...curCells.map((c) => c.length), "current".length);
+  const prevW = Math.max(...prevCells.map((c) => c.length), "previous".length);
+
+  const lines: string[] = [];
+  const label = options.windowLabel ? `current ${options.windowLabel}` : "current period";
+  const prevLabel = options.windowLabel ? `previous ${options.windowLabel}` : "previous period";
+  lines.push(b(`compare: ${label} vs ${prevLabel}`));
+  if (options.scopeNote) lines.push(d(`scope: ${options.scopeNote}`));
+  lines.push(d(`  ${"metric".padEnd(labelW)}  ${"current".padStart(curW)}  ${"previous".padStart(prevW)}  change`));
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const { arrow, wrap } = changeGlyph(row.delta, row.polarity, color);
+    const changeText = row.delta.delta === null ? "n/a" : `${arrow} ${row.formatChange(row.delta.delta)}`;
+    lines.push(
+      `  ${row.label.padEnd(labelW)}  ${curCells[i].padStart(curW)}  ${prevCells[i].padStart(prevW)}  ${wrap(changeText)}`
+    );
+  }
+
+  return lines.join("\n");
+}
 
 /**
  * Renders a per-group stats breakdown as a compact multi-line block: one row
@@ -445,6 +636,37 @@ export function renderStatsJson(
   const weekday = options.weekday ?? undefined;
   const heatmap = options.heatmap ?? undefined;
   return JSON.stringify({ storePath, generatedAt, scope, trend, hours, weekday, heatmap, stats }, null, 2);
+}
+
+/** Machine-readable snapshot of a two-period comparison for `--compare --json`. */
+export function renderComparisonJson(
+  comparison: StatsComparison,
+  storePath: string,
+  options: {
+    generatedAt?: string;
+    scope?: JobScope;
+    /** The equal-length window duration (ms) each period covers. */
+    windowMs?: number;
+    /** Epoch-ms boundaries: [previousFrom, boundary, currentTo]. */
+    currentFrom?: number;
+    currentTo?: number;
+    previousFrom?: number;
+    previousTo?: number;
+  } = {}
+): string {
+  const generatedAt = options.generatedAt ?? new Date().toISOString();
+  const scope = options.scope && isJobScopeActive(options.scope) ? options.scope : undefined;
+  const window =
+    options.windowMs !== undefined
+      ? {
+          windowMs: options.windowMs,
+          currentFrom: options.currentFrom,
+          currentTo: options.currentTo,
+          previousFrom: options.previousFrom,
+          previousTo: options.previousTo,
+        }
+      : undefined;
+  return JSON.stringify({ storePath, generatedAt, scope, window, comparison }, null, 2);
 }
 
 /** Machine-readable snapshot of a grouped breakdown for `--group-by --json`. */
