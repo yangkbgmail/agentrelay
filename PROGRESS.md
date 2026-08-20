@@ -2259,3 +2259,34 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `doctor` 먼-미래 리셋 잡 검사(reset-horizon)] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-hetgws`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 72(파서 지평선 가드)가 "다음 할 일"로 명시적으로 제안한 인접 후속 — `doctor`에 큐 내
+  먼-미래 리셋 잡 경고 검사 추가 — 을 골랐다. 파서 가드는 *앞으로* 들어올 미스파스를 막지만,
+  가드 도입 전에 큐잉됐거나 `AGENTRELAY_MAX_RESET_HORIZON=off`로 들어간 먼-미래 리셋 잡은 이미
+  스토어에 남아 조용히 대기 중일 수 있다. 스케줄러 `listDue`가 `resetAt <= now`만 due로 보므로
+  2029년 리셋 `waiting_for_reset` 잡은 그때까지 절대 안 뜬다 — 이 도구가 반복해 겨냥하는 "silent
+  failure" 부류. 열린 PR 200+개(stats 분산·watch 변형·epoch ms 등) 어디에도 없는 갭.
+- **한 일 (branch `claude/wizardly-pascal-hetgws`):**
+  - core `doctor.ts`: 순수 `distantResets(jobs, nowMs, maxFutureMs)` + `ResetFacts`/`DistantReset`
+    신설 — `waiting_for_reset` 상태만 대상(그 상태만 `resetAt`로 스케줄러 게이트됨), resetAt이
+    `nowMs + maxFutureMs` 밖인 잡을 most-distant-first로 반환. 가드 비활성(null/비유한/≤0)·null·
+    파싱불가 resetAt·과거 리셋은 제외(파서 `isPlausibleReset`와 동일 정책). `DiagnosticInput`에
+    `resets` 추가, `runDiagnostics`에 `reset-horizon` 검사(순서: node→store→writable→adapters→
+    daemon→**reset-horizon**→config→notify): 가드 비활성=OK(기준 없음)·먼-미래 잡 없음=OK·있으면
+    warning(개수+최악 예시 짧은 id/project/카운트다운 + `show`/`retry`/`cancel` 힌트). 에러가 아닌
+    warning이라 하드 실패는 안 냄(notify와 동일 정책).
+  - CLI `commands.ts` `runDoctor`가 파서와 **같은** `maxResetHorizonMsFromEnv(env)` 지평선으로
+    `distantResets`를 수집 → 두 표면(파서 드롭·doctor 경고)이 "너무 멀다"의 기준을 공유. `--json`은
+    체크를 자동 노출.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 649 · cli 357/1skip · dashboard 9**; core doctor +11[distantResets 8 +
+  reset-horizon 검사 3], cli doctor +3). **실제 빌드 CLI e2e**(mock 아님): 2029 리셋 `waiting_for_reset`
+  잡이 있는 임시 스토어에서 `doctor`가 `reset-horizon warning`(8d 지평선·865d 카운트다운·짧은 id
+  `11112222 (webapp)`) 렌더, 같은 스토어에 2h 리셋 잡은 미플래그, `AGENTRELAY_MAX_RESET_HORIZON=off`면
+  "guard disabled" OK, `--json`이 체크를 warning으로 노출·`report.ok` true(경고는 실패 아님) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도
+  먼-미래 리셋 잡 배지 노출(세션 33 하트비트 카드 옆), 또는 `doctor`가 과거-쪽 극단(수년 전 epoch)도
+  misparse 신호로 보고. stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양.
+  README/ARCHITECTURE(🧭 코워크).

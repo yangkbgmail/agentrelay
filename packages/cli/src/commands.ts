@@ -40,6 +40,7 @@ import {
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
+  distantResets,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
   type ExportFormat,
@@ -1467,6 +1468,11 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // --- reset-horizon facts. A `waiting_for_reset` job parked far beyond any real
+  // usage window is a misparsed reset that will never come due. Judge against the
+  // same horizon the parser guard uses so both surfaces agree.
+  const resetHorizonMs = maxResetHorizonMsFromEnv(env);
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1486,6 +1492,10 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    resets: {
+      horizonMs: resetHorizonMs,
+      distant: distantResets(jobs, options.nowMs ?? Date.now(), resetHorizonMs),
+    },
   });
 }
 
