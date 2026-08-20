@@ -2259,3 +2259,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 파서 ISO 8601 기간 Retry-After/retryDelay 인식] (2026-08-20, 무인 자율 세션, branch `claude/wizardly-pascal-cxap3t`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 500+개를 전량 수집·키워드 스캔(#61~807)해 **어떤 열린 PR·현재 파서에도 없는** 실제
+  포맷 갭을 발굴: `Retry-After`/`retryDelay`가 ISO 8601 기간(`PT1H30M`·`PT30S`·`P1DT2H`)으로 오는
+  경우. 기존 `http-retry-after` 패턴은 delay-초와 HTTP-date(`…GMT`)만 잡고, .NET/Azure 호스팅
+  서비스가 `TimeSpan`을 ISO 8601로 직렬화해 실어 보내는 이 형태는 조용히 놓쳐 재개 시점이 어긋났다.
+- **한 일 (branch `claude/wizardly-pascal-cxap3t`):**
+  - core `parser.ts`: 순수 `parseIso8601DurationMs(token)` 신설(`P[nW][nD]T[nH][nM][nS]`→ms, 임의
+    소수 허용, 캘린더 상대적 년 `Y`·월 `M`(before `T`)은 날짜 의존이라 null 거부, 컴포넌트 없는
+    `P`/`PT`도 null). 새 패턴 `iso8601-duration`을 `http-retry-after` **뒤**에 삽입 — 두 패턴은
+    disjoint(그건 콜론 뒤 숫자/`…GMT`만, 이건 선행 `P`만)이라 `Retry-After: 3600`은 여전히
+    http-retry-after로 감. `retry[-_ ]?(after|delay)` 키 뒤 ISO 토큰만 매칭 + 값을
+    `parseIso8601DurationMs`로 검증해 비-기간 값(`retry-after: Ptolemy`)은 폴스루. `PT0S`=즉시
+    재개(now). 사전필터 `LOOKS_LIKE_RATE_LIMIT`에 `retry.?delay` 추가(`retryDelay:` 페이로드도 루프
+    도달). **새 스키마·잡·스케줄러 로직 0줄** — `parse` 진단 커맨드가 파서를 그대로 써 자동 인식.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 651 · cli 354/1skip · dashboard 9**; parser.test +12: 통합 7 + `parseIso8601DurationMs`
+  단위 5). **실제 빌드 CLI `parse` e2e**(mock 아님): `Retry-After: PT1H30M`→`iso8601-duration`(in 1h 30m)·
+  `{"retryDelay":"PT30S"}`→인식·숫자 `Retry-After: 3600`은 `http-retry-after` 유지·`Retry-After: Ptolemy`는
+  미감지(exit 0) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — Gemini/Azure의
+  또 다른 실사용 wording(`quota`/`RESOURCE_EXHAUSTED` 조합) 수집, 또는 초 단위 `retryDelay`(초 접미)와
+  ISO의 공존 정리. doctor 먼-미래 리셋·stats 분산/watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

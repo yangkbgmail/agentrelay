@@ -3,6 +3,7 @@ import {
   DEFAULT_MAX_RESET_HORIZON_MS,
   isPlausibleReset,
   maxResetHorizonMsFromEnv,
+  parseIso8601DurationMs,
   parseRateLimitMessage,
 } from "../src/parser.js";
 
@@ -241,6 +242,52 @@ describe("parseRateLimitMessage", () => {
     expect(result).toBeNull();
   });
 
+  it("parses a Retry-After expressed as an ISO 8601 duration (PT1H30M)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("HTTP 429 Too Many Requests\nRetry-After: PT1H30M", { now });
+    expect(result?.pattern).toBe("iso8601-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
+  });
+
+  it("parses a quoted retryDelay ISO 8601 duration (JSON payload)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage('{"error":"throttled","retryDelay":"PT30S"}', { now });
+    expect(result?.pattern).toBe("iso8601-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30_000).toISOString());
+  });
+
+  it("parses an ISO 8601 retry_delay with a day component (P1DT2H)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("retry_delay=P1DT2H", { now });
+    expect(result?.pattern).toBe("iso8601-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 26 * 60 * 60_000).toISOString());
+  });
+
+  it("accepts a fractional-second ISO 8601 Retry-After (PT0.5S)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Retry-After: PT0.5S", { now });
+    expect(result?.pattern).toBe("iso8601-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 500).toISOString());
+  });
+
+  it("treats a zero-length ISO 8601 duration as an immediate resume (PT0S)", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Retry-After: PT0S", { now });
+    expect(result?.pattern).toBe("iso8601-duration");
+    expect(result?.resetAt).toBe(now.toISOString());
+  });
+
+  it("keeps the numeric Retry-After on http-retry-after, not the ISO pattern", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Retry-After: 3600", { now });
+    expect(result?.pattern).toBe("http-retry-after");
+  });
+
+  it("falls through a non-duration Retry-After value instead of matching ISO", () => {
+    const result = parseRateLimitMessage("Retry-After: Ptolemy");
+    expect(result).toBeNull();
+  });
+
   it("finds the rate-limit line inside noisy multi-line CLI output", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const noisy = [
@@ -355,5 +402,41 @@ describe("maxResetHorizonMsFromEnv", () => {
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "off" })).toBeNull();
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "none" })).toBeNull();
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "banana" })).toBeNull();
+  });
+});
+
+describe("parseIso8601DurationMs", () => {
+  it("parses time-only durations", () => {
+    expect(parseIso8601DurationMs("PT1H30M")).toBe(90 * 60_000);
+    expect(parseIso8601DurationMs("PT30S")).toBe(30_000);
+    expect(parseIso8601DurationMs("PT45M")).toBe(45 * 60_000);
+    expect(parseIso8601DurationMs("PT2H")).toBe(2 * 60 * 60_000);
+    expect(parseIso8601DurationMs("PT1H30M15S")).toBe((90 * 60 + 15) * 1000);
+  });
+
+  it("parses week/day components", () => {
+    expect(parseIso8601DurationMs("P1D")).toBe(24 * 60 * 60_000);
+    expect(parseIso8601DurationMs("P1W")).toBe(7 * 24 * 60 * 60_000);
+    expect(parseIso8601DurationMs("P1DT2H")).toBe(26 * 60 * 60_000);
+  });
+
+  it("accepts fractional components and is case-insensitive", () => {
+    expect(parseIso8601DurationMs("PT0.5S")).toBe(500);
+    expect(parseIso8601DurationMs("PT1.5H")).toBe(90 * 60_000);
+    expect(parseIso8601DurationMs("pt30s")).toBe(30_000);
+  });
+
+  it("treats a zero duration as 0 ms (not null)", () => {
+    expect(parseIso8601DurationMs("PT0S")).toBe(0);
+  });
+
+  it("rejects bare designators, calendar months/years, and junk", () => {
+    expect(parseIso8601DurationMs("P")).toBeNull();
+    expect(parseIso8601DurationMs("PT")).toBeNull();
+    expect(parseIso8601DurationMs("")).toBeNull();
+    expect(parseIso8601DurationMs("P1M")).toBeNull(); // month (calendar-relative)
+    expect(parseIso8601DurationMs("P1Y")).toBeNull(); // year (calendar-relative)
+    expect(parseIso8601DurationMs("Ptolemy")).toBeNull();
+    expect(parseIso8601DurationMs("1H30M")).toBeNull(); // missing leading P
   });
 });

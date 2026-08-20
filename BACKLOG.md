@@ -870,6 +870,24 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 파서: `Retry-After`/`retryDelay` ISO 8601 기간(`PT1H30M`/`PT30S`/`P1DT2H`) 인식. 자기 발굴 항목 —
+      기존 `http-retry-after` 패턴은 delay-초(`Retry-After: 3600`)와 HTTP-date(`…GMT`)만 잡았는데, .NET/
+      Azure 호스팅 서비스 등 `TimeSpan`을 ISO 8601 기간으로 직렬화하는 구조화 API는 재시도 힌트를
+      `Retry-After: PT1H30M`·`"retryDelay":"PT30S"` 형태로 실어 보내 파서가 조용히 놓쳤다(열린 PR 500+개
+      어디에도 없던 실제 포맷 갭).
+      (완료 — `@agentrelay/core/parser.ts`에 순수 `parseIso8601DurationMs(token)` 신설: `P[nW][nD]T[nH][nM][nS]`
+      를 ms로 변환(주/일/시/분/초 + 임의 소수 허용), 캘린더 상대적인 년(`Y`)·월(`M` before `T`)은 길이가
+      날짜 의존이라 의도적으로 null 거부, 컴포넌트 없는 `P`/`PT`도 null. 새 패턴 `iso8601-duration`을
+      `http-retry-after` 뒤에 삽입 — 두 패턴은 disjoint(그건 콜론 뒤 숫자/`…GMT`만, 이건 선행 `P`만).
+      `retry[-_ ]?(after|delay)` 키 뒤의 ISO 토큰만 매칭하고 값은 `parseIso8601DurationMs`로 검증 →
+      비-기간 값(`retry-after: Ptolemy`)은 매치 안 한 듯 폴스루. `PT0S`=즉시 재개(now). 사전필터
+      `LOOKS_LIKE_RATE_LIMIT`에 `retry.?delay` 추가(`retryDelay:` 페이로드도 루프 도달). 새 스키마·잡·
+      스케줄러 로직 0줄 — `parse` 진단 커맨드가 파서를 그대로 써 자동 인식. parser.test +12(통합 7:
+      PT1H30M·quoted PT30S·P1DT2H·소수 PT0.5S·PT0S 즉시·숫자는 http-retry-after 유지·비-기간 폴스루 +
+      `parseIso8601DurationMs` 단위 5: 시간전용·주/일·소수/대소문자·0=0ms·바로/월·년/junk 거부). 실제
+      빌드 CLI `parse` e2e로 PT1H30M→iso8601-duration(1h30m)·retryDelay PT30S 인식·숫자 3600은
+      http-retry-after 유지·Ptolemy는 미감지(exit 0) 확인. branch `claude/wizardly-pascal-cxap3t`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
