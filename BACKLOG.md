@@ -28,31 +28,4 @@
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
-- (자세한 이전 세션 항목은 이 파일의 앞부분과 PROGRESS.md 로그에 있음. 이 세션이 추가한 항목:)
-
-- [x] 👷 `agentrelay doctor` 큐-사이드 리셋 지평선 검사(`queued-reset-horizon`) — 세션 72
-      파스-사이드 가드(`isPlausibleReset`)가 못 잡는 잔여 케이스: 가드 도입 전에 만들어진 스토어,
-      가드가 꺼졌던 시점에 큐잉된 잡, 라이터 지평선이 짧아진 뒤 남은 잡. 잡의 `resetAt`이 현재
-      지평선 너머에 파킹되어 있으면 `listDue`가 영원히 릴리스하지 않아 조용히 재개 실패 — 자기
-      발굴 항목(어떤 열린 PR도 다루지 않음).
-      (완료 — `@agentrelay/core/doctor.ts`에 `FarFutureResetFact`(id·project·resetAt·futureMs)
-      타입 + 순수 `distinctFarFutureResets(jobs, {now, maxFutureMs})` 신설: `waiting_for_reset`인
-      잡 중 `resetAt`이 `now + maxFutureMs`를 넘는 것만 반환, 미래-쪽만 경계(파스 가드와 동일 규칙 —
-      과거 리셋은 due-now이므로 별개 관심사), 파싱 불가/null `resetAt`은 스킵(다른 방식으로 malformed
-      이라 여기서 울지 않음), worst-first 정렬. `maxFutureMs`가 null/비양수/비유한이면 빈 배열(가드
-      비활성 신호). `DiagnosticInput`에 `farFutureResets`+`maxFutureResetMs` 필드, `runDiagnostics`에
-      `queuedResetHorizonCheck`(파스 가드와 같은 완만한 warning — 릴레이 자체는 안 부서졌고 잡 하나가
-      스스로 안 풀릴 뿐, `cancel`/`retry` 힌트) 추가(node→store→...→daemon→**queued-reset-horizon**
-      →config→notify 순). `humanizeDuration`(초~일 컴팩트) 헬퍼도 sibling으로 신설(`humanizeAge`와 동일
-      라운딩). CLI `commands.ts` `runDoctor`가 `maxResetHorizonMsFromEnv()`로 지평선을 파스와 **동일하게**
-      해소해 `distinctFarFutureResets`에 주입(`options.nowMs` 지원 유지 → 결정론). 파스 가드가 `off`면
-      큐-검사도 자동 OK-skipped(설정 한 곳으로 양 표면 판정이 일치). core doctor +12 신규(파스+검사 파싱
-      경계·비-waiting 무시·과거 무시·null/미파싱 무시·가드 비활성 빈 배열·worst-first 정렬·검사 OK/warning/
-      skipped 3케이스), CLI doctor +3 신규(실제 스토어·seed된 30일 ghost·기본/off 스위치). 실제 빌드 CLI
-      `agentrelay doctor` e2e로 빈 스토어→OK·30일 ghost 잡→warning(`8d horizon` + `ghost` project +
-      `30d` future + cancel/retry hint)·`AGENTRELAY_MAX_RESET_HORIZON=off`면 skipped 확인. 새 파서/스케줄러
-      로직 0줄 — 판정은 순수, 데이터 소스는 스토어 자체. branch `claude/wizardly-pascal-z54k04`)
-
-## 코워크가 발굴한 신규 항목 (수시 추가)
-
-- (아직 없음)
+[STUB_PLACEHOLDER_TO_BE_REPLACED_BY_LOCAL_FILE_UPLOAD]
