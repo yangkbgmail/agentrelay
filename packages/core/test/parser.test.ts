@@ -4,7 +4,12 @@ import {
   isPlausibleReset,
   maxResetHorizonMsFromEnv,
   parseRateLimitMessage,
+  stripAnsi,
 } from "../src/parser.js";
+
+const ESC = String.fromCharCode(27); // \x1b
+/** Wrap `s` in a bold SGR color sequence, the way an agent CLI would. */
+const bold = (s: string): string => `${ESC}[1m${s}${ESC}[0m`;
 
 describe("parseRateLimitMessage", () => {
   it("returns null for unrelated text", () => {
@@ -355,5 +360,71 @@ describe("maxResetHorizonMsFromEnv", () => {
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "off" })).toBeNull();
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "none" })).toBeNull();
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "banana" })).toBeNull();
+  });
+});
+
+describe("stripAnsi", () => {
+  it("removes SGR color sequences", () => {
+    expect(stripAnsi(`${ESC}[31mred${ESC}[0m`)).toBe("red");
+    expect(stripAnsi(bold("bold"))).toBe("bold");
+  });
+
+  it("removes cursor/erase CSI sequences", () => {
+    expect(stripAnsi(`clear${ESC}[2K${ESC}[1Gline`)).toBe("clearline");
+  });
+
+  it("removes OSC hyperlink/title sequences terminated by BEL", () => {
+    const bel = String.fromCharCode(7);
+    expect(stripAnsi(`${ESC}]0;window title${bel}text`)).toBe("text");
+  });
+
+  it("leaves plain text untouched", () => {
+    expect(stripAnsi("try again in 5m")).toBe("try again in 5m");
+    expect(stripAnsi("")).toBe("");
+  });
+});
+
+describe("parseRateLimitMessage — colorized (ANSI) output", () => {
+  it("parses a clock-time with the hour wrapped in color codes", () => {
+    // Real Claude Code prints the reset time with emphasis; the escape codes
+    // land between "at" and "5pm" and would otherwise break the match.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const colored = `Your limit will reset at ${bold("5pm")}.`;
+    // Sanity check: the raw form really is un-parseable without stripping.
+    expect(colored).not.toBe(stripAnsi(colored));
+    const result = parseRateLimitMessage(colored, { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.rawMatch).toBe("reset at 5pm"); // rawMatch reflects stripped text
+  });
+
+  it("parses a relative duration with the value wrapped in color codes", () => {
+    const now = new Date("2026-07-12T08:00:00Z");
+    const colored = `${ESC}[31mUsage limit reached — try again in ${bold("45m")}${ESC}[0m`;
+    const result = parseRateLimitMessage(colored, { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("relative-duration");
+    expect(new Date(result!.resetAt).getTime()).toBe(now.getTime() + 45 * 60_000);
+  });
+
+  it("parses a colorized ISO timestamp", () => {
+    const colored = `usage limit — resets at ${bold("2026-07-13T05:00:00Z")}`;
+    const result = parseRateLimitMessage(colored);
+    expect(result?.pattern).toBe("iso-timestamp");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("applies stripping to adapter (extraPattern) matches too", () => {
+    // Adapter patterns bypass the generic pre-filter but still see stripped text.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const colored = `please ${bold("try again in 20s")}`;
+    const secondsPattern = {
+      name: "seconds",
+      regex: /try again in (\d+)s\b/i,
+      resolve: (m: RegExpMatchArray, n: Date) => new Date(n.getTime() + Number(m[1]) * 1000),
+    };
+    const result = parseRateLimitMessage(colored, { now, extraPatterns: [secondsPattern] });
+    expect(result?.pattern).toBe("seconds");
+    expect(new Date(result!.resetAt).getTime()).toBe(now.getTime() + 20_000);
   });
 });
