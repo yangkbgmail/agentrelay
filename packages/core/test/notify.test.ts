@@ -3,9 +3,11 @@ import {
   combineNotifiers,
   createSlackNotifier,
   createWebhookNotifier,
+  DEFAULT_NOTIFY_TIMEOUT_MS,
   formatSlackText,
   listNotifyChannels,
   notifiersFromEnv,
+  notifyTimeoutMsFromEnv,
   sendTestNotification,
   slackNotifierFromEnv,
   testNotifyPayload,
@@ -66,6 +68,109 @@ describe("createSlackNotifier", () => {
 
     await expect(notify(payload)).resolves.toBeUndefined();
     expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("notification request timeout", () => {
+  /** A fetch that never settles — models a webhook that accepts the connection but never responds. */
+  const hangingFetch = (() => new Promise<Response>(() => {})) as unknown as typeof fetch;
+
+  it("times out a hung Slack POST and reports it via onError instead of hanging forever", async () => {
+    const onError = vi.fn();
+    const notify = createSlackNotifier({
+      webhookUrl: "https://hooks.slack.test/abc",
+      fetchFn: hangingFetch,
+      onError,
+      timeoutMs: 20,
+    });
+
+    await expect(notify(payload)).resolves.toBeUndefined();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(String(onError.mock.calls[0][0])).toContain("timed out");
+  });
+
+  it("times out a hung webhook POST and reports it via onError", async () => {
+    const onError = vi.fn();
+    const notify = createWebhookNotifier({
+      url: "https://hooks.example.test/relay",
+      fetchFn: hangingFetch,
+      onError,
+      timeoutMs: 20,
+    });
+
+    await expect(notify(payload)).resolves.toBeUndefined();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(String(onError.mock.calls[0][0])).toContain("timed out");
+  });
+
+  it("passes an AbortSignal to fetch when a timeout is active", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const notify = createWebhookNotifier({ url: "https://hooks.example.test/relay", fetchFn, timeoutMs: 5000 });
+
+    await notify(payload);
+
+    const [, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(init.signal?.aborted).toBe(false);
+  });
+
+  it("omits the signal (no bound) when the timeout is disabled with null", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const notify = createWebhookNotifier({ url: "https://hooks.example.test/relay", fetchFn, timeoutMs: null });
+
+    await notify(payload);
+
+    const [, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.signal).toBeUndefined();
+  });
+
+  it("does not fire onError when fetch resolves before the timeout", async () => {
+    const onError = vi.fn();
+    const notify = createSlackNotifier({
+      webhookUrl: "https://hooks.slack.test/abc",
+      fetchFn: async () => okResponse(),
+      onError,
+      timeoutMs: 5000,
+    });
+
+    await notify(payload);
+    expect(onError).not.toHaveBeenCalled();
+  });
+});
+
+describe("notifyTimeoutMsFromEnv", () => {
+  it("defaults when the env var is unset or blank", () => {
+    expect(notifyTimeoutMsFromEnv({})).toBe(DEFAULT_NOTIFY_TIMEOUT_MS);
+    expect(notifyTimeoutMsFromEnv({ AGENTRELAY_NOTIFY_TIMEOUT: "  " })).toBe(DEFAULT_NOTIFY_TIMEOUT_MS);
+  });
+
+  it("parses a duration string", () => {
+    expect(notifyTimeoutMsFromEnv({ AGENTRELAY_NOTIFY_TIMEOUT: "15s" })).toBe(15_000);
+    expect(notifyTimeoutMsFromEnv({ AGENTRELAY_NOTIFY_TIMEOUT: "500ms" })).toBe(500);
+    expect(notifyTimeoutMsFromEnv({ AGENTRELAY_NOTIFY_TIMEOUT: "2m" })).toBe(120_000);
+  });
+
+  it("disables the bound (null) for off-words", () => {
+    for (const word of ["0", "off", "none", "disabled", "no", "OFF"]) {
+      expect(notifyTimeoutMsFromEnv({ AGENTRELAY_NOTIFY_TIMEOUT: word })).toBeNull();
+    }
+  });
+
+  it("falls back to the default on an unparseable value rather than silently dropping the guard", () => {
+    expect(notifyTimeoutMsFromEnv({ AGENTRELAY_NOTIFY_TIMEOUT: "banana" })).toBe(DEFAULT_NOTIFY_TIMEOUT_MS);
+  });
+
+  it("is wired through slackNotifierFromEnv (a hung POST times out)", async () => {
+    const onError = vi.fn();
+    const notify = slackNotifierFromEnv(
+      { AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/abc", AGENTRELAY_NOTIFY_TIMEOUT: "20ms" },
+      { fetchFn: (() => new Promise<Response>(() => {})) as unknown as typeof fetch, onError }
+    );
+    expect(notify).not.toBeNull();
+
+    await expect(notify!(payload)).resolves.toBeUndefined();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(String(onError.mock.calls[0][0])).toContain("timed out");
   });
 });
 
