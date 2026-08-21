@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { corruptBackupPath, RelayQueue } from "../src/queue.js";
+import { compareDueOrder, corruptBackupPath, jobPriority, normalizePriority, RelayQueue } from "../src/queue.js";
 import type { RelayJob } from "../src/types.js";
 
 describe("RelayQueue", () => {
@@ -253,5 +253,103 @@ describe("RelayQueue", () => {
       expect(result).toMatchObject({ added: 0, updated: 0, skippedExisting: 1 });
       expect(readFileSync(join(dir, "test.db"), "utf8")).toBe(before);
     });
+  });
+
+  describe("priority & due order", () => {
+    it("defaults an enqueued job's priority to 0", () => {
+      const job = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+      expect(job.priority).toBe(0);
+    });
+
+    it("persists an explicit priority through a reload", () => {
+      const job = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: "/tmp", priority: 7 });
+      expect(job.priority).toBe(7);
+      const reopened = new RelayQueue(join(dir, "test.db"));
+      expect(reopened.getById(job.id)?.priority).toBe(7);
+    });
+
+    it("normalizes a non-finite priority to 0 on enqueue", () => {
+      const job = queue.enqueue({
+        project: "p",
+        tool: "claude-code",
+        command: ["claude"],
+        cwd: "/tmp",
+        priority: Number.NaN,
+      });
+      expect(job.priority).toBe(0);
+    });
+
+    it("orders due jobs by priority (highest first), then earliest reset", () => {
+      const past = "2020-01-01T00:00:00.000Z";
+      const later = "2020-01-01T00:00:10.000Z";
+      const low = queue.enqueue({ project: "low", tool: "claude-code", command: ["a"], cwd: "/tmp" });
+      const high = queue.enqueue({ project: "high", tool: "claude-code", command: ["b"], cwd: "/tmp", priority: 5 });
+      const mid = queue.enqueue({ project: "mid", tool: "claude-code", command: ["c"], cwd: "/tmp", priority: 1 });
+      // Give the low-priority job the *earliest* reset to prove priority wins over reset time.
+      queue.markWaitingForReset(low.id, past);
+      queue.markWaitingForReset(high.id, later);
+      queue.markWaitingForReset(mid.id, later);
+
+      const due = queue.listDue(new Date("2020-02-01T00:00:00.000Z"));
+      expect(due.map((j) => j.project)).toEqual(["high", "mid", "low"]);
+    });
+
+    it("breaks equal priority by earliest reset first", () => {
+      const early = queue.enqueue({ project: "early", tool: "claude-code", command: ["a"], cwd: "/tmp" });
+      const late = queue.enqueue({ project: "late", tool: "claude-code", command: ["b"], cwd: "/tmp" });
+      queue.markWaitingForReset(late.id, "2020-01-01T00:00:20.000Z");
+      queue.markWaitingForReset(early.id, "2020-01-01T00:00:05.000Z");
+
+      const due = queue.listDue(new Date("2020-02-01T00:00:00.000Z"));
+      expect(due.map((j) => j.project)).toEqual(["early", "late"]);
+    });
+  });
+});
+
+describe("compareDueOrder / priority helpers (pure)", () => {
+  const j = (over: Partial<RelayJob>): RelayJob => ({
+    id: "id",
+    project: "p",
+    tool: "claude-code",
+    command: ["claude"],
+    cwd: "/tmp",
+    status: "waiting_for_reset",
+    resetAt: "2026-07-13T00:00:00.000Z",
+    createdAt: "2026-07-13T00:00:00.000Z",
+    updatedAt: "2026-07-13T00:00:00.000Z",
+    attempts: 0,
+    lastError: null,
+    lastOutputTail: null,
+    ...over,
+  });
+
+  it("jobPriority reads a finite value and defaults the rest to 0", () => {
+    expect(jobPriority(j({ priority: 3 }))).toBe(3);
+    expect(jobPriority(j({ priority: -2 }))).toBe(-2);
+    expect(jobPriority(j({ priority: undefined }))).toBe(0);
+    expect(jobPriority(j({ priority: Number.POSITIVE_INFINITY }))).toBe(0);
+  });
+
+  it("normalizePriority coerces to a finite default of 0", () => {
+    expect(normalizePriority(4)).toBe(4);
+    expect(normalizePriority(undefined)).toBe(0);
+    expect(normalizePriority(Number.NaN)).toBe(0);
+    expect(normalizePriority(Number.POSITIVE_INFINITY)).toBe(0);
+  });
+
+  it("sorts by priority desc, reset asc, created asc, id asc", () => {
+    const a = j({ id: "a", priority: 0, resetAt: "2026-07-13T02:00:00.000Z" });
+    const b = j({ id: "b", priority: 2, resetAt: "2026-07-13T05:00:00.000Z" });
+    const c = j({ id: "c", priority: 0, resetAt: "2026-07-13T01:00:00.000Z" });
+    const sorted = [a, b, c].sort(compareDueOrder);
+    expect(sorted.map((x) => x.id)).toEqual(["b", "c", "a"]);
+  });
+
+  it("is a stable total order (antisymmetric on equal jobs)", () => {
+    const x = j({ id: "x" });
+    const y = j({ id: "y" });
+    expect(compareDueOrder(x, y)).toBe(-1);
+    expect(compareDueOrder(y, x)).toBe(1);
+    expect(compareDueOrder(x, x)).toBe(0);
   });
 });

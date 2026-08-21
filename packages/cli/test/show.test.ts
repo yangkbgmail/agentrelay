@@ -54,6 +54,15 @@ describe("renderJobDetail", () => {
     expect(out).toContain("attempts   2");
   });
 
+  it("shows the priority line only when priority is a non-zero number", () => {
+    expect(renderJobDetail(job(), { now: NOW })).not.toContain("priority");
+    expect(renderJobDetail(job({ priority: 0 }), { now: NOW })).not.toContain("priority");
+    const out = renderJobDetail(job({ priority: 5 }), { now: NOW });
+    expect(out).toContain("priority   5");
+    const negative = renderJobDetail(job({ priority: -3 }), { now: NOW });
+    expect(negative).toContain("priority   -3");
+  });
+
   it("shows the reset countdown with the absolute time when resetAt is set", () => {
     const out = renderJobDetail(job(), { now: NOW });
     expect(out).toContain("resets in  1h 30m");

@@ -133,6 +133,22 @@ function splitList(raw: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+/**
+ * Parse the `run --priority <n>` option into a finite number. Returns
+ * `undefined` when the flag was omitted (so the job takes the default `0`), and
+ * exits 1 on a value that isn't a finite number — a silent fallback to 0 would
+ * hide a typo that quietly drops the user's intended ordering.
+ */
+function parsePriorityOption(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = Number(raw.trim());
+  if (raw.trim() === "" || !Number.isFinite(value)) {
+    console.error(`Invalid --priority value "${raw}". Use a number (e.g. 10, 0, -5).`);
+    process.exit(1);
+  }
+  return value;
+}
+
 /** The `--status`/`--tool`/`--project`/`--since`/`--until` filter options. */
 interface ScopeOpts {
   status?: string;
@@ -543,13 +559,19 @@ export function buildCli(): Command {
       "-p, --project <name>",
       "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
     )
-    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
+    .option(
+      "--priority <n>",
+      "Resume priority when several jobs come due at once — higher runs first, negative deprioritizes (default 0)"
+    )
+    .action(async (command: string[], opts: { tool?: string; project?: string; priority?: string }) => {
       const { store } = program.opts();
+      const priority = parsePriorityOption(opts.priority);
       const result = await runCommand({
         command,
         storePath: store,
         tool: opts.tool as AgentTool | undefined,
         project: opts.project,
+        priority,
       });
       process.exitCode = result.exitCode;
     });

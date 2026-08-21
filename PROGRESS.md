@@ -2259,3 +2259,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 잡 우선순위(priority) + 결정론적 due-순서] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-priority-due-order`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 535개가 doctor reset-horizon(10+)·watch 변형·stats 분산·파서 wording 등으로 극도로 포화라,
+  전체 PR 제목을 키워드 스캔해 **어떤 열린 PR에도 없는** 실제 갭을 발굴: `queue.ts`의 `listDue`가
+  due 잡을 **필터만 하고 정렬을 안 해** Map 삽입 순서로 반환 → `maxConcurrent=1`(기본 직렬)에서
+  "resume herd"(같은 리셋 시각 공유 다수 잡)의 재개 순서가 스토어 삽입 순서라는 우연에 좌우되고,
+  중요한 잡을 먼저 재개할 방법이 없었다.
+- **한 일 (branch `claude/wizardly-pascal-priority-due-order`):**
+  - core `queue.ts`: 순수 `compareDueOrder(a,b)`(우선순위 desc → resetAt asc[가장 오래 기다린 잡 우선
+    =FIFO 공정성] → createdAt asc → id asc 총순서) + `jobPriority`(유한값만, 그 외 0) +
+    `normalizePriority`(enqueue 시 유한 기본 0으로 정규화). `RelayJob.priority?`·`CreateJobInput.priority?`
+    필드 추가(옵셔널 = 기존 스토어 무마이그레이션 로드, 누락=0). `enqueue`가 priority 저장, `listDue`가
+    필터 뒤 `compareDueOrder`로 정렬 → 스케줄러가 우선순위·공정성 순으로 재개.
+  - CLI `run --priority <n>`(higher 먼저, 음수 deprioritize) — `parsePriorityOption`이 비유한 값을
+    exit 1로 거부(조용한 0 폴백으로 오타를 숨기지 않음). `commands.ts` `RunOptions.priority`→enqueue 배선.
+    `show`가 non-zero priority 라인 렌더.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 648 · cli 355/1skip · dashboard 9**; queue.test +11, show.test +1). **실제 빌드 CLI e2e**(mock
+  아님): `run --priority 10`으로 큐잉된 잡이 priority 10 저장·`show`에 "priority 10" 표시·`status --json`에
+  priority 필드 노출, `--priority abc`는 "Invalid --priority value" + exit 1, `run --help`에 `--priority`
+  노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `agentrelay
+  reprioritize <id> <n>`(대기 잡 우선순위 사후 변경), `status`/`upcoming`에 priority 컬럼 노출, 대시보드
+  priority 표시. doctor reset-horizon·watch·stats 분산은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
