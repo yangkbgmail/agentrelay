@@ -183,10 +183,27 @@ const PATTERNS: RateLimitPattern[] = [
     regex: /5[\s-]?hour(?:ly)?\s+(?:usage\s+)?limit/i,
     resolve: (_m, now) => new Date(now.getTime() + 5 * 60 * 60_000),
   },
+  {
+    // Claude's plans carry a rolling *weekly* usage limit alongside the 5-hour
+    // window (introduced 2025). When that limit trips and the message carries no
+    // explicit reset time (e.g. "You've reached your weekly limit"), fall back to
+    // a full 7-day window from now — the conservative bound that never resumes
+    // too early, mirroring the 5-hour fallback's rationale. Kept after the
+    // 5-hour fallback and last overall: lowest confidence, reached only when no
+    // explicit reset time matched. A message that *does* spell out the reset
+    // (an ISO stamp, a clock time, "resets in 2d 4h") matches an earlier,
+    // higher-confidence pattern first, so this only fires for the timeless case.
+    // 7d stays under DEFAULT_MAX_RESET_HORIZON_MS (8d), so the plausibility guard
+    // keeps it rather than dropping it as a misparse.
+    name: "weekly-window-fallback",
+    regex: /weekly\s+(?:usage\s+|rate\s+)?limit/i,
+    resolve: (_m, now) => new Date(now.getTime() + 7 * 24 * 60 * 60_000),
+  },
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|weekly\s+(?:usage\s+|rate\s+)?limit|try again|resets?\s+(at|in)|retry.?after)/i;
 
 function tryPattern(
   pattern: RateLimitPattern,
