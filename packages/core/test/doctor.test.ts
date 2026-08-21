@@ -4,6 +4,7 @@ import {
   countActiveJobs,
   type DiagnosticInput,
   distinctActiveBinaries,
+  farFutureResets,
   isSupportedNode,
   parseNodeVersion,
   runDiagnostics,
@@ -39,6 +40,7 @@ function input(overrides: Partial<DiagnosticInput> = {}): DiagnosticInput {
     notify: { slackWebhook: "https://hooks.slack.com/x" },
     adapters: { binaries: [] },
     heartbeat: { present: false },
+    resets: { horizonMs: 8 * 24 * 60 * 60_000, farFuture: [] },
     ...overrides,
   };
 }
@@ -107,6 +109,7 @@ describe("runDiagnostics", () => {
     expect(find(report, "store").level).toBe("ok");
     expect(find(report, "store-writable").level).toBe("ok");
     expect(find(report, "adapters").level).toBe("ok");
+    expect(find(report, "resets").level).toBe("ok");
     expect(find(report, "config").level).toBe("ok");
     expect(find(report, "notify").level).toBe("ok");
   });
@@ -241,7 +244,7 @@ describe("runDiagnostics", () => {
     const report = runDiagnostics(input({ nodeVersion: "v20.0.0", notify: {} }));
     expect(report.counts.error).toBe(1); // node
     expect(report.counts.warning).toBe(1); // notify
-    expect(report.counts.ok).toBe(5); // store + store-writable + adapters + daemon + config
+    expect(report.counts.ok).toBe(6); // store + store-writable + adapters + daemon + resets + config
     expect(report.ok).toBe(false);
   });
 
@@ -361,6 +364,112 @@ describe("runDiagnostics", () => {
       expect(daemon.level).toBe("ok");
       expect(daemon.message).toContain("tick");
     });
+  });
+
+  describe("resets (far-future reset) check", () => {
+    it("is OK when no waiting job is parked beyond the horizon", () => {
+      const report = runDiagnostics(input({ resets: { horizonMs: 8 * 24 * 60 * 60_000, farFuture: [] } }));
+      const resets = find(report, "resets");
+      expect(resets.level).toBe("ok");
+      expect(resets.message).toContain("no waiting job");
+      expect(report.ok).toBe(true);
+    });
+
+    it("is OK (not checking) when the guard is disabled", () => {
+      const report = runDiagnostics(input({ resets: { horizonMs: null, farFuture: [] } }));
+      const resets = find(report, "resets");
+      expect(resets.level).toBe("ok");
+      expect(resets.message).toContain("guard disabled");
+    });
+
+    it("warns and names the offending job when one is parked far in the future", () => {
+      const report = runDiagnostics(
+        input({
+          resets: {
+            horizonMs: 8 * 24 * 60 * 60_000,
+            farFuture: [
+              {
+                id: "abcdef0123",
+                project: "refactor",
+                resetAt: "2027-01-01T00:00:00.000Z",
+                beyondMs: 30 * 24 * 60 * 60_000,
+              },
+            ],
+          },
+        })
+      );
+      const resets = find(report, "resets");
+      expect(resets.level).toBe("warning");
+      expect(resets.message).toContain("1 waiting job(s)");
+      expect(resets.message).toContain("abcdef01"); // short id
+      expect(resets.message).toContain("refactor");
+      expect(resets.hint).toContain("agentrelay show");
+      // warnings don't fail the report
+      expect(report.ok).toBe(true);
+    });
+
+    it("summarizes the extra count when several are parked far out", () => {
+      const far = (id: string) => ({ id, project: "p", resetAt: "2030-01-01T00:00:00.000Z", beyondMs: 1_000 });
+      const report = runDiagnostics(
+        input({ resets: { horizonMs: 8 * 24 * 60 * 60_000, farFuture: [far("a1"), far("b2"), far("c3")] } })
+      );
+      const resets = find(report, "resets");
+      expect(resets.level).toBe("warning");
+      expect(resets.message).toContain("3 waiting job(s)");
+      expect(resets.message).toContain("and 2 more");
+    });
+  });
+});
+
+describe("farFutureResets", () => {
+  const now = Date.parse("2026-08-21T00:00:00.000Z");
+  const horizon = 8 * 24 * 60 * 60_000; // 8 days
+
+  it("flags a waiting job whose reset is beyond the horizon", () => {
+    const jobs = [
+      job({ status: "waiting_for_reset", resetAt: "2026-09-30T00:00:00.000Z" }), // ~40d out
+    ];
+    const out = farFutureResets(jobs, { nowMs: now, horizonMs: horizon });
+    expect(out).toHaveLength(1);
+    expect(out[0].project).toBe("demo");
+    expect(out[0].beyondMs).toBeGreaterThan(0);
+  });
+
+  it("ignores a waiting job whose reset is inside the horizon", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: "2026-08-22T00:00:00.000Z" })]; // 1d out
+    expect(farFutureResets(jobs, { nowMs: now, horizonMs: horizon })).toEqual([]);
+  });
+
+  it("only considers waiting_for_reset jobs (not queued/resuming/terminal)", () => {
+    const far = "2027-01-01T00:00:00.000Z";
+    const jobs = [
+      job({ status: "queued", resetAt: far }),
+      job({ status: "resuming", resetAt: far }),
+      job({ status: "completed", resetAt: far }),
+      job({ status: "waiting_for_reset", resetAt: far }),
+    ];
+    const out = farFutureResets(jobs, { nowMs: now, horizonMs: horizon });
+    expect(out).toHaveLength(1);
+  });
+
+  it("skips jobs with null or unparseable resetAt", () => {
+    const jobs = [
+      job({ status: "waiting_for_reset", resetAt: null }),
+      job({ status: "waiting_for_reset", resetAt: "not-a-date" }),
+    ];
+    expect(farFutureResets(jobs, { nowMs: now, horizonMs: horizon })).toEqual([]);
+  });
+
+  it("returns [] when the guard is disabled (null / non-positive horizon)", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: "2030-01-01T00:00:00.000Z" })];
+    expect(farFutureResets(jobs, { nowMs: now, horizonMs: null })).toEqual([]);
+    expect(farFutureResets(jobs, { nowMs: now, horizonMs: 0 })).toEqual([]);
+    expect(farFutureResets(jobs, { nowMs: now, horizonMs: -1 })).toEqual([]);
+  });
+
+  it("allows a past reset (already-lifted limit is safe to resume)", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: "2020-01-01T00:00:00.000Z" })];
+    expect(farFutureResets(jobs, { nowMs: now, horizonMs: horizon })).toEqual([]);
   });
 });
 

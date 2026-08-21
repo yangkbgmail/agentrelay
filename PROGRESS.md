@@ -2259,3 +2259,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay doctor` 먼-미래 리셋 잡 검사] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-zu9s9v`)
+- **배경:** BACKLOG의 열린 👷 항목이 전부 완료 상태라, 직전 세션(72)의 "다음 할 일"이 제안한 인접
+  후보를 자기 발굴 항목으로 착수. 세션 72의 파싱-시점 지평선 가드는 *새* 미스파싱만 막는다 — 스토어에
+  이미 앉아 있는 잡(가드 도입 전 파킹됐거나 가드가 꺼진 채 파킹된)은 여전히 수일/수년 뒤 리셋으로
+  `waiting_for_reset`에 조용히 갇혀 영원히 재개 안 됨. 이 프로젝트가 doctor·recover로 반복해 겨냥해온
+  바로 그 "silent failure" 부류라, doctor가 큐를 쓸어 경고하게 함.
+- **한 일 (branch `claude/wizardly-pascal-zu9s9v`):**
+  - core `doctor.ts`: 순수 `farFutureResets(jobs, {nowMs, horizonMs})` — `waiting_for_reset`이면서
+    `resetAt`이 `now+horizonMs` 밖인 잡만 수집(그 상태에서만 리셋이 잡을 막으므로). null/비양수/비유한
+    horizonMs=가드 비활성→`[]`, resetAt 없음·파싱불가·과거 리셋(이미 풀린 한도라 즉시 재개 안전)은 스킵.
+    `FarFutureReset`(id·project·resetAt·beyondMs)·`ResetFacts`(horizonMs·farFuture) 타입 추가.
+  - `runDiagnostics`에 `resets` 검사 삽입(순서 node→store→store-writable→adapters→daemon→**resets**→
+    config→notify): 가드 비활성=OK(미점검), 지평선 밖 0개=OK, 1개 이상=warning(첫 잡 짧은 id·project·
+    초과분 humanize + "and N more" + `show/cancel/retry` 힌트).
+  - CLI `commands.ts` `runDoctor`가 `maxResetHorizonMsFromEnv(env)`(파서와 동일 유효 지평선)와
+    `options.nowMs`로 `ResetFacts` 구성. 새 파서/스케줄러 로직 0줄 — 세션 72 인프라 재사용, CLI
+    doctor 렌더는 검사명 제네릭이라 수정 불필요.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 649 · cli 357/1skip · dashboard 9**; core doctor +10[farFutureResets 6 + resets 4],
+  cli doctor +3). **실제 빌드 CLI e2e**(mock 아님): 60일 리셋 잡→`resets` warning("aaaa1111 in refactor
+  resets 52d past it")·`AGENTRELAY_MAX_RESET_HORIZON=off`→"guard disabled — not checking"·2h 잡→OK·
+  `--json` resets 엔트리 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에 먼-미래
+  리셋 잡 배지 노출, `recover`가 먼-미래 리셋 잡을 즉시-due로 되돌리는 옵션, 과거-쪽 극단(수년 전 epoch)
+  misparse 신호. README/ARCHITECTURE는 🧭 코워크 소유라 미착수.

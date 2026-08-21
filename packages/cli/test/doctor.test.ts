@@ -143,6 +143,73 @@ describe("runDoctor", () => {
     expect(report.ok).toBe(true);
   });
 
+  /**
+   * Drop a fake executable into the temp dir so the parked job's binary resolves
+   * on PATH — otherwise the adapters check errors and masks the resets verdict.
+   */
+  function fakeBinaryOnPath(name: string): void {
+    const binPath = join(dir, name);
+    writeFileSync(binPath, "#!/bin/sh\necho hi\n", "utf8");
+    chmodSync(binPath, 0o755);
+  }
+
+  it("reports resets OK when no waiting job is parked far in the future", () => {
+    fakeBinaryOnPath("claude");
+    const queue = new RelayQueue(storePath);
+    const parked = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    // Park it 2h out — well inside the default 8-day horizon.
+    queue.markWaitingForReset(parked.id, new Date(Date.now() + 2 * 60 * 60_000).toISOString());
+    queue.close();
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { PATH: dir, AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+    });
+    const resets = find(report, "resets");
+    expect(resets.level).toBe("ok");
+    expect(resets.message).toContain("no waiting job");
+    expect(report.ok).toBe(true);
+  });
+
+  it("warns when a waiting job is parked with an implausibly far-future reset", () => {
+    fakeBinaryOnPath("claude");
+    const queue = new RelayQueue(storePath);
+    const parked = queue.enqueue({ project: "refactor", tool: "claude-code", command: ["claude"], cwd: dir });
+    // 60 days out — well past the default 8-day horizon (a classic misparse).
+    queue.markWaitingForReset(parked.id, new Date(Date.now() + 60 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { PATH: dir, AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+    });
+    const resets = find(report, "resets");
+    expect(resets.level).toBe("warning");
+    expect(resets.message).toContain("1 waiting job(s)");
+    expect(resets.message).toContain("refactor");
+    expect(resets.hint).toContain("agentrelay show");
+    // a warning alone still passes overall
+    expect(report.ok).toBe(true);
+  });
+
+  it("reports resets OK (not checking) when the horizon guard is disabled", () => {
+    const queue = new RelayQueue(storePath);
+    const parked = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(parked.id, new Date(Date.now() + 60 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_SLACK_WEBHOOK: "https://s", AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+    });
+    const resets = find(report, "resets");
+    expect(resets.level).toBe("ok");
+    expect(resets.message).toContain("guard disabled");
+  });
+
   it("reports store-writable OK for a writable store directory", () => {
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
     const writable = find(report, "store-writable");
