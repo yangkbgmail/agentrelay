@@ -91,6 +91,9 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
     lines.push(`  ${label("resets in")} ${formatCountdown(job.resetAt, now)} ${d(`(${job.resetAt})`)}`);
   }
   lines.push(`  ${label("attempts")} ${job.attempts}`);
+  if (typeof job.priority === "number" && Number.isFinite(job.priority) && job.priority !== 0) {
+    lines.push(`  ${label("priority")} ${job.priority} ${d("(higher resumes first when several are due)")}`);
+  }
 
   const detection = job.lastRateLimit;
   if (detection) {

@@ -81,6 +81,48 @@ export function compareJobsNewestFirst(a: RelayJob, b: RelayJob): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
+/**
+ * A job's effective resume priority: the stored value if it's a finite number,
+ * else `0`. Keeps missing (pre-priority stores) and malformed values from
+ * poisoning the comparator with `NaN`/`undefined`.
+ */
+export function jobPriority(job: RelayJob): number {
+  return typeof job.priority === "number" && Number.isFinite(job.priority) ? job.priority : 0;
+}
+
+/**
+ * Normalize a user-supplied priority into a finite number, defaulting to `0`.
+ * Used at enqueue time so the persisted job always carries a clean value.
+ */
+export function normalizePriority(priority: number | undefined): number {
+  return typeof priority === "number" && Number.isFinite(priority) ? priority : 0;
+}
+
+/**
+ * Total order for resuming jobs that are all currently due. Without this,
+ * {@link RelayQueue.listDue} returned jobs in the store's Map-insertion order,
+ * so which of a "resume herd" (many jobs sharing one reset time) went first —
+ * and, under serial `maxConcurrent=1`, ran at all before a later one — was an
+ * unspecified accident of insertion order. This makes it deterministic and
+ * intentional:
+ *
+ * 1. **priority** — higher first, so an important job can jump the queue.
+ * 2. **resetAt** — earliest first, so the job that's been waiting longest to
+ *    resume goes ahead (FIFO fairness among equal priorities).
+ * 3. **createdAt** — oldest first, as a stable tiebreak for identical resets.
+ * 4. **id** — final deterministic tiebreak.
+ */
+export function compareDueOrder(a: RelayJob, b: RelayJob): number {
+  const pa = jobPriority(a);
+  const pb = jobPriority(b);
+  if (pa !== pb) return pb - pa; // higher priority first
+  const ra = a.resetAt ?? "";
+  const rb = b.resetAt ?? "";
+  if (ra !== rb) return ra < rb ? -1 : 1; // earliest reset first
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1; // oldest first
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
 export class RelayQueue {
   private filePath: string;
   private jobs: Map<string, RelayJob>;
@@ -177,6 +219,7 @@ export class RelayQueue {
       lastError: null,
       lastOutputTail: null,
       lastRateLimit: null,
+      priority: normalizePriority(input.priority),
     };
     this.jobs.set(job.id, job);
     this.flush();
@@ -438,8 +481,10 @@ export class RelayQueue {
   listDue(referenceTime: Date = new Date()): RelayJob[] {
     this.load();
     const ref = referenceTime.getTime();
-    return Array.from(this.jobs.values()).filter(
-      (job) => job.status === "waiting_for_reset" && job.resetAt !== null && new Date(job.resetAt).getTime() <= ref
-    );
+    return Array.from(this.jobs.values())
+      .filter(
+        (job) => job.status === "waiting_for_reset" && job.resetAt !== null && new Date(job.resetAt).getTime() <= ref
+      )
+      .sort(compareDueOrder);
   }
 }

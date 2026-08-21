@@ -870,6 +870,21 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 잡 우선순위(priority) + 결정론적 due-순서 — 여러 잡이 같은 tick에 due일 때 재개 순서가
+      불명확(Map 삽입 순서)했고 중요한 잡을 먼저 재개할 방법이 없었다. 자기 발굴 항목 — `listDue`가
+      필터만 하고 정렬을 안 해, `maxConcurrent=1`(기본 직렬)에서 "resume herd"(같은 리셋 시각을 공유한
+      다수 잡)의 재개 순서가 스토어 삽입 순서라는 우연에 좌우됐다.
+      (완료 — `@agentrelay/core/queue.ts`에 순수 `compareDueOrder(a,b)`(우선순위 desc → resetAt asc[가장
+      오래 기다린 잡 우선=FIFO 공정성] → createdAt asc → id asc 총순서) + `jobPriority`(유한값만, 그 외 0)
+      + `normalizePriority`(enqueue 시 유한 기본 0으로 정규화) 추가. `RelayJob.priority?`·`CreateJobInput.
+      priority?` 필드 추가(옵셔널 = 기존 스토어 무마이그레이션 로드, 누락=0). `enqueue`가 priority 저장,
+      `listDue`가 필터 뒤 `compareDueOrder`로 정렬 → 스케줄러가 우선순위·공정성 순으로 재개. CLI `run
+      --priority <n>`(higher 먼저, 음수 deprioritize; 비유한 값은 `parsePriorityOption`이 exit 1 —
+      조용한 0 폴백으로 오타를 숨기지 않음) + `show`가 non-zero priority 라인 렌더. queue.test +11(enqueue
+      기본/영속/정규화·herd 우선순위·동순위 reset 타이·pure 헬퍼·안티대칭 총순서) + show.test +1. 실제 빌드
+      CLI e2e로 priority 저장·show 표시·`status --json` 노출·무효값 exit 1 확인. branch
+      `claude/wizardly-pascal-priority-due-order`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

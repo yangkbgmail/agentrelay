@@ -53,6 +53,14 @@ export interface RelayJob {
    * rate limit has been detected yet.
    */
   lastRateLimit?: RateLimitDetection | null;
+  /**
+   * Resume priority when several jobs come due at the same tick. Higher runs
+   * first; negative deprioritizes. Defaults to `0`. Optional so stores written
+   * before this field existed load without migration (a missing value is
+   * treated as `0`). Ordering between equal priorities falls back to
+   * earliest-reset-first, then oldest-created — see `compareDueOrder`.
+   */
+  priority?: number;
 }
 
 export interface CreateJobInput {
@@ -60,6 +68,11 @@ export interface CreateJobInput {
   tool: AgentTool;
   command: string[];
   cwd: string;
+  /**
+   * Resume priority for the job (higher runs first when multiple are due).
+   * Defaults to `0` when omitted. See {@link RelayJob.priority}.
+   */
+  priority?: number;
 }
 
 export interface RetryPolicy {
