@@ -2259,3 +2259,24 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 대시보드 잡별 rate-limit 감지 출처(provenance) 노출] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-dash-provenance`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 처음 고른
+  "doctor reset-horizon 검사"는 push 시 원격에 같은 이름 브랜치가 이미 있어 확인해 보니 **열린 PR #727**(및
+  #813/#807/#804/#801/#799/#794/#791/#788/#782/#781/#779 등 다수 중복)이 이미 구현 중 — 극도로 포화. 열린
+  PR 50개 제목을 스캔해 **어떤 열린 PR에도 없는** 갭을 재발굴: 대시보드가 잡의 `lastRateLimit` 출처를
+  안 보여준다는 점(데이터는 API가 이미 클라이언트로 전달 중, UI만 미노출). CLI `show`에만 있던
+  "왜 이 리셋 시각인가"를 브라우저에도 제공.
+- **한 일 (branch `claude/wizardly-pascal-dash-provenance`):**
+  - `apps/dashboard/lib/provenance.ts` 신설(순수·node 테스트 가능): `truncateMatch`(공백 축약+트림+말줄임,
+    멀티라인 개행→단일 공백, max 초과분만 `…`, 비양수 max=빈 문자열) + `describeDetection`(RateLimitDetection
+    →`DetectionView`; 타임스탬프 포맷은 뷰어 로케일 아는 클라이언트에 위임).
+  - `dashboard-client.tsx` `DetectionDetail`: 잡에 `lastRateLimit` 있으면 "Resets in" 셀에 `<details>` "why"
+    확장(pattern·matched 텍스트·detected 시각, `formatClock` 재사용). `globals.css` `.why*` 스타일(기존
+    `.tail` details 패턴 재사용). **core/CLI 변경 0줄** — 순수 대시보드 UI 추가.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 639 · cli 354/1skip · dashboard 17**; provenance.test +8). 실제 빌드 대시보드 `next start`+
+  임시 스토어(lastRateLimit 심은 잡)로 `/api/jobs` curl → 출처가 클라이언트로 온전히 전달됨을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 주의: reset-horizon doctor 계열은 PR
+  극포화라 절대 재구현 금지. 후속 인접 후보 — 대시보드 잡 행 클릭 시 전체 상세(cwd·전체 command·라이프사이클
+  span) 표시, 또는 대시보드 상태/툴 필터. stats 분산/watch·epoch ms·파서 wording은 PR 포화라 지양.

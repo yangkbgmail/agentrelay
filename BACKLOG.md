@@ -870,6 +870,21 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 대시보드에 잡별 rate-limit 감지 출처(provenance) 노출 — "릴레이가 왜 리셋 시각을 X로
+      판단했나"를 CLI `agentrelay show` 없이도 브라우저에서 바로 확인.
+      (완료 — 잡에는 세션에서 추가된 `lastRateLimit`(RateLimitDetection: pattern·rawMatch·resetAt·
+      detectedAt) 출처가 영속되고 API가 이미 이를 클라이언트로 실어 나르는데, 대시보드 잡 테이블은
+      resetAt 카운트다운만 보여줘 "왜 이 시각인가"를 답할 수 없었다(CLI `show`에만 있던 정보).
+      `apps/dashboard/lib/provenance.ts` 신설(순수·node 테스트 가능·React/DOM 미접촉): `truncateMatch`
+      (공백 축약+트림+말줄임, 멀티라인 출력의 개행도 단일 공백으로, max 초과분만 `…`, 비양수 max=빈
+      문자열) + `describeDetection`(RateLimitDetection→표시용 `DetectionView`: pattern·matchPreview·
+      truncated 플래그·resetAt·detectedAt — 타임스탬프 포맷은 뷰어 로케일 아는 클라이언트에 위임).
+      `dashboard-client.tsx`에 `DetectionDetail`(잡에 `lastRateLimit` 있으면 "Resets in" 셀에 `<details>`
+      "why" 확장 → pattern·matched 텍스트·detected 시각). `globals.css`에 `.why*` 스타일(기존 `.tail`
+      details 패턴 재사용). core/CLI 변경 0줄 — 순수 UI 추가. provenance.test.ts 8케이스, 실제 빌드
+      대시보드 `next start`+임시 스토어 `/api/jobs` curl로 lastRateLimit 전달 확인, dashboard 17 테스트
+      통과. branch `claude/wizardly-pascal-dash-provenance`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
