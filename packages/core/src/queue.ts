@@ -30,6 +30,7 @@ import {
   selectRotatableBackups,
 } from "./backup.js";
 import { type ImportOptions, type ImportResult, planImport, summarizeImportPlan } from "./import.js";
+import { applyFileMode, DEFAULT_STORE_FILE_MODE } from "./perms.js";
 import { type PruneOptions, selectPrunableJobs } from "./prune.js";
 import type { CreateJobInput, JobStatus, RateLimitDetection, RelayJob } from "./types.js";
 
@@ -53,6 +54,15 @@ export interface RelayQueueOptions {
    * running. Lets callers surface a warning instead of silently losing data.
    */
   onCorrupt?: (info: CorruptStoreInfo) => void;
+  /**
+   * POSIX file mode applied to every store write (the live store and its
+   * `.backup-*` snapshots) so the persisted command lines aren't world-readable
+   * on a shared machine. Defaults to {@link DEFAULT_STORE_FILE_MODE} (`0600`).
+   * Pass `null` to opt out and inherit the process umask instead. The chmod is
+   * best-effort — a filesystem that can't honor it degrades silently rather than
+   * breaking a write (see {@link applyFileMode}).
+   */
+  fileMode?: number | null;
 }
 
 /**
@@ -85,10 +95,13 @@ export class RelayQueue {
   private filePath: string;
   private jobs: Map<string, RelayJob>;
   private onCorrupt?: RelayQueueOptions["onCorrupt"];
+  private fileMode: number | null;
 
   constructor(filePath: string, options: RelayQueueOptions = {}) {
     this.filePath = filePath;
     this.onCorrupt = options.onCorrupt;
+    // `undefined` (option omitted) → secure default; explicit `null` → opt out.
+    this.fileMode = options.fileMode === undefined ? DEFAULT_STORE_FILE_MODE : options.fileMode;
     mkdirSync(dirname(filePath), { recursive: true });
     this.jobs = new Map();
     this.load();
@@ -152,6 +165,9 @@ export class RelayQueue {
     const all = Array.from(this.jobs.values()).sort(compareJobsNewestFirst);
     const tmpPath = `${this.filePath}.tmp-${process.pid}-${Date.now()}`;
     writeFileSync(tmpPath, JSON.stringify(all, null, 2), "utf8");
+    // Tighten the temp file's permissions BEFORE the rename so the inode that
+    // becomes the live store is never briefly world-readable. Best-effort.
+    applyFileMode(tmpPath, this.fileMode);
     renameSync(tmpPath, this.filePath);
   }
 
@@ -327,6 +343,9 @@ export class RelayQueue {
     // pattern never matches an in-flight snapshot).
     const tmpPath = `${this.filePath}.tmp-backup-${process.pid}-${Date.now()}`;
     writeFileSync(tmpPath, JSON.stringify(all, null, 2), "utf8");
+    // A backup snapshot holds the same sensitive command lines as the live
+    // store, so it gets the same owner-only hardening before the rename.
+    applyFileMode(tmpPath, this.fileMode);
     renameSync(tmpPath, dest);
 
     const keepLast = options.keepLast ?? DEFAULT_BACKUP_KEEP;

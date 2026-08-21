@@ -87,6 +87,7 @@ import {
   selectStuckResumingJobs,
   serializeDaemonHeartbeat,
   setConfigValue,
+  storeFileModeFromEnv,
   summarizeImportPlan,
   unsetConfigValue,
   validateConfig,
@@ -105,6 +106,9 @@ import type { VerifyReport } from "./verify.js";
  */
 function openQueue(storePath: string): RelayQueue {
   return new RelayQueue(storePath, {
+    // Persist the store owner-only (0600 by default) so the command lines it
+    // holds aren't world-readable; AGENTRELAY_STORE_MODE can override/opt out.
+    fileMode: storeFileModeFromEnv(),
     onCorrupt: ({ path, backupPath }) => {
       const where = backupPath ? `moved it aside to ${backupPath}` : "could not move it aside";
       // eslint-disable-next-line no-console

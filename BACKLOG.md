@@ -870,6 +870,17 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 스토어 파일 권한 강화(0600 owner-only) — `jobs.json`·백업이 담는 잡 `command` argv(토큰·
+      비밀 포함 가능)가 공유 머신에서 다른 사용자에게 노출되지 않도록 소유자 전용으로 write.
+      (완료 — 기존 `flush()`는 파일 모드를 프로세스 umask[흔히 022=group/other readable]에 맡겨 명령줄이
+      노출됐다. `@agentrelay/core/perms.ts` 신설: `DEFAULT_STORE_FILE_MODE`(0o600), 순수 `parseFileMode`
+      (octal 스펠링만·8진 해석·범위/잡음 거부), `storeFileModeFromEnv`(`AGENTRELAY_STORE_MODE`: 미설정=
+      0600, off/none/inherit/default=null[umask 상속], 유효 octal=그 값, 오타·범위밖=0600 폴백[보안은
+      오타로 느슨해지면 안 됨]), best-effort `applyFileMode`(chmod 실패 삼킴). `RelayQueue`에 `fileMode`
+      옵션 → `flush()`·`backup()`이 tmp를 rename 전에 chmod(inode가 잠깐도 world-readable 안 됨, 느슨한
+      기존 스토어도 다음 write에 자동 조임). CLI `openQueue`가 env로 배선. core perms.test +15, 실제 빌드
+      CLI e2e로 기본=600·off=644·640·오타=600·백업=600 확인. branch `claude/store-file-permissions`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

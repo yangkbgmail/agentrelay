@@ -2259,3 +2259,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 스토어 파일 권한 강화(0600 owner-only)] (2026-08-21, 무인 자율 세션, branch `claude/store-file-permissions`)
+- **항목 선정:** BACKLOG 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR이 537개로 극도 포화(stats/upcoming/overdue/parser/completion/adapter/export 포맷·doctor
+  reset-horizon만 30+개 중복 등 커맨드·파서 공간이 거의 전부 선점됨). 전체 PR 제목을 키워드 스캔해
+  **어떤 열린 PR에도 없는** 실제 갭을 발굴: 스토어 파일 **권한/보안**. `jobs.json`(+백업)은 각 잡의
+  전체 `command` argv를 그대로 담는데(예: `--api-key sk-…`, URL 속 토큰, `-p "<사적 프롬프트>"`),
+  기존 `flush()`는 파일 모드를 프로세스 umask(흔히 022=group/other **readable**)에 맡겨, 공유 머신에서
+  다른 사용자에게 명령줄·비밀이 그대로 노출됐다. ssh/gpg/npm이 사설 파일을 owner-only로 쓰는 것과 같은
+  표준 하드닝인데 미적용 상태였다.
+- **한 일 (branch `claude/store-file-permissions`):**
+  - core `perms.ts` 신설(순수 정책 계층 + best-effort 파일시스템 훅 1개): `DEFAULT_STORE_FILE_MODE`
+    (`0o600`), 순수 `parseFileMode`(`600`/`0600`/`0o600`/`640` 등 octal 스펠링만 허용 — 항상 8진 해석,
+    비-octal 자릿수(8·9)·`0..0o777` 범위 밖·잡음은 null), `storeFileModeFromEnv`(`AGENTRELAY_STORE_MODE`:
+    미설정=기본 0600, `off`/`none`/`inherit`/`default`=null[chmod 안 함, umask 상속], 유효 octal=그 값,
+    **오타·범위밖=기본 0600으로 폴백** — 보안 설정은 오타로 조용히 느슨해지면 안 되므로), best-effort
+    `applyFileMode(path, mode)`(null이면 no-op, chmod 실패는 삼켜 릴레이 루프 보호, 적용 여부 boolean).
+  - `RelayQueue`에 `fileMode?: number | null` 옵션(생략=기본 0600, 명시 null=opt-out). `flush()`·`backup()`
+    이 tmp 파일을 **rename 전에** chmod → 라이브 스토어가 되는 inode가 잠깐도 world-readable이지 않게 함.
+    기존 느슨한(0644) 스토어도 다음 write에서 자동으로 0600으로 조여짐(rename이 inode 교체).
+  - CLI 공용 `openQueue`가 `storeFileModeFromEnv()`로 배선 → 모든 커맨드의 스토어 write에 적용. 대시보드는
+    읽기 전용이라 무영향.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 654 · cli 354/1skip · dashboard 9**; perms.test.ts +15 신규). **실제 빌드 CLI e2e**(mock
+  아님): rate-limit 유발 명령으로 잡 큐잉 후 `stat`으로 확인 — 기본=`600`, `AGENTRELAY_STORE_MODE=off`
+  =`644`(umask 상속, 하드닝 스킵), `=640`=`640`, `=oops`(오타)=`600`(보안 폴백). `backup` 스냅샷도 `600`.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 설정 파일
+  (`agentrelay.config.json`) `store.mode` 키로도 노출(configToEnv/validateConfig/CONFIG_ENV_KEYS 등
+  동기화 지점 다수 + config-schema PR 포화라 이번엔 env-only로 한정), `doctor`에 느슨한 스토어 권한
+  경고 검사 추가. README/ARCHITECTURE(🧭 코워크).
