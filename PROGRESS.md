@@ -2259,3 +2259,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay schedule` 선제 예약 커맨드] (2026-08-21, 무인 자율 세션)
+- 배경: 세션 시작 시 명시적 미완 👷 항목 0개(BACKLOG의 👷는 전부 완료), 열린 PR 30개 누적(파서·doctor
+  reset-horizon 등 다수 중복). 중복을 피해 CLAUDE.md 지침대로 **새 개선 항목을 발굴**했다 — 지금까지 잡은
+  `run`이 실시간 rate-limit을 감지해야만 큐에 들어가는 **반응형**이라, 리셋 시각을 이미 아는 경우("15:00에
+  한도 풀림, 그때 후속 명령 실행")나 단순히 시각에 명령을 발화하고 싶은 경우 미리 큐잉할 수단이 없었다.
+- 한 일 (branch `claude/wizardly-pascal-gpv565`): **`agentrelay schedule`**.
+  1. `@agentrelay/core/schedule.ts` 신설 — 순수 `resolveScheduleTime({in,at}, now)` + `ScheduleTimeResult`
+     (`resetAt` ISO·`resetMs`·`immediate`). 상호 배타 `--in <기간>`(기존 `parseDuration` 재사용)/`--at <시각>`
+     (ISO 8601·기타 Date 파싱가능 문자열·10자리 unix epoch초·13자리 epoch ms). `now` 주입이라 순수·시계
+     미접촉·테스트가능. 둘 다 지정/둘 다 없음/파싱불가 duration·time은 actionable `Error` throw(CLI가 exit 1).
+     `immediate`(resetAt≤now)는 오류가 아니라 "가능한 한 빨리 릴레이로 실행" 요청으로 취급.
+  2. CLI `commands.ts` `scheduleJob(options)` — `run`과 **동일 재개 머신 재사용**: `enqueue`+
+     `markWaitingForReset(resetAt)`로 `waiting_for_reset` 상태에 파킹(detection 인자 없음 — 파싱된 rate-limit이
+     아니라 사용자 선택 예약). 그러면 기존 `listDue`→resume이 시각 도래 시 픽업 → 두 번째 실행 경로를 만들지
+     않고 스케줄러/재시도 전체를 그대로 탐. tool은 `--tool` 명시/명령 바이너리 추론(`resolveAdapter`, `run`과
+     동일), project는 `--project`/cwd 유도.
+  3. CLI `cli.ts`에 `agentrelay schedule [--in <기간>|--at <시각>] [--tool] [-p <name>] [--json] -- <cmd>`
+     배선(addHelpText 예시 2줄). 잘못된 시각 옵션은 stderr + exit 1, `--json`은 {storePath,job}. 쉘 completion은
+     commander 프로그램에서 자동 파생돼 새 커맨드 자동 포함.
+  - 검증: `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome **0에러**)→`pnpm test` 전 패키지
+    통과(**core 650 · cli 358/1skip · dashboard 9**; core schedule.test 11 + cli scheduleJob 4 신규).
+    **실제 빌드 CLI e2e**(mock 아님): `--in 2h`가 waiting_for_reset+2h 카운트다운으로 파킹, `--at ISO --json`이
+    codex-cli 추론+정확한 resetAt, 과거 `--at`은 "already due" immediate, both/neither/bad-duration은 exit 1,
+    그리고 **`--in 0s`로 즉시-due 예약 후 `tick`이 실제로 명령을 spawn→completed(출력 캡처)** 로 재개 루프
+    통합까지 확인.
+- 다음 할 일: 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `schedule`에 `--every`(반복
+  예약)나 `--project` 기본값 조정, 대시보드/`upcoming`이 예약 잡을 rate-limit 파킹과 구분 표시. 30개 누적
+  PR 정리(중복 정돈)는 코워크/사람 판단 필요. README/ARCHITECTURE(🧭 코워크).

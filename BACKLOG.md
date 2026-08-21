@@ -870,6 +870,22 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay schedule` — 리셋 시각을 이미 알 때 명령을 **선제적으로** 예약(라이브 rate-limit
+      불필요). 지금까지 잡은 `run`이 실시간 rate-limit을 감지해야만 큐에 들어갔는데, "내 한도가 15:00에
+      풀리니 그때 후속 명령을 돌려라"처럼 시각을 아는 경우 미리 큐잉할 방법이 없었다. 자기 발굴 항목.
+      (완료 — core `schedule.ts` 순수 `resolveScheduleTime({in,at}, now)` 신설: 상호 배타 `--in <기간>`
+      (기존 `parseDuration` 재사용)/`--at <시각>`(ISO 8601·Date 파싱가능 문자열·10자리 epoch초·13자리 epoch
+      ms) → 절대 ISO resetAt + `immediate`(now 이하=이미 due, 오류 아님) 계산, now 주입으로 순수·테스트가능.
+      둘 다/둘 다 없음·파싱불가는 actionable Error throw. CLI `commands.ts` `scheduleJob`이 `run`과 **동일
+      재개 머신 재사용** — `enqueue`+`markWaitingForReset(resetAt)`(detection 없음: 파싱 아닌 사용자 예약)로
+      `waiting_for_reset` 파킹 → 기존 `listDue`→resume이 시각 도래 시 픽업(두 번째 실행 경로 없음). tool은
+      `--tool` 명시/명령 바이너리 추론(`resolveAdapter`), project는 `--project`/cwd 유도. `agentrelay schedule
+      [--in|--at] [--tool] [-p] [--json] -- <cmd>` 배선, 잘못된 시각 옵션은 exit 1. completion은 commander
+      프로그램에서 자동 파생. core schedule.test 11 + cli scheduleJob 4 신규(=core 650·cli 358/1skip).
+      실제 빌드 CLI e2e: `--in 2h`가 waiting_for_reset+2h 카운트다운 파킹·`--at ISO --json`·과거 `--at`=
+      immediate·both/neither/bad-duration exit 1·**`--in 0s`→`tick`이 실제 spawn→completed(출력 캡처)**로
+      재개 루프 통합 확인. branch `claude/wizardly-pascal-gpv565`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

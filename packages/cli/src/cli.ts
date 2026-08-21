@@ -70,6 +70,7 @@ import {
   runCommand,
   runDoctor,
   runVerify,
+  scheduleJob,
   setConfigFile,
   showConfig,
   showJob,
@@ -553,6 +554,60 @@ export function buildCli(): Command {
       });
       process.exitCode = result.exitCode;
     });
+
+  program
+    .command("schedule")
+    .description("Park a command to auto-run at a chosen time (no live rate limit needed)")
+    .argument("<command...>", 'Command to run later, e.g. agentrelay schedule --in 2h -- claude -p "continue"')
+    .option("--in <duration>", "Run this long from now (e.g. 30m, 2h, 1d)")
+    .option("--at <time>", "Run at an absolute time (ISO 8601 timestamp or unix epoch)")
+    .option(
+      "--tool <tool>",
+      "Agent tool adapter to use (claude-code | codex-cli | generic). Inferred from the command when omitted."
+    )
+    .option(
+      "-p, --project <name>",
+      "Project label for the scheduled job (overrides the auto-derived cwd name; used by every --project filter)"
+    )
+    .option("--json", "Emit the scheduled job as JSON")
+    .addHelpText(
+      "after",
+      '\nExamples:\n  agentrelay schedule --in 2h -- claude -p "continue the refactor"\n  agentrelay schedule --at 2026-08-21T15:00:00Z -- codex exec "run the suite"\n'
+    )
+    .action(
+      (command: string[], opts: { in?: string; at?: string; tool?: string; project?: string; json?: boolean }) => {
+        const { store } = program.opts();
+        let result: ReturnType<typeof scheduleJob>;
+        try {
+          result = scheduleJob({
+            command,
+            in: opts.in,
+            at: opts.at,
+            storePath: store,
+            tool: opts.tool as AgentTool | undefined,
+            project: opts.project,
+          });
+        } catch (err) {
+          process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+          process.exitCode = 1;
+          return;
+        }
+
+        if (opts.json) {
+          process.stdout.write(
+            `${JSON.stringify({ storePath: store ?? defaultStorePath(), job: result.job }, null, 2)}\n`
+          );
+          return;
+        }
+
+        const { job, resetAt, immediate } = result;
+        const when = immediate ? `${resetAt} (already due — resumes on the next tick)` : resetAt;
+        process.stdout.write(
+          `[agentrelay] Scheduled job ${job.id} (${job.tool}) to run at ${when}.\n` +
+            `Run "agentrelay daemon" (or schedule "agentrelay tick" via cron) to auto-run it.\n`
+        );
+      }
+    );
 
   program
     .command("daemon")

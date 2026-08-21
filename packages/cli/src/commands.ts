@@ -79,6 +79,7 @@ import {
   resolveConfigWritePath,
   resolveEffectiveConfig,
   resolveJobId,
+  resolveScheduleTime,
   retryPolicyFromEnv,
   runDiagnostics,
   SETTABLE_CONFIG_KEYS,
@@ -207,6 +208,53 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   });
 
   return { exitCode, queuedJob: queue.getById(job.id) ?? null };
+}
+
+export interface ScheduleOptions {
+  command: string[];
+  /** Relative delay from now, e.g. "2h" (mutually exclusive with `at`). */
+  in?: string;
+  /** Absolute time — ISO 8601 or unix epoch (mutually exclusive with `in`). */
+  at?: string;
+  cwd?: string;
+  tool?: AgentTool;
+  project?: string;
+  storePath?: string;
+  /** Injected for tests; defaults to the real clock. */
+  now?: Date;
+}
+
+export interface ScheduleResult {
+  job: RelayJob;
+  resetAt: string;
+  /** True when the resolved time is already due (fires on the next tick). */
+  immediate: boolean;
+}
+
+/**
+ * Proactively park a command so the daemon resumes it at a chosen time, without
+ * first running it to trip a live rate limit. Reuses the exact resume machinery
+ * `run` relies on: it enqueues the command and parks it in `waiting_for_reset`
+ * with the resolved `resetAt`, so `listDue` picks it up when the time comes.
+ * Unlike a rate-limit-detected job, no `detection` provenance is attached — this
+ * is a user-chosen schedule, not a parsed rate-limit reset.
+ */
+export function scheduleJob(options: ScheduleOptions): ScheduleResult {
+  const now = options.now ?? new Date();
+  const { resetAt, immediate } = resolveScheduleTime({ in: options.in, at: options.at }, now);
+
+  const cwd = options.cwd ?? process.cwd();
+  const adapter = resolveAdapter({ tool: options.tool, command: options.command });
+  const storePath = options.storePath ?? defaultStorePath();
+  const project = resolveProjectName(cwd, options.project);
+
+  const queue = openQueue(storePath);
+  const job = queue.enqueue({ project, tool: adapter.tool, command: options.command, cwd });
+  queue.markWaitingForReset(job.id, resetAt);
+  const parked = queue.getById(job.id) ?? job;
+  queue.close();
+
+  return { job: parked, resetAt, immediate };
 }
 
 export interface DaemonOptions {
