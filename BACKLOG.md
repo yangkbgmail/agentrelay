@@ -870,6 +870,20 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay run --queued-exit-code <n>` — 레이트리밋으로 잡을 큐잉했을 때의 exit code
+      제어. 자기 발굴 항목 — `run`은 기본적으로 감싼 에이전트의 exit code를 그대로 전파하는데, 에이전트
+      CLI는 레이트리밋을 만나면 거의 항상 non-zero로 종료한다. 그래서 `agentrelay run -- claude … && 다음단계`
+      같은 스크립트/CI 래퍼는 릴레이가 **성공적으로 잡을 큐잉했는데도** 실패로 보고 중단한다(주력 커맨드의
+      실전 footgun).
+      (완료 — CLI `commands.ts`에 순수 `parseExitCode(raw)`(정수 0–255만, 범위 밖·비정수·garbage는 null) +
+      `resolveRunExitCode(result, queuedExitCode)`(큐잉됐고 플래그가 있으면 그 코드, 아니면 자식 코드 전파)
+      추가. `cli.ts` run에 `--queued-exit-code <code>` 플래그 배선 — 잡이 실제로 큐잉된 경우에만 적용,
+      **기본(플래그 미지정)은 자식 코드 전파로 동작 불변**(비파괴·하위호환). 잘못된 값은 명확한 에러 + exit 1.
+      레이트리밋 없이 끝난 일반 실행은 플래그가 있어도 자식 코드 그대로(투명성 유지). 새 core/파서/스케줄러
+      로직 0줄. cli commands.test +2(parseExitCode 경계·resolveRunExitCode 3케이스), 실제 빌드 CLI e2e로
+      큐잉+플래그 0→exit 0·큐잉+무플래그→exit 1·미큐잉+플래그→자식 코드 5·잘못된 값→exit 1 검증.
+      branch `claude/wizardly-pascal-run-queued-exit`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

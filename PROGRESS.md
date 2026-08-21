@@ -2259,3 +2259,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay run --queued-exit-code`] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-run-queued-exit`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유). 세션 72가 남긴
+  후속 후보(`doctor` 큐-사이드 reset-horizon)는 이미 **열린 PR 15개+**(#734/#813/#807/#804/#803/#799/#794/
+  #791/#788/#782/#781/#779/#776/#775 등)가 완전 중복 구현 중이라 착수 포기. 열린 PR ~250개를 제목·본문
+  키워드로 스캔해 **어떤 열린 PR에도 없는** 실제 갭을 발굴: 주력 커맨드 `agentrelay run`이 감싼 에이전트의
+  exit code를 그대로 전파하는데, 에이전트 CLI는 레이트리밋 시 거의 항상 non-zero로 끝나므로,
+  `agentrelay run -- claude … && 다음단계` 같은 CI/스크립트 래퍼가 **릴레이가 잡을 성공적으로 큐잉했는데도**
+  실패로 보고 중단하는 footgun. ("exit"/"run" 제목 검색으로 overdue/drain/signal/--cwd/--dry-run PR과 무겹침 확인.)
+- **한 일 (branch `claude/wizardly-pascal-run-queued-exit`):**
+  - CLI `commands.ts`: 순수 `parseExitCode(raw)`(정수 0–255만 허용, 범위 밖·비정수·garbage=null) +
+    `resolveRunExitCode(result, queuedExitCode)`(큐잉됐고 플래그 설정 시 그 코드, 아니면 자식 코드 전파).
+  - `cli.ts` run에 `--queued-exit-code <code>` 플래그 배선. **잡이 실제로 큐잉된 경우에만** 적용 —
+    기본(플래그 미지정)은 자식 코드 그대로 전파해 **동작 불변·하위호환**. 레이트리밋 없이 끝난 일반 실행은
+    플래그가 있어도 자식 코드 전파(투명성). 잘못된 값은 stderr 에러 + exit 1. 새 core/파서/스케줄러 로직 0줄.
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과
+  (**core 639 · cli 359/1skip · dashboard 9**; commands.test +2). **실제 빌드 CLI e2e**(mock 아님): 레이트리밋
+  잡 큐잉+`--queued-exit-code 0`→exit 0(status에 waiting_for_reset 확인), 큐잉+무플래그→exit 1(투명),
+  레이트리밋 없이 자식 exit 5+플래그 0→exit 5(투명), `--queued-exit-code 999`→exit 1+명확한 에러,
+  `--help`에 플래그 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 열린 PR ~250개가 reset-horizon·parser
+  포맷·watch 변형·stats 지표 축에 극도 포화 상태라, 후속은 반드시 열린-PR 스캔으로 무겹침 확인 후 착수.
+  후속 인접 후보 — `run`이 큐잉 시 별도 exit code를 default로 노출(next의 3/4 관례처럼)할지 검토(단, 기본
+  전파 깨지 않는 선에서), 또는 `--queued-exit-code`를 config/env로도 영속화. README/ARCHITECTURE(🧭 코워크).
