@@ -2259,3 +2259,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay resets` 시간대별 rate-limit 시계] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-y6oybe`)
+- **맥락:** BACKLOG의 👷 항목이 전부 `[x]`(미완은 🧭 코워크 소유 문서/리서치뿐) → CLAUDE.md 지침대로
+  스스로 새 개선 항목을 발굴. 기존 히스토그램(`stats --hours/--weekday/--heatmap`)은 전부 job
+  `createdAt` 기준이라 "언제 큐에 넣었나"만 보여준다. 실제로 몇 시에 한도에 걸리는지·쿼터가 언제
+  롤오버되는지는 job의 persisted `lastRateLimit` provenance에 있는데 이를 시간대별로 보는 뷰가 없었다.
+- **한 일 (branch `claude/wizardly-pascal-y6oybe`):**
+  - core `resets.ts` 신설(순수): `computeResetClock(jobs, {basis, offsetMinutes})` + `ResetClock`/
+    `ResetClockBasis`/`RESET_CLOCK_BASES`. `lastRateLimit`를 읽어 24버킷 hour-of-day 히스토그램 생성 —
+    `basis="detected"`(기본, `detectedAt`=한도에 걸린 시각)/`"reset"`(`resetAt`=쿼터 창 롤오버). detection
+    없는 job은 스킵, 타임스탬프 파싱 실패는 `unparseable`로 집계(무음 드롭 방지), 최빈 시각
+    (`busiestHour`, 동률은 이른 시각)·총계 노출. `offsetMinutes`로 UTC/로컬 시프트(stats
+    `computeHourlyDistribution`과 동일 규약, 클록 미참조=테스트 가능).
+  - CLI `resets.ts` 신설(순수): `renderResets`(busiest 기준 스케일 ASCII 막대 + 최빈 시각 `←` 마커 +
+    푸터, `formatUtcOffsetLabel` 재사용해 존 라벨 stats와 일치)·`renderResetsJson`(--json). cli.ts에
+    `agentrelay resets [--reset] [--local] [--json]` + 표준 스코프 필터(`-s/-t/-p/--since/--until`) 배선.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 649 · cli 362/1skip · dashboard 9**; core resets.test +10, cli resets.test +8). **실제 빌드
+  CLI e2e**(mock 아님): 4-job 스토어에서 detected(UTC)는 10:00에 2·20:00에 1로 최빈 10:00, `--reset`은
+  14/15/20시로 분산, `--project api` 스코프는 20:00 1건, `--json`은 busiestHour=10·total=3 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `resets`에
+  `--weekday`(요일별 rate-limit) 뷰 추가, 대시보드에 reset-clock 카드. 문서(README/ARCHITECTURE)는
+  🧭 코워크 소유.

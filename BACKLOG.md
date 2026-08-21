@@ -870,6 +870,20 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay resets` — 시간대별(hour-of-day) rate-limit 시계. 기존 히스토그램
+      (`stats --hours/--weekday/--heatmap`)은 전부 job `createdAt` 기준이라 "언제 큐에 넣었나"만
+      보여주고, "실제로 몇 시에 한도에 걸리나"는 볼 방법이 없었다.
+      (완료 — `@agentrelay/core/resets.ts` 신설: 순수 `computeResetClock(jobs, {basis, offsetMinutes})`
+      + `ResetClock`/`ResetClockBasis`/`RESET_CLOCK_BASES`. job의 persisted `lastRateLimit` provenance를
+      읽어 24버킷 시간대별 히스토그램을 만든다 — `basis="detected"`(기본, `detectedAt`=한도에 걸린 시각,
+      행동 신호)와 `basis="reset"`(`resetAt`=쿼터 창이 롤오버되는 시각) 중 선택. `offsetMinutes`로
+      UTC/로컬 존 시프트(stats의 `computeHourlyDistribution`과 동일 규약). detection 없는 job은 스킵,
+      타임스탬프 파싱 실패는 `unparseable`로 집계(무음 드롭 방지), 최빈 시각(`busiestHour`, 동률은 이른
+      시각)·총계 노출. CLI `packages/cli/src/resets.ts`에 순수 `renderResets`(스케일된 ASCII 막대+최빈
+      시각 마커+푸터)·`renderResetsJson`(--json), `agentrelay resets [--reset] [--local] [--json]`
+      +표준 스코프 필터(`-s/-t/-p/--since/--until`) 배선. core 10 + cli 8 유닛 테스트, 실제 빌드 CLI로
+      detected/reset/스코프/JSON e2e 검증. branch `claude/wizardly-pascal-y6oybe`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
