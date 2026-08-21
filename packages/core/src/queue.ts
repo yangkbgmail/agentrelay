@@ -81,6 +81,29 @@ export function compareJobsNewestFirst(a: RelayJob, b: RelayJob): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
+/**
+ * Whether a parked job is due to resume at reference time `refMs` (epoch ms).
+ * A job is due when it's `waiting_for_reset` and its `resetAt` has arrived.
+ *
+ * Crucially, an **unparseable** `resetAt` — a malformed date string that can
+ * slip in via an imported dump (`import`'s validation only checks it's a string,
+ * not that it parses) or a hand-edited store — makes `new Date(resetAt).getTime()`
+ * return `NaN`. The old inline `resetMs <= ref` check made `NaN <= ref` false, so
+ * such a job was silently **never** returned by `listDue`: it sat in
+ * `waiting_for_reset` forever, never resuming — precisely the "silent failure"
+ * this tool exists to prevent. We instead treat an unparseable reset as **due
+ * now**: a job we can't schedule is better surfaced and run (it either resumes,
+ * or re-parks with a fresh valid `resetAt`, or fails) than orphaned indefinitely.
+ * A `null` `resetAt` is *not* due (the job isn't genuinely parked on a reset).
+ */
+export function isJobDue(job: RelayJob, refMs: number): boolean {
+  if (job.status !== "waiting_for_reset") return false;
+  if (job.resetAt === null) return false;
+  const resetMs = new Date(job.resetAt).getTime();
+  if (Number.isNaN(resetMs)) return true; // unparseable → surface it, don't orphan
+  return resetMs <= refMs;
+}
+
 export class RelayQueue {
   private filePath: string;
   private jobs: Map<string, RelayJob>;
@@ -438,8 +461,6 @@ export class RelayQueue {
   listDue(referenceTime: Date = new Date()): RelayJob[] {
     this.load();
     const ref = referenceTime.getTime();
-    return Array.from(this.jobs.values()).filter(
-      (job) => job.status === "waiting_for_reset" && job.resetAt !== null && new Date(job.resetAt).getTime() <= ref
-    );
+    return Array.from(this.jobs.values()).filter((job) => isJobDue(job, ref));
   }
 }
