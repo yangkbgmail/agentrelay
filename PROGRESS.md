@@ -2259,3 +2259,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 파서: 상대-시간 단위 문자가 다른 단어를 삼키던 오탐 수정] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-lrr6xk`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 200+개가 stats·doctor reset-horizon(20+중복)·파서 신규 패턴·watch 변형·신규 커맨드로
+  극도 포화라, 전체 열린 PR 제목을 스캔해 **어떤 열린 PR에도 없는** 실제 파서 정확성 버그를 발굴.
+- **발굴한 버그:** 제네릭 `relative-duration` 정규식의 분 그룹 `m(?:in(?:utes?)?)?`이 바로 뒤 letter를
+  요구하지 않아, "try again in 2 months"에서 "months"의 맨 앞 `m`을 분 단위로 매치 → **2분** 대기로
+  해소했다("3 moments"→3분, "2 decades"→2일도 동일). 잡이 리셋 훨씬 전에 재개돼 곧바로 다시 한도에
+  걸리고 attempts를 소진하는, 이 프로젝트가 doctor·recover·reset-horizon 등으로 반복 겨냥해온
+  silent-failure(무음 under-wait) 부류. 8일 지평선 가드도 2분<8일이라 못 잡는다.
+- **한 일 (branch `claude/wizardly-pascal-lrr6xk`):**
+  - core `parser.ts`: `relative-duration` 정규식의 day/hour/minute 각 단위 토큰 뒤에 `(?![a-z])`를
+    앵커링(`d(?:ays?)?(?![a-z])`·`h(?:ours?)?(?![a-z])`·`m(?:in(?:utes?)?)?(?![a-z])`). 단위 문자 다음이
+    letter면 매치 실패 → 전체 duration 그룹이 비어 resolve가 null → tryPattern이 폴스루해 최종 `null`
+    (한도 미감지 = 안전, 2분 오탐보다 훨씬 나음). `/i` 플래그라 대문자 단어도 커버. 새 로직 0줄, 정규식
+    앵커 3개만. 근거 주석 추가.
+  - parser.test +3: "2 months"→null, "moments"/"decades"/"hundred"→null, 그리고 단위 가드 후에도
+    정상 8형태(`10m`·`45 min`·`5 minutes`·`2h`·`1 hour`·`3 hours`·`4h32m`·`1 day`)가 그대로 `relative-duration`
+    으로 파싱됨을 회귀로 고정.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 642(+3) · cli 354/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  `parse "…try again in 2 months."`→"No rate-limit detected"(안전 폴스루), `parse "…try again in 5 minutes."`
+  →`relative-duration`·`resets … (in 5m)` 정상 감지 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 같은 letter-swallow
+  가드를 어댑터(Codex 초 단위) 패턴에도 점검, 또는 pre-filter가 `retry\s+in`을 누락해 "retry in 5 minutes"
+  단독 문구를 통과 못 시키는 별개 갭(정규식은 매치하나 pre-filter가 드롭)을 정합화. stats 분산/watch·
+  doctor reset-horizon은 PR 극포화라 지양. README/ARCHITECTURE(🧭 코워크).

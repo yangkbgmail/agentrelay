@@ -140,9 +140,20 @@ const PATTERNS: RateLimitPattern[] = [
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
     // are OpenAI/Codex-style wording that the Codex adapter contributes).
+    //
+    // Each unit is anchored with a trailing `(?![a-z])` so a unit letter can't
+    // swallow the start of a *different* word: without it, "try again in 2
+    // months" matched the minute group's bare `m` (→ a 2-*minute* wait!), and
+    // likewise "2 moments"/"2 decades"/"2 hundred". That silent under-wait made
+    // the job resume far too early and immediately re-hit the limit — exactly the
+    // silent-failure class this relay guards against. With the guard, an
+    // unrecognized unit falls through to `null` (treated as no rate limit) rather
+    // than a bogus tiny wait. Real forms — `m`, `min`, `minute(s)`, `h`, `hour(s)`,
+    // `d`, `day(s)`, and shorthands like `10m`/`4h32m` — are unaffected because
+    // they're followed by a space, digit, or end of string.
     name: "relative-duration",
     regex:
-      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
+      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?(?![a-z]))?\s*(?:(\d+)\s*h(?:ours?)?(?![a-z]))?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?(?![a-z]))?/i,
     resolve: (m, now) => {
       const days = m[1] ? parseInt(m[1], 10) : 0;
       const hours = m[2] ? parseInt(m[2], 10) : 0;
