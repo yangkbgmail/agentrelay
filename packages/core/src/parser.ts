@@ -136,6 +136,28 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // "resets at midnight" / "reset at noon" — natural-language clock words that
+    // agent CLIs (and the underlying API copy) sometimes print instead of a
+    // digit clock time ("Your limit will reset at midnight."). The digit-based
+    // clock patterns above require a number, so these words slip through
+    // otherwise. Resolved to the next occurrence of that wall-clock hour in
+    // local time (00:00 for midnight, 12:00 for noon), rolling to tomorrow when
+    // already past — same today/tomorrow logic and same local-time limitation as
+    // clock-time. A named timezone in the message is ignored, matching the other
+    // clock patterns.
+    name: "clock-word",
+    regex: /reset[s]?\s+at\s+(midnight|noon)\b/i,
+    resolve: (m, now) => {
+      const hour = m[1].toLowerCase() === "noon" ? 12 : 0;
+      const candidate = new Date(now);
+      candidate.setHours(hour, 0, 0, 0);
+      if (candidate.getTime() <= now.getTime()) {
+        candidate.setDate(candidate.getDate() + 1);
+      }
+      return candidate;
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
