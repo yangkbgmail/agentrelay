@@ -368,6 +368,21 @@
       대시보드 `next start`+임시 스토어 `/api/jobs` curl로 alive/absent-concerning e2e 검증.
       branch `claude/wizardly-pascal-2ksc89`)
 
+- [x] 👷 `agentrelay doctor` 먼-미래 리셋 검사 — 큐에 이미 들어앉은 잡의 `resetAt`이 지평선 밖으로
+      과도하게 멀면 경고(세션 72 파서 리셋-지평선 가드의 큐-측 후속). 파서 가드는 앞으로 들어올 리셋만
+      막지만, 가드가 꺼져 있을 때 큐잉됐거나 import/restore로 들어온 잡은 수일/수년 뒤 리셋으로 조용히
+      대기할 수 있다.
+      (완료 — `@agentrelay/core/doctor.ts`에 `FarFutureReset`(id·project·resetAt·msUntil)·
+      `ResetHorizonFacts`(horizonMs·offenders) 타입 + 순수 `selectFarFutureResets(jobs,{nowMs,horizonMs})`
+      신설: 활성 잡(queued/waiting/resuming) 중 `resetAt`이 `now+horizonMs` 밖인 것만 worst-first로 추림
+      (종료 잡·리셋 없음·파싱 불가·과거 리셋 제외, 가드 null/비양수면 빈 배열). `runDiagnostics`에
+      `reset-horizon` 검사 추가(daemon 다음): 가드 비활성=OK(미점검), offender 0=OK, 있으면 warning
+      (개수·지평선·worst 잡 id[8자]·project·카운트다운 + `agentrelay cancel <id>` 힌트). CLI `runDoctor`가
+      `maxResetHorizonMsFromEnv`로 유효 지평선 해소 + `selectFarFutureResets`로 offender 수집해 팩트 배선,
+      `nowMs`를 하트비트와 공유. core doctor +9(selectFarFutureResets 6 + reset-horizon 3) · cli doctor +3,
+      실제 빌드 CLI e2e로 60d 리셋→warning/2h→ok/`AGENTRELAY_MAX_RESET_HORIZON=off`→미점검·--json 검증.
+      branch `claude/doctor-far-future-reset`)
+
 - [x] 👷 `agentrelay stats --group-by <tool|project|status>` — 큐 전체가 아니라 툴/프로젝트/상태
       부분집합별로 릴레이 효과(성공률·해결 시간 등)를 나눠 비교.
       (완료 — core `stats.ts`에 순수 `groupStats`/`GROUP_DIMENSIONS`/`GroupDimension`, CLI `stats.ts`에

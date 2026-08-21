@@ -2259,3 +2259,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — doctor: 큐 내 먼-미래 리셋(reset-horizon) 검사] (2026-08-21, 무인 자율 세션, branch `claude/doctor-far-future-reset`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 세션 72가
+  "다음 할 일"로 명시적으로 남긴 인접 후보 — "`doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가" — 를 골랐다.
+  세션 72의 파서 리셋-지평선 가드는 **앞으로 들어올** 리셋만 파스 단계에서 거른다. 하지만 가드가 꺼져 있을 때
+  이미 큐잉된 잡, 또는 `import`/`restore`로 들어온 잡은 여전히 수일/수년 뒤 `resetAt`을 지닌 채 조용히 대기할
+  수 있다 — 이 프로젝트가 doctor·recover 등으로 반복해 겨냥해온 "silent failure" 부류의 큐-측 갭.
+- **한 일 (branch `claude/doctor-far-future-reset`):**
+  - core `doctor.ts`: `FarFutureReset`(id·project·resetAt·msUntil)·`ResetHorizonFacts`(horizonMs·offenders)
+    타입 + 순수 `selectFarFutureResets(jobs,{nowMs,horizonMs})` 신설. 활성 잡(queued/waiting_for_reset/
+    resuming) 중 `resetAt`이 `now+horizonMs`를 넘는 것만 worst(가장 먼)-first로 추림 — 종료 잡·`resetAt`
+    없음·파싱 불가·과거(이미 풀린 한도) 리셋은 제외, 가드가 null/비유한/비양수면 빈 배열(가드 비활성).
+    빈 project 라벨은 undefined로.
+  - `runDiagnostics`에 `reset-horizon` 검사(daemon 다음, config 앞) + `resetHorizonCheck` 추가:
+    가드 비활성=OK("far-future resets are not checked"), offender 0=OK("no queued job … further out than 8d"),
+    1+개=warning(개수·지평선 인간 표기·worst 잡 8자 id·project·카운트다운 + `agentrelay cancel <id>` 힌트).
+  - CLI `runDoctor`가 `maxResetHorizonMsFromEnv(env)`로 유효 지평선을, `selectFarFutureResets`로 offender를
+    수집해 `resetHorizon` 팩트 배선. `nowMs`를 한 번 계산해 하트비트 검사와 공유. 순수 판정은 전부 core,
+    CLI는 클럭·스토어만 — 기존 doctor 계층 규약 유지.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 648**[doctor +9: selectFarFutureResets 6 + reset-horizon 3] **· cli 357/1skip**[doctor +3]
+  **· dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 임시 스토어에 60일 뒤 리셋 잡을 심고 `doctor`가
+  `! reset-horizon … worst f995008c in web resumes in 60d` warning 렌더, `AGENTRELAY_MAX_RESET_HORIZON=off`면
+  "guard disabled … not checked" OK, 2시간 리셋은 "no queued job … further out than 8d" OK, `--json`이
+  reset-horizon 체크를 그대로 방출함을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단(수년 전
+  epoch) 리셋도 misparse 신호로 별도 검사, 또는 `recover`/`cancel --all`에 먼-미래 리셋 잡을 한 번에
+  정리하는 편의 플래그. stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

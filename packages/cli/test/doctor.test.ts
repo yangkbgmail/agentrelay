@@ -48,6 +48,46 @@ describe("runDoctor", () => {
     expect(store.message).toContain("1 active");
   });
 
+  it("is ok on reset-horizon when no queued job is implausibly far out", () => {
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, new Date(Date.now() + 2 * 60 * 60_000).toISOString()); // 2h out
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    expect(find(report, "reset-horizon").level).toBe("ok");
+  });
+
+  it("warns on reset-horizon when a queued job has a far-future reset", () => {
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "web", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, new Date(Date.now() + 60 * 24 * 60 * 60_000).toISOString()); // 60d out
+    queue.close();
+
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("far-future reset");
+    expect(check.hint).toContain("agentrelay cancel");
+  });
+
+  it("does not check reset-horizon when the guard is disabled via env", () => {
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "web", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.markWaitingForReset(j.id, new Date(Date.now() + 60 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off" },
+      nodeVersion: "v22.5.0",
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toContain("disabled");
+  });
+
   it("errors when the store file is corrupt", () => {
     writeFileSync(storePath, "{ this is not valid json", "utf8");
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
