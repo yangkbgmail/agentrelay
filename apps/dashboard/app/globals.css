@@ -218,6 +218,45 @@ details.tail pre {
   overflow-y: auto;
 }
 
+details.why {
+  margin-top: 4px;
+  max-width: 260px;
+  text-align: left;
+  font-weight: 400;
+}
+
+details.why summary {
+  cursor: pointer;
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+details.why .why-body {
+  margin: 6px 0 0;
+  padding: 8px;
+  background: var(--page);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  font-size: 11px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+}
+
+details.why .why-body dt {
+  color: var(--ink-muted);
+}
+
+details.why .why-body dd {
+  margin: 0;
+  color: var(--ink-secondary);
+  word-break: break-word;
+}
+
+details.why .why-body dd.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 .empty {
   padding: 40px 24px;
   text-align: center;

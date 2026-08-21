@@ -3,6 +3,7 @@
 import type { HeartbeatStatus, JobStatus, ProjectBreakdown, RelayJob, ToolBreakdown } from "@agentrelay/core";
 import { useEffect, useState } from "react";
 import type { JobsSnapshot } from "../lib/jobs";
+import { describeDetection } from "../lib/provenance";
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -184,6 +185,26 @@ function StatusBadge({ status }: { status: JobStatus }) {
   );
 }
 
+function DetectionDetail({ detection }: { detection: NonNullable<RelayJob["lastRateLimit"]> }) {
+  const view = describeDetection(detection);
+  return (
+    <details className="why">
+      <summary>why</summary>
+      <dl className="why-body">
+        <dt>pattern</dt>
+        <dd className="mono">{view.pattern}</dd>
+        <dt>matched</dt>
+        <dd className="mono">
+          &ldquo;{view.matchPreview}&rdquo;
+          {view.truncated && <span className="job-id"> (truncated)</span>}
+        </dd>
+        <dt>detected</dt>
+        <dd>{formatClock(view.detectedAt)}</dd>
+      </dl>
+    </details>
+  );
+}
+
 function JobRow({ job, now }: { job: RelayJob; now: number }) {
   const tail = job.lastError ?? job.lastOutputTail;
   return (
@@ -196,7 +217,10 @@ function JobRow({ job, now }: { job: RelayJob; now: number }) {
         <StatusBadge status={job.status} />
       </td>
       <td className="cmd">{job.command.join(" ")}</td>
-      <td className="numeric">{formatCountdown(job.resetAt, now)}</td>
+      <td className="numeric">
+        {formatCountdown(job.resetAt, now)}
+        {job.lastRateLimit && <DetectionDetail detection={job.lastRateLimit} />}
+      </td>
       <td className="numeric">{job.attempts}</td>
       <td className="numeric">{formatClock(job.updatedAt)}</td>
       <td>
