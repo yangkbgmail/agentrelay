@@ -2259,3 +2259,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 74 — `agentrelay eta --watch` 라이브 캐치업 카운트다운] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-t02erx`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 브랜치 790+개를 키워드 스캔해 **어떤 브랜치에도 없는** 갭을 발굴: watch 계열(status/upcoming/
+  overdue/tools/projects/stats)이 다 갖춘 라이브 뷰가 정작 순수 카운트다운 명령인 `eta`에만 빠져 있었다.
+  `eta`는 본질이 "언제까지 지켜봐야 하나"의 카운트다운이라 라이브 뷰가 가장 자연스러운 짝. (세션 72가
+  다음 후보로 지목한 doctor 먼-미래 리셋 검사는 `claude/doctor-reset-horizon`이 이미 구현 → 중복 회피.)
+- **한 일 (branch `claude/wizardly-pascal-t02erx`):**
+  - CLI `eta.ts`: 순수 `renderEtaWatchFrame(eta, storePath, intervalMs, now)` 신설 —
+    `renderStatsWatchFrame`와 동일한 title/meta 라이브 배너 + 항상 컬러인 `renderEta` 본문. watch 계열
+    전체가 같은 프레임을 읽도록 미러링.
+  - CLI `cli.ts`: 세션 52가 추출한 공용 `startWatchLoop`을 재사용하는 `runEtaWatch`(매 프레임 스토어
+    재읽기 → `computeQueueEta`를 fresh `now`로 재구성 → 캐치업 카운트다운 live·화면 clear). `eta`에
+    `-w, --watch [seconds]` 배선: `--json`이 `--watch`보다 우선(일회성 기계 덤프), `--exit-code`는 무한
+    루프에선 무의미해 watch 중 무시, 인터벌 기본 2s, addHelpText 예시 1줄. `eta`는 스코프 필터가 없어
+    재적용할 것도 없음. 새 파서/스케줄러/core 로직 0줄 — 전부 기존 검증된 `computeQueueEta`/`renderEta` 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 639 · cli 356/1skip · dashboard 9**; cli eta.test 7→9). **실제 빌드 CLI e2e**(mock 아님):
+  임시 스토어에 3h 뒤 리셋 대기 잡 1개를 심고 `eta --watch 1`로 2프레임 캡처 → `agentrelay eta (live,
+  every 1s — Ctrl-C to exit)` 배너·타임스탬프·스토어 경로·`Queue caught up in 3h 0m → 2h 59m` 카운트다운이
+  실제로 째깍째깍 줄어듦을 확인. `--json --watch`는 JSON 일회성 덤프(json 우선), `eta --help`·completion에
+  `--watch` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `next --watch`(단일
+  soonest 라이브; `claude/next-watch` 브랜치 존재 여부 확인 후), 또는 `eta`에 스코프 필터(--tool/--project)
+  추가해 watch에도 재적용. parser 튜닝·stats 분산/watch는 브랜치 포화라 지양. README/ARCHITECTURE(🧭 코워크).

@@ -870,6 +870,22 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay eta --watch [seconds]` — 큐 캐치업 카운트다운을 라이브로 갱신(전체 대기 잡 중 가장
+      늦은 리셋까지 남은 시간이 째깍째깍 줄어드는 뷰). 자기 발굴 항목 — watch 계열(status/upcoming/overdue/
+      tools/projects/stats)이 다 갖춘 라이브 뷰가 정작 순수 카운트다운 명령인 `eta`에만 빠져 있었다. `eta`는
+      본질이 "언제까지 지켜봐야 하나"의 카운트다운이라 라이브 뷰가 가장 자연스러운 짝인데, 지금까지 값을
+      보려면 손으로 반복 실행해야 했다.
+      (완료 — CLI `eta.ts`에 순수 `renderEtaWatchFrame(eta, storePath, intervalMs, now)` 신설
+      (`renderStatsWatchFrame`와 동일한 title/meta 라이브 배너 + 항상 컬러인 `renderEta` 본문). `cli.ts`에
+      세션 52가 추출한 공용 `startWatchLoop`을 재사용하는 `runEtaWatch`(매 프레임 스토어 재읽기 →
+      `computeQueueEta`를 fresh `now`로 재구성 → 캐치업 카운트다운 live·화면 clear). `eta`에 `-w, --watch
+      [seconds]` 배선: `--json`이 `--watch`보다 우선(일회성 기계 덤프), `--exit-code`는 무한 루프에선 무의미해
+      watch 중 무시, 인터벌 기본 2s, addHelpText 예시 1줄, completion 자동 포함. `eta`는 스코프 필터가 없어
+      재적용할 것도 없음. 새 파서/스케줄러/core 로직 0줄 — 전부 기존 검증된 `computeQueueEta`/`renderEta`
+      재사용. cli eta.test +2(watch-frame title/meta/색상 + 라이브 카운트다운/caught-up 본문), 실제 빌드 CLI
+      e2e로 화면 clear·라이브 배너·`3h 0m→2h 59m` 카운트다운·`--json --watch` json 우선·help/completion
+      `--watch` 노출 검증. branch `claude/wizardly-pascal-t02erx`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
