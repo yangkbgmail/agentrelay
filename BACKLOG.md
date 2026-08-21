@@ -870,6 +870,17 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay stats` rate-limit 대기 시간 지표 — 이 도구의 핵심 가치("리셋 기다림을 대신
+      흡수한 시간")를 headline 지표로. resolution time(전체 라이프사이클)과 별개.
+      (완료 — core `stats.ts`에 순수 `WaitTimingStats`(rateLimitedCount·totalWaitMs·avg/min/max/
+      medianWaitMs) + `rateLimitWaitMs(job)`(세션 38 provenance `lastRateLimit.resetAt−detectedAt`,
+      detection 없음/파싱불가/음수 창은 스킵). `computeStats`가 상태 무관으로 창 수집(대기 중 잡도 이미
+      흡수 중), `RelayStats.waitTiming` 추가, median은 기존 `percentile` 재사용. CLI `renderStats`가
+      `rateLimitedCount>0`일 때만 "rate-limit wait (time relayed on your behalf)" 블록 렌더, `--json`은
+      자동 노출, watch 3뷰 공통. `groupStats`는 computeStats 재사용이라 자동 포함(새 로직 0줄).
+      core stats +5 / cli stats +3 신규 테스트, 실제 빌드 CLI e2e로 합산·detection 없는 잡 제외·JSON
+      노출 검증. branch `claude/wizardly-pascal-h28l1l`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

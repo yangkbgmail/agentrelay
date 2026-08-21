@@ -2259,3 +2259,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay stats` rate-limit 대기 시간("당신 대신 기다린 시간") 지표] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-h28l1l`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 30개(#803~#833)가 파서·doctor(reset-horizon만 6중복)·코어 메커니즘·watch 변형으로 포화
+  상태라, 전체 PR 제목을 키워드 스캔해 **어떤 열린 PR에도 없는** 갭을 발굴했다: stats에 resolution
+  time(전체 라이프사이클) 지표는 방대하지만, 정작 이 도구의 **핵심 가치**인 "rate-limit이 풀리길
+  기다린 시간을 얼마나 자동으로 대신 흡수했나"를 보여주는 지표가 없었다. 세션 38이 영속한 provenance
+  (`lastRateLimit.resetAt`·`detectedAt`)가 이미 있어 `resetAt − detectedAt`로 산출 가능.
+- **한 일 (branch `claude/wizardly-pascal-h28l1l`):**
+  - core `stats.ts`: 순수 `WaitTimingStats`(rateLimitedCount·totalWaitMs·avg/min/max/medianWaitMs) +
+    `rateLimitWaitMs(job)` 헬퍼(`lastRateLimit` 없음/타임스탬프 파싱불가/음수 창[클럭 스큐·이미 지난
+    리셋]은 null로 스킵). `computeStats` 루프가 **상태 무관**(대기 중 잡도 이미 대기를 흡수 중)으로
+    창을 수집, `RelayStats.waitTiming` 추가. resolution time과 별개 — 후자는 명령 실행·재시도 포함
+    전체 span, 이건 rate-limit 홀드만. median은 기존 `percentile` 재사용. `groupStats`는 computeStats를
+    호출하므로 자동 포함(새 로직 0줄).
+  - CLI `stats.ts` `renderStats`: `rateLimitedCount>0`일 때만 "rate-limit wait (time relayed on your
+    behalf)" 블록(total over N jobs + avg/median/min/max) 렌더. `--json`은 stats 전체 직렬화라 자동 노출.
+    일회성·`--json`·`--watch` 세 뷰 모두 적용(watch 본문이 renderStats 재사용).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 643 · cli 356/1skip · dashboard 9**; core stats.test +5[empty·합산·스킵·zero-window] ,
+  cli stats.test +3[render 블록·미노출·JSON 통과]). **실제 빌드 CLI e2e**(mock 아님): 3-잡 스토어
+  (web 대기 1h 대기 + api 완료 3h 대기 + web 완료 detection 없음) 시드 → `stats`가 "rate-limit wait …
+  total 4h 0m over 2 rate-limited job(s) / avg 2h median 2h min 1h max 3h"를 렌더하고 detection 없는 잡은
+  정확히 제외, `--json`의 `stats.waitTiming`이 totalWaitMs 14400000·rateLimitedCount 2로 정확 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대기 시간의 per-tool/
+  per-project 브레이크다운, 또는 metrics(Prometheus)에도 wait 게이지 노출. stats 분산/watch·parser·doctor·
+  epoch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

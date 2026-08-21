@@ -98,6 +98,45 @@ export interface TimingStats {
   madResolutionMs: number | null;
 }
 
+/**
+ * Timing metrics over rate-limit *waits* — the headline value the relay exists
+ * to deliver. Each job that carries a rate-limit detection (`lastRateLimit`)
+ * records the reset it produced and when it was detected; the "wait" is that
+ * planned window `resetAt - detectedAt`: the stretch a human would otherwise
+ * have had to sit and watch the clock before re-running, but the relay absorbed
+ * unattended. Summed, {@link totalWaitMs} answers "how much waiting did
+ * AgentRelay do on my behalf?".
+ *
+ * Distinct from {@link TimingStats}: resolution time is a job's whole lifecycle
+ * (queue → terminal, including command execution and retries), whereas this is
+ * only the rate-limit hold. Every job with a valid detection contributes,
+ * regardless of status — a job still parked in `waiting_for_reset` is already
+ * absorbing its wait for you. Only the *last* detection is persisted, so a job
+ * rate-limited more than once contributes its final window (an honest lower
+ * bound given the stored data). Jobs with no detection, an unparseable
+ * timestamp, or a negative window (clock skew) are skipped, not clamped.
+ */
+export interface WaitTimingStats {
+  /** Jobs carrying a valid rate-limit detection that contributed a non-negative wait. */
+  rateLimitedCount: number;
+  /**
+   * Sum of every wait window (ms) — total time the relay waited on rate limits
+   * on your behalf. 0 when no job carries a detection.
+   */
+  totalWaitMs: number;
+  /** Mean wait window (ms) over {@link rateLimitedCount} jobs, or null when none. */
+  avgWaitMs: number | null;
+  /** Shortest wait window (ms), or null when none. */
+  minWaitMs: number | null;
+  /** Longest wait window (ms), or null when none. */
+  maxWaitMs: number | null;
+  /**
+   * Median (p50) wait window (ms), or null when none. The typical rate-limit
+   * hold, undistorted by one unusually long weekly-limit reset.
+   */
+  medianWaitMs: number | null;
+}
+
 export interface RelayStats {
   total: number;
   /** Count per job status (all statuses present, zero-filled). */
@@ -124,6 +163,8 @@ export interface RelayStats {
   projects: ProjectStat[];
   /** Resolution-time metrics over completed + failed jobs. */
   timing: TimingStats;
+  /** Rate-limit wait metrics over jobs carrying a detection ("time relayed"). */
+  waitTiming: WaitTimingStats;
 }
 
 /**
@@ -393,6 +434,23 @@ function resolutionMs(job: RelayJob): number | null {
 }
 
 /**
+ * Rate-limit wait window of a job in ms (`lastRateLimit.resetAt -
+ * lastRateLimit.detectedAt`), or null when the job carries no detection, either
+ * timestamp is missing/unparseable, or the window is negative (clock skew /
+ * an already-elapsed reset). This is the time the relay held the job waiting
+ * for a limit to lift — the automation the tool exists to provide.
+ */
+function rateLimitWaitMs(job: RelayJob): number | null {
+  const detection = job.lastRateLimit;
+  if (!detection) return null;
+  const reset = Date.parse(detection.resetAt);
+  const detected = Date.parse(detection.detectedAt);
+  if (Number.isNaN(reset) || Number.isNaN(detected)) return null;
+  const span = reset - detected;
+  return span >= 0 ? span : null;
+}
+
+/**
  * Linear-interpolated percentile (0..1) over an ascending-sorted, non-empty
  * array. p=0.5 → median, p=0.9 → p90. Matches the common "type 7" / NumPy
  * default: rank = p·(n−1), interpolate between the two straddling samples.
@@ -456,6 +514,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
   let totalAttempts = 0;
   let retriedJobs = 0;
   const resolutionDurations: number[] = [];
+  const waitDurations: number[] = [];
 
   for (const job of jobs) {
     // A job may carry a tool we don't statically know about; only bump known
@@ -468,6 +527,10 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
       const span = resolutionMs(job);
       if (span !== null) resolutionDurations.push(span);
     }
+    // Wait windows count for any status — a job still parked in
+    // waiting_for_reset is already absorbing its wait on your behalf.
+    const wait = rateLimitWaitMs(job);
+    if (wait !== null) waitDurations.push(wait);
   }
 
   const active = ACTIVE_STATUSES.reduce((sum, s) => sum + byStatus[s], 0);
@@ -524,6 +587,30 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     };
   }
 
+  const rateLimitedCount = waitDurations.length;
+  let waitTiming: WaitTimingStats;
+  if (rateLimitedCount === 0) {
+    waitTiming = {
+      rateLimitedCount: 0,
+      totalWaitMs: 0,
+      avgWaitMs: null,
+      minWaitMs: null,
+      maxWaitMs: null,
+      medianWaitMs: null,
+    };
+  } else {
+    const sortedWaits = [...waitDurations].sort((a, b) => a - b);
+    const totalWaitMs = sortedWaits.reduce((sum, w) => sum + w, 0);
+    waitTiming = {
+      rateLimitedCount,
+      totalWaitMs,
+      avgWaitMs: Math.round(totalWaitMs / rateLimitedCount),
+      minWaitMs: sortedWaits[0],
+      maxWaitMs: sortedWaits[rateLimitedCount - 1],
+      medianWaitMs: percentile(sortedWaits, 0.5),
+    };
+  }
+
   return {
     total,
     byStatus,
@@ -536,6 +623,7 @@ export function computeStats(jobs: RelayJob[]): RelayStats {
     nextResetAt,
     projects,
     timing,
+    waitTiming,
   };
 }
 

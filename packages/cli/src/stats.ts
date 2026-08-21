@@ -125,6 +125,22 @@ export function renderStats(
     );
   }
 
+  const { waitTiming } = stats;
+  if (waitTiming.rateLimitedCount > 0) {
+    lines.push("");
+    lines.push(b("rate-limit wait") + d(" (time relayed on your behalf)"));
+    lines.push(
+      `  total ${formatDurationMs(waitTiming.totalWaitMs)} ` +
+        d(`over ${waitTiming.rateLimitedCount} rate-limited job(s)`)
+    );
+    lines.push(
+      `  avg ${formatDurationMs(waitTiming.avgWaitMs ?? 0)}` +
+        `   median ${formatDurationMs(waitTiming.medianWaitMs ?? 0)}` +
+        `   min ${formatDurationMs(waitTiming.minWaitMs ?? 0)}` +
+        `   max ${formatDurationMs(waitTiming.maxWaitMs ?? 0)}`
+    );
+  }
+
   const statusParts = STATUS_ORDER.filter((s) => stats.byStatus[s] > 0).map((s) => `${s}:${stats.byStatus[s]}`);
   lines.push("");
   lines.push(b("by status"));
