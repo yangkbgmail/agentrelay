@@ -94,10 +94,23 @@ export class RelayQueue {
     this.load();
   }
 
-  /** No-op kept for API parity with earlier SQLite-backed implementation. */
-  close() {
-    this.flush();
-  }
+  /**
+   * No-op kept for API parity with the earlier SQLite-backed implementation.
+   *
+   * It deliberately does NOT write anything. Every mutating method already
+   * persists atomically at call time (load → mutate → atomic flush), so there
+   * are no deferred changes for `close()` to commit. The previous version
+   * called `flush()` here, which re-wrote this instance's *in-memory* map —
+   * a map loaded when the queue was opened and never refreshed for a read-only
+   * command. That was a silent lost-update vector: opening the store for a
+   * read (`status`, `stats`, `show`, `export`, …) and then closing it would
+   * overwrite the file with a stale snapshot, clobbering any job a concurrent
+   * process (e.g. a running `agentrelay daemon`) had enqueued or updated in the
+   * meantime. Making close() a true no-op removes that write entirely, which
+   * both matches this method's long-standing docstring and upholds the
+   * lost-update-free invariant documented in concurrency.ts.
+   */
+  close() {}
 
   private load() {
     if (!existsSync(this.filePath)) {
