@@ -22,6 +22,7 @@ import {
   computeErrorBreakdown,
   computeHourlyDistribution,
   computeQueueEta,
+  computeResetClock,
   computeStats,
   computeWeekdayDistribution,
   EXPORT_FORMATS,
@@ -92,6 +93,7 @@ import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
 import { type RecoverResult, renderRecover, renderRecoverJson } from "./recover.js";
+import { renderResets, renderResetsJson } from "./resets.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
   formatUtcOffsetLabel,
@@ -1383,6 +1385,68 @@ export function buildCli(): Command {
       }
       console.log(
         renderPatterns(summary, {
+          color: Boolean(process.stdout.isTTY),
+          scopeNote: built.active ? built.note : undefined,
+        })
+      );
+    });
+
+  program
+    .command("resets")
+    .description("Hour-of-day clock of when rate limits are hit (or, with --reset, when the quota window rolls over)")
+    .option(
+      "--reset",
+      "Bucket on when the quota resets (lastRateLimit.resetAt) instead of when it was hit (detectedAt)"
+    )
+    .option("--local", "Bucket the clock by this machine's local time zone instead of UTC")
+    .option("--json", "Print the clock as JSON (machine-readable, for scripts/jq)")
+    .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
+    .option("-t, --tool <tools>", `Only count jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only count jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only count jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only count jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # which hours of the day do I keep getting throttled? (UTC)\n" +
+        "  agentrelay resets\n" +
+        "  # same, in my local time zone\n" +
+        "  agentrelay resets --local\n" +
+        "  # when does my quota window actually roll over?\n" +
+        "  agentrelay resets --reset --local\n" +
+        "  # read the busiest hour with jq\n" +
+        "  agentrelay resets --json | jq '.clock.busiestHour'"
+    )
+    .action((opts: ScopeOpts & { reset?: boolean; local?: boolean; json?: boolean }) => {
+      const { store } = program.opts();
+      const built = buildScope(opts, Date.now());
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      // UTC by default; --local shifts every timestamp to the machine's local
+      // wall clock. getTimezoneOffset() returns minutes *behind* UTC, so negate.
+      const offsetMinutes = opts.local ? -new Date().getTimezoneOffset() : 0;
+
+      const allJobs = listStatus(store);
+      const jobs = built.active ? scopeJobs(allJobs, built.scope) : allJobs;
+      const clock = computeResetClock(jobs, { basis: opts.reset ? "reset" : "detected", offsetMinutes });
+
+      if (opts.json) {
+        console.log(
+          renderResetsJson({
+            storePath: store ?? defaultStorePath(),
+            generatedAt: new Date().toISOString(),
+            scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+            clock,
+          })
+        );
+        return;
+      }
+      console.log(
+        renderResets(clock, {
           color: Boolean(process.stdout.isTTY),
           scopeNote: built.active ? built.note : undefined,
         })
