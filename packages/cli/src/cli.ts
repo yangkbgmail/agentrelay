@@ -60,11 +60,13 @@ import {
   type JobControlResult,
   listStatus,
   listStoreBackups,
+  parseExitCode,
   previewRestoreStore,
   pruneJobs,
   readHealthReport,
   readLocationReport,
   recoverJobs,
+  resolveRunExitCode,
   restoreStore,
   retryJob,
   runCommand,
@@ -543,15 +545,28 @@ export function buildCli(): Command {
       "-p, --project <name>",
       "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
     )
-    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
+    .option(
+      "--queued-exit-code <code>",
+      "Exit with this code (0-255) when a rate limit is detected and the job is queued for resume, instead of propagating the agent's own (usually non-zero) exit code. Lets `&&`/CI wrappers treat a successful queue as success."
+    )
+    .action(async (command: string[], opts: { tool?: string; project?: string; queuedExitCode?: string }) => {
       const { store } = program.opts();
+      let queuedExitCode: number | null = null;
+      if (opts.queuedExitCode !== undefined) {
+        queuedExitCode = parseExitCode(opts.queuedExitCode);
+        if (queuedExitCode === null) {
+          console.error(`Invalid --queued-exit-code "${opts.queuedExitCode}": expected an integer 0-255.`);
+          process.exitCode = 1;
+          return;
+        }
+      }
       const result = await runCommand({
         command,
         storePath: store,
         tool: opts.tool as AgentTool | undefined,
         project: opts.project,
       });
-      process.exitCode = result.exitCode;
+      process.exitCode = resolveRunExitCode(result, queuedExitCode);
     });
 
   program

@@ -14,8 +14,10 @@ import {
   initConfig,
   listStatus,
   listStoreBackups,
+  parseExitCode,
   previewRestoreStore,
   pruneJobs,
+  resolveRunExitCode,
   restoreStore,
   retryJob,
   runCommand,
@@ -162,6 +164,39 @@ describe("runCommand", () => {
     // dir is a mkdtemp path; its last segment is the derived label, never blank.
     expect(result.queuedJob?.project).toBe(dir.split("/").filter(Boolean).pop());
     expect(result.queuedJob?.project?.trim()).not.toBe("");
+  });
+});
+
+describe("parseExitCode", () => {
+  it("accepts integers in [0, 255]", () => {
+    expect(parseExitCode("0")).toBe(0);
+    expect(parseExitCode("1")).toBe(1);
+    expect(parseExitCode("255")).toBe(255);
+    expect(parseExitCode("  42  ")).toBe(42);
+  });
+  it("rejects out-of-range, non-integer, and garbage values", () => {
+    expect(parseExitCode("256")).toBeNull();
+    expect(parseExitCode("-1")).toBeNull();
+    expect(parseExitCode("1.5")).toBeNull();
+    expect(parseExitCode("abc")).toBeNull();
+    expect(parseExitCode("")).toBeNull();
+  });
+});
+
+describe("resolveRunExitCode", () => {
+  const job = { id: "j1" } as RelayJob;
+
+  it("propagates the child exit code when no queued-exit-code is set", () => {
+    expect(resolveRunExitCode({ exitCode: 7, queuedJob: job }, null)).toBe(7);
+    expect(resolveRunExitCode({ exitCode: 0, queuedJob: null }, null)).toBe(0);
+  });
+  it("uses the queued-exit-code only when a job was actually queued", () => {
+    expect(resolveRunExitCode({ exitCode: 1, queuedJob: job }, 0)).toBe(0);
+    expect(resolveRunExitCode({ exitCode: 1, queuedJob: job }, 42)).toBe(42);
+  });
+  it("still propagates the child exit code when nothing was queued (no rate limit)", () => {
+    expect(resolveRunExitCode({ exitCode: 3, queuedJob: null }, 0)).toBe(3);
+    expect(resolveRunExitCode({ exitCode: 0, queuedJob: null }, 0)).toBe(0);
   });
 });
 

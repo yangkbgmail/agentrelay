@@ -142,6 +142,37 @@ export interface RunResult {
 }
 
 /**
+ * Parse a user-supplied exit-code string (the `run --queued-exit-code` value)
+ * into a valid process exit code, or `null` when it isn't one. A process exit
+ * code is an integer in `[0, 255]` (values outside that range wrap modulo 256
+ * on POSIX, so we reject them rather than silently mangle the caller's intent).
+ * Pure, so the CLI and tests share the exact validation rule.
+ */
+export function parseExitCode(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!/^\d{1,3}$/.test(trimmed)) return null;
+  const n = Number(trimmed);
+  return n >= 0 && n <= 255 ? n : null;
+}
+
+/**
+ * Decide the exit code `agentrelay run` should exit with.
+ *
+ * By default `run` is transparent — it propagates the wrapped agent's own exit
+ * code. But an agent CLI almost always exits *non-zero* when it hits a rate
+ * limit (that's how it signals the limit), so a script that wraps
+ * `agentrelay run -- claude …` in `&&`/CI sees a failure even though the relay
+ * *succeeded* in queuing the job for later resume. When the caller opts in with
+ * `--queued-exit-code <n>` and this run actually queued a job, exit with that
+ * code instead (typically `0`, "the relay took responsibility"). Pure and
+ * side-effect free so the decision is unit-testable without spawning anything.
+ */
+export function resolveRunExitCode(result: RunResult, queuedExitCode: number | null): number {
+  if (queuedExitCode !== null && result.queuedJob !== null) return queuedExitCode;
+  return result.exitCode;
+}
+
+/**
  * Runs `command`, streaming its output live while also buffering it to scan
  * for a rate-limit message. If one is found, the command is enqueued for
  * automatic resume once the limit resets -- this is the core "wrap your
