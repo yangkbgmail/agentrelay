@@ -870,6 +870,16 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 파서 상대-시간 단위 오탐 수정 — 단위 문자가 다른 단어의 첫 글자를 삼키던 무음 under-wait 버그.
+      (완료 — `relative-duration` 정규식의 분 그룹 `m(?:in…)?`이 "months"/"moments"의 맨 앞 `m`을 분으로
+      오인해 "try again in 2 months"를 **2분** 대기로 해소하던 버그. 잡이 너무 일찍 재개돼 곧바로 다시
+      한도에 걸리는, 이 릴레이가 반복해 겨냥해온 silent-failure 부류. day/hour/minute 각 단위 뒤에
+      `(?![a-z])`(단위 문자 다음이 letter가 아니어야 함)를 앵커링 → "months"/"moments"/"decades"/"hundred"
+      같은 단어는 매치 실패로 폴스루해 `null`(한도 미감지, 안전) 반환. 실제 문구(`m`·`min`·`minute(s)`·`h`·
+      `hour(s)`·`d`·`day(s)`·`10m`/`4h32m` 등 축약형)는 공백/숫자/문자열끝이 뒤따라 전부 불변. parser.test
+      +3 회귀(2 months→null·moments/decades/hundred→null·8개 정상 형태 유지). 실제 빌드 CLI e2e로
+      "2 months"→미감지·"5 minutes"→정상 감지 확인. branch `claude/wizardly-pascal-lrr6xk`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -123,6 +123,42 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 3 * 60_000).toISOString());
   });
 
+  it("does not misparse 'in 2 months' as a 2-minute wait (unit letter must not swallow another word)", () => {
+    // Regression: the minute group's bare `m` used to match the start of
+    // "months", resolving "try again in 2 months" to now+2 *minutes* — a silent
+    // under-wait that resumes the job far too early. It must now fall through to
+    // null (no rate limit detected) instead of a bogus tiny wait.
+    const now = new Date("2026-07-12T10:00:00Z");
+    expect(parseRateLimitMessage("Rate limit exceeded, try again in 2 months.", { now })).toBeNull();
+  });
+
+  it("does not misparse other unit-lookalike words ('moments'/'decades'/'hundred')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    expect(parseRateLimitMessage("try again in 3 moments", { now })).toBeNull();
+    expect(parseRateLimitMessage("resets in 2 decades", { now })).toBeNull();
+    expect(parseRateLimitMessage("try again in 2 hundred seconds", { now })).toBeNull();
+  });
+
+  it("still parses every real relative-duration form after the unit guard", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    // Every string trips the parser's pre-filter (via "try again"/"resets in").
+    const cases: Array<[string, number]> = [
+      ["try again in 10m", 10 * 60_000],
+      ["resets in 45 min", 45 * 60_000],
+      ["try again in 5 minutes", 5 * 60_000],
+      ["resets in 2h", 2 * 60 * 60_000],
+      ["try again in 1 hour", 60 * 60_000],
+      ["resets in 3 hours", 3 * 60 * 60_000],
+      ["try again in 4h32m", (4 * 60 + 32) * 60_000],
+      ["try again in 1 day", 24 * 60 * 60_000],
+    ];
+    for (const [text, offsetMs] of cases) {
+      const result = parseRateLimitMessage(text, { now });
+      expect(result?.pattern, text).toBe("relative-duration");
+      expect(result?.resetAt, text).toBe(new Date(now.getTime() + offsetMs).toISOString());
+    }
+  });
+
   it("parses a unix epoch retry_after field", () => {
     const result = parseRateLimitMessage("rate_limit_error retry_after=1752345600");
     expect(result).not.toBeNull();
