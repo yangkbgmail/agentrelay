@@ -2259,3 +2259,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 파서: Claude 주간(weekly) 사용량 한도 폴백] (2026-08-21, 무인 자율 세션, branch `claude/parser-weekly-limit-fallback`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 여전히 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 200+개(doctor reset-horizon 검사만 20+ 중복, 파서 변형·watch·stats 분산·어댑터 등 극도 포화)를
+  전 제목 스캔해 **어떤 열린 PR에도 없는** 실제 신뢰성 갭을 발굴: 파서에 **5시간 한도 폴백**
+  (`five-hour-window-fallback`)은 있으나, Claude가 2025년 도입한 **주간(weekly) 사용량 한도**에 대한 폴백이
+  전무. 명시 리셋 시각이 없는 "You've reached your weekly limit" 류 메시지는 사전필터
+  `LOOKS_LIKE_RATE_LIMIT`에서 아예 걸러져(=매치 0) 감지 안 됨 → 잡이 조용히 재개 안 되는 무음 실패
+  (이 프로젝트가 doctor·recover·plausibility 가드로 반복해 겨냥한 부류). 빌드된 CLI `parse`로 현행
+  미감지(`No rate-limit detected`)를 먼저 재현 확인.
+- **한 일 (branch `claude/parser-weekly-limit-fallback`):**
+  - core `parser.ts`: `weekly-window-fallback` 패턴 추가(`/weekly\s+(?:usage\s+|rate\s+)?limit/i` →
+    now+**7일**). 5시간 폴백과 동일 철학(명시 시각 없을 때 "너무 이르게 재개하지 않는" 보수적 상한).
+    패턴 배열 **맨 끝**(5시간 폴백 뒤)에 두어 최저 신뢰도 — ISO/clock/relative/epoch 등 명시 시각이 있으면
+    그쪽이 먼저 매치. 7d < 기본 지평선 8d라 plausibility 가드가 misparse로 드롭하지 않음.
+  - 사전필터 `LOOKS_LIKE_RATE_LIMIT`에 `weekly\s+(?:usage\s+|rate\s+)?limit` 추가 — 이게 없으면 "weekly
+    limit"만 있는 메시지가 게이트에서 드롭돼 신규 패턴이 발화조차 못 함(5시간 폴백이 "usage limit"에
+    의존해 통과하던 것과 대칭적 함정을 회피).
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과
+  (**core 639→643 [+4 parser.test] · cli 354/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님):
+  "weekly limit"→`weekly-window-fallback`(in 7d 0h) 감지, "weekly usage limit"·"weekly rate limit"도 감지,
+  "Weekly limit reached. Resets at <ISO>"는 `iso-timestamp`로 명시 시각 우선, 시각 없는 일반 rate-limit은
+  기존대로 null 유지(하위호환) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 5시간 폴백도 "usage"
+  없는 bare "5-hour limit"이 사전필터에서 드롭되는 대칭 갭 보완, 또는 어댑터에 Claude weekly 전용
+  provenance 라벨. doctor/stats/watch/파서 변형은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

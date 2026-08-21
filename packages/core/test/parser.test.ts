@@ -139,6 +139,42 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(expected);
   });
 
+  it("falls back to a 7-day window for a weekly limit with no explicit time", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    // Real Claude wording carries no parseable time; without a weekly fallback
+    // this slips through the pre-filter and the job silently never resumes.
+    const result = parseRateLimitMessage("You've reached your weekly limit. Please try again later.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("weekly-window-fallback");
+    const expected = new Date(now.getTime() + 7 * 24 * 60 * 60_000).toISOString();
+    expect(result?.resetAt).toBe(expected);
+  });
+
+  it("recognizes 'weekly usage limit' and 'weekly rate limit' phrasings", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    for (const msg of ["Claude weekly usage limit reached", "Weekly rate limit exceeded"]) {
+      const result = parseRateLimitMessage(msg, { now });
+      expect(result?.pattern).toBe("weekly-window-fallback");
+    }
+  });
+
+  it("prefers an explicit reset time over the weekly fallback", () => {
+    // A weekly-limit message that DOES spell out the reset must use the precise
+    // time, not the conservative 7-day bound.
+    const result = parseRateLimitMessage("Weekly limit reached. Resets at 2026-07-13T05:00:00Z.");
+    expect(result?.pattern).toBe("iso-timestamp");
+  });
+
+  it("keeps the 7-day weekly fallback under the default reset horizon", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    // 7d < 8d default horizon, so the plausibility guard must not drop it.
+    const result = parseRateLimitMessage("You've hit your weekly limit.", {
+      now,
+      maxFutureMs: DEFAULT_MAX_RESET_HORIZON_MS,
+    });
+    expect(result?.pattern).toBe("weekly-window-fallback");
+  });
+
   it("prefers the more specific pattern when multiple could match", () => {
     const result = parseRateLimitMessage("Usage limit reached. It resets at 2026-07-13T05:00:00Z (in about 5 hours).");
     expect(result?.pattern).toBe("iso-timestamp");
