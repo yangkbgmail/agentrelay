@@ -2259,3 +2259,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — fix(core): listDue가 파싱 불가 resetAt 잡을 영구 orphan하던 무음 실패 수정] (2026-08-21, 무인 자율 세션, branch `claude/fix-listdue-unparseable-reset`)
+- **항목 선정 — PR 큐 병리적 포화 확인 후 버그 픽스로 전환:** 원래 세션 72의 후속 후보 "doctor 먼-미래
+  리셋 큐 검사(reset-horizon)"를 구현·테스트·린트까지 마쳤으나, push 시 **동일 결정론적 브랜치명에 이미
+  다른 동시 세션의 동일 구현**이 있었다. 열린 PR을 조사하니 reset-horizon 검사가 **~20개 중복 PR**
+  (#807/#804/#803/#801/#799/#794/#761/#760/#756/#755/#754/#748/#745/#742/#741/#738/#735/#734/#733/#729/#727/#726…),
+  NO_COLOR도 **4개 중복**(#638/#497/#229/#125). ~200개 열린 PR 대부분이 서로 중복 feature라 실질
+  merge 병목은 리뷰/병합이지 feature 부족이 아님. 그래서 **아무 PR도 안 건드린 진짜 correctness 버그**를
+  코드에서 발굴하는 쪽으로 전환.
+- **발굴한 버그:** `queue.ts`의 `listDue` 필터가 `new Date(job.resetAt).getTime() <= ref`인데, `resetAt`이
+  파싱 불가 문자열이면 `NaN <= ref`가 항상 false → 그 잡은 `listDue`에서 절대 안 나와 영원히 재개 안 됨.
+  `import.ts` 검증이 `resetAt`을 "문자열 또는 null"로만 보고 파싱 가능성은 안 봐서, 외부 덤프의
+  `"resetAt":"next tuesday"` 같은 값이 그대로 큐에 들어오는 실제 도달 경로 존재. `resetAt NaN` PR 검색
+  결과 0건 — 미중복.
+- **한 일 (branch `claude/fix-listdue-unparseable-reset`):** `queue.ts`에 순수 `isJobDue(job, refMs)` export
+  신설 — `waiting_for_reset` + 비-null resetAt만 대상, 파싱 결과 `NaN`이면 due-now로 취급(스케줄 불가 잡은
+  orphan보다 표면화가 안전: 재개→성공/유효 resetAt 재파킹/실패 중 하나로 자기교정). `listDue`가 이
+  predicate 사용. 새 스케줄러/파서 로직 0줄.
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과
+  (**core 646 · cli 354/1skip · dashboard 9**; queue.test +7). 실제 빌드 CLI e2e: `resetAt:"next tuesday"`
+  잡을 `import --include-active`로 넣고 `tick` 실행 → `stuck-job-1234 -> completed`로 재개됨(수정 전엔 영구 스킵).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open. 후속 — `import.ts`가 파싱 불가 resetAt을 아예 거부하거나
+  정규화할지(입력 측 방어), `doctor`가 파싱 불가 resetAt 잡을 데이터 품질 경고로 표면화할지. 단,
+  **PR 큐가 병리적으로 포화(~200개, 대량 중복)** 상태라 신규 feature는 지양하고 버그/중복정리 우선 권장.

@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { corruptBackupPath, RelayQueue } from "../src/queue.js";
+import { corruptBackupPath, isJobDue, RelayQueue } from "../src/queue.js";
 import type { RelayJob } from "../src/types.js";
 
 describe("RelayQueue", () => {
@@ -253,5 +253,57 @@ describe("RelayQueue", () => {
       expect(result).toMatchObject({ added: 0, updated: 0, skippedExisting: 1 });
       expect(readFileSync(join(dir, "test.db"), "utf8")).toBe(before);
     });
+  });
+
+  it("lists a job whose resetAt is unparseable as due-now (never orphans it)", () => {
+    // A malformed resetAt string can slip in via an imported dump (import's
+    // validation only checks it's a string, not that it parses). Before the fix,
+    // NaN <= ref was always false, so this job sat in waiting_for_reset forever.
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    queue.markWaitingForReset(job.id, "not-a-real-date");
+    const due = queue.listDue(new Date());
+    expect(due).toHaveLength(1);
+    expect(due[0].id).toBe(job.id);
+  });
+});
+
+describe("isJobDue", () => {
+  const baseJob = (overrides: Partial<RelayJob> = {}): RelayJob => ({
+    id: "j1",
+    project: "demo",
+    tool: "claude-code",
+    command: ["claude"],
+    cwd: "/tmp",
+    status: "waiting_for_reset",
+    resetAt: null,
+    createdAt: "2026-08-21T00:00:00.000Z",
+    updatedAt: "2026-08-21T00:00:00.000Z",
+    attempts: 0,
+    lastError: null,
+    lastOutputTail: null,
+    ...overrides,
+  });
+  const NOW = Date.parse("2026-08-21T12:00:00.000Z");
+
+  it("is true when resetAt has passed", () => {
+    expect(isJobDue(baseJob({ resetAt: "2026-08-21T11:00:00.000Z" }), NOW)).toBe(true);
+  });
+  it("is false when resetAt is still in the future", () => {
+    expect(isJobDue(baseJob({ resetAt: "2026-08-21T13:00:00.000Z" }), NOW)).toBe(false);
+  });
+  it("is true exactly at resetAt (inclusive boundary)", () => {
+    expect(isJobDue(baseJob({ resetAt: "2026-08-21T12:00:00.000Z" }), NOW)).toBe(true);
+  });
+  it("is false for a null resetAt (not parked on a reset)", () => {
+    expect(isJobDue(baseJob({ resetAt: null }), NOW)).toBe(false);
+  });
+  it("is true for an unparseable resetAt (surface, don't orphan)", () => {
+    expect(isJobDue(baseJob({ resetAt: "whenever" }), NOW)).toBe(true);
+    expect(isJobDue(baseJob({ resetAt: "" }), NOW)).toBe(true);
+  });
+  it("is false for any non-waiting status regardless of resetAt", () => {
+    for (const status of ["queued", "resuming", "completed", "failed", "cancelled"] as const) {
+      expect(isJobDue(baseJob({ status, resetAt: "2026-08-21T11:00:00.000Z" }), NOW)).toBe(false);
+    }
   });
 });
