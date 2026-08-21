@@ -870,6 +870,23 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 파서: ANSI 색상/터미널 이스케이프 코드 제거 후 rate-limit 매칭 — 컬러 출력하는 에이전트
+      CLI(Claude Code·Codex는 기본 컬러)의 rate-limit 문구를 조용히 놓치는 무음 실패 차단. 자기 발굴 항목.
+      (완료 — 스케줄러/`run`은 자식 프로세스의 stdout/stderr를 **raw**로 이어붙여 파서에 넘기는데,
+      에이전트 CLI는 기본적으로 출력을 컬러화한다. 그래서 `reset at \x1b[1m5pm\x1b[0m`나
+      `try again in \x1b[1m45m\x1b[0m`처럼 리셋 시각/기간에 강조색이 입혀지면 이스케이프 코드가
+      "at"과 "5pm" 사이(혹은 "45m" 내부)에 끼어 패턴의 `\s+`/숫자 앵커를 깨뜨려 **한도가 그대로
+      미검출**→잡이 큐잉 안 됨(doctor·recover·reset-horizon이 반복해 겨냥해온 바로 그 silent-failure
+      부류). `@agentrelay/core/parser.ts`에 순수 `stripAnsi(text)` + `ANSI_ESCAPE_PATTERN` 신설 —
+      ESC(0x1B)/8비트 CSI(0x9B) 도입부에 앵커해 OSC 시퀀스(창 제목·하이퍼링크, BEL/ST 종단)와
+      CSI 시퀀스(색상·커서 이동·지우기, final byte 종단)를 소거. ESC/CSI 바이트는 정상 텍스트에 결코
+      안 나오므로 과소거 위험 없음. `parseRateLimitMessage`가 매칭·pre-filter **전에** 한 번 스트립 →
+      제네릭·어댑터(extraPatterns) 양쪽 경로가 동일하게 정화된 텍스트를 봄, `rawMatch`는 스트립된
+      가독 텍스트 반영. 새 CLI 코드 0줄 — 스케줄러·`run`·`parse` 진단 커맨드가 파서를 거치므로 자동
+      수혜(컬러 붙여넣은 `agentrelay parse`도 이제 매치). parser.test +8(stripAnsi 4: SGR/CSI/OSC/plain +
+      colorized parse 4: clock-meridiem·relative·ISO·adapter-seconds). 실제 빌드 CLI `parse`로 컬러
+      clock-meridiem(5pm)·relative(45m) 매치 + plain 회귀 불변 e2e 확인. branch `claude/wizardly-pascal-1p9oxm`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

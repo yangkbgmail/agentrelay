@@ -2259,3 +2259,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 파서 ANSI 색상 이스케이프 스트립] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-1p9oxm`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  400+개 브랜치를 이름으로 스캔해 어떤 브랜치에도 없는 실제 신뢰성 갭을 발굴: **파서가 입력 텍스트의
+  ANSI 색상/터미널 이스케이프 코드를 제거하지 않는다**는 점. `nocolor` 브랜치는 CLI **출력** 플래그일
+  뿐 파서 **입력**과 무관. 스케줄러/`run`은 자식 프로세스 stdout/stderr를 raw로 이어붙여 파서에 넘기고,
+  에이전트 CLI(Claude Code·Codex)는 기본 컬러 출력이라, 리셋 시각/기간에 강조색이 입혀지면
+  (`reset at \x1b[1m5pm\x1b[0m`, `try again in \x1b[1m45m\x1b[0m`) 이스케이프 코드가 패턴의 `\s+`/숫자
+  앵커를 깨뜨려 **한도 미검출 → 잡 미큐잉**. Node로 실측해 컬러 입력이 매치 실패·스트립 후 정상 매치를
+  선(先)확인한 뒤 착수(doctor·recover·reset-horizon이 반복 겨냥한 silent-failure 부류).
+- **한 일 (branch `claude/wizardly-pascal-1p9oxm`):**
+  - core `parser.ts`: 순수 `stripAnsi(text)` + `ANSI_ESCAPE_PATTERN` 신설 — ESC(0x1B)/8비트 CSI(0x9B)
+    도입부에 앵커해 OSC 시퀀스(창 제목·하이퍼링크, BEL/ST 종단)와 CSI 시퀀스(색상·커서 이동·지우기,
+    final byte 종단)를 소거. ESC/CSI 바이트는 정상 텍스트에 결코 안 나오므로 과소거 위험 0.
+    `parseRateLimitMessage`가 매칭·pre-filter **전에** 한 번 스트립 → 제네릭·어댑터(extraPatterns)
+    양쪽 경로가 동일하게 정화된 텍스트를 봄, `rawMatch`는 스트립된 가독 텍스트 반영.
+  - 새 CLI/스케줄러 코드 0줄 — 스케줄러·`run`·`parse` 진단이 전부 파서를 거치므로 자동 수혜.
+    (컬러 붙여넣은 `agentrelay parse`도 이제 매치.)
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 120 파일)→
+  `pnpm test` 전 패키지 통과(**core 647**[parser.test +8: stripAnsi 4[SGR/CSI/OSC/plain] + colorized
+  parse 4[clock-meridiem·relative·ISO·adapter-seconds]] **· cli 354/1skip · dashboard 9**). **실제 빌드
+  CLI e2e**(mock 아님): `parse`에 컬러 `reset at \x1b[1m5pm\x1b[0m`→`clock-time-meridiem` 매치·
+  컬러 `try again in \x1b[1m45m\x1b[0m`→`relative-duration` 45m 매치, plain `resets at 3:30pm`은
+  회귀 불변 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `run`이 캡처한
+  출력 tail(`lastOutputTail`)도 저장 전 `stripAnsi`로 정화해 `show`가 깨끗이 보이게 할지, 또는
+  파서가 CR(`\r`) 프로그레스 리라이트도 정규화할지. README/ARCHITECTURE(🧭 코워크).

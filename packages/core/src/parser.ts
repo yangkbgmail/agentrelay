@@ -73,6 +73,34 @@ export function maxResetHorizonMsFromEnv(env: NodeJS.ProcessEnv = process.env): 
 }
 
 /**
+ * Matches ANSI / terminal control sequences (colors, cursor moves, window-title
+ * OSC codes, hyperlinks). AgentRelay wraps agent CLIs whose output is colorized
+ * by default, so a rate-limit line often arrives with escape codes *interleaved*
+ * with the wording — e.g. `reset at \x1b[1m5pm\x1b[0m` or
+ * `try again in \x1b[1m5m\x1b[0m`. Those codes land between "at" and "5pm" (or
+ * inside "5m"), breaking the `\s+`/digit anchors of the patterns below, so the
+ * limit is silently missed and the job never re-queues — exactly the
+ * silent-failure class this relay guards against. Stripping them first restores
+ * a plain-text line the patterns can match. Anchoring on the ESC / 8-bit CSI
+ * introducer is safe because those control bytes never appear in legitimate
+ * rate-limit text. Two forms are consumed: OSC sequences (window titles,
+ * hyperlinks) up to their BEL or ST terminator, and CSI sequences (colors,
+ * cursor moves, erases) up to their final byte.
+ */
+const ANSI_ESCAPE_PATTERN =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: matching terminal control codes is the point
+  /[\u001B\u009B]\][^\u0007\u001B]*(?:\u0007|\u001B\\)|[\u001B\u009B][[()#;?]*[0-9;?]*[ -/]*[@-~]/g;
+
+/**
+ * Remove ANSI / terminal escape sequences from `text`, leaving the visible
+ * characters. Pure and side-effect free. Exposed so callers and tests can
+ * normalize captured agent output the same way the parser does.
+ */
+export function stripAnsi(text: string): string {
+  return text.replace(ANSI_ESCAPE_PATTERN, "");
+}
+
+/**
  * A single rate-limit message matcher. Exposed so agent adapters can contribute
  * tool-specific patterns without reaching into the parser internals.
  */
@@ -208,9 +236,15 @@ function tryPattern(
   };
 }
 
-export function parseRateLimitMessage(text: string, options: ParseOptions = {}): RateLimitInfo | null {
+export function parseRateLimitMessage(rawText: string, options: ParseOptions = {}): RateLimitInfo | null {
   const now = options.now ?? new Date();
   const maxFutureMs = options.maxFutureMs;
+
+  // Agent CLIs colorize their output by default, so the captured text can carry
+  // ANSI escape codes interleaved with the rate-limit wording (e.g.
+  // `reset at \x1b[1m5pm\x1b[0m`). Strip them first so the patterns — and the
+  // pre-filter — see plain text; otherwise a colorized limit is silently missed.
+  const text = stripAnsi(rawText);
 
   // Tool-specific patterns win over the generic ones and are tried even when
   // the text doesn't trip the generic pre-filter (a tool may phrase things its
