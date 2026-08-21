@@ -2259,3 +2259,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+---
+
+## 2026-08-21 — `doctor` 먼-미래 리셋 잡 경고 검사 (reset-horizon 후속)
+
+- **맥락:** reset-horizon 가드(#723)는 파서가 *새로* 만드는 탐지만 상한 검증한다. 하지만 가드가
+  생기기 전에 파킹됐거나 가드를 끈 채(`AGENTRELAY_MAX_RESET_HORIZON=off`) 들어온 잡은 먼-미래
+  resetAt을 그대로 안고 큐에 남아, 가드가 재방문하지 않으므로 수일/수년 조용히 대기한다 — 이 프로젝트가
+  doctor·recover로 반복 겨냥해온 "silent failure" 부류. 지난 세션 PROGRESS의 "다음 할 일"에 인접
+  후보로 명시돼 있던 항목.
+- **한 일 (branch `claude/wizardly-pascal-33eljt`):**
+  - core `doctor.ts`: 순수 `collectFarFutureResets(jobs, nowMs, horizonMs)` — active 잡만, null/파싱불가
+    resetAt 스킵, 과거 리셋 허용(미래 쪽만 경계), 비양수 horizon=스캔 비활성, overshoot 큰 순 정렬.
+    `FarFutureResetJob`/`ResetHorizonFacts` 인터페이스 + `resetHorizonCheck` 판정(0=ok, ≥1=warning으로
+    최악 잡의 id·프로젝트·overshoot·지평선 명시; 가드 비활성 시 "guard is disabled" 문구 추가) +
+    `humanizeDuration`(일 넘어 연 단위까지). `DiagnosticInput`에 `resetHorizon` 필드 배선, `runDiagnostics`
+    순서상 daemon 뒤·config 앞(체크 개수 6→7).
+  - CLI `runDoctor`: `maxResetHorizonMsFromEnv(env)`로 유효 지평선 계산(가드 off면 진단용 기본 8일 폴백,
+    `guardDisabled` 플래그로 구분) → `collectFarFutureResets`로 facts 수집. 판정 로직은 전부 core(순수)라
+    렌더러(`cli/doctor.ts`)는 무수정 — 새 체크가 기존 목록에 자동 편입.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm lint:fix`(Biome 포맷)→`pnpm ci:lint`(0에러)→
+  `pnpm test` 전 패키지 통과(**core 649**[doctor.test +10: collectFarFutureResets 7·reset-horizon 판정 3;
+  기존 ok 카운트 5→6 갱신] **· cli 354/1skip · dashboard 9**). **실제 빌드 CLI e2e**(mock 아님): 2035년
+  리셋 잡=warning("8.3y past the 8d horizon", 최악 잡 id 명시)·내일 리셋 잡은 제외, `AGENTRELAY_MAX_RESET_HORIZON=off`면
+  "guard is disabled" 문구 추가, 빈 스토어=ok, `doctor --json`에도 체크 포함 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `doctor`에 큐 내 resetAt이
+  아예 없는 채 `waiting_for_reset`인 잡(리셋 시각 미상) 경고, 또는 과거-쪽 극단(수년 전 epoch) misparse 신호 보고.
+  README/ARCHITECTURE(🧭 코워크 소유).
