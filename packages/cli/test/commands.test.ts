@@ -19,6 +19,7 @@ import {
   restoreStore,
   retryJob,
   runCommand,
+  scheduleJob,
   setConfigFile,
   showConfig,
   showJob,
@@ -162,6 +163,84 @@ describe("runCommand", () => {
     // dir is a mkdtemp path; its last segment is the derived label, never blank.
     expect(result.queuedJob?.project).toBe(dir.split("/").filter(Boolean).pop());
     expect(result.queuedJob?.project?.trim()).not.toBe("");
+  });
+});
+
+describe("scheduleJob", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cli-test-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("parks a job in waiting_for_reset with a --in resetAt the resume loop can pick up", () => {
+    const now = new Date("2026-08-21T12:00:00.000Z");
+    const { job, resetAt, immediate } = scheduleJob({
+      command: ["claude", "-p", "continue"],
+      in: "2h",
+      cwd: dir,
+      storePath,
+      now,
+    });
+
+    expect(job.status).toBe("waiting_for_reset");
+    expect(job.tool).toBe("claude-code"); // inferred from the command binary
+    expect(job.command).toEqual(["claude", "-p", "continue"]);
+    expect(resetAt).toBe("2026-08-21T14:00:00.000Z");
+    expect(immediate).toBe(false);
+    // No rate-limit provenance — this is a user-chosen schedule, not a parse.
+    expect(job.lastRateLimit ?? null).toBeNull();
+
+    // Persisted, and listDue would pick it up once the reset time arrives.
+    const queue = new RelayQueue(storePath);
+    const stored = queue.getById(job.id);
+    expect(stored?.status).toBe("waiting_for_reset");
+    expect(queue.listDue(new Date("2026-08-21T14:00:01.000Z")).map((j) => j.id)).toContain(job.id);
+    expect(queue.listDue(new Date("2026-08-21T13:00:00.000Z"))).toHaveLength(0);
+    queue.close();
+  });
+
+  it("resolves --at absolute times and honors an explicit --tool and --project", () => {
+    const { job, resetAt } = scheduleJob({
+      command: ["mytool", "go"],
+      at: "2026-08-21T15:30:00Z",
+      tool: "codex-cli",
+      project: "billing",
+      cwd: dir,
+      storePath,
+      now: new Date("2026-08-21T12:00:00.000Z"),
+    });
+
+    expect(resetAt).toBe("2026-08-21T15:30:00.000Z");
+    expect(job.tool).toBe("codex-cli");
+    expect(job.project).toBe("billing");
+  });
+
+  it("flags an already-due schedule as immediate", () => {
+    const { immediate } = scheduleJob({
+      command: ["claude", "-p", "x"],
+      at: "2020-01-01T00:00:00Z",
+      cwd: dir,
+      storePath,
+      now: new Date("2026-08-21T12:00:00.000Z"),
+    });
+    expect(immediate).toBe(true);
+  });
+
+  it("throws (no job written) when the time options are invalid", () => {
+    expect(() => scheduleJob({ command: ["claude"], cwd: dir, storePath, now: new Date() })).toThrow(
+      /Specify when to run/
+    );
+    expect(() =>
+      scheduleJob({ command: ["claude"], in: "1h", at: "2026-08-21T15:00:00Z", cwd: dir, storePath, now: new Date() })
+    ).toThrow(/only one of --in or --at/);
+    expect(existsSync(storePath)).toBe(false);
   });
 });
 
