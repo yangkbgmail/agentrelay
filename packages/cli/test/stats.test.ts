@@ -167,6 +167,40 @@ describe("renderStats", () => {
     expect(out).not.toContain("resolution time");
   });
 
+  it("renders a rate-limit wait block when jobs carry a detection", () => {
+    const detection = (detectedAt: string, resetAt: string) => ({
+      pattern: "clock-time",
+      rawMatch: "resets at …",
+      resetAt,
+      detectedAt,
+    });
+    const stats = computeStats([
+      job({
+        status: "waiting_for_reset",
+        lastRateLimit: detection("2026-07-13T00:00:00.000Z", "2026-07-13T01:00:00.000Z"),
+      }),
+      job({
+        status: "completed",
+        lastRateLimit: detection("2026-07-13T00:00:00.000Z", "2026-07-13T03:00:00.000Z"),
+      }),
+    ]);
+    const out = renderStats(stats, { now: NOW });
+    expect(out).toContain("rate-limit wait");
+    // total 1h + 3h = 4h over 2 jobs
+    expect(out).toContain("total 4h 0m");
+    expect(out).toContain("over 2 rate-limited job(s)");
+    expect(out).toContain("avg 2h 0m");
+    expect(out).toContain("median 2h 0m");
+    expect(out).toContain("min 1h 0m");
+    expect(out).toContain("max 3h 0m");
+  });
+
+  it("omits the rate-limit wait block when no job carries a detection", () => {
+    const stats = computeStats([job({ status: "completed" }), job({ status: "queued" })]);
+    const out = renderStats(stats, { now: NOW });
+    expect(out).not.toContain("rate-limit wait");
+  });
+
   it("caps the project list at five entries", () => {
     const jobs: RelayJob[] = [];
     for (const p of ["a", "b", "c", "d", "e", "f", "g"]) jobs.push(job({ project: p }));
@@ -188,6 +222,9 @@ describe("renderStatsJson", () => {
     // timing block is carried through untouched for scripts/jq.
     expect(parsed.stats.timing.resolvedCount).toBe(2);
     expect(typeof parsed.stats.timing.avgResolutionMs).toBe("number");
+    // wait-timing block is present (zero-shape here — no detections).
+    expect(parsed.stats.waitTiming.rateLimitedCount).toBe(0);
+    expect(parsed.stats.waitTiming.totalWaitMs).toBe(0);
   });
 
   it("omits scope when inactive and echoes it back when set", () => {

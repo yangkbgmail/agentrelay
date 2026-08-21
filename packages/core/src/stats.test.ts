@@ -62,6 +62,14 @@ describe("computeStats", () => {
       cvResolution: null,
       madResolutionMs: null,
     });
+    expect(stats.waitTiming).toEqual({
+      rateLimitedCount: 0,
+      totalWaitMs: 0,
+      avgWaitMs: null,
+      minWaitMs: null,
+      maxWaitMs: null,
+      medianWaitMs: null,
+    });
   });
 
   it("splits active vs terminal counts", () => {
@@ -323,6 +331,83 @@ describe("computeStats", () => {
       cvResolution: null,
       madResolutionMs: null,
     });
+  });
+});
+
+describe("computeStats — rate-limit wait timing", () => {
+  /** Convenience: a detection with an explicit reset/detected window. */
+  function detection(detectedAt: string, resetAt: string) {
+    return { pattern: "clock-time", rawMatch: "resets at …", resetAt, detectedAt };
+  }
+
+  it("reports an empty wait shape when no job carries a detection", () => {
+    const stats = computeStats([job({ status: "completed" }), job({ status: "queued" })]);
+    expect(stats.waitTiming).toEqual({
+      rateLimitedCount: 0,
+      totalWaitMs: 0,
+      avgWaitMs: null,
+      minWaitMs: null,
+      maxWaitMs: null,
+      medianWaitMs: null,
+    });
+  });
+
+  it("sums resetAt − detectedAt across jobs with a detection, any status", () => {
+    const stats = computeStats([
+      // 1h wait, still parked
+      job({
+        status: "waiting_for_reset",
+        lastRateLimit: detection("2026-07-13T00:00:00.000Z", "2026-07-13T01:00:00.000Z"),
+      }),
+      // 3h wait, since completed
+      job({
+        status: "completed",
+        lastRateLimit: detection("2026-07-13T00:00:00.000Z", "2026-07-13T03:00:00.000Z"),
+      }),
+    ]);
+    expect(stats.waitTiming.rateLimitedCount).toBe(2);
+    expect(stats.waitTiming.totalWaitMs).toBe(4 * 3_600_000); // 1h + 3h
+    expect(stats.waitTiming.avgWaitMs).toBe(2 * 3_600_000);
+    expect(stats.waitTiming.minWaitMs).toBe(3_600_000);
+    expect(stats.waitTiming.maxWaitMs).toBe(3 * 3_600_000);
+    expect(stats.waitTiming.medianWaitMs).toBe(2 * 3_600_000); // p50 of [1h,3h]
+  });
+
+  it("skips detections with missing/unparseable timestamps or a negative window", () => {
+    const stats = computeStats([
+      // no detection at all
+      job({ status: "completed" }),
+      // null detection
+      job({ status: "queued", lastRateLimit: null }),
+      // unparseable detectedAt
+      job({ status: "queued", lastRateLimit: detection("nope", "2026-07-13T01:00:00.000Z") }),
+      // negative window (reset before detection — an already-elapsed reset)
+      job({
+        status: "queued",
+        lastRateLimit: detection("2026-07-13T05:00:00.000Z", "2026-07-13T04:00:00.000Z"),
+      }),
+      // one valid 2h wait
+      job({
+        status: "waiting_for_reset",
+        lastRateLimit: detection("2026-07-13T00:00:00.000Z", "2026-07-13T02:00:00.000Z"),
+      }),
+    ]);
+    expect(stats.waitTiming.rateLimitedCount).toBe(1);
+    expect(stats.waitTiming.totalWaitMs).toBe(7_200_000);
+    expect(stats.waitTiming.avgWaitMs).toBe(7_200_000);
+  });
+
+  it("treats a zero-length window as a valid (0ms) wait", () => {
+    const stats = computeStats([
+      job({
+        status: "queued",
+        lastRateLimit: detection("2026-07-13T00:00:00.000Z", "2026-07-13T00:00:00.000Z"),
+      }),
+    ]);
+    expect(stats.waitTiming.rateLimitedCount).toBe(1);
+    expect(stats.waitTiming.totalWaitMs).toBe(0);
+    expect(stats.waitTiming.avgWaitMs).toBe(0);
+    expect(stats.waitTiming.medianWaitMs).toBe(0);
   });
 });
 
