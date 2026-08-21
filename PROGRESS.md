@@ -2259,3 +2259,20 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+---
+
+### 2026-08-21 — 파서 `clock-word`(midnight/noon) 자연어 시각어 인식 (👷 자기 발굴)
+- **한 일:** 기존 clock-time·clock-time-meridiem 패턴은 전부 **숫자**를 요구해서 "reset at midnight" /
+  "reset at noon" 같은 단어형 시각을 하나도 못 잡고 흘려보냈다(실전 wording). `@agentrelay/core/parser.ts`
+  `PATTERNS`에 `clock-word` 패턴(`/reset[s]?\s+at\s+(midnight|noon)\b/i`) 추가 — midnight→로컬 00:00,
+  noon→로컬 12:00 해소, 이미 지났으면 내일로 롤오버(clock-time과 동일 로직·동일 로컬타임 한계, 명시
+  timezone 무시). 숫자형 clock 패턴 뒤·relative-duration 앞 배치. 새 스케줄러/어댑터 로직 0줄(기존
+  pre-filter가 "resets at"으로 통과, tryPattern 그대로 처리).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 파서 45 · cli 354/1skip · dashboard 9**; parser.test +2: midnight 00:00 롤오버·noon 12:00,
+  둘 다 로컬 getHours 단언이라 TZ 무관). **실제 빌드 CLI e2e**: `parse "…reset at midnight"`→`clock-word`
+  매치·다음 00:00 리셋, `parse "…Resets at noon"`→`clock-word`·12:00 리셋 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — "reset tonight" /
+  "reset tomorrow at 9am"처럼 day-word가 "reset"과 "at" 사이에 끼는 wording, "back at <time>" 동사 변형.
+  parser/stats 브랜치가 포화이므로 중복 회피에 유의. README/ARCHITECTURE는 🧭 코워크 소유.

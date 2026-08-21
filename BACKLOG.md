@@ -870,6 +870,20 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 파서: 자연어 시각어(`reset at midnight` / `reset at noon`) 인식. 자기 발굴 항목 —
+      기존 clock-time/clock-time-meridiem 패턴은 모두 **숫자**를 요구해서, 에이전트 CLI(및 그 밑의
+      API 카피)가 종종 쓰는 "reset at midnight"/"reset at noon" 같은 단어형 시각을 하나도 못 잡고
+      그대로 흘려보냈다(가장 흔한 무음 실패는 아니지만 실전에서 실제로 등장하는 wording).
+      (완료 — `@agentrelay/core/parser.ts`의 `PATTERNS`에 `clock-word` 패턴 추가:
+      `/reset[s]?\s+at\s+(midnight|noon)\b/i`로 midnight→로컬 00:00, noon→로컬 12:00을 해소하고
+      이미 지났으면 내일로 롤오버(clock-time과 동일한 today/tomorrow 로직·동일한 로컬타임 한계,
+      메시지 내 명시 timezone은 무시). 숫자형 clock 패턴 뒤·relative-duration 앞에 배치. 새 스케줄러/
+      어댑터 로직 0줄 — 기존 pre-filter가 "resets at"으로 이미 통과시키고 tryPattern이 그대로 처리.
+      parser.test +2(midnight 00:00 롤오버·noon 12:00, 둘 다 로컬 getHours 단언이라 TZ 무관). 실제 빌드
+      CLI `parse "…reset at midnight"`/`"…Resets at noon"` e2e로 `clock-word` 매치 확인. core 47·
+      cli 354/1skip·dashboard 9 전 테스트 그린, `biome ci` 0 경고. branch
+      `claude/wizardly-pascal-1vwzrd`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
