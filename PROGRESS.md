@@ -2259,3 +2259,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 파서 소수(fractional) 상대 대기 시간 인식] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-frac-duration`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 200+개를 전량 스캔해 어떤 열린 PR에도 없는 실제 파싱 갭을 발굴: `relative-duration` 패턴이
+  각 단위를 `\d+`(정수)로만 잡아, 에이전트 CLI·프록시하는 HTTP API가 흔히 찍는 **소수** 대기
+  (`try again in 1.5 hours`, `resets in 2.5h`, `retry in 0.5d`)를 조용히 놓쳤다. `half an hour` 같은
+  **단어형** 자연어를 다루는 PR은 여럿(#598/#685/#797) 있지만 **숫자 소수형**은 어디에도 없음을 확인.
+  현 파서로 실증: `try again in 1.5 hours`/`resets in 2.5h`/`retry in 0.5h`/`try again in 1.5 days`가
+  전부 NULL → 잡이 relay되지 않고 그냥 완료 처리되던 무음 실패(이 프로젝트가 반복해 겨냥해온 부류).
+- **한 일 (branch `claude/wizardly-pascal-frac-duration`):**
+  - core `parser.ts`: `relative-duration` 정규식의 days/hours/minutes 세 숫자 그룹을 `(\d+)` →
+    `(\d+(?:\.\d+)?)`로 확장하고, `resolve`를 `parseInt` → `parseFloat`로 교체. ms 누적식
+    `((days*24+hours)*60+minutes)*60_000`은 그대로 두어 소수 성분도 정확히 반영(1.5h→90m, 2.5h→150m,
+    0.5h→30m, 1.5d→36h). 주석에 소수 wait가 흔한 실사용 포맷임과 무음 실패 근거 명시.
+  - 정수·복합 형식(`2h30m`, `1d 4h`, `in 3 minutes`)은 완전 하위호환. days/hours 그룹이 뒤 단위의
+    정수부를 삼키는 오독도 없음(단위 문자 `d`/`h`/`m` 경계로 분리). 스케줄러·어댑터·프리필터 무변경.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 644 · cli 354/1skip · dashboard 9**; parser.test +5). **실제 빌드 CLI e2e**(mock 아님):
+  `parse "try again in 1.5 hours"`→relative-duration @ +90m, `2.5h`→+150m, `1.5 days`→+36h 매치,
+  정수 `2h30m`·`1d 4h`는 불변. 부수 확인: bare `retry in 30m`이 NULL인 건 프리필터에 `retry in`이
+  없어서인데 정수도 동일한 **기존** 동작이라 이번 소수 수정과 직교(스코프 확장 안 함).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 프리필터에 bare
+  `retry in`/`available in` 트리거 보강(소수와 별개 갭), 또는 Codex 초 단위 패턴도 소수 확장 여부 관찰.
+  stats 분산/watch·doctor reset-horizon·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

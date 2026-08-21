@@ -870,6 +870,20 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 파서: 소수(fractional) 상대 대기 시간 인식 — `try again in 1.5 hours` / `resets in 2.5h` /
+      `retry in 0.5d`. 자기 발굴 항목 — `relative-duration` 패턴이 각 단위를 `\d+`(정수)로만 잡아,
+      에이전트 CLI·프록시하는 HTTP API가 흔히 찍는 소수 대기("1.5 hours")를 조용히 놓쳐 잡을 relay하지
+      않고 그냥 완료 처리하던 무음 실패. 열린 PR 200+개를 스캔해 `half an hour` 같은 **단어형** 자연어만
+      다뤄질 뿐 **숫자 소수형**은 어디에도 없음을 확인하고 발굴.
+      (완료 — `@agentrelay/core/parser.ts`의 `relative-duration` 정규식 세 숫자 그룹을
+      `(\d+)` → `(\d+(?:\.\d+)?)`로 확장하고 `resolve`를 `parseInt` → `parseFloat`로 교체. ms 계산
+      `((days*24+hours)*60+minutes)*60_000`은 그대로 두어 소수 성분도 정확히 누적(1.5h→90m, 2.5h→150m,
+      0.5h→30m, 1.5d→36h). 정수·복합 형식(`2h30m`, `1d 4h`)은 완전 하위호환, days/hours 그룹이 소수의
+      정수부만 삼키는 오독도 없음(단위 문자 경계로 분리). 새 파서 로직은 정규식+`parseFloat`뿐, 스케줄러·
+      어댑터·프리필터 무변경. parser.test +5(1.5h/2.5h/0.5h/1.5d + 정수 회귀 유지). 실제 빌드 CLI
+      `parse` e2e로 `1.5 hours`→90m·`2.5h`→150m·`1.5 days`→36h 매치, 정수 `2h30m`·`1d 4h` 불변 확인.
+      branch `claude/wizardly-pascal-frac-duration`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
