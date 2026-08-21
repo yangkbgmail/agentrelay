@@ -2259,3 +2259,29 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 74 — 리셋 안전 여유(AGENTRELAY_RESET_MARGIN)] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-q3jqvy`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 열린
+  PR 200+개가 파서 패턴(tomorrow/today·datetime·weekday·midnight/noon)·doctor 검사·stats 지표·watch
+  변형·신규 커맨드로 극도로 포화 상태라, 제목 키워드 스캔으로 **어떤 열린 PR에도 없는** 신뢰성 갭을
+  발굴: 파싱된 리셋 시각에 **하한 여유(margin)가 전혀 없다**는 점. 세션 72가 미래 상한(지평선)을 막았지만,
+  시계 스큐/서버 반영 지연으로 리셋 **직후** 재개하면 같은 한도에 즉시 재-limit돼 재시도를 소모/루프할 수
+  있다 — doctor·recover·reset-horizon이 반복해 겨냥해온 무음 실패 부류의 하한 쪽.
+- **한 일 (branch `claude/wizardly-pascal-q3jqvy`):**
+  - core `parser.ts`: 순수 `applyResetMargin(resetAt, marginMs?)`(비양수·비유한·nullish=원본 그대로,
+    기본 경로 무할당) + `ParseOptions.resetMarginMs` + `resetMarginMsFromEnv`(`AGENTRELAY_RESET_MARGIN`
+    파싱; **기본 off**=null[대기 연장은 무해하나 전 재개를 조용히 지연시키면 놀랄 수 있어 opt-in],
+    `0`/`off`/`none`/`disabled`/`no`/파싱불가=null, `parseDuration` 재사용). `tryPattern`이 plausibility
+    가드를 **원본 파스**로 판정한 뒤에 마진을 반환값에 적용 → 지평선과 마진의 관심사 분리. 과거 리셋에도
+    적용(무해). **기본 undefined = 하위호환**(파서·`parse` 진단 불변).
+  - `RelayScheduler`에 `resetMarginMs` 옵션 → resume 시 detectRateLimit에 지평선과 나란히 배선. CLI
+    run/daemon/tick이 `resetMarginMsFromEnv()`로 배선, 데몬 배너에 `(reset margin Ns)`. 어댑터
+    `detectRateLimit`는 `...options` 스프레드라 별도 수정 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 120파일)→`pnpm test`
+  전 패키지 통과(**core 650 · cli 354/1skip · dashboard 9**; parser.test +9, scheduler.test +2). **실제 빌드
+  CLI e2e**(mock 아님): `AGENTRELAY_MAX_RESET_HORIZON=off`에서 마진 없이 `Reset at 2126-01-01T00:00:00Z`가
+  그대로 큐잉, `AGENTRELAY_RESET_MARGIN=90s`면 `00:01:30`으로 이동, `parse` 진단은 마진 미적용(원본 표시),
+  데몬 배너 `(reset margin 45s)` 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `config.ts` 파리티(설정
+  파일에 resetMargin 그룹)·`doctor`에 설정된 마진 노출·마진과 지평선을 함께 보여주는 `parse --explain`.
+  stats 분산/watch·파서 tomorrow·doctor reset-horizon은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

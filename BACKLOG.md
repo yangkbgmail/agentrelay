@@ -870,6 +870,23 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 리셋 안전 여유(`AGENTRELAY_RESET_MARGIN`) — 파싱된 리셋 시각에 작은 버퍼를 더해, 시계 스큐/
+      서버 반영 지연으로 리셋 직후 즉시 재-limit되며 재시도를 소모/루프하는 걸 막음(세션 72의 리셋
+      지평선 가드와 대칭 — 지평선은 미래 상한, 마진은 하한/여유). 자기 발굴 항목.
+      (완료 — `@agentrelay/core/parser.ts`에 순수 `applyResetMargin(resetAt, marginMs?)`(비양수·비유한·
+      nullish 마진은 원본 인스턴트 그대로 반환 → 기본 경로는 새 Date 할당 없음) + `ParseOptions.resetMarginMs`
+      + `resetMarginMsFromEnv`(`AGENTRELAY_RESET_MARGIN` 기간 파싱; **기본 off**=null[대기를 늘리는 건
+      무해하나 조용히 모든 재개를 지연시키면 기존 사용자를 놀래키므로 opt-in], `0`/`off`/`none`/`disabled`/
+      `no`/파싱불가=null, 기존 `parseDuration` 재사용) 추가. `tryPattern`이 **plausibility 가드 통과 후**
+      마진을 적용 — 지평선(`maxFutureMs`)은 여전히 원본 파스를 판정하고, 마진은 반환값에만 얹힘. 과거
+      리셋에도 적용(이미 지난 리셋을 조금 미루는 건 무해). `RelayScheduler`에 `resetMarginMs` 옵션 →
+      resume 시 detectRateLimit에 배선(지평선과 나란히), CLI run/daemon/tick이 `resetMarginMsFromEnv()`로
+      배선, 데몬 배너에 `(reset margin Ns)`. 어댑터 `detectRateLimit`는 `...options` 스프레드라 별도 수정
+      0줄. `parse` 진단은 마진 미적용(원본 리셋 표시, 지평선과 동일 정책). parser.test +9(마진 shift·
+      no-op 경계·상대/절대 리셋 적용·가드 후 적용·env 기본off/파싱/비활성) + scheduler.test +2(마진 shift
+      재큐·마진 없으면 원본). 실제 빌드 CLI e2e로 run이 마진만큼 resetAt 이동(00:00:00→00:01:30)·`parse`
+      원본 유지·데몬 배너 `(reset margin 45s)` 확인. branch `claude/wizardly-pascal-q3jqvy`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
