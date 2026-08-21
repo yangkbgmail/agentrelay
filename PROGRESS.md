@@ -2259,3 +2259,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — `agentrelay show <id> --watch` 단일 잡 라이브 추적] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-4n6p45`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 200+개를 제목 스캔한 결과 `doctor` reset-horizon 검사가 **40+개 중복**으로 극도 포화,
+  파서 변형·타임존·stats 분산·epoch ms도 포화 상태라 이들 클러스터를 전부 피했다. 대신 어떤 열린
+  PR에도 없는 실제 UX 갭을 발굴: `status`/`upcoming`/`overdue`/`tools`/`projects`/`stats`/`metrics`는
+  전부 `--watch` 라이브 뷰가 있지만, **단일 잡 상세**(`show <id>`)만 라이브 추적 수단이 없었다.
+  `wait <id>`는 조용히 블록하며 종료 코드만 주고, `status --watch`는 큐 전체를 보여줄 뿐 —
+  한 잡의 라이프사이클(시도 증가·상태 전이·리셋 카운트다운)을 눈으로 따라갈 방법이 없었다.
+- **한 일 (branch `claude/wizardly-pascal-4n6p45`):**
+  - CLI `show.ts`에 순수 `renderJobDetailWatchFrame(job, storePath, intervalMs, now)` 추가 — 기존
+    `renderJobDetail` 블록 위에 다른 `--watch` 뷰와 동일한 title/meta 헤더(`agentrelay show (live,
+    every Ns — Ctrl-C to exit)` + ISO 타임스탬프 + store 경로)를 얹는다. watch는 TTY 전용이라 항상
+    컬러. 잡이 watch 중 사라진 경우를 위한 순수 `renderJobGoneWatchFrame(idOrPrefix, …)`도 추가 —
+    화면을 무너뜨리는 대신 "no longer in the store" 프레임으로 우아하게 저하(다른 watch 뷰가 빈
+    프레임으로 저하하는 것과 대칭).
+  - `cli.ts`에 `runShowWatch(store, id, intervalMs)` 헬퍼(기존 `startWatchLoop` 재사용) — 매 패스
+    `showJob`이 id를 재해소하고 스토어를 재읽기하므로 데몬의 진행(waiting→resuming→completed/failed)이
+    자동 반영, 잡이 prune/삭제되면 gone 프레임으로 폴백. `show` 커맨드에 `-w, --watch [seconds]`
+    옵션 배선(다른 커맨드와 동일한 초 파싱; 기본 2s). `--json`과 상호배타(json 브랜치가 먼저),
+    잘못된 id는 초기 `showJob` 검증에서 루프 진입 전 fail-fast. 새 core 로직 0줄(전부 CLI 계층).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**cli show.test +5=17, 전체 cli 358/1skip · core·dashboard 불변**). **실제 빌드 CLI
+  e2e**(mock 아님): 임시 스토어에 waiting_for_reset 잡 1개 시드 → `show --watch 1`이 매 초 프레임을
+  재렌더(라이브 헤더+상태+`resets in 1h 30m`+attempts 반복) 확인, watch 중 스토어를 `[]`로 비우자
+  "Job abcdef12 is no longer in the store" 프레임으로 크래시 없이 전환 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `show`에 스코프성은
+  없으니 대신 `next`/`upcoming` 단일 항목 강조 뷰, 또는 `wait --show`(블록 중 상세 라이브 표시).
+  doctor reset-horizon·파서 변형·stats 분산·타임존은 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

@@ -870,6 +870,20 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 `agentrelay show <id> --watch` — 단일 잡 상세를 라이브로 추적(라이프사이클을 눈으로 따라가기).
+      자기 발굴 항목 — `status`/`upcoming`/`overdue`/`tools`/`projects`/`stats`/`metrics`는 전부
+      `--watch` 라이브 뷰가 있는데 `show`(단일 잡 상세)만 없었다. `wait <id>`는 조용히 블록하며 종료
+      코드만, `status --watch`는 큐 전체만 — 한 잡의 시도 증가·상태 전이·리셋 카운트다운을 라이브로
+      볼 방법이 없었다.
+      (완료 — CLI `show.ts`에 순수 `renderJobDetailWatchFrame`(기존 `renderJobDetail` 위에 다른 watch
+      뷰와 동일한 title/meta 헤더, 항상 컬러) + `renderJobGoneWatchFrame`(잡이 watch 중 prune/삭제되면
+      화면을 무너뜨리지 않고 "no longer in the store" 프레임으로 저하). `cli.ts` `runShowWatch`(기존
+      `startWatchLoop` 재사용, 매 패스 `showJob`이 id 재해소+스토어 재읽기 → 데몬 진행 자동 반영),
+      `show`에 `-w, --watch [seconds]` 배선(기본 2s, `--json`과 상호배타, 잘못된 id는 루프 진입 전
+      fail-fast). 새 core 로직 0줄. cli show.test +5(watch 프레임 헤더/카운트다운/컬러/interval 반올림·
+      gone 프레임), 실제 빌드 CLI e2e로 매 초 재렌더 + 스토어 비움 시 gone 프레임 전환 검증. branch
+      `claude/wizardly-pascal-4n6p45`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -1,6 +1,12 @@
 import type { RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { formatCommand, renderJobDetail, renderJobDetailJson } from "../src/show.js";
+import {
+  formatCommand,
+  renderJobDetail,
+  renderJobDetailJson,
+  renderJobDetailWatchFrame,
+  renderJobGoneWatchFrame,
+} from "../src/show.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -125,5 +131,43 @@ describe("renderJobDetailJson", () => {
     expect(parsed.generatedAt).toBe(generatedAt);
     expect(parsed.job.id).toBe("abcdef1234567890");
     expect(parsed.job.command).toEqual(["claude", "-p", "continue the refactor"]);
+  });
+});
+
+describe("renderJobDetailWatchFrame", () => {
+  it("wraps the detail block with a live title, timestamp, and store path", () => {
+    const out = renderJobDetailWatchFrame(job(), "/store/jobs.json", 2000, NOW);
+    // Live header mirrors the other --watch views.
+    expect(out).toContain("agentrelay show");
+    expect(out).toContain("live, every 2s — Ctrl-C to exit");
+    expect(out).toContain("2026-07-13 00:00:00Z");
+    expect(out).toContain("/store/jobs.json");
+    // The full detail block is embedded (same content as renderJobDetail).
+    expect(out).toContain("Job abcdef1234567890");
+    expect(out).toContain("continue the refactor");
+    // A watch frame only makes sense on a TTY, so it is always colorized.
+    expect(out).toContain("\x1b[");
+  });
+
+  it("rounds the interval to whole seconds in the header", () => {
+    const out = renderJobDetailWatchFrame(job(), "/store/jobs.json", 5000, NOW);
+    expect(out).toContain("live, every 5s");
+  });
+
+  it("reflects the injected now in the reset countdown", () => {
+    // resetAt is NOW + 90m; at NOW the countdown should read ~1h 30m.
+    const out = renderJobDetailWatchFrame(job(), "/store/jobs.json", 2000, NOW);
+    expect(out).toContain("resets in");
+    expect(out).toMatch(/1h 30m/);
+  });
+});
+
+describe("renderJobGoneWatchFrame", () => {
+  it("keeps the live header but explains the job is gone", () => {
+    const out = renderJobGoneWatchFrame("abcdef12", "/store/jobs.json", 2000, NOW);
+    expect(out).toContain("agentrelay show");
+    expect(out).toContain("live, every 2s — Ctrl-C to exit");
+    expect(out).toContain("/store/jobs.json");
+    expect(out).toContain("Job abcdef12 is no longer in the store");
   });
 });
