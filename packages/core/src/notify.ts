@@ -1,3 +1,4 @@
+import { parseDuration } from "./prune.js";
 import type { Notifier } from "./scheduler.js";
 import type { NotifyPayload } from "./types.js";
 
@@ -7,6 +8,72 @@ const EVENT_EMOJI: Record<NotifyPayload["event"], string> = {
   completed: "✅",
   failed: "❌",
 };
+
+/**
+ * Default per-request timeout for a notification POST: 10 seconds. Generous for
+ * a healthy webhook, short enough that a hung endpoint can't stall the relay.
+ */
+export const DEFAULT_NOTIFY_TIMEOUT_MS = 10_000;
+
+/**
+ * Resolve the notification-request timeout (ms) from `AGENTRELAY_NOTIFY_TIMEOUT`.
+ * Unset/blank → {@link DEFAULT_NOTIFY_TIMEOUT_MS}. An explicit
+ * `0`/`off`/`none`/`disabled`/`no` → `null`, meaning *no* timeout (the historical
+ * unbounded behavior, opt-in). Anything else is parsed as a duration (`15s`,
+ * `500ms`, `2m`, …); an unparseable/negative value falls back to the default so
+ * the safety net is never silently lost to a typo.
+ */
+export function notifyTimeoutMsFromEnv(env: Record<string, string | undefined> = process.env): number | null {
+  const raw = env.AGENTRELAY_NOTIFY_TIMEOUT?.trim();
+  if (raw === undefined || raw === "") return DEFAULT_NOTIFY_TIMEOUT_MS;
+  if (/^(0|off|none|disabled|no)$/i.test(raw)) return null;
+  const parsed = parseDuration(raw);
+  return parsed !== null && parsed > 0 ? parsed : DEFAULT_NOTIFY_TIMEOUT_MS;
+}
+
+/**
+ * POST with a bounded timeout. A notification endpoint that accepts the TCP
+ * connection but never responds would otherwise leave `fetch` pending forever;
+ * because the scheduler `await`s every notify inside a tick, one hung POST
+ * silently wedges the whole relay loop — the "silent failure" class this project
+ * keeps guarding against. `onError`-never-throws handles *rejections*, not a
+ * promise that never settles, so a timeout is the complementary defense.
+ *
+ * The real `fetch` is aborted via the `AbortController` signal (freeing the
+ * socket), but delivery is enforced with `Promise.race` so the bound holds even
+ * for a `fetchFn` that ignores the signal (e.g. a test double). A post-timeout
+ * rejection from the abandoned fetch is swallowed so it can't surface as an
+ * unhandled rejection. `timeoutMs` `undefined` uses the default; `null`/`<= 0`/
+ * non-finite disables the bound and awaits `fetchFn` directly.
+ */
+async function postWithTimeout(
+  fetchFn: typeof fetch,
+  url: string,
+  init: RequestInit,
+  timeoutMs: number | null | undefined
+): Promise<Response> {
+  const effective = timeoutMs === undefined ? DEFAULT_NOTIFY_TIMEOUT_MS : timeoutMs;
+  if (effective === null || !Number.isFinite(effective) || effective <= 0) {
+    return fetchFn(url, init);
+  }
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`notification request timed out after ${effective}ms`));
+    }, effective);
+  });
+  const request = fetchFn(url, { ...init, signal: controller.signal });
+  // If the timeout wins the race, the aborted fetch may still reject later —
+  // attach a no-op catch so that rejection is never "unhandled".
+  request.catch(() => {});
+  try {
+    return await Promise.race([request, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export function formatSlackText(payload: NotifyPayload): string {
   return `${EVENT_EMOJI[payload.event]} *AgentRelay — ${payload.project}* (${payload.event})\n${payload.message}\n_job ${payload.jobId}_`;
@@ -18,6 +85,12 @@ export interface SlackNotifierOptions {
   fetchFn?: typeof fetch;
   /** Called when the webhook request fails. Defaults to a stderr warning. */
   onError?: (error: unknown) => void;
+  /**
+   * Per-request timeout in ms. `undefined` → {@link DEFAULT_NOTIFY_TIMEOUT_MS};
+   * `null`/`<= 0`/non-finite disables the bound. A hung webhook is reported
+   * through `onError` (never thrown), just like any other delivery failure.
+   */
+  timeoutMs?: number | null;
 }
 
 /**
@@ -35,11 +108,16 @@ export function createSlackNotifier(options: SlackNotifierOptions): Notifier {
 
   return async (payload: NotifyPayload) => {
     try {
-      const response = await fetchFn(options.webhookUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: formatSlackText(payload) }),
-      });
+      const response = await postWithTimeout(
+        fetchFn,
+        options.webhookUrl,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text: formatSlackText(payload) }),
+        },
+        options.timeoutMs
+      );
       if (!response.ok) {
         onError(new Error(`Slack webhook responded with HTTP ${response.status}`));
       }
@@ -59,7 +137,7 @@ export function slackNotifierFromEnv(
 ): Notifier | null {
   const webhookUrl = env.AGENTRELAY_SLACK_WEBHOOK?.trim();
   if (!webhookUrl) return null;
-  return createSlackNotifier({ webhookUrl, ...options });
+  return createSlackNotifier({ webhookUrl, timeoutMs: notifyTimeoutMsFromEnv(env), ...options });
 }
 
 /** Fans one notification out to several notifiers, awaiting them all. */
@@ -89,6 +167,12 @@ export interface WebhookNotifierOptions {
   fetchFn?: typeof fetch;
   /** Called when the webhook request fails. Defaults to a stderr warning. */
   onError?: (error: unknown) => void;
+  /**
+   * Per-request timeout in ms. `undefined` → {@link DEFAULT_NOTIFY_TIMEOUT_MS};
+   * `null`/`<= 0`/non-finite disables the bound. A hung endpoint is reported
+   * through `onError` (never thrown), so it can't wedge the relay loop.
+   */
+  timeoutMs?: number | null;
 }
 
 /**
@@ -111,11 +195,16 @@ export function createWebhookNotifier(options: WebhookNotifierOptions): Notifier
 
   return async (payload: NotifyPayload) => {
     try {
-      const response = await fetchFn(options.url, {
-        method: "POST",
-        headers: { "content-type": "application/json", ...options.headers },
-        body: JSON.stringify(formatBody(payload)),
-      });
+      const response = await postWithTimeout(
+        fetchFn,
+        options.url,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", ...options.headers },
+          body: JSON.stringify(formatBody(payload)),
+        },
+        options.timeoutMs
+      );
       if (!response.ok) {
         onError(new Error(`Webhook responded with HTTP ${response.status}`));
       }
@@ -139,7 +228,7 @@ export function webhookNotifierFromEnv(
   if (!url) return null;
   const auth = env.AGENTRELAY_WEBHOOK_AUTH?.trim();
   const headers = auth ? { Authorization: auth, ...options.headers } : options.headers;
-  return createWebhookNotifier({ url, ...options, headers });
+  return createWebhookNotifier({ url, timeoutMs: notifyTimeoutMsFromEnv(env), ...options, headers });
 }
 
 /**
@@ -234,6 +323,7 @@ export interface SendTestNotificationOptions {
 export async function sendTestNotification(options: SendTestNotificationOptions = {}): Promise<TestNotifyResult[]> {
   const env = options.env ?? process.env;
   const payload = options.payload ?? testNotifyPayload();
+  const timeoutMs = notifyTimeoutMsFromEnv(env);
   const channels = listNotifyChannels(env);
   return Promise.all(
     channels.map(async (channel): Promise<TestNotifyResult> => {
@@ -243,12 +333,13 @@ export async function sendTestNotification(options: SendTestNotificationOptions 
       };
       const notifier =
         channel.kind === "slack"
-          ? createSlackNotifier({ webhookUrl: channel.url, fetchFn: options.fetchFn, onError })
+          ? createSlackNotifier({ webhookUrl: channel.url, fetchFn: options.fetchFn, onError, timeoutMs })
           : createWebhookNotifier({
               url: channel.url,
               headers: webhookAuthHeader(env),
               fetchFn: options.fetchFn,
               onError,
+              timeoutMs,
             });
       await notifier(payload);
       if (captured === undefined) return { channel, ok: true };

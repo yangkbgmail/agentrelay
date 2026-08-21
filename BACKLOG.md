@@ -28,6 +28,11 @@
 
 ## 무한 개선 백로그 (SPEC §8 — MVP 이후에도 계속)
 
+- [x] 👷 알림 전송 타임아웃 — hung(응답 없는) webhook이 릴레이 루프를 wedge 못 하게 방어.
+      (완료 — `@agentrelay/core` `notify.ts`에 `DEFAULT_NOTIFY_TIMEOUT_MS`(10s) +
+      `notifyTimeoutMsFromEnv`(`AGENTRELAY_NOTIFY_TIMEOUT`; off-words=비활성) + 내부 `postWithTimeout`
+      (AbortController signal + `Promise.race` 상한). Slack/webhook 알림자에 `timeoutMs` 배선, 팩토리 기본값이라
+      기존 호출부 자동 상한. env 팩토리·`sendTestNotification`도 배선. branch `claude/wizardly-pascal-powuqp`)
 - [x] 👷 Codex CLI 등 다른 에이전트 툴 어댑터.
       (완료 — `@agentrelay/core`에 `adapters.ts` 신설: `AgentAdapter` 인터페이스 +
       `CLAUDE_CODE_ADAPTER`/`CODEX_CLI_ADAPTER`/`GENERIC_ADAPTER` + `ADAPTERS` 레지스트리.

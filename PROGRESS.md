@@ -2259,3 +2259,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 74 — 알림 전송 타임아웃(hung webhook 방어)] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-powuqp`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 200+개가 파서·stats·watch·doctor-reset-horizon 등으로 극도로 포화라, **어떤 열린 PR에도 없는**
+  실제 신뢰성 갭을 코드에서 직접 발굴: `createSlackNotifier`/`createWebhookNotifier`의 `fetch` 호출에
+  타임아웃이 없다. TCP 연결은 수락하지만 응답하지 않는(hang) 웹훅 엔드포인트는 `fetch`를 영원히 pending
+  시키고, 스케줄러 `resume()`/`tick`이 알림을 `await`하므로 **릴레이 루프 전체가 조용히 wedge** 된다 —
+  이 프로젝트가 반복 겨냥해온 "silent failure" 부류. 기존 PR #811(notifier 예외 격리)은 throw/reject만
+  막지 **resolve되지 않는 promise(hang)** 는 못 막으므로 타임아웃은 별개의 보완 방어.
+- **한 일 (branch `claude/wizardly-pascal-powuqp`):**
+  - core `notify.ts`: `DEFAULT_NOTIFY_TIMEOUT_MS`(10s) + `notifyTimeoutMsFromEnv`
+    (`AGENTRELAY_NOTIFY_TIMEOUT` 파싱; 미설정=기본, `0`/`off`/`none`/`disabled`/`no`=null[비활성],
+    파싱불가=기본으로 폴백해 오타로 안전망을 잃지 않게 함, 기존 `parseDuration` 재사용) 추가.
+    내부 `postWithTimeout` 헬퍼: `AbortController` signal로 실제 fetch를 중단(소켓 해제)하되,
+    `Promise.race`로 시간 상한을 강제해 signal을 무시하는 fetchFn(테스트 더블 등)에도 상한이 유지되게 함.
+    타임아웃 승리 후 늦게 rejec되는 fetch는 no-op catch로 삼켜 unhandled rejection 방지. `null`/`<=0`/
+    비유한=상한 비활성(기존 무한 동작 opt-in). Slack/webhook 알림자 옵션에 `timeoutMs` 추가하고 두 POST를
+    이 헬퍼로 배선. **기본값이 팩토리 내부에 있어** 기존 호출부는 자동으로 10s 상한을 얻음(하위호환).
+  - `slackNotifierFromEnv`/`webhookNotifierFromEnv`/`sendTestNotification`이 env에서 타임아웃을 해석해
+    전달 — CLI는 `notifiersFromEnv()`/`sendTestNotification()`를 인자 없이 호출하므로 배선 변경 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러/0경고)→`pnpm test`
+  전 패키지 통과(**core 649**[+11: hung Slack/webhook POST가 onError로 보고되고 무한 대기 안 함, active일 때
+  AbortSignal 전달, null이면 signal 미전달, env 파싱 4케이스, slackNotifierFromEnv 배선] · cli 354/1skip ·
+  dashboard 9). hung fetch 더블 + `timeoutMs:20`으로 실제 race 경로가 onError를 부르는 것을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `doctor` notify 검사에
+  "타임아웃 비활성 상태" 경고 표기, 또는 알림 재시도(1회 backoff). stats 분산/watch·파서 변형은 PR 포화라
+  지양. README/ARCHITECTURE(🧭 코워크).
