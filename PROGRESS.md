@@ -2259,3 +2259,36 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 알림 이벤트 필터(AGENTRELAY_NOTIFY_EVENTS)] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-fc0b07`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  열린 PR 30개+원격 브랜치 794개를 키워드 스캔 — reset-horizon doctor(8개 중복)·parser·stats·watch 영역이
+  극도로 포화. 덜 붐비는 **알림(notify)** 영역에서 어떤 열린 PR/브랜치에도 없는 실제 UX 갭을 발굴: 지금까지
+  `notifiersFromEnv`가 구성된 채널에 **모든** 라이프사이클 이벤트를 무조건 발송해, queued/resumed가 잦은
+  큐에서 알림 소음이 컸다(인접 브랜치 onevent=셸 훅·notify-channels/preview/list·#815 타임아웃·#811 예외격리와
+  전부 다른 신규 축).
+- **한 일 (branch `claude/wizardly-pascal-fc0b07`):**
+  - core `types.ts`: 정본 `NotifyEvent` 타입 + `NOTIFY_EVENTS` 상수 신설(런타임 의존 0인 모듈이라 notify·
+    config가 서로 임포트 없이 유효 이벤트 이름에 합의), `NotifyPayload.event`를 이 타입으로 교체.
+  - core `notify.ts`: 순수 `isNotifyEvent`·`parseNotifyEvents(input)`(콤마 분리·trim·소문자·빈토큰 제거·
+    순서보존 dedupe·미지 토큰을 invalid로 분리)·`notifyEventsFromEnv`(`AGENTRELAY_NOTIFY_EVENTS`; 미설정/
+    공백/전부-오타는 null=필터 없음 → 오타가 조용히 전 알림을 끄지 않음, auto-prune env 관례 일치)·
+    `filterNotifierByEvents(notifier, events|null)`(null이면 원본 그대로 반환, 아니면 허용 집합 밖 이벤트는
+    wrapped 미호출·즉시 resolve). `notifiersFromEnv`가 fan-out(combineNotifiers) 후 필터로 감싸 →
+    run/daemon/tick 세 진입점이 단일 배선점으로 필터 적용(CLI 코드 변경 0줄).
+  - config 전 레이어 배선: `AgentRelayConfig.notify.events`(string)·sampleConfig·CONFIG_FIELDS·
+    CONFIG_ENV_KEYS(`AGENTRELAY_NOTIFY_EVENTS`, 인덱스 정렬 유지)·configToEnv·parseConfig·validateConfig
+    (미지 이벤트 이름=error + 비어있지 않지만 무-유효=warning, 공백만=미설정 취급). config.ts가
+    parseNotifyEvents를 재사용(단일 진실원). `config set notify.events`가 set 시점 validateConfig로 오타를
+    쓰기 전 거부(exit 1).
+  - 새 파서/스케줄러 로직 0줄 — 전부 기존 combineNotifiers/config 레이어 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러; import 정렬 auto-fix)→
+  `pnpm test` 전 패키지 통과(**core 656 · cli 354/1skip · dashboard 9**; notify.test +17, config.test +5,
+  drift-sync 테스트 통과). **실제 빌드 CLI e2e**(mock 아님): 로컬 HTTP 서버 대상으로 rate-limit 잡 큐잉 →
+  no-filter는 queued 웹훅 1건 수신, `AGENTRELAY_NOTIFY_EVENTS=completed,failed`는 queued 억제(0건),
+  `=queued`는 1건, `=bogus`(오타)는 전송 폴백(1건)을 확인. `config set notify.events "completed,nope"`는
+  exit 1로 거부(파일 미기록), 유효값은 write + `config show`가 `[config-file]` 출처로 표기, `config validate`
+  통과.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도 알림
+  이벤트 필터 상태 노출, per-channel 이벤트 필터(Slack만 completed/failed, 웹훅은 전체 등). reset-horizon
+  doctor·parser·stats·watch는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

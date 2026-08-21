@@ -88,9 +88,20 @@ export interface RetryPolicy {
   jitter: number;
 }
 
+/**
+ * The lifecycle events a queue emits a notification for. Kept as a single
+ * canonical list so the notifier, the `AGENTRELAY_NOTIFY_EVENTS` filter, and
+ * config validation all agree on which names are valid without importing each
+ * other (this module has no runtime dependencies).
+ */
+export type NotifyEvent = "queued" | "resumed" | "completed" | "failed";
+
+/** Every {@link NotifyEvent}, in lifecycle order. */
+export const NOTIFY_EVENTS: readonly NotifyEvent[] = ["queued", "resumed", "completed", "failed"];
+
 export interface NotifyPayload {
   jobId: string;
   project: string;
-  event: "queued" | "resumed" | "completed" | "failed";
+  event: NotifyEvent;
   message: string;
 }
