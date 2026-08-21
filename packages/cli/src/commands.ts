@@ -84,6 +84,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   sampleConfigJson,
   scopeJobs,
+  selectFarFutureResets,
   selectStuckResumingJobs,
   serializeDaemonHeartbeat,
   setConfigValue,
@@ -1417,6 +1418,7 @@ function probeStoreWritable(storePath: string): WritableFacts {
  */
 export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
   const env = options.env ?? process.env;
+  const nowMs = options.nowMs ?? Date.now();
 
   // --- store facts. Capture existence *before* opening the queue, because a
   // corrupt file gets moved aside during load and would then look "absent".
@@ -1485,7 +1487,14 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     adapters: { binaries },
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
-    heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    heartbeat: readHeartbeatFacts(storePath, nowMs),
+    // --- reset-horizon facts. Scan parked jobs for a `resetAt` beyond the
+    // configured horizon — a misparse that would make them wait silently. Uses
+    // the same env-resolved horizon the parser guard does.
+    resetHorizon: (() => {
+      const horizonMs = maxResetHorizonMsFromEnv(env);
+      return { horizonMs, farFuture: selectFarFutureResets(jobs, nowMs, horizonMs) };
+    })(),
   });
 }
 

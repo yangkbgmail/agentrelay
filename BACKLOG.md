@@ -869,6 +869,21 @@
       비양수=가드없음·isPlausibleReset 경계·env 기본/파싱/비활성) + scheduler.test +2(먼-미래 resume 드롭→
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
+- [x] 👷 `doctor` reset-horizon 검사 — 이미 큐에 있는 먼-미래 리셋 잡을 경고. 위 파서 가드의 후속
+      (파서 가드는 *새* 감지만 막고, 가드 도입 전에 큐잉됐거나 수동/`parse` 경로로 들어간
+      `waiting_for_reset` 잡은 여전히 수일/수년 조용히 대기하는 사각지대였다 — daemon 검사가 반대편에서
+      잡는 "waiting인데 재개 루프 없음"과 같은 무음 실패 부류).
+      (완료 — `@agentrelay/core/doctor.ts`에 순수 `selectFarFutureResets(jobs, nowMs, maxFutureMs)`
+      (`waiting_for_reset`이고 `resetAt`이 `now+maxFutureMs` 밖인 잡만 골라 `{id,project,resetAt,etaMs,
+      excessMs}` 반환; 미래 쪽만 경계[과거=이미 due], 다른 상태·resetAt 없음·파싱불가·가드 비활성은
+      스킵, 삽입순 보존) + `FarFutureReset`/`ResetHorizonFacts` 타입 추가. `runDiagnostics`에 새
+      `reset-horizon` 체크 배선(daemon과 config 사이) — 가드 off/사실 부재/오버슛 없음은 OK, 오버슛 잡이
+      있으면 warning(가장 먼 잡을 지목 + `show`/`retry`/`cancel` 힌트). `DiagnosticInput.resetHorizon`은
+      optional로 두어 하위호환. CLI `runDoctor`가 `maxResetHorizonMsFromEnv`(파서와 같은 env)로
+      지평선 해소해 사실을 채움, `nowMs` 주입 가능. core doctor.test +14(selectFarFutureResets 경계·상태
+      필터·과거 무시·가드 off·순서 + 체크 4케이스) + cli doctor.test +3(빌드 큐 e2e: 30일→warn·2h→ok·
+      `off`→ok) + 레벨 카운트 테스트 갱신. 실제 빌드 CLI e2e로 30일 리셋 warn(지목·힌트)·`off` 시 OK
+      확인. branch `claude/wizardly-pascal-hvpqbi`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
