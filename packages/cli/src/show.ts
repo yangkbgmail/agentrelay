@@ -116,6 +116,50 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
   return lines.join("\n");
 }
 
+/**
+ * One live frame for `agentrelay show <id> --watch`: the same detail block as
+ * {@link renderJobDetail}, topped with a title/meta header that mirrors the
+ * other `--watch` views (status/upcoming/overdue/…). Pure — the caller owns the
+ * screen-clear and the poll loop; this just produces the string for one pass so
+ * a running daemon's mutations (attempts climbing, status flipping, the reset
+ * countdown ticking down) show up as the frame re-renders. Always colorized,
+ * since a watch view only makes sense on a TTY.
+ */
+export function renderJobDetailWatchFrame(
+  job: RelayJob,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now()
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay show${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  return [title, meta, "", renderJobDetail(job, { now, color: true })].join("\n");
+}
+
+/**
+ * The frame shown by `--watch` once the job is no longer in the store (pruned,
+ * deleted, or the store was replaced mid-watch). Keeps the loop alive with a
+ * clear note instead of tearing the screen down, matching how the other watch
+ * views degrade to an empty/placeholder frame rather than exiting.
+ */
+export function renderJobGoneWatchFrame(
+  idOrPrefix: string,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now()
+): string {
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${BOLD}agentrelay show${RESET} ${DIM}(live, every ${Math.round(
+    intervalMs / 1000
+  )}s — Ctrl-C to exit)${RESET}`;
+  const meta = `${DIM}${stamp}Z · ${storePath}${RESET}`;
+  const body = `Job ${idOrPrefix} is no longer in the store (pruned, deleted, or the id no longer resolves).`;
+  return [title, meta, "", body].join("\n");
+}
+
 /** Machine-readable single-job snapshot for `--json` (scripts, jq, tooling). */
 export function renderJobDetailJson(
   job: RelayJob,

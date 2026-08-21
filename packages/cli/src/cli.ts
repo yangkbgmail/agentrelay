@@ -92,7 +92,7 @@ import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
 import { type RecoverResult, renderRecover, renderRecoverJson } from "./recover.js";
-import { renderJobDetail, renderJobDetailJson } from "./show.js";
+import { renderJobDetail, renderJobDetailJson, renderJobDetailWatchFrame, renderJobGoneWatchFrame } from "./show.js";
 import {
   formatUtcOffsetLabel,
   renderGroupedStats,
@@ -342,6 +342,28 @@ function runWatch(store: string, intervalMs: number, selection: JobSelection, wi
     const selected = selectJobs(windowed, selection);
     const frame = renderWatchFrame(selected, store, intervalMs, Date.now(), limit);
     // Clear screen + move cursor home, then paint the frame.
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
+ * Live `agentrelay show <id> --watch`: clears the screen and re-renders one
+ * job's full detail block on an interval. Where `status --watch` follows the
+ * whole queue, this follows a single job to its conclusion — attempts climbing,
+ * the status flipping (waiting_for_reset → resuming → completed/failed), the
+ * reset countdown ticking down — as a running daemon advances it. `showJob`
+ * re-resolves the id and re-reads the store each pass, so if the job is pruned
+ * or deleted mid-watch the loop degrades to a "no longer in the store" frame
+ * rather than tearing the screen down. Runs until interrupted (Ctrl-C).
+ */
+function runShowWatch(store: string, idOrPrefix: string, intervalMs: number): void {
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const result = showJob(idOrPrefix, store);
+    const frame =
+      result.ok && result.job
+        ? renderJobDetailWatchFrame(result.job, store, intervalMs, now)
+        : renderJobGoneWatchFrame(idOrPrefix, store, intervalMs, now);
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
 }
@@ -1855,7 +1877,8 @@ export function buildCli(): Command {
     .description("Show full details for one job: command, cwd, timestamps, last error, and captured output")
     .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
     .option("--json", "Print the job as JSON (machine-readable, for scripts/jq)")
-    .action((id: string, opts: { json?: boolean }) => {
+    .option("-w, --watch [seconds]", "Continuously refresh the detail view with a live countdown (Ctrl-C to exit)")
+    .action((id: string, opts: { json?: boolean; watch?: string | boolean }) => {
       const { store } = program.opts();
       const result = showJob(id, store);
       if (!result.ok || !result.job) {
@@ -1865,6 +1888,16 @@ export function buildCli(): Command {
       }
       if (opts.json) {
         console.log(renderJobDetailJson(result.job, store));
+        return;
+      }
+      // Live-follow one job (attempts climbing, status flipping, the reset
+      // countdown ticking) — mutually exclusive with --json, like the other
+      // watch views. The initial showJob above already validated the id, so a
+      // bad id fails fast without entering the loop.
+      if (opts.watch !== undefined) {
+        const parsed = typeof opts.watch === "string" ? Number.parseFloat(opts.watch) : NaN;
+        const intervalMs = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : 2000;
+        runShowWatch(store, id, intervalMs);
         return;
       }
       console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
