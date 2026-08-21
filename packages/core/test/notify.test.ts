@@ -3,15 +3,19 @@ import {
   combineNotifiers,
   createSlackNotifier,
   createWebhookNotifier,
+  filterNotifierByEvents,
   formatSlackText,
+  isNotifyEvent,
   listNotifyChannels,
   notifiersFromEnv,
+  notifyEventsFromEnv,
+  parseNotifyEvents,
   sendTestNotification,
   slackNotifierFromEnv,
   testNotifyPayload,
   webhookNotifierFromEnv,
 } from "../src/notify.js";
-import type { NotifyPayload } from "../src/types.js";
+import type { NotifyEvent, NotifyPayload } from "../src/types.js";
 
 const payload: NotifyPayload = {
   jobId: "job-123",
@@ -336,5 +340,105 @@ describe("sendTestNotification", () => {
     });
     const [, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer t0ken");
+  });
+});
+
+describe("parseNotifyEvents / isNotifyEvent", () => {
+  it("recognises known event names case-insensitively and trims whitespace", () => {
+    expect(parseNotifyEvents(" Completed , FAILED ")).toEqual({
+      events: ["completed", "failed"],
+      invalid: [],
+    });
+  });
+
+  it("de-duplicates while preserving first-seen order", () => {
+    expect(parseNotifyEvents("failed,completed,failed").events).toEqual(["failed", "completed"]);
+  });
+
+  it("collects unknown tokens as invalid and drops empty tokens", () => {
+    const parsed = parseNotifyEvents("completed,,bogus, done ");
+    expect(parsed.events).toEqual(["completed"]);
+    expect(parsed.invalid).toEqual(["bogus", "done"]);
+  });
+
+  it("isNotifyEvent narrows only the four lifecycle events", () => {
+    for (const name of ["queued", "resumed", "completed", "failed"]) {
+      expect(isNotifyEvent(name)).toBe(true);
+    }
+    expect(isNotifyEvent("done")).toBe(false);
+    expect(isNotifyEvent("")).toBe(false);
+  });
+});
+
+describe("notifyEventsFromEnv", () => {
+  it("returns null when the variable is unset or blank (no filter)", () => {
+    expect(notifyEventsFromEnv({})).toBeNull();
+    expect(notifyEventsFromEnv({ AGENTRELAY_NOTIFY_EVENTS: "   " })).toBeNull();
+  });
+
+  it("parses a valid subset", () => {
+    expect(notifyEventsFromEnv({ AGENTRELAY_NOTIFY_EVENTS: "completed,failed" })).toEqual(["completed", "failed"]);
+  });
+
+  it("falls back to null (deliver all) when a typo names no known event", () => {
+    // A typo must not silently mute every notification.
+    expect(notifyEventsFromEnv({ AGENTRELAY_NOTIFY_EVENTS: "nope,bogus" })).toBeNull();
+  });
+
+  it("keeps the valid subset when mixed with unknown tokens", () => {
+    expect(notifyEventsFromEnv({ AGENTRELAY_NOTIFY_EVENTS: "completed,bogus" })).toEqual(["completed"]);
+  });
+});
+
+describe("filterNotifierByEvents", () => {
+  const mk = (event: NotifyEvent): NotifyPayload => ({ ...payload, event });
+
+  it("returns the original notifier unchanged when events is null (no filter)", () => {
+    const inner = vi.fn(async () => {});
+    expect(filterNotifierByEvents(inner, null)).toBe(inner);
+  });
+
+  it("returns the original notifier unchanged when the list is empty", () => {
+    const inner = vi.fn(async () => {});
+    expect(filterNotifierByEvents(inner, [])).toBe(inner);
+  });
+
+  it("only forwards payloads whose event is in the allowed set", async () => {
+    const inner = vi.fn(async () => {});
+    const filtered = filterNotifierByEvents(inner, ["completed", "failed"]);
+    await filtered(mk("queued"));
+    await filtered(mk("resumed"));
+    await filtered(mk("completed"));
+    await filtered(mk("failed"));
+    expect(inner).toHaveBeenCalledTimes(2);
+    expect(inner.mock.calls.map(([p]) => (p as NotifyPayload).event)).toEqual(["completed", "failed"]);
+  });
+});
+
+describe("notifiersFromEnv honours AGENTRELAY_NOTIFY_EVENTS", () => {
+  const mk = (event: NotifyEvent): NotifyPayload => ({ ...payload, event });
+
+  it("delivers only listed events across the configured channels", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const notify = notifiersFromEnv(
+      {
+        AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+        AGENTRELAY_NOTIFY_EVENTS: "completed",
+      },
+      { fetchFn }
+    );
+    expect(notify).not.toBeNull();
+    await notify?.(mk("queued"));
+    expect(fetchFn).not.toHaveBeenCalled();
+    await notify?.(mk("completed"));
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("delivers every event when the filter is unset", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const notify = notifiersFromEnv({ AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay" }, { fetchFn });
+    await notify?.(mk("queued"));
+    await notify?.(mk("completed"));
+    expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 });

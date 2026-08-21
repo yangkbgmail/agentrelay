@@ -33,7 +33,12 @@ describe("configToEnv", () => {
   it("maps every field onto its AGENTRELAY_* env var", () => {
     const config: AgentRelayConfig = {
       store: "/tmp/jobs.json",
-      notify: { slackWebhook: "https://slack", webhookUrl: "https://hook", webhookAuth: "Bearer x" },
+      notify: {
+        slackWebhook: "https://slack",
+        webhookUrl: "https://hook",
+        webhookAuth: "Bearer x",
+        events: "completed,failed",
+      },
       retry: { maxAttempts: 3, baseDelayMs: 1000, factor: 3, maxDelayMs: 9000 },
       autoPrune: { enabled: true, after: "3d", keep: 20, every: "1h", everyTicks: 50 },
     };
@@ -42,6 +47,7 @@ describe("configToEnv", () => {
       AGENTRELAY_SLACK_WEBHOOK: "https://slack",
       AGENTRELAY_WEBHOOK_URL: "https://hook",
       AGENTRELAY_WEBHOOK_AUTH: "Bearer x",
+      AGENTRELAY_NOTIFY_EVENTS: "completed,failed",
       AGENTRELAY_MAX_ATTEMPTS: "3",
       AGENTRELAY_RETRY_BASE_MS: "1000",
       AGENTRELAY_RETRY_FACTOR: "3",
@@ -238,6 +244,26 @@ describe("validateConfig", () => {
   it("warns on an empty store path", () => {
     const issues = validateConfig({ store: "   " });
     expect(issues).toEqual([expect.objectContaining({ level: "warning", path: "store" })]);
+  });
+
+  it("accepts a valid notify.events subset", () => {
+    expect(validateConfig({ notify: { events: "completed,failed" } })).toEqual([]);
+  });
+
+  it("errors on an unknown notify.events name", () => {
+    const issues = validateConfig({ notify: { events: "completed,bogus" } });
+    expect(issues).toEqual([expect.objectContaining({ level: "error", path: "notify.events" })]);
+    expect(String(issues[0].message)).toContain("bogus");
+  });
+
+  it("warns (not errors) when notify.events is non-empty but names no recognised event", () => {
+    const issues = validateConfig({ notify: { events: ",," } });
+    expect(issues).toEqual([expect.objectContaining({ level: "warning", path: "notify.events" })]);
+    expect(hasConfigErrors(issues)).toBe(false);
+  });
+
+  it("treats a whitespace-only notify.events as unset (no issue)", () => {
+    expect(validateConfig({ notify: { events: "  " } })).toEqual([]);
   });
 
   it("hasConfigErrors is true only when an error-level issue exists", () => {

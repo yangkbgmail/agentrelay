@@ -870,6 +870,23 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 알림 이벤트 필터(`AGENTRELAY_NOTIFY_EVENTS`) — 어떤 라이프사이클 이벤트(queued/resumed/
+      completed/failed)가 실제로 Slack/웹훅으로 발송될지 선택해 알림 소음을 줄임(예: `completed,failed`만).
+      (완료 — 지금까지 `notifiersFromEnv`가 구성된 모든 채널에 **모든** 이벤트를 무조건 fan-out해,
+      queued/resumed가 잦은 큐에서는 알림이 과다했다. core `types.ts`에 정본 `NotifyEvent` 타입 +
+      `NOTIFY_EVENTS` 상수 신설(런타임 의존 0인 모듈이라 notify/config가 서로 임포트 없이 이벤트 이름에
+      합의). core `notify.ts`에 순수 `isNotifyEvent`·`parseNotifyEvents`(콤마 분리·trim·소문자·빈토큰
+      제거·순서보존 dedupe·미지 토큰 분리)·`notifyEventsFromEnv`(`AGENTRELAY_NOTIFY_EVENTS`; 미설정/공백/
+      전부-오타는 null=필터 없음 → 오타가 조용히 전 알림을 끄지 않음, auto-prune env 관례와 동일)·
+      `filterNotifierByEvents`(events=null이면 원본 그대로, 아니면 허용 집합 밖 이벤트는 wrapped 미호출)
+      추가. `notifiersFromEnv`가 fan-out 후 필터로 감싸 run/daemon/tick 세 진입점이 무료로 필터 적용.
+      config 전 레이어 배선(schema `notify.events`·sampleConfig·CONFIG_FIELDS·CONFIG_ENV_KEYS[인덱스 정렬]·
+      configToEnv·parseConfig·validateConfig[미지 이벤트=error, 비어있지만 무-유효=warning]) — drift-sync
+      테스트 통과. `config set notify.events`는 set 시점에 검증해 오타를 쓰기 전 거부(exit 1). 새 파서/
+      스케줄러 로직 0줄. core notify +17 / config +5 신규 테스트, 실제 빌드 CLI e2e로 로컬 HTTP 서버 대상
+      no-filter→queued 발송·`completed,failed`→queued 억제·`queued`→발송·오타→전송 폴백, config set/
+      validate/show 배선 검증. branch `claude/wizardly-pascal-fc0b07`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
