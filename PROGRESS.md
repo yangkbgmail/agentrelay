@@ -2259,3 +2259,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 스토어 close() lost-update 버그 수정] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-close-noop`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  **열린 PR이 200개**에 달하고 극도로 중복(doctor reset-horizon 단일 항목만 30+개, summary/eta `--watch`·
+  Gemini 어댑터·파서 micro-pattern 다수 중복)이라, 파서/stats/watch/doctor 계열을 전부 피하고 200개
+  PR 제목을 스캔해 **어떤 열린 PR에도 없는** 실제 데이터-유실 버그를 코어에서 발굴했다.
+- **발굴한 버그:** `RelayQueue.close()`는 docstring이 "No-op kept for API parity"라 적혀 있으면서도
+  실제로는 `this.flush()`를 호출해 **인메모리 잡 맵 전체를 무조건 디스크에 다시 썼다.** 그 맵은 큐를
+  연 시점의 스냅샷이라, 읽기 전용 명령(`status`/`stats`/`show`/`export` 등 CLI의 거의 모든 경로가
+  `openQueue(...) → 읽기 → queue.close()` 패턴)이 큐를 연 뒤 close()하면, 그 사이 다른 프로세스(실행
+  중인 `agentrelay daemon`)가 추가·변경한 잡을 **stale 스냅샷으로 통째로 덮어써 유실**시켰다(전형적
+  lost update). `concurrency.ts`는 스토어가 무-lost-update 불변식을 지킨다고 문서화하는데, close()가
+  바로 그 불변식을 깨고 있었고, 손상 파일 보존·recover 등으로 "잡 상태를 절대 조용히 잃지 않는다"를
+  거듭 강조해온 이 프로젝트의 핵심 관심사에 정면으로 반했다.
+- **한 일 (branch `claude/wizardly-pascal-close-noop`):**
+  - core `queue.ts`의 `close()`를 자기 docstring대로 **진짜 no-op**으로 변경(`this.flush()` 제거) +
+    왜 아무것도 안 쓰는지(모든 mutating 메서드가 이미 호출 시점에 원자적 flush로 영속화 → close()가
+    커밋할 지연 변경 없음, 잉여이자 유해했음)를 주석으로 명시.
+  - 부수 효과: 읽기 전용 명령이 매 실행마다 스토어를 재기록하던 낭비(불필요한 파일 쓰기·mtime 변화)도
+    함께 제거.
+  - queue.test.ts에 회귀 2케이스 — (a) 두 인스턴스로 stale 스냅샷 시나리오를 재현해 close()가 동시
+    writer의 잡을 안 덮어씀, (b) 읽기 전용 open→read→close가 스토어 파일을 바이트 단위로 불변 유지.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 641 · cli 354/1skip · dashboard 9**; queue.test +2). **실제 빌드 CLI e2e**(mock 아님):
+  long-lived 리더가 스냅샷을 로드한 뒤 "daemon"이 잡 b를 enqueue → 리더의 `close()`가 b를 안 떨어뜨림,
+  이어 실제 빌드 CLI `status --json` 실행 중 동시 enqueue된 잡 c도 유실 없이 a,b,c 모두 잔존 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). **⚠️ 운영 이슈:** 열린 PR 200개가
+  병합 게이트 부재로 누적·중복 심화 — 소유자의 병합/정리 판단 필요(중복 클러스터를 닫고 고유·녹색 PR만
+  병합하면 무기억 세션의 중복 재구현 루프가 끊긴다). README/ARCHITECTURE(🧭 코워크).
