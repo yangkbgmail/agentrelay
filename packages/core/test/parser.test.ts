@@ -114,6 +114,44 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 24 * 60 * 60_000).toISOString());
   });
 
+  it("parses a fractional-hour relative duration like '1.5 hours'", () => {
+    // Regression: agent CLIs / the HTTP APIs they proxy commonly print decimal
+    // waits ("try again in 1.5 hours"). An integer-only match dropped these
+    // silently, so the job "completed" instead of relaying.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit reached. Try again in 1.5 hours.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 90 * 60_000).toISOString());
+  });
+
+  it("parses a compact fractional-hour form like '2.5h'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("usage limit — resets in 2.5h", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 150 * 60_000).toISOString());
+  });
+
+  it("parses a sub-hour fractional wait like '0.5h'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("rate limit hit, retry in 0.5h", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
+
+  it("parses a fractional-day relative duration like '1.5 days'", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Weekly limit reached, try again in 1.5 days.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + 36 * 60 * 60_000).toISOString());
+  });
+
+  it("still parses integer durations unchanged after decimal support", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("try again in 2h30m", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + (2 * 60 + 30) * 60_000).toISOString());
+  });
+
   it("does not mistake minutes for days ('in 3 minutes')", () => {
     // Regression: the new day group must not swallow the leading number of a
     // minutes-only wait.

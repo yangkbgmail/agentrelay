@@ -138,15 +138,20 @@ const PATTERNS: RateLimitPattern[] = [
   {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
-    // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
-    // are OpenAI/Codex-style wording that the Codex adapter contributes).
+    // windows. Each component may be fractional ("try again in 1.5 hours",
+    // "resets in 2.5h", "retry in 0.5d"): agent CLIs and the HTTP APIs they proxy
+    // commonly print decimal waits, and an integer-only match would silently drop
+    // them (the job "completes" instead of relaying — the exact silent-failure
+    // class this parser guards against). Seconds are deliberately *not* handled
+    // here (see adapters.ts: they are OpenAI/Codex-style wording the Codex adapter
+    // contributes).
     name: "relative-duration",
     regex:
-      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
+      /(?:try again|resets?|retry)\s+in\s+(?:(\d+(?:\.\d+)?)\s*d(?:ays?)?)?\s*(?:(\d+(?:\.\d+)?)\s*h(?:ours?)?)?\s*(?:(\d+(?:\.\d+)?)\s*m(?:in(?:utes?)?)?)?/i,
     resolve: (m, now) => {
-      const days = m[1] ? parseInt(m[1], 10) : 0;
-      const hours = m[2] ? parseInt(m[2], 10) : 0;
-      const minutes = m[3] ? parseInt(m[3], 10) : 0;
+      const days = m[1] ? parseFloat(m[1]) : 0;
+      const hours = m[2] ? parseFloat(m[2]) : 0;
+      const minutes = m[3] ? parseFloat(m[3]) : 0;
       if (days === 0 && hours === 0 && minutes === 0) return null;
       return new Date(now.getTime() + ((days * 24 + hours) * 60 + minutes) * 60_000);
     },
