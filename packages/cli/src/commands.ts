@@ -73,6 +73,7 @@ import {
   RelayScheduler,
   type RestorePreview,
   type RestoreResult,
+  resetMarginMsFromEnv,
   resolveAdapter,
   resolveBackup,
   resolveConfigPath,
@@ -177,7 +178,10 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
     });
   });
 
-  const rateLimit = adapter.detectRateLimit(output, { maxFutureMs: maxResetHorizonMsFromEnv() });
+  const rateLimit = adapter.detectRateLimit(output, {
+    maxFutureMs: maxResetHorizonMsFromEnv(),
+    resetMarginMs: resetMarginMsFromEnv(),
+  });
   if (!rateLimit) {
     return { exitCode, queuedJob: null };
   }
@@ -361,6 +365,13 @@ function autoPruneBanner(
   return parts.length ? ` (auto-prune on, ${parts.join(" + ")})` : " (auto-prune on)";
 }
 
+/** Daemon banner fragment noting the configured reset safety margin, if any. */
+function resetMarginBanner(marginMs: number | null): string {
+  if (!marginMs || marginMs <= 0) return "";
+  const label = marginMs >= 1000 ? `${Math.round(marginMs / 1000)}s` : `${marginMs}ms`;
+  return ` (reset margin ${label})`;
+}
+
 export function startDaemon(options: DaemonOptions = {}) {
   const storePath = options.storePath ?? defaultStorePath();
   const queue = openQueue(storePath);
@@ -393,6 +404,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent,
     maxResetHorizonMs: maxResetHorizonMsFromEnv(),
+    resetMarginMs: resetMarginMsFromEnv(),
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
@@ -418,6 +430,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     `[agentrelay] daemon started, watching ${storePath} every ${pollIntervalMs / 1000}s` +
       (remoteNotify ? " (notifications on)" : "") +
       (maxConcurrent > 1 ? ` (max ${maxConcurrent} concurrent)` : "") +
+      resetMarginBanner(resetMarginMsFromEnv()) +
       autoPruneBanner(autoPrune, autoPruneEveryMs, autoPruneEveryTicks)
   );
   return scheduler;
@@ -433,6 +446,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent: maxConcurrentFromEnv(),
     maxResetHorizonMs: maxResetHorizonMsFromEnv(),
+    resetMarginMs: resetMarginMsFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
   });
   const processed = await scheduler.tick();

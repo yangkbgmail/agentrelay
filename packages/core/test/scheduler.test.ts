@@ -145,6 +145,52 @@ describe("RelayScheduler", () => {
     expect(results[0].status).toBe("waiting_for_reset");
   });
 
+  it("adds the reset safety margin to a re-queued reset on resume", async () => {
+    // An absolute reset keeps the expectation deterministic regardless of the
+    // tick's wall-clock time. With a 60s margin the job re-queues 60s past it.
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      resetMarginMs: 60_000,
+      spawnFn: fakeSpawnFn({
+        "claude -p continue": "Usage limit reached. Reset at 2126-01-01T00:00:00Z.",
+      }),
+    });
+
+    const results = await scheduler.tick();
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe("waiting_for_reset");
+    expect(results[0].resetAt).toBe("2126-01-01T00:01:00.000Z");
+  });
+
+  it("honors the raw reset (no shift) when no margin is configured", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({
+        "claude -p continue": "Usage limit reached. Reset at 2126-01-01T00:00:00Z.",
+      }),
+    });
+
+    const results = await scheduler.tick();
+    expect(results).toHaveLength(1);
+    expect(results[0].resetAt).toBe("2126-01-01T00:00:00.000Z");
+  });
+
   it("does not touch jobs that are not yet due", async () => {
     const job = queue.enqueue({
       project: "demo",

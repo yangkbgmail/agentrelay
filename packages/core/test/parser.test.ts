@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyResetMargin,
   DEFAULT_MAX_RESET_HORIZON_MS,
   isPlausibleReset,
   maxResetHorizonMsFromEnv,
   parseRateLimitMessage,
+  resetMarginMsFromEnv,
 } from "../src/parser.js";
 
 describe("parseRateLimitMessage", () => {
@@ -355,5 +357,75 @@ describe("maxResetHorizonMsFromEnv", () => {
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "off" })).toBeNull();
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "none" })).toBeNull();
     expect(maxResetHorizonMsFromEnv({ AGENTRELAY_MAX_RESET_HORIZON: "banana" })).toBeNull();
+  });
+});
+
+// --- reset safety margin (resetMarginMs) ---
+
+describe("applyResetMargin", () => {
+  const reset = new Date("2026-07-13T05:00:00.000Z");
+
+  it("shifts the reset forward by the margin", () => {
+    expect(applyResetMargin(reset, 60_000).toISOString()).toBe("2026-07-13T05:01:00.000Z");
+  });
+
+  it("returns the same instant (no shift) for a nullish/non-positive/non-finite margin", () => {
+    expect(applyResetMargin(reset).getTime()).toBe(reset.getTime());
+    expect(applyResetMargin(reset, null).getTime()).toBe(reset.getTime());
+    expect(applyResetMargin(reset, 0).getTime()).toBe(reset.getTime());
+    expect(applyResetMargin(reset, -5000).getTime()).toBe(reset.getTime());
+    expect(applyResetMargin(reset, Number.POSITIVE_INFINITY).getTime()).toBe(reset.getTime());
+  });
+});
+
+describe("parseRateLimitMessage with resetMarginMs", () => {
+  const now = new Date("2026-07-13T04:00:00.000Z");
+
+  it("adds the margin to a resolved relative-duration reset", () => {
+    const result = parseRateLimitMessage("try again in 1h", { now, resetMarginMs: 30_000 });
+    // 1h out (05:00) plus a 30s margin.
+    expect(result?.resetAt).toBe("2026-07-13T05:00:30.000Z");
+  });
+
+  it("adds the margin to an absolute ISO reset", () => {
+    const result = parseRateLimitMessage("reset at 2026-07-13T06:00:00Z", { now, resetMarginMs: 90_000 });
+    expect(result?.resetAt).toBe("2026-07-13T06:01:30.000Z");
+  });
+
+  it("is a no-op when no margin is configured (historical behavior)", () => {
+    const result = parseRateLimitMessage("try again in 1h", { now });
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("judges the horizon guard on the raw reset, then applies the margin on top", () => {
+    // Reset lands exactly at the horizon edge; the margin pushes the *returned*
+    // value past it, but the plausibility guard already passed on the raw parse.
+    const horizon = 60 * 60_000; // 1h
+    const result = parseRateLimitMessage("try again in 1h", {
+      now,
+      maxFutureMs: horizon,
+      resetMarginMs: 45_000,
+    });
+    expect(result?.resetAt).toBe("2026-07-13T05:00:45.000Z");
+  });
+});
+
+describe("resetMarginMsFromEnv", () => {
+  it("defaults to off (null) when unset or blank", () => {
+    expect(resetMarginMsFromEnv({})).toBeNull();
+    expect(resetMarginMsFromEnv({ AGENTRELAY_RESET_MARGIN: "  " })).toBeNull();
+  });
+
+  it("parses an explicit duration", () => {
+    expect(resetMarginMsFromEnv({ AGENTRELAY_RESET_MARGIN: "60s" })).toBe(60_000);
+    expect(resetMarginMsFromEnv({ AGENTRELAY_RESET_MARGIN: "2m" })).toBe(2 * 60_000);
+    expect(resetMarginMsFromEnv({ AGENTRELAY_RESET_MARGIN: "500ms" })).toBe(500);
+  });
+
+  it("stays off for 0/off/none/unparseable", () => {
+    expect(resetMarginMsFromEnv({ AGENTRELAY_RESET_MARGIN: "0" })).toBeNull();
+    expect(resetMarginMsFromEnv({ AGENTRELAY_RESET_MARGIN: "off" })).toBeNull();
+    expect(resetMarginMsFromEnv({ AGENTRELAY_RESET_MARGIN: "none" })).toBeNull();
+    expect(resetMarginMsFromEnv({ AGENTRELAY_RESET_MARGIN: "banana" })).toBeNull();
   });
 });

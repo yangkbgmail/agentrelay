@@ -71,6 +71,14 @@ export interface SchedulerOptions {
    * {@link maxResetHorizonMsFromEnv}.
    */
   maxResetHorizonMs?: number | null;
+  /**
+   * Safety margin (ms) added to a parsed rate-limit reset on resume, so the
+   * re-queued job resumes just *past* the limit-lift boundary instead of exactly
+   * at it (clock skew / server-side lag can otherwise re-trip the same limit
+   * immediately). `null`/omitted adds nothing. Wired from
+   * `AGENTRELAY_RESET_MARGIN` at the CLI; see {@link resetMarginMsFromEnv}.
+   */
+  resetMarginMs?: number | null;
   /** Called with the jobs an auto-prune pass removed (for logging). */
   onPrune?: (pruned: RelayJob[]) => void;
   /**
@@ -102,6 +110,7 @@ export class RelayScheduler {
   private autoPruneEveryTicks: number;
   private maxConcurrent: number;
   private maxResetHorizonMs: number | null;
+  private resetMarginMs: number | null;
   private lastPruneAtMs: number | null = null;
   private pruneTickCounter = 0;
   private onPrune?: (pruned: RelayJob[]) => void;
@@ -121,6 +130,7 @@ export class RelayScheduler {
     this.autoPruneEveryTicks = options.autoPruneEveryTicks ?? 0;
     this.maxConcurrent = normalizeMaxConcurrent(options.maxConcurrent);
     this.maxResetHorizonMs = options.maxResetHorizonMs ?? null;
+    this.resetMarginMs = options.resetMarginMs ?? null;
     this.onPrune = options.onPrune;
     this.onTick = options.onTick;
   }
@@ -202,6 +212,7 @@ export class RelayScheduler {
     // seconds-based waits) is recognized on resume, not just at enqueue time.
     const rateLimit = resolveAdapter({ tool: job.tool, command: job.command }).detectRateLimit(output, {
       maxFutureMs: this.maxResetHorizonMs,
+      resetMarginMs: this.resetMarginMs,
     });
 
     // Rate limit takes priority over exit code: agent CLIs commonly exit

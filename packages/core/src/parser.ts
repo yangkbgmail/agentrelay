@@ -35,6 +35,21 @@ export interface ParseOptions {
    * historical behavior), so existing callers are unaffected.
    */
   maxFutureMs?: number | null;
+  /**
+   * Safety margin (ms) added to every resolved reset before it's returned, so a
+   * resume lands on the *far* side of the limit lift instead of exactly at it.
+   * The reset instant a message reports (or that a relative duration resolves
+   * to) is the earliest the limit *might* clear; clock skew between this machine
+   * and the provider's servers, plus server-side lag applying the reset, means
+   * resuming at exactly that instant can immediately re-trip the same limit —
+   * burning a retry attempt and, in the worst case, looping. A small margin
+   * pushes the scheduled resume just past the boundary. Applied *after* the
+   * plausibility guard (so {@link maxFutureMs} still judges the true parsed
+   * instant) and to past resets too (a tiny shift on an already-elapsed reset is
+   * harmless). `undefined`/`null`/`<= 0` adds nothing (the historical behavior),
+   * so existing callers are unaffected.
+   */
+  resetMarginMs?: number | null;
 }
 
 /**
@@ -68,6 +83,34 @@ export function maxResetHorizonMsFromEnv(env: NodeJS.ProcessEnv = process.env): 
   const raw = env.AGENTRELAY_MAX_RESET_HORIZON?.trim();
   if (raw === undefined || raw === "") return DEFAULT_MAX_RESET_HORIZON_MS;
   if (/^(0|off|none|disabled|no)$/i.test(raw)) return null;
+  const parsed = parseDuration(raw);
+  return parsed !== null && parsed > 0 ? parsed : null;
+}
+
+/**
+ * Shift a resolved reset forward by `marginMs` (see
+ * {@link ParseOptions.resetMarginMs}). A non-positive / non-finite / nullish
+ * margin returns the original instant unchanged, so the default path allocates
+ * no new Date. Pure and side-effect free.
+ */
+export function applyResetMargin(resetAt: Date, marginMs?: number | null): Date {
+  if (marginMs === undefined || marginMs === null || !Number.isFinite(marginMs) || marginMs <= 0) {
+    return resetAt;
+  }
+  return new Date(resetAt.getTime() + marginMs);
+}
+
+/**
+ * Resolve the reset safety margin (ms) from `AGENTRELAY_RESET_MARGIN`. Unlike
+ * the reset horizon, this defaults to **off** (`0` → no margin): waiting a bit
+ * longer is benign, but silently delaying every resume by default would surprise
+ * existing users, so it's strictly opt-in. Unset / empty / `0` / `off` / `none`
+ * / `disabled` / `no` / any non-positive or unparseable duration → `null` (no
+ * margin). Anything else is parsed as a duration (`60s`, `2m`, `500ms`, …).
+ */
+export function resetMarginMsFromEnv(env: NodeJS.ProcessEnv = process.env): number | null {
+  const raw = env.AGENTRELAY_RESET_MARGIN?.trim();
+  if (raw === undefined || raw === "" || /^(0|off|none|disabled|no)$/i.test(raw)) return null;
   const parsed = parseDuration(raw);
   return parsed !== null && parsed > 0 ? parsed : null;
 }
@@ -192,17 +235,22 @@ function tryPattern(
   pattern: RateLimitPattern,
   text: string,
   now: Date,
-  maxFutureMs?: number | null
+  maxFutureMs?: number | null,
+  resetMarginMs?: number | null
 ): RateLimitInfo | null {
   const match = text.match(pattern.regex);
   if (!match) return null;
   const resetDate = pattern.resolve(match, now);
   if (!resetDate || Number.isNaN(resetDate.getTime())) return null;
   // Drop an implausibly far-out reset so a misparse can't park a job forever;
-  // the caller keeps scanning for a saner pattern (or gets `null`).
+  // the caller keeps scanning for a saner pattern (or gets `null`). The guard
+  // judges the true parsed instant, before any safety margin is applied.
   if (!isPlausibleReset(resetDate, now, maxFutureMs)) return null;
+  // Nudge the resume past the boundary so clock skew / server lag can't re-trip
+  // the same limit the instant we resume (no-op when no margin is configured).
+  const resetAt = applyResetMargin(resetDate, resetMarginMs).toISOString();
   return {
-    resetAt: resetDate.toISOString(),
+    resetAt,
     rawMatch: match[0],
     pattern: pattern.name,
   };
@@ -211,19 +259,20 @@ function tryPattern(
 export function parseRateLimitMessage(text: string, options: ParseOptions = {}): RateLimitInfo | null {
   const now = options.now ?? new Date();
   const maxFutureMs = options.maxFutureMs;
+  const resetMarginMs = options.resetMarginMs;
 
   // Tool-specific patterns win over the generic ones and are tried even when
   // the text doesn't trip the generic pre-filter (a tool may phrase things its
   // own way, e.g. "please try again in 20s").
   for (const pattern of options.extraPatterns ?? []) {
-    const hit = tryPattern(pattern, text, now, maxFutureMs);
+    const hit = tryPattern(pattern, text, now, maxFutureMs, resetMarginMs);
     if (hit) return hit;
   }
 
   if (!LOOKS_LIKE_RATE_LIMIT.test(text)) return null;
 
   for (const pattern of PATTERNS) {
-    const hit = tryPattern(pattern, text, now, maxFutureMs);
+    const hit = tryPattern(pattern, text, now, maxFutureMs, resetMarginMs);
     if (hit) return hit;
   }
 
