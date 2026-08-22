@@ -121,6 +121,7 @@ import { renderTools, renderToolsJson, renderToolsWatchFrame } from "./tools.js"
 import { renderUpcoming, renderUpcomingJson, renderUpcomingWatchFrame } from "./upcoming.js";
 import { renderVerify, renderVerifyJson } from "./verify.js";
 import { renderWaitJson } from "./wait.js";
+import { type DashboardData, renderDashboard, renderDashboardFrame, renderDashboardJson } from "./watch.js";
 
 /**
  * Split a comma-separated CLI option (e.g. `--status completed,failed`) into
@@ -496,6 +497,59 @@ function runStatsWatch(
       }
     }
     const frame = renderStatsWatchFrame(body, store, intervalMs, now);
+    process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
+  });
+}
+
+/**
+ * Gather the four reports one `agentrelay watch` frame needs from a fresh read
+ * of the store. Health is intentionally global (the resume loop serves the whole
+ * queue, not a scoped subset); the eta/overdue/upcoming reports respect the same
+ * `--tool`/`--project`/`--since`/`--until` scope the sibling commands use. Called
+ * both for a one-shot render and once per live pass, with a fresh `now` each
+ * time so the countdowns and overdue spans stay live.
+ */
+function buildDashboardData(
+  store: string,
+  window: JobScope,
+  active: boolean,
+  now: number,
+  limit: number | undefined,
+  graceMs: number
+): DashboardData {
+  const all = listStatus(store);
+  const jobs = active ? scopeJobs(all, window) : all;
+  return {
+    health: readHealthReport({ storePath: store, nowMs: now }),
+    eta: computeQueueEta(jobs, now),
+    overdue: buildOverdueReport(jobs, now, { graceMs }),
+    upcoming: buildUpcomingTimeline(jobs, now, limit),
+  };
+}
+
+/**
+ * Live `agentrelay watch`: the unified mission-control dashboard. Clears the
+ * screen and re-renders resume-loop health, the queue catch-up ETA, an overdue
+ * callout, and the upcoming timeline on an interval so every countdown ticks
+ * down in place. Like the other watch loops, the store is re-read each pass (a
+ * running daemon's writes and newly-queued jobs surface automatically) and the
+ * scope plus `--limit`/`--grace` are re-applied every frame; the time-window
+ * boundaries stay fixed (absolute epoch-ms from when the command started). Runs
+ * until interrupted (Ctrl-C).
+ */
+function runDashboardWatch(
+  store: string,
+  intervalMs: number,
+  window: JobScope,
+  limit: number | undefined,
+  graceMs: number,
+  scopeNote?: string
+): void {
+  const active = isJobScopeActive(window);
+  startWatchLoop(intervalMs, () => {
+    const now = Date.now();
+    const data = buildDashboardData(store, window, active, now, limit, graceMs);
+    const frame = renderDashboardFrame(data, store, intervalMs, now, scopeNote);
     process.stdout.write(`\x1b[2J\x1b[H${frame}\n`);
   });
 }
@@ -1075,6 +1129,115 @@ export function buildCli(): Command {
       // parsing output. 0 = healthy/idle, 1 = unhealthy.
       process.exitCode = report.exitCode;
     });
+
+  program
+    .command("watch")
+    .description(
+      "Unified live dashboard: resume-loop health, queue catch-up ETA, overdue alerts, and the upcoming timeline on one screen"
+    )
+    .option("-i, --interval <seconds>", "Refresh interval in seconds (default 2)")
+    .option("-n, --limit <n>", "Show at most N upcoming rows (the totals still count all waiting jobs)")
+    .option("--grace <duration>", "Only flag a job overdue once its reset passed more than this ago (default 60s)")
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .option("--once", "Render a single frame and exit instead of refreshing live (for scripts/CI/screenshots)")
+    .option("--json", "Print the whole dashboard (health, eta, overdue, upcoming) as JSON, then exit")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # leave it open on a second monitor\n" +
+        "  agentrelay watch\n" +
+        "  # refresh every 5s, only the next 10 rows\n" +
+        "  agentrelay watch --interval 5 --limit 10\n" +
+        "  # a single snapshot for a script/CI\n" +
+        "  agentrelay watch --once\n" +
+        "  # read everything from one call with jq\n" +
+        "  agentrelay watch --json | jq '.health.level, .eta.etaMs'"
+    )
+    .action(
+      (
+        opts: ScopeOpts & {
+          interval?: string;
+          limit?: string;
+          grace?: string;
+          once?: boolean;
+          json?: boolean;
+        }
+      ) => {
+        const { store } = program.opts();
+        const now = Date.now();
+
+        let limit: number | undefined;
+        if (opts.limit !== undefined) {
+          const n = Number.parseInt(opts.limit, 10);
+          if (!Number.isInteger(n) || n < 1) {
+            console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+            process.exitCode = 1;
+            return;
+          }
+          limit = n;
+        }
+
+        // Default grace of 60s so a job that only just came due within a poll
+        // cycle isn't screamed about as "overdue" on the dashboard.
+        let graceMs = 60_000;
+        if (opts.grace !== undefined) {
+          const ms = parseDuration(opts.grace);
+          if (ms === null || ms < 0) {
+            console.error(`Invalid --grace value "${opts.grace}". Use a duration like 60s, 5m, or 1h.`);
+            process.exitCode = 1;
+            return;
+          }
+          graceMs = ms;
+        }
+
+        let intervalMs = 2000;
+        if (opts.interval !== undefined) {
+          const parsed = Number.parseFloat(opts.interval);
+          if (!Number.isFinite(parsed) || parsed <= 0) {
+            console.error(`Invalid --interval value "${opts.interval}". Use a positive number of seconds.`);
+            process.exitCode = 1;
+            return;
+          }
+          intervalMs = Math.round(parsed * 1000);
+        }
+
+        const built = buildScope(opts, now);
+        if ("error" in built) {
+          console.error(built.error);
+          process.exitCode = 1;
+          return;
+        }
+
+        const scopeNote = built.active ? built.note : undefined;
+
+        // Live view is the default. Validate every flag above first so a bad
+        // value exits 1 instead of spinning a broken loop. --json and --once are
+        // both one-shot; --json (a machine dump) takes precedence over --once.
+        if (!opts.json && !opts.once) {
+          runDashboardWatch(store, intervalMs, built.scope, limit, graceMs, scopeNote);
+          return; // setInterval keeps the process alive.
+        }
+
+        const data = buildDashboardData(store, built.scope, built.active, now, limit, graceMs);
+
+        if (opts.json) {
+          console.log(
+            renderDashboardJson({
+              storePath: store ?? defaultStorePath(),
+              generatedAt: new Date().toISOString(),
+              scope: built.active ? (built.scope as Record<string, unknown>) : undefined,
+              data,
+            })
+          );
+          return;
+        }
+
+        console.log(renderDashboard(data, { now, color: Boolean(process.stdout.isTTY), scopeNote }));
+      }
+    );
 
   program
     .command("stats")

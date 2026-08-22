@@ -935,6 +935,20 @@
       hint가 `recover --far-future`를 포함하는지 단언 추가. build/lint/test 통과(core 655·cli 365/1skip·
       dashboard 13), 실제 빌드 CLI `doctor` e2e로 교정된 힌트 출력 확인. branch `claude/wizardly-pascal-wmsc0y`)
 
+- [x] 👷 `agentrelay watch` — 통합 라이브 관제탑 대시보드(재개 루프 건강·큐 catch-up ETA·overdue 경고·
+      upcoming 타임라인을 한 화면에). `--watch` 계열(세션 52~57)의 자연스러운 capstone. 자기 발굴 항목.
+      (완료 — 개별 `--watch`(status/upcoming/overdue/tools/projects/stats)는 각각 한 축만 라이브로 보여줬을
+      뿐, 릴레이를 돌리는 동안 네 축을 한 화면에 모으는 "두 번째 모니터" 대시보드가 없었다. `packages/cli/src/
+      watch.ts` 신설(순수): `DashboardData` + `renderDashboard`(Resume loop[`renderHealth`]·Queue ETA[`renderEta`]·
+      Overdue 콜아웃[신규 `renderOverdueCallout`, overdue 0개면 섹션 드롭]·Upcoming[`renderUpcoming`] 4섹션)·
+      `renderDashboardFrame`(라이브 배너)·`renderDashboardJson`. `cli.ts`에 `buildDashboardData`(health는 전역·
+      나머지는 스코프 적용)·`runDashboardWatch`(공용 `startWatchLoop` 재사용) + `agentrelay watch [-i/--interval]
+      [-n/--limit] [--grace] [-t/-p/--since/--until] [--once] [--json]`. 기본 라이브 뷰, 플래그 검증 먼저 통과→
+      잘못된 값 exit 1, `--json`>`--once`, completion 자동 포함. **새 core 로직 0줄** — 전부 기존 검증된
+      `readHealthReport`/`computeQueueEta`/`buildOverdueReport`/`buildUpcomingTimeline`+렌더러 재사용이라 `health`/
+      `eta`/`overdue`/`upcoming`과 절대 드리프트 안 함. cli watch.test 12케이스, 실제 빌드 CLI e2e로 렌더·overdue
+      콜아웃·빈 스토어 드롭·에러 exit·라이브 화면 clear·completion 검증. branch `claude/wizardly-pascal-agghds`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
