@@ -902,6 +902,24 @@
       +4(먼-미래 플래그·근접 미플래그·종료 잡 미플래그·빈 스토어). branch
       `claude/dashboard-reset-horizon-card`)
 
+- [x] 👷 `agentrelay recover --far-future [--horizon <dur>]` — 먼-미래로 파킹된(misparse로 수일/수년 뒤
+      리셋된 `waiting_for_reset`) 잡을 즉시 재큐. `doctor`의 `reset-horizon` 검사(세션 73)와 대시보드 카드
+      (세션 74)는 해결책으로 `recover`를 힌트로 제시했지만, 실제 `recover`는 `resuming` 고아 잡만 처리하고
+      파킹 잡은 손대지 못하는 **코히런스 갭**이 있었다 — 안내와 동작 불일치. 이를 메운다.
+      (완료 — core `recover.ts`에 순수 `selectFarFutureParkedJobs(jobs,{nowMs,horizonMs})` +
+      `FarFutureParkedReport` 신설: `selectFarFutureResets`(doctor·대시보드가 쓰는 동일 predicate) 위에서
+      `status==="waiting_for_reset"`로만 좁힘 — `queued`(어차피 임박)·`resuming`(라이브 run 레이스 위험,
+      기존 `--older-than` 모드 담당)·종료 잡은 제외, 리셋 임박순(least-extreme first) 정렬. CLI
+      `commands.ts` `recoverFarFutureJobs`(파킹 잡을 `requeueNow`로 즉시 due·attempts 0 리셋 — 파킹된
+      attempt는 실제 run이 아닌 misparse라 새 run 부여) + 순수 `resolveFarFutureHorizonMs`(override→env
+      `AGENTRELAY_MAX_RESET_HORIZON`→기본 8d; 가드가 off여도 "회수 요청"으로 보고 기본 지평선 사용).
+      CLI `recover.ts` `renderRecoverFarFuture`/`renderRecoverFarFutureJson`(mode:"far-future"). `recover`에
+      `--far-future`·`--horizon <dur>` 플래그(모드 상호배타: `--older-than`은 stuck-resuming 전용,
+      `--horizon`은 far-future 전용 → 오용은 exit 1). 부수: `doctor`의 `reset-horizon` 힌트를
+      `agentrelay recover --far-future`로 정확화(전엔 plain `recover`를 가리켜 실제로는 안 먹혔음).
+      core recover +7, cli recover +9 테스트, 실제 빌드 CLI e2e로 100d 파킹→회수(attempts 0·due now)·
+      2d 근접 미회수·tighter `--horizon`·JSON·에러 exit 검증. branch `claude/wizardly-pascal-vz8w2l`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

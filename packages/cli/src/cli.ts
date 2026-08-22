@@ -64,6 +64,7 @@ import {
   pruneJobs,
   readHealthReport,
   readLocationReport,
+  recoverFarFutureJobs,
   recoverJobs,
   restoreStore,
   retryJob,
@@ -91,7 +92,14 @@ import { buildParseReport, renderParseReport, renderParseReportJson } from "./pa
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
-import { type RecoverResult, renderRecover, renderRecoverJson } from "./recover.js";
+import {
+  type RecoverFarFutureRenderResult,
+  type RecoverResult,
+  renderRecover,
+  renderRecoverFarFuture,
+  renderRecoverFarFutureJson,
+  renderRecoverJson,
+} from "./recover.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
   formatUtcOffsetLabel,
@@ -2136,11 +2144,56 @@ export function buildCli(): Command {
       "--older-than <duration>",
       "Only recover jobs stuck resuming for at least this long (default 30m; 0s = all)"
     )
+    .option(
+      "--far-future",
+      "Instead: requeue jobs parked with an implausibly-far-future reset (a rate-limit misparse) so they resume now"
+    )
+    .option(
+      "--horizon <duration>",
+      "With --far-future: reset horizon beyond which a parked job is reclaimed (default: AGENTRELAY_MAX_RESET_HORIZON or 8d)"
+    )
     .option("--dry-run", "Show what would be recovered without changing the store")
     .option("--json", "Output machine-readable JSON")
-    .action((opts: { olderThan?: string; dryRun?: boolean; json?: boolean }) => {
+    .action((opts: { olderThan?: string; farFuture?: boolean; horizon?: string; dryRun?: boolean; json?: boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
+
+      if (opts.farFuture) {
+        if (opts.olderThan !== undefined) {
+          console.error("--older-than applies to stuck-resuming recovery, not --far-future. Use --horizon instead.");
+          process.exitCode = 1;
+          return;
+        }
+        let horizonMs: number | undefined;
+        if (opts.horizon !== undefined) {
+          const parsed = parseDuration(opts.horizon);
+          if (parsed === null || parsed <= 0) {
+            console.error(`Invalid --horizon value "${opts.horizon}". Use a positive duration like 8d, 24h, 90m.`);
+            process.exitCode = 1;
+            return;
+          }
+          horizonMs = parsed;
+        }
+        const { report, recovered, dryRun } = recoverFarFutureJobs({
+          storePath: store,
+          horizonMs,
+          dryRun: opts.dryRun,
+          now,
+        });
+        const result: RecoverFarFutureRenderResult = { report, recovered, dryRun };
+        if (opts.json) {
+          console.log(renderRecoverFarFutureJson(result, store ?? defaultStorePath(), new Date(now).toISOString()));
+        } else {
+          console.log(renderRecoverFarFuture(result, { color: Boolean(process.stdout.isTTY), now }));
+        }
+        return;
+      }
+
+      if (opts.horizon !== undefined) {
+        console.error("--horizon only applies with --far-future.");
+        process.exitCode = 1;
+        return;
+      }
 
       let stuckAfterMs: number | undefined;
       if (opts.olderThan !== undefined) {

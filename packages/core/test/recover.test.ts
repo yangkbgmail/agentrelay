@@ -2,8 +2,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_MAX_RESET_HORIZON_MS } from "../src/parser.js";
 import { RelayQueue } from "../src/queue.js";
-import { DEFAULT_STUCK_RESUMING_MS, selectStuckResumingJobs } from "../src/recover.js";
+import { DEFAULT_STUCK_RESUMING_MS, selectFarFutureParkedJobs, selectStuckResumingJobs } from "../src/recover.js";
 import type { RelayJob } from "../src/types.js";
 
 const NOW = Date.parse("2026-08-15T12:00:00.000Z");
@@ -85,6 +86,73 @@ describe("selectStuckResumingJobs", () => {
     const report = selectStuckResumingJobs([job({ id: "fresh", updatedAt: agoIso(1_000) })], { nowMs: NOW });
     expect(report.stuck).toEqual([]);
     expect(report.resuming).toBe(1);
+  });
+});
+
+/** ISO string for `ms` after NOW (a future reset). */
+function aheadIso(ms: number): string {
+  return new Date(NOW + ms).toISOString();
+}
+
+const DAY = 24 * 60 * 60_000;
+
+describe("selectFarFutureParkedJobs", () => {
+  it("selects waiting_for_reset jobs whose reset is beyond the horizon", () => {
+    const jobs = [
+      job({ id: "far", status: "waiting_for_reset", resetAt: aheadIso(100 * DAY) }),
+      job({ id: "near", status: "waiting_for_reset", resetAt: aheadIso(2 * DAY) }),
+    ];
+    const report = selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs: DEFAULT_MAX_RESET_HORIZON_MS });
+    expect(report.total).toBe(2);
+    expect(report.horizonMs).toBe(DEFAULT_MAX_RESET_HORIZON_MS);
+    expect(report.parked.map((j) => j.id)).toEqual(["far"]);
+  });
+
+  it("only reclaims waiting_for_reset — never queued or resuming far-future jobs", () => {
+    const jobs = [
+      job({ id: "parked", status: "waiting_for_reset", resetAt: aheadIso(100 * DAY) }),
+      job({ id: "queued", status: "queued", resetAt: aheadIso(100 * DAY) }),
+      job({ id: "resuming", status: "resuming", resetAt: aheadIso(100 * DAY) }),
+      job({ id: "done", status: "completed", resetAt: aheadIso(100 * DAY) }),
+    ];
+    const report = selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs: DEFAULT_MAX_RESET_HORIZON_MS });
+    expect(report.parked.map((j) => j.id)).toEqual(["parked"]);
+  });
+
+  it("orders parked jobs soonest-reset first (least extreme first)", () => {
+    const jobs = [
+      job({ id: "year", status: "waiting_for_reset", resetAt: aheadIso(365 * DAY) }),
+      job({ id: "month", status: "waiting_for_reset", resetAt: aheadIso(30 * DAY) }),
+      job({ id: "fortnight", status: "waiting_for_reset", resetAt: aheadIso(14 * DAY) }),
+    ];
+    const report = selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs: DEFAULT_MAX_RESET_HORIZON_MS });
+    expect(report.parked.map((j) => j.id)).toEqual(["fortnight", "month", "year"]);
+  });
+
+  it("ignores jobs with no or an unparseable resetAt", () => {
+    const jobs = [
+      job({ id: "none", status: "waiting_for_reset", resetAt: null }),
+      job({ id: "bad", status: "waiting_for_reset", resetAt: "not-a-date" }),
+      job({ id: "far", status: "waiting_for_reset", resetAt: aheadIso(100 * DAY) }),
+    ];
+    const report = selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs: DEFAULT_MAX_RESET_HORIZON_MS });
+    expect(report.parked.map((j) => j.id)).toEqual(["far"]);
+  });
+
+  it("returns an empty list when the horizon guard is disabled (<= 0)", () => {
+    const jobs = [job({ id: "far", status: "waiting_for_reset", resetAt: aheadIso(100 * DAY) })];
+    expect(selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs: 0 }).parked).toEqual([]);
+    expect(selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs: -1 }).parked).toEqual([]);
+  });
+
+  it("respects a custom (tighter) horizon", () => {
+    const jobs = [
+      job({ id: "3d", status: "waiting_for_reset", resetAt: aheadIso(3 * DAY) }),
+      job({ id: "10d", status: "waiting_for_reset", resetAt: aheadIso(10 * DAY) }),
+    ];
+    // 5d horizon: 3d is fine, 10d is beyond.
+    const report = selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs: 5 * DAY });
+    expect(report.parked.map((j) => j.id)).toEqual(["10d"]);
   });
 });
 

@@ -18,6 +18,7 @@ import type {
   BackupResult,
   ConfigIssue,
   DiagnosticReport,
+  FarFutureParkedReport,
   HealthReport,
   HeartbeatFacts,
   HeartbeatMode,
@@ -39,6 +40,7 @@ import {
   canRequeue,
   configToJson,
   countActiveJobs,
+  DEFAULT_MAX_RESET_HORIZON_MS,
   daemonHeartbeatPath,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
@@ -84,6 +86,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   sampleConfigJson,
   scopeJobs,
+  selectFarFutureParkedJobs,
   selectFarFutureResets,
   selectStuckResumingJobs,
   serializeDaemonHeartbeat,
@@ -673,6 +676,69 @@ export function recoverJobs(options: RecoverJobsOptions = {}): RecoverJobsResult
         const updated = queue.getById(job.id);
         if (updated) recovered.push(updated);
       }
+    }
+    return { report, recovered, dryRun: false };
+  } finally {
+    queue.close();
+  }
+}
+
+export interface RecoverFarFutureOptions {
+  storePath?: string;
+  /**
+   * Plausibility horizon (ms): `waiting_for_reset` jobs whose `resetAt` is beyond
+   * this are reclaimed. Defaults to the env-resolved horizon, falling back to
+   * {@link DEFAULT_MAX_RESET_HORIZON_MS} when the guard is disabled — see
+   * {@link resolveFarFutureHorizonMs}.
+   */
+  horizonMs?: number;
+  /** Preview only — report what would be recovered without touching the store. */
+  dryRun?: boolean;
+  /** Reference "now" (epoch ms); defaults to the wall clock. Injectable for tests. */
+  now?: number;
+}
+
+export interface RecoverFarFutureResult {
+  report: FarFutureParkedReport;
+  /** Jobs actually requeued (post-transition). Empty on a dry run. */
+  recovered: RelayJob[];
+  dryRun: boolean;
+}
+
+/**
+ * Resolve the horizon `recover --far-future` judges against. Priority: an
+ * explicit `--horizon` override → the env guard (`AGENTRELAY_MAX_RESET_HORIZON`)
+ * → the built-in {@link DEFAULT_MAX_RESET_HORIZON_MS}. The fallback matters: when
+ * the guard is turned *off* (env → `null`), the operator has still asked to
+ * reclaim far-future jobs, so we reclaim against the same default bound the
+ * parser normally uses rather than treating "guard off" as "reclaim nothing".
+ */
+export function resolveFarFutureHorizonMs(override?: number, env: NodeJS.ProcessEnv = process.env): number {
+  if (override !== undefined && Number.isFinite(override) && override > 0) return override;
+  return maxResetHorizonMsFromEnv(env) ?? DEFAULT_MAX_RESET_HORIZON_MS;
+}
+
+/**
+ * Requeue jobs parked with an implausibly-far-future reset — the misparse
+ * failure mode `doctor`'s `reset-horizon` check and the dashboard card surface
+ * but couldn't fix. Finds the far-future `waiting_for_reset` jobs
+ * ({@link selectFarFutureParkedJobs}) and, unless `dryRun`, forces each due now
+ * via {@link RelayQueue.requeueNow} (attempts reset — the parked "attempt" was a
+ * misparse, not a real run) so the next tick resumes it.
+ */
+export function recoverFarFutureJobs(options: RecoverFarFutureOptions = {}): RecoverFarFutureResult {
+  const now = options.now ?? Date.now();
+  const horizonMs = resolveFarFutureHorizonMs(options.horizonMs);
+  const queue = openQueue(options.storePath ?? defaultStorePath());
+  try {
+    const report = selectFarFutureParkedJobs(queue.listAll(), { nowMs: now, horizonMs });
+    if (options.dryRun) return { report, recovered: [], dryRun: true };
+    const at = new Date(now).toISOString();
+    const recovered: RelayJob[] = [];
+    for (const job of report.parked) {
+      queue.requeueNow(job.id, at);
+      const updated = queue.getById(job.id);
+      if (updated) recovered.push(updated);
     }
     return { report, recovered, dryRun: false };
   } finally {

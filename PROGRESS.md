@@ -2309,3 +2309,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recover`가 먼-미래 파킹 잡을
   자동 감지·재큐 대상으로 포함하는지 점검, 또는 대시보드 카드에서 직접 취소/재시도 액션(로컬 API route 필요).
   README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 75 — `agentrelay recover --far-future` 먼-미래 파킹 잡 회수] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-vz8w2l`)
+- **항목 선정:** BACKLOG 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 문서/리서치뿐). 세션 74 로그가 명시한
+  후속 인접 후보 "`recover`가 먼-미래 파킹 잡을 자동 감지·재큐 대상으로 포함하는지 점검"을 자기 발굴 항목으로 채택.
+  조사 결과 **코히런스 갭** 확인: 세션 73 `doctor`의 `reset-horizon` 검사와 세션 74 대시보드 카드는 misparse로
+  수일/수년 뒤 리셋돼 조용히 재개 안 되는 잡의 해결책으로 `recover`를 힌트에 명시하지만, 실제 `recover`는
+  `resuming` 고아 잡만 처리하고 `waiting_for_reset` 파킹 잡은 손대지 못했다 — 안내와 동작 불일치. 이를 메운다.
+- **한 일 (branch `claude/wizardly-pascal-vz8w2l`):**
+  - core `recover.ts`: 순수 `selectFarFutureParkedJobs(jobs,{nowMs,horizonMs})` + `FarFutureParkedReport` 신설.
+    doctor/대시보드가 쓰는 동일 `selectFarFutureResets` predicate 위에서 `status==="waiting_for_reset"`로만 좁힘 —
+    `queued`(어차피 임박)·`resuming`(라이브 run 레이스 위험, `--older-than` 모드 담당)·종료 잡 제외, 리셋
+    임박순(least-extreme first) 정렬. 지평선 ≤0/비유한=가드 off→빈 리스트.
+  - CLI `commands.ts`: `recoverFarFutureJobs`(파킹 잡을 `requeueNow`로 즉시 due·attempts 0 리셋 — 파킹된
+    attempt는 실제 run이 아닌 misparse) + 순수 `resolveFarFutureHorizonMs`(override→env `AGENTRELAY_MAX_RESET_HORIZON`
+    →기본 8d; 가드 off여도 "회수 요청"으로 보고 기본 지평선 사용). CLI `recover.ts`: `renderRecoverFarFuture`/
+    `renderRecoverFarFutureJson`(mode:"far-future"). `cli.ts`: `recover`에 `--far-future`·`--horizon <dur>` 플래그
+    (모드 상호배타 — `--older-than`은 stuck-resuming 전용·`--horizon`은 far-future 전용, 오용은 exit 1).
+  - 부수: `doctor`의 `reset-horizon` warning 힌트를 plain `recover`→`agentrelay recover --far-future`로 정확화
+    (전엔 실제로 안 먹히는 명령을 안내).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러; import 정렬 1건 `lint:fix`)→
+  `pnpm test` 전 패키지 통과(**core 655 · cli 369/1skip · dashboard 13**; core recover +7, cli recover +9).
+  **실제 빌드 CLI e2e**(mock 아님): 100d 파킹 잡→`--far-future` 회수(attempts 0·resetAt=now)·2d 근접 잡 미회수·
+  `--dry-run` 스토어 불변·`--json` mode/horizon/parked/recovered·tighter `--horizon 5d`로 6d 잡 회수·`--far-future
+  --older-than`/`--horizon` 단독/`--horizon nope` 모두 exit 1 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드 먼-미래 카드에서 직접
+  회수 액션(로컬 API route 필요), 또는 `recover --far-future`를 daemon 옵션으로 자동화(env opt-in). README/
+  ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
