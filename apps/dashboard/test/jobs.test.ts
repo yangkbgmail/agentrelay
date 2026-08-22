@@ -183,4 +183,65 @@ describe("readJobsSnapshot", () => {
     expect(snapshot.resetHorizon.jobs).toEqual([]);
     expect(snapshot.resetHorizon.horizonMs).toBeGreaterThan(0);
   });
+
+  it("flags a waiting job whose reset passed more than the grace window ago as overdue", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "proj-a", tool: "generic", command: ["echo"], cwd: dir });
+    // Reset was an hour ago — well past the 10-minute dashboard grace window, so
+    // a resume loop should have picked it up by now but hasn't.
+    const anHourAgo = new Date(Date.now() - 60 * 60_000).toISOString();
+    queue.markWaitingForReset(job.id, anHourAgo);
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.overdue.totalOverdue).toBe(1);
+    expect(snapshot.overdue.jobs).toHaveLength(1);
+    expect(snapshot.overdue.jobs[0]).toMatchObject({ id: job.id, project: "proj-a" });
+    expect(snapshot.overdue.jobs[0].overdueByMs).toBeGreaterThan(0);
+    expect(snapshot.overdue.graceMs).toBeGreaterThan(0);
+  });
+
+  it("does not flag a job that only just came due (within the grace window)", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "p", tool: "generic", command: ["echo"], cwd: dir });
+    // Due one minute ago — normal inter-tick lag, not yet overdue.
+    const aMinuteAgo = new Date(Date.now() - 60_000).toISOString();
+    queue.markWaitingForReset(job.id, aMinuteAgo);
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.overdue.jobs).toEqual([]);
+    expect(snapshot.overdue.totalOverdue).toBe(0);
+  });
+
+  it("does not flag a still-future reset as overdue", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "p", tool: "generic", command: ["echo"], cwd: dir });
+    queue.markWaitingForReset(job.id, new Date(Date.now() + 2 * 60 * 60_000).toISOString());
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.overdue.jobs).toEqual([]);
+    expect(snapshot.overdue.totalOverdue).toBe(0);
+  });
+
+  it("does not flag terminal jobs as overdue, only active waiting ones", () => {
+    const queue = new RelayQueue(storePath);
+    const done = queue.enqueue({ project: "p", tool: "generic", command: ["echo"], cwd: dir });
+    // A completed job can carry a stale past resetAt; it's history, never resumed
+    // again, so the overdue card must not warn about it.
+    queue.markWaitingForReset(done.id, new Date(Date.now() - 60 * 60_000).toISOString());
+    queue.markCompleted(done.id, "ok");
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.overdue.jobs).toEqual([]);
+    expect(snapshot.overdue.totalOverdue).toBe(0);
+  });
+
+  it("reports no overdue jobs for an empty store", () => {
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.overdue.jobs).toEqual([]);
+    expect(snapshot.overdue.totalOverdue).toBe(0);
+  });
 });
