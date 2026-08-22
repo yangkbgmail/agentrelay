@@ -20,14 +20,15 @@ const SPEC: CompletionSpec = {
 };
 
 describe("completion shell helpers", () => {
-  it("COMPLETION_SHELLS lists bash and zsh", () => {
-    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh"]);
+  it("COMPLETION_SHELLS lists bash, zsh and fish", () => {
+    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh", "fish"]);
   });
 
   it("isCompletionShell accepts known shells and rejects others", () => {
     expect(isCompletionShell("bash")).toBe(true);
     expect(isCompletionShell("zsh")).toBe(true);
-    expect(isCompletionShell("fish")).toBe(false);
+    expect(isCompletionShell("fish")).toBe(true);
+    expect(isCompletionShell("tcsh")).toBe(false);
     expect(isCompletionShell("")).toBe(false);
     expect(isCompletionShell("BASH")).toBe(false);
   });
@@ -97,6 +98,62 @@ describe("generateCompletion — zsh", () => {
     // parent command lists subcommands
     expect(script).toContain("'init'");
     expect(script).toContain("'validate'");
+  });
+});
+
+describe("generateCompletion — fish", () => {
+  const script = generateCompletion("fish", SPEC);
+
+  it("starts with the fish header and disables file completion", () => {
+    expect(script.startsWith("# fish completion for agentrelay")).toBe(true);
+    expect(script).toContain("complete -c agentrelay -f");
+  });
+
+  it("offers global options and top-level subcommands under __fish_use_subcommand", () => {
+    expect(script).toContain("complete -c agentrelay -n __fish_use_subcommand -l store");
+    expect(script).toContain("complete -c agentrelay -n __fish_use_subcommand -l config");
+    expect(script).toContain("complete -c agentrelay -n __fish_use_subcommand -l help");
+    expect(script).toContain("complete -c agentrelay -n __fish_use_subcommand -l version");
+    expect(script).toContain("complete -c agentrelay -n __fish_use_subcommand -a run");
+    expect(script).toContain("complete -c agentrelay -n __fish_use_subcommand -a status");
+    expect(script).toContain("complete -c agentrelay -n __fish_use_subcommand -a config");
+  });
+
+  it("maps long/short flags to -l/-s tokens scoped to their command", () => {
+    expect(script).toContain("complete -c agentrelay -n '__fish_seen_subcommand_from run' -l tool");
+    expect(script).toContain("complete -c agentrelay -n '__fish_seen_subcommand_from status' -l json");
+    expect(script).toContain("complete -c agentrelay -n '__fish_seen_subcommand_from status' -s r");
+  });
+
+  it("offers a parent command's subcommands only until one is chosen", () => {
+    expect(script).toContain(
+      "complete -c agentrelay -n '__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from init validate show' -a init"
+    );
+    // each subcommand's own flags key off that subcommand being seen
+    expect(script).toContain("complete -c agentrelay -n '__fish_seen_subcommand_from init' -l force");
+    expect(script).toContain("complete -c agentrelay -n '__fish_seen_subcommand_from init' -s f");
+    expect(script).toContain("complete -c agentrelay -n '__fish_seen_subcommand_from show' -l show-secrets");
+  });
+
+  it("dedupes repeated flags while keeping first-seen order", () => {
+    const dup = generateCompletion("fish", {
+      program: "x",
+      options: [],
+      commands: [{ name: "c", options: ["--json", "--json", "-j"] }],
+    });
+    const jsonLines = dup.split("\n").filter((l) => l.includes("-l json"));
+    expect(jsonLines).toHaveLength(1);
+    expect(dup).toContain("complete -c x -n '__fish_seen_subcommand_from c' -s j");
+  });
+
+  it("throws on an unsafe token rather than emitting it", () => {
+    expect(() =>
+      generateCompletion("fish", {
+        program: "agentrelay",
+        options: [],
+        commands: [{ name: "run; rm -rf /", options: [] }],
+      })
+    ).toThrow(/unsafe command name/);
   });
 });
 

@@ -950,6 +950,26 @@
       365/1skip · dashboard 13**), 실제 빌드 CLI e2e로 유효 JSON 출력·top/그룹 props·duration pattern 확인.
       branch `claude/wizardly-pascal-ixo6hb`)
 
+- [x] 👷 `agentrelay completion fish` — bash·zsh만 지원하던 쉘 탭 완성에 fish(세 번째 주요 셸) 추가.
+      자기 발굴 항목 + **스테일 중복 8개 통합(consolidation)**. 세션 78이 진단한 "중복 PR 루프"의 전형으로,
+      fish 완성은 이미 열린 PR **8개**(#606·#495·#581·#315·#241·#210·#100·#561)가 각기 다른 오래된 base에서
+      독립 재구현돼 있었으나, 전부 문서 append 충돌로 클린 병합이 불가능했다(큐가 막힌 근본 원인). 세션
+      33/48 등의 확립된 "최신 main 위로 통합 → 스테일 중복 대체" 패턴대로, 최신 main 기반의 검증된 통합본을
+      열어 8개를 대체·정리한다.
+      (완료 — core `completion.ts`: `CompletionShell` 유니온·`COMPLETION_SHELLS`에 `"fish"` 추가,
+      `generateCompletion` 디스패치에 `generateFish` 배선. bash/zsh는 단일 case-문 디스패치 함수지만 fish는
+      선언적 `complete -c` 규칙 목록을 fish 표준 술어(`__fish_use_subcommand`/`__fish_seen_subcommand_from`)로
+      가드: 최상위 커맨드명·글로벌 옵션은 서브커맨드 선택 전에만, 각 커맨드 플래그는 이름이 라인에 있을 때,
+      부모 커맨드(`config`)는 서브명이 골라지기 전까지 서브명 제안 + 골라진 뒤엔 그 서브의 플래그. 순수
+      `fishOptionSpec`가 플래그를 fish 형식으로 변환(long `--json`→`-l json`, short `-r`→`-s r`, 그 외 선행
+      대시→`-o`). 기존 `assertSafeToken` 안전 가드·`uniq` 중복 제거 재사용, `-f`로 파일 완성 억제. spec은
+      여전히 라이브 커맨더 프로그램에서 파생되므로 실제 커맨드 표면과 절대 드리프트 안 함. CLI `cli.ts`의
+      `completion` description·help 예시에 fish 추가(검증·미지 셸 exit 1은 기존 `isCompletionShell` 재사용).
+      새 파서/스케줄러 로직 0줄. completion.test에 fish 6케이스 + 기존 "fish는 무효" 단언을 유효로 갱신
+      (COMPLETION_SHELLS·isCompletionShell). build/lint/test 통과(**core 670 · cli 365/1skip · dashboard 13**,
+      Biome 0경고), 실제 빌드 CLI e2e로 `completion fish` 방출(글로벌 옵션·최상위 커맨드·run 플래그·config
+      부모 가드)·미지 셸 exit 1 검증. branch `claude/wizardly-pascal-am8gcl`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
