@@ -24,6 +24,7 @@ import {
   computeQueueEta,
   computeStats,
   computeWeekdayDistribution,
+  configJsonSchemaJson,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
   generateCompletion,
@@ -2031,6 +2032,15 @@ export function buildCli(): Command {
         console.error(`[agentrelay] ${result.message}`);
         process.exitCode = 1;
       }
+    });
+  config
+    .command("schema")
+    .description(
+      'Print a JSON Schema for agentrelay.config.json (pipe to a file and reference it via "$schema" for editor validation/completion)'
+    )
+    .action(() => {
+      // Pure stdout so it composes: `agentrelay config schema > agentrelay.config.schema.json`.
+      process.stdout.write(configJsonSchemaJson());
     });
 
   registerBulkControl(program, {

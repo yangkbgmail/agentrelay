@@ -3,6 +3,7 @@ export * from "./backup.js";
 export * from "./completion.js";
 export * from "./concurrency.js";
 export * from "./config.js";
+export * from "./config-schema.js";
 export * from "./control.js";
 export * from "./doctor.js";
 export * from "./errors.js";
