@@ -1,3 +1,5 @@
+import { appendFile } from "node:fs/promises";
+import { expandTilde } from "./paths.js";
 import type { Notifier } from "./scheduler.js";
 import type { NotifyPayload } from "./types.js";
 
@@ -142,31 +144,110 @@ export function webhookNotifierFromEnv(
   return createWebhookNotifier({ url, ...options, headers });
 }
 
+/** A function that appends `line` to a file. Injected for tests; defaults to `fs.appendFile`. */
+export type AppendLineFn = (path: string, line: string) => Promise<void>;
+
+const defaultAppendLine: AppendLineFn = (path, line) => appendFile(path, line, "utf8");
+
+export interface FileNotifierOptions {
+  /** Log file path. A leading `~` is expanded to the home directory. */
+  path: string;
+  /**
+   * Serializes one event to a single log line. Defaults to a compact JSON
+   * object (`{ ts, event, project, jobId, message }`) followed by a newline,
+   * i.e. JSONL — machine-readable and `tail -f`-friendly. A custom formatter is
+   * responsible for its own trailing newline.
+   */
+  formatLine?: (payload: NotifyPayload, now: Date) => string;
+  /** Injectable "now" for deterministic tests; defaults to `new Date()`. */
+  now?: () => Date;
+  /** Injected for tests; defaults to appending with `fs.appendFile`. */
+  appendFn?: AppendLineFn;
+  /** Called when the append fails. Defaults to a stderr warning. */
+  onError?: (error: unknown) => void;
+}
+
+/** Default JSONL serializer: one compact JSON object + newline per event. */
+export function formatFileLogLine(payload: NotifyPayload, now: Date): string {
+  return `${JSON.stringify({
+    ts: now.toISOString(),
+    event: payload.event,
+    project: payload.project,
+    jobId: payload.jobId,
+    message: payload.message,
+  })}\n`;
+}
+
+/**
+ * Returns a Notifier that appends each queue event to a local log file, one
+ * JSON line per event (JSONL). This is the local-first counterpart to the
+ * Slack/webhook notifiers: it needs no network and no remote service, so it
+ * keeps working (and keeps an auditable trail) even when everything else is
+ * offline — you can `tail -f` it or replay it later. Append failures are
+ * reported through `onError` but never thrown, so a bad path or a full disk
+ * can't take down the relay loop.
+ */
+export function createFileNotifier(options: FileNotifierOptions): Notifier {
+  const path = expandTilde(options.path);
+  const formatLine = options.formatLine ?? formatFileLogLine;
+  const now = options.now ?? (() => new Date());
+  const appendFn = options.appendFn ?? defaultAppendLine;
+  const onError =
+    options.onError ??
+    ((error: unknown) => {
+      console.error(`[agentrelay] File-log notification failed: ${String(error)}`);
+    });
+
+  return async (payload: NotifyPayload) => {
+    try {
+      await appendFn(path, formatLine(payload, now()));
+    } catch (error) {
+      onError(error);
+    }
+  };
+}
+
+/**
+ * Builds a file-log notifier from `AGENTRELAY_NOTIFY_LOG`. Returns null when the
+ * variable is unset/blank so callers can silently skip file logging.
+ */
+export function fileNotifierFromEnv(
+  env: Record<string, string | undefined> = process.env,
+  options: Omit<FileNotifierOptions, "path"> = {}
+): Notifier | null {
+  const path = env.AGENTRELAY_NOTIFY_LOG?.trim();
+  if (!path) return null;
+  return createFileNotifier({ path, ...options });
+}
+
 /**
  * Assembles the notifier configured through the environment: Slack
- * (`AGENTRELAY_SLACK_WEBHOOK`) and/or a generic webhook
- * (`AGENTRELAY_WEBHOOK_URL`), fanned out together. Returns null when neither
- * is configured, so callers can report "notifications off" and skip work.
+ * (`AGENTRELAY_SLACK_WEBHOOK`), a generic webhook (`AGENTRELAY_WEBHOOK_URL`),
+ * and/or a local file log (`AGENTRELAY_NOTIFY_LOG`), fanned out together.
+ * Returns null when none is configured, so callers can report "notifications
+ * off" and skip work.
  */
 export function notifiersFromEnv(
   env: Record<string, string | undefined> = process.env,
   options: { fetchFn?: typeof fetch; onError?: (error: unknown) => void } = {}
 ): Notifier | null {
-  const configured = [slackNotifierFromEnv(env, options), webhookNotifierFromEnv(env, options)].filter(
-    (n): n is Notifier => typeof n === "function"
-  );
+  const configured = [
+    slackNotifierFromEnv(env, options),
+    webhookNotifierFromEnv(env, options),
+    fileNotifierFromEnv(env, { onError: options.onError }),
+  ].filter((n): n is Notifier => typeof n === "function");
   if (configured.length === 0) return null;
   return combineNotifiers(...configured);
 }
 
-export type NotifyChannelKind = "slack" | "webhook";
+export type NotifyChannelKind = "slack" | "webhook" | "file";
 
 /** A notification channel configured through the environment. */
 export interface NotifyChannel {
   kind: NotifyChannelKind;
-  /** Human-readable label ("Slack" / "Webhook"). */
+  /** Human-readable label ("Slack" / "Webhook" / "File log"). */
   label: string;
-  /** Destination URL (treat as a secret when displaying). */
+  /** Destination — a URL for remote channels, a file path for the file log. */
   url: string;
   /** The environment variable the URL was read from. */
   envVar: string;
@@ -174,10 +255,10 @@ export interface NotifyChannel {
 
 /**
  * Enumerates the notify channels configured through the environment, in a
- * stable order (Slack first, then the generic webhook). Blank/whitespace-only
- * values are skipped so an empty env var doesn't masquerade as a channel.
- * This is the single source of truth for "which channels are configured";
- * {@link sendTestNotification} builds on it.
+ * stable order (Slack, then the generic webhook, then the local file log).
+ * Blank/whitespace-only values are skipped so an empty env var doesn't
+ * masquerade as a channel. This is the single source of truth for "which
+ * channels are configured"; {@link sendTestNotification} builds on it.
  */
 export function listNotifyChannels(env: Record<string, string | undefined> = process.env): NotifyChannel[] {
   const channels: NotifyChannel[] = [];
@@ -188,6 +269,10 @@ export function listNotifyChannels(env: Record<string, string | undefined> = pro
   const webhook = env.AGENTRELAY_WEBHOOK_URL?.trim();
   if (webhook) {
     channels.push({ kind: "webhook", label: "Webhook", url: webhook, envVar: "AGENTRELAY_WEBHOOK_URL" });
+  }
+  const fileLog = env.AGENTRELAY_NOTIFY_LOG?.trim();
+  if (fileLog) {
+    channels.push({ kind: "file", label: "File log", url: fileLog, envVar: "AGENTRELAY_NOTIFY_LOG" });
   }
   return channels;
 }
@@ -219,6 +304,8 @@ export interface SendTestNotificationOptions {
   env?: Record<string, string | undefined>;
   /** Injected for tests; defaults to global fetch. */
   fetchFn?: typeof fetch;
+  /** Injected for tests; defaults to appending with `fs.appendFile` (file channel). */
+  appendFn?: AppendLineFn;
   /** Overrides the synthetic payload (defaults to {@link testNotifyPayload}). */
   payload?: NotifyPayload;
 }
@@ -241,15 +328,19 @@ export async function sendTestNotification(options: SendTestNotificationOptions 
       const onError = (error: unknown) => {
         captured = error;
       };
-      const notifier =
-        channel.kind === "slack"
-          ? createSlackNotifier({ webhookUrl: channel.url, fetchFn: options.fetchFn, onError })
-          : createWebhookNotifier({
-              url: channel.url,
-              headers: webhookAuthHeader(env),
-              fetchFn: options.fetchFn,
-              onError,
-            });
+      let notifier: Notifier;
+      if (channel.kind === "slack") {
+        notifier = createSlackNotifier({ webhookUrl: channel.url, fetchFn: options.fetchFn, onError });
+      } else if (channel.kind === "file") {
+        notifier = createFileNotifier({ path: channel.url, appendFn: options.appendFn, onError });
+      } else {
+        notifier = createWebhookNotifier({
+          url: channel.url,
+          headers: webhookAuthHeader(env),
+          fetchFn: options.fetchFn,
+          onError,
+        });
+      }
       await notifier(payload);
       if (captured === undefined) return { channel, ok: true };
       const message = captured instanceof Error ? captured.message : String(captured);

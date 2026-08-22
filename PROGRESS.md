@@ -2259,3 +2259,24 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — 로컬 파일 로그 알림자 `AGENTRELAY_NOTIFY_LOG`] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-50v2hg`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유뿐). 열린 PR 100+개
+  (파서·doctor reset-horizon·stats 변형)로 포화라, **어떤 열린 PR에도 없고** 이 프로젝트의 로컬 우선
+  철학에 맞는 갭을 발굴: 기존 알림자(Slack/webhook)는 전부 **원격 HTTP**뿐이라, 네트워크·외부 서비스
+  없이 큐 이벤트를 로컬에 남길 채널이 없었다.
+- **한 일:** `@agentrelay/core/notify.ts`에 로컬 파일 로그 알림자 추가. 순수 `formatFileLogLine`(이벤트→
+  `{ts,event,project,jobId,message}` 한 줄 JSON+개행=JSONL, `tail -f`/재생 친화) + `createFileNotifier`
+  (`~` 확장·주입식 `appendFn`/`now`, append 실패는 `onError`로만 보내고 절대 throw 안 함 → 잘못된 경로·
+  디스크 풀이 릴레이 루프를 못 깨뜨림) + `fileNotifierFromEnv`(`AGENTRELAY_NOTIFY_LOG` 미설정/공백=null).
+  `notifiersFromEnv` fan-out에 편입(Slack+webhook+file 동시), `NotifyChannelKind`에 `"file"` 추가,
+  `listNotifyChannels`가 파일 채널 열거, `sendTestNotification`이 파일 채널에 실제 테스트 줄 기록.
+  config 배선(`notify.notifyLog`↔`AGENTRELAY_NOTIFY_LOG`, 경로라 non-secret). `doctor` notify 체크가
+  파일 로그를 채널로 인정. CLI `notify test`는 파일 경로를 마스킹 없이 노출(경로는 비밀 아님).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전
+  패키지 통과(**core 649 · cli 354/1skip · dashboard 9**; notify.test +18, doctor.test +1). **실제 빌드
+  CLI e2e**(mock 아님): `AGENTRELAY_NOTIFY_LOG` 설정 후 `notify test`가 JSONL 한 줄을 실제로 파일에 기록,
+  `doctor`가 "notifications on via file log" 표시, `config show`가 경로를 마스킹 없이 노출함을 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 파일 로그 로테이션
+  (크기 상한/`prune` 연계), `notify test`에 파일 채널 dry-run(실제 줄 안 남기고 쓰기 가능만 확인).
+  README/ARCHITECTURE(🧭 코워크).

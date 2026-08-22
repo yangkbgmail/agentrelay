@@ -199,6 +199,13 @@ describe("runDiagnostics", () => {
     expect(notify.message).toContain("Slack + webhook");
   });
 
+  it("counts the local file log as a configured channel", () => {
+    const report = runDiagnostics(input({ notify: { notifyLog: "/tmp/relay.log" } }));
+    const notify = find(report, "notify");
+    expect(notify.level).toBe("ok");
+    expect(notify.message).toContain("file log");
+  });
+
   it("reports adapters OK (nothing to check) when no job is queued", () => {
     const report = runDiagnostics(input({ adapters: { binaries: [] } }));
     const adapters = find(report, "adapters");
