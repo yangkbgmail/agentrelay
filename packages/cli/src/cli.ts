@@ -9,6 +9,9 @@ import type {
   JobCsvColumn,
   JobScope,
   JobStatus,
+  ManCommandSpec,
+  ManOptionSpec,
+  ManPageSpec,
   RelayJob,
 } from "@agentrelay/core";
 import {
@@ -28,6 +31,7 @@ import {
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
   generateCompletion,
+  generateManPage,
   groupStats,
   IMPORT_FORMATS,
   inferImportFormat,
@@ -325,6 +329,83 @@ export function buildCompletionSpec(program: Command): CompletionSpec {
     return entry;
   });
   return { program: program.name(), options: collectFlags(program), commands };
+}
+
+/**
+ * Collect a command's options as man-page rows: the full flag spec commander
+ * prints (e.g. `-s, --status <list>`) paired with its help text. Hidden options
+ * and the auto-added `-h, --help` are skipped so the page stays about the real
+ * surface.
+ */
+function collectManOptions(cmd: Command): ManOptionSpec[] {
+  const rows: ManOptionSpec[] = [];
+  for (const opt of cmd.options) {
+    if (opt.hidden) continue;
+    rows.push({ flags: opt.flags, description: opt.description ?? "" });
+  }
+  return rows;
+}
+
+/**
+ * Commander stores a command's argument sketch on its `_args`/registered
+ * arguments; render it the way `--help` does (`<name>` for required,
+ * `[name]` for optional, `name...` for variadic) so the man page shows how each
+ * command is invoked.
+ */
+function commandArgs(cmd: Command): string | undefined {
+  const args = cmd.registeredArguments ?? [];
+  if (args.length === 0) return undefined;
+  const parts = args.map((arg) => {
+    const name = arg.variadic ? `${arg.name()}...` : arg.name();
+    return arg.required ? `<${name}>` : `[${name}]`;
+  });
+  return parts.join(" ");
+}
+
+/** Describe one command (and its subcommands) as a `ManCommandSpec`. */
+function describeCommand(cmd: Command): ManCommandSpec {
+  const entry: ManCommandSpec = {
+    name: cmd.name(),
+    description: cmd.description() ?? "",
+    options: collectManOptions(cmd),
+  };
+  const args = commandArgs(cmd);
+  if (args) entry.args = args;
+  if (cmd.commands.length > 0) {
+    entry.subcommands = cmd.commands.map((sub) => describeCommand(sub));
+  }
+  return entry;
+}
+
+/**
+ * Derive a man-page spec from the live commander program, so `agentrelay man`
+ * always documents the real command surface (descriptions, args, and every
+ * option's help text) rather than a hand-kept copy that drifts. `date` is
+ * injected by the caller so the generator itself stays clock-free.
+ */
+export function buildManPageSpec(program: Command, date: string): ManPageSpec {
+  return {
+    program: program.name(),
+    section: 1,
+    version: program.version() ?? undefined,
+    date,
+    manual: "User Commands",
+    description: "detect AI coding-agent rate limits and auto-resume work when they reset",
+    longDescription:
+      "AgentRelay watches an AI coding agent's output (Claude Code, Codex CLI, and others) for " +
+      "rate-limit messages, queues the interrupted command in a local JSON store, and re-runs it " +
+      "automatically once the limit resets. It is local-first: a single CLI plus an optional local " +
+      "dashboard, with no cloud service required.",
+    options: collectManOptions(program),
+    commands: program.commands.map((cmd) => describeCommand(cmd)),
+    files: [
+      { path: "~/.agentrelay/jobs.json", description: "The job store (queue state, timestamps, captured output)." },
+      { path: "~/.agentrelay/config.json", description: "Optional defaults file (see agentrelay config)." },
+      { path: "~/.agentrelay/daemon.json", description: "Daemon/tick heartbeat used by health checks." },
+      { path: "agentrelay.config.json", description: "Project-local defaults file, preferred over the home one." },
+    ],
+    seeAlso: ["man(1)", "man(7)"],
+  };
 }
 
 /**
@@ -2252,6 +2333,23 @@ export function buildCli(): Command {
         );
       }
       console.log(`${verb} ${pruned.length} job(s). ${remaining} remain.`);
+    });
+
+  program
+    .command("man")
+    .description("Print a roff man page for agentrelay (pipe to a .1 file, then view with man)")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # render and read it now\n" +
+        "  agentrelay man | man -l -\n" +
+        "  # install it for the man command\n" +
+        "  agentrelay man > ~/.local/share/man/man1/agentrelay.1"
+    )
+    .action(() => {
+      const date = new Date().toISOString().slice(0, 10);
+      const spec = buildManPageSpec(program, date);
+      process.stdout.write(generateManPage(spec));
     });
 
   program
