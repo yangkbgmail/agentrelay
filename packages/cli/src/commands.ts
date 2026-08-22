@@ -18,6 +18,7 @@ import type {
   BackupResult,
   ConfigIssue,
   DiagnosticReport,
+  FarFutureParkedReport,
   HealthReport,
   HeartbeatFacts,
   HeartbeatMode,
@@ -84,6 +85,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   sampleConfigJson,
   scopeJobs,
+  selectFarFutureParkedJobs,
   selectFarFutureResets,
   selectStuckResumingJobs,
   serializeDaemonHeartbeat,
@@ -638,6 +640,18 @@ export interface RecoverJobsOptions {
   storePath?: string;
   /** Staleness threshold (ms) a `resuming` job must exceed to be reclaimed. */
   stuckAfterMs?: number;
+  /**
+   * Also reclaim jobs parked far past the plausibility horizon (misparsed reset
+   * times) by requeuing them to run now. Off by default — the store is only
+   * scanned for these when the operator opts in.
+   */
+  farFuture?: boolean;
+  /**
+   * The reset-horizon (ms) used when `farFuture` is set; `null` disables the
+   * guard (nothing is far-future). Defaults to {@link maxResetHorizonMsFromEnv}
+   * so it tracks the same env var `doctor`/the parser use.
+   */
+  horizonMs?: number | null;
   /** Preview only — report what would be recovered without touching the store. */
   dryRun?: boolean;
   /** Reference "now" (epoch ms); defaults to the wall clock. Injectable for tests. */
@@ -649,6 +663,12 @@ export interface RecoverJobsResult {
   /** Jobs actually reclaimed (post-transition). Empty on a dry run. */
   recovered: RelayJob[];
   dryRun: boolean;
+  /**
+   * The far-future parked scan, present only when `farFuture` was requested.
+   * `report.parked` lists the stranded jobs; `recovered` is what was actually
+   * requeued (empty on a dry run).
+   */
+  farFuture?: { report: FarFutureParkedReport; recovered: RelayJob[] };
 }
 
 /**
@@ -659,14 +679,31 @@ export interface RecoverJobsResult {
  * tick resumes it. The per-job guard means a job that finishes resuming between
  * the scan and the write is simply skipped (its transition returns `false`),
  * never double-run.
+ *
+ * When `farFuture` is set it *also* reclaims the other silent-failure class:
+ * jobs parked in `waiting_for_reset` with a `resetAt` beyond the plausibility
+ * horizon (a misparse that would strand them forever). Those are requeued via
+ * {@link RelayQueue.requeueNow} — attempts reset and the stale reset cleared —
+ * because the misparsed reset means the job never got a fair attempt at the
+ * right time, so a fresh retry (as `agentrelay retry` does) is the intent.
  */
 export function recoverJobs(options: RecoverJobsOptions = {}): RecoverJobsResult {
   const now = options.now ?? Date.now();
   const queue = openQueue(options.storePath ?? defaultStorePath());
   try {
-    const report = selectStuckResumingJobs(queue.listAll(), { nowMs: now, stuckAfterMs: options.stuckAfterMs });
-    if (options.dryRun) return { report, recovered: [], dryRun: true };
+    const jobs = queue.listAll();
+    const report = selectStuckResumingJobs(jobs, { nowMs: now, stuckAfterMs: options.stuckAfterMs });
     const at = new Date(now).toISOString();
+
+    let farFuture: { report: FarFutureParkedReport; recovered: RelayJob[] } | undefined;
+    if (options.farFuture) {
+      const horizonMs = options.horizonMs !== undefined ? options.horizonMs : maxResetHorizonMsFromEnv();
+      const parkedReport = selectFarFutureParkedJobs(jobs, { nowMs: now, horizonMs });
+      farFuture = { report: parkedReport, recovered: [] };
+    }
+
+    if (options.dryRun) return { report, recovered: [], dryRun: true, farFuture };
+
     const recovered: RelayJob[] = [];
     for (const job of report.stuck) {
       if (queue.recoverResuming(job.id, at)) {
@@ -674,7 +711,19 @@ export function recoverJobs(options: RecoverJobsOptions = {}): RecoverJobsResult
         if (updated) recovered.push(updated);
       }
     }
-    return { report, recovered, dryRun: false };
+
+    if (farFuture) {
+      for (const job of farFuture.report.parked) {
+        // Re-check the current state to avoid racing a job that changed between
+        // the scan and the write (e.g. it just came due and resumed).
+        if (queue.getById(job.id)?.status !== "waiting_for_reset") continue;
+        queue.requeueNow(job.id, at);
+        const updated = queue.getById(job.id);
+        if (updated) farFuture.recovered.push(updated);
+      }
+    }
+
+    return { report, recovered, dryRun: false, farFuture };
   } finally {
     queue.close();
   }

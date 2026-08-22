@@ -902,6 +902,28 @@
       +4(먼-미래 플래그·근접 미플래그·종료 잡 미플래그·빈 스토어). branch
       `claude/dashboard-reset-horizon-card`)
 
+- [x] 👷 `agentrelay recover --far-future` — 먼-미래로 파킹된(misparse된 리셋) 잡을 자동 감지·재큐.
+      자기 발굴 항목(세션 74 로그가 명시한 후속 인접 후보 "`recover`가 먼-미래 파킹 잡을 자동 감지·재큐
+      대상으로 포함하는지 점검"). 세션 72 파서 지평선 가드는 **새** misparse를, 세션 73 doctor·세션 74
+      대시보드 카드는 **이미 파킹된** 잡을 *감지·표면화*하지만, 정작 고치는 수단은 사용자가 각 잡을 id로
+      `cancel`/`retry` 하는 것뿐이었다. `recover`는 지금까지 `resuming`에 갇힌 잡(루프 크래시)만 회수했는데,
+      대칭적 무음 실패 부류인 "`waiting_for_reset`에 지평선 밖 `resetAt`으로 파킹돼 `listDue`가 영원히 안
+      집는 잡"을 한 커맨드로 재큐하게 확장.
+      (완료 — core `recover.ts`에 순수 `selectFarFutureParkedJobs(jobs,{nowMs,horizonMs})` +
+      `FarFutureParkedReport`/`FarFutureParkedOptions` 신설: `waiting_for_reset` 잡 중 `resetAt`이
+      지평선 밖인 것만 골라 soonest-reset first(덜 극단부터, id tiebreak)로 정렬. 파서 `isPlausibleReset`
+      재사용으로 doctor의 `reset-horizon` 판정과 절대 드리프트 안 함(과거/근접 리셋·파싱불가·null resetAt은
+      스킵, 가드 off[null/비양수 horizon]면 빈 리스트+horizonMs=null). `resuming`(기본 recover 경로가 회수)·
+      `queued`(이미 due now)는 대상 아님. CLI `recoverJobs`에 `farFuture`/`horizonMs` 옵션 추가 — 지평선은
+      기본 `maxResetHorizonMsFromEnv()`(doctor·파서와 같은 env var). 파킹 잡은 `requeueNow`로 재큐(attempts
+      0 리셋·lastError 클리어·resetAt=now) — misparse라 실제 재개 시도가 없었으니 fresh retry가 의도(`retry`와
+      동일), `resuming` 회수의 `recoverResuming`(attempts 보존)과 구분. 쓰기 직전 상태 재확인으로 scan↔write
+      레이스 방지. `recover.ts` 렌더가 far-future 섹션 추가(가드 off·파킹 0·재큐 목록 구분), `--json`은
+      `farFuture` 키(요청 시에만). `--far-future`는 opt-in — 기본 recover 동작 불변(하위호환). CLI cli.ts에
+      `--far-future` 플래그 배선. core recover +6 · cli recover +8 신규 테스트, 실제 빌드 CLI e2e로
+      plain(미스캔)·`--far-future --dry-run` 미리보기·실제 재큐(attempts 0·resetAt now·near 잡 불변)·`off`
+      가드 스킵 검증. branch `claude/wizardly-pascal-1v8v1w`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

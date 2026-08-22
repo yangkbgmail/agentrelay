@@ -2,8 +2,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_MAX_RESET_HORIZON_MS } from "../src/parser.js";
 import { RelayQueue } from "../src/queue.js";
-import { DEFAULT_STUCK_RESUMING_MS, selectStuckResumingJobs } from "../src/recover.js";
+import { DEFAULT_STUCK_RESUMING_MS, selectFarFutureParkedJobs, selectStuckResumingJobs } from "../src/recover.js";
 import type { RelayJob } from "../src/types.js";
 
 const NOW = Date.parse("2026-08-15T12:00:00.000Z");
@@ -85,6 +86,75 @@ describe("selectStuckResumingJobs", () => {
     const report = selectStuckResumingJobs([job({ id: "fresh", updatedAt: agoIso(1_000) })], { nowMs: NOW });
     expect(report.stuck).toEqual([]);
     expect(report.resuming).toBe(1);
+  });
+});
+
+/** ISO string for `ms` after NOW. */
+function inIso(ms: number): string {
+  return new Date(NOW + ms).toISOString();
+}
+
+const DAY = 24 * 60 * 60_000;
+
+describe("selectFarFutureParkedJobs", () => {
+  it("selects parked jobs whose reset is beyond the horizon, ignoring near ones", () => {
+    const jobs = [
+      job({ id: "far", status: "waiting_for_reset", resetAt: inIso(30 * DAY) }), // 30d out — misparsed
+      job({ id: "near", status: "waiting_for_reset", resetAt: inIso(2 * 60 * 60_000) }), // 2h — believable
+    ];
+    const report = selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs: DEFAULT_MAX_RESET_HORIZON_MS });
+    expect(report.waiting).toBe(2);
+    expect(report.horizonMs).toBe(DEFAULT_MAX_RESET_HORIZON_MS);
+    expect(report.parked.map((j) => j.id)).toEqual(["far"]);
+  });
+
+  it("only considers waiting_for_reset jobs (resuming/queued/terminal are skipped)", () => {
+    const jobs = [
+      job({ id: "resuming", status: "resuming", resetAt: inIso(100 * DAY) }),
+      job({ id: "queued", status: "queued", resetAt: inIso(100 * DAY) }),
+      job({ id: "done", status: "completed", resetAt: inIso(100 * DAY) }),
+      job({ id: "parked", status: "waiting_for_reset", resetAt: inIso(100 * DAY) }),
+    ];
+    const report = selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs: DEFAULT_MAX_RESET_HORIZON_MS });
+    expect(report.waiting).toBe(1);
+    expect(report.parked.map((j) => j.id)).toEqual(["parked"]);
+  });
+
+  it("orders parked jobs soonest-reset first, tie-broken by id", () => {
+    const jobs = [
+      job({ id: "c", status: "waiting_for_reset", resetAt: inIso(90 * DAY) }),
+      job({ id: "a", status: "waiting_for_reset", resetAt: inIso(30 * DAY) }),
+      job({ id: "b", status: "waiting_for_reset", resetAt: inIso(30 * DAY) }),
+    ];
+    const report = selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs: DEFAULT_MAX_RESET_HORIZON_MS });
+    expect(report.parked.map((j) => j.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("skips a past reset (already unblocked — safe to resume) and unparseable resetAt", () => {
+    const jobs = [
+      job({ id: "past", status: "waiting_for_reset", resetAt: agoIso(DAY) }),
+      job({ id: "bad", status: "waiting_for_reset", resetAt: "not-a-date" }),
+      job({ id: "missing", status: "waiting_for_reset", resetAt: null }),
+    ];
+    const report = selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs: DEFAULT_MAX_RESET_HORIZON_MS });
+    expect(report.waiting).toBe(3);
+    expect(report.parked).toEqual([]);
+  });
+
+  it("with the guard disabled (null/0 horizon) flags nothing and reports horizonMs null", () => {
+    const jobs = [job({ id: "far", status: "waiting_for_reset", resetAt: inIso(365 * DAY) })];
+    for (const horizonMs of [null, 0, -1, Number.POSITIVE_INFINITY]) {
+      const report = selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs });
+      expect(report.parked).toEqual([]);
+      expect(report.horizonMs).toBeNull();
+    }
+  });
+
+  it("does not mutate the input", () => {
+    const jobs = [job({ id: "far", status: "waiting_for_reset", resetAt: inIso(100 * DAY) })];
+    const before = JSON.stringify(jobs);
+    selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs: DEFAULT_MAX_RESET_HORIZON_MS });
+    expect(JSON.stringify(jobs)).toBe(before);
   });
 });
 

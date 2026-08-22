@@ -2136,9 +2136,13 @@ export function buildCli(): Command {
       "--older-than <duration>",
       "Only recover jobs stuck resuming for at least this long (default 30m; 0s = all)"
     )
+    .option(
+      "--far-future",
+      "Also reclaim jobs parked beyond the reset horizon (misparsed reset times) by requeuing them to run now"
+    )
     .option("--dry-run", "Show what would be recovered without changing the store")
     .option("--json", "Output machine-readable JSON")
-    .action((opts: { olderThan?: string; dryRun?: boolean; json?: boolean }) => {
+    .action((opts: { olderThan?: string; farFuture?: boolean; dryRun?: boolean; json?: boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
 
@@ -2153,8 +2157,14 @@ export function buildCli(): Command {
         stuckAfterMs = parsed;
       }
 
-      const { report, recovered, dryRun } = recoverJobs({ storePath: store, stuckAfterMs, dryRun: opts.dryRun, now });
-      const result: RecoverResult = { report, recovered, dryRun };
+      const { report, recovered, dryRun, farFuture } = recoverJobs({
+        storePath: store,
+        stuckAfterMs,
+        farFuture: opts.farFuture,
+        dryRun: opts.dryRun,
+        now,
+      });
+      const result: RecoverResult = { report, recovered, dryRun, farFuture };
 
       if (opts.json) {
         console.log(renderRecoverJson(result, store ?? defaultStorePath(), new Date(now).toISOString()));
