@@ -2429,3 +2429,24 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책: CI 초록 → 클로드 코드 병합). ② 나머지 ~90개
   열린 PR 중 **reset-horizon doctor 검사(수십 개 중복)**·**config schema**·**completion nushell/powershell** 등
   포화 축의 추가 중복 스캔·정리 지속. ③ 신규 기능은 열린 PR·main 양쪽에 없는 영역에서만 발굴. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 80 — `NO_COLOR`/`FORCE_COLOR` 표준 준수 (파이프·CI 색상 제어)] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-4dz83a`)
+- **배경:** 세션 시작 시 👷 백로그 항목은 전부 완료(미완료 5개는 전부 🧭 코워크 몫=README/ARCHITECTURE/리서치).
+  열린 PR ~100개는 reset-horizon doctor 검사(수십 개)·파서 변종·completion 셸 등으로 극도로 포화 — 세션
+  78/79가 경고한 "중복 PR 루프". 신규 기능은 **열린 PR·main 양쪽에 없는 영역에서만** 발굴하는 원칙에 따라
+  후보 키워드를 전수 스캔: `color`/`NO_COLOR`/`FORCE_COLOR`/`tag`/`note`/`doctor --fix`가 0건인 것을 확인.
+- **발굴·판단:** CLI가 사람용 출력의 색상 여부를 `Boolean(process.stdout.isTTY)`로만 결정(cli.ts 25곳 +
+  stats watch 6곳)해 no-color.org 표준(`NO_COLOR`)·`FORCE_COLOR`를 전혀 존중하지 않는 실제 결함을 발견.
+  파이프(`| jq`)·파일·CI 로그에서 색을 강제하거나 TTY에서 색을 끌 방법이 없었다. render 함수들이 이미
+  순수하며 `{color?: boolean}`를 받으므로 **결정 로직만** 표준 헬퍼로 교체하면 되는 저위험·고가치 항목.
+- **한 일(구현):** `packages/cli/src/color.ts` 신설 — 순수 `resolveColorMode(env,{isTTY})`(우선순위:
+  `AGENTRELAY_COLOR=always|never` → `FORCE_COLOR` → `NO_COLOR` → `isTTY`, 각 규칙 근거 주석) + 드롭인
+  `stdoutColor()`. cli.ts의 31개 색상 결정 지점(isTTY 25 + stats watch `color:true` 6)을 `stdoutColor()`로
+  교체, import 1줄 추가. 렌더러 21개 파일·파서/스케줄러 0줄 변경(충돌면을 cli.ts 1파일+신규 2파일로 최소화).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0경고, 124파일)→`pnpm test`
+  전 패키지 통과(**core 670 · cli 385/1skip[color.test 20 신규] · dashboard 13**). 실제 빌드 CLI e2e로
+  `FORCE_COLOR=1`(파이프에 색 강제)·`AGENTRELAY_COLOR=never`(FORCE보다 우선)·`FORCE_COLOR`>`NO_COLOR`·
+  `AGENTRELAY_COLOR=always`(NO_COLOR 무시) 우선순위 실측 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 후속: 라이브 `--watch` 프레임 내부
+  색상도 표준 존중(렌더러 시그니처에 color 스레딩 필요, 별도 PR). ③ 신규 기능은 계속 열린 PR·main 양쪽에
+  없는 영역에서만 발굴(중복 재발 방지). README/ARCHITECTURE/리서치는 🧭 코워크 몫.

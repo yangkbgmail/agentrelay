@@ -970,6 +970,23 @@
       Biome 0경고), 실제 빌드 CLI e2e로 `completion fish` 방출(글로벌 옵션·최상위 커맨드·run 플래그·config
       부모 가드)·미지 셸 exit 1 검증. branch `claude/wizardly-pascal-am8gcl`)
 
+- [x] 👷 `NO_COLOR`/`FORCE_COLOR` 환경변수 준수 — 파이프·파일·CI 출력에서 ANSI 이스케이프 제어.
+      자기 발굴 항목(열린 PR·main 양쪽에 `color`/`NO_COLOR` 키워드 0건 확인 후 착수). 기존 CLI는 사람용
+      출력의 색상 여부를 `Boolean(process.stdout.isTTY)`로만 결정해(cli.ts 25곳 + stats watch 6곳),
+      no-color.org 표준(`NO_COLOR`)·`FORCE_COLOR`를 전혀 존중하지 않았다 — TTY에서 색을 끄거나(`NO_COLOR`)
+      파이프에서 색을 켤(`FORCE_COLOR`, 예: `| less -R`) 방법이 없었다.
+      (완료 — `packages/cli/src/color.ts` 신설: 순수 `resolveColorMode(env, {isTTY})` — 문서화된 우선순위
+      ① `AGENTRELAY_COLOR=always|never`(앱 전용 하드 override, `auto`/미지값은 무시) ② `FORCE_COLOR`(존재 시
+      강제 on, `0`/`false`/`no`/`off`는 강제 off, 빈 값은 on=supports-color 시맨틱) ③ `NO_COLOR`(존재+비어있지
+      않으면 off; 빈 문자열은 미설정 취급) ④ 그 외 `isTTY`. `stdoutColor()`는 라이브 `process.env`·
+      `process.stdout.isTTY`로 결정하는 드롭인 대체자 — cli.ts의 31개 색상 결정 지점을 이걸로 교체.
+      기존 render 함수들이 이미 순수하며 `{color?: boolean}`를 받는 설계를 활용해 렌더러 21개 파일은 손대지
+      않음(충돌면 최소화). 순수 함수라 TTY 없이 전 우선순위 매트릭스를 유닛 테스트. color.test.ts 20케이스.
+      build/lint(Biome 0경고)/test 통과(**core 670 · cli 385/1skip[+20] · dashboard 13**), 실제 빌드 CLI
+      e2e로 `FORCE_COLOR`(파이프에 색상 강제)·`AGENTRELAY_COLOR=never`(FORCE보다 우선)·`FORCE_COLOR`>`NO_COLOR`
+      우선순위 검증. 한계: 라이브 `--watch` 프레임의 내부 색상은 후속(렌더러 시그니처 변경 필요). branch
+      `claude/wizardly-pascal-4dz83a`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
