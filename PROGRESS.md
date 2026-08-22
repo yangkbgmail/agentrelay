@@ -2361,3 +2361,30 @@
   이미 main에 있으니 재구현 금지. 후속 인접 후보 — 대시보드 far-future 카드에서 직접 재큐하는 로컬 API route(mutation),
   또는 `recover`가 과거-지평선(수년 전 epoch) misparse도 신호로 보고. README/ARCHITECTURE(🧭 코워크). PR 포화 항목
   (stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 77 — `agentrelay config schema` (JSON Schema 출력)] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-ixo6hb`)
+- **배경:** 세션 시작 시 명시적 👷 백로그 항목은 전부 완료 상태, 열린 PR은 50+개인데 파서 개선·doctor
+  reset-horizon 검사에 **중복 PR이 심하게 포화**(reset-horizon만 10개+, 파서 다수). 중복 루프를 피해 CLAUDE.md
+  지침대로 **포화되지 않은 영역에서 새 개선 항목을 발굴**했다 — config 커맨드군(`init`/`validate`/`show`/`get`/
+  `set`/`unset`)에는 있었지만, 에디터가 `agentrelay.config.json`을 **편집 중 실시간 검증/자동완성**할 수단
+  (JSON Schema)이 없었다. 열린 PR 어디에도 "schema"는 없음(중복 아님 확인).
+- **한 일 (branch `claude/wizardly-pascal-ixo6hb`):** `agentrelay config schema` —
+  - `@agentrelay/core/config-schema.ts` 신설(순수·파일시스템/env 미접촉): `buildConfigJsonSchema()`가 기존
+    `CONFIG_FIELDS`(config set/get/show의 단일 진실 원천)에서 draft-07 스키마 객체를 **생성** + 키별
+    description/제약 테이블(`FIELD_INFO`). 숫자 제약을 `validateConfig`와 동일하게 미러(retry.maxAttempts≥0 정수·
+    factor≥1·jitter 0~1·baseDelayMs/maxDelayMs≥0 정수, autoPrune.keep/everyTicks≥0 정수), duration 필드는
+    `parseDuration`을 흉내 낸 case-insensitive `pattern`(`7d`/`24h`/`1.5h`/`500ms`), notify/retry/autoPrune 그룹
+    오브젝트는 `additionalProperties:false`, 인라인 `"$schema"` 참조 허용(에디터가 파일에 스키마 URL을 심어도
+    additionalProperties:false에 걸리지 않게). `CONFIG_SCHEMA_ID`/`CONFIG_SCHEMA_DIALECT`,
+    `configJsonSchemaJson()`(2-스페이스 pretty + trailing newline). index.ts export.
+  - CLI `agentrelay config schema` 서브커맨드는 순수 stdout(파일 미접촉) → `agentrelay config schema >
+    agentrelay.config.schema.json`으로 파이프 후 `"$schema"`로 참조.
+  - core `config-schema.test.ts` 9케이스: 모든 settable 필드가 스키마 노드를 가짐(드리프트 방지)·타입 매핑·
+    duration 패턴이 실제 `parseDuration` 통과 입력과 일치하고 쓰레기 입력은 거부·sampleConfig가 스키마 제약에
+    부합·JSON 왕복.
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과
+  (**core 664 · cli 365/1skip · dashboard 13**). 실제 빌드 CLI e2e: `config schema`가 유효 JSON(3673B) 출력,
+  top props($schema,store,notify,retry,autoPrune)·retry 그룹 props·autoPrune.after duration pattern 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). **중복 루프 주의** — 파서/reset-horizon은
+  이미 PR 포화이니 재구현 금지. 후속 인접 후보 — `config init`이 생성하는 샘플 파일에 `"$schema"` 라인을 선택적으로
+  추가(에디터 즉시 연동), 또는 스키마를 리포지토리 정적 파일로도 발행. README/ARCHITECTURE(🧭 코워크).

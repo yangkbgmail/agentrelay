@@ -935,6 +935,21 @@
       hint가 `recover --far-future`를 포함하는지 단언 추가. build/lint/test 통과(core 655·cli 365/1skip·
       dashboard 13), 실제 빌드 CLI `doctor` e2e로 교정된 힌트 출력 확인. branch `claude/wizardly-pascal-wmsc0y`)
 
+- [x] 👷 `agentrelay config schema` — `agentrelay.config.json`용 JSON Schema 출력(에디터 검증/자동완성). 자기 발굴
+      항목. 지금까지 config는 `init`(샘플 파일)·`validate`(구조+의미 검사)·`show`/`get`/`set`/`unset`은 있었지만,
+      **에디터가 편집 중 실시간으로** 오타(`retry.maxAttemps`)·범위 밖 값을 잡아줄 수단이 없었다. (완료 —
+      `@agentrelay/core/config-schema.ts` 신설(순수·파일시스템 미접촉): `buildConfigJsonSchema()`가 기존
+      `CONFIG_FIELDS`(config set/get/show와 동일한 단일 진실 원천)에서 draft-07 스키마를 **생성** + 키별
+      description/제약 테이블(FIELD_INFO). 숫자 제약은 `validateConfig`와 동일하게 미러(maxAttempts≥0 정수,
+      factor≥1, jitter 0~1, keep/everyTicks≥0 정수), duration 필드는 `parseDuration`을 흉내 낸 case-insensitive
+      pattern(`7d`/`1.5h`/`500ms`), 그룹 오브젝트는 `additionalProperties:false`, 인라인 `"$schema"` 참조 허용.
+      `CONFIG_SCHEMA_ID`/`CONFIG_SCHEMA_DIALECT`·`configJsonSchemaJson()`(2-스페이스 pretty + trailing newline).
+      CLI `agentrelay config schema`는 순수 stdout(파일 미접촉) → `agentrelay config schema > agentrelay.config.schema.json`으로
+      파이프. config-schema.test 9케이스(모든 settable 필드가 스키마에 존재·타입 매핑·duration 패턴이 실제
+      parseDuration 통과 입력과 일치·sampleConfig 제약 부합·JSON 왕복). build/lint/test 통과(**core 664 · cli
+      365/1skip · dashboard 13**), 실제 빌드 CLI e2e로 유효 JSON 출력·top/그룹 props·duration pattern 확인.
+      branch `claude/wizardly-pascal-ixo6hb`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
