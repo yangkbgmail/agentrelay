@@ -202,6 +202,53 @@ describe("runDoctor", () => {
     expect(check.message).toMatch(/disabled/);
   });
 
+  it("warns when a job is stranded in resuming past the staleness threshold", () => {
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["node"], cwd: dir });
+    queue.markResuming(j.id); // status → resuming, updatedAt = now
+    const parked = queue.getById(j.id)!;
+    queue.close();
+
+    // 40 min after it entered `resuming` — past the 30-min default threshold.
+    const now = Date.parse(parked.updatedAt) + 40 * 60_000;
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      // Real PATH so the "node" binary resolves and the adapters check stays OK
+      // (this test isolates the stuck-resuming verdict).
+      env: { PATH: process.env.PATH, AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs: now,
+    });
+    const check = find(report, "stuck-resuming");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("1 job(s)");
+    expect(check.message).toContain(j.id);
+    expect(check.hint).toContain("agentrelay recover");
+    expect(report.ok).toBe(true); // warning doesn't fail the report
+  });
+
+  it("reports stuck-resuming OK when a resuming job is still within the threshold", () => {
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["node"], cwd: dir });
+    queue.markResuming(j.id);
+    const parked = queue.getById(j.id)!;
+    queue.close();
+
+    // Only 5 min in — a genuinely in-flight resume, not stuck.
+    const now = Date.parse(parked.updatedAt) + 5 * 60_000;
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { PATH: process.env.PATH, AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs: now,
+    });
+    const check = find(report, "stuck-resuming");
+    expect(check.level).toBe("ok");
+    expect(check.message).toMatch(/no jobs stranded/);
+  });
+
   it("reports store-writable OK for a writable store directory", () => {
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
     const writable = find(report, "store-writable");

@@ -158,6 +158,42 @@ export interface FarFutureResetJob {
   msUntilReset: number;
 }
 
+/** A single job stranded in the `resuming` state longer than any live run would take. */
+export interface StuckResumingJob {
+  /** The job's id — enough to `agentrelay show <id>` it. */
+  id: string;
+  /** The job's project, for a human-legible listing. */
+  project: string;
+  /**
+   * How long the job has been marked `resuming` (ms). Non-finite
+   * (`+Infinity`) when its `updatedAt` is unparseable — a store no live loop is
+   * maintaining, so it's treated as infinitely stale.
+   */
+  ageMs: number;
+}
+
+/**
+ * Facts about jobs orphaned mid-resume. The scheduler marks a job `resuming`
+ * before it spawns the agent and only later writes a terminal outcome; if the
+ * resume loop dies in between (OOM kill, SIGKILL, host reboot) the job is stuck
+ * in `resuming` forever — `listDue` only returns `waiting_for_reset` jobs, so no
+ * future tick picks it up, and `agentrelay retry` refuses it. The one job that
+ * most needed the relay silently never resumes. `agentrelay recover` reclaims
+ * them, but nothing *warns* that they exist; this check closes that gap, mirror
+ * to the reset-horizon check (both surface a silently-stranded job `recover`
+ * can fix). The CLI computes the stuck set (it has the clock and the store);
+ * this module only judges it.
+ */
+export interface StuckResumingFacts {
+  /**
+   * Jobs stuck in `resuming` past the staleness threshold, ordered oldest-stuck
+   * first (so the example names the longest-waiting job). Empty when none.
+   */
+  jobs: StuckResumingJob[];
+  /** The staleness threshold (ms) a job had to exceed to be counted stuck. */
+  stuckAfterMs: number;
+}
+
 /**
  * Facts about jobs already parked with an implausibly-distant reset time. The
  * parser's horizon guard (see {@link isPlausibleReset}) only vets *newly parsed*
@@ -191,6 +227,7 @@ export interface DiagnosticInput {
   adapters: AdapterFacts;
   heartbeat: HeartbeatFacts;
   resetHorizon: ResetHorizonFacts;
+  stuckResuming: StuckResumingFacts;
 }
 
 /** Minimum supported Node version — mirrors the packages' `engines.node`. */
@@ -293,9 +330,12 @@ export function isSupportedNode(version: string): boolean {
  * 6. **reset-horizon** — no active job is parked with an implausibly-distant
  *    reset time (a misparse that would silently never resume); such jobs are a
  *    warning. Skipped-as-OK when the horizon guard is disabled.
- * 7. **config** — the config file (if any) loads and validates; a broken file
+ * 7. **stuck-resuming** — no job is stranded in `resuming` (a resume loop that
+ *    died mid-attempt leaves the job there forever); such jobs are a warning,
+ *    with `agentrelay recover` offered as the one-shot fix.
+ * 8. **config** — the config file (if any) loads and validates; a broken file
  *    is an error, semantic warnings are surfaced as warnings.
- * 8. **notify** — at least one notification channel is set (absence is a
+ * 9. **notify** — at least one notification channel is set (absence is a
  *    warning, not an error: notifications are optional but you'd want to know
  *    the relay can't reach you).
  */
@@ -308,6 +348,7 @@ export function runDiagnostics(input: DiagnosticInput): DiagnosticReport {
   checks.push(adapterCheck(input.adapters));
   checks.push(daemonCheck(input.heartbeat, input.store));
   checks.push(resetHorizonCheck(input.resetHorizon));
+  checks.push(stuckResumingCheck(input.stuckResuming));
   checks.push(configCheck(input.config));
   checks.push(notifyCheck(input.notify));
 
@@ -416,6 +457,9 @@ function adapterCheck(adapters: AdapterFacts): DiagnosticCheck {
 
 /** Compact human age like "3s", "5m", "2h" for a heartbeat's tick age. */
 function humanizeAge(ms: number): string {
+  // A non-finite age (e.g. a stuck job whose updatedAt won't parse) has no
+  // meaningful clock span — say so rather than print "Infinitys".
+  if (!Number.isFinite(ms)) return "a long time";
   const s = Math.max(0, Math.round(ms / 1000));
   if (s < 60) return `${s}s`;
   const m = Math.round(s / 60);
@@ -527,6 +571,36 @@ function resetHorizonCheck(facts: ResetHorizonFacts): DiagnosticCheck {
     level: "warning",
     message: `${facts.jobs.length} job(s) parked with a reset beyond the ${horizon} horizon — likely misparsed, they won't resume for a long time: e.g. ${example}`,
     hint: "Requeue them all with `agentrelay recover --far-future` (plain `recover` won't — it only reclaims jobs stuck resuming). Or inspect one with `agentrelay show <id>`, then `agentrelay cancel <id>` / `agentrelay retry <id>`.",
+  };
+}
+
+/**
+ * Judges whether any job is stranded in `resuming`. A resume loop marks a job
+ * `resuming` before spawning the agent and only later writes a terminal outcome;
+ * if it dies in between, the job stays `resuming` forever — no `listDue` tick
+ * returns it and `agentrelay retry` refuses it — so the one job that most needed
+ * the relay silently never resumes. Exactly the silent-failure class this tool
+ * hunts, so it's a warning, with the offending job named and the one-shot fix
+ * (`agentrelay recover`) offered. Complementary to reset-horizon: that flags
+ * jobs parked with a bad future reset, this flags jobs orphaned mid-attempt.
+ */
+function stuckResumingCheck(facts: StuckResumingFacts): DiagnosticCheck {
+  if (facts.jobs.length === 0) {
+    return {
+      name: "stuck-resuming",
+      level: "ok",
+      message: "no jobs stranded mid-resume",
+    };
+  }
+  const threshold = humanizeAge(facts.stuckAfterMs);
+  // Facts arrive oldest-stuck first, so the head is the longest-waiting job.
+  const first = facts.jobs[0];
+  const example = `${first.id} (${first.project}) stuck ${humanizeAge(first.ageMs)}`;
+  return {
+    name: "stuck-resuming",
+    level: "warning",
+    message: `${facts.jobs.length} job(s) stranded in "resuming" for over ${threshold} — a resume loop likely died mid-attempt, and they won't resume on their own: e.g. ${example}`,
+    hint: "Reclaim them with `agentrelay recover` (moves them back to waiting_for_reset so the next tick retries). Inspect one first with `agentrelay show <id>`.",
   };
 }
 

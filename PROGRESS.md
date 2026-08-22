@@ -2449,3 +2449,24 @@
   completion(nushell #785) 등이 후보. ② `main`·열린 PR 양쪽에 없는 **진짜 신규** 영역에서만 기능 발굴
   (중복 재발 방지). ③ 근본 원인(거의 모든 PR이 BACKLOG/PROGRESS에 append → 하나 병합 시 나머지 전부 문서
   충돌)은 세션 60·78이 진단한 그대로 — 문서 append 충돌 완화 방안은 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 82 — `agentrelay doctor` 스턱-리주밍(stuck-resuming) 검사] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-klbbb3`)
+- **배경:** 세션 시작 시 BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유). 열린 PR ~30개를 실측해
+  포화 축(파서 변종·run 플래그·notify·watch 계열·man/schedule/resets 등)을 파악하고, `main`·열린 PR 어디에도
+  없는 **진짜 신규** 영역만 발굴했다 — 세션 78~80이 경고한 중복 PR 루프를 피하기 위함.
+- **발굴한 갭:** `doctor`는 먼-미래 리셋(`reset-horizon`)으로 파킹된 잡은 경고하지만, **재개 도중 죽어 `resuming`에
+  갇힌 잡은 경고하지 못했다**. 스케줄러는 재개 시 `markResuming`으로 status를 `resuming`으로 바꾼 뒤 에이전트를
+  spawn하고 나중에야 종료 상태를 쓰는데, 그 사이 루프가 죽으면(OOM/SIGKILL/재부팅) 잡은 `resuming`에 영구히
+  갇힌다 — `listDue`가 다시 안 집고 `retry`도 거부해 **가장 재개가 필요했던 잡이 조용히 영영 안 돌아온다**.
+  `recover`가 이를 되살리지만 그런 잡의 존재를 알리는 수단이 없었다. reset-horizon 검사의 정확한 거울.
+- **한 일(구현):** core `doctor.ts`에 순수 `StuckResumingFacts`/`StuckResumingJob` + `stuckResumingCheck` 추가
+  (검사 순서 …→reset-horizon→**stuck-resuming**→config→notify): 갇힌 잡 없으면 OK, 있으면 warning(개수·가장
+  오래 갇힌 잡 예시 + `agentrelay recover` 원샷 fix 힌트). `humanizeAge`가 비유한(+Infinity=updatedAt 파싱불가)
+  나이를 "a long time"으로 안전 처리(`Infinitys` 방지). CLI `runDoctor`가 `recover`의 검증된 순수
+  `selectStuckResumingJobs`를 재사용해 갇힌 집합을 구하고 각 잡 나이를 붙여 facts 구성 — doctor와 recover가
+  "무엇이 갇혔나"에 항상 일치. 렌더러는 체크 목록을 순회하므로 변경 0줄. 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0경고)→`pnpm test` 전 패키지 통과
+  (**core 673 · cli 367/1skip · dashboard 13**). 실제 빌드 CLI e2e로 `resuming`에 40분 갇힌 잡 → doctor
+  경고(개수·예시·힌트)·`--json` 노출 → `agentrelay recover` → doctor OK 전 루프 검증.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 남은 열린 PR의 포화 축 추가 중복 스캔·정리
+  지속. ③ `main`·열린 PR 양쪽에 없는 진짜 신규 영역에서만 기능 발굴(중복 재발 방지). README/ARCHITECTURE는 🧭 코워크 몫.

@@ -41,6 +41,7 @@ function input(overrides: Partial<DiagnosticInput> = {}): DiagnosticInput {
     adapters: { binaries: [] },
     heartbeat: { present: false },
     resetHorizon: { jobs: [], horizonMs: 8 * 24 * 60 * 60_000 },
+    stuckResuming: { jobs: [], stuckAfterMs: 30 * 60_000 },
     ...overrides,
   };
 }
@@ -243,7 +244,7 @@ describe("runDiagnostics", () => {
     const report = runDiagnostics(input({ nodeVersion: "v20.0.0", notify: {} }));
     expect(report.counts.error).toBe(1); // node
     expect(report.counts.warning).toBe(1); // notify
-    expect(report.counts.ok).toBe(6); // store + store-writable + adapters + daemon + reset-horizon + config
+    expect(report.counts.ok).toBe(7); // store + store-writable + adapters + daemon + reset-horizon + stuck-resuming + config
     expect(report.ok).toBe(false);
   });
 
@@ -486,5 +487,55 @@ describe("runDiagnostics — reset-horizon check", () => {
     const check = find(report);
     expect(check?.level).toBe("ok");
     expect(check?.message).toMatch(/disabled/);
+  });
+});
+
+describe("runDiagnostics — stuck-resuming check", () => {
+  const find = (report: ReturnType<typeof runDiagnostics>) => report.checks.find((c) => c.name === "stuck-resuming");
+
+  it("is OK when no job is stranded mid-resume", () => {
+    const report = runDiagnostics(input({ stuckResuming: { jobs: [], stuckAfterMs: 30 * 60_000 } }));
+    const check = find(report);
+    expect(check?.level).toBe("ok");
+    expect(check?.message).toMatch(/no jobs stranded/);
+  });
+
+  it("warns and names the oldest-stuck job as the example", () => {
+    const report = runDiagnostics(
+      input({
+        stuckResuming: {
+          stuckAfterMs: 30 * 60_000,
+          // Facts arrive oldest-stuck first; the head must be the example.
+          jobs: [
+            { id: "old7", project: "demo", ageMs: 3 * 60 * 60_000 },
+            { id: "new3", project: "demo", ageMs: 45 * 60_000 },
+          ],
+        },
+      })
+    );
+    const check = find(report);
+    expect(check?.level).toBe("warning");
+    expect(check?.message).toContain("2 job(s)");
+    expect(check?.message).toContain("old7");
+    expect(check?.message).not.toContain("new3");
+    // Point at plain `recover` — it's exactly what reclaims stuck-resuming jobs.
+    expect(check?.hint).toContain("agentrelay recover");
+    expect(report.ok).toBe(true); // warnings don't fail the report
+  });
+
+  it("prints a friendly age when the stuck job's timestamp is unparseable (+Infinity)", () => {
+    const report = runDiagnostics(
+      input({
+        stuckResuming: {
+          stuckAfterMs: 30 * 60_000,
+          jobs: [{ id: "bad1", project: "demo", ageMs: Number.POSITIVE_INFINITY }],
+        },
+      })
+    );
+    const check = find(report);
+    expect(check?.level).toBe("warning");
+    expect(check?.message).toContain("bad1");
+    expect(check?.message).toContain("a long time");
+    expect(check?.message).not.toContain("Infinity");
   });
 });
