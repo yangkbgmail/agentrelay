@@ -2361,3 +2361,31 @@
   이미 main에 있으니 재구현 금지. 후속 인접 후보 — 대시보드 far-future 카드에서 직접 재큐하는 로컬 API route(mutation),
   또는 `recover`가 과거-지평선(수년 전 epoch) misparse도 신호로 보고. README/ARCHITECTURE(🧭 코워크). PR 포화 항목
   (stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 77 — `agentrelay watch`: 통합 라이브 관제탑 대시보드] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-agghds`)
+- **항목 선정:** BACKLOG 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 문서/리서치뿐). `--watch` 계열(세션
+  52~57: status/upcoming/overdue/tools/projects/stats)은 각각 **한 축**만 라이브로 보여줬을 뿐, 릴레이를 돌리는
+  동안 사용자가 정말 궁금한 네 가지 — 재개 루프가 살아 있나·큐 전체가 언제 따라잡히나·이미 지났어야 할 재개가
+  밀렸나·앞으로 무엇이 언제 재개되나 — 를 **한 화면**에 모으는 "두 번째 모니터에 켜두는" 통합 대시보드가 없었다.
+  이를 자기 발굴 항목으로 채택.
+- **한 일 (새 core 로직 0줄 — 전부 기존 검증된 순수 함수 재사용):**
+  1. `packages/cli/src/watch.ts` 신설(순수·시계/파일시스템/TTY 미접촉): `DashboardData`(health·eta·overdue·upcoming
+     사전계산 리포트 묶음) + `renderDashboard`(라벨된 4섹션 — Resume loop[`renderHealth`]·Queue ETA[`renderEta`]·
+     Overdue 콜아웃[신규 순수 `renderOverdueCallout`]·Upcoming[`renderUpcoming`] — 정상 릴레이면 overdue 섹션은 통째
+     드롭) + `renderDashboardFrame`(다른 `--watch` 프레임과 동일 title/meta 라이브 배너로 감쌈) + `renderDashboardJson`
+     (health/eta/overdue/upcoming을 한 호출로). `renderOverdueCallout`은 `formatDurationMs` 재사용, overdue 0개면 빈
+     문자열 반환. → 이 표면은 `health`/`eta`/`overdue`/`upcoming`과 **절대 드리프트 불가**(같은 순수 렌더러 공유).
+  2. `cli.ts`: `buildDashboardData`(store 1회 읽기 → health는 전역[루프는 큐 전체를 섬김]·eta/overdue/upcoming은
+     동일 스코프 적용) + `runDashboardWatch`(공용 `startWatchLoop` 재사용, 매 프레임 fresh `now`로 카운트다운·지연
+     스팬 live·화면 clear) + `agentrelay watch` 커맨드 배선. 옵션: `-i/--interval`(기본 2s)·`-n/--limit`·
+     `--grace`(기본 60s — 방금 due된 잡 오탐 방지)·`-t/--tool`·`-p/--project`·`--since`/`--until`(공용 `buildScope`)·
+     `--once`(단일 프레임 후 종료, 스크립트/CI/스크린샷용)·`--json`(일회성 기계 덤프). 기본은 라이브 뷰; 모든
+     플래그 검증을 **먼저** 통과시켜 잘못된 값은 루프 진입 전 exit 1, `--json`이 `--once`보다 우선. completion 자동 포함.
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome **0에러**)→`pnpm test` 전 패키지 통과(**core 33파일 ·
+  cli 22파일 377/1skip[+watch.test.ts 12케이스] · dashboard 13**). 실제 빌드 CLI e2e(mock 아님): 3-잡 스토어(대기+
+  overdue+완료)로 `watch --once`가 UNHEALTHY 루프·1h30m ETA·⚠overdue 콜아웃·upcoming 2행을 정확히 렌더,
+  `--json`이 네 리포트 모두 방출, 빈 스토어는 IDLE·caught-up·overdue 섹션 드롭, 잘못된 limit/interval/grace/tool은
+  전부 exit 1, 라이브 루프가 화면 clear+배너 정상, `completion bash`에 `watch` 포함 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드(웹)에도 동일 통합
+  관제탑 카드, 또는 `watch`에 `--compact`(한 줄 요약 statusbar용). README/ARCHITECTURE(🧭 코워크). PR 포화 항목
+  (stats 분산 지표·개별 `--watch`·epoch ms 파서)은 재구현 금지.
