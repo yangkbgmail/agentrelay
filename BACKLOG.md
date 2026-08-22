@@ -970,6 +970,23 @@
       Biome 0경고), 실제 빌드 CLI e2e로 `completion fish` 방출(글로벌 옵션·최상위 커맨드·run 플래그·config
       부모 가드)·미지 셸 exit 1 검증. branch `claude/wizardly-pascal-am8gcl`)
 
+- [x] 👷 `agentrelay man` — commander 프로그램에서 파생한 roff(section-1) 맨페이지 생성. `completion`과
+      동일한 검증된 "라이브 프로그램 spec → 순수 생성기" 패턴. main·열린 PR(~100개) 어디에도 없던 진짜
+      신규 영역(중복 재발 방지 원칙 준수)이라 자기 발굴.
+      (완료 — core `manpage.ts` 신설(순수·파일시스템/commander 미접촉): `ManPageSpec`/`ManCommandSpec`/
+      `ManOptionSpec`/`ManFileSpec` 타입 + `generateManPage(spec)`. `.TH`/`.SH NAME`/`.SH SYNOPSIS`/
+      `.SH DESCRIPTION`/`.SH GLOBAL OPTIONS`/`.SH COMMANDS`(커맨드마다 `.SS`, 서브커맨드는 전체 경로
+      `config init`)/`.SH FILES`/`.SH SEE ALSO` 방출, 옵션은 `.TP`+`\fB…\fR`. roff 안전: `escapeRoff`
+      (`\`→`\e`, `-`→`\-`)·`textLine`(선행 `.`/`'` 제어문자는 `\&` 가드)·빈 옵션 설명은 `\ ` 플레이스홀더·
+      빈 프로그램명은 throw. 날짜는 spec으로 주입받아 생성기는 시계-free(결정론적). CLI `cli.ts`에
+      `buildManPageSpec(program,date)`(라이브 커맨더에서 description·args[`registeredArguments`로 required/
+      optional/variadic 스케치]·모든 옵션 flags+help 파생, hidden 제외) + `agentrelay man` 커맨드(오늘 날짜
+      스탬프). spec이 라이브 프로그램에서 파생되므로 실제 커맨드 표면과 절대 드리프트 안 함. 새 파서/스케줄러
+      로직 0줄. manpage.test 17케이스(헤더·NAME 대시 이스케이프·SYNOPSIS·서브커맨드 경로·FILES/SEE ALSO·
+      백슬래시/제어문자 이스케이프·빈 섹션 생략·throw). build/lint/test 통과(**core 687 · cli 365/1skip ·
+      dashboard 13**, Biome 0경고), 실제 빌드 CLI e2e로 `agentrelay man` 방출(글로벌 옵션·전 커맨드 `.SS`·
+      config 서브커맨드 전체 경로·FILES/SEE ALSO)·roff 구조 검증. branch `claude/wizardly-pascal-leghn8`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

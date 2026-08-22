@@ -2449,3 +2449,25 @@
   completion(nushell #785) 등이 후보. ② `main`·열린 PR 양쪽에 없는 **진짜 신규** 영역에서만 기능 발굴
   (중복 재발 방지). ③ 근본 원인(거의 모든 PR이 BACKLOG/PROGRESS에 append → 하나 병합 시 나머지 전부 문서
   충돌)은 세션 60·78이 진단한 그대로 — 문서 append 충돌 완화 방안은 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 81 — `agentrelay man` (roff 맨페이지 생성기)] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-leghn8`)
+- **배경:** 세션 시작 시 BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 78·79·80이 경고한 **"중복 PR 루프"**를 열린 PR ~100개(2페이지) 실측으로 재확인 — 파서 변종·
+  completion·doctor reset-horizon·notify·stats 등 거의 모든 뻔한 축이 이미 main 또는 열린 PR에 존재.
+  91번째 중복을 더하지 않기 위해, **main·열린 PR 양쪽에 없는 진짜 신규 영역**만 후보로 스캔(man/roff·
+  logs·open·uninstall 등 키워드를 PR 제목 전수와 대조) → `man`(맨페이지)이 유일하게 무주공산임을 확인.
+- **한 일(구현):** `completion`(세션 33·79)이 확립한 "라이브 커맨더 프로그램 → 순수 생성기" 패턴을 그대로
+  차용해 `agentrelay man` 신설. core `manpage.ts`(순수·파일시스템/commander 미접촉): `generateManPage(spec)`가
+  section-1 roff를 방출(`.TH`/NAME/SYNOPSIS/DESCRIPTION/GLOBAL OPTIONS/COMMANDS[커맨드마다 `.SS`, 서브는
+  전체 경로]/FILES/SEE ALSO). roff 안전: `escapeRoff`(`\`→`\e`·`-`→`\-`)·`textLine`(선행 `.`/`'` 제어문자
+  `\&` 가드)·빈 설명 `\ ` 플레이스홀더·빈 프로그램명 throw. 날짜는 주입받아 생성기는 시계-free. CLI
+  `buildManPageSpec(program,date)`가 description·args(`registeredArguments`로 required/optional/variadic 스케치)·
+  모든 옵션 flags+help를 라이브에서 파생(hidden 제외) → 실제 커맨드 표면과 드리프트 불가. 새 파서/스케줄러 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm format`+`pnpm ci:lint`(Biome 0경고, 124파일)→
+  `pnpm test` 전 패키지 통과(**core 687[+17 manpage] · cli 365/1skip · dashboard 13**). 실제 빌드 CLI e2e로
+  `agentrelay man` 방출(글로벌 옵션·전 커맨드 `.SS`·config 서브커맨드 전체 경로·FILES/SEE ALSO) 확인. 이 최소화
+  컨테이너엔 groff/mandoc/전체 man이 없어 렌더 확인은 생략했으나 roff 구조는 표준을 따르고 유닛 테스트로 커버.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 남은 ~100개 열린 PR 중 여전히 남은
+  포화 축(파서 변종·Gemini 어댑터·nushell/powershell completion·먼-미래 reset-horizon 잔여)의 추가 중복
+  스캔·정리 지속. ③ 신규 기능은 계속 main·열린 PR 양쪽에 없는 영역에서만 발굴(중복 재발 방지). README/
+  ARCHITECTURE는 🧭 코워크 몫. 근본 원인(문서 append 충돌로 큐가 막힘)은 세션 60·78 진단대로 🧭 코워크 협의 필요.

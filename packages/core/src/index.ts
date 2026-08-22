@@ -13,6 +13,7 @@ export * from "./health.js";
 export * from "./heartbeat.js";
 export * from "./import.js";
 export * from "./locations.js";
+export * from "./manpage.js";
 export * from "./metrics.js";
 export * from "./next.js";
 export * from "./notify.js";
