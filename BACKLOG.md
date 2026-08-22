@@ -888,6 +888,20 @@
       파킹→warning(예시 표기)·`off`→disabled OK·2h→OK·`--json` 노출 확인. branch
       `claude/wizardly-pascal-4p3s77`)
 
+- [x] 👷 대시보드 먼-미래 리셋 파킹 잡 경고 카드(reset-horizon) — CLI `doctor`의 `reset-horizon`
+      검사를 로컬 대시보드에도 노출. 자기 발굴 항목(세션 73 doctor 검사의 후속으로 세션 73 로그가
+      명시한 "대시보드에도 동일 먼-미래 파킹 잡 경고 노출"). doctor는 CLI를 켜야만 보이지만, 대시보드는
+      상시 떠 있어 사용자가 큐를 시각적으로 감시하는 경로 — misparse로 수일/수년 파킹된 잡을 여기서도
+      즉시 눈에 띄게. (완료 — `apps/dashboard/lib/jobs.ts`가 core `selectFarFutureResets` +
+      `maxResetHorizonMsFromEnv`를 스냅샷에서 재사용해 `resetHorizon:{jobs,horizonMs}` 필드 추가(가드 off면
+      horizonMs=null·빈 리스트). `dashboard-client.tsx`에 `FarFutureResetsCard` 추가: 하트비트 카드와 동일한
+      "concerning" 경고 카드 패턴 재사용, 가장 이른(덜 극단) 잡부터 최대 5개 표기(+N more)·id 8자·프로젝트·
+      `resets in Nd/Ny`(먼 기간용 `formatLongDuration` 신설, 기존 시간 단위 카운트다운이 수천 시간으로
+      넘치는 것 방지)·`show`/`cancel`/`retry`/`recover` 힌트. 가드 off거나 파킹 0개면 렌더 안 함(조용). CSS
+      `.far-future*` 추가. 순수 로직은 전부 core 재사용이라 CLI doctor와 절대 드리프트 안 함. dashboard test
+      +4(먼-미래 플래그·근접 미플래그·종료 잡 미플래그·빈 스토어). branch
+      `claude/dashboard-reset-horizon-card`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

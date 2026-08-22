@@ -298,3 +298,76 @@ details.tail pre {
   border-radius: 4px;
   padding: 1px 5px;
 }
+
+.far-future {
+  margin: 16px 0 0;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--hairline);
+  border-radius: 10px;
+}
+
+.far-future.concerning {
+  border-left-color: var(--status-warning);
+}
+
+.far-future-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.far-future-label {
+  font-weight: 600;
+}
+
+.far-future-detail {
+  margin-top: 2px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.far-future-detail code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--page);
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.far-future-list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.far-future-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.far-future-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ink-secondary);
+}
+
+.far-future-project {
+  color: var(--ink);
+}
+
+.far-future-eta {
+  margin-left: auto;
+  color: var(--status-warning);
+}
+
+.far-future-more {
+  margin-top: 6px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
