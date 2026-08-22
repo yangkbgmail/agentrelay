@@ -33,6 +33,7 @@ import {
   isCompletionShell,
   isJobScopeActive,
   JOB_CSV_COLUMNS,
+  maxResetHorizonMsFromEnv,
   parseCsvColumns,
   parseDuration,
   renderPrometheusMetrics,
@@ -2136,9 +2137,13 @@ export function buildCli(): Command {
       "--older-than <duration>",
       "Only recover jobs stuck resuming for at least this long (default 30m; 0s = all)"
     )
+    .option(
+      "--far-future",
+      "Also requeue jobs parked waiting_for_reset with a reset beyond the plausibility horizon (a misparse that would wait days/years)"
+    )
     .option("--dry-run", "Show what would be recovered without changing the store")
     .option("--json", "Output machine-readable JSON")
-    .action((opts: { olderThan?: string; dryRun?: boolean; json?: boolean }) => {
+    .action((opts: { olderThan?: string; farFuture?: boolean; dryRun?: boolean; json?: boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
 
@@ -2153,8 +2158,16 @@ export function buildCli(): Command {
         stuckAfterMs = parsed;
       }
 
-      const { report, recovered, dryRun } = recoverJobs({ storePath: store, stuckAfterMs, dryRun: opts.dryRun, now });
-      const result: RecoverResult = { report, recovered, dryRun };
+      const horizonMs = opts.farFuture ? maxResetHorizonMsFromEnv() : null;
+      const { report, recovered, farFuture, dryRun } = recoverJobs({
+        storePath: store,
+        stuckAfterMs,
+        farFuture: opts.farFuture,
+        horizonMs,
+        dryRun: opts.dryRun,
+        now,
+      });
+      const result: RecoverResult = { report, recovered, farFuture, dryRun };
 
       if (opts.json) {
         console.log(renderRecoverJson(result, store ?? defaultStorePath(), new Date(now).toISOString()));
