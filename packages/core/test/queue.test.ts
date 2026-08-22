@@ -50,6 +50,27 @@ describe("RelayQueue", () => {
     expect(job.lastRateLimit).toBeNull();
   });
 
+  it("omits maxAttempts when no per-job override is requested", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    expect("maxAttempts" in job).toBe(false);
+    const raw = JSON.parse(readFileSync(join(dir, "test.db"), "utf8"));
+    expect("maxAttempts" in raw[0]).toBe(false);
+  });
+
+  it("persists a per-job maxAttempts override (including 0) across reload", () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude"],
+      cwd: "/tmp",
+      maxAttempts: 0,
+    });
+    expect(job.maxAttempts).toBe(0);
+    const reloaded = new RelayQueue(join(dir, "test.db"));
+    expect(reloaded.getById(job.id)?.maxAttempts).toBe(0);
+    reloaded.close();
+  });
+
   it("persists rate-limit detection provenance when parking a job", () => {
     const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
     const resetAt = new Date(Date.now() + 60_000).toISOString();

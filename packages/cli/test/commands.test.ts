@@ -150,6 +150,30 @@ describe("runCommand", () => {
     expect(listStatus(storePath)[0].project).toBe("my-service");
   });
 
+  it("stamps a per-job maxAttempts override onto the queued job", async () => {
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      maxAttempts: 2,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    expect(result.queuedJob?.maxAttempts).toBe(2);
+    expect(listStatus(storePath)[0].maxAttempts).toBe(2);
+  });
+
+  it("leaves maxAttempts unset when no override is passed", async () => {
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    expect(result.queuedJob?.maxAttempts).toBeUndefined();
+  });
+
   it("falls back to the cwd-derived project when --project is blank", async () => {
     const result = await runCommand({
       command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],

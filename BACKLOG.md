@@ -970,6 +970,22 @@
       Biome 0경고), 실제 빌드 CLI e2e로 `completion fish` 방출(글로벌 옵션·최상위 커맨드·run 플래그·config
       부모 가드)·미지 셸 exit 1 검증. branch `claude/wizardly-pascal-am8gcl`)
 
+- [x] 👷 `agentrelay run --max-attempts <n>` — 잡별 재시도 상한 오버라이드(전역 `AGENTRELAY_MAX_ATTEMPTS`를
+      이 잡에 한해 덮어씀; `0`=무제한). 자기 발굴 항목 — 열린 PR ~200개·main 어디에도 없는 진짜 신규 영역
+      (재시도 상한이 전역 env로만 조정 가능해, 오래 도는 잡은 무제한·빨리 포기할 잡은 소수로 잡별 지정 불가였음).
+      (완료 — core `types.ts` `RelayJob`/`CreateJobInput`에 optional `maxAttempts?: number | null` 추가
+      (store 무마이그레이션 로드 보장, 미설정 잡은 전역 상한 폴백). `retry.ts`에 순수
+      `effectiveRetryPolicy(policy, override?)` 신설 — `maxAttempts`만 잡별로 접고 백오프 shape(base/factor/
+      max/jitter)는 전역 유지, null/undefined·음수·비유한 override는 무시(잘못된 입력이 상한을 조용히 끄지
+      않음), `0`은 유효한 "무제한", override가 현 상한과 같으면 원본 객체 그대로 반환(identity 보존).
+      `scheduler.ts` `resume`이 `effectiveRetryPolicy(this.retryPolicy, job.maxAttempts)`로 유효 정책 산출→
+      rate-limit·transient 두 경로의 `isRetryExhausted`/`computeBackoffMs`/"maxAttempts=" 메시지에 적용.
+      `queue.enqueue`는 override가 있을 때만 키를 씀(없으면 부재). CLI `run --max-attempts <n>`(비음이 아닌
+      정수 검증, 위반 시 exit 1) + `runCommand`가 override를 enqueue에 전달, `show <id>` attempts 라인에
+      `(max N)`/`(max unlimited)` 주석. build/lint/test 통과(**core 680 · cli 367/1skip · dashboard 13**,
+      Biome 0경고), 실제 빌드 CLI e2e로 무효값 exit 1·`--max-attempts 0` 큐잉·show 표기·help 노출 검증.
+      branch `claude/wizardly-pascal-nk49nz`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

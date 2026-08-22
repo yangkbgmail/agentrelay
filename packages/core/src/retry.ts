@@ -57,6 +57,25 @@ export function isRetryExhausted(policy: RetryPolicy, attemptNumber: number): bo
   return policy.maxAttempts > 0 && attemptNumber >= policy.maxAttempts;
 }
 
+/**
+ * Resolve the retry policy that actually applies to one job, folding in an
+ * optional per-job `maxAttempts` override (see {@link RelayJob.maxAttempts}).
+ *
+ * Only the `maxAttempts` cap can be overridden per job — the backoff shape
+ * (base/factor/max/jitter) stays global. A `null`/`undefined` override, or a
+ * negative/non-integer one, is ignored so the global cap is used (invalid input
+ * never silently disables the cap). `0` is a valid override meaning "unlimited".
+ * Returns the original policy object unchanged when no override applies, so
+ * existing callers and identity checks are unaffected.
+ */
+export function effectiveRetryPolicy(policy: RetryPolicy, override?: number | null): RetryPolicy {
+  if (override === undefined || override === null) return policy;
+  if (!Number.isFinite(override) || override < 0) return policy;
+  const cap = Math.floor(override);
+  if (cap === policy.maxAttempts) return policy;
+  return { ...policy, maxAttempts: cap };
+}
+
 function positiveIntOr(value: string | undefined, fallback: number): number {
   if (value === undefined || value.trim() === "") return fallback;
   const n = Number(value);

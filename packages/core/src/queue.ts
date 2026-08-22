@@ -177,6 +177,9 @@ export class RelayQueue {
       lastError: null,
       lastOutputTail: null,
       lastRateLimit: null,
+      // Only persist a per-job retry cap when one was requested; otherwise the
+      // key is absent and the scheduler falls back to the global cap.
+      ...(input.maxAttempts === undefined || input.maxAttempts === null ? {} : { maxAttempts: input.maxAttempts }),
     };
     this.jobs.set(job.id, job);
     this.flush();

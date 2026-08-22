@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted, retryPolicyFromEnv } from "../src/retry.js";
+import {
+  computeBackoffMs,
+  DEFAULT_RETRY_POLICY,
+  effectiveRetryPolicy,
+  isRetryExhausted,
+  retryPolicyFromEnv,
+} from "../src/retry.js";
 import type { RetryPolicy } from "../src/types.js";
 
 const policy: RetryPolicy = {
@@ -71,6 +77,41 @@ describe("isRetryExhausted", () => {
   it("never exhausts when maxAttempts is 0 (unlimited)", () => {
     const unlimited: RetryPolicy = { ...policy, maxAttempts: 0 };
     expect(isRetryExhausted(unlimited, 1000)).toBe(false);
+  });
+});
+
+describe("effectiveRetryPolicy", () => {
+  it("returns the original policy (same reference) when no override is given", () => {
+    expect(effectiveRetryPolicy(policy)).toBe(policy);
+    expect(effectiveRetryPolicy(policy, undefined)).toBe(policy);
+    expect(effectiveRetryPolicy(policy, null)).toBe(policy);
+  });
+
+  it("overrides only maxAttempts, keeping the backoff shape", () => {
+    const p = effectiveRetryPolicy(policy, 2);
+    expect(p.maxAttempts).toBe(2);
+    expect(p.baseDelayMs).toBe(policy.baseDelayMs);
+    expect(p.factor).toBe(policy.factor);
+    expect(p.maxDelayMs).toBe(policy.maxDelayMs);
+    expect(p.jitter).toBe(policy.jitter);
+  });
+
+  it("accepts 0 as a valid override meaning unlimited", () => {
+    expect(effectiveRetryPolicy(policy, 0).maxAttempts).toBe(0);
+  });
+
+  it("floors a fractional override", () => {
+    expect(effectiveRetryPolicy(policy, 3.9).maxAttempts).toBe(3);
+  });
+
+  it("ignores a negative or non-finite override (keeps the global cap)", () => {
+    expect(effectiveRetryPolicy(policy, -1)).toBe(policy);
+    expect(effectiveRetryPolicy(policy, Number.NaN)).toBe(policy);
+    expect(effectiveRetryPolicy(policy, Number.POSITIVE_INFINITY)).toBe(policy);
+  });
+
+  it("returns the same policy when the override equals the current cap", () => {
+    expect(effectiveRetryPolicy(policy, policy.maxAttempts)).toBe(policy);
   });
 });
 

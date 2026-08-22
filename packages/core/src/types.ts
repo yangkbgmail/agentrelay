@@ -53,6 +53,15 @@ export interface RelayJob {
    * rate limit has been detected yet.
    */
   lastRateLimit?: RateLimitDetection | null;
+  /**
+   * Per-job override for the scheduler's retry cap (see
+   * {@link RetryPolicy.maxAttempts}). When set, it replaces the global
+   * `maxAttempts` for this job only — `0` means unlimited for a legitimately
+   * long task, a small number gives up fast on a job that keeps re-triggering
+   * the limit. Optional/absent so stores written before this field existed load
+   * without migration and jobs without an override fall back to the global cap.
+   */
+  maxAttempts?: number | null;
 }
 
 export interface CreateJobInput {
@@ -60,6 +69,11 @@ export interface CreateJobInput {
   tool: AgentTool;
   command: string[];
   cwd: string;
+  /**
+   * Optional per-job retry cap override (see {@link RelayJob.maxAttempts}).
+   * Omit to use the scheduler's global cap.
+   */
+  maxAttempts?: number | null;
 }
 
 export interface RetryPolicy {
