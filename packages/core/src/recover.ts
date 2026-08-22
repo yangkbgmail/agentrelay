@@ -1,3 +1,4 @@
+import { isPlausibleReset } from "./parser.js";
 import type { RelayJob } from "./types.js";
 
 /**
@@ -98,5 +99,86 @@ export function selectStuckResumingJobs(jobs: RelayJob[], options: StuckResuming
     resuming,
     stuckAfterMs,
     stuck: stuck.map((entry) => entry.job),
+  };
+}
+
+/**
+ * The *second* silent-failure class `recover` can reclaim: a job parked in
+ * `waiting_for_reset` with an implausibly **far-future** `resetAt`.
+ *
+ * A misparse (wrong epoch units, a huge relative span, a mis-detected timezone),
+ * or a job queued back when the parser's plausibility guard was off, can leave a
+ * job waiting days or years for a reset that will never come — the scheduler's
+ * `listDue` only fires once `resetAt` passes, so the job sits stranded and
+ * silently never resumes. `doctor`'s `reset-horizon` check and the dashboard both
+ * *surface* these jobs; this selector is the pure half of *reclaiming* them, so
+ * the same horizon that flags them also drives the fix (no drift). It shares
+ * {@link isPlausibleReset} — the exact predicate `doctor` and the parser guard
+ * use — so a job flagged in one place is judged identically here.
+ */
+export interface FarFutureParkedOptions {
+  /** Reference "now" (epoch ms) the resets are measured against. */
+  nowMs: number;
+  /**
+   * The plausibility horizon (ms into the future): a parked job whose `resetAt`
+   * lies beyond `now + horizonMs` is judged misparsed and eligible to reclaim.
+   * A non-positive / non-finite / `null` horizon means "guard disabled" and
+   * selects nothing, mirroring {@link isPlausibleReset}'s "no guard" semantics
+   * (so `AGENTRELAY_MAX_RESET_HORIZON=off` reclaims nothing rather than
+   * everything).
+   */
+  horizonMs: number | null;
+}
+
+export interface FarFutureParkedReport {
+  /** Total jobs considered (after any scope filter the caller applied). */
+  total: number;
+  /** Jobs currently parked in `waiting_for_reset`, before the horizon filter. */
+  parked: number;
+  /** The horizon applied (ms), or `null` when the guard is disabled. */
+  horizonMs: number | null;
+  /**
+   * The parked jobs whose `resetAt` sits beyond the horizon — ordered
+   * furthest-reset first, so the most extreme (most-certainly misparsed) job
+   * leads the list a caller reclaims or prints.
+   */
+  farFuture: RelayJob[];
+}
+
+/**
+ * Identify jobs parked in `waiting_for_reset` with a reset beyond the horizon.
+ * Pure and non-mutating. Only `waiting_for_reset` jobs qualify: a `queued` job is
+ * already due (its `resetAt` isn't acted on), and a `resuming` job belongs to the
+ * stuck-resuming path ({@link selectStuckResumingJobs}). Jobs with no `resetAt`
+ * or an unparseable one are skipped (nothing to judge). A past/near reset is fine
+ * — {@link isPlausibleReset} bounds only the future side.
+ */
+export function selectFarFutureParkedJobs(jobs: RelayJob[], options: FarFutureParkedOptions): FarFutureParkedReport {
+  const { nowMs, horizonMs } = options;
+  const guardOff = horizonMs == null || !Number.isFinite(horizonMs) || horizonMs <= 0;
+  const now = new Date(nowMs);
+
+  let parked = 0;
+  const hits: Array<{ job: RelayJob; resetMs: number }> = [];
+  for (const job of jobs) {
+    if (job.status !== "waiting_for_reset") continue;
+    parked += 1;
+    if (guardOff) continue;
+    if (!job.resetAt) continue;
+    const resetMs = Date.parse(job.resetAt);
+    if (Number.isNaN(resetMs)) continue;
+    if (!isPlausibleReset(new Date(resetMs), now, horizonMs)) {
+      hits.push({ job, resetMs });
+    }
+  }
+
+  // Furthest reset first — the most extreme misparse leads.
+  hits.sort((a, b) => b.resetMs - a.resetMs);
+
+  return {
+    total: jobs.length,
+    parked,
+    horizonMs: guardOff ? null : horizonMs,
+    farFuture: hits.map((entry) => entry.job),
   };
 }

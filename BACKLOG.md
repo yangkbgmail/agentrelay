@@ -902,6 +902,29 @@
       +4(먼-미래 플래그·근접 미플래그·종료 잡 미플래그·빈 스토어). branch
       `claude/dashboard-reset-horizon-card`)
 
+- [x] 👷 `agentrelay recover --far-future` — 먼-미래로 파킹된 잡을 재큐해 재개시킴(`doctor`·대시보드가
+      *감지*만 하던 두 번째 무음 실패 부류를 실제로 *복구*). 자기 발굴 항목(세션 73·74의 후속 — 세션 74
+      로그가 "recover가 먼-미래 파킹 잡을 자동 감지·재큐 대상으로 포함하는지 점검"을 다음 후보로 명시).
+      (완료 — `recover`는 지금까지 `resuming`에서 죽은 고아 잡만 복구했다. 하지만 misparse·잘못된 epoch
+      단위·가드 off 시절 큐잉으로 `waiting_for_reset`에 먼-미래 `resetAt`으로 파킹된 잡은 스케줄러
+      `listDue`가 영원히 안 깨워 조용히 재개 안 되는 **대칭적 두 번째 무음 실패**인데, 세션 73 `doctor`
+      reset-horizon 검사·세션 74 대시보드 카드는 이를 *표면화*만 할 뿐 **일괄 복구 수단이 없었다**(개별
+      `retry <id>`뿐). `@agentrelay/core/recover.ts`에 순수 `selectFarFutureParkedJobs(jobs,{nowMs,horizonMs})`
+      + `FarFutureParkedReport`(total·parked·horizonMs·farFuture[]) 신설 — `waiting_for_reset` 잡 중 `resetAt`이
+      지평선(now+horizonMs)을 넘는 것만 골라 가장 먼(가장 극단) 순 정렬. 파서 가드·doctor와 **동일한
+      `isPlausibleReset` 술어 재사용**이라 한쪽에서 플래그된 잡이 여기서도 동일 판정(드리프트 0). 비양수·
+      비유한·null horizon=가드 off=빈 선택(`AGENTRELAY_MAX_RESET_HORIZON=off`면 전부가 아닌 아무것도 복구).
+      queued(이미 due)·resuming(고아 경로 소관)·종료 잡은 제외. CLI `recoverJobs`에 `farFuture`/`horizonMs`
+      옵션 추가 — 먼-미래 잡은 `requeueNow`로 재큐(attempts 0 리셋·lastError 클리어; 고아 재개와 달리 misparse
+      파킹은 **한 번도 안 돌았으므로** 깨끗한 첫 시도), scan↔write 사이 상태 변화는 라이브 재확인으로 스킵.
+      `renderRecover`가 orphaned/far-future 2섹션으로 분리 렌더(라벨로 클래스 구분), `renderRecoverJson`은
+      `farFuture` 블록을 요청 시에만 방출(기본 shape 불변). `cli.ts` `recover --far-future` 플래그 배선,
+      완성은 `maxResetHorizonMsFromEnv`로 지평선 해소(파서·doctor·대시보드와 동일). completion 자동 포함.
+      core recover +6(선택·정렬·과거허용·waiting_for_reset한정·미파싱스킵·가드off) · cli recover +8(far-future
+      렌더·JSON·requeueNow복구·근접보존·dry-run·off보존·backward-compat). 실제 빌드 CLI e2e로 기본은
+      파킹 미변경·`--far-future`는 100일 잡 due-now+attempts 0·근접 2h 보존·`off`면 미복구+disabled 노트·
+      help/completion 노출 검증. branch `claude/wizardly-pascal-hshkf2`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -2309,3 +2309,32 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recover`가 먼-미래 파킹 잡을
   자동 감지·재큐 대상으로 포함하는지 점검, 또는 대시보드 카드에서 직접 취소/재시도 액션(로컬 API route 필요).
   README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 75 — `agentrelay recover --far-future` (먼-미래 파킹 잡 재큐)] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-hshkf2`)
+- **항목 선정:** BACKLOG 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 문서/리서치뿐). 세션 74 로그가
+  "다음 할 일"로 명시한 후속 인접 후보 "recover가 먼-미래 파킹 잡을 자동 감지·재큐 대상으로 포함하는지 점검"을
+  자기 발굴 항목으로 채택. 세션 72가 파서에 지평선 가드를, 73이 `doctor` reset-horizon 검사를, 74가 대시보드
+  경고 카드를 넣어 "먼-미래로 misparse된 파킹 잡"을 *감지*하는 커버리지는 CLI·GUI 양쪽으로 넓혔지만, 정작
+  그 잡을 **일괄 복구하는 수단은 없었다**(개별 `retry <id>`뿐). `recover`가 이미 고아 `resuming` 잡을
+  복구하므로, 대칭적 두 번째 무음 실패인 먼-미래 파킹 잡도 같은 명령이 복구하도록 확장해 감지→복구 루프를 닫음.
+- **한 일 (branch `claude/wizardly-pascal-hshkf2`, main에서 재시작):**
+  - `packages/core/src/recover.ts`: 순수 `selectFarFutureParkedJobs(jobs, {nowMs, horizonMs})` +
+    `FarFutureParkedReport`(total·parked·horizonMs·farFuture[]) 신설. `waiting_for_reset` 잡 중 `resetAt`이
+    지평선(now+horizonMs)을 넘는 것만 선택(가장 먼 순 정렬). 파서 가드·`doctor`와 동일한 `isPlausibleReset`
+    술어 재사용 → 드리프트 0. 비양수·비유한·null horizon=가드 off=빈 선택(off면 전부가 아닌 아무것도 복구).
+    queued·resuming·종료 잡 제외.
+  - `packages/cli/src/commands.ts`: `recoverJobs`에 `farFuture`/`horizonMs` 옵션. 먼-미래 잡은 `requeueNow`로
+    재큐(attempts 0 리셋·lastError 클리어; 고아 재개는 `recoverResuming`으로 attempts 보존 — misparse 파킹은
+    한 번도 안 돌았으므로 깨끗한 첫 시도가 맞음). scan↔write 사이 상태 변화는 라이브 재확인으로 스킵.
+  - `packages/cli/src/recover.ts`: `renderRecover`를 orphaned/far-future 2섹션 분리 렌더로 재구성(라벨로 클래스
+    구분), `renderRecoverJson`은 `farFuture` 블록을 요청 시에만 방출(기본 JSON shape 불변). `resetIn` 헬퍼 추가.
+  - `packages/cli/src/cli.ts`: `recover --far-future` 플래그 배선(완성은 `maxResetHorizonMsFromEnv`로 지평선
+    해소 — 파서·doctor·대시보드와 동일 env). completion은 커맨더 프로그램에서 자동 파생.
+- **검증:** `pnpm install`→`pnpm build`(전 패키지 클린)→`pnpm ci:lint`(Biome 0에러; 포맷 2파일 `lint:fix`)→
+  `pnpm test` 전 패키지 통과(**core 655(+6) · cli 365/1skip(+8) · dashboard 13**). 실제 빌드 CLI e2e로 기본
+  recover는 파킹 잡 미변경(하위호환)·`--far-future --dry-run` 미리보기·`--far-future`는 100일 파킹 잡을
+  due-now+attempts 0으로 재큐하고 근접 2h 잡은 보존·`AGENTRELAY_MAX_RESET_HORIZON=off`면 아무것도 복구 안 함
+  +"guard is disabled" 노트·help/completion `--far-future` 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recover --far-future`를
+  대시보드에서 직접 트리거하는 액션 버튼(로컬 API route 필요), 또는 `cancel/retry --all`처럼 먼-미래 파킹 잡에
+  대한 `bulkControl` 스코프 프리셋. README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch)은 지양.
