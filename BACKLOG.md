@@ -902,6 +902,27 @@
       +4(먼-미래 플래그·근접 미플래그·종료 잡 미플래그·빈 스토어). branch
       `claude/dashboard-reset-horizon-card`)
 
+- [x] 👷 `agentrelay recover --far-future` — 먼-미래 파킹 잡을 자동 감지·재큐(경고를 고침으로).
+      자기 발굴 항목(세션 73 doctor·세션 74 대시보드 카드가 명시한 후속 "recover가 먼-미래 파킹 잡을
+      자동 감지·재큐 대상으로 포함하는지 점검"). 세션 72~74가 만든 reset-horizon 인프라는 misparse로
+      수일/수년 파킹된 잡을 `doctor`(CLI)·대시보드 카드에서 **경고**만 했지 **고치는** 원커맨드가 없어,
+      사용자가 잡마다 `retry <id>`를 손으로 쳐야 했다. `recover`(지금까지 `resuming` 고아 잡만 회수)에
+      두 번째 무음-실패 클래스를 붙여 이 루프를 닫는다.
+      (완료 — `@agentrelay/core/recover.ts`에 순수 `selectFarFutureParkedJobs(jobs,{nowMs,horizonMs})` +
+      `FarFutureParkedReport`/`FarFutureParkedOptions` 신설: `waiting_for_reset`(파킹된) 잡만 후보 —
+      `queued`는 어차피 다음 tick에 실행, `resuming`은 라이브거나 `selectStuckResumingJobs` 담당 —
+      resetAt이 지평선 초과인 것만 골라 가장 이른(덜 극단) 순 정렬, resetAt 없음/파싱불가는 스킵,
+      가드 비활성(null/비양수/비유한 horizon)은 빈 리스트(pool은 계속 카운트). parser `isPlausibleReset`
+      재사용으로 doctor·대시보드와 지평선 의미 절대 드리프트 안 함. CLI `recover`에 `--far-future` opt-in
+      플래그(더 결과가 큰 클래스라 기본 off) 추가: `maxResetHorizonMsFromEnv()`로 지평선 해소 후
+      `recoverJobs`가 파킹 잡을 `RelayQueue.requeueNow`로 재큐(attempts 0 리셋·lastError 클리어 — 먼-미래
+      resetAt 자체가 버그였으므로 새 시도 예산으로 fresh run이 맞음, `recoverResuming`의 attempts 보존과
+      대비). `--dry-run`·`--json`에 far-future 섹션 병존, 가드 off면 스캔 스킵 문구. 순수 렌더는
+      `renderFarFutureBlock`로 분리, 먼 기간용 `resetInWords`(일/년). core recover +6·cli recover +7 신규
+      테스트, 실제 빌드 CLI e2e로 기본 미포함·`--far-future` dry-run(스토어 불변)·실제 재큐(resetAt=now·
+      attempts 0·err null·근접 2h 잡 보존)·`--json` farFuture 블록·`off` 스킵 검증. branch
+      `claude/wizardly-pascal-w9pkuw`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

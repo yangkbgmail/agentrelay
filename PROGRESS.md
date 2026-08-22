@@ -2309,3 +2309,31 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recover`가 먼-미래 파킹 잡을
   자동 감지·재큐 대상으로 포함하는지 점검, 또는 대시보드 카드에서 직접 취소/재시도 액션(로컬 API route 필요).
   README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 75 — `agentrelay recover --far-future`: 먼-미래 파킹 잡 자동 재큐] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-w9pkuw`)
+- **항목 선정:** BACKLOG 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 문서/리서치뿐). 세션 73(doctor)·
+  세션 74(대시보드 카드) 로그가 명시한 후속 인접 후보 "recover가 먼-미래 파킹 잡을 자동 감지·재큐 대상으로
+  포함하는지 점검"을 자기 발굴 항목으로 채택. 세션 72~74가 만든 reset-horizon 인프라는 misparse로 수일/수년
+  파킹된 잡을 `doctor`(CLI)·대시보드 카드에서 **경고**만 했지 **고치는** 원커맨드가 없어 잡마다 손 `retry`가
+  필요했다 — `recover`(지금까지 `resuming` 고아만 회수)에 두 번째 무음-실패 클래스를 붙여 경고→고침 루프를 닫음.
+- **한 일 (branch `claude/wizardly-pascal-w9pkuw`):**
+  - `packages/core/src/recover.ts`: 순수 `selectFarFutureParkedJobs(jobs,{nowMs,horizonMs})` + `FarFutureParkedReport`/
+    `FarFutureParkedOptions` 신설. `waiting_for_reset`(파킹) 잡만 후보(`queued`는 다음 tick 실행, `resuming`은
+    라이브거나 `selectStuckResumingJobs` 담당) → resetAt 지평선 초과분만 가장 이른 순 정렬, resetAt 없음/파싱불가
+    스킵, 가드 비활성(null/비양수/비유한)은 빈 리스트(pool은 카운트). parser `isPlausibleReset` 재사용 → doctor·
+    대시보드와 지평선 의미 절대 드리프트 안 함.
+  - `packages/cli/src/commands.ts`: `recoverJobs`에 `farFuture`/`horizonMs` 옵션 추가 — 파킹 잡을
+    `RelayQueue.requeueNow`로 재큐(attempts 0 리셋·lastError 클리어; 먼-미래 resetAt 자체가 버그라 fresh run이 맞음,
+    `recoverResuming`의 attempts 보존과 대비). `RecoverJobsResult`에 optional `farFuture:{report,recovered}` 추가.
+  - `packages/cli/src/recover.ts`: `RecoverResult`에 far-future 블록 추가, `renderRecover`를 두 섹션 결합으로 리팩터
+    (`renderFarFutureBlock` 분리 + 먼 기간용 `resetInWords`), `renderRecoverJson`에 `farFuture` 키 추가.
+  - `packages/cli/src/cli.ts`: `recover`에 `--far-future` opt-in 플래그(더 결과가 큰 클래스라 기본 off) +
+    `maxResetHorizonMsFromEnv()`로 지평선 해소 배선.
+- **검증:** `pnpm install`→`pnpm build`(전 패키지 클린)→`pnpm test`(**core 655 · cli 365/1skip · dashboard 13**;
+  core recover +6·cli recover +7)→`pnpm ci:lint`(Biome 0에러; 포맷 2파일 `format`로 정리). 실제 빌드 CLI e2e:
+  기본 `recover`는 far-future 미포함, `--far-future --dry-run`은 100d 파킹 잡 리포트하되 스토어 불변, 실제 실행은
+  resetAt=now·attempts 3→0·err null로 재큐하고 2h 근접 잡은 보존, `--json`에 farFuture 블록 노출,
+  `AGENTRELAY_MAX_RESET_HORIZON=off`는 스캔 스킵 문구 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드 far-future 카드에서 직접
+  취소/재시도 액션(로컬 API route 필요), 또는 `doctor`/대시보드 경고 문구에 "run `agentrelay recover --far-future`"
+  힌트를 명시적으로 추가. README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
