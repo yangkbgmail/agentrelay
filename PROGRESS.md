@@ -2408,3 +2408,24 @@
 - **다음 할 일:** ① #851 문서 충돌만 리베이스해 병합. ② 남은 ~30개 중 `main`에 이미 병합된 기능의 추가 중복
   스캔·정리(파서 계열 특히). ③ 신규 기능은 **열린 PR·main 양쪽에 없는** 영역에서만 발굴(중복 재발 방지).
   README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 79 — `agentrelay completion fish` (fish 셸 완성) + 스테일 fish 중복 8개 통합] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-am8gcl`)
+- **배경:** 세션 시작 시 👷 백로그 항목은 전부 완료. 새 개선 항목으로 `agentrelay completion fish`(bash·zsh만
+  지원하던 쉘 탭 완성에 fish 추가)를 발굴·구현했으나, **열린 PR 조사에서 fish 완성이 이미 8개 PR로 중복**
+  (#606·#495·#581·#315·#241·#210·#100·#561)임을 확인 — 세션 78이 경고한 "중복 PR 루프"의 전형.
+- **판단:** 9번째 독립 중복을 더하는 대신, 세션 33/48/76/78이 확립한 **통합(consolidation) 정책**을 따랐다.
+  기존 8개는 전부 **오래된 base**(예: #606은 `cf4e475`, 현재 main은 `81b4282`)에 있어 문서 append 충돌로
+  클린 병합이 불가능하다(큐가 막힌 근본 원인 — 세션 60·78 진단). 그래서 **최신 main 기반의 검증된 통합본**을
+  열어 8개를 대체·정리하는 "최신 main 위로 통합 → 스테일 중복 대체" 패턴을 적용.
+- **한 일(구현):** core `completion.ts`에 `generateFish` 추가 — 선언적 `complete -c` 규칙 목록을 fish 표준
+  술어(`__fish_use_subcommand`/`__fish_seen_subcommand_from`)로 가드. 순수 `fishOptionSpec`(long→`-l`/short→`-s`/
+  그 외→`-o`), 기존 `assertSafeToken`·`uniq` 재사용, `-f`로 파일 완성 억제. `CompletionShell`·`COMPLETION_SHELLS`·
+  디스패치·CLI description/help 배선. 새 파서/스케줄러 로직 0줄. completion.test에 fish 6케이스 + 기존 단언 갱신.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0경고, 122파일)→`pnpm test`
+  전 패키지 통과(**core 670 · cli 365/1skip · dashboard 13**). 실제 빌드 CLI e2e로 `completion fish` 방출
+  (글로벌 옵션·최상위 커맨드·run 플래그 `-l tool`·config 부모 가드)·미지 셸 `completion tcsh` exit 1 검증.
+- **정리(통합):** 스테일 fish 중복 8개를 이 통합본 PR을 가리키는 사유 코멘트와 함께 close(reopen 가능).
+  → 큐에서 fish 축 -8, main에 fish 기능 +1.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책: CI 초록 → 클로드 코드 병합). ② 나머지 ~90개
+  열린 PR 중 **reset-horizon doctor 검사(수십 개 중복)**·**config schema**·**completion nushell/powershell** 등
+  포화 축의 추가 중복 스캔·정리 지속. ③ 신규 기능은 열린 PR·main 양쪽에 없는 영역에서만 발굴. README/ARCHITECTURE는 🧭 코워크 몫.
