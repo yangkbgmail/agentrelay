@@ -18,6 +18,7 @@ import type {
   BackupResult,
   ConfigIssue,
   DiagnosticReport,
+  FarFutureResetJob,
   HealthReport,
   HeartbeatFacts,
   HeartbeatMode,
@@ -675,6 +676,66 @@ export function recoverJobs(options: RecoverJobsOptions = {}): RecoverJobsResult
       }
     }
     return { report, recovered, dryRun: false };
+  } finally {
+    queue.close();
+  }
+}
+
+export interface RecoverFarFutureOptions {
+  storePath?: string;
+  /** Preview only — report what would be reclaimed without touching the store. */
+  dryRun?: boolean;
+  /** Reference "now" (epoch ms); defaults to the wall clock. Injectable for tests. */
+  now?: number;
+  /** Environment (for the reset-horizon), defaults to `process.env`. */
+  env?: NodeJS.ProcessEnv;
+}
+
+export interface RecoverFarFutureResult {
+  /** The horizon (ms) judged against, or null when the guard is disabled. */
+  horizonMs: number | null;
+  /** Jobs found parked beyond the horizon (before any reclaim), earliest reset first. */
+  farFuture: FarFutureResetJob[];
+  /** Jobs actually reclaimed (post-transition). Empty on a dry run or a disabled guard. */
+  reclaimed: RelayJob[];
+  dryRun: boolean;
+}
+
+/**
+ * Reclaim jobs parked with an implausibly far-future reset — the actionable
+ * counterpart to the `reset-horizon` warnings surfaced by `doctor` (and the
+ * dashboard). {@link selectFarFutureResets} finds active jobs whose `resetAt`
+ * lies beyond the env-resolved horizon (a pre-guard entry, the guard disabled at
+ * parse time, or a misparsed epoch/relative span); unless `dryRun`, each is
+ * pulled in to run now via {@link RelayQueue.reclaimFarFutureReset}.
+ *
+ * When the guard is disabled (`AGENTRELAY_MAX_RESET_HORIZON=off`) there's no
+ * bound to judge against, so nothing is selected or reclaimed (horizon `null`).
+ * The per-job guard skips anything no longer `waiting_for_reset` at write time
+ * (e.g. a job the scheduler just picked up), so a live run is never disturbed.
+ */
+export function recoverFarFutureResets(options: RecoverFarFutureOptions = {}): RecoverFarFutureResult {
+  const nowMs = options.now ?? Date.now();
+  const horizonMs = maxResetHorizonMsFromEnv(options.env ?? process.env);
+  const queue = openQueue(options.storePath ?? defaultStorePath());
+  try {
+    const farFuture =
+      horizonMs === null ? [] : selectFarFutureResets(queue.listAll(), { now: new Date(nowMs), horizonMs });
+    // Earliest (least extreme) reset first — the most likely real edge case, and
+    // a stable order for the listing.
+    farFuture.sort((a, b) => a.msUntilReset - b.msUntilReset);
+    if (options.dryRun || farFuture.length === 0) {
+      return { horizonMs, farFuture, reclaimed: [], dryRun: Boolean(options.dryRun) };
+    }
+    const at = new Date(nowMs).toISOString();
+    const reclaimed: RelayJob[] = [];
+    for (const entry of farFuture) {
+      if (queue.reclaimFarFutureReset(entry.id, at)) {
+        const updated = queue.getById(entry.id);
+        if (updated) reclaimed.push(updated);
+      }
+    }
+    return { horizonMs, farFuture, reclaimed, dryRun: false };
   } finally {
     queue.close();
   }

@@ -1,11 +1,18 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { RelayJob, StuckResumingReport } from "@agentrelay/core";
+import type { FarFutureResetJob, RelayJob, StuckResumingReport } from "@agentrelay/core";
 import { RelayQueue } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { recoverJobs } from "../src/commands.js";
-import { type RecoverResult, renderRecover, renderRecoverJson } from "../src/recover.js";
+import { recoverFarFutureResets, recoverJobs } from "../src/commands.js";
+import {
+  type FarFutureRecoverResult,
+  type RecoverResult,
+  renderFarFutureRecover,
+  renderFarFutureRecoverJson,
+  renderRecover,
+  renderRecoverJson,
+} from "../src/recover.js";
 
 const NOW = Date.parse("2026-08-15T12:00:00.000Z");
 
@@ -150,5 +157,161 @@ describe("recoverJobs", () => {
     const id = seedResuming(1_000);
     const { recovered } = recoverJobs({ storePath, stuckAfterMs: 0, now: NOW });
     expect(recovered.map((j) => j.id)).toEqual([id]);
+  });
+});
+
+const DAY_MS = 24 * 60 * 60_000;
+
+function farJob(overrides: Partial<FarFutureResetJob> = {}): FarFutureResetJob {
+  return {
+    id: overrides.id ?? "aaaaaaaa-1111-2222-3333-444455556666",
+    project: overrides.project ?? "web",
+    resetAt: overrides.resetAt ?? new Date(NOW + 100 * DAY_MS).toISOString(),
+    msUntilReset: overrides.msUntilReset ?? 100 * DAY_MS,
+  };
+}
+
+describe("renderFarFutureRecover", () => {
+  it("explains the guard being disabled as a quiet success", () => {
+    const result: FarFutureRecoverResult = { horizonMs: null, farFuture: [], reclaimed: [], dryRun: false };
+    const out = renderFarFutureRecover(result);
+    expect(out).toContain("guard is disabled");
+    expect(out).toContain("Nothing to reclaim");
+  });
+
+  it("says nothing is parked far in the future when the queue is clean", () => {
+    const result: FarFutureRecoverResult = {
+      horizonMs: 8 * DAY_MS,
+      farFuture: [],
+      reclaimed: [],
+      dryRun: false,
+    };
+    expect(renderFarFutureRecover(result)).toContain("No jobs are parked beyond");
+  });
+
+  it("lists reclaimed far-future jobs with how far ahead their reset was", () => {
+    const far = farJob({ id: "abcdef12-9999", project: "web", msUntilReset: 100 * DAY_MS });
+    const result: FarFutureRecoverResult = {
+      horizonMs: 8 * DAY_MS,
+      farFuture: [far],
+      reclaimed: [job({ id: far.id, status: "waiting_for_reset" })],
+      dryRun: false,
+    };
+    const out = renderFarFutureRecover(result);
+    expect(out).toContain("abcdef12");
+    expect(out).toContain("web");
+    expect(out).toContain("reset in");
+    expect(out).toContain("Reclaimed 1 job");
+  });
+
+  it("frames a dry run as a preview that changes nothing", () => {
+    const result: FarFutureRecoverResult = {
+      horizonMs: 8 * DAY_MS,
+      farFuture: [farJob()],
+      reclaimed: [],
+      dryRun: true,
+    };
+    const out = renderFarFutureRecover(result);
+    expect(out).toContain("Would reclaim 1 job");
+    expect(out).toContain("No changes made.");
+  });
+});
+
+describe("renderFarFutureRecoverJson", () => {
+  it("emits the horizon, far-future jobs, and reclaimed ids", () => {
+    const far = farJob({ id: "abcdef12-9999" });
+    const result: FarFutureRecoverResult = {
+      horizonMs: 8 * DAY_MS,
+      farFuture: [far],
+      reclaimed: [job({ id: far.id, status: "waiting_for_reset" })],
+      dryRun: false,
+    };
+    const parsed = JSON.parse(renderFarFutureRecoverJson(result, "/tmp/jobs.json", "2026-08-15T12:00:00.000Z"));
+    expect(parsed).toMatchObject({
+      storePath: "/tmp/jobs.json",
+      mode: "reset-horizon",
+      dryRun: false,
+      horizonMs: 8 * DAY_MS,
+      reclaimed: ["abcdef12-9999"],
+    });
+    expect(parsed.farFuture[0]).toMatchObject({ id: "abcdef12-9999", msUntilReset: 100 * DAY_MS });
+  });
+});
+
+describe("recoverFarFutureResets", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-recover-far-"));
+    storePath = join(dir, "jobs.json");
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Seed a waiting_for_reset job whose resetAt is `aheadMs` after NOW. */
+  function seedParked(id: string, aheadMs: number): void {
+    const seeded = job({
+      id,
+      status: "waiting_for_reset",
+      resetAt: new Date(NOW + aheadMs).toISOString(),
+      attempts: 2,
+    });
+    const existing = existsSyncRead(storePath);
+    writeFileSync(storePath, JSON.stringify([...existing, seeded], null, 2), "utf8");
+  }
+
+  function existsSyncRead(p: string): RelayJob[] {
+    try {
+      return JSON.parse(readFileSync(p, "utf8")) as RelayJob[];
+    } catch {
+      return [];
+    }
+  }
+
+  it("reclaims a far-future parked job, requeuing it due now with fresh attempts", () => {
+    const id = "far00001-1111-2222-3333-444455556666";
+    seedParked(id, 100 * DAY_MS);
+    const result = recoverFarFutureResets({ storePath, now: NOW, env: {} });
+    expect(result.horizonMs).not.toBeNull();
+    expect(result.farFuture.map((j) => j.id)).toEqual([id]);
+    expect(result.reclaimed.map((j) => j.id)).toEqual([id]);
+
+    const after = new RelayQueue(storePath).getById(id);
+    expect(after?.status).toBe("waiting_for_reset");
+    expect(after?.resetAt).toBe(new Date(NOW).toISOString());
+    expect(after?.attempts).toBe(0);
+  });
+
+  it("leaves a near-future parked job alone", () => {
+    const id = "near0001-1111-2222-3333-444455556666";
+    seedParked(id, 2 * 60 * 60_000); // 2h ahead — well within the horizon
+    const result = recoverFarFutureResets({ storePath, now: NOW, env: {} });
+    expect(result.farFuture).toEqual([]);
+    expect(result.reclaimed).toEqual([]);
+    expect(new RelayQueue(storePath).getById(id)?.resetAt).toBe(new Date(NOW + 2 * 60 * 60_000).toISOString());
+  });
+
+  it("orders far-future jobs earliest reset first", () => {
+    const a = "aaaa0001-1111-2222-3333-444455556666";
+    const b = "bbbb0001-1111-2222-3333-444455556666";
+    seedParked(a, 300 * DAY_MS);
+    seedParked(b, 50 * DAY_MS);
+    const result = recoverFarFutureResets({ storePath, dryRun: true, now: NOW, env: {} });
+    expect(result.farFuture.map((j) => j.id)).toEqual([b, a]);
+    // Dry run touched nothing.
+    expect(result.reclaimed).toEqual([]);
+    expect(new RelayQueue(storePath).getById(a)?.attempts).toBe(2);
+  });
+
+  it("reclaims nothing when the reset-horizon guard is disabled", () => {
+    const id = "off00001-1111-2222-3333-444455556666";
+    seedParked(id, 100 * DAY_MS);
+    const result = recoverFarFutureResets({ storePath, now: NOW, env: { AGENTRELAY_MAX_RESET_HORIZON: "off" } });
+    expect(result.horizonMs).toBeNull();
+    expect(result.farFuture).toEqual([]);
+    expect(result.reclaimed).toEqual([]);
+    expect(new RelayQueue(storePath).getById(id)?.attempts).toBe(2);
   });
 });

@@ -2309,3 +2309,34 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recover`가 먼-미래 파킹 잡을
   자동 감지·재큐 대상으로 포함하는지 점검, 또는 대시보드 카드에서 직접 취소/재시도 액션(로컬 API route 필요).
   README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 75 — `agentrelay recover --reset-horizon`(먼-미래 파킹 잡 재큐 복구 액션)] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-vsag9v`)
+- **항목 선정:** BACKLOG 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 문서/리서치뿐). 세션 74 로그가
+  명시한 후속 인접 후보 "`recover`가 먼-미래 파킹 잡을 자동 감지·재큐 대상으로 포함하는지 점검"을 자기 발굴
+  항목으로 채택. 세션 72~74는 파서 지평선 가드→`doctor` `reset-horizon` 검사→대시보드 경고 카드로 먼-미래
+  파킹 잡(misparse/가드 부재로 수일·수년 대기)을 **표면화**만 했고, 그 힌트가 `show`/`cancel`/`retry`/`recover`를
+  가리켰지만 정작 `recover`는 `resuming`에 갇힌 잡만 다뤄 파킹 잡을 한 번에 고치는 커맨드가 없었다 —
+  사용자가 id별로 수동 `retry`해야 하는 갭. 이 세션이 그 루프를 닫는 액션을 붙임.
+- **한 일 (branch `claude/wizardly-pascal-vsag9v`):**
+  - core `queue.ts`: 가드된 `reclaimFarFutureReset(id,at)` 신설 — `waiting_for_reset`인 잡만 resetAt=now·
+    attempts=0·lastError=null로 재큐(그 외 상태·미존재 id는 `false` 반환 → 큐잉/resuming/종료 잡 미교란).
+    `recoverResuming`은 중단된 시도를 의도적으로 보존하지만, 먼-미래 대기는 실제 시도가 아니었으므로
+    `requeueNow`처럼 attempts 리셋 — 재실행이 다시 rate-limit되면 세션 72 파서 가드가 새 파스를 드롭하므로
+    깨끗한 시도 예산이 무한 루프로 이어지지 않음.
+  - CLI `commands.ts`: `recoverFarFutureResets({storePath,dryRun,now,env})` — core `selectFarFutureResets`+
+    `maxResetHorizonMsFromEnv` 재사용(가드 off면 horizonMs=null·아무것도 선택/재큐 안 함), 가장 이른(덜 극단)
+    리셋 먼저 정렬, per-job 가드로 scan↔write 사이 스케줄러가 집어간 잡은 스킵.
+  - CLI `recover.ts`: `renderFarFutureRecover`/`renderFarFutureRecoverJson` — 세 조용한 성공 상태(가드 off·
+    파킹 0개·재큐)를 각각 구분 표기해 빈 결과가 무음 실패로 안 읽히게.
+  - CLI `cli.ts`: `recover`에 `--reset-horizon` 플래그(+`--dry-run`/`--json`). `--older-than`은 stuck-resuming
+    전용이므로 `--reset-horizon`과 병용 시 exit 1로 거부.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 652 · cli 366/1skip · dashboard 13**; core queue +3[먼-미래 재큐·비-waiting no-op·미존재 id],
+  cli recover +9[render 4·json 1·command 4]). **실제 빌드 CLI e2e**(mock 아님): 100일 파킹 잡→`--dry-run`
+  프리뷰("Would reclaim 1 job")·`--json`(mode reset-horizon·horizonMs·reclaimed)·재큐 후 `show`로 due now·
+  attempts 0 확인, 2h 근접 파킹 잡은 미교란, 재실행 시 "Nothing to reclaim", `AGENTRELAY_MAX_RESET_HORIZON=off`→
+  "guard is disabled", `--reset-horizon --older-than 1h`→exit 1 검증.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드 `FarFutureResetsCard`에
+  "reclaim" 액션 버튼(로컬 API route로 `reclaimFarFutureReset` 노출), 또는 `doctor`의 `reset-horizon` warning에
+  `agentrelay recover --reset-horizon` 원커맨드 fix 힌트를 명시적으로 추가. README/ARCHITECTURE(🧭 코워크).
+  PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.

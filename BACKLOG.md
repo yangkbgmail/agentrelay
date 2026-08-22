@@ -902,6 +902,24 @@
       +4(먼-미래 플래그·근접 미플래그·종료 잡 미플래그·빈 스토어). branch
       `claude/dashboard-reset-horizon-card`)
 
+- [x] 👷 `agentrelay recover --reset-horizon` — 먼-미래 리셋으로 파킹된 잡을 실제로 재큐(now)하는
+      복구 액션. 자기 발굴 항목(세션 73·74의 후속으로 세션 74 로그가 명시한 "`recover`가 먼-미래
+      파킹 잡을 자동 감지·재큐 대상으로 포함하는지 점검"). 세션 72~74는 파서 가드→`doctor` 검사→대시보드
+      카드로 먼-미래 파킹 잡을 **표면화**만 했고, 그 힌트가 `recover`를 가리켰지만 정작 `recover`는
+      `resuming`에 갇힌 잡만 다뤄 파킹 잡을 고치는 커맨드가 없었다(사용자가 id별로 수동 `retry`해야 했음).
+      이 플래그가 그 루프를 닫는다. (완료 — core `queue.ts`에 가드된 `reclaimFarFutureReset(id,at)` 추가:
+      `waiting_for_reset`인 잡만 resetAt=now·attempts=0·lastError=null로 재큐(그 외 상태·미존재 id는 false
+      반환 → 라이브 잡 미교란). recoverResuming은 중단된 시도를 보존하지만, 먼-미래 대기는 실제 시도가
+      아니었으므로 `requeueNow`처럼 attempts를 리셋 — 재실행이 다시 파킹되면 세션 72 파서 가드가 새 파스를
+      드롭하므로 무한 루프 없음. CLI `commands.ts` `recoverFarFutureResets`(core `selectFarFutureResets`+
+      `maxResetHorizonMsFromEnv` 재사용, 가드 off면 horizonMs=null·빈 리스트, 가장 이른 리셋 먼저 정렬).
+      `recover.ts`에 `renderFarFutureRecover`/`renderFarFutureRecoverJson`(세 조용한 성공 상태—가드 off·
+      깨끗한 큐·재큐—를 구분 표기). `cli.ts` `recover`에 `--reset-horizon` 플래그(+`--dry-run`/`--json`,
+      `--older-than`과 병용 시 exit 1). core queue +3·cli recover +9 테스트, 실제 빌드 CLI e2e로 100일
+      파킹→재큐(due now·attempts 0)·2h 근접 미교란·정렬·가드 off·플래그 충돌 검증. 순수 로직은 전부 기존
+      검증된 core 재사용이라 doctor/대시보드 판정과 절대 드리프트 안 함. branch
+      `claude/wizardly-pascal-vsag9v`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

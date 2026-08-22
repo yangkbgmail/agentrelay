@@ -267,6 +267,35 @@ export class RelayQueue {
     return true;
   }
 
+  /**
+   * Reclaim a job parked with an implausibly far-future reset: a rate-limit whose
+   * `resetAt` sits so far ahead the job would wait days/years and effectively
+   * never resume (a pre-guard entry, the horizon guard disabled at the time, or a
+   * misparsed epoch unit / relative span). {@link selectFarFutureResets} surfaces
+   * these; this pulls the reset in to `at` so the next tick resumes the job now.
+   *
+   * Unlike {@link recoverResuming} — where the interrupted attempt genuinely
+   * counts — the far-future wait was never a real attempt, so this resets
+   * `attempts` to 0 (a fresh run, like {@link requeueNow}) and clears `lastError`.
+   * The horizon guard on *newly parsed* resets (see `isPlausibleReset`) stops a
+   * re-run from re-parking far in the future, so a clean attempt budget can't loop.
+   *
+   * A no-op returning `false` unless the job is currently `waiting_for_reset`, so
+   * it's safe to call on any id after re-reading the store without disturbing a
+   * queued/resuming/terminal job.
+   */
+  reclaimFarFutureReset(id: string, at: string = new Date().toISOString()): boolean {
+    const current = this.getById(id);
+    if (current?.status !== "waiting_for_reset") return false;
+    this.update(id, {
+      status: "waiting_for_reset",
+      resetAt: at,
+      attempts: 0,
+      lastError: null,
+    });
+    return true;
+  }
+
   private update(id: string, patch: Partial<RelayJob> & { status: JobStatus }) {
     this.load();
     const existing = this.jobs.get(id);

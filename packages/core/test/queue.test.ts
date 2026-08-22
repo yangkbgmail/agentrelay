@@ -194,6 +194,45 @@ describe("RelayQueue", () => {
     expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(1);
   });
 
+  describe("reclaimFarFutureReset", () => {
+    it("pulls a far-future parked reset in to run now with a fresh attempt count", () => {
+      const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+      queue.markResuming(job.id); // attempts -> 1
+      // Park it a decade out, as a misparse would.
+      const farFuture = new Date(Date.now() + 3650 * 24 * 60 * 60_000).toISOString();
+      queue.markWaitingForReset(job.id, farFuture);
+      // Not due for years.
+      expect(queue.listDue(new Date(Date.now() + 60_000))).toHaveLength(0);
+
+      const at = new Date().toISOString();
+      expect(queue.reclaimFarFutureReset(job.id, at)).toBe(true);
+
+      const reclaimed = queue.getById(job.id);
+      expect(reclaimed?.status).toBe("waiting_for_reset");
+      expect(reclaimed?.resetAt).toBe(at);
+      expect(reclaimed?.attempts).toBe(0);
+      expect(reclaimed?.lastError).toBeNull();
+      // Now immediately due.
+      expect(queue.listDue(new Date(Date.now() + 1000))).toHaveLength(1);
+    });
+
+    it("is a no-op returning false for a job that isn't waiting_for_reset", () => {
+      const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+      queue.markResuming(job.id);
+      // 'resuming' — must not be reclaimed by the far-future path.
+      expect(queue.reclaimFarFutureReset(job.id)).toBe(false);
+      expect(queue.getById(job.id)?.status).toBe("resuming");
+
+      queue.markCompleted(job.id, "done");
+      expect(queue.reclaimFarFutureReset(job.id)).toBe(false);
+      expect(queue.getById(job.id)?.status).toBe("completed");
+    });
+
+    it("returns false for an unknown id", () => {
+      expect(queue.reclaimFarFutureReset("does-not-exist")).toBe(false);
+    });
+  });
+
   describe("importJobs", () => {
     const historyJob = (id: string, project = "imported"): RelayJob => ({
       id,

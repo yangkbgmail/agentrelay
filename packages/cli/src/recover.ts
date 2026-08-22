@@ -7,7 +7,7 @@
 // cli.ts) so the exact output is unit-testable without a TTY, a clock, or the
 // store.
 
-import type { RelayJob, StuckResumingReport } from "@agentrelay/core";
+import type { FarFutureResetJob, RelayJob, StuckResumingReport } from "@agentrelay/core";
 import { formatDurationMs } from "./stats.js";
 
 const RESET = "\x1b[0m";
@@ -77,6 +77,90 @@ export function renderRecover(result: RecoverResult, options: { now?: number; co
       : `Recovered ${b(String(result.recovered.length))} ${noun} — requeued to resume on the next tick.`
   );
   return lines.join("\n");
+}
+
+/** The outcome of a `recover --reset-horizon` run: what was found and reclaimed. */
+export interface FarFutureRecoverResult {
+  /** The horizon (ms) judged against, or null when the guard is disabled. */
+  horizonMs: number | null;
+  /** Jobs found parked beyond the horizon (before reclaim), earliest reset first. */
+  farFuture: FarFutureResetJob[];
+  /** Jobs actually reclaimed (post-transition). Empty on a dry run / disabled guard. */
+  reclaimed: RelayJob[];
+  /** True when this was a preview that left the store untouched. */
+  dryRun: boolean;
+}
+
+/**
+ * Human-readable summary for `recover --reset-horizon`. Explains the three
+ * quiet-success states — the guard being off (nothing to judge against), a clean
+ * queue (no far-future parks), and a reclaim — so an empty result never reads as
+ * a silent failure. On a hit, each job is listed with how far ahead its bogus
+ * reset was, then a line saying what was (or would be) requeued to run now.
+ */
+export function renderFarFutureRecover(result: FarFutureRecoverResult, options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const b = (s: string): string => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string): string => (color ? `${DIM}${s}${RESET}` : s);
+  const m = (s: string): string => (color ? `${MAGENTA}${s}${RESET}` : s);
+
+  const { horizonMs, farFuture, reclaimed, dryRun } = result;
+
+  if (horizonMs === null) {
+    return "The reset-horizon guard is disabled (AGENTRELAY_MAX_RESET_HORIZON=off). Nothing to reclaim — set a horizon to bound far-future resets.";
+  }
+  if (farFuture.length === 0) {
+    return `No jobs are parked beyond the ${formatDurationMs(horizonMs)} reset horizon. Nothing to reclaim.`;
+  }
+
+  // On a real run, only rows whose job was actually reclaimed are shown (a job
+  // the scheduler picked up between scan and write is skipped).
+  const reclaimedIds = new Set(reclaimed.map((job) => job.id));
+  const rows = dryRun ? farFuture : farFuture.filter((job) => reclaimedIds.has(job.id));
+  const marker = dryRun ? "-" : "↻";
+
+  const lines: string[] = [];
+  for (const job of rows) {
+    const id = job.id.slice(0, 8);
+    const project = job.project.slice(0, 20).padEnd(20);
+    lines.push(`${marker} ${m(id)}  ${project} ${d(`reset in ${formatDurationMs(job.msUntilReset)}`)}`);
+  }
+  const noun = rows.length === 1 ? "job" : "jobs";
+  lines.push(
+    dryRun
+      ? `Would reclaim ${b(String(farFuture.length))} ${noun} (requeued to run now). ${d("No changes made.")}`
+      : `Reclaimed ${b(String(reclaimed.length))} ${noun} — requeued to resume on the next tick.`
+  );
+  return lines.join("\n");
+}
+
+/**
+ * Machine-readable form of `recover --reset-horizon` for `--json` (scripts/jq):
+ * the horizon judged against, the far-future jobs found, and which were reclaimed.
+ */
+export function renderFarFutureRecoverJson(
+  result: FarFutureRecoverResult,
+  storePath: string,
+  generatedAt: string = new Date().toISOString()
+): string {
+  return JSON.stringify(
+    {
+      storePath,
+      generatedAt,
+      mode: "reset-horizon",
+      dryRun: result.dryRun,
+      horizonMs: result.horizonMs,
+      farFuture: result.farFuture.map((job) => ({
+        id: job.id,
+        project: job.project,
+        resetAt: job.resetAt,
+        msUntilReset: job.msUntilReset,
+      })),
+      reclaimed: result.reclaimed.map((job) => job.id),
+    },
+    null,
+    2
+  );
 }
 
 /**

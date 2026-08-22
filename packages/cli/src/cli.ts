@@ -64,6 +64,7 @@ import {
   pruneJobs,
   readHealthReport,
   readLocationReport,
+  recoverFarFutureResets,
   recoverJobs,
   restoreStore,
   retryJob,
@@ -91,7 +92,14 @@ import { buildParseReport, renderParseReport, renderParseReportJson } from "./pa
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
-import { type RecoverResult, renderRecover, renderRecoverJson } from "./recover.js";
+import {
+  type FarFutureRecoverResult,
+  type RecoverResult,
+  renderFarFutureRecover,
+  renderFarFutureRecoverJson,
+  renderRecover,
+  renderRecoverJson,
+} from "./recover.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
   formatUtcOffsetLabel,
@@ -2136,11 +2144,30 @@ export function buildCli(): Command {
       "--older-than <duration>",
       "Only recover jobs stuck resuming for at least this long (default 30m; 0s = all)"
     )
+    .option(
+      "--reset-horizon",
+      "Instead, reclaim jobs parked with an implausibly far-future reset (see 'doctor' reset-horizon)"
+    )
     .option("--dry-run", "Show what would be recovered without changing the store")
     .option("--json", "Output machine-readable JSON")
-    .action((opts: { olderThan?: string; dryRun?: boolean; json?: boolean }) => {
+    .action((opts: { olderThan?: string; resetHorizon?: boolean; dryRun?: boolean; json?: boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
+
+      if (opts.resetHorizon) {
+        if (opts.olderThan !== undefined) {
+          console.error("--older-than applies to stuck-resuming recovery, not --reset-horizon.");
+          process.exitCode = 1;
+          return;
+        }
+        const result: FarFutureRecoverResult = recoverFarFutureResets({ storePath: store, dryRun: opts.dryRun, now });
+        if (opts.json) {
+          console.log(renderFarFutureRecoverJson(result, store ?? defaultStorePath(), new Date(now).toISOString()));
+        } else {
+          console.log(renderFarFutureRecover(result, { color: Boolean(process.stdout.isTTY) }));
+        }
+        return;
+      }
 
       let stuckAfterMs: number | undefined;
       if (opts.olderThan !== undefined) {
