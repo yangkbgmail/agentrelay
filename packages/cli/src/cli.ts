@@ -33,6 +33,7 @@ import {
   isCompletionShell,
   isJobScopeActive,
   JOB_CSV_COLUMNS,
+  maxResetHorizonMsFromEnv,
   parseCsvColumns,
   parseDuration,
   renderPrometheusMetrics,
@@ -64,6 +65,7 @@ import {
   pruneJobs,
   readHealthReport,
   readLocationReport,
+  recoverFarFutureJobs,
   recoverJobs,
   restoreStore,
   retryJob,
@@ -91,7 +93,13 @@ import { buildParseReport, renderParseReport, renderParseReportJson } from "./pa
 import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
-import { type RecoverResult, renderRecover, renderRecoverJson } from "./recover.js";
+import {
+  type RecoverResult,
+  renderRecover,
+  renderRecoverFarFuture,
+  renderRecoverFarFutureJson,
+  renderRecoverJson,
+} from "./recover.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
   formatUtcOffsetLabel,
@@ -2131,16 +2139,33 @@ export function buildCli(): Command {
 
   program
     .command("recover")
-    .description("Requeue jobs orphaned mid-resume (a crashed daemon/tick left them stuck in 'resuming')")
+    .description(
+      "Requeue silently-stranded jobs — orphaned mid-resume, or (--far-future) parked with a misparsed reset"
+    )
     .option(
       "--older-than <duration>",
-      "Only recover jobs stuck resuming for at least this long (default 30m; 0s = all)"
+      "Only recover jobs stuck resuming for at least this long (default 30m; 0s = all). Ignored with --far-future"
+    )
+    .option(
+      "--far-future",
+      "Instead: requeue active jobs parked with an implausibly far-future reset (a misparse; uses the reset-horizon guard)"
     )
     .option("--dry-run", "Show what would be recovered without changing the store")
     .option("--json", "Output machine-readable JSON")
-    .action((opts: { olderThan?: string; dryRun?: boolean; json?: boolean }) => {
+    .action((opts: { olderThan?: string; farFuture?: boolean; dryRun?: boolean; json?: boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
+
+      if (opts.farFuture) {
+        const horizonMs = maxResetHorizonMsFromEnv();
+        const result = recoverFarFutureJobs({ storePath: store, horizonMs, dryRun: opts.dryRun, now });
+        if (opts.json) {
+          console.log(renderRecoverFarFutureJson(result, store ?? defaultStorePath(), new Date(now).toISOString()));
+        } else {
+          console.log(renderRecoverFarFuture(result, { color: Boolean(process.stdout.isTTY), now }));
+        }
+        return;
+      }
 
       let stuckAfterMs: number | undefined;
       if (opts.olderThan !== undefined) {

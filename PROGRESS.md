@@ -2309,3 +2309,34 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recover`가 먼-미래 파킹 잡을
   자동 감지·재큐 대상으로 포함하는지 점검, 또는 대시보드 카드에서 직접 취소/재시도 액션(로컬 API route 필요).
   README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 75 — `agentrelay recover --far-future`(먼-미래 파킹 잡 일괄 재큐)] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-wmsc0y`)
+- **항목 선정:** BACKLOG 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 문서/리서치뿐). 세션 74 로그가
+  명시한 후속 인접 후보 "`recover`가 먼-미래 파킹 잡을 자동 감지·재큐 대상으로 포함하는지 점검"을 자기 발굴
+  항목으로 채택. 세션 72~74가 파서 지평선 가드(72)·`doctor` `reset-horizon` 검사(73)·대시보드 경고 카드(74)로
+  misparse 먼-미래 파킹 잡을 **감지**하는 3개 표면을 만들었지만, 정작 그 잡을 **재큐**하려면 사용자가 각 id를
+  손으로 `retry`에 복붙해야 했다. `recover`는 지금까지 orphaned-`resuming` 잡(1번째 silent-failure 부류)만
+  재큐했는데, 먼-미래 파킹(2번째 부류)도 같은 명령으로 일괄 재큐하게 확장 — 감지↔조치 갭을 메움.
+- **한 일 (branch `claude/wizardly-pascal-wmsc0y`):**
+  - CLI `commands.ts`: `recoverFarFutureJobs({storePath,horizonMs,dryRun,now})` — core `selectFarFutureResets`
+    (doctor·대시보드와 **동일** 지평선 판정이라 드리프트 0)로 활성 파킹 잡을 고르고, `canRequeue`로 mid-flight
+    (`resuming`) 잡은 제외한 뒤 `RelayQueue.requeueNow`로 지금 실행되게 재큐(attempts 0 리셋·lastError 클리어 —
+    `agentrelay retry`와 동일 전환). `horizonMs`는 `maxResetHorizonMsFromEnv()`로 해소, `null`(가드 off)이면
+    아무것도 플래그·재큐 안 함. `dryRun`은 스토어 불변.
+  - CLI `recover.ts`: `RecoverFarFutureResult` + `renderRecoverFarFuture`/`renderRecoverFarFutureJson` 추가 —
+    가장 이른-초과(least-extreme) 잡부터 정렬해 doctor·대시보드 순서와 일치, 재큐한 잡만 나열, `--json`은
+    `mode:"far-future"`·horizonMs·parked/recovered ids. 가드 disabled/파킹 0개는 명시 문구.
+  - CLI `cli.ts`: `recover`에 `--far-future` 플래그 배선(기본=orphaned-resuming 모드로 하위호환). `--dry-run`/
+    `--json`은 두 모드 공통, `--older-than`은 resuming 모드 전용(far-future에선 무시하도록 help에 명시).
+  - 새 core 로직 0줄 — 전부 세션 72~74가 검증한 core(`selectFarFutureResets`/`canRequeue`/`requeueNow`/
+    `maxResetHorizonMsFromEnv`) 재사용. cli recover.test +11(렌더 5: guard off·nothing parked·정렬·dry·json /
+    recoverFarFutureJobs 6: 재큐·근접 미대상·dry-run·가드 off·resuming 제외).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러; 포맷 2건 `lint:fix`)→
+  `pnpm test` 전 패키지 통과(**core 649 · cli 367/1skip · dashboard 13**; cli recover 8→19). **실제 빌드 CLI
+  e2e**(mock 아님): 100일 파킹 잡+2h 근접 잡 스토어로 `recover --far-future --dry-run`이 파킹 1개만 표기·스토어
+  불변, 실행하면 파킹 잡을 status=waiting_for_reset·attempts=0·lastError=null·resetAt=now(즉시 재개)로 재큐하고
+  근접 잡은 불변, `--json`은 `mode:"far-future"`·parked/recovered ids, `AGENTRELAY_MAX_RESET_HORIZON=off`는
+  "guard is disabled" 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recover`에 resuming+far-future
+  둘 다 한 번에 처리하는 `--all` 모드, 또는 대시보드 경고 카드에서 직접 재큐하는 로컬 API route(세션 74 후보와
+  연결). README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.

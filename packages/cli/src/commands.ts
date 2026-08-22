@@ -96,6 +96,7 @@ import {
   waitExitCode,
 } from "@agentrelay/core";
 import { defaultStorePath, resolveProjectName } from "./config.js";
+import type { RecoverFarFutureResult } from "./recover.js";
 import type { VerifyReport } from "./verify.js";
 
 /**
@@ -675,6 +676,59 @@ export function recoverJobs(options: RecoverJobsOptions = {}): RecoverJobsResult
       }
     }
     return { report, recovered, dryRun: false };
+  } finally {
+    queue.close();
+  }
+}
+
+export interface RecoverFarFutureOptions {
+  storePath?: string;
+  /**
+   * Plausibility horizon (ms) resolved from `maxResetHorizonMsFromEnv`. `null`
+   * means the guard is disabled — nothing is flagged or recovered.
+   */
+  horizonMs: number | null;
+  /** Preview only — report what would be recovered without touching the store. */
+  dryRun?: boolean;
+  /** Reference "now" (epoch ms); defaults to the wall clock. Injectable for tests. */
+  now?: number;
+}
+
+/**
+ * Requeue jobs parked with an implausibly far-future reset — the second class of
+ * silently-stranded job (the first being orphaned-`resuming`, handled by
+ * {@link recoverJobs}). A misparsed reset (wrong epoch unit, a huge relative
+ * span, a queue built before the horizon guard existed) can leave a job sitting
+ * `waiting_for_reset` days or years out, where no sane tick resumes it.
+ *
+ * Reuses the exact pieces `doctor`/the dashboard use — {@link selectFarFutureResets}
+ * for the same horizon judgment (no drift), then {@link canRequeue} to skip any
+ * flagged job that's mid-flight — and requeues the eligible ones to run now via
+ * {@link RelayQueue.requeueNow} (attempts reset, `lastError` cleared), the same
+ * transition `agentrelay retry` performs. On `dryRun` the store is untouched.
+ */
+export function recoverFarFutureJobs(options: RecoverFarFutureOptions): RecoverFarFutureResult {
+  const now = options.now ?? Date.now();
+  const { horizonMs } = options;
+  const queue = openQueue(options.storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const parked = horizonMs === null ? [] : selectFarFutureResets(jobs, { now: new Date(now), horizonMs });
+    if (options.dryRun || parked.length === 0) {
+      return { horizonMs, total: jobs.length, parked, recovered: [], dryRun: Boolean(options.dryRun) };
+    }
+    // Only requeue jobs the manual-retry guard accepts, so a flagged job that
+    // slipped into `resuming` between scan and write is never raced.
+    const parkedIds = new Set(parked.map((job) => job.id));
+    const at = new Date(now).toISOString();
+    const recovered: RelayJob[] = [];
+    for (const job of jobs) {
+      if (!parkedIds.has(job.id) || !canRequeue(job).ok) continue;
+      queue.requeueNow(job.id, at);
+      const updated = queue.getById(job.id);
+      if (updated) recovered.push(updated);
+    }
+    return { horizonMs, total: jobs.length, parked, recovered, dryRun: false };
   } finally {
     queue.close();
   }

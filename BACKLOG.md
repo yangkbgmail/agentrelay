@@ -902,6 +902,23 @@
       +4(먼-미래 플래그·근접 미플래그·종료 잡 미플래그·빈 스토어). branch
       `claude/dashboard-reset-horizon-card`)
 
+- [x] 👷 `agentrelay recover --far-future` — 먼-미래 리셋으로 파킹된 잡을 일괄 재큐. 자기 발굴 항목
+      (세션 74 로그가 명시한 후속 "`recover`가 먼-미래 파킹 잡을 자동 감지·재큐 대상으로 포함하는지 점검").
+      세션 72~74가 파서 지평선 가드·`doctor` 검사·대시보드 카드로 misparse 먼-미래 파킹 잡을 **감지**하는
+      3개 표면을 만들었지만, 재큐하려면 사용자가 각 id를 손으로 `retry`에 복붙해야 했다. `recover`는 지금까지
+      orphaned-`resuming` 잡만 재큐했는데(1번째 silent-failure 부류), 먼-미래 파킹(2번째 부류)도 같은 명령으로
+      **일괄 재큐**하게 확장. (완료 — CLI `recover`에 `--far-future` 모드 추가: `commands.ts`
+      `recoverFarFutureJobs`가 core `selectFarFutureResets`(doctor·대시보드와 **동일** 지평선 판정, 드리프트 0)로
+      파킹 잡을 고르고 `canRequeue`로 mid-flight(`resuming`) 잡은 제외한 뒤 `RelayQueue.requeueNow`로 지금 실행되게
+      재큐(attempts 0 리셋·lastError 클리어 — `retry`와 동일 전환). 지평선은 `maxResetHorizonMsFromEnv()`로 해소,
+      가드 off(`AGENTRELAY_MAX_RESET_HORIZON=off`)면 아무것도 플래그·재큐 안 함. `recover.ts`에 `renderRecoverFarFuture`
+      /`renderRecoverFarFutureJson` 추가(가장 이른-초과 잡부터 정렬해 doctor·대시보드와 일치, `--dry-run`은 스토어
+      불변, `--json`은 `mode:"far-future"`·horizonMs·parked/recovered ids). `--older-than`은 resuming 모드 전용
+      (far-future 모드에선 무시). 새 core 로직 0줄 — 전부 검증된 core 재사용. cli recover.test +11(렌더 5·
+      recoverFarFutureJobs 6: 재큐·근접 미대상·dry-run·가드 off·resuming 제외). 실제 빌드 CLI e2e로 100일 파킹
+      →재큐(attempts 0·resetAt=now)·2h 근접 잡 불변·`off` disabled·`--json` mode 확인. branch
+      `claude/wizardly-pascal-wmsc0y`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
