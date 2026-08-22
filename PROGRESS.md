@@ -2284,3 +2284,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도 동일 먼-미래
   파킹 잡 경고 노출(세션 31 하트비트 카드 패턴 재사용), 또는 `recover`가 먼-미래 파킹 잡을 자동 감지·재큐 대상으로
   포함하는지 점검. README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 74 — 대시보드 먼-미래 리셋 파킹 잡 경고 카드(reset-horizon)] (2026-08-22, 무인 자율 세션, branch `claude/dashboard-reset-horizon-card`)
+- **항목 선정:** BACKLOG 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 문서/리서치뿐). 세션 73 로그가
+  명시한 후속 인접 후보 "대시보드에도 동일 먼-미래 파킹 잡 경고 노출(세션 31 하트비트 카드 패턴 재사용)"을
+  자기 발굴 항목으로 채택. 세션 73이 `doctor`에 넣은 `reset-horizon` 검사는 사용자가 CLI를 켜야만 보이지만,
+  로컬 대시보드는 상시 떠 있어 큐를 시각적으로 감시하는 경로 — misparse로 수일/수년 파킹돼 조용히 재개 안 되는
+  잡을 여기서도 즉시 눈에 띄게 해 "silent failure" 커버리지를 CLI·GUI 양쪽으로 넓힘.
+- **한 일 (branch `claude/dashboard-reset-horizon-card`):**
+  - `apps/dashboard/lib/jobs.ts`: 스냅샷에 `resetHorizon: {jobs, horizonMs}` 필드 추가. core의 순수
+    `selectFarFutureResets(jobs,{now,horizonMs})` + `maxResetHorizonMsFromEnv()`를 그대로 재사용 —
+    가드 off(`AGENTRELAY_MAX_RESET_HORIZON=off`)면 horizonMs=null·빈 리스트. `ResetHorizonSummary` 타입 export.
+    순수 로직 100% core 재사용이라 CLI `doctor`의 `reset-horizon` 검사와 절대 드리프트 안 함.
+  - `apps/dashboard/app/dashboard-client.tsx`: `FarFutureResetsCard` 추가 — 하트비트 카드와 동일한
+    "concerning" 경고 카드 패턴 재사용. 가장 이른(덜 극단, 실제 엣지케이스일 가능성 높은) 잡부터 최대 5개
+    표기(+N more)·id 8자·프로젝트·`resets in Nd/Ny`. 먼 기간용 `formatLongDuration`(일/년 반올림) 신설 —
+    기존 시간 단위 `formatCountdown`이 수천 시간으로 넘치는 것 방지. `show`/`cancel`/`retry`/`recover` 힌트.
+    가드 off거나 파킹 0개면 렌더 안 함(깨끗한 큐는 조용). `<ResumeLoopCard>` 바로 아래 배치.
+  - `apps/dashboard/app/globals.css`: `.far-future*` 스타일 추가(하트비트 카드 톤과 일치, 좌측 경고색 보더).
+- **검증:** `pnpm install`→`pnpm build`(Next 타입체크 포함 클린)→`pnpm ci:lint`(Biome 0에러; JSX 리플로우
+  1건 `lint:fix`로 정리)→`pnpm test` 전 패키지 통과(**core 649 · cli 357/1skip · dashboard 13**; dashboard +4:
+  먼-미래 플래그·근접 미플래그·종료 잡 미플래그·빈 스토어). 2099년 리셋은 8일 지평선 초과로 플래그, 2h 근접
+  리셋·완료(종료) 잡·빈 스토어는 미플래그 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recover`가 먼-미래 파킹 잡을
+  자동 감지·재큐 대상으로 포함하는지 점검, 또는 대시보드 카드에서 직접 취소/재시도 액션(로컬 API route 필요).
+  README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
