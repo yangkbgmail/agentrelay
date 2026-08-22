@@ -2259,3 +2259,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 과거-쪽 극단
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 73 — doctor 먼-미래 리셋 파킹 잡 검사(reset-horizon)] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-4p3s77`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 세션 72
+  로그가 명시한 후속 인접 후보 "`doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가"를 자기 발굴 항목으로 채택.
+  세션 72 파서 지평선 가드는 **새로 파싱되는** rate-limit만 검증하므로, 가드가 없던 시절 큐잉됐거나·가드를 끈
+  채·잘못된 epoch 단위/거대한 상대 기간 misparse로 이미 `waiting_for_reset`으로 파킹된 잡은 수일/수년 조용히
+  대기해도 아무도 못 잡았다 — 이 도구가 반복해 겨냥해온 "silent failure" 부류의 잔여 갭.
+- **한 일 (branch `claude/wizardly-pascal-4p3s77`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, {now, horizonMs})` 신설 — 활성 잡 중 resetAt이
+    now+horizon을 넘는 것만 골라냄(과거/근접 리셋은 안전하므로 제외, 종료 잡·resetAt 없음/파싱불가는 스킵,
+    비양수·비유한 horizon은 "가드 없음"으로 빈 배열). parser `isPlausibleReset` 재사용으로 지평선 판정을 파서와
+    일치. `FarFutureResetJob`/`ResetHorizonFacts` 타입 + `DiagnosticInput.resetHorizon` 추가. `runDiagnostics`에
+    `reset-horizon` 검사 배선(node→store→writable→adapters→daemon→**reset-horizon**→config→notify):
+    horizonMs null(가드 off)=OK 스킵·파킹 0개=OK·1개↑=warning(가장 이른 잡을 예시로 id/project/카운트다운 표기,
+    `show`/`cancel`/`retry`/`recover` 힌트). warning은 리포트를 실패시키지 않음(기존 정책 준수).
+  - CLI `commands.ts`: `runDoctor`가 `maxResetHorizonMsFromEnv(env)`로 지평선 해소 후 `selectFarFutureResets`로
+    facts 구성(null이면 빈 리스트) → `runDiagnostics`에 `resetHorizon` 전달. 순수 로직은 전부 core, CLI는 clock·env만.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과
+  (**core 649 · cli 357/1skip · dashboard 9**; core doctor +11, cli doctor +3, 기존 카운트 테스트 5→6 갱신).
+  **실제 빌드 CLI e2e**(mock 아님): 100일 파킹 잡→`reset-horizon` warning("1 job(s) … beyond the 8d horizon … e.g.
+  abc12345 (myproj) resets in 100d"), `AGENTRELAY_MAX_RESET_HORIZON=off`→"guard is disabled" OK 스킵, 2h 근접 리셋→
+  OK, `--json`에 reset-horizon 검사 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도 동일 먼-미래
+  파킹 잡 경고 노출(세션 31 하트비트 카드 패턴 재사용), 또는 `recover`가 먼-미래 파킹 잡을 자동 감지·재큐 대상으로
+  포함하는지 점검. README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.

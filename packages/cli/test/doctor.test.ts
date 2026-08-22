@@ -143,6 +143,65 @@ describe("runDoctor", () => {
     expect(report.ok).toBe(true);
   });
 
+  it("warns when a queued job is parked with a reset beyond the default horizon", () => {
+    const now = Date.parse("2026-08-21T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["node"], cwd: dir });
+    // 30 days out — well past the 8-day default horizon.
+    queue.markWaitingForReset(j.id, new Date(now + 30 * 24 * 60 * 60_000).toISOString());
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      // Real PATH so the "node" binary resolves and the adapters check stays OK
+      // (this test isolates the reset-horizon verdict, not PATH resolution).
+      env: { PATH: process.env.PATH, AGENTRELAY_SLACK_WEBHOOK: "https://s" },
+      nodeVersion: "v22.5.0",
+      nowMs: now,
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("warning");
+    expect(check.message).toContain("1 job(s)");
+    expect(report.ok).toBe(true); // warning doesn't fail the report
+  });
+
+  it("reports reset-horizon OK when a parked reset is within the horizon", () => {
+    const now = Date.parse("2026-08-21T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["node"], cwd: dir });
+    queue.markWaitingForReset(j.id, new Date(now + 2 * 60 * 60_000).toISOString()); // 2h out
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { PATH: process.env.PATH },
+      nodeVersion: "v22.5.0",
+      nowMs: now,
+    });
+    expect(find(report, "reset-horizon").level).toBe("ok");
+  });
+
+  it("skips the reset-horizon check when the guard is disabled via env", () => {
+    const now = Date.parse("2026-08-21T00:00:00.000Z");
+    const queue = new RelayQueue(storePath);
+    const j = queue.enqueue({ project: "p", tool: "claude-code", command: ["node"], cwd: dir });
+    queue.markWaitingForReset(j.id, new Date(now + 365 * 24 * 60 * 60_000).toISOString()); // 1 year out
+    queue.close();
+
+    const report = runDoctor({
+      storePath,
+      cwd: dir,
+      env: { AGENTRELAY_MAX_RESET_HORIZON: "off", PATH: process.env.PATH },
+      nodeVersion: "v22.5.0",
+      nowMs: now,
+    });
+    const check = find(report, "reset-horizon");
+    expect(check.level).toBe("ok");
+    expect(check.message).toMatch(/disabled/);
+  });
+
   it("reports store-writable OK for a writable store directory", () => {
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
     const writable = find(report, "store-writable");
