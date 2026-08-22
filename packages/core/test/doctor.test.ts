@@ -475,6 +475,9 @@ describe("runDiagnostics — reset-horizon check", () => {
     // The least-extreme (soonest) job is used as the example.
     expect(check?.message).toContain("near1");
     expect(check?.hint).toBeDefined();
+    // The hint must offer the one-shot bulk fix — plain `recover` does NOT
+    // touch far-future parked jobs, so pointing there alone would be misleading.
+    expect(check?.hint).toContain("recover --far-future");
     expect(report.ok).toBe(true); // warnings don't fail the report
   });
 

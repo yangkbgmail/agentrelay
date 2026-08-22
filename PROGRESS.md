@@ -2337,3 +2337,27 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드 far-future 카드에서 직접
   취소/재시도 액션(로컬 API route 필요), 또는 `doctor`/대시보드 경고 문구에 "run `agentrelay recover --far-future`"
   힌트를 명시적으로 추가. README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 76 — 중복 PR 루프 해소(#846 병합) + 먼-미래 fix 힌트 교정] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-wmsc0y`)
+- **중복 PR 루프 진단·해소:** 세션 시작 시 이번 세션도 세션 74 로그가 명시한 후속 후보(`recover --far-future`)를
+  구현했으나, CI 목록을 보니 **기억 없는 매시간 세션들이 같은 기능을 독립 재구현**해 기능적으로 동일한 초록 PR이
+  #844·#845·#846·(이번)#848로 4개 쌓여 있었다 — PROGRESS가 반복 경고해온 바로 그 중복 루프. COLLAB 병합 정책
+  (CI 초록 시 클로드 코드 병합 가능)과 과거 선례(세션 3·8·10·70이 루프를 끊은 방식)에 따라, 중복을 하나 더 쌓는
+  대신 `mergeable_state: clean`(base=최신 main af21ed5, CI success)이던 **#846을 main에 병합**(→5b552f0)해 기능을
+  랜딩하고, 나머지 3개(#844·#845·#848[이번 세션 것])를 사유 코멘트와 함께 닫았다.
+- **한 일 (branch `claude/wizardly-pascal-wmsc0y`, main=병합된 #846 위에서 재시작):** 병합된 `recover --far-future`의
+  **후속 정확성 수정** — #846이 main의 PROGRESS "다음 할 일"로 직접 명시한 항목("doctor/대시보드 경고 문구에
+  `agentrelay recover --far-future` 힌트 명시")을 채택. `recover --far-future`가 랜딩되기 전엔 doctor `reset-horizon`
+  warning과 대시보드 먼-미래 카드가 fix로 플래그 없는 `agentrelay recover`를 제시했는데, plain `recover`는 `resuming`
+  고아 잡만 회수하고 **먼-미래 파킹 잡은 안 건드린다** → 경고대로 쳐도 아무것도 안 고쳐지는 **오도(misleading) 힌트**.
+  - `packages/core/src/doctor.ts` `resetHorizonCheck` hint를 "Requeue them all with `agentrelay recover --far-future`
+    (plain `recover` won't — it only reclaims jobs stuck resuming). Or inspect one with `show`/`cancel`/`retry`."로 교체.
+  - `apps/dashboard/app/dashboard-client.tsx` `FarFutureResetsCard` 안내문도 동일 교정.
+  - core doctor.test에 hint가 `recover --far-future`를 포함하는지 단언 추가(오도 힌트 회귀 방지).
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과(**core 655 · cli
+  365/1skip · dashboard 13**). 실제 빌드 CLI `doctor` e2e로 120d 파킹 잡에 대해 교정된 힌트("Requeue them all with
+  `agentrelay recover --far-future` …") 출력 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). **중복 루프 주의** — `recover --far-future`는
+  이미 main에 있으니 재구현 금지. 후속 인접 후보 — 대시보드 far-future 카드에서 직접 재큐하는 로컬 API route(mutation),
+  또는 `recover`가 과거-지평선(수년 전 epoch) misparse도 신호로 보고. README/ARCHITECTURE(🧭 코워크). PR 포화 항목
+  (stats 분산/watch·summary --watch·epoch ms)은 지양.

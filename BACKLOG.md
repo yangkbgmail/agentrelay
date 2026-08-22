@@ -923,6 +923,18 @@
       attempts 0·err null·근접 2h 잡 보존)·`--json` farFuture 블록·`off` 스킵 검증. branch
       `claude/wizardly-pascal-w9pkuw`)
 
+- [x] 👷 먼-미래 리셋 경고의 fix 힌트를 `recover --far-future`로 교정(doctor + 대시보드). 자기 발굴 항목
+      (바로 위 `recover --far-future` 랜딩의 후속 정확성 수정). `recover --far-future`가 main에 들어오기 전엔
+      doctor `reset-horizon` warning과 대시보드 먼-미래 카드가 fix로 `agentrelay recover`(플래그 없이)를
+      제시했는데, plain `recover`는 `resuming` 고아 잡만 회수하고 **먼-미래 파킹 잡은 건드리지 않는다** — 즉
+      경고를 보고 안내대로 `recover`를 쳐도 아무것도 안 고쳐지는 **오도(misleading) 힌트**였다. 이제 존재하는
+      원커맨드 `agentrelay recover --far-future`를 명시적으로 가리키도록 양쪽 표면을 교정. (완료 —
+      `packages/core/src/doctor.ts` `resetHorizonCheck`의 hint를 "Requeue them all with `agentrelay recover
+      --far-future` (plain `recover` won't …). Or inspect one with `show`/`cancel`/`retry`."로 교체,
+      `apps/dashboard/app/dashboard-client.tsx` `FarFutureResetsCard` 안내문도 동일 교정. core doctor.test에
+      hint가 `recover --far-future`를 포함하는지 단언 추가. build/lint/test 통과(core 655·cli 365/1skip·
+      dashboard 13), 실제 빌드 CLI `doctor` e2e로 교정된 힌트 출력 확인. branch `claude/wizardly-pascal-wmsc0y`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

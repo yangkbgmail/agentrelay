@@ -141,9 +141,10 @@ function FarFutureResetsCard({ resetHorizon }: { resetHorizon: ResetHorizonSumma
         </span>
       </div>
       <div className="far-future-detail">
-        Likely misparsed — these won&apos;t resume for a long time. Inspect with <code>agentrelay show &lt;id&gt;</code>
-        , then <code>agentrelay cancel &lt;id&gt;</code> / <code>agentrelay retry &lt;id&gt;</code> (or{" "}
-        <code>agentrelay recover</code>).
+        Likely misparsed — these won&apos;t resume for a long time. Requeue them all with{" "}
+        <code>agentrelay recover --far-future</code> (plain <code>recover</code> won&apos;t — it only reclaims jobs
+        stuck resuming). Or inspect one with <code>agentrelay show &lt;id&gt;</code>, then{" "}
+        <code>agentrelay cancel &lt;id&gt;</code> / <code>agentrelay retry &lt;id&gt;</code>.
       </div>
       <ul className="far-future-list">
         {shown.map((job) => (
