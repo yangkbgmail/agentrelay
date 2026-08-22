@@ -498,7 +498,8 @@ function daemonCheck(heartbeat: HeartbeatFacts, store: StoreFacts): DiagnosticCh
  * ones that already made it into the queue (guard off at the time, a pre-guard
  * job, or a misparse). Such a job sits `waiting_for_reset` forever — exactly the
  * silent-failure class this tool keeps hunting — so it's a warning, with the
- * offending job(s) named so the user can `show`/`cancel`/`recover` them.
+ * offending job(s) named and the one-shot bulk fix (`recover --far-future`)
+ * offered.
  */
 function resetHorizonCheck(facts: ResetHorizonFacts): DiagnosticCheck {
   if (facts.horizonMs === null) {
@@ -525,7 +526,7 @@ function resetHorizonCheck(facts: ResetHorizonFacts): DiagnosticCheck {
     name: "reset-horizon",
     level: "warning",
     message: `${facts.jobs.length} job(s) parked with a reset beyond the ${horizon} horizon — likely misparsed, they won't resume for a long time: e.g. ${example}`,
-    hint: "Inspect with `agentrelay show <id>`, then `agentrelay cancel <id>` or `agentrelay retry <id>` (or `agentrelay recover`).",
+    hint: "Requeue them all with `agentrelay recover --far-future` (plain `recover` won't — it only reclaims jobs stuck resuming). Or inspect one with `agentrelay show <id>`, then `agentrelay cancel <id>` / `agentrelay retry <id>`.",
   };
 }
 
