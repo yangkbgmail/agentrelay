@@ -184,6 +184,19 @@
       tick-mode 하트비트 기록(cron 사용자도 생존 신호). `runDoctor`가 `nowMs` 주입 가능(테스트용).
       heartbeat.test.ts 13 + doctor daemon 6 + scheduler onTick 2 + CLI 7케이스, 실제 빌드 CLI로
       before/after·daemon 수명주기·stale 경고 e2e 검증. branch `claude/wizardly-pascal-hb7k2m`)
+- [x] 👷 로컬 파일 로그 알림자(`AGENTRELAY_NOTIFY_LOG`) — 큐 이벤트를 로컬 JSONL로 감사 기록.
+      (완료 — Slack/webhook(원격) 알림자의 **로컬 우선** 짝. `@agentrelay/core/notify.ts`에 순수
+      `formatFileLogLine`(이벤트→`{ts,event,project,jobId,message}` 한 줄 JSON+개행) +
+      `createFileNotifier`(`~` 확장·주입식 `appendFn`/`now`, append 실패는 `onError`로만 보내고 절대
+      throw 안 함 → 잘못된 경로·디스크 풀이 릴레이 루프를 못 깨뜨림) + `fileNotifierFromEnv`(미설정/
+      공백=null). `notifiersFromEnv` fan-out에 편입(Slack+webhook+file), `NotifyChannelKind`에 `"file"`
+      추가, `listNotifyChannels`가 파일 채널 열거, `sendTestNotification`이 파일 채널에 실제 테스트 줄을
+      기록(주입식 `appendFn`). config 시스템 배선(`notify.notifyLog`↔`AGENTRELAY_NOTIFY_LOG`:
+      parseConfig·configToEnv·CONFIG_FIELDS·CONFIG_ENV_KEYS·sampleConfig — "stays in sync" 테스트가 자동
+      커버). `doctor`의 notify 체크가 파일 로그를 채널로 인정. CLI `notify test`는 파일 경로를 비밀이
+      아니므로 마스킹 없이 노출. 실제 빌드 CLI e2e로 `notify test`가 JSONL 줄 기록·`doctor`가 "file log"
+      인정·`config show` 노출 확인. core notify.test +18/doctor.test +1(합계 core 649). branch
+      `claude/wizardly-pascal-50v2hg`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.

@@ -98,6 +98,8 @@ export interface NotifyFacts {
   slackWebhook?: string;
   /** Generic webhook endpoint, if set. */
   webhookUrl?: string;
+  /** Local JSONL event-log file path, if set. */
+  notifyLog?: string;
 }
 
 /**
@@ -465,12 +467,13 @@ function notifyCheck(notify: NotifyFacts): DiagnosticCheck {
   const channels: string[] = [];
   if (notify.slackWebhook?.trim()) channels.push("Slack");
   if (notify.webhookUrl?.trim()) channels.push("webhook");
+  if (notify.notifyLog?.trim()) channels.push("file log");
   if (channels.length === 0) {
     return {
       name: "notify",
       level: "warning",
       message: "no notification channel configured — you won't be alerted when a job resumes or fails",
-      hint: "Set AGENTRELAY_SLACK_WEBHOOK or AGENTRELAY_WEBHOOK_URL (optional).",
+      hint: "Set AGENTRELAY_SLACK_WEBHOOK, AGENTRELAY_WEBHOOK_URL, or AGENTRELAY_NOTIFY_LOG (optional).",
     };
   }
   return { name: "notify", level: "ok", message: `notifications on via ${channels.join(" + ")}` };

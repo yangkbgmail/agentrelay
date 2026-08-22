@@ -1481,6 +1481,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     notify: {
       slackWebhook: env.AGENTRELAY_SLACK_WEBHOOK,
       webhookUrl: env.AGENTRELAY_WEBHOOK_URL,
+      notifyLog: env.AGENTRELAY_NOTIFY_LOG,
     },
     adapters: { binaries },
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so

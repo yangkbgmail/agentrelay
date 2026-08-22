@@ -9,7 +9,7 @@ const RESET = "\x1b[0m";
 
 /** Message shown when `notify test` runs but no channels are configured. */
 export const NO_CHANNELS_MESSAGE =
-  "No notification channels configured. Set AGENTRELAY_SLACK_WEBHOOK and/or AGENTRELAY_WEBHOOK_URL (see `agentrelay config show`).";
+  "No notification channels configured. Set AGENTRELAY_SLACK_WEBHOOK, AGENTRELAY_WEBHOOK_URL, and/or AGENTRELAY_NOTIFY_LOG (see `agentrelay config show`).";
 
 /**
  * Renders the per-channel test-delivery results as a human-readable checklist.
@@ -33,7 +33,10 @@ export function renderTestNotifyResults(
 
   const lines: string[] = [b("notification test")];
   for (const result of results) {
-    const url = options.showSecrets ? result.channel.url : maskSecret(result.channel.url);
+    // A file-log path isn't a secret (and masking a path is just confusing), so
+    // show it verbatim; remote destination URLs stay masked unless --show-secrets.
+    const url =
+      options.showSecrets || result.channel.kind === "file" ? result.channel.url : maskSecret(result.channel.url);
     const mark = result.ok ? ok("✓") : bad("✗");
     const status = result.ok ? ok("delivered") : bad("FAILED");
     lines.push(`  ${mark} ${result.channel.label.padEnd(8)} ${status}  ${d(url)}`);
