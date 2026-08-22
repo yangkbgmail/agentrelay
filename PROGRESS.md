@@ -2449,3 +2449,23 @@
   completion(nushell #785) 등이 후보. ② `main`·열린 PR 양쪽에 없는 **진짜 신규** 영역에서만 기능 발굴
   (중복 재발 방지). ③ 근본 원인(거의 모든 PR이 BACKLOG/PROGRESS에 append → 하나 병합 시 나머지 전부 문서
   충돌)은 세션 60·78이 진단한 그대로 — 문서 append 충돌 완화 방안은 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 82 — `agentrelay run --max-attempts` 잡별 재시도 상한 오버라이드] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-nk49nz`)
+- **배경:** 세션 시작 시 BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 열린 PR을
+  ~200개 실측하니 세션 78~81이 경고한 "중복 PR 루프"가 지속 중(같은 기능 다중 재구현: `summary --watch` ~10회,
+  `eta --watch` ~8회, Gemini 어댑터 ~4회 등). 201번째 중복을 더하는 대신, main·열린 PR 200개 **양쪽에 부재**함을
+  전 제목 스캔으로 확인한 진짜 신규 영역만 골라 구현했다: **잡별 재시도 상한**(지금까지 상한은 전역
+  `AGENTRELAY_MAX_ATTEMPTS`로만 조정 가능 → 오래 도는 잡은 무제한·빨리 포기할 잡은 소수로 개별 지정 불가).
+- **한 일:** core `types.ts`에 optional `maxAttempts?`(RelayJob·CreateJobInput, 무마이그레이션 로드), `retry.ts`에
+  순수 `effectiveRetryPolicy(policy, override?)`(maxAttempts만 잡별로 접고 백오프 shape는 전역 유지, null/음수/
+  비유한은 무시, `0`=무제한, 동일값이면 원본 반환). `scheduler.resume`이 유효 정책을 산출해 rate-limit·transient
+  두 경로에 적용, `queue.enqueue`는 override 있을 때만 키 기록. CLI `run --max-attempts <n>`(비음 정수 검증→위반
+  exit 1)·`runCommand` 전달·`show` attempts 라인 `(max N)`/`(max unlimited)` 주석.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0경고, 122파일)→`pnpm test`
+  전 패키지 통과(**core 680 · cli 367/1skip · dashboard 13**). 새 유닛: retry 6 + scheduler 2(잡별 상한이
+  전역보다 엄격/느슨한 두 방향) + queue 2 + cli commands 2. 실제 빌드 CLI e2e로 무효값 exit 1·`--max-attempts 0`
+  큐잉·`show` 표기·`run --help` 노출 검증.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 열린 PR ~200개의 포화 축 추가 중복 스캔·
+  통합 정리 지속(파서 변종·watch 계열·Gemini/Aider 어댑터·completion nushell/powershell 등). ③ 신규 기능은
+  main·열린 PR 양쪽에 부재함을 전 제목 스캔으로 먼저 확인한 영역에서만 발굴(중복 재발 방지). README/ARCHITECTURE는
+  🧭 코워크 몫.

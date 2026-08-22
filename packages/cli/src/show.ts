@@ -90,7 +90,11 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
   if (job.resetAt !== null) {
     lines.push(`  ${label("resets in")} ${formatCountdown(job.resetAt, now)} ${d(`(${job.resetAt})`)}`);
   }
-  lines.push(`  ${label("attempts")} ${job.attempts}`);
+  const cap =
+    job.maxAttempts === undefined || job.maxAttempts === null
+      ? ""
+      : d(job.maxAttempts === 0 ? " (max unlimited)" : ` (max ${job.maxAttempts})`);
+  lines.push(`  ${label("attempts")} ${job.attempts}${cap}`);
 
   const detection = job.lastRateLimit;
   if (detection) {

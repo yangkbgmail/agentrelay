@@ -3,7 +3,7 @@ import { resolveAdapter } from "./adapters.js";
 import { mapWithConcurrency, normalizeMaxConcurrent } from "./concurrency.js";
 import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
 import type { RelayQueue } from "./queue.js";
-import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
+import { computeBackoffMs, DEFAULT_RETRY_POLICY, effectiveRetryPolicy, isRetryExhausted } from "./retry.js";
 import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
 
 export type Notifier = (payload: NotifyPayload) => void | Promise<void>;
@@ -189,6 +189,8 @@ export class RelayScheduler {
     this.queue.markResuming(job.id);
     // markResuming just bumped attempts; this is the attempt we're running now.
     const attemptNumber = job.attempts + 1;
+    // Fold in a per-job maxAttempts override (if any) over the global policy.
+    const retryPolicy = effectiveRetryPolicy(this.retryPolicy, job.maxAttempts);
     await this.notify({
       jobId: job.id,
       project: job.project,
@@ -207,8 +209,8 @@ export class RelayScheduler {
     // Rate limit takes priority over exit code: agent CLIs commonly exit
     // non-zero when they hit a limit, and that's an expected relay, not a crash.
     if (rateLimit) {
-      if (isRetryExhausted(this.retryPolicy, attemptNumber)) {
-        const msg = `Still rate-limited after ${attemptNumber} attempt(s); giving up (maxAttempts=${this.retryPolicy.maxAttempts}).`;
+      if (isRetryExhausted(retryPolicy, attemptNumber)) {
+        const msg = `Still rate-limited after ${attemptNumber} attempt(s); giving up (maxAttempts=${retryPolicy.maxAttempts}).`;
         this.queue.markFailed(job.id, msg, tail);
         await this.notify({ jobId: job.id, project: job.project, event: "failed", message: msg });
       } else {
@@ -243,12 +245,12 @@ export class RelayScheduler {
     // Transient failure (spawn error or non-zero exit with no rate-limit signal):
     // back off exponentially and retry, until the attempt cap is reached.
     const reason = error ? String(error) : `command exited with code ${exitCode}`;
-    if (isRetryExhausted(this.retryPolicy, attemptNumber)) {
+    if (isRetryExhausted(retryPolicy, attemptNumber)) {
       const msg = `Failed after ${attemptNumber} attempt(s): ${reason}`;
       this.queue.markFailed(job.id, msg, tail);
       await this.notify({ jobId: job.id, project: job.project, event: "failed", message: msg });
     } else {
-      const delayMs = computeBackoffMs(this.retryPolicy, attemptNumber, this.rng);
+      const delayMs = computeBackoffMs(retryPolicy, attemptNumber, this.rng);
       const retryAt = new Date(referenceTime.getTime() + delayMs).toISOString();
       this.queue.markRetryScheduled(
         job.id,

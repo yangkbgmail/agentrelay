@@ -268,6 +268,52 @@ describe("RelayScheduler", () => {
     expect(result.status).toBe("waiting_for_reset");
   });
 
+  it("honors a per-job maxAttempts override that is stricter than the global cap", async () => {
+    // Global cap is generous (10), but this job asked to give up after 1.
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+      maxAttempts: 1,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnWith({ output: "Usage limit reached. Resets in 2h." }),
+      retryPolicy: { maxAttempts: 10, baseDelayMs: 1000, factor: 2, maxDelayMs: 10_000, jitter: 0 },
+    });
+
+    // This is attempt 1 == the job's override -> failed, not re-queued.
+    const [result] = await scheduler.tick();
+    expect(result.status).toBe("failed");
+    expect(result.lastError).toContain("maxAttempts=1");
+  });
+
+  it("honors a per-job maxAttempts override of 0 (unlimited) over a strict global cap", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+      maxAttempts: 0,
+    });
+    queue.markResuming(job.id);
+    queue.markResuming(job.id); // attempts -> 2, past the global cap of 1
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnWith({ output: "Usage limit reached. Resets in 2h." }),
+      retryPolicy: { maxAttempts: 1, baseDelayMs: 1000, factor: 2, maxDelayMs: 10_000, jitter: 0 },
+    });
+
+    // Global cap would fail this at attempt 3, but the job opted out (0 = unlimited).
+    const [result] = await scheduler.tick();
+    expect(result.status).toBe("waiting_for_reset");
+  });
+
   it("auto-prunes finished jobs after a tick (age 0), leaving active jobs untouched", async () => {
     const done = queue.enqueue({ project: "done", tool: "claude-code", command: ["x"], cwd: dir });
     queue.markCompleted(done.id, "done");
