@@ -15,6 +15,7 @@ import {
   jobsToJson,
   jobsToMarkdown,
   jobsToNdjson,
+  neutralizeCsvInjection,
   parseCsvColumns,
 } from "../src/export.js";
 import type { RelayJob } from "../src/types.js";
@@ -119,6 +120,47 @@ describe("jobsToCsv", () => {
   it("honors a custom column subset and order", () => {
     const csv = jobsToCsv([job({ id: "x", status: "queued" })], { columns: ["status", "id"] });
     expect(csv).toBe("status,id\nqueued,x");
+  });
+
+  it("neutralizes a formula-injection payload in a data cell by default", () => {
+    const csv = jobsToCsv([job({ lastError: "=HYPERLINK('http://evil','click')" })], {
+      columns: ["id", "lastError"],
+      header: false,
+    });
+    // Prefixed with ' (text marker) AND RFC-4180 quoted because of the comma.
+    expect(csv).toBe(`job-${seq},"'=HYPERLINK('http://evil','click')"`);
+  });
+
+  it("leaves the header row untouched (column names are safe)", () => {
+    const csv = jobsToCsv([], { columns: ["lastError", "id"] });
+    expect(csv).toBe("lastError,id"); // no leading quote injected on the header
+  });
+
+  it("can be opted out with sanitizeFormulas:false for byte-exact fields", () => {
+    const csv = jobsToCsv([job({ project: "@handle" })], {
+      columns: ["project"],
+      header: false,
+      sanitizeFormulas: false,
+    });
+    expect(csv).toBe("@handle");
+  });
+});
+
+describe("neutralizeCsvInjection", () => {
+  it("prefixes a single quote before each formula-trigger leader", () => {
+    for (const lead of ["=", "+", "-", "@", "\t", "\r"]) {
+      expect(neutralizeCsvInjection(`${lead}danger`)).toBe(`'${lead}danger`);
+    }
+  });
+
+  it("leaves values that don't start with a trigger untouched", () => {
+    expect(neutralizeCsvInjection("claude -p go")).toBe("claude -p go");
+    expect(neutralizeCsvInjection("2026-08-22T00:00:00Z")).toBe("2026-08-22T00:00:00Z");
+    expect(neutralizeCsvInjection("")).toBe("");
+  });
+
+  it("only guards the leading character, not internal operators", () => {
+    expect(neutralizeCsvInjection("a=b+c")).toBe("a=b+c");
   });
 });
 

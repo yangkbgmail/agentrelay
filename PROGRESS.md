@@ -2429,3 +2429,27 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책: CI 초록 → 클로드 코드 병합). ② 나머지 ~90개
   열린 PR 중 **reset-horizon doctor 검사(수십 개 중복)**·**config schema**·**completion nushell/powershell** 등
   포화 축의 추가 중복 스캔·정리 지속. ③ 신규 기능은 열린 PR·main 양쪽에 없는 영역에서만 발굴. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 80 — CSV export 스프레드시트 수식 인젝션(CSV injection) 하드닝] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-noj4zj`)
+- **맥락:** 직전 세션에서 열었던 PR #764(doctor reset-horizon)는 이미 다른 브랜치로 병합·통합된 동일
+  기능의 **중복**이라 병합 없이 닫혔음(main에 `selectFarFutureResets`·대시보드 카드·`recover --far-future`
+  존재 확인). 열린 PR ~100개가 파서/CLI/알림/대시보드/stats/metrics 전 영역을 포화시킨 상태라, 어떤
+  열린 PR에도 없고(제목 전수 스캔) 되돌리기·이관 리스크가 낮은 **보안 하드닝** 갭을 골랐다.
+- **항목 선정(👷):** `export`의 CSV 출력은 RFC 4180 구조 이스케이프는 완벽하지만 **스프레드시트 수식
+  인젝션**(CSV injection)은 무방비. 잡의 `lastError`/`command`는 신뢰 불가한 에이전트 출력(레포 파일·웹·툴
+  결과)을 그대로 담을 수 있어, `=HYPERLINK(...)`/`+cmd|...` 같은 값이 CSV를 Excel/Sheets에서 열 때 수식으로
+  실행됨(OWASP "CSV Injection").
+- **한 일 (branch `claude/wizardly-pascal-noj4zj`):**
+  - core `export.ts`: 순수 헬퍼 `neutralizeCsvInjection(value)` 추가 — 값이 수식 트리거 문자(`= + - @` 및
+    선행 탭/CR)로 시작하면 앞에 홑따옴표(`'`, 스프레드시트의 "텍스트로 취급" 마커)를 붙임. `jobsToCsv`
+    데이터 셀에 **기본 적용**(헤더 행은 고정 안전 컬럼명이라 미적용). `CsvOptions.sanitizeFormulas?`(기본
+    true)로 옵트아웃 가능(awk/cut용 바이트-정확 필드가 필요할 때). **CSV에만** 적용 — JSON/NDJSON(유일하게
+    import 가능한 무손실 포맷)과 HTML/MD(자체 이스케이프)는 불변이라 머신 라운드트립 무영향.
+  - CLI 변경 0줄(`export --format csv`가 기본 안전 동작을 그대로 상속).
+- **검증:** `pnpm build`(클린)→`pnpm lint:fix`+`ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과
+  (**core 676 · cli 365/1skip · dashboard 13**; export.test +7). **실제 빌드 CLI e2e**: `lastError`가
+  `=HYPERLINK("http://evil","click")`인 잡을 시딩 → `export --format csv`는 `"'=HYPERLINK(...)"`(홑따옴표
+  선행 + RFC-4180 인용)로 무력화, `export --format json`은 원본 그대로(무손실) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 동일 위협을 겪는 다른
+  출력 경로 점검(대시보드는 React가 escape하므로 안전), `import`의 방어적 검증 강화. 파서/watch/stats류는
+  PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).

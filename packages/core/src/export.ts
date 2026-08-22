@@ -83,6 +83,34 @@ export function escapeCsvField(value: string): string {
   return value;
 }
 
+/**
+ * The leading characters that make a spreadsheet (Excel, LibreOffice, Google
+ * Sheets) interpret a cell as a *formula* rather than text: the four operators
+ * `= + - @`, plus a leading tab or carriage return that some apps strip before
+ * re-testing the first character. See OWASP "CSV Injection".
+ */
+const CSV_FORMULA_TRIGGERS = new Set(["=", "+", "-", "@", "\t", "\r"]);
+
+/**
+ * Neutralize a would-be CSV formula so a spreadsheet treats the cell as literal
+ * text. A job's `lastError` or `command` can echo *untrusted* agent output — a
+ * repo file, a web page, a tool result — and a value like `=HYPERLINK(...)` or
+ * `+cmd|'/c calc'!A1` would execute on open. When the value starts with a
+ * {@link CSV_FORMULA_TRIGGERS formula trigger}, we prefix a single quote (the
+ * canonical "treat as text" marker), which the spreadsheet consumes and hides.
+ *
+ * This intentionally mutates the value, so it's applied only to CSV — the lossy,
+ * human/spreadsheet-facing export. The lossless machine formats (JSON/NDJSON,
+ * the only *importable* ones) round-trip byte-for-byte and are never touched, so
+ * the store can still be moved between machines exactly.
+ */
+export function neutralizeCsvInjection(value: string): string {
+  if (value.length > 0 && CSV_FORMULA_TRIGGERS.has(value[0])) {
+    return `'${value}`;
+  }
+  return value;
+}
+
 /** Render a single job field as the flat string that lands in its CSV cell. */
 export function jobCsvValue(job: RelayJob, column: JobCsvColumn): string {
   switch (column) {
@@ -105,6 +133,14 @@ export interface CsvOptions {
   columns?: readonly JobCsvColumn[];
   /** Emit a header row of column names. Defaults to true. */
   header?: boolean;
+  /**
+   * Neutralize spreadsheet formula injection in data cells (see
+   * {@link neutralizeCsvInjection}). Defaults to `true` — safe by default, since
+   * a CSV is meant to be opened in a spreadsheet. Set `false` only when you need
+   * byte-exact field values (e.g. feeding the CSV straight into `awk`/`cut` and
+   * you trust the contents).
+   */
+  sanitizeFormulas?: boolean;
 }
 
 /**
@@ -112,15 +148,21 @@ export interface CsvOptions {
  * caller is responsible for choosing the job set/order — pass an already
  * filtered/sorted array. An empty job list still yields the header row (unless
  * `header: false`), so downstream tools see the schema rather than an empty file.
+ *
+ * Data cells are hardened against spreadsheet formula injection by default (see
+ * {@link CsvOptions.sanitizeFormulas}); the header row is a fixed set of safe
+ * column names, so it's escaped but never formula-neutralized.
  */
 export function jobsToCsv(jobs: RelayJob[], options: CsvOptions = {}): string {
   const columns = options.columns ?? JOB_CSV_COLUMNS;
+  const sanitize = options.sanitizeFormulas !== false;
+  const cell = (value: string) => escapeCsvField(sanitize ? neutralizeCsvInjection(value) : value);
   const rows: string[] = [];
   if (options.header !== false) {
     rows.push(columns.map(escapeCsvField).join(","));
   }
   for (const job of jobs) {
-    rows.push(columns.map((col) => escapeCsvField(jobCsvValue(job, col))).join(","));
+    rows.push(columns.map((col) => cell(jobCsvValue(job, col))).join(","));
   }
   return rows.join("\n");
 }
