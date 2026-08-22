@@ -2388,3 +2388,23 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). **중복 루프 주의** — 파서/reset-horizon은
   이미 PR 포화이니 재구현 금지. 후속 인접 후보 — `config init`이 생성하는 샘플 파일에 `"$schema"` 라인을 선택적으로
   추가(에디터 즉시 연동), 또는 스키마를 리포지토리 정적 파일로도 발행. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 78 — PR 적체 통합: 중복 8개 정리 + #850(config schema) 병합] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-dhodhg`)
+- **배경:** 세션 시작 시 👷 백로그 항목은 전부 완료, 열린 PR **40개**가 적체. 세션 76이 경고한 **중복 PR 루프**가
+  재발 — 기억 없는 매시간 세션들이 **이미 main에 병합된 기능**을 독립 재구현해 초록 PR을 쌓고 있었다. 새 41번째
+  기능 PR을 더하는 대신, PROGRESS 세션 60/61/63/76의 **통합(consolidation) 정책**을 따라 큐를 배수했다.
+- **중복 정리(8개 close):** main 대비 실제 코드 diff로 검증해, **main에 이미 있는 기능의 중복**만 사유 코멘트와
+  함께 닫았다(되살릴 필요 시 reopen 가능).
+  - `reset-horizon` doctor 검사(이미 main #835 `resetHorizonCheck`) 재구현 5개: **#833·#823·#813·#807·#804**.
+  - `recover --far-future`/먼-미래 파킹 잡 회수(이미 main #846 `recover.ts`) 재구현 3개: **#842·#840·#837**.
+- **forward progress(#850 병합):** 남은 PR 중 **완전 clean(문서 충돌 없음) + CI 초록 + 비중복** 신규 기능을 골라
+  main에 랜딩 — **#850 `agentrelay config schema`**(JSON Schema draft-07 출력, 에디터 실시간 검증/자동완성).
+  COLLAB 병합 정책(CI 초록 → 클로드 코드 병합)에 근거. → main `8cf5dcf`.
+- **#851은 다음 세션 몫:** `agentrelay watch`(통합 라이브 관제탑)도 CI 초록·코드 clean이나, #850 병합 직후
+  BACKLOG/PROGRESS **문서 append 충돌**이 생겼다(코드는 clean). 세션의 지정 브랜치 제약상 타 브랜치에 push하지
+  않았다 — 문서 리베이스만 하면 바로 병합 가능.
+- **근본 원인 재확인:** 거의 모든 PR이 `BACKLOG.md`/`PROGRESS.md`에 append하므로, 하나를 병합하면 나머지 전부가
+  문서 충돌로 바뀐다(세션 60이 진단한 그대로). 이 때문에 매시간 clean PR은 1~2개뿐이고 큐가 계속 자란다.
+- **다음 할 일:** ① #851 문서 충돌만 리베이스해 병합. ② 남은 ~30개 중 `main`에 이미 병합된 기능의 추가 중복
+  스캔·정리(파서 계열 특히). ③ 신규 기능은 **열린 PR·main 양쪽에 없는** 영역에서만 발굴(중복 재발 방지).
+  README/ARCHITECTURE는 🧭 코워크 몫.
