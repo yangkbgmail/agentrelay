@@ -9,7 +9,7 @@ import type {
   ToolBreakdown,
 } from "@agentrelay/core";
 import { useEffect, useState } from "react";
-import type { JobsSnapshot, ResetHorizonSummary } from "../lib/jobs";
+import type { JobsSnapshot, OverdueSummary, ResetHorizonSummary } from "../lib/jobs";
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -70,6 +70,23 @@ function formatLongDuration(ms: number): string {
   if (days < 365) return `${days}d`;
   const years = Math.round(days / 365);
   return `${years}y`;
+}
+
+/**
+ * Compact "how far behind" span for an overdue job (minutes → days), e.g.
+ * "12m", "2h 10m", "3d 4h". Unlike {@link formatCountdown} this always counts
+ * up from a past reset, and unlike {@link formatLongDuration} it keeps
+ * minute-level detail — an overdue job may only be a few minutes past due.
+ */
+function formatOverdueBy(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "0m";
+  const totalMinutes = Math.floor(ms / 60_000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
 }
 
 const HEARTBEAT_META: Record<HeartbeatStatus["state"], { label: string; colorVar: string }> = {
@@ -155,6 +172,46 @@ function FarFutureResetsCard({ resetHorizon }: { resetHorizon: ResetHorizonSumma
         ))}
       </ul>
       {overflow > 0 && <div className="far-future-more">+{overflow} more</div>}
+    </section>
+  );
+}
+
+/**
+ * Warns about resumes the relay has fallen behind on: `waiting_for_reset` jobs
+ * whose reset time passed more than the grace window ago, ranked most-behind
+ * first. This is the dashboard mirror of `agentrelay overdue`, reusing the exact
+ * `buildOverdueReport` facts computed server-side in the snapshot, so the browser
+ * view never drifts from the CLI. Where {@link ResumeLoopCard} answers "is the
+ * loop alive?", this answers "which jobs is it not draining, and how far behind?"
+ * — a distinct alarm that fires even when the heartbeat looks healthy (a resume
+ * that keeps failing to spawn, or a concurrency cap starving the backlog).
+ * Renders nothing when nothing is overdue — a caught-up relay stays quiet.
+ */
+function OverdueJobsCard({ overdue }: { overdue: OverdueSummary | undefined }) {
+  if (!overdue || overdue.totalOverdue === 0) return null;
+  const shown = overdue.jobs;
+  const overflow = overdue.totalOverdue - shown.length;
+
+  return (
+    <section className="overdue concerning" aria-label="Jobs overdue to resume">
+      <div className="overdue-head">
+        <span className="dot" style={{ background: "var(--status-critical)" }} aria-hidden />
+        <span className="overdue-label">{overdue.totalOverdue} job(s) overdue to resume</span>
+      </div>
+      <div className="overdue-detail">
+        These came due but nothing resumed them. Check the resume loop is running (<code>agentrelay daemon</code>) and
+        the agent binary is on <code>PATH</code> (<code>agentrelay doctor</code>).
+      </div>
+      <ul className="overdue-list">
+        {shown.map((job) => (
+          <li key={job.id}>
+            <code className="overdue-id">{job.id.slice(0, 8)}</code>
+            <span className="overdue-project">{job.project}</span>
+            <span className="overdue-by numeric">overdue {formatOverdueBy(job.overdueByMs)}</span>
+          </li>
+        ))}
+      </ul>
+      {overflow > 0 && <div className="overdue-more">+{overflow} more</div>}
     </section>
   );
 }
@@ -333,6 +390,7 @@ export default function DashboardClient() {
 
       <ResumeLoopCard heartbeat={snapshot?.heartbeat} />
       <FarFutureResetsCard resetHorizon={snapshot?.resetHorizon} />
+      <OverdueJobsCard overdue={snapshot?.overdue} />
 
       <section className="tile-row" aria-label="Queue summary">
         <div className="tile">

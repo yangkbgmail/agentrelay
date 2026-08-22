@@ -371,3 +371,76 @@ details.tail pre {
   color: var(--ink-muted);
   font-size: 12px;
 }
+
+.overdue {
+  margin: 16px 0 0;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--hairline);
+  border-radius: 10px;
+}
+
+.overdue.concerning {
+  border-left-color: var(--status-critical);
+}
+
+.overdue-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.overdue-label {
+  font-weight: 600;
+}
+
+.overdue-detail {
+  margin-top: 2px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.overdue-detail code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--page);
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.overdue-list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.overdue-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.overdue-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ink-secondary);
+}
+
+.overdue-project {
+  color: var(--ink);
+}
+
+.overdue-by {
+  margin-left: auto;
+  color: var(--status-critical);
+}
+
+.overdue-more {
+  margin-top: 6px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}

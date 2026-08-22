@@ -8,6 +8,7 @@ import type {
   ToolsSummary,
 } from "@agentrelay/core";
 import {
+  buildOverdueReport,
   countActiveJobs,
   daemonHeartbeatPath,
   defaultStorePath,
@@ -20,6 +21,21 @@ import {
   summarizeProjects,
   summarizeTools,
 } from "@agentrelay/core";
+
+/**
+ * Grace window (ms) before a due-but-not-resumed job is called *overdue* on the
+ * dashboard. A `waiting_for_reset` job whose reset time just passed is picked up
+ * on the resume loop's next pass, so flagging it the instant it comes due would
+ * false-alarm on ordinary inter-tick lag — a 30s daemon poll, or a cron-driven
+ * `tick` running every few minutes. Ten minutes sits comfortably beyond both, so
+ * only jobs the loop has *genuinely* fallen behind on surface here. (The CLI's
+ * `agentrelay overdue` defaults to no grace for exactness; the always-on
+ * dashboard wants the quieter threshold so a healthy relay's card stays empty.)
+ */
+export const DASHBOARD_OVERDUE_GRACE_MS = 10 * 60_000;
+
+/** How many overdue rows the snapshot carries (the card shows the worst few). */
+const OVERDUE_LIMIT = 5;
 
 export interface JobsSnapshot {
   storePath: string;
@@ -53,6 +69,36 @@ export interface JobsSnapshot {
    * / `maxResetHorizonMsFromEnv`, so it never drifts from `doctor`.
    */
   resetHorizon: ResetHorizonSummary;
+  /**
+   * `waiting_for_reset` jobs whose reset time passed more than
+   * {@link DASHBOARD_OVERDUE_GRACE_MS} ago — the resume loop *should* have picked
+   * them up by now but hasn't. Where the heartbeat card asks "is the loop
+   * alive?", this asks the job-level question "which resumes has it fallen behind
+   * on, and how far?" — a signal that fires even when the loop looks alive but
+   * isn't draining (spawn failures, concurrency starvation). Mirror of
+   * `agentrelay overdue`, reusing core's `buildOverdueReport` so it never drifts.
+   */
+  overdue: OverdueSummary;
+}
+
+/** One overdue row for the dashboard card — lean projection of a job. */
+export interface OverdueJob {
+  /** The job's id (enough to `agentrelay show <id>` it). */
+  id: string;
+  /** The job's project label, for a human-legible listing. */
+  project: string;
+  /** How long ago (ms) its reset time passed — always beyond the grace window. */
+  overdueByMs: number;
+}
+
+/** The dashboard's view of {@link readJobsSnapshot}'s overdue check. */
+export interface OverdueSummary {
+  /** The worst-overdue jobs (most-behind first), capped at {@link OVERDUE_LIMIT}. */
+  jobs: OverdueJob[];
+  /** Total overdue jobs before the cap — drives the "+N more" line. */
+  totalOverdue: number;
+  /** The grace window (ms) applied — see {@link DASHBOARD_OVERDUE_GRACE_MS}. */
+  graceMs: number;
 }
 
 /** The dashboard's view of {@link readJobsSnapshot}'s reset-horizon check. */
@@ -100,6 +146,26 @@ function readResetHorizonSummary(jobs: RelayJob[], now: Date): ResetHorizonSumma
 }
 
 /**
+ * Finds the resumes the relay has fallen behind on: `waiting_for_reset` jobs due
+ * more than {@link DASHBOARD_OVERDUE_GRACE_MS} ago. Pure reuse of core's
+ * `buildOverdueReport` (the same function `agentrelay overdue` runs), so the
+ * dashboard and CLI agree on what "overdue" means. Capped to a handful of the
+ * worst offenders for the card; `totalOverdue` keeps the honest count.
+ */
+function readOverdueSummary(jobs: RelayJob[], nowMs: number): OverdueSummary {
+  const report = buildOverdueReport(jobs, nowMs, { graceMs: DASHBOARD_OVERDUE_GRACE_MS, limit: OVERDUE_LIMIT });
+  return {
+    jobs: report.entries.map((entry) => ({
+      id: entry.job.id,
+      project: entry.job.project,
+      overdueByMs: entry.overdueByMs,
+    })),
+    totalOverdue: report.totalOverdue,
+    graceMs: report.graceMs,
+  };
+}
+
+/**
  * Reads the shared JSON job store from disk. This is the dashboard's whole
  * "backend": the API route calls this on every poll, so the page always
  * reflects what the CLI/daemon last wrote (no separate server, no cache).
@@ -118,5 +184,6 @@ export function readJobsSnapshot(storePath: string = defaultStorePath()): JobsSn
     tools: summarizeTools(jobs),
     heartbeat: readHeartbeatStatus(storePath, jobs, nowMs),
     resetHorizon: readResetHorizonSummary(jobs, new Date(nowMs)),
+    overdue: readOverdueSummary(jobs, nowMs),
   };
 }

@@ -2309,3 +2309,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recover`가 먼-미래 파킹 잡을
   자동 감지·재큐 대상으로 포함하는지 점검, 또는 대시보드 카드에서 직접 취소/재시도 액션(로컬 API route 필요).
   README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 75 — 대시보드 overdue(재개 지연) 잡 경고 카드] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-8sxpjz`)
+- **항목 선정:** BACKLOG 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 문서/리서치뿐). 열린 PR 30개를
+  제목 스캔해 포화 클러스터(recover --far-future 6개·파서 변형 다수·stats wait-time·notify log/filter/timeout·
+  run --dry-run/--queued-exit-code·schedule·priority·reset-margin·resets·eta/show --watch·provenance·store 0600·
+  lost-update)를 피했다. 세션 73/74가 확립한 패턴(silent-failure 부류를 CLI 커맨드 → 대시보드 카드로 미러)을
+  이어, **어떤 열린 PR에도 없는** 갭을 발굴: `agentrelay overdue`(재개가 밀린 `waiting_for_reset` 잡)는 CLI엔
+  있지만 상시 떠 있는 대시보드에는 노출이 없었다. 하트비트 카드는 "루프 생존"만 보므로, 루프가 살아 있어도
+  배수로 밀리는(spawn 실패·concurrency 기아) 잡은 GUI에서 안 보였다.
+- **한 일 (branch `claude/wizardly-pascal-8sxpjz`):**
+  - `apps/dashboard/lib/jobs.ts`: 스냅샷에 `overdue: OverdueSummary{jobs,totalOverdue,graceMs}` 추가. core의
+    순수 `buildOverdueReport`(=CLI `overdue`와 동일 함수)를 그대로 재사용 → CLI와 절대 드리프트 안 함.
+    대시보드는 3초 폴링이라 방금 due된 잡을 오탐하지 않도록 `DASHBOARD_OVERDUE_GRACE_MS`(10분, 데몬 30s
+    폴링·cron tick 간격을 여유 있게 초과) 문서화 상수를 grace로 적용(CLI는 정확성 위해 grace 0 기본,
+    대시보드는 깨끗한 큐가 조용하도록 더 조용한 임계값). 카드용으로 최대 5개 캡, `totalOverdue`는 정직한 전체 수.
+  - `apps/dashboard/app/dashboard-client.tsx`: `OverdueJobsCard` 추가 — far-future 카드와 동일 "concerning"
+    경고 패턴, 가장 밀린 잡부터 최대 5개(+N more)·id 8자·프로젝트·`overdue Nm / Nh Nm / Nd Nh`(분→일 컴팩트
+    `formatOverdueBy` 신설; 카운트다운과 달리 과거에서 카운트업, formatLongDuration과 달리 분 단위 유지)·
+    `daemon`/`doctor` 힌트. overdue 0개면 렌더 안 함(조용). `<FarFutureResetsCard>` 바로 아래 배치.
+  - `apps/dashboard/app/globals.css`: `.overdue*` 스타일(far-future 톤 미러, 좌측 위험색 보더).
+- **검증:** `pnpm install`→`pnpm build`(Next 타입체크 포함 클린)→`pnpm ci:lint`(Biome 0에러; JSX 리플로우 1건
+  `lint:fix`로 정리)→`pnpm test` 전 패키지 통과(**core 649 · cli 357/1skip · dashboard 18**; dashboard +5:
+  1h 지연 플래그·1분 grace 내 미플래그·미래 리셋 미플래그·종료 잡 미플래그·빈 스토어). 새 core 코드 0줄
+  (전부 검증된 `buildOverdueReport` 재사용). 실제 스토어 시드 → `readJobsSnapshot`(=`/api/jobs` 라우트가 매
+  폴링 호출하는 바로 그 함수) e2e로 90분 밀린 잡이 `overdue`에 실려 나오는 것 검증(백그라운드 `next start`는
+  이 샌드박스에서 차단[exit 144]돼, 동일 데이터 경로를 유닛 e2e로 확인).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드 카드에서 직접
+  취소/재시도/recover 액션(로컬 API route 필요), 또는 `recover`가 먼-미래/overdue 잡을 자동 감지·재큐 대상에
+  포함하는지 점검. README/ARCHITECTURE(🧭 코워크). PR 포화 항목(recover --far-future·파서 변형·stats 분산/
+  watch·notify·run 플래그)은 지양.

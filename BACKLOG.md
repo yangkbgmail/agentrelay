@@ -902,6 +902,21 @@
       +4(먼-미래 플래그·근접 미플래그·종료 잡 미플래그·빈 스토어). branch
       `claude/dashboard-reset-horizon-card`)
 
+- [x] 👷 대시보드 overdue(재개 지연) 잡 경고 카드 — CLI `agentrelay overdue`를 로컬 대시보드에도
+      노출. 자기 발굴 항목(세션 74 하트비트/reset-horizon 카드의 후속). 하트비트 카드는 "루프가 살아있나?"를
+      묻지만, overdue는 "루프가 어떤 재개를 놓치고 있고 얼마나 밀렸나?"라는 잡 단위 질문에 답한다 — 루프가
+      살아있어 보여도 배수(spawn 실패·concurrency 기아)로 밀리는 상황까지 잡는 별개 신호.
+      (완료 — `apps/dashboard/lib/jobs.ts`가 core `buildOverdueReport`(=`agentrelay overdue`와 동일 함수)를
+      스냅샷에서 재사용해 `overdue:{jobs,totalOverdue,graceMs}` 필드 추가. 대시보드는 상시 폴링이라 방금
+      due된 잡을 오탐하지 않도록 `DASHBOARD_OVERDUE_GRACE_MS`(10분, 데몬 30s 폴링·cron tick 간격을 여유
+      있게 초과) 문서화 상수를 grace로 적용 → 진짜 밀린 잡만 표시(CLI는 정확성 위해 grace 0 기본, 대시보드는
+      깨끗한 큐가 조용하도록 더 조용한 임계값). `dashboard-client.tsx`에 `OverdueJobsCard` 추가: far-future
+      카드와 동일한 "concerning" 경고 패턴, 가장 밀린 잡부터 최대 5개(+N more)·id 8자·프로젝트·`overdue Nm/Nh Nm/Nd Nh`
+      (분→일 컴팩트 `formatOverdueBy` 신설)·`daemon`/`doctor` 힌트. overdue 0개면 렌더 안 함(조용). CSS
+      `.overdue*` 추가(위험색 좌측 보더). 순수 로직은 전부 core 재사용이라 CLI overdue와 절대 드리프트 안 함.
+      dashboard test +5(1h 지연 플래그·1분 grace 내 미플래그·미래 리셋 미플래그·종료 잡 미플래그·빈 스토어).
+      실제 스토어 시드 → `readJobsSnapshot`(=API 라우트 경로) e2e 검증. branch `claude/wizardly-pascal-8sxpjz`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
