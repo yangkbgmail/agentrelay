@@ -1,3 +1,4 @@
+import { type FarFutureResetJob, selectFarFutureResets } from "./doctor.js";
 import type { RelayJob } from "./types.js";
 
 /**
@@ -98,5 +99,64 @@ export function selectStuckResumingJobs(jobs: RelayJob[], options: StuckResuming
     resuming,
     stuckAfterMs,
     stuck: stuck.map((entry) => entry.job),
+  };
+}
+
+/**
+ * The second class of silent failure this command reclaims: jobs *parked* with
+ * an implausibly far-future `resetAt`.
+ *
+ * `doctor`'s reset-horizon check surfaces these — an active job whose reset time
+ * sits beyond the plausibility horizon — but until now the only remedies were a
+ * per-id `cancel`/`retry`. This module is the pure half of the `recover
+ * --far-future` fix: given the job list, an injected `now`, and the horizon,
+ * pick the `waiting_for_reset` jobs whose reset is too far out to ever resume in
+ * a sane window, so the CLI can pull them forward to run now.
+ *
+ * A far-future `resetAt` only *blocks* a `waiting_for_reset` job — a `queued`
+ * job is already due and a `resuming` one may be live — so recovery restricts to
+ * `waiting_for_reset` even though {@link selectFarFutureResets} (shared with
+ * `doctor`) considers every active status. The horizon judgment itself is
+ * delegated to that function so this surface and `doctor` never drift.
+ */
+export interface FarFutureRecoverReport {
+  /** Total jobs considered (after any scope filter the caller applied). */
+  total: number;
+  /** Jobs currently `waiting_for_reset`, before the horizon test. */
+  parked: number;
+  /**
+   * The horizon (ms) judged against. A non-positive / non-finite value means
+   * "no guard" — {@link selectFarFutureResets} then returns nothing, so
+   * {@link farFuture} is empty (nothing is "too far" without a bound).
+   */
+  horizonMs: number;
+  /**
+   * The `waiting_for_reset` jobs whose `resetAt` is beyond the horizon —
+   * eligible to pull forward. In {@link selectFarFutureResets} order.
+   */
+  farFuture: FarFutureResetJob[];
+}
+
+export interface FarFutureRecoverOptions {
+  /** Reference "now" the reset times are measured against. */
+  now: Date;
+  /** The plausibility horizon (ms). Beyond `now + horizonMs` counts as far-future. */
+  horizonMs: number;
+}
+
+/**
+ * Identify `waiting_for_reset` jobs parked with an implausibly far-future
+ * `resetAt`. Pure and non-mutating — reuses the same horizon judgment as
+ * `doctor` ({@link selectFarFutureResets}) so the two surfaces agree on what
+ * "too far" means.
+ */
+export function selectFarFutureParkedJobs(jobs: RelayJob[], options: FarFutureRecoverOptions): FarFutureRecoverReport {
+  const parkedJobs = jobs.filter((job) => job.status === "waiting_for_reset");
+  const farFuture = selectFarFutureResets(parkedJobs, { now: options.now, horizonMs: options.horizonMs });
+  return {
+    total: jobs.length,
+    parked: parkedJobs.length,
+    horizonMs: options.horizonMs,
+    farFuture,
   };
 }

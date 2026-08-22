@@ -525,7 +525,7 @@ function resetHorizonCheck(facts: ResetHorizonFacts): DiagnosticCheck {
     name: "reset-horizon",
     level: "warning",
     message: `${facts.jobs.length} job(s) parked with a reset beyond the ${horizon} horizon — likely misparsed, they won't resume for a long time: e.g. ${example}`,
-    hint: "Inspect with `agentrelay show <id>`, then `agentrelay cancel <id>` or `agentrelay retry <id>` (or `agentrelay recover`).",
+    hint: "Inspect with `agentrelay show <id>`, then `agentrelay recover --far-future` to pull them forward (or `agentrelay cancel <id>` / `agentrelay retry <id>` per job).",
   };
 }
 

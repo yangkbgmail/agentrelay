@@ -2284,3 +2284,33 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도 동일 먼-미래
   파킹 잡 경고 노출(세션 31 하트비트 카드 패턴 재사용), 또는 `recover`가 먼-미래 파킹 잡을 자동 감지·재큐 대상으로
   포함하는지 점검. README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 74 — `agentrelay recover --far-future` 먼-미래 파킹 잡 복구] (2026-08-22, 무인 자율 세션, branch `claude/recover-far-future`)
+- **항목 선정:** BACKLOG 미완료 👷 항목 전부 소진(남은 미완료는 🧭 코워크 문서/리서치). 세션 73 로그가 명시한
+  후속 인접 후보 "`recover`가 먼-미래 파킹 잡을 자동 감지·재큐 대상으로 포함하는지 점검"을 자기 발굴 항목으로
+  채택. 확인 결과: 세션 73 doctor는 먼-미래 파킹 잡을 **탐지**하고 그 힌트가 `agentrelay recover`를 가리켰지만,
+  정작 `recover`는 orphaned `resuming` 잡만 복구할 뿐 먼-미래 `waiting_for_reset` 잡은 손대지 못했다 —
+  힌트와 실제 기능의 불일치. 유일한 우회로는 id별 `cancel`/`retry`. 탐지↔복구 루프를 닫는 갭.
+- **한 일 (branch `claude/recover-far-future`):**
+  - core `recover.ts`: 순수 `selectFarFutureParkedJobs(jobs, {now, horizonMs})` + `FarFutureRecoverReport`/
+    `FarFutureRecoverOptions` 신설 — `waiting_for_reset` 잡만 골라(먼-미래 resetAt은 대기 잡만 실제로 막음;
+    queued는 이미 due, resuming은 라이브 가능) 세션 73 `selectFarFutureResets`를 **재사용**해 doctor와 동일한
+    지평선 판정 → 두 표면이 절대 어긋나지 않음. 비양수/비유한 horizon은 "가드 없음"으로 빈 결과(파서 시맨틱 계승).
+  - core `queue.ts`: `recoverFarFutureReset(id, at)` 추가 — `waiting_for_reset` 상태 가드 하에 resetAt을 now로
+    당기고 **attempts 보존**(rate-limit에 걸린 시도는 이미 카운트됨 — `recoverResuming`과 동일 철학, `requeueNow`와
+    대조) + 설명 lastError, 그 외 상태는 no-op false(재읽기 후 임의 id에 안전 호출).
+  - CLI `commands.ts` `recoverFarFutureJobs`: 지평선 = env(`maxResetHorizonMsFromEnv`)→기본 8일 fallback이라
+    `AGENTRELAY_MAX_RESET_HORIZON=off`여도 복구 가능(doctor와 달리 "guard off"로 손 놓지 않음). `recover.ts`
+    `renderFarFutureRecover`/`renderFarFutureRecoverJson`. cli.ts `recover`에 `--far-future`·`--horizon <기간>`
+    배선(`--older-than`와 상호배타, `--horizon`은 `--far-future` 전용, 잘못된/비양수 기간 exit 1).
+  - core `doctor.ts`: reset-horizon 힌트를 `recover --far-future`로 갱신 → 탐지↔복구 루프 완성.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, `biome check --write`로
+  import 정렬)→`pnpm test` 전 패키지 통과(**core 656 · cli 357/1skip · dashboard 9**; core recover.test +7:
+  selectFarFutureParkedJobs 5 + recoverFarFutureReset 2). **실제 빌드 CLI e2e**(mock 아님): 100일 파킹 잡
+  dry-run(당김 미리보기·store 불변)→apply(resetAt now로 당김+attempts 보존+lastError 기록·near 잡 불변)→재실행
+  (무일), `--horizon 1d`로 3일 잡도 far-future 판정, 상호배타 가드 3종(--older-than+--far-future / --horizon 단독
+  / 잘못된 --horizon) 모두 exit 1, `off` fallback으로 8일 기본 지평선 사용, doctor before(warning+새 힌트)→
+  recover→after(reset-horizon OK) 루프 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도 동일 먼-미래
+  파킹 잡 경고 노출(세션 31 하트비트 카드 패턴 재사용, doctor `selectFarFutureResets` 재사용), 또는 `recover
+  --far-future`를 `--all` 대량 제어 스코프 필터(--project/--tool)와 조합. README/ARCHITECTURE(🧭 코워크).

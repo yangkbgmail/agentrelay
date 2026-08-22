@@ -888,6 +888,28 @@
       파킹→warning(예시 표기)·`off`→disabled OK·2h→OK·`--json` 노출 확인. branch
       `claude/wizardly-pascal-4p3s77`)
 
+- [x] 👷 `agentrelay recover --far-future` — 먼-미래로 파킹된 잡의 리셋 시각을 지금으로 당겨 재개
+      가능하게(reset-horizon 무음 실패의 실제 복구 수단). 자기 발굴 항목(세션 72 파서 지평선 가드 +
+      세션 73 doctor reset-horizon 검사의 후속) — doctor는 먼-미래 파킹 잡을 **탐지**하고 그 힌트가
+      `agentrelay recover`를 가리켰지만, 정작 `recover`는 orphaned `resuming` 잡만 복구할 뿐 먼-미래
+      `waiting_for_reset` 잡은 손대지 못했다(힌트와 실제 기능의 불일치). 유일한 우회로는 id별
+      `cancel`/`retry`뿐이었다. 이 항목이 탐지↔복구 루프를 닫음.
+      (완료 — core `recover.ts`에 순수 `selectFarFutureParkedJobs(jobs,{now,horizonMs})` +
+      `FarFutureRecoverReport`/`FarFutureRecoverOptions` 신설: `waiting_for_reset` 잡만 골라(먼-미래
+      resetAt은 대기 잡만 실제로 막음 — queued는 이미 due, resuming은 라이브일 수 있음) doctor와 **동일한**
+      지평선 판정(`selectFarFutureResets` 재사용)으로 지평선 밖 잡 선별 → 두 표면이 절대 어긋나지 않음.
+      `RelayQueue.recoverFarFutureReset(id,at)` 추가: `waiting_for_reset` 상태 가드 하에 resetAt을 now로
+      당기고 **attempts 보존**(rate-limit에 걸린 시도는 이미 카운트됨 — recoverResuming과 동일 철학,
+      requeueNow와 대조) + 설명 lastError, 그 외 상태는 no-op false. CLI `commands.ts`
+      `recoverFarFutureJobs`(지평선은 env→기본 8일 fallback이라 `AGENTRELAY_MAX_RESET_HORIZON=off`여도
+      복구 가능) + `recover.ts` `renderFarFutureRecover`/`renderFarFutureRecoverJson`, cli.ts `recover`에
+      `--far-future`·`--horizon <기간>` 배선(`--older-than`와 상호배타, `--horizon`은 `--far-future`
+      전용, 잘못된/비양수 기간은 exit 1). doctor reset-horizon 힌트를 `recover --far-future`로 갱신해
+      탐지↔복구 루프 완성. core recover.test +7(selectFarFutureParkedJobs 5 + recoverFarFutureReset 2),
+      전체 그린(core 656·cli 357/1skip·dashboard 9). 실제 빌드 CLI e2e로 dry-run/apply(당김+attempts
+      보존+lastError)/재실행-무일·`--horizon` 타이트 지평선·상호배타 가드 3종·`off` fallback·doctor
+      before(warning+새 힌트)→recover→after(OK) 루프 확인. branch `claude/recover-far-future`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

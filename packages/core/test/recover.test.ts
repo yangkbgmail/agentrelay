@@ -2,8 +2,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_MAX_RESET_HORIZON_MS } from "../src/parser.js";
 import { RelayQueue } from "../src/queue.js";
-import { DEFAULT_STUCK_RESUMING_MS, selectStuckResumingJobs } from "../src/recover.js";
+import { DEFAULT_STUCK_RESUMING_MS, selectFarFutureParkedJobs, selectStuckResumingJobs } from "../src/recover.js";
 import type { RelayJob } from "../src/types.js";
 
 const NOW = Date.parse("2026-08-15T12:00:00.000Z");
@@ -85,6 +86,109 @@ describe("selectStuckResumingJobs", () => {
     const report = selectStuckResumingJobs([job({ id: "fresh", updatedAt: agoIso(1_000) })], { nowMs: NOW });
     expect(report.stuck).toEqual([]);
     expect(report.resuming).toBe(1);
+  });
+});
+
+const HOUR = 60 * 60_000;
+const DAY = 24 * HOUR;
+
+/** ISO string for `ms` after NOW. */
+function aheadIso(ms: number): string {
+  return new Date(NOW + ms).toISOString();
+}
+
+describe("selectFarFutureParkedJobs", () => {
+  const now = new Date(NOW);
+  const horizonMs = DEFAULT_MAX_RESET_HORIZON_MS;
+
+  it("selects only waiting_for_reset jobs parked beyond the horizon", () => {
+    const jobs = [
+      job({ id: "near", status: "waiting_for_reset", resetAt: aheadIso(2 * HOUR) }),
+      job({ id: "far", status: "waiting_for_reset", resetAt: aheadIso(100 * DAY) }),
+    ];
+    const report = selectFarFutureParkedJobs(jobs, { now, horizonMs });
+    expect(report.total).toBe(2);
+    expect(report.parked).toBe(2);
+    expect(report.horizonMs).toBe(horizonMs);
+    expect(report.farFuture.map((j) => j.id)).toEqual(["far"]);
+    expect(report.farFuture[0].msUntilReset).toBe(100 * DAY);
+  });
+
+  it("ignores non-waiting_for_reset jobs even with a far-future resetAt", () => {
+    const jobs = [
+      job({ id: "queued", status: "queued", resetAt: aheadIso(100 * DAY) }),
+      job({ id: "resuming", status: "resuming", resetAt: aheadIso(100 * DAY) }),
+      job({ id: "completed", status: "completed", resetAt: aheadIso(100 * DAY) }),
+    ];
+    const report = selectFarFutureParkedJobs(jobs, { now, horizonMs });
+    expect(report.parked).toBe(0);
+    expect(report.farFuture).toEqual([]);
+  });
+
+  it("skips a past reset and a missing/unparseable resetAt", () => {
+    const jobs = [
+      job({ id: "past", status: "waiting_for_reset", resetAt: agoIso(HOUR) }),
+      job({ id: "missing", status: "waiting_for_reset", resetAt: null }),
+      job({ id: "bad", status: "waiting_for_reset", resetAt: "not-a-date" }),
+    ];
+    const report = selectFarFutureParkedJobs(jobs, { now, horizonMs });
+    expect(report.parked).toBe(3);
+    expect(report.farFuture).toEqual([]);
+  });
+
+  it("treats a non-positive horizon as 'no guard' (nothing is far-future)", () => {
+    const far = [job({ id: "far", status: "waiting_for_reset", resetAt: aheadIso(100 * DAY) })];
+    expect(selectFarFutureParkedJobs(far, { now, horizonMs: 0 }).farFuture).toEqual([]);
+    expect(selectFarFutureParkedJobs(far, { now, horizonMs: -1 }).farFuture).toEqual([]);
+  });
+
+  it("a tighter custom horizon flags a job the default would allow", () => {
+    const jobs = [job({ id: "two-days", status: "waiting_for_reset", resetAt: aheadIso(2 * DAY) })];
+    expect(selectFarFutureParkedJobs(jobs, { now, horizonMs }).farFuture).toEqual([]);
+    expect(selectFarFutureParkedJobs(jobs, { now, horizonMs: DAY }).farFuture.map((j) => j.id)).toEqual(["two-days"]);
+  });
+});
+
+describe("RelayQueue.recoverFarFutureReset", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-recover-ff-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("pulls a far-future parked job's reset forward while preserving attempts", () => {
+    const queue = new RelayQueue(join(dir, "jobs.json"));
+    const created = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    // Simulate a misparse: an attempt already spent (markResuming → attempts 1),
+    // then parked implausibly far in the future.
+    queue.markResuming(created.id);
+    queue.markWaitingForReset(created.id, aheadIso(100 * DAY));
+    expect(queue.getById(created.id)?.attempts).toBe(1);
+
+    const at = "2026-08-15T12:00:00.000Z";
+    expect(queue.recoverFarFutureReset(created.id, at)).toBe(true);
+
+    const recovered = queue.getById(created.id);
+    expect(recovered?.status).toBe("waiting_for_reset");
+    expect(recovered?.resetAt).toBe(at);
+    expect(recovered?.attempts).toBe(1); // preserved — the rate-limited attempt still counts
+    expect(recovered?.lastError).toContain("far-future");
+    // Immediately due for the next tick.
+    expect(queue.listDue(new Date(Date.parse(at) + 1)).map((j) => j.id)).toContain(created.id);
+    queue.close();
+  });
+
+  it("is a no-op returning false when the job is not waiting_for_reset", () => {
+    const queue = new RelayQueue(join(dir, "jobs.json"));
+    const created = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    // Still `queued`, not `waiting_for_reset`.
+    expect(queue.recoverFarFutureReset(created.id)).toBe(false);
+    expect(queue.getById(created.id)?.status).toBe("queued");
+    expect(queue.recoverFarFutureReset("no-such-id")).toBe(false);
+    queue.close();
   });
 });
 

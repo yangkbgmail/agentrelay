@@ -7,7 +7,7 @@
 // cli.ts) so the exact output is unit-testable without a TTY, a clock, or the
 // store.
 
-import type { RelayJob, StuckResumingReport } from "@agentrelay/core";
+import type { FarFutureRecoverReport, RelayJob, StuckResumingReport } from "@agentrelay/core";
 import { formatDurationMs } from "./stats.js";
 
 const RESET = "\x1b[0m";
@@ -77,6 +77,87 @@ export function renderRecover(result: RecoverResult, options: { now?: number; co
       : `Recovered ${b(String(result.recovered.length))} ${noun} — requeued to resume on the next tick.`
   );
   return lines.join("\n");
+}
+
+/** The outcome of a `recover --far-future` run. */
+export interface FarFutureRecoverResult {
+  report: FarFutureRecoverReport;
+  /** Jobs actually reclaimed (post-transition). Empty on a dry run. */
+  recovered: RelayJob[];
+  /** True when this was a preview that left the store untouched. */
+  dryRun: boolean;
+}
+
+/**
+ * Human-readable summary for `recover --far-future`. When nothing is parked far
+ * out, says so (noting how many jobs are legitimately waiting within the
+ * horizon, if any). Otherwise lists each reclaimed (or would-be-reclaimed) job
+ * with how far ahead its reset had been parked. Pure: `now` is only used for the
+ * color toggle default.
+ */
+export function renderFarFutureRecover(result: FarFutureRecoverResult, options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
+  const b = (s: string): string => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string): string => (color ? `${DIM}${s}${RESET}` : s);
+  const m = (s: string): string => (color ? `${MAGENTA}${s}${RESET}` : s);
+
+  const { report, dryRun } = result;
+  const horizon = formatDurationMs(report.horizonMs);
+
+  if (report.farFuture.length === 0) {
+    if (report.parked > 0) {
+      const word = report.parked === 1 ? "job is" : "jobs are";
+      return `No far-future parked jobs to recover. ${report.parked} ${word} waiting with a reset within the ${horizon} horizon (left alone).`;
+    }
+    return "No jobs are parked with a far-future reset. Nothing to recover.";
+  }
+
+  // Rows come from `report.farFuture` (jobs as observed *before* recovery), so
+  // the "parked" age reflects how far out each reset really was — the recovered
+  // jobs carry a pulled-forward resetAt (now). On a real run, only rows whose
+  // job was actually reclaimed are shown.
+  const recoveredIds = new Set(result.recovered.map((job) => job.id));
+  const rows = dryRun ? report.farFuture : report.farFuture.filter((job) => recoveredIds.has(job.id));
+  const marker = dryRun ? "-" : "↻";
+
+  const lines: string[] = [];
+  for (const job of rows) {
+    const id = job.id.slice(0, 8);
+    const project = job.project.slice(0, 20).padEnd(20);
+    lines.push(`${marker} ${m(id)}  ${project} ${d(`parked ${formatDurationMs(job.msUntilReset)} out`)}`);
+  }
+  const noun = rows.length === 1 ? "job" : "jobs";
+  lines.push(
+    dryRun
+      ? `Would recover ${b(String(report.farFuture.length))} ${noun} (reset pulled forward to run now). ${d("No changes made.")}`
+      : `Recovered ${b(String(result.recovered.length))} ${noun} — reset pulled forward to resume on the next tick.`
+  );
+  return lines.join("\n");
+}
+
+/**
+ * Machine-readable form of a `recover --far-future` run for `--json`.
+ */
+export function renderFarFutureRecoverJson(
+  result: FarFutureRecoverResult,
+  storePath: string,
+  generatedAt: string = new Date().toISOString()
+): string {
+  return JSON.stringify(
+    {
+      storePath,
+      generatedAt,
+      mode: "far-future",
+      dryRun: result.dryRun,
+      horizonMs: result.report.horizonMs,
+      parked: result.report.parked,
+      total: result.report.total,
+      farFuture: result.report.farFuture.map((job) => job.id),
+      recovered: result.recovered.map((job) => job.id),
+    },
+    null,
+    2
+  );
 }
 
 /**
