@@ -2449,3 +2449,22 @@
   completion(nushell #785) 등이 후보. ② `main`·열린 PR 양쪽에 없는 **진짜 신규** 영역에서만 기능 발굴
   (중복 재발 방지). ③ 근본 원인(거의 모든 PR이 BACKLOG/PROGRESS에 append → 하나 병합 시 나머지 전부 문서
   충돌)은 세션 60·78이 진단한 그대로 — 문서 append 충돌 완화 방안은 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 81 — reset-horizon doctor·config schema 중복 PR 5개 통합 정리] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-ld5rn3`)
+- **배경:** 세션 시작 시 BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 78·79·80이 진단·정리한 **"중복 PR 루프"**가 여전히 진행 중 — 열린 PR ~100개 실측, 다수가 이미
+  `main`에 병합된 기능을 기억 없는 매시간 세션들이 독립 재구현한 것. 101번째 중복 기능 PR을 더하는 대신
+  세션 78/79/80이 확립한 **통합(consolidation) 정책**을 이어 잔여 중복을 배수했다.
+- **검증(각 PR diff 대조):** ① `doctor` reset-horizon 검사(`selectFarFutureResets`/`resetHorizonCheck`/
+  `ResetHorizonFacts`)는 이미 `main`에 있음(병합 PR #835). #733·#729·#727·#726 각각의 diff를 열어
+  **함수명·타입명·판정 규칙까지 `main`과 동일**한 병렬 재구현임을 확인. ② `agentrelay config schema`
+  (core `configJsonSchema`/`configJsonSchemaJson` + CLI `config schema`)도 이미 `main`에 있음(병합 PR #850,
+  `packages/core/src/config-schema.ts`). #736 diff가 동일 기능 재구현임을 확인.
+- **한 일(5개 close):** 사유 코멘트(참조 병합 PR·reopen 가능 명시)와 함께 닫음 —
+  reset-horizon doctor 중복 **#733·#729·#727·#726**(세션 80이 같은 축 31개 정리한 데 이어 잔여 4개),
+  config schema 중복 **#736**. 코드 변경 없음: `main` 기능은 그대로.
+- **다음 할 일:** ① 남은 열린 PR의 포화 축(파서 변종 다수, epoch-ms 13자리 5중복 #722/#719/#717/#711/#707,
+  eta/show --watch·run --dry-run·run --cwd·stats --attempts 등 상호 중복 클러스터) 정리 — 단, 이들은
+  `main`에 아직 없는 **병렬 신규 기능**이라 "승자 선택"이 필요해 사람/🧭 코워크 판단 영역. ② 근본 원인
+  (거의 모든 PR이 BACKLOG/PROGRESS append → 하나 병합 시 나머지 문서 충돌 + 매시간 세션의 기억 부재)은
+  세션 60·78이 진단한 그대로 — 문서 append 충돌·중복 재발 방지책은 🧭 코워크·사람과 협의 필요.
