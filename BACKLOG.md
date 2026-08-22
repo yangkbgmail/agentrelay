@@ -970,6 +970,22 @@
       Biome 0경고), 실제 빌드 CLI e2e로 `completion fish` 방출(글로벌 옵션·최상위 커맨드·run 플래그·config
       부모 가드)·미지 셸 exit 1 검증. branch `claude/wizardly-pascal-am8gcl`)
 
+- [x] 👷 `agentrelay doctor` 스턱-리주밍(stuck-resuming) 검사 — 재개 루프가 재개 도중 죽어 `resuming`
+      상태에 영구히 갇힌 잡을 경고(가장 흔한 "재개가 조용히 실패"의 미탐 축). `reset-horizon` 검사의 거울:
+      그쪽은 먼-미래 리셋으로 파킹된 잡을, 이쪽은 재개 중간에 고아가 된 잡을 잡는다.
+      (완료 — 스케줄러는 재개 시 `markResuming`으로 status를 `resuming`으로 바꾼 뒤 에이전트를 spawn하고
+      나중에야 종료 상태를 쓴다. 그 사이 루프가 죽으면(OOM/SIGKILL/재부팅) 잡은 `resuming`에 영구히 갇혀
+      `listDue`가 다시 안 집고 `retry`도 거부해 **가장 재개가 필요했던 잡이 조용히 영영 안 돌아온다**.
+      `recover`가 이를 되살리지만, 그런 잡이 존재한다고 **경고**하는 수단이 없었다. `@agentrelay/core/doctor.ts`에
+      순수 `StuckResumingFacts`/`StuckResumingJob` 타입 + `stuckResumingCheck` 추가(검사 순서 …→reset-horizon→
+      **stuck-resuming**→config→notify): 갇힌 잡 없으면 OK, 있으면 warning(개수·가장 오래 갇힌 잡 예시 +
+      `agentrelay recover` 원샷 fix 힌트). `humanizeAge`가 비유한(+Infinity, updatedAt 파싱불가) 나이를
+      "a long time"으로 안전 처리(`Infinitys` 방지). CLI `runDoctor`가 `recover`의 검증된 순수
+      `selectStuckResumingJobs`를 재사용해 갇힌 집합을 구하고 각 잡 나이를 붙여 facts 구성 — doctor와 recover가
+      "무엇이 갇혔나"에 항상 일치. 새 파서/스케줄러 로직 0줄. core doctor +3 / cli doctor +2 신규 테스트, 실제
+      빌드 CLI e2e로 doctor 경고→`recover`→doctor OK 전 루프 검증(**core 673 · cli 367/1skip · dashboard 13**,
+      Biome 0경고). branch `claude/wizardly-pascal-klbbb3`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

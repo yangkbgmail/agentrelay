@@ -1531,6 +1531,24 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
   const now = new Date(options.nowMs ?? Date.now());
   const farFutureResets = horizonMs === null ? [] : selectFarFutureResets(jobs, { now, horizonMs });
 
+  // --- stuck-resuming facts. A resume loop that died mid-attempt leaves a job
+  // stranded in `resuming` forever (no tick re-picks it, `retry` refuses it).
+  // Reuse `recover`'s pure selector so doctor and `recover` agree on what's
+  // stuck, then attach each job's age for a human example.
+  const nowMs = now.getTime();
+  const stuckReport = selectStuckResumingJobs(jobs, { nowMs });
+  const stuckResuming = {
+    jobs: stuckReport.stuck.map((job) => {
+      const updated = Date.parse(job.updatedAt);
+      return {
+        id: job.id,
+        project: job.project,
+        ageMs: Number.isNaN(updated) ? Number.POSITIVE_INFINITY : nowMs - updated,
+      };
+    }),
+    stuckAfterMs: stuckReport.stuckAfterMs,
+  };
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1551,6 +1569,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
     resetHorizon: { jobs: farFutureResets, horizonMs },
+    stuckResuming,
   });
 }
 
