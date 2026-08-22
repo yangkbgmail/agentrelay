@@ -2429,3 +2429,23 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책: CI 초록 → 클로드 코드 병합). ② 나머지 ~90개
   열린 PR 중 **reset-horizon doctor 검사(수십 개 중복)**·**config schema**·**completion nushell/powershell** 등
   포화 축의 추가 중복 스캔·정리 지속. ③ 신규 기능은 열린 PR·main 양쪽에 없는 영역에서만 발굴. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 80 — reset-horizon doctor 중복 클러스터 31개 통합 정리] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-4xtvoe`)
+- **배경:** 세션 시작 시 BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 78·79가 진단·경고한 **"중복 PR 루프"**를 열린 PR ~90개 실측으로 재확인 — 기억 없는 매시간
+  세션들이 **이미 `main`에 병합된 기능**을 독립 재구현해 초록 PR을 쌓고 있었고, 그중 단연 최다가
+  **`agentrelay doctor`의 먼-미래 리셋(reset-horizon) 검사** 중복이었다(이미 `main` #835 `selectFarFutureResets`/
+  `resetHorizonCheck`/`ResetHorizonFacts`로 제공). 91번째 중복 기능 PR을 더하는 대신, 세션 33/48/76/78/79가
+  확립한 **통합(consolidation) 정책**을 따라 이 축의 큐를 배수했다.
+- **검증:** `main`의 `packages/core/src/doctor.ts`에 `selectFarFutureResets`·`ResetHorizonFacts`·`resetHorizonCheck`가
+  실재함을 확인하고, 대표 중복 #801·#799의 실제 diff를 열어 `main`과 **동일 로직(함수명까지 일치)**의
+  독립 재구현임을 확인한 뒤 정리에 착수.
+- **한 일(31개 close):** 아래 reset-horizon doctor 중복을 각각 사유 코멘트(참조: `main` #835, reopen 가능)와
+  함께 닫았다 —
+  **#734·735·738·741·742·743·745·748·754·755·756·759·760·761·764·766·768·769·771·772·775·776·779·781·782·788·791·794·799·801·803**.
+  → 큐에서 reset-horizon 축 -31, 이 축의 적체가 사실상 해소됨(코드 변경 없음: `main` 기능은 그대로).
+- **다음 할 일:** ① 남은 ~60개 열린 PR 중 여전히 남은 포화 축의 추가 중복 스캔·정리 지속 — 파서 변종
+  (weekday/timezone/fractional/ISO8601/colon-countdown/clock-word/ratelimit-header 등)·Gemini 어댑터(#752/#762)·
+  completion(nushell #785) 등이 후보. ② `main`·열린 PR 양쪽에 없는 **진짜 신규** 영역에서만 기능 발굴
+  (중복 재발 방지). ③ 근본 원인(거의 모든 PR이 BACKLOG/PROGRESS에 append → 하나 병합 시 나머지 전부 문서
+  충돌)은 세션 60·78이 진단한 그대로 — 문서 append 충돌 완화 방안은 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
