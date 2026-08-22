@@ -2309,3 +2309,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recover`가 먼-미래 파킹 잡을
   자동 감지·재큐 대상으로 포함하는지 점검, 또는 대시보드 카드에서 직접 취소/재시도 액션(로컬 API route 필요).
   README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 75 — 파서: 요일 지정 리셋(weekday-reset) 인식] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-dolfuq`)
+- **항목 선정:** BACKLOG 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 문서/리서치뿐). 열린 PR 30+개를
+  제목 스캔해 파서/doctor/recover/stats/notify가 포화 상태임을 확인하고, 그중 어디에도 없는 **요일 지정 리셋**
+  파싱 갭을 자기 발굴 항목으로 채택. Claude의 주간(weekly) 한도 메시지는 "Your limit will reset Monday at 9am"
+  처럼 **요일+시각**을 명시하는데, 기존 clock-time 패턴은 "reset at" 인접만 매치해 요일이 낀 형태를 놓치고,
+  PR #829의 weekly 폴백은 "now+7일"의 coarse 상한이라 명시된 요일·시각을 정밀 해석하지 못함(상호 보완).
+- **한 일 (branch `claude/wizardly-pascal-dolfuq`):**
+  - `packages/core/src/parser.ts`: `weekday-reset` 패턴 신설(iso-timestamp 다음, clock-time 앞에 배치 —
+    요일이 있으면 우선). `reset[s] [on] <weekday>[at <time>]` 인식: 요일은 3글자 프리픽스로 풀네임("Monday")·
+    약어("Mon") 모두 매치, 시각은 12/24시간·분·am/pm 선택. `WEEKDAY_INDEX`(Sun=0..Sat=6) + 순수 헬퍼
+    `nextWeekdayAt(now,dow,hour,minute)`(지정 요일·시각의 **다음 미래 인스턴스**; 오늘이 그 요일이지만 시각이
+    지났으면 +7일). 시각 없으면 그 요일 자정으로 보수적 해소(너무 이르게 재개→재확인은 안전, 한 주 추가 파킹 회피).
+    최대 7일 앞 → 기본 지평선 8일 안, plausibility 가드가 misparse로 안 떨굼. 사전필터 `LOOKS_LIKE_RATE_LIMIT`에
+    `resets? (on) <weekday>` 대안 추가(없으면 "limit" 없는 요일 메시지가 게이트에서 드롭돼 신규 패턴 발화 불가).
+    로컬 시간 기준이라 명시 타임존은 기존 clock-time과 동일 한계(요일 정렬은 로컬 getDay 기준 → tz 무관 결정론).
+  - `packages/core/test/parser.test.ts`: 유닛 5케이스 추가(요일+시각/약어+24h/시각없음 자정 기본/오늘 요일·시각
+    경과 시 +7일 롤/ISO 명시 시각 우선). getDay·getHours는 구성상·round-trip이라 tz 무관.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러; 포맷 1건 `format`으로 정리)→
+  `pnpm test` 전 패키지 통과(**core 649→654 · cli 357/1skip · dashboard 13**; parser.test +5). **실제 빌드 CLI e2e**
+  (mock 아님): "reset Monday at 9am"→`weekday-reset` 2026-08-24T09:00Z, "Resets on Wed at 15:00"→08-26T15:00Z,
+  "Resets Sunday."→08-23T00:00Z(자정 기본), "you are rate limited."→기존대로 미감지(하위호환).
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — "resets at 3pm on Monday"처럼
+  시각이 요일 앞에 오는 역순 형태, 또는 "reset tomorrow"/"reset in the morning" 등 상대 자연어. PR 포화 항목
+  (parser 변형 다수·stats 분산/watch·doctor/recover/reset-horizon)은 지양. README/ARCHITECTURE(🧭 코워크).

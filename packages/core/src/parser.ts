@@ -82,6 +82,35 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/** Map a weekday name/abbreviation prefix to its `Date.getDay()` index (Sun=0). */
+const WEEKDAY_INDEX: Record<string, number> = {
+  sun: 0,
+  mon: 1,
+  tue: 2,
+  wed: 3,
+  thu: 4,
+  fri: 5,
+  sat: 6,
+};
+
+/**
+ * The next instant on/after `now` that falls on weekday `dow` (Sun=0..Sat=6) at
+ * local `hour`:`minute`. If that lands at or before `now` (the target weekday is
+ * today but the time already passed, or is exactly now), rolls forward a full
+ * week — a rate-limit reset is always a future instant. The result is at most 7
+ * days out, comfortably inside the default plausibility horizon (8 days).
+ */
+function nextWeekdayAt(now: Date, dow: number, hour: number, minute: number): Date {
+  const candidate = new Date(now);
+  candidate.setHours(hour, minute, 0, 0);
+  const dayDelta = (dow - candidate.getDay() + 7) % 7;
+  candidate.setDate(candidate.getDate() + dayDelta);
+  if (candidate.getTime() <= now.getTime()) {
+    candidate.setDate(candidate.getDate() + 7);
+  }
+  return candidate;
+}
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
@@ -90,6 +119,37 @@ const PATTERNS: RateLimitPattern[] = [
     resolve: (m) => {
       const d = new Date(m[1]);
       return Number.isNaN(d.getTime()) ? null : d;
+    },
+  },
+  {
+    // Weekday-named reset, the wording Claude's *weekly* usage limit prints,
+    // e.g. "Your limit will reset Monday at 9am" / "resets on Wed at 15:00" /
+    // "resets Sunday". The weekday is matched by its 3-letter prefix so both the
+    // full name ("Monday") and common abbreviations ("Mon") hit. An optional
+    // "at <time>" carries an hour (12- or 24-hour), optional minutes, and
+    // optional am/pm; with no time we conservatively resolve to midnight at the
+    // start of that weekday (resuming a little early just re-checks — far safer
+    // than parking a job for a whole extra week). The named timezone, if any, is
+    // interpreted in local time — the same known limitation as the clock-time
+    // patterns. Placed before the generic clock-time patterns so a weekday
+    // present in the message wins; those patterns require "reset at" to sit
+    // directly before the time and so never match this "reset <weekday> at" form.
+    name: "weekday-reset",
+    regex:
+      /reset[s]?\s+(?:on\s+)?(mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/i,
+    resolve: (m, now) => {
+      const dow = WEEKDAY_INDEX[m[1].toLowerCase()];
+      if (dow === undefined) return null;
+      let hour = m[2] ? parseInt(m[2], 10) : 0;
+      const minute = m[3] ? parseInt(m[3], 10) : 0;
+      const meridiem = m[4]?.toLowerCase();
+      if (meridiem) {
+        if (hour > 12) return null; // "13pm" is not a valid 12-hour clock time
+        if (meridiem === "pm" && hour < 12) hour += 12;
+        if (meridiem === "am" && hour === 12) hour = 0;
+      }
+      if (hour > 23 || minute > 59) return null; // guard against "at 25" etc.
+      return nextWeekdayAt(now, dow, hour, minute);
     },
   },
   {
@@ -186,7 +246,8 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|try again|resets?\s+(?:at|in|(?:on\s+)?(?:mon|tue|wed|thu|fri|sat|sun))|retry.?after)/i;
 
 function tryPattern(
   pattern: RateLimitPattern,

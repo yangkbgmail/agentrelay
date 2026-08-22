@@ -74,6 +74,59 @@ describe("parseRateLimitMessage", () => {
     expect(parseRateLimitMessage("Rate limit hit, reset at 5.")).toBeNull();
   });
 
+  it("parses a weekday + clock time: 'reset Monday at 9am'", () => {
+    // 2026-07-12 is a Sunday; the next Monday is 2026-07-13.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Your weekly limit is reached. It will reset Monday at 9am.", { now });
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("weekday-reset");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getDay()).toBe(1); // Monday
+    expect(resetDate.getHours()).toBe(9);
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("parses 'resets on Wed at 15:00' (abbrev weekday + 24-hour time)", () => {
+    const now = new Date("2026-07-12T08:00:00Z"); // Sunday
+    const result = parseRateLimitMessage("Usage limit reached. Resets on Wed at 15:00.", { now });
+    expect(result?.pattern).toBe("weekday-reset");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getDay()).toBe(3); // Wednesday
+    expect(resetDate.getHours()).toBe(15);
+    expect(resetDate.getMinutes()).toBe(0);
+  });
+
+  it("defaults a weekday with no time to midnight of that day", () => {
+    const now = new Date("2026-07-12T08:00:00Z"); // Sunday
+    const result = parseRateLimitMessage("Weekly usage limit reached. Resets Tuesday.", { now });
+    expect(result?.pattern).toBe("weekday-reset");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getDay()).toBe(2); // Tuesday
+    expect(resetDate.getHours()).toBe(0);
+    expect(resetDate.getMinutes()).toBe(0);
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("rolls a weekday to next week when today matches but the time already passed", () => {
+    // 2026-07-13 is a Monday; 09:00 local has already gone by at this `now`.
+    const now = new Date("2026-07-13T20:00:00");
+    const result = parseRateLimitMessage("Usage limit reached, resets Monday at 9am.", { now });
+    expect(result?.pattern).toBe("weekday-reset");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getDay()).toBe(1); // Monday
+    expect(resetDate.getHours()).toBe(9);
+    // Next Monday, ~7 days out — not today.
+    expect(resetDate.getDate()).not.toBe(now.getDate());
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("prefers an explicit ISO timestamp over a weekday mention", () => {
+    const result = parseRateLimitMessage("Weekly limit reached on Monday. It resets at 2026-08-25T05:00:00Z.");
+    expect(result?.pattern).toBe("iso-timestamp");
+    expect(result?.resetAt).toBe("2026-08-25T05:00:00.000Z");
+  });
+
   it("parses a relative duration like '4h32m'", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("Rate limit exceeded, try again in 4h32m.", { now });
