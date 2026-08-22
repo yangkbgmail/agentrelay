@@ -2284,3 +2284,28 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도 동일 먼-미래
   파킹 잡 경고 노출(세션 31 하트비트 카드 패턴 재사용), 또는 `recover`가 먼-미래 파킹 잡을 자동 감지·재큐 대상으로
   포함하는지 점검. README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 74 — 파서: clock-time 리셋을 메시지가 명시한 타임존으로 해석] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-g4drrf`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 여전히 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 파서
+  코드 자체에 "known limitation"으로 명시돼 있던 정확성 갭을 자기 발굴 항목으로 채택: `clock-time`/
+  `clock-time-meridiem` 패턴이 메시지의 명명된 타임존(Claude Code가 실제로 출력하는
+  `"reset at 5pm (America/New_York)"`)을 **무시하고 머신 로컬 시간으로 해석**했다. UTC 서버에서 미국 동부
+  시간으로 인용된 리셋을 볼 때 4–5시간 오차 → 잡을 너무 일찍(아직 살아있는 limit로 재시도) 또는 너무 늦게
+  (유휴 용량) 파킹. 이 도구의 핵심 가치(리셋 시각 정확 파싱)에 직접적인 결함이었다.
+- **한 일 (branch `claude/wizardly-pascal-g4drrf`):**
+  - core `timezone.ts` 신설(순수·의존성 0): `parseFixedOffsetMinutes`(UTC/GMT±오프셋 → 분, ±14:00 초과 거부)·
+    `isIanaZone`(IANA 이름 검증, `/` 필수 + Intl 수용)·`resolveZonedClockTime(hour,minute,now,tzToken)`. IANA는
+    Intl 타임존 데이터(Node full ICU)로 해석, 고정 오프셋은 직접 계산. IANA 벽시계→UTC 변환은 date-fns-tz식
+    guess-and-correct(추정 인스턴트의 오프셋 적용 후 DST 경계 재보정)로 서머타임까지 정확. 명확하지 않은
+    약어(PST/EST/CET…)는 의도적으로 미해석 → 파서가 안전한 로컬-시간 fallback 유지.
+  - core `parser.ts`: 두 clock 패턴 regex에 선택적 후행 타임존 캡처(`TZ_SUFFIX`, 괄호 허용) 추가, `resolve`가
+    tz 있으면 `resolveZonedClockTime` 우선 사용·해석 불가/부재면 기존 로컬 로직으로 fallback. tz 없는 기존
+    메시지 동작은 완전 불변.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과
+  (**core 666 · cli 357/1skip · dashboard 9**; parser +6·신규 timezone.test.ts +12, 기존 로컬-시간 단언 테스트
+  1건을 타임존 정확 인스턴트 단언으로 갱신). **실제 빌드 CLI e2e**(mock 아님): `parse "…reset at 5pm
+  (America/New_York)"`→8월 EDT(UTC-4) 21:00Z, `6pm UTC+05:30`→12:30Z, tz 없는 `3:00pm`→로컬 유지, `5pm PST`→
+  약어라 로컬 fallback 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 상대 표현에도 타임존이 붙는
+  드문 케이스 점검, 또는 `iso-timestamp` 외 절대 시각 포맷 추가 수집(🧭 실제 샘플 수집은 코워크 소유). PR 포화
+  항목(stats 분산/watch·summary --watch·epoch ms)은 지양.

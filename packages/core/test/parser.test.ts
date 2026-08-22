@@ -30,7 +30,7 @@ describe("parseRateLimitMessage", () => {
     expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
   });
 
-  it("parses the real Claude Code wording: 'reset at 5pm' (hour + meridiem, no minutes)", () => {
+  it("parses the real Claude Code wording: 'reset at 5pm (America/New_York)' in the named zone", () => {
     // Actual message: "Claude usage limit reached. Your limit will reset at 5pm (America/New_York)."
     const now = new Date("2026-07-12T08:00:00Z"); // 08:00 UTC
     const result = parseRateLimitMessage(
@@ -39,10 +39,10 @@ describe("parseRateLimitMessage", () => {
     );
     expect(result).not.toBeNull();
     expect(result?.pattern).toBe("clock-time-meridiem");
-    const resetDate = new Date(result!.resetAt);
-    expect(resetDate.getHours()).toBe(17); // 5pm local
-    expect(resetDate.getMinutes()).toBe(0);
-    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
+    // July -> EDT (UTC-4), so 5pm New York == 21:00 UTC the same day. Asserting the
+    // absolute instant keeps this test independent of the machine's own timezone.
+    expect(result?.resetAt).toBe("2026-07-12T21:00:00.000Z");
+    expect(new Date(result!.resetAt).getTime()).toBeGreaterThan(now.getTime());
   });
 
   it("parses 'resets at 10 AM' with a space before the meridiem, rolling to tomorrow if past", () => {
@@ -186,6 +186,50 @@ describe("parseRateLimitMessage", () => {
     expect(result?.pattern).toBe("iso-timestamp");
     // 05:00 +09:00 == 20:00 UTC the previous day.
     expect(result?.resetAt).toBe("2026-07-12T20:00:00.000Z");
+  });
+
+  it("resolves a clock time in a winter IANA zone (EST = UTC-5)", () => {
+    // January -> America/New_York is EST (UTC-5), so 5pm NY == 22:00 UTC.
+    const now = new Date("2026-01-12T08:00:00Z");
+    const result = parseRateLimitMessage("Your limit will reset at 5pm (America/New_York).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-01-12T22:00:00.000Z");
+  });
+
+  it("honors a named zone on the minute-precise clock-time pattern", () => {
+    // 15:30 Europe/Paris in July is CEST (UTC+2) -> 13:30 UTC.
+    const now = new Date("2026-07-12T06:00:00Z");
+    const result = parseRateLimitMessage("Usage limit reached. Resets at 15:30 (Europe/Paris).", { now });
+    expect(result?.pattern).toBe("clock-time");
+    expect(result?.resetAt).toBe("2026-07-12T13:30:00.000Z");
+  });
+
+  it("rolls a zoned reset to the next day when today's slot is already past", () => {
+    // 09:00 UTC has passed by 20:00 UTC -> resolves to 09:00 UTC tomorrow.
+    const now = new Date("2026-07-12T20:00:00Z");
+    const result = parseRateLimitMessage("Resets at 9am (UTC).", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-07-13T09:00:00.000Z");
+  });
+
+  it("resolves a fixed UTC offset zone", () => {
+    // 6pm at UTC+05:30 (Asia/Kolkata's offset) == 12:30 UTC.
+    const now = new Date("2026-07-12T06:00:00Z");
+    const result = parseRateLimitMessage("Your limit will reset at 6pm UTC+05:30.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    expect(result?.resetAt).toBe("2026-07-12T12:30:00.000Z");
+  });
+
+  it("falls back to local time when the zone token is an unresolvable abbreviation", () => {
+    // "PST" is ambiguous and Intl can't resolve it; the parser keeps its safe
+    // local-time interpretation rather than dropping the match. The abbreviation
+    // is not part of the TZ grammar, so it is simply left unmatched.
+    const now = new Date("2026-07-12T08:00:00Z");
+    const result = parseRateLimitMessage("Resets at 5pm PST.", { now });
+    expect(result?.pattern).toBe("clock-time-meridiem");
+    const resetDate = new Date(result!.resetAt);
+    expect(resetDate.getHours()).toBe(17); // 5pm in the machine's local zone
+    expect(resetDate.getTime()).toBeGreaterThan(now.getTime());
   });
 
   it("falls through malformed ISO timestamps instead of returning an invalid date", () => {

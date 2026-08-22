@@ -888,6 +888,17 @@
       파킹→warning(예시 표기)·`off`→disabled OK·2h→OK·`--json` 노출 확인. branch
       `claude/wizardly-pascal-4p3s77`)
 
+- [x] 👷 파서: clock-time 리셋을 메시지가 명시한 타임존으로 해석 — `"reset at 5pm (America/New_York)"` 등에서
+      명명된 IANA 존/UTC·GMT 오프셋을 존중(머신 로컬 시간 해석의 known-limitation 제거).
+      (완료 — `clock-time`/`clock-time-meridiem` 패턴이 메시지의 명명된 타임존을 무시하고 머신 로컬 시간으로
+      해석하던 정확성 갭(코드에 "known limitation"으로 명시)을 제거. UTC 서버에서 미국 동부 시간 인용 리셋 시
+      4–5시간 오차로 잡을 너무 일찍/늦게 파킹하던 문제. `@agentrelay/core/timezone.ts` 신설(순수·의존성 0):
+      `parseFixedOffsetMinutes`·`isIanaZone`·`resolveZonedClockTime`. IANA는 Intl(full ICU) + guess-and-correct로
+      DST까지 정확, 고정 오프셋은 직접 계산, 약어(PST 등)는 미해석→로컬 fallback 유지. 파서 두 clock 패턴에
+      선택적 후행 타임존 캡처(괄호 허용) 추가, tz 없는 기존 동작은 완전 불변. parser +6·timezone.test.ts +12
+      테스트, 실제 빌드 CLI `parse` e2e로 EDT/UTC+05:30/로컬/약어-fallback 검증. branch
+      `claude/wizardly-pascal-g4drrf`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
