@@ -163,6 +163,76 @@ describe("runCommand", () => {
     expect(result.queuedJob?.project).toBe(dir.split("/").filter(Boolean).pop());
     expect(result.queuedJob?.project?.trim()).not.toBe("");
   });
+
+  it("exposes the detected rate limit on the result when a job is enqueued", async () => {
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    expect(result.dryRun).toBe(false);
+    expect(result.rateLimit).not.toBeNull();
+    expect(result.rateLimit?.resetAt).toBe(result.queuedJob?.resetAt);
+    expect(result.rateLimit?.pattern).toBe("relative-duration");
+  });
+
+  it("--dry-run detects a rate limit but never touches the store", async () => {
+    const stdout = new PassThrough();
+    let printed = "";
+    stdout.on("data", (chunk) => {
+      printed += chunk.toString();
+    });
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      dryRun: true,
+      stdout,
+      stderr: new PassThrough(),
+    });
+    expect(result.dryRun).toBe(true);
+    expect(result.queuedJob).toBeNull();
+    expect(result.rateLimit).not.toBeNull();
+    expect(result.rateLimit?.pattern).toBe("relative-duration");
+    // The store file must not even be created by a dry run.
+    expect(existsSync(storePath)).toBe(false);
+    expect(listStatus(storePath)).toHaveLength(0);
+    expect(printed).toContain("--dry-run");
+    expect(printed).toContain("Would queue");
+  });
+
+  it("--dry-run never sends a notification", async () => {
+    const notify = vi.fn(async (_payload: NotifyPayload) => {});
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      dryRun: true,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      notify,
+    });
+    expect(result.rateLimit).not.toBeNull();
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("--dry-run with no rate limit reports no detection and no job", async () => {
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('all good, task complete')"],
+      storePath,
+      cwd: dir,
+      dryRun: true,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.dryRun).toBe(true);
+    expect(result.rateLimit).toBeNull();
+    expect(result.queuedJob).toBeNull();
+    expect(existsSync(storePath)).toBe(false);
+  });
 });
 
 describe("cancelJob / retryJob", () => {

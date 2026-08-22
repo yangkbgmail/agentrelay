@@ -24,6 +24,7 @@ import type {
   JobStatus,
   Notifier,
   PruneOptions,
+  RateLimitInfo,
   RelayJob,
   StuckResumingReport,
   WritableFacts,
@@ -127,6 +128,16 @@ export interface RunOptions {
    */
   project?: string;
   storePath?: string;
+  /**
+   * When true, run the wrapped command and detect a rate limit from its real
+   * output (via the resolved adapter), but do NOT write to the store or send
+   * notifications — just report what *would* have been queued. Lets users
+   * verify their wrapper + adapter recognize their agent's real rate-limit
+   * wording end-to-end, without side effects. Unlike `agentrelay parse` (which
+   * takes a static message string), this exercises the actual spawn and the
+   * adapter inferred from the command.
+   */
+  dryRun?: boolean;
   /** Injected for tests; defaults to real stdout/stderr passthrough. */
   stdout?: NodeJS.WritableStream;
   stderr?: NodeJS.WritableStream;
@@ -140,6 +151,15 @@ export interface RunOptions {
 export interface RunResult {
   exitCode: number;
   queuedJob: RelayJob | null;
+  /**
+   * The rate limit detected from the wrapped command's output, or `null` when
+   * none was found. Populated whether or not a job was enqueued, so callers —
+   * and `--dry-run` — can observe the detection even when the store was left
+   * untouched.
+   */
+  rateLimit: RateLimitInfo | null;
+  /** True when this was a dry run (store and notifications were skipped). */
+  dryRun: boolean;
 }
 
 /**
@@ -178,13 +198,26 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
     });
   });
 
+  const dryRun = options.dryRun ?? false;
   const rateLimit = adapter.detectRateLimit(output, { maxFutureMs: maxResetHorizonMsFromEnv() });
   if (!rateLimit) {
-    return { exitCode, queuedJob: null };
+    return { exitCode, queuedJob: null, rateLimit: null, dryRun };
+  }
+
+  const project = resolveProjectName(cwd, options.project);
+
+  // Dry run: report what we found, but never touch the store or notify. This
+  // is the "does my wrapper actually detect my agent's limit?" check.
+  if (dryRun) {
+    stdout.write(
+      `\n[agentrelay] Rate limit detected for ${adapter.displayName} (pattern: ${rateLimit.pattern}). ` +
+        `Would queue project "${project}" to resume at ${rateLimit.resetAt}.\n` +
+        `[agentrelay] --dry-run: nothing was written to the store and no notification was sent.\n`
+    );
+    return { exitCode, queuedJob: null, rateLimit, dryRun };
   }
 
   const queue = openQueue(storePath);
-  const project = resolveProjectName(cwd, options.project);
   const job = queue.enqueue({ project, tool, command: options.command, cwd });
   queue.markWaitingForReset(job.id, rateLimit.resetAt, {
     pattern: rateLimit.pattern,
@@ -207,7 +240,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
     message: `Rate limit detected, queued to resume at ${rateLimit.resetAt}`,
   });
 
-  return { exitCode, queuedJob: queue.getById(job.id) ?? null };
+  return { exitCode, queuedJob: queue.getById(job.id) ?? null, rateLimit, dryRun };
 }
 
 export interface DaemonOptions {

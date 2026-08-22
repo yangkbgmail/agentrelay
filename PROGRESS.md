@@ -2309,3 +2309,30 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recover`가 먼-미래 파킹 잡을
   자동 감지·재큐 대상으로 포함하는지 점검, 또는 대시보드 카드에서 직접 취소/재시도 액션(로컬 API route 필요).
   README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 75 — `agentrelay run --dry-run`] (2026-08-22, 무인 자율 세션, branch `claude/run-dry-run`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 원격 브랜치
+  수백 개·열린 PR 200+개(parser·doctor reset-horizon·recover far-future·stats 분산·notify 변형·watch 변형이
+  극도로 포화)를 스캔해 **어떤 브랜치에도 없는** 갭을 찾음: SPEC §8 "DX 개선(--dry-run)"이 명시적으로 요청하지만
+  `run`에 아직 없던 `--dry-run`. 기존 `parse`는 정적 메시지 문자열을 받을 뿐, 실제 spawn + 명령 추론 어댑터를
+  태우는 부작용-없는 엔드투엔드 감지 검증 경로가 없었다("내 래퍼가 진짜로 내 에이전트 한도 문구를 잡는가?").
+- **한 일 (branch `claude/run-dry-run`):**
+  - `packages/cli/src/commands.ts`: `RunOptions`에 `dryRun?: boolean`, `RunResult`에 `rateLimit:
+    RateLimitInfo|null`·`dryRun: boolean` 추가(관측성 개선 — 감지 결과가 정상 경로에서도 result에 노출).
+    `runCommand`이 rate-limit 감지 후 `dryRun`이면 `openQueue`/`enqueue`/`markWaitingForReset`/`close`와
+    notify를 전부 건너뛰고 "Would queue project … to resume at …" + "--dry-run: nothing was written to the
+    store and no notification was sent." 안내만 출력 → 스토어 파일 자체가 생성되지 않음. 순수 로직 추가
+    없이 기존 어댑터 감지 재사용.
+  - `packages/cli/src/cli.ts`: `run`에 `--dry-run` 플래그 배선(설명 포함), child exit code는 그대로 전달.
+  - commands.test +4: (1) 정상 run이 result.rateLimit를 노출(pattern=relative-duration, resetAt=job.resetAt),
+    (2) dry-run이 감지하되 스토어 파일 미생성(`existsSync`=false)·"Would queue"/"--dry-run" 출력, (3) dry-run이
+    알림 미발송, (4) dry-run+무감지는 rateLimit=null·무잡·스토어 미생성.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 120파일 0에러)→`pnpm test` 전
+  패키지 통과(**core 649 · cli 361/1skip · dashboard 13**; cli commands +4). **실제 빌드 CLI e2e**(mock 아님):
+  `run --dry-run -- node -e "console.log('Usage limit reached. Resets in 10m.')"`가 "Would queue project …
+  to resume at …" + "--dry-run: nothing was written" 출력·exit 0·스토어 파일 미생성(status 온보딩 문구),
+  대조로 dry-run 없는 정상 run은 잡 1건 큐잉(waiting_for_reset) 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `run --dry-run`에 `--json`
+  결과 노출(스크립트/CI가 감지 여부·resetAt을 기계 판독), 또는 `daemon`/`tick`에도 dry-run(무해 미리보기)
+  플래그. README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms·parser
+  변형·reset-horizon)은 지양.

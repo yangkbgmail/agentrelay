@@ -902,6 +902,21 @@
       +4(먼-미래 플래그·근접 미플래그·종료 잡 미플래그·빈 스토어). branch
       `claude/dashboard-reset-horizon-card`)
 
+- [x] 👷 `agentrelay run --dry-run` — 래핑한 명령을 실제로 실행해 실 어댑터로 rate-limit을 감지하되,
+      스토어 기록·알림 없이 "무엇이 큐잉될지"만 보고(SPEC §8 "DX 개선(--dry-run)" 항목). 자기 발굴 항목
+      — 남은 미완료 👷 항목이 전부 소진(🧭 문서/리서치만 남음)돼 새 개선 항목을 발굴. `parse`는 정적
+      메시지 문자열을 받는 반면, `--dry-run`은 실제 spawn + 명령으로부터 추론된 어댑터를 그대로 태워
+      "내 래퍼가 진짜로 내 에이전트의 한도 문구를 감지하는가"를 부작용 없이 엔드투엔드 검증.
+      (완료 — `packages/cli/src/commands.ts`의 `RunOptions`에 `dryRun?`, `RunResult`에 `rateLimit:
+      RateLimitInfo|null`·`dryRun:boolean` 추가. `runCommand`이 감지 후 `dryRun`이면 `openQueue`/
+      `enqueue`/`markWaitingForReset`/`close`와 notify를 전부 건너뛰고 "Would queue project … to resume
+      at …" + "--dry-run: nothing was written" 안내만 출력 → 스토어 파일 자체가 생성되지 않음. `rateLimit`
+      필드는 dry-run·정상 양쪽에서 채워져 감지 결과를 관찰·스크립팅 가능(정상 경로 관측성도 개선).
+      CLI `run`에 `--dry-run` 플래그 배선, child exit code는 그대로 전달. 순수 로직 추가 없이 기존 어댑터
+      감지 재사용. cli commands.test +4(감지 노출·dry-run 스토어 미생성·알림 미발송·무감지 무잡). 실제 빌드
+      CLI e2e로 dry-run이 "Would queue" 출력·스토어 미생성·status 빈 상태, 대조로 정상 run은 잡 큐잉 확인.
+      branch `claude/run-dry-run`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
