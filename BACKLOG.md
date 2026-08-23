@@ -970,6 +970,23 @@
       Biome 0경고), 실제 빌드 CLI e2e로 `completion fish` 방출(글로벌 옵션·최상위 커맨드·run 플래그·config
       부모 가드)·미지 셸 exit 1 검증. branch `claude/wizardly-pascal-am8gcl`)
 
+- [x] 👷 `agentrelay completion pwsh` — bash·zsh·fish에 이어 PowerShell(네 번째 주요 셸, Windows/크로스플랫폼)
+      탭 완성 추가. 자기 발굴 항목.
+      (완료 — core `completion.ts`: `CompletionShell` 유니온·`COMPLETION_SHELLS`에 `"pwsh"` 추가,
+      `generateCompletion` 디스패치에 `generatePwsh` 배선. POSIX 셸의 `compgen`/`_describe`가 없는 PowerShell은
+      `Register-ArgumentCompleter -Native` 스크립트 블록으로 구현 — spec에서 구운 후보 테이블(`$commands`·
+      `$globalOpts`·`$commandOpts`·`$subcommands`·`$subOpts`)을 두고, 런타임에 `$commandAst.CommandElements`를
+      걸어 라인 위 (서브)커맨드를 찾아 매칭 후보를 `CompletionResult`로 반환: 시작 시 최상위 커맨드+글로벌 옵션,
+      커맨드가 정해지면 그 플래그, 부모 커맨드(`config`/`notify`)는 서브명 또는 골라진 서브의 플래그.
+      순수 `psQuote`(단일 인용·`'` 이중화)·`psArray`로 안전 방출, 빈 테이블은 `@{}`. 기존 `assertSafeToken`·
+      `uniq` 재사용, spec은 라이브 커맨더에서 파생돼 실제 커맨드 표면과 드리프트 없음. CLI `cli.ts`의
+      `completion` description·help 예시에 PowerShell(`... | Out-String | Invoke-Expression`) 추가(검증·미지
+      셸 exit 1은 기존 `isCompletionShell` 재사용). 새 파서/스케줄러 로직 0줄. completion.test에 pwsh 7케이스 +
+      기존 `COMPLETION_SHELLS`/`isCompletionShell` 단언 갱신(pwsh 유효·`powershell` 무효). build/lint/test 통과
+      (**core 682 · cli 365/1skip · dashboard 13**, Biome 0경고), 실제 빌드 CLI e2e로 `completion pwsh` 방출
+      (네이티브 등록·후보 테이블·부모 서브커맨드)·미지 셸(`powershell`) exit 1 검증. branch
+      `claude/wizardly-pascal-071vnf`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

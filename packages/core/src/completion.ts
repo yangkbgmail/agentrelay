@@ -10,11 +10,11 @@
 // prints the script; the generator here is filesystem/commander-free so it's
 // trivially unit-testable and deterministic.
 
-/** Shells we can emit a completion script for. */
-export type CompletionShell = "bash" | "zsh" | "fish";
+/** Shells we can emit a completion script for. (`pwsh` = PowerShell.) */
+export type CompletionShell = "bash" | "zsh" | "fish" | "pwsh";
 
 /** Every shell `agentrelay completion` accepts, in a stable order. */
-export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh", "fish"] as const;
+export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh", "fish", "pwsh"] as const;
 
 /** Type guard: is `value` one of the shells we support? */
 export function isCompletionShell(value: string): value is CompletionShell {
@@ -87,6 +87,7 @@ export function generateCompletion(shell: CompletionShell, spec: CompletionSpec)
   }
   if (shell === "bash") return generateBash(spec);
   if (shell === "fish") return generateFish(spec);
+  if (shell === "pwsh") return generatePwsh(spec);
   return generateZsh(spec);
 }
 
@@ -357,4 +358,120 @@ function generateFish(spec: CompletionSpec): string {
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+/**
+ * Render a value as a PowerShell single-quoted string. Single-quote strings in
+ * PowerShell take no escapes except a doubled `'` for a literal quote — every
+ * other character (including `$` and backtick) is inert, so this is the safe
+ * literal form. Tokens are already `assertSafeToken`-clean, but we quote
+ * defensively so a future token can never break out of the literal.
+ */
+function psQuote(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+/** Render a word list as a PowerShell array literal, e.g. `@('a', 'b')`. */
+function psArray(words: string[]): string {
+  return `@(${words.map(psQuote).join(", ")})`;
+}
+
+/**
+ * PowerShell: a `Register-ArgumentCompleter -Native` script block. Unlike the
+ * POSIX shells there is no `compgen`/`_describe`; instead the block receives the
+ * word being typed and the parsed command AST, walks the elements to find which
+ * (sub)command is on the line, and returns `CompletionResult` objects for the
+ * matching candidates — top-level commands + global options at the start, a
+ * command's flags once it's chosen, and a parent command's subcommand names (or
+ * the chosen subcommand's flags) for nested commands like `config init`.
+ *
+ * The candidate tables are baked in from the spec, so like the other generators
+ * this never drifts from the real command surface and stays filesystem-free.
+ */
+function generatePwsh(spec: CompletionSpec): string {
+  const p = spec.program;
+  const commandNames = uniq(spec.commands.map((c) => c.name));
+  for (const n of commandNames) assertSafeToken(n, "command name");
+  const globalOpts = uniq([...spec.options, "--help", "--version"].filter((o) => o.length > 0));
+  for (const o of globalOpts) assertSafeToken(o, "global option");
+
+  const commandOptLines: string[] = [];
+  const subcommandLines: string[] = [];
+  const subOptLines: string[] = [];
+  for (const cmd of spec.commands) {
+    const subs = cmd.subcommands ?? [];
+    if (subs.length > 0) {
+      const subNames = uniq(subs.map((s) => s.name));
+      for (const s of subNames) assertSafeToken(s, "subcommand name");
+      subcommandLines.push(`    ${psQuote(cmd.name)} = ${psArray(subNames)}`);
+      for (const s of subs) {
+        const opts = uniq([...s.options, "--help"].filter((o) => o.length > 0));
+        for (const o of opts) assertSafeToken(o, "subcommand option");
+        subOptLines.push(`    ${psQuote(`${cmd.name} ${s.name}`)} = ${psArray(opts)}`);
+      }
+    } else {
+      const opts = uniq([...cmd.options, "--help"].filter((o) => o.length > 0));
+      for (const o of opts) assertSafeToken(o, "command option");
+      commandOptLines.push(`    ${psQuote(cmd.name)} = ${psArray(opts)}`);
+    }
+  }
+
+  const hashtable = (lines: string[]): string => (lines.length > 0 ? `@{\n${lines.join("\n")}\n  }` : "@{}");
+
+  return `# PowerShell completion for ${p}
+# Install: add this to your PowerShell profile, or load it now with:
+#   ${p} completion pwsh | Out-String | Invoke-Expression
+$__${p.replace(/[^A-Za-z0-9_]/g, "_")}_completer = {
+  param($wordToComplete, $commandAst, $cursorPosition)
+
+  $commands = ${psArray(commandNames)}
+  $globalOpts = ${psArray(globalOpts)}
+  $commandOpts = ${hashtable(commandOptLines)}
+  $subcommands = ${hashtable(subcommandLines)}
+  $subOpts = ${hashtable(subOptLines)}
+
+  # Elements after the program name.
+  $elements = @($commandAst.CommandElements | Select-Object -Skip 1 | ForEach-Object { $_.ToString() })
+  # Drop the partial word being typed so it doesn't count as a chosen command.
+  if ($elements.Count -gt 0 -and $elements[-1] -eq $wordToComplete) {
+    if ($elements.Count -eq 1) { $elements = @() }
+    else { $elements = $elements[0..($elements.Count - 2)] }
+  }
+
+  # The subcommand is the first non-option element.
+  $cmd = $null
+  foreach ($e in $elements) {
+    if ($e -notlike '-*') { $cmd = $e; break }
+  }
+
+  $candidates = @()
+  if ($null -eq $cmd) {
+    if ($wordToComplete -like '-*') { $candidates = $globalOpts }
+    else { $candidates = $commands }
+  }
+  elseif ($subcommands.ContainsKey($cmd)) {
+    # Parent command: the chosen subcommand is the next non-option after it.
+    $sub = $null
+    $seen = $false
+    foreach ($e in $elements) {
+      if (-not $seen) { if ($e -eq $cmd) { $seen = $true }; continue }
+      if ($e -notlike '-*') { $sub = $e; break }
+    }
+    if ($null -eq $sub) { $candidates = $subcommands[$cmd] + '--help' }
+    elseif ($subOpts.ContainsKey("$cmd $sub")) { $candidates = $subOpts["$cmd $sub"] }
+    else { $candidates = @('--help') }
+  }
+  elseif ($commandOpts.ContainsKey($cmd)) {
+    $candidates = $commandOpts[$cmd]
+  }
+  else {
+    $candidates = $globalOpts
+  }
+
+  $candidates |
+    Where-Object { $_ -like "$wordToComplete*" } |
+    ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
+}
+Register-ArgumentCompleter -Native -CommandName ${p} -ScriptBlock $__${p.replace(/[^A-Za-z0-9_]/g, "_")}_completer
+`;
 }

@@ -20,15 +20,17 @@ const SPEC: CompletionSpec = {
 };
 
 describe("completion shell helpers", () => {
-  it("COMPLETION_SHELLS lists bash, zsh and fish", () => {
-    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh", "fish"]);
+  it("COMPLETION_SHELLS lists bash, zsh, fish and pwsh", () => {
+    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh", "fish", "pwsh"]);
   });
 
   it("isCompletionShell accepts known shells and rejects others", () => {
     expect(isCompletionShell("bash")).toBe(true);
     expect(isCompletionShell("zsh")).toBe(true);
     expect(isCompletionShell("fish")).toBe(true);
+    expect(isCompletionShell("pwsh")).toBe(true);
     expect(isCompletionShell("tcsh")).toBe(false);
+    expect(isCompletionShell("powershell")).toBe(false);
     expect(isCompletionShell("")).toBe(false);
     expect(isCompletionShell("BASH")).toBe(false);
   });
@@ -149,6 +151,61 @@ describe("generateCompletion — fish", () => {
   it("throws on an unsafe token rather than emitting it", () => {
     expect(() =>
       generateCompletion("fish", {
+        program: "agentrelay",
+        options: [],
+        commands: [{ name: "run; rm -rf /", options: [] }],
+      })
+    ).toThrow(/unsafe command name/);
+  });
+});
+
+describe("generateCompletion — pwsh", () => {
+  const script = generateCompletion("pwsh", SPEC);
+
+  it("starts with the PowerShell header and registers a native completer", () => {
+    expect(script.startsWith("# PowerShell completion for agentrelay")).toBe(true);
+    expect(script).toContain("Register-ArgumentCompleter -Native -CommandName agentrelay");
+  });
+
+  it("bakes in the top-level commands and global options as arrays", () => {
+    expect(script).toContain("$commands = @('run', 'status', 'config')");
+    expect(script).toContain("$globalOpts = @('--store', '--config', '--help', '--version')");
+  });
+
+  it("maps leaf commands to their flags in the commandOpts hashtable", () => {
+    expect(script).toContain("'run' = @('--tool', '--help')");
+    expect(script).toContain("'status' = @('--watch', '--json', '--status', '--sort', '-r', '--help')");
+  });
+
+  it("records a parent command's subcommands and each subcommand's flags", () => {
+    expect(script).toContain("'config' = @('init', 'validate', 'show')");
+    expect(script).toContain("'config init' = @('--force', '-f', '--help')");
+    expect(script).toContain("'config show' = @('--json', '--show-secrets', '--help')");
+  });
+
+  it("dedupes repeated flags while keeping first-seen order", () => {
+    const dup = generateCompletion("pwsh", {
+      program: "x",
+      options: [],
+      commands: [{ name: "c", options: ["--json", "--json", "-j"] }],
+    });
+    expect(dup).toContain("'c' = @('--json', '-j', '--help')");
+  });
+
+  it("emits an empty hashtable when a table has no entries", () => {
+    const noParents = generateCompletion("pwsh", {
+      program: "x",
+      options: [],
+      commands: [{ name: "c", options: ["--json"] }],
+    });
+    // No parent commands -> $subcommands / $subOpts are empty hashtables.
+    expect(noParents).toContain("$subcommands = @{}");
+    expect(noParents).toContain("$subOpts = @{}");
+  });
+
+  it("throws on an unsafe command name rather than emitting it", () => {
+    expect(() =>
+      generateCompletion("pwsh", {
         program: "agentrelay",
         options: [],
         commands: [{ name: "run; rm -rf /", options: [] }],
