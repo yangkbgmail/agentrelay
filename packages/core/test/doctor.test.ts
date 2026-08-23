@@ -35,6 +35,7 @@ function input(overrides: Partial<DiagnosticInput> = {}): DiagnosticInput {
   return {
     nodeVersion: "v22.5.0",
     store: { path: "/home/u/.agentrelay/jobs.json", exists: true, corrupt: false, jobCount: 0, activeCount: 0 },
+    integrity: { checked: true, total: 0, errorCount: 0, warningCount: 0, sampleIssues: [] },
     writable: { dir: "/home/u/.agentrelay", writable: true, willCreate: false },
     config: { path: null, loadError: null, issues: [] },
     notify: { slackWebhook: "https://hooks.slack.com/x" },
@@ -107,6 +108,7 @@ describe("runDiagnostics", () => {
     expect(report.counts.error).toBe(0);
     expect(find(report, "node-version").level).toBe("ok");
     expect(find(report, "store").level).toBe("ok");
+    expect(find(report, "store-integrity").level).toBe("ok");
     expect(find(report, "store-writable").level).toBe("ok");
     expect(find(report, "adapters").level).toBe("ok");
     expect(find(report, "config").level).toBe("ok");
@@ -151,6 +153,64 @@ describe("runDiagnostics", () => {
       input({ store: { path: "/s/jobs.json", exists: true, corrupt: false, jobCount: 5, activeCount: 2 } })
     );
     expect(find(report, "store").message).toContain("2 active");
+  });
+
+  it("reports store-integrity OK when a linted store has no issues", () => {
+    const report = runDiagnostics(
+      input({ integrity: { checked: true, total: 4, errorCount: 0, warningCount: 0, sampleIssues: [] } })
+    );
+    const integrity = find(report, "store-integrity");
+    expect(integrity.level).toBe("ok");
+    expect(integrity.message).toContain("all 4 store record(s)");
+    expect(report.ok).toBe(true);
+  });
+
+  it("skips store-integrity as OK when there is no readable store to lint", () => {
+    const report = runDiagnostics(
+      input({ integrity: { checked: false, total: 0, errorCount: 0, warningCount: 0, sampleIssues: [] } })
+    );
+    const integrity = find(report, "store-integrity");
+    expect(integrity.level).toBe("ok");
+    expect(integrity.message).toContain("no readable job store");
+  });
+
+  it("errors store-integrity on error-level issues and names the sample", () => {
+    const report = runDiagnostics(
+      input({
+        integrity: {
+          checked: true,
+          total: 3,
+          errorCount: 1,
+          warningCount: 1,
+          sampleIssues: ['duplicate id "abc" (also at record 0)', "resetAt null"],
+        },
+      })
+    );
+    const integrity = find(report, "store-integrity");
+    expect(integrity.level).toBe("error");
+    expect(integrity.message).toContain("1 integrity error(s) across 3 record(s)");
+    expect(integrity.message).toContain("duplicate id");
+    expect(integrity.hint).toContain("agentrelay verify");
+    expect(report.ok).toBe(false);
+  });
+
+  it("warns store-integrity when there are only warning-level issues", () => {
+    const report = runDiagnostics(
+      input({
+        integrity: {
+          checked: true,
+          total: 2,
+          errorCount: 0,
+          warningCount: 2,
+          sampleIssues: ["waiting_for_reset but resetAt is null"],
+        },
+      })
+    );
+    const integrity = find(report, "store-integrity");
+    expect(integrity.level).toBe("warning");
+    expect(integrity.message).toContain("2 integrity warning(s)");
+    expect(integrity.message).toContain("resetAt is null");
+    expect(report.ok).toBe(true);
   });
 
   it("errors when the config file could not be loaded", () => {
@@ -243,7 +303,7 @@ describe("runDiagnostics", () => {
     const report = runDiagnostics(input({ nodeVersion: "v20.0.0", notify: {} }));
     expect(report.counts.error).toBe(1); // node
     expect(report.counts.warning).toBe(1); // notify
-    expect(report.counts.ok).toBe(6); // store + store-writable + adapters + daemon + reset-horizon + config
+    expect(report.counts.ok).toBe(7); // store + store-integrity + store-writable + adapters + daemon + reset-horizon + config
     expect(report.ok).toBe(false);
   });
 

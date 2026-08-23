@@ -26,6 +26,7 @@ import type {
   Notifier,
   PruneOptions,
   RelayJob,
+  StoreIntegrityFacts,
   StuckResumingReport,
   WritableFacts,
 } from "@agentrelay/core";
@@ -1250,6 +1251,33 @@ export function runVerify(storePath?: string): VerifyReport {
   return { kind: "verified", store, verification: verifyStore(parsed) };
 }
 
+/** How many representative integrity issues `doctor` folds into its one-line
+ *  check message — enough to point at the problem, few enough to stay a summary
+ *  (`agentrelay verify` lists them all). */
+const DOCTOR_INTEGRITY_SAMPLE_LIMIT = 3;
+
+/**
+ * Build the {@link StoreIntegrityFacts} `doctor` judges, by reusing
+ * {@link runVerify} (raw read + pure `verifyStore` linter). A missing store or
+ * whole-file corruption becomes `checked: false` — the first is a clean
+ * first-run, the second is already the `store` check's error, so integrity stays
+ * a skipped OK rather than double-reporting the same file. For a linted store,
+ * the counts pass straight through and up to a few issue messages (errors first,
+ * so the most serious problem always shows) become the report sample.
+ */
+export function gatherIntegrityFacts(storePath?: string): StoreIntegrityFacts {
+  const report = runVerify(storePath);
+  if (report.kind !== "verified" || !report.verification) {
+    return { checked: false, total: 0, errorCount: 0, warningCount: 0, sampleIssues: [] };
+  }
+  const { total, errorCount, warningCount, issues } = report.verification;
+  const sampleIssues = [...issues]
+    .sort((a, b) => (a.level === b.level ? 0 : a.level === "error" ? -1 : 1))
+    .slice(0, DOCTOR_INTEGRITY_SAMPLE_LIMIT)
+    .map((issue) => issue.message);
+  return { checked: true, total, errorCount, warningCount, sampleIssues };
+}
+
 export interface ConfigShowOptions {
   /** Explicit file path. When omitted, the usual discovery order is used. */
   path?: string;
@@ -1485,12 +1513,24 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
   // not-yet-created dir look already-present).
   const writable = probeStoreWritable(storePath);
 
+  // --- store-integrity facts. Reads the *raw* file (via runVerify) and runs the
+  // pure `verifyStore` linter, so duplicate ids and structurally-broken records
+  // are caught before the queue's Map silently collapses them. A missing store
+  // (first run) or whole-file corruption (already the `store` check's error) is
+  // reported as "not checked" so the same file isn't flagged twice.
+  const integrity = gatherIntegrityFacts(storePath);
+
   let corrupt = false;
   let jobs: RelayJob[] = [];
   try {
     const queue = new RelayQueue(storePath, { onCorrupt: () => (corrupt = true) });
     jobs = queue.listAll();
-    queue.close();
+    // Deliberately NOT queue.close(): close() flushes the in-memory Map back to
+    // disk, and the Map has already collapsed any duplicate ids on load — so a
+    // read-only diagnostic would silently rewrite the store and destroy the very
+    // duplicate-id job the store-integrity check just reported. doctor only reads
+    // (the constructor already loaded the jobs), so skipping close() keeps it
+    // non-mutating.
   } catch {
     // Opening the queue can throw when the store dir can't be created/written
     // (parent is a file, perms deny mkdir, read-only mount). The writable probe
@@ -1540,6 +1580,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
       jobCount: jobs.length,
       activeCount: countActiveJobs(jobs),
     },
+    integrity,
     writable,
     config: { path: configPathResolved, loadError, issues },
     notify: {
