@@ -2598,3 +2598,28 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② `run`(최초 감지) 경로는 현재 tail을 저장하지
   않아 무관하나, 향후 감지 시 출력 저장을 추가하면 동일 스크럽 적용 필요. ③ 대시보드/`show`가 이미 저장된(레닥션 전)
   tail을 표시할 때의 소급 스크럽은 별도 항목 후보. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 86 — #875 보안 픽스 병합 + `agentrelay redact`: 이미 저장된 비밀 소급 스크럽 (👷 자율 발굴)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-lsguqd`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료, 열린 PR ~200개로 병리적 포화(중복 밀집) — 신규 feature 한계효용이
+  낮고 병목은 리뷰/병합. 먼저 **가장 고가치·clean·초록 PR을 병합해 큐를 배수**(COLLAB §병합정책), 이어서 그 위에
+  실질 갭을 하나 발굴·구현.
+- **한 일 ①(큐 배수):** #875 `feat(core): redact secrets from persisted output tail`(mergeable clean, 현재 main
+  기반)을 로컬에서 build/test/lint 전 검증(core 707·cli 370/1skip·dashboard 13, Biome 0에러) 후 **squash 병합**.
+  세션 85가 남긴 보안 픽스가 main에 반영됨.
+- **한 일 ②(`agentrelay redact` — #875 소급 스크럽):** 세션 85 "다음 할 일 ③"이 남긴 갭 — #875는 **앞으로의**
+  write만 스크럽하고, 그 이전에 저장됐거나 `import`로 유입됐거나 손 편집된 잡의 평문 비밀은 여전히 디스크에 남아
+  `show`/`export`가 노출함(#875 docstring이 명시한 위협모델을 실제로는 못 닫음). `@agentrelay/core/redact.ts`에
+  순수 `redactJob(job)`(`lastOutputTail`·`lastError`·`lastRateLimit.rawMatch`에 `redactSecrets` 적용, 바뀐 필드만
+  보고, **updatedAt 불변** — 콘텐츠 정리이지 라이프사이클 이벤트 아님)·`planStoreRedaction(jobs)`(순서 보존 계획+변경
+  로그+총계)·`RedactableField`/`REDACTABLE_FIELDS`/`JobRedactionChange`/`StoreRedactionPlan` 추가. `RelayQueue.redact
+  ({dryRun})`가 계획 계산→변경 잡만 set→원자적 flush(dry-run은 무기록). CLI `redactStore`(commands.ts)+순수 렌더
+  `renderRedact`/`renderRedactJson`(redact.ts)+`agentrelay redact [--dry-run] [--json]` 배선(prune/recover의 pure
+  선택+I/O 분리 패턴 재사용, 새 파서/스케줄러 로직 0줄).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 128파일)→`pnpm test` 전 패키지
+  통과(**core 716 · cli 378/1skip · dashboard 13**; core redact.test +9, cli redact.test +8). 빌드된 CLI e2e(임시
+  스토어 2잡): `redact --dry-run` 비파괴, `--json` 계획 정확, `redact` 적용 후 디스크에서 `ghp_…@github.com`→
+  `[REDACTED]@github.com`·`ANTHROPIC_API_KEY=sk-ant-…`→`=[REDACTED]`, `updatedAt` 불변 확인, 재실행 idempotent
+  ("Nothing to redact"). 병합 대상 #875와 doc 충돌 회피 위해 세션 85 로그 위에 append.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② `export`/대시보드에도 옵션형 소급 스크럽 노출은 후속 후보(현재는
+  스토어 in-place 정리로 충분). ③ 나머지 clean·고가치 PR(#878 clean/#879 search 등)은 doc append 충돌로 dirty —
+  근본 원인(세션 로그를 날짜별 개별 파일로 분리)은 🧭 코워크 소유 프로세스 안건. README/ARCHITECTURE는 🧭 코워크 몫.
