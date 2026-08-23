@@ -2575,3 +2575,20 @@
   (파서 변종·completion·doctor 계열은 중복 밀집이라 실제 신규성 실측 후에만). ② **근본 원인**(모든 기능 PR이
   PROGRESS/BACKLOG에 append → 하나 병합 시 나머지 전부 문서 충돌)은 🧭 코워크 소유 영역이라 프로세스/문서
   구조 변경(예: 세션 로그를 날짜별 개별 파일로 분리)이 필요 — 협의 안건. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 85 — 파서 타임존 인식: 명시 타임존대로 리셋 시각 해석(로컬-시간 오해석 버그 수정)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-t4gmg7`)
+- **한 일:** BACKLOG의 👷 항목이 전부 완료 상태라 CLAUDE.md 지침대로 신규 개선 항목을 자기 발굴 →
+  파서의 **명시 타임존 무시** 한계를 수정. Claude Code가 실제 출력하는 "Your limit will reset at 5pm
+  (America/New_York)."에서 파서는 "5pm"을 머신 로컬 시간으로 읽어(코드 주석에 알려진 한계), UTC 서버에서
+  5pm UTC로 park → 재개가 몇 시간 어긋나 릴레이 정확성이 깨졌다. `@agentrelay/core/timezone.ts` 신설
+  (순수·의존성 0, 빌트인 `Intl`만): `normalizeTimeZone`(IANA 슬래시 이름·UTC/GMT/Z만 수용, PST 등 다의적
+  약어는 로컬 폴백)·`zonedWallClockToUtc`(2-pass 오프셋으로 DST 경계 처리)·`timeZoneOffsetMs`·
+  `zoneCalendarDate`. `parser.ts`의 세 wall-clock 패턴에 선택적 후행 타임존 캡처(`TZ_FRAGMENT`)를 붙이고
+  공용 `resolveWallClock`로 zone 인식 시 그 zone, 아니면 기존 로컬 시간 해석(zone 없는 메시지 동작 불변).
+- **검증:** `pnpm build`(Next 포함 클린)·`pnpm ci:lint`(Biome 0에러, 124파일)·`pnpm test` 통과
+  (**core 706[+31·timezone 12/parser +19] · cli 370/1skip · dashboard 13**). 실제 빌드 CLI `parse`로 UTC
+  머신에서 5pm 뉴욕→21:00 UTC(EDT)·zone 없음→17:00 로컬·PST→로컬 폴백 e2e 확인. 기존 로컬-시간 동작을
+  인코딩하던 New_York 테스트 1건은 올바른 절대 instant 단언으로 갱신(의도된 동작 변경).
+- **다음 할 일:** ① 파서의 남은 한계 — 명시 zone 없을 때의 로컬-시간 가정은 여전(🧭 실제 샘플 수집 후
+  기본 zone 정책 판단 필요). ② `Etc/GMT±N`·숫자 오프셋(`UTC+9`) 토큰 확장 여지. ③ 근본 원인(문서 append
+  충돌)은 세션 84 진단대로 🧭 코워크와 협의 안건.
