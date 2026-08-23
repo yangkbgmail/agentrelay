@@ -970,6 +970,21 @@
       Biome 0경고), 실제 빌드 CLI e2e로 `completion fish` 방출(글로벌 옵션·최상위 커맨드·run 플래그·config
       부모 가드)·미지 셸 exit 1 검증. branch `claude/wizardly-pascal-am8gcl`)
 
+- [x] 👷 잡 메모(note) — `run --note`로 큐잉 시 자유형 라벨을 달고 `agentrelay note <id>`로 사후 편집,
+      `show`·`export`에 노출. 큐가 커지면 잡이 8자 id + 자동 파생 project로만 식별돼 "이 세 개 중 밤샘
+      리팩터가 뭐였지?"를 답할 수 없던 스캔 문제 해결(열린 100+ PR·main 어디에도 없던 진짜 신규 축).
+      (완료 — core `notes.ts` 신설(순수): `normalizeNote`(null/공백→null=클리어, 내부 공백/개행을 단일
+      공백으로 접어 한 줄 라벨 유지, `MAX_NOTE_LENGTH`=280 하드캡)가 유일한 정규화 지점 → run·note·향후
+      import이 동일 저장. `RelayJob.note?`·`CreateJobInput.note?`(둘 다 optional=무마이그레이션 로드).
+      `RelayQueue.enqueue`가 note 있을 때만 필드 저장(무주석 잡은 저장 형태 lean 유지), 신규 `setNote(id,note)`가
+      set/clear — **의도적으로 `updatedAt` 미변경**(메모는 라이프사이클 전이가 아니므로 종료 잡 해결시간 span
+      왜곡 방지). `export.ts` `JOB_CSV_COLUMNS`에 `note` 추가 + `jobCsvValue` 케이스(JSON/ndjson은 전체
+      형태라 자동 포함). CLI `run -n/--note`, 신규 `agentrelay note <id> [text...] [--clear]`(resolveJobId로
+      짧은 prefix·모호/미존재 처리 cancel/retry와 동일), `show`가 note 있을 때만 라인 렌더. core notes 7 +
+      queue notes 7 + export 2 + cli show 2 + commands setJobNote 3 신규 테스트, 실제 빌드 CLI e2e로
+      run --note 정규화·show·note --clear·멀티워드 set·CSV note 컬럼·미존재 id exit 1 검증. build/lint/test
+      통과(**core 686 · cli 370/1skip · dashboard 13**, Biome 0경고). branch `claude/wizardly-pascal-qfupil`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

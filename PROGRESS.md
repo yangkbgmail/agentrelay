@@ -2449,3 +2449,25 @@
   completion(nushell #785) 등이 후보. ② `main`·열린 PR 양쪽에 없는 **진짜 신규** 영역에서만 기능 발굴
   (중복 재발 방지). ③ 근본 원인(거의 모든 PR이 BACKLOG/PROGRESS에 append → 하나 병합 시 나머지 전부 문서
   충돌)은 세션 60·78이 진단한 그대로 — 문서 append 충돌 완화 방안은 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 82 — 잡 메모(note): `run --note` + `agentrelay note <id>` 신규 축] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-qfupil`)
+- **배경:** 세션 시작 시 BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 세션
+  78~81이 진단·경고한 **"중복 PR 루프"**를 열린 PR 100개 실측으로 재확인 — 파서 변종·doctor 검사·stats
+  서브커맨드·run 플래그·completion 셸·대시보드 카드·어댑터 축이 모두 포화. 101번째 중복을 더하지 않기 위해,
+  **열린 100+ PR 제목과 main 커맨드 표면 양쪽에 없는 진짜 신규 축**을 발굴: 잡에 사람용 자유형 메모(note)를
+  다는 기능(note/tag/label/annotate 관련 PR 0개 확인).
+- **동기:** 큐가 커지면 잡이 8자 id + 자동 파생 project로만 식별돼 "이 세 개 `myapp` 잡 중 밤샘 리팩터가
+  뭐였지?"를 답할 수 없다. 메모는 릴레이의 실제 용례(장시간 에이전트 작업을 여러 개 큐잉)에서 스캔성을 크게 높인다.
+- **한 일(구현):** core `notes.ts` 신설(순수 유일 정규화 지점) `normalizeNote`(null/공백→null=클리어,
+  내부 공백/개행을 단일 공백으로 접음, `MAX_NOTE_LENGTH`=280 하드캡) — run·`note` 커맨드·향후 import이 동일
+  저장. `RelayJob.note?`·`CreateJobInput.note?`(optional=무마이그레이션 로드). `enqueue`는 note 있을 때만
+  필드 저장, 신규 `setNote(id,note)`는 set/clear하되 **`updatedAt` 미변경**(메모는 라이프사이클 전이가
+  아니므로 종료 잡 해결시간 span 왜곡 방지). `export.ts`에 `note` CSV/md/html 컬럼 추가(JSON/ndjson 자동).
+  CLI `run -n/--note`, 신규 `agentrelay note <id> [text...] [--clear]`(resolveJobId 재사용), `show`가 note
+  있을 때만 렌더. 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0경고, 124파일)→`pnpm test`
+  전 패키지 통과(**core 686 · cli 370/1skip · dashboard 13**; 각각 +16·+5). 실제 빌드 CLI e2e로
+  `run --note` 공백 정규화·`show` 노출·`note --clear`·멀티워드 set·`export` CSV note 컬럼·미존재 id exit 1 검증.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② `status --json`/대시보드에도 note 노출을
+  후속 축으로 검토(스캔성 강화). ③ 남은 ~100개 중복 PR은 세션 80/81 통합 정책대로 축별로 계속 배수. ④ 신규
+  기능은 열린 PR·main 양쪽에 없는 영역에서만(중복 재발 방지). README/ARCHITECTURE는 🧭 코워크 몫.

@@ -254,4 +254,59 @@ describe("RelayQueue", () => {
       expect(readFileSync(join(dir, "test.db"), "utf8")).toBe(before);
     });
   });
+
+  describe("notes", () => {
+    function enqueueDemo(note?: string): RelayJob {
+      return queue.enqueue({
+        project: "demo",
+        tool: "claude-code",
+        command: ["claude", "-p", "continue"],
+        cwd: "/tmp/demo",
+        note,
+      });
+    }
+
+    it("stores a normalized note passed at enqueue time", () => {
+      const job = enqueueDemo("  nightly   refactor ");
+      expect(job.note).toBe("nightly refactor");
+      expect(queue.getById(job.id)?.note).toBe("nightly refactor");
+    });
+
+    it("omits the note field entirely when no note is given", () => {
+      const job = enqueueDemo();
+      expect(job.note).toBeUndefined();
+      expect("note" in job).toBe(false);
+    });
+
+    it("ignores a blank note at enqueue time", () => {
+      const job = enqueueDemo("   ");
+      expect(job.note).toBeUndefined();
+    });
+
+    it("sets a note on an existing job via setNote", () => {
+      const job = enqueueDemo();
+      const updated = queue.setNote(job.id, "PR #7 fix");
+      expect(updated?.note).toBe("PR #7 fix");
+      expect(queue.getById(job.id)?.note).toBe("PR #7 fix");
+    });
+
+    it("clears a note when setNote is given null/blank", () => {
+      const job = enqueueDemo("temp");
+      expect(queue.setNote(job.id, "")?.note).toBeNull();
+      expect(queue.getById(job.id)?.note).toBeNull();
+      queue.setNote(job.id, "again");
+      expect(queue.setNote(job.id, null)?.note).toBeNull();
+    });
+
+    it("returns undefined when setNote targets an unknown id", () => {
+      expect(queue.setNote("does-not-exist", "x")).toBeUndefined();
+    });
+
+    it("does not bump updatedAt when annotating (a note is not a lifecycle change)", () => {
+      const job = enqueueDemo();
+      const before = queue.getById(job.id)?.updatedAt;
+      queue.setNote(job.id, "later annotation");
+      expect(queue.getById(job.id)?.updatedAt).toBe(before);
+    });
+  });
 });

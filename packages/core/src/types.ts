@@ -53,6 +53,14 @@ export interface RelayJob {
    * rate limit has been detected yet.
    */
   lastRateLimit?: RateLimitDetection | null;
+  /**
+   * Optional free-form human annotation for the job (e.g. "nightly refactor",
+   * "PR #123 CI fix"), set via `run --note` or `agentrelay note <id>`. Pure
+   * metadata: it never affects scheduling or parsing, only how the job reads in
+   * `show`/`export`. Optional so pre-existing stores load without migration;
+   * absent/`null` means "no note".
+   */
+  note?: string | null;
 }
 
 export interface CreateJobInput {
@@ -60,6 +68,8 @@ export interface CreateJobInput {
   tool: AgentTool;
   command: string[];
   cwd: string;
+  /** Optional human annotation for the queued job (see {@link RelayJob.note}). */
+  note?: string;
 }
 
 export interface RetryPolicy {

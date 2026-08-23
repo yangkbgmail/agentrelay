@@ -91,6 +91,9 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
     lines.push(`  ${label("resets in")} ${formatCountdown(job.resetAt, now)} ${d(`(${job.resetAt})`)}`);
   }
   lines.push(`  ${label("attempts")} ${job.attempts}`);
+  if (job.note) {
+    lines.push(`  ${label("note")} ${job.note}`);
+  }
 
   const detection = job.lastRateLimit;
   if (detection) {

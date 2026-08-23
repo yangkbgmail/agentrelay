@@ -128,6 +128,12 @@ export interface RunOptions {
    * meaningful, stable name that the `--project` filters key off.
    */
   project?: string;
+  /**
+   * Optional free-form note to attach to the job if it gets rate-limited and
+   * enqueued (e.g. "nightly refactor"). Surfaced in `show`/`export`; blank
+   * values are ignored. See {@link RelayJob.note}.
+   */
+  note?: string;
   storePath?: string;
   /** Injected for tests; defaults to real stdout/stderr passthrough. */
   stdout?: NodeJS.WritableStream;
@@ -187,7 +193,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
 
   const queue = openQueue(storePath);
   const project = resolveProjectName(cwd, options.project);
-  const job = queue.enqueue({ project, tool, command: options.command, cwd });
+  const job = queue.enqueue({ project, tool, command: options.command, cwd, note: options.note });
   queue.markWaitingForReset(job.id, rateLimit.resetAt, {
     pattern: rateLimit.pattern,
     rawMatch: rateLimit.rawMatch,
@@ -610,6 +616,31 @@ export function showJob(idOrPrefix: string, storePath?: string): ShowJobResult {
     if (resolved.error || !resolved.id) return { ok: false, job: null, error: resolved.error ?? "job not found" };
     const job = jobs.find((j) => j.id === resolved.id) ?? null;
     return { ok: true, job };
+  } finally {
+    queue.close();
+  }
+}
+
+/**
+ * Set or clear a job's free-form note by full id or short prefix. Passing a
+ * non-empty `note` sets it; passing `null`/`undefined`/blank clears it. Reuses
+ * {@link resolveJobId} for the same ambiguous/unknown handling as
+ * `show`/`cancel`/`retry`. Any job (active or terminal) can be annotated — a
+ * note is metadata, not a state transition.
+ */
+export function setJobNote(idOrPrefix: string, note: string | null | undefined, storePath?: string): JobControlResult {
+  const queue = openQueue(storePath ?? defaultStorePath());
+  try {
+    const jobs = queue.listAll();
+    const resolved = resolveJobId(jobs, idOrPrefix);
+    if (resolved.error || !resolved.id) return { ok: false, job: null, message: resolved.error ?? "job not found" };
+
+    const updated = queue.setNote(resolved.id, note) ?? null;
+    const cleared = !updated?.note;
+    const message = cleared
+      ? `cleared note on job ${shortId(resolved.id)}`
+      : `set note on job ${shortId(resolved.id)}: ${updated?.note}`;
+    return { ok: true, job: updated, message };
   } finally {
     queue.close();
   }
