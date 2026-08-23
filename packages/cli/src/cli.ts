@@ -33,12 +33,14 @@ import {
   inferImportFormat,
   isCompletionShell,
   isJobScopeActive,
+  isSidecarKind,
   JOB_CSV_COLUMNS,
   maxResetHorizonMsFromEnv,
   parseCsvColumns,
   parseDuration,
   renderPrometheusMetrics,
   SETTABLE_CONFIG_KEYS,
+  SIDECAR_KINDS,
   scopeJobs,
   selectNextResume,
   sendTestNotification,
@@ -48,6 +50,7 @@ import {
   summarizeTools,
 } from "@agentrelay/core";
 import { Command } from "commander";
+import { renderCleanResult, renderCleanResultJson } from "./clean.js";
 import {
   ALL_JOB_STATUSES,
   type BulkControlAction,
@@ -55,6 +58,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  cleanSidecars,
   exportStore,
   getConfigValue,
   importStore,
@@ -2252,6 +2256,46 @@ export function buildCli(): Command {
         );
       }
       console.log(`${verb} ${pruned.length} job(s). ${remaining} remain.`);
+    });
+
+  program
+    .command("clean")
+    .description("Remove accumulated store sidecar files (corrupt-recovery copies, stranded write temps)")
+    .option("--older-than <duration>", "Only remove sidecars older than this (e.g. 7d, 24h, 30m)")
+    .option("--kind <kinds>", `Comma-separated sidecar kinds to remove (default: ${SIDECAR_KINDS.join(",")})`)
+    .option("--dry-run", "Show what would be removed without deleting anything")
+    .option("--json", "Output the result as JSON")
+    .action((opts: { olderThan?: string; kind?: string; dryRun?: boolean; json?: boolean }) => {
+      const { store } = program.opts();
+
+      let olderThanMs: number | undefined;
+      if (opts.olderThan !== undefined) {
+        const parsed = parseDuration(opts.olderThan);
+        if (parsed === null) {
+          console.error(`Invalid --older-than value "${opts.olderThan}". Use a duration like 7d, 24h, 30m, 90s.`);
+          process.exitCode = 1;
+          return;
+        }
+        olderThanMs = parsed;
+      }
+
+      let kinds: typeof SIDECAR_KINDS | undefined;
+      if (opts.kind !== undefined) {
+        const requested = opts.kind
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+        const invalid = requested.filter((s) => !isSidecarKind(s));
+        if (invalid.length > 0) {
+          console.error(`Unknown sidecar kind(s): ${invalid.join(", ")}. Valid: ${SIDECAR_KINDS.join(", ")}.`);
+          process.exitCode = 1;
+          return;
+        }
+        kinds = requested as unknown as typeof SIDECAR_KINDS;
+      }
+
+      const result = cleanSidecars({ storePath: store, olderThanMs, kinds, dryRun: opts.dryRun });
+      console.log(opts.json ? renderCleanResultJson(result) : renderCleanResult(result));
     });
 
   program

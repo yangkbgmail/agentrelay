@@ -1002,6 +1002,23 @@
       clean→ok / 중복-id→error+exit 1 / 스토어 UNCHANGED(비파괴) / 두 번째 실행도 여전히 flag 검증.
       branch `claude/wizardly-pascal-uems38`)
 
+- [x] 👷 `agentrelay clean` — 스토어 사이드카 파일(`.corrupt-*` 손상 복구본 / `.tmp-*` 고아 쓰기 임시)
+      정리. 자기 발굴 항목. 스토어 옆에는 두 종류의 사이드카가 쌓이는데 아무도 회수하지 않았다: `load()`가
+      손상 스토어를 덮어쓰지 않고 보존하는 `.corrupt-<ts>` 복구본, 원자적 쓰기가 크래시·OOM·풀디스크로
+      중단돼 남는 `.tmp-<pid>-<ms>` 고아. `backup --keep`은 `.backup-*`만, `prune`은 잡만 다뤄 이 둘은
+      무한 축적됐다(풀디스크 상황에선 정리가 가장 필요한 순간).
+      (완료 — core `clean.ts` 신설(순수·파일시스템 미접촉): `CORRUPT_INFIX`/`TMP_INFIX`·`SidecarKind`·
+      `SIDECAR_KINDS`·`isSidecarKind`·`classifySidecar`(스토어 본체와 `.backup-*`는 절대 매칭 안 함, 인픽스
+      뒤 스탬프 필수)·`selectCleanableSidecars`(kind/나이[mtime] 필터, oldest-first 결정론 정렬, 나이 null/≤0은
+      필터 없음). CLI `commands.ts` `cleanSidecars`(스토어 dir 스캔+stat+rmSync, 개별 stat/unlink 실패 삼킴,
+      dir 미존재는 `dirUnreadable` 플래그로 흡수해 throw 안 함, freed 바이트 집계) + `clean.ts` 렌더
+      (`formatBytes` B/KB/MB·human/json). `agentrelay clean [--older-than <dur>] [--kind corrupt,tmp]
+      [--dry-run] [--json]` 배선(잘못된 duration/kind는 exit 1). queue.ts `corruptBackupPath`가 실제로 만드는
+      경로가 corrupt로 분류되고 `backupFilePath`는 사이드카로 매칭 안 됨을 단언하는 drift-guard 테스트 포함.
+      새 파서/스케줄러 로직 0줄. build/lint/test 통과(**core 700 · cli 375/1skip · dashboard 13**, Biome
+      0경고, core clean 13 + cli cleanSidecars 5 신규), 빌드된 CLI e2e로 dry-run 비파괴·kind 필터·실제 삭제
+      시 스토어/백업 보존·미지 kind exit 1 검증. branch `claude/wizardly-pascal-g3yms1`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

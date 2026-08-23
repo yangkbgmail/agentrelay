@@ -2575,3 +2575,22 @@
   (파서 변종·completion·doctor 계열은 중복 밀집이라 실제 신규성 실측 후에만). ② **근본 원인**(모든 기능 PR이
   PROGRESS/BACKLOG에 append → 하나 병합 시 나머지 전부 문서 충돌)은 🧭 코워크 소유 영역이라 프로세스/문서
   구조 변경(예: 세션 로그를 날짜별 개별 파일로 분리)이 필요 — 협의 안건. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 85 — `agentrelay clean`: 스토어 사이드카(.corrupt-*/.tmp-*) 정리 커맨드] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-g3yms1`)
+- **한 일:** BACKLOG의 👷 항목이 전부 완료 상태라 CLAUDE.md 지침대로 새 개선 항목을 발굴해 구현.
+  스토어 옆에 쌓이는 두 종류의 **사이드카 파일**을 정리하는 커맨드가 없다는 공백을 메움 — `.corrupt-*`
+  (손상된 스토어를 만나면 `RelayQueue.load()`가 덮어쓰지 않고 보존하는 복구본)와 `.tmp-*`(원자적 쓰기의
+  임시 파일이 크래시·OOM·풀디스크로 중단돼 남은 고아). `backup --keep`은 `.backup-*`만, `prune`은 잡만
+  다뤄 이 둘은 아무도 회수하지 않고 무한 축적됐다(풀디스크 상황에선 정리가 가장 필요한 순간).
+- **구현:** core `clean.ts` 신설(순수·파일시스템 미접촉): `CORRUPT_INFIX`/`TMP_INFIX`·`SidecarKind`·
+  `classifySidecar`(스토어 본체와 `.backup-*`는 절대 매칭 안 함, 인픽스 뒤 스탬프 필수)·`selectCleanableSidecars`
+  (kind/나이 필터, oldest-first 결정론 정렬). CLI `commands.ts` `cleanSidecars`(디렉터리 스캔+stat+unlink,
+  개별 실패 삼킴, `dirUnreadable` 플래그)·`clean.ts` 렌더(`formatBytes`·human/json). `agentrelay clean
+  [--older-than <dur>] [--kind corrupt,tmp] [--dry-run] [--json]` 배선. queue.ts의 실제 경로가 corrupt로
+  분류됨을 단언하는 drift-guard 테스트 포함.
+- **검증:** `pnpm build`(Next 포함 클린)·`pnpm ci:lint`(Biome 0에러, 125파일)·`pnpm test` 통과
+  (**core 700 · cli 375/1skip · dashboard 13**, core clean 13 + cli cleanSidecars 5 신규). 빌드된 CLI
+  e2e로 dry-run 비파괴·kind 필터·실제 삭제 시 스토어/백업 보존·미지 kind exit 1 검증.
+- **다음 할 일:** 👷 백로그가 비었으므로 계속 자기 발굴 개선 항목 소진(예: `clean`을 `doctor`/`paths`에
+  사이드카 카운트로 노출, 또는 `daemon` 자동 사이드카 정리). 문서/리서치(README·ARCHITECTURE·경쟁조사)는
+  🧭 코워크 몫이라 미착수.

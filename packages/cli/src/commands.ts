@@ -26,6 +26,8 @@ import type {
   Notifier,
   PruneOptions,
   RelayJob,
+  SidecarFile,
+  SidecarKind,
   StoreIntegrityFacts,
   StuckResumingReport,
   WritableFacts,
@@ -39,6 +41,7 @@ import {
   type ConfigValueSource,
   canCancel,
   canRequeue,
+  classifySidecar,
   configToJson,
   countActiveJobs,
   daemonHeartbeatPath,
@@ -86,6 +89,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   sampleConfigJson,
   scopeJobs,
+  selectCleanableSidecars,
   selectFarFutureParkedJobs,
   selectFarFutureResets,
   selectStuckResumingJobs,
@@ -1044,6 +1048,92 @@ export function listStoreBackups(storePath?: string): StoreBackupInfo[] {
     return [];
   }
   return listBackups(names, storeName).map((entry) => ({ path: join(dir, entry.name), stamp: entry.stamp }));
+}
+
+export interface CleanSidecarsOptions {
+  storePath?: string;
+  /** Only remove sidecars older than this many ms (by mtime). Null = no age filter. */
+  olderThanMs?: number | null;
+  /** Restrict to these sidecar kinds. Defaults to all. */
+  kinds?: readonly SidecarKind[];
+  /** Preview only — select but don't unlink. */
+  dryRun?: boolean;
+  /** Injectable clock for the age comparison. */
+  nowMs?: number;
+}
+
+export interface CleanedSidecar {
+  path: string;
+  kind: SidecarKind;
+  sizeBytes: number;
+}
+
+export interface CleanSidecarsResult {
+  /** The sidecar files that were removed (or, in dry-run, would be). */
+  removed: CleanedSidecar[];
+  /** Total bytes freed (or, in dry-run, that would be freed). */
+  freedBytes: number;
+  /** True when this was a preview (nothing actually unlinked). */
+  dryRun: boolean;
+  /** True when the store directory couldn't be read (treated as "nothing to clean"). */
+  dirUnreadable: boolean;
+}
+
+/**
+ * Removes the store's accumulated sidecar files — corrupt-recovery copies
+ * (`.corrupt-*`) and stranded atomic-write temp files (`.tmp-*`) — that no other
+ * command reclaims. Scans the store's directory, classifies each entry via core
+ * `classifySidecar` (never touching the store itself or its `.backup-*`
+ * snapshots), applies the kind/age filters via core `selectCleanableSidecars`,
+ * and unlinks the survivors (unless `dryRun`). A missing/unreadable directory or
+ * a stat/unlink error on an individual file is swallowed so cleanup never
+ * crashes a relay setup.
+ */
+export function cleanSidecars(options: CleanSidecarsOptions = {}): CleanSidecarsResult {
+  const store = options.storePath ?? defaultStorePath();
+  const dir = dirname(store);
+  const storeName = basename(store);
+  const nowMs = options.nowMs ?? Date.now();
+  const dryRun = options.dryRun ?? false;
+
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return { removed: [], freedBytes: 0, dryRun, dirUnreadable: true };
+  }
+
+  const files: SidecarFile[] = [];
+  for (const name of names) {
+    const kind = classifySidecar(name, storeName);
+    if (kind === null) continue;
+    try {
+      const st = statSync(join(dir, name));
+      if (!st.isFile()) continue;
+      files.push({ name, kind, mtimeMs: st.mtimeMs, sizeBytes: st.size });
+    } catch {
+      // Vanished between readdir and stat, or unreadable — skip it.
+    }
+  }
+
+  const selected = selectCleanableSidecars(files, { nowMs, olderThanMs: options.olderThanMs, kinds: options.kinds });
+
+  const removed: CleanedSidecar[] = [];
+  let freedBytes = 0;
+  for (const f of selected) {
+    const path = join(dir, f.name);
+    if (!dryRun) {
+      try {
+        rmSync(path, { force: true });
+      } catch {
+        continue; // couldn't remove it — don't count it as freed
+      }
+    }
+    removed.push({ path, kind: f.kind, sizeBytes: f.sizeBytes });
+    freedBytes += f.sizeBytes;
+  }
+
+  return { removed, freedBytes, dryRun, dirUnreadable: false };
 }
 
 export interface RestoreStoreOptions {

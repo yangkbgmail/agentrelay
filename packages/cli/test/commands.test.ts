@@ -9,6 +9,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  cleanSidecars,
   getConfigValue,
   importStore,
   initConfig,
@@ -633,6 +634,70 @@ describe("backupStore / listStoreBackups", () => {
     // Newest first.
     expect(backups[0].stamp).toBe("2026-07-18T09-00-02-000Z");
     expect(backups[1].stamp).toBe("2026-07-18T09-00-01-000Z");
+  });
+});
+
+describe("cleanSidecars", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-clean-cli-test-"));
+    storePath = join(dir, "jobs.json");
+    writeFileSync(storePath, "[]");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("removes corrupt and tmp sidecars but never the store or its backups", () => {
+    writeFileSync(join(dir, "jobs.json.corrupt-2026-08-23T04-00-00-000Z"), "garbage");
+    writeFileSync(join(dir, "jobs.json.tmp-123-456"), "partial");
+    writeFileSync(join(dir, "jobs.json.backup-2026-08-23T04-00-00-000Z"), "[]");
+
+    const result = cleanSidecars({ storePath });
+    expect(result.dryRun).toBe(false);
+    expect(result.removed).toHaveLength(2);
+    expect(result.removed.map((r) => r.kind).sort()).toEqual(["corrupt", "tmp"]);
+    // Store and backup survive; both sidecars are gone.
+    expect(existsSync(storePath)).toBe(true);
+    expect(existsSync(join(dir, "jobs.json.backup-2026-08-23T04-00-00-000Z"))).toBe(true);
+    expect(existsSync(join(dir, "jobs.json.corrupt-2026-08-23T04-00-00-000Z"))).toBe(false);
+    expect(existsSync(join(dir, "jobs.json.tmp-123-456"))).toBe(false);
+  });
+
+  it("dry-run selects without deleting", () => {
+    const corrupt = join(dir, "jobs.json.corrupt-x");
+    writeFileSync(corrupt, "garbage");
+
+    const result = cleanSidecars({ storePath, dryRun: true });
+    expect(result.dryRun).toBe(true);
+    expect(result.removed).toHaveLength(1);
+    expect(existsSync(corrupt)).toBe(true); // untouched
+  });
+
+  it("restricts to the requested kind", () => {
+    writeFileSync(join(dir, "jobs.json.corrupt-x"), "a");
+    writeFileSync(join(dir, "jobs.json.tmp-1-2"), "b");
+
+    const result = cleanSidecars({ storePath, kinds: ["tmp"] });
+    expect(result.removed).toHaveLength(1);
+    expect(result.removed[0].kind).toBe("tmp");
+    expect(existsSync(join(dir, "jobs.json.corrupt-x"))).toBe(true);
+  });
+
+  it("reports nothing to clean when there are no sidecars", () => {
+    const result = cleanSidecars({ storePath });
+    expect(result.removed).toEqual([]);
+    expect(result.freedBytes).toBe(0);
+    expect(result.dirUnreadable).toBe(false);
+  });
+
+  it("flags an unreadable store directory instead of throwing", () => {
+    const result = cleanSidecars({ storePath: join(dir, "no-such-subdir", "jobs.json") });
+    expect(result.dirUnreadable).toBe(true);
+    expect(result.removed).toEqual([]);
   });
 });
 
