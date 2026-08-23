@@ -457,6 +457,17 @@
       더해 대체. core export.test 15케이스 + cli export.test 3케이스, 실제 빌드 CLI e2e로 문서 구조·
       상태 색상·주입 이스케이프(`<script>`→`&lt;script&gt;`)·개행 `<br>`·빈 스토어·컬럼 조합·잘못된
       포맷 exit 1·파일 출력 검증. branch `claude/wizardly-pascal-e06tu1`)
+- [x] 👷 `agentrelay export --columns`에 rate-limit 출처(provenance) 열(`pattern`/`detectedAt`) 추가 —
+      "어떤 파서 패턴이 언제 이 잡을 세웠나"를 CSV/md/html 리포트로 뽑기.
+      (완료 — 열 선택(`--columns`)은 있었지만 어휘가 `JOB_CSV_COLUMNS` 11개로 고정이라 `lastRateLimit`
+      감지 출처를 표로 낼 방법이 없었다(JSON 전체 덤프에만 존재). core `export.ts`에 순수
+      `JOB_PROVENANCE_COLUMNS`(`pattern`/`detectedAt`, `RateLimitDetection` 필드명 미러)와 선택 가능
+      상위집합 `JOB_EXPORT_COLUMNS`(=기본 + 출처) 신설. `JobCsvColumn`·`isJobCsvColumn`·`parseCsvColumns`가
+      상위집합으로 검증, `jobCsvValue`에 두 열 케이스 추가(미탐지 잡·필드 부재 스토어는 빈 셀). **기본
+      출력 불변**(출처는 opt-in) — `agentrelay export`는 그대로, `--columns id,pattern,detectedAt`로만
+      노출. CLI export의 `--columns` 설명·오류 메시지·stale 주석("csv/md만"→csv/md/html)을 상위집합으로
+      갱신. core export.test +6, 빌드 CLI e2e로 출처 열·기본 헤더 불변·md·json 거부 메시지·Valid 목록
+      검증. branch `claude/wizardly-pascal-z46fq7`)
 - [x] 👷 파서: 분(minute) 없는 시각 표현 `reset at 5pm` / `resets at 10 AM` 인식.
       (완료 — Claude Code가 실제로 출력하는 `"Your limit will reset at 5pm (America/New_York)."`
       문구를 기존 `clock-time`(분 `:MM` 필수)이 놓쳐 잡이 큐잉 안 되던 실사용 갭. 신규

@@ -32,18 +32,39 @@ export const JOB_CSV_COLUMNS = [
   "lastError",
 ] as const;
 
-export type JobCsvColumn = (typeof JOB_CSV_COLUMNS)[number];
+/**
+ * Rate-limit *provenance* columns — the "why/when was this job parked?" fields,
+ * sourced from {@link RelayJob.lastRateLimit} (see `RateLimitDetection`). They're
+ * deliberately **not** in {@link JOB_CSV_COLUMNS} (the default emitted set), so a
+ * plain `agentrelay export` stays lean and unchanged. But they're part of the
+ * selectable vocabulary ({@link JOB_EXPORT_COLUMNS}), so a report that wants to
+ * answer "which parser pattern caught each job, and when?" can pull them in with
+ * `--columns id,project,pattern,detectedAt`. A job that has never been
+ * rate-limited (no `lastRateLimit`) renders these as empty cells.
+ */
+export const JOB_PROVENANCE_COLUMNS = ["pattern", "detectedAt"] as const;
 
-/** True when `name` is one of the recognized CSV/Markdown column names. */
+/**
+ * The full set of columns a caller may pick from via `--columns`: the default
+ * {@link JOB_CSV_COLUMNS} plus the opt-in {@link JOB_PROVENANCE_COLUMNS}. This is
+ * the vocabulary {@link isJobCsvColumn} / {@link parseCsvColumns} validate
+ * against — broader than what's emitted by default so provenance is available
+ * on request without widening every export.
+ */
+export const JOB_EXPORT_COLUMNS = [...JOB_CSV_COLUMNS, ...JOB_PROVENANCE_COLUMNS] as const;
+
+export type JobCsvColumn = (typeof JOB_EXPORT_COLUMNS)[number];
+
+/** True when `name` is one of the recognized (selectable) CSV/Markdown/HTML column names. */
 export function isJobCsvColumn(name: string): name is JobCsvColumn {
-  return (JOB_CSV_COLUMNS as readonly string[]).includes(name);
+  return (JOB_EXPORT_COLUMNS as readonly string[]).includes(name);
 }
 
 /**
  * Parse a comma-separated `--columns` list into a validated, ordered column
  * subset for the CSV/Markdown exports. Splits on commas, trims each name, and
  * drops empty tokens (so trailing commas / stray whitespace are forgiven). Every
- * remaining name is checked against {@link JOB_CSV_COLUMNS}: valid ones are kept
+ * remaining name is checked against {@link JOB_EXPORT_COLUMNS}: valid ones are kept
  * in the order given (duplicates preserved, so a caller can intentionally repeat
  * a column), and unrecognized ones are collected into `invalid` for the caller
  * to report. Pure — the CLI decides whether an empty result or non-empty
@@ -94,6 +115,12 @@ export function jobCsvValue(job: RelayJob, column: JobCsvColumn): string {
       return job.resetAt ?? "";
     case "lastError":
       return job.lastError ?? "";
+    case "pattern":
+      // Rate-limit provenance: the parser pattern that last parked this job.
+      return job.lastRateLimit?.pattern ?? "";
+    case "detectedAt":
+      // Rate-limit provenance: when that detection was recorded.
+      return job.lastRateLimit?.detectedAt ?? "";
     default:
       // The remaining columns are all plain string fields on RelayJob.
       return job[column];

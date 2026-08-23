@@ -2623,3 +2623,26 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② `export`/대시보드에도 옵션형 소급 스크럽 노출은 후속 후보(현재는
   스토어 in-place 정리로 충분). ③ 나머지 clean·고가치 PR(#878 clean/#879 search 등)은 doc append 충돌로 dirty —
   근본 원인(세션 로그를 날짜별 개별 파일로 분리)은 🧭 코워크 소유 프로세스 안건. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 87 — `export --columns`에 rate-limit 출처(provenance) 열 추가 (👷 자율 발굴)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-z46fq7`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료, 코드베이스는 백로그를 넘어 사실상 기능 완비(HTML export·`--columns`
+  열 선택까지 이미 존재). 열린 PR ~200개로 병목은 리뷰/병합이라 마진 낮은 신규 기능 남발은 소음만 키운다.
+  대신 **제품 핵심(rate-limit 감지 관측성)에 실질 가치가 있고 열린 PR과 겹치지 않는 안전·자기완결 갭** 하나를 구현.
+- **갭:** `--columns` 열 선택은 있었지만 고를 수 있는 어휘가 `JOB_CSV_COLUMNS` 11개로 고정 — 각 잡을 **왜/언제**
+  세웠는지(`lastRateLimit`의 파서 패턴·감지 시각)는 JSON 전체 덤프에만 있고 CSV/md/html 리포트로는 뽑을 수 없었다.
+  (대시보드 provenance 노출[#828]과 별개의 export 측 갭.)
+- **한 일:** core `export.ts`에 순수 `JOB_PROVENANCE_COLUMNS`(`pattern`/`detectedAt`, `RateLimitDetection` 필드명
+  미러)와 선택 가능 상위집합 `JOB_EXPORT_COLUMNS`(=기본 `JOB_CSV_COLUMNS` + 출처) 신설. `JobCsvColumn` 타입·
+  `isJobCsvColumn`·`parseCsvColumns`가 상위집합으로 검증하도록 확장, `jobCsvValue`에 두 출처 열 케이스 추가
+  (미탐지 잡·필드 부재 레거시 스토어는 빈 셀 → 전방호환). **기본 출력 불변**이 핵심 — 모든 직렬화기의 기본 열은
+  여전히 `JOB_CSV_COLUMNS`라 `agentrelay export`는 그대로이고, 출처 열은 `--columns id,pattern,detectedAt`처럼
+  **명시할 때만** 나온다. CLI `cli.ts` export의 `--columns` 설명·오류 메시지·stale 주석("csv/md만 적용"→
+  실제로는 html도 적용: csv/md/html)을 상위집합/실제 동작에 맞게 교정.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 126파일)→`pnpm test` 전
+  패키지 통과(**core 722**[+6: 출처 값·어휘 구조·기본 헤더 불변·parse·e2e] · cli 378/1skip · dashboard 13). 빌드된
+  CLI e2e(임시 스토어, `lastRateLimit` 있는 잡 1개): `--columns id,project,pattern,detectedAt`가 출처 값 정확 출력,
+  `export -f csv` 기본 헤더 불변, `-f md --columns id,pattern` 정상, `-f json --columns …`는 "csv/md/html만" 거부·
+  exit 1, 잘못된 열 오류의 Valid 목록에 `pattern`/`detectedAt` 포함 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB §병합정책). ② 필요 시 `lastRateLimit.resetAt`·`rawMatch`도
+  선택 열로 확장 가능(현재는 가장 유용한 pattern/detectedAt만). ③ 여전한 병목은 ~200개 열린 PR의 리뷰/병합
+  — 대량 정리(mass-merge/close/프로세스 변경)는 사람·🧭 코워크 판단 필요. README/ARCHITECTURE는 🧭 코워크 몫.
