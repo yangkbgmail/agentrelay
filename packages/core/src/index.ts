@@ -15,6 +15,7 @@ export * from "./import.js";
 export * from "./locations.js";
 export * from "./metrics.js";
 export * from "./next.js";
+export * from "./notes.js";
 export * from "./notify.js";
 export * from "./overdue.js";
 export * from "./parser.js";

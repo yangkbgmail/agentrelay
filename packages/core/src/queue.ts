@@ -30,6 +30,7 @@ import {
   selectRotatableBackups,
 } from "./backup.js";
 import { type ImportOptions, type ImportResult, planImport, summarizeImportPlan } from "./import.js";
+import { normalizeNote } from "./notes.js";
 import { type PruneOptions, selectPrunableJobs } from "./prune.js";
 import type { CreateJobInput, JobStatus, RateLimitDetection, RelayJob } from "./types.js";
 
@@ -163,6 +164,7 @@ export class RelayQueue {
   enqueue(input: CreateJobInput): RelayJob {
     this.load();
     const now = new Date().toISOString();
+    const note = normalizeNote(input.note);
     const job: RelayJob = {
       id: randomUUID(),
       project: input.project,
@@ -177,10 +179,34 @@ export class RelayQueue {
       lastError: null,
       lastOutputTail: null,
       lastRateLimit: null,
+      // Only persist the field when a note was actually given, keeping the
+      // stored shape lean for the common (un-annotated) case.
+      ...(note !== null ? { note } : {}),
     };
     this.jobs.set(job.id, job);
     this.flush();
     return job;
+  }
+
+  /**
+   * Set or clear a job's free-form note (see {@link RelayJob.note}). Passing a
+   * non-empty string sets it (normalized via {@link normalizeNote}); passing
+   * `null`, `undefined`, or a blank/whitespace-only string clears it. Returns
+   * the updated job, or `undefined` if the id is unknown.
+   *
+   * Deliberately does **not** touch `updatedAt`: a note is metadata, not a
+   * lifecycle transition, so annotating a finished job must not distort the
+   * `updatedAt − createdAt` span that `stats` resolution-time metrics measure.
+   */
+  setNote(id: string, note: string | null | undefined): RelayJob | undefined {
+    this.load();
+    const existing = this.jobs.get(id);
+    if (!existing) return undefined;
+    const normalized = normalizeNote(note);
+    const updated: RelayJob = { ...existing, note: normalized };
+    this.jobs.set(id, updated);
+    this.flush();
+    return updated;
   }
 
   /**

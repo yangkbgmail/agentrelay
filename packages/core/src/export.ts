@@ -29,6 +29,7 @@ export const JOB_CSV_COLUMNS = [
   "updatedAt",
   "command",
   "cwd",
+  "note",
   "lastError",
 ] as const;
 
@@ -92,6 +93,8 @@ export function jobCsvValue(job: RelayJob, column: JobCsvColumn): string {
       return job.command.join(" ");
     case "resetAt":
       return job.resetAt ?? "";
+    case "note":
+      return job.note ?? "";
     case "lastError":
       return job.lastError ?? "";
     default:

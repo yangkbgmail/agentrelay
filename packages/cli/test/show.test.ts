@@ -65,6 +65,16 @@ describe("renderJobDetail", () => {
     expect(out).not.toContain("resets in");
   });
 
+  it("renders the note line when a note is present", () => {
+    const out = renderJobDetail(job({ note: "nightly refactor" }), { now: NOW });
+    expect(out).toContain("note       nightly refactor");
+  });
+
+  it("omits the note line when no note is set", () => {
+    expect(renderJobDetail(job(), { now: NOW })).not.toContain("note ");
+    expect(renderJobDetail(job({ note: null }), { now: NOW })).not.toContain("note ");
+  });
+
   it("annotates the updated timestamp with the lifecycle span", () => {
     const out = renderJobDetail(job(), { now: NOW });
     expect(out).toContain("(1m 0s later)");

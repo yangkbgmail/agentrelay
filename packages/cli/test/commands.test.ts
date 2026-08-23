@@ -20,6 +20,7 @@ import {
   retryJob,
   runCommand,
   setConfigFile,
+  setJobNote,
   showConfig,
   showJob,
   unsetConfigFile,
@@ -218,6 +219,52 @@ describe("cancelJob / retryJob", () => {
     expect(result.job?.status).toBe("waiting_for_reset");
     expect(result.job?.attempts).toBe(0);
     expect(result.job?.lastError).toBeNull();
+  });
+});
+
+describe("setJobNote", () => {
+  let dir: string;
+  let storePath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-cli-note-"));
+    storePath = join(dir, "jobs.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function seed(): string {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.close();
+    return job.id;
+  }
+
+  it("sets a note by short id prefix and persists it", () => {
+    const id = seed();
+    const result = setJobNote(id.slice(0, 8), "nightly refactor", storePath);
+    expect(result.ok).toBe(true);
+    expect(result.job?.note).toBe("nightly refactor");
+    expect(result.message).toContain("set note");
+    expect(listStatus(storePath)[0].note).toBe("nightly refactor");
+  });
+
+  it("clears a note when passed null", () => {
+    const id = seed();
+    setJobNote(id, "temp", storePath);
+    const result = setJobNote(id, null, storePath);
+    expect(result.ok).toBe(true);
+    expect(result.job?.note).toBeNull();
+    expect(result.message).toContain("cleared note");
+  });
+
+  it("reports an unknown id without mutating the store", () => {
+    seed();
+    const result = setJobNote("deadbeef", "x", storePath);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("no job matches");
   });
 });
 

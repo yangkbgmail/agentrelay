@@ -73,6 +73,7 @@ import {
   runDoctor,
   runVerify,
   setConfigFile,
+  setJobNote,
   showConfig,
   showJob,
   startDaemon,
@@ -545,13 +546,18 @@ export function buildCli(): Command {
       "-p, --project <name>",
       "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
     )
-    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
+    .option(
+      "-n, --note <text>",
+      "Free-form note to attach to the job if it gets rate-limited (shown by `show`/`export`)"
+    )
+    .action(async (command: string[], opts: { tool?: string; project?: string; note?: string }) => {
       const { store } = program.opts();
       const result = await runCommand({
         command,
         storePath: store,
         tool: opts.tool as AgentTool | undefined,
         project: opts.project,
+        note: opts.note,
       });
       process.exitCode = result.exitCode;
     });
@@ -1870,6 +1876,24 @@ export function buildCli(): Command {
         return;
       }
       console.log(renderJobDetail(result.job, { color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
+    .command("note")
+    .description("Attach or clear a free-form note on a job (a scanning aid shown by `show`/`export`)")
+    .argument("<id>", "Job id or a short id prefix (see `agentrelay status`)")
+    .argument("[text...]", "Note text; omit (or pass --clear) to remove the note")
+    .option("--clear", "Clear the job's note")
+    .action((id: string, textParts: string[], opts: { clear?: boolean }) => {
+      const { store } = program.opts();
+      const text = opts.clear ? null : textParts.join(" ");
+      const result = setJobNote(id, text, store);
+      if (!result.ok) {
+        console.error(`[agentrelay] ${result.message}`);
+        process.exitCode = 1;
+        return;
+      }
+      console.log(`[agentrelay] ${result.message}`);
     });
 
   program

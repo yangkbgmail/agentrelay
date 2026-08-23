@@ -75,6 +75,16 @@ describe("jobCsvValue", () => {
     expect(jobCsvValue(j, "lastError")).toBe("");
   });
 
+  it("renders the note column, empty when absent", () => {
+    expect(jobCsvValue(job({ note: "nightly refactor" }), "note")).toBe("nightly refactor");
+    expect(jobCsvValue(job({ note: null }), "note")).toBe("");
+    expect(jobCsvValue(job(), "note")).toBe("");
+  });
+
+  it("includes note among the CSV columns", () => {
+    expect(JOB_CSV_COLUMNS).toContain("note");
+  });
+
   it("passes plain string columns through", () => {
     const j = job({ id: "abc", project: "myproj", tool: "codex-cli", status: "failed", cwd: "/work" });
     expect(jobCsvValue(j, "id")).toBe("abc");
