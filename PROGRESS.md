@@ -2449,3 +2449,29 @@
   completion(nushell #785) 등이 후보. ② `main`·열린 PR 양쪽에 없는 **진짜 신규** 영역에서만 기능 발굴
   (중복 재발 방지). ③ 근본 원인(거의 모든 PR이 BACKLOG/PROGRESS에 append → 하나 병합 시 나머지 전부 문서
   충돌)은 세션 60·78이 진단한 그대로 — 문서 append 충돌 완화 방안은 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 82 — 파서 epoch 통합: 13자리 ms + `reset_at`/`resetAt` 필드 인식(스테일 중복 5개 대체)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-0m2e4p`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 열린 PR ~100개를
+  실측한 결과 세션 78~81이 진단한 **중복 PR 루프**가 계속 — 그중 **파이프-epoch 밀리초(13자리) 인식**이
+  #707·#711·#717·#719·#722 다섯 갈래로 중복돼 있었다. 5개 모두 스테일 base에 있어 문서 append 충돌로
+  클린 병합 불가(세션 60·78 진단). 6번째 독립 중복을 더하는 대신, 세션 79가 확립한 **"최신 main 위로 통합
+  → 스테일 중복 대체"** 패턴을 적용.
+- **발굴한 갭(실측):** `main`의 어댑터 `CLAUDE_USAGE_LIMIT_EPOCH_PATTERN`은 `\d{10}`(초)만, 제네릭 파서의
+  `unix-epoch`는 `retry_after` + `\d{10}`만 잡는다. 그래서 (a) `Claude AI usage limit reached|1752345600000`
+  같은 **13자리 ms** 파이프 라인과 (b) `reset_at`/`resetAt`/`resets_at` **필드명**을 쓰는 구조화 페이로드가
+  조용히 통과(null)돼 실제 rate-limit을 감지 못 했다.
+- **한 일:** ① `adapters.ts` — `CLAUDE_USAGE_LIMIT_EPOCH_PATTERN` 정규식을 `(\d{13}|\d{10})\b`로 확장, 자릿수로
+  단위 구분(13=ms 그대로, 10=×1000). ② `parser.ts` — `unix-epoch` 필드 alternation을
+  `(?:retry_after|resets?_?at)`로, 값은 `(\d{13}|\d{10})\b`로 확장(reset_at/resetAt/resets_at + ms).
+  ③ pre-filter `LOOKS_LIKE_RATE_LIMIT`에 `resets?_?at\s*[=:]` 추가로 `reset_at` 단독 페이로드도 통과.
+  `\b` 경계가 모호한 11/12자리를 배제 → 엉뚱한 시각 재개 대신 fall-through. 새 스케줄러 로직 0줄.
+  parser.test +3케이스(13자리 ms·필드명 3종·11/12자리 거부), adapters.test +2케이스.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 122파일)→`pnpm test`
+  전 패키지 통과(**core 675 · cli 365/1skip · dashboard 13**). 실제 빌드 CLI e2e: `parse --tool claude-code
+  "…|1752345600000"` → `claude-usage-limit-epoch` 매치·`2025-07-12T18:40:00Z`, `parse '{…"reset_at":1752345600}'`
+  → `unix-epoch` 매치, `…|175234560000`(12자리) → "No rate-limit detected"(모호값 거부) 확인.
+- **정리(통합):** 스테일 epoch-ms 중복 5개(#707·#711·#717·#719·#722)를 이 통합 PR을 가리키는 사유 코멘트와
+  함께 close(reopen 가능). → 큐에서 epoch-ms 축 -5, main에 기능 +1.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 남은 포화 축의 추가 중복 스캔·정리 지속 —
+  IANA/명명 타임존 파서(#731/#740/#749/#774/#838)·Gemini 어댑터(#752/#762)·run --dry-run(#715/#751/#843) 등이
+  후보. ③ 근본 원인(문서 append 충돌)은 세션 60·78 진단대로 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.

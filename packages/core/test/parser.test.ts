@@ -130,6 +130,26 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
   });
 
+  it("parses a 13-digit millisecond epoch in a retry_after field", () => {
+    // 1752345600000 ms resolves to the same instant as 1752345600 s.
+    const result = parseRateLimitMessage("rate_limit_error retry_after=1752345600000");
+    expect(result?.pattern).toBe("unix-epoch");
+    expect(result?.resetAt).toBe(new Date(1752345600 * 1000).toISOString());
+  });
+
+  it("parses an epoch under reset_at / resetAt / resets_at field names", () => {
+    const seconds = new Date(1752345600 * 1000).toISOString();
+    expect(parseRateLimitMessage('{"error":"rate_limit","reset_at": 1752345600}')?.pattern).toBe("unix-epoch");
+    expect(parseRateLimitMessage('{"error":"rate_limit","reset_at": 1752345600}')?.resetAt).toBe(seconds);
+    expect(parseRateLimitMessage("rate_limit resetAt=1752345600000")?.resetAt).toBe(seconds);
+    expect(parseRateLimitMessage("rate_limit resets_at: 1752345600")?.resetAt).toBe(seconds);
+  });
+
+  it("rejects an ambiguous 11/12-digit epoch rather than resuming at a wrong time", () => {
+    expect(parseRateLimitMessage("rate_limit_error retry_after=17523456000")).toBeNull();
+    expect(parseRateLimitMessage("rate_limit_error retry_after=175234560000")).toBeNull();
+  });
+
   it("falls back to a 5-hour window when no explicit time is present", () => {
     const now = new Date("2026-07-12T10:00:00Z");
     const result = parseRateLimitMessage("You have reached your 5-hour usage limit.", { now });

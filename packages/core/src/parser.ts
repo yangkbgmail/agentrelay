@@ -152,12 +152,23 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
-    // Unix epoch seconds embedded in structured error payloads, e.g.
-    // `retry_after=1752345600`, `retry_after: 1752345600`, or the JSON form
-    // `"retry_after": 1752345600`.
+    // A Unix epoch embedded in a structured error payload, under `retry_after`
+    // or a `reset_at` / `resetAt` / `resets_at` field, e.g. `retry_after=1752345600`,
+    // `"retry_after": 1752345600`, `"reset_at": 1752345600`, or `resetAt: 1752345600000`.
+    // Normally 10-digit *seconds*, but some payloads carry a 13-digit *millisecond*
+    // epoch straight from `Date.now()`; both widths are accepted and disambiguated
+    // by digit count. The `\b` boundary rejects ambiguous 11/12-digit values (neither
+    // clean seconds nor clean ms) so a misparse can't resume a job at a wild time.
     name: "unix-epoch",
-    regex: /retry_after"?\s*[=:]\s*(\d{10})/i,
-    resolve: (m) => new Date(parseInt(m[1], 10) * 1000),
+    regex: /(?:retry_after|resets?_?at)"?\s*[=:]\s*(\d{13}|\d{10})\b/i,
+    resolve: (m) => {
+      const digits = m[1];
+      const value = parseInt(digits, 10);
+      if (!Number.isFinite(value)) return null;
+      const ms = digits.length === 13 ? value : value * 1000;
+      const d = new Date(ms);
+      return Number.isNaN(d.getTime()) ? null : d;
+    },
   },
   {
     // The standard HTTP `Retry-After` response header (RFC 9110 §10.2.3), which
@@ -186,7 +197,7 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|resets?_?at\s*[=:]|retry.?after)/i;
 
 function tryPattern(
   pattern: RateLimitPattern,
