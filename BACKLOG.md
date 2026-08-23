@@ -1017,6 +1017,17 @@
       build/lint/test 통과(**core 707 · cli 370/1skip · dashboard 13**, Biome 0경고), 빌드된 dist로 실제
       스크럽 e2e 확인. branch `claude/wizardly-pascal-q3j8uv`)
 
+- [x] 👷 `agentrelay redact` — 이미 저장된 잡의 비밀 소급 스크럽(세션 85 #875의 write-time 레닥션 후속:
+      레닥션 이전 저장·`import` 유입·손 편집 잡의 평문 자격증명이 `show`/`export`로 노출되는 갭 차단).
+      (완료 — `@agentrelay/core/redact.ts`에 순수 `redactJob(job)`(`lastOutputTail`·`lastError`·
+      `lastRateLimit.rawMatch`에 기존 `redactSecrets` 적용, 바뀐 필드만 보고, **updatedAt 불변**)·
+      `planStoreRedaction(jobs)`(순서 보존 계획+변경 로그+총계)·`RedactableField`/`REDACTABLE_FIELDS`/
+      `JobRedactionChange`/`StoreRedactionPlan` 추가. `RelayQueue.redact({dryRun})`가 변경 잡만 set 후 원자적
+      flush(dry-run 무기록). CLI `redactStore`+순수 `renderRedact`/`renderRedactJson`+`agentrelay redact
+      [--dry-run] [--json]` 배선. prune/recover의 pure 선택+I/O 분리 재사용, 새 파서/스케줄러 로직 0줄.
+      core redact.test +9·cli redact.test +8, 빌드 CLI e2e로 디스크 스크럽·updatedAt 불변·idempotent 확인.
+      branch `claude/wizardly-pascal-lsguqd`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

@@ -24,6 +24,8 @@
  * set `outputTailLength: 0` (or disable capture) rather than rely on this.
  */
 
+import type { RelayJob } from "./types.js";
+
 /** The token that replaces redacted secret material. */
 export const REDACTION_PLACEHOLDER = "[REDACTED]";
 
@@ -138,4 +140,95 @@ export function redactOutputTailFromEnv(env: NodeJS.ProcessEnv = process.env): b
   const raw = env.AGENTRELAY_REDACT_OUTPUT?.trim();
   if (raw === undefined || raw === "") return true;
   return !/^(0|off|false|no|none|disabled)$/i.test(raw);
+}
+
+/**
+ * A persisted free-text field on a job that can carry captured secret material.
+ * The scheduler scrubs `lastOutputTail` at *write* time when redaction is on
+ * (see {@link redactSecrets}), but jobs stored before that existed, imported
+ * from an external dump, or hand-edited can still hold plaintext credentials —
+ * and `lastError`/`lastRateLimit.rawMatch` are raw slices of agent output that
+ * the write-time scrubber never touched. `agentrelay show`/`export` surface all
+ * three, so a one-time sweep needs to reach every one.
+ */
+export type RedactableField = "lastOutputTail" | "lastError" | "rawMatch";
+
+/** The free-text fields a store-wide redaction sweep scrubs, in job order. */
+export const REDACTABLE_FIELDS: readonly RedactableField[] = ["lastOutputTail", "lastError", "rawMatch"];
+
+/**
+ * Scrub secrets from a single job's persisted free-text fields. Pure: returns a
+ * new job (fields that don't change are shared by reference) plus which fields
+ * were actually rewritten. `updatedAt` is intentionally left untouched —
+ * redaction is a content cleanup, not a lifecycle transition, so it must not
+ * perturb the created→updated span that stats/resolution-time read. When
+ * nothing needs scrubbing the original job is returned unchanged with an empty
+ * `changed` list.
+ */
+export function redactJob(job: RelayJob): { job: RelayJob; changed: RedactableField[] } {
+  const changed: RedactableField[] = [];
+  let next = job;
+
+  if (job.lastOutputTail) {
+    const scrubbed = redactSecrets(job.lastOutputTail);
+    if (scrubbed !== job.lastOutputTail) {
+      next = { ...next, lastOutputTail: scrubbed };
+      changed.push("lastOutputTail");
+    }
+  }
+  if (job.lastError) {
+    const scrubbed = redactSecrets(job.lastError);
+    if (scrubbed !== job.lastError) {
+      next = { ...next, lastError: scrubbed };
+      changed.push("lastError");
+    }
+  }
+  if (job.lastRateLimit?.rawMatch) {
+    const scrubbed = redactSecrets(job.lastRateLimit.rawMatch);
+    if (scrubbed !== job.lastRateLimit.rawMatch) {
+      next = { ...next, lastRateLimit: { ...job.lastRateLimit, rawMatch: scrubbed } };
+      changed.push("rawMatch");
+    }
+  }
+
+  return { job: next, changed };
+}
+
+/** One job that had at least one secret scrubbed by a store redaction sweep. */
+export interface JobRedactionChange {
+  id: string;
+  project: string;
+  /** Which free-text fields were rewritten, in {@link REDACTABLE_FIELDS} order. */
+  fields: RedactableField[];
+}
+
+/** The result of planning (or applying) a store-wide redaction sweep. */
+export interface StoreRedactionPlan {
+  /** Per-job records for jobs that had at least one secret scrubbed, input order. */
+  changes: JobRedactionChange[];
+  /** Every job with redaction applied (unchanged jobs pass through by reference), input order. */
+  jobs: RelayJob[];
+  /** Total field rewrites across all jobs (≥ `changes.length`). */
+  totalFields: number;
+}
+
+/**
+ * Compute a store-wide redaction plan: run {@link redactJob} over every job and
+ * collect both the scrubbed job set and a per-job change log. Pure and
+ * order-preserving — the queue applies `jobs` and the CLI's `--dry-run` reports
+ * `changes` and writes nothing.
+ */
+export function planStoreRedaction(jobs: RelayJob[]): StoreRedactionPlan {
+  const changes: JobRedactionChange[] = [];
+  const out: RelayJob[] = [];
+  let totalFields = 0;
+  for (const job of jobs) {
+    const { job: next, changed } = redactJob(job);
+    out.push(next);
+    if (changed.length > 0) {
+      changes.push({ id: job.id, project: job.project, fields: changed });
+      totalFields += changed.length;
+    }
+  }
+  return { changes, jobs: out, totalFields };
 }

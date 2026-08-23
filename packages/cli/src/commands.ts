@@ -85,6 +85,7 @@ import {
   retryPolicyFromEnv,
   runDiagnostics,
   SETTABLE_CONFIG_KEYS,
+  type StoreRedactionPlan,
   sampleConfigJson,
   scopeJobs,
   selectFarFutureParkedJobs,
@@ -638,6 +639,27 @@ export function pruneJobs(options: PruneJobsOptions = {}): { pruned: RelayJob[];
   const remaining = queue.listAll().length - (pruneOpts.dryRun ? pruned.length : 0);
   queue.close();
   return { pruned, remaining };
+}
+
+export interface RedactStoreOptions {
+  storePath?: string;
+  /** Preview only — report what would be scrubbed without writing the store. */
+  dryRun?: boolean;
+}
+
+/**
+ * Scrub persisted secrets from every job's free-text fields in the store (or,
+ * with `dryRun`, report what would change without writing). Returns the plan so
+ * the CLI can print a per-job summary. Complements the scheduler's write-time
+ * redaction by cleaning jobs that predate it or arrived via `import`.
+ */
+export function redactStore(options: RedactStoreOptions = {}): StoreRedactionPlan {
+  const queue = openQueue(options.storePath ?? defaultStorePath());
+  try {
+    return queue.redact({ dryRun: options.dryRun });
+  } finally {
+    queue.close();
+  }
 }
 
 export interface RecoverJobsOptions {

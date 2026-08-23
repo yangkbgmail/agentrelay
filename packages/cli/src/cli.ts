@@ -67,6 +67,7 @@ import {
   readHealthReport,
   readLocationReport,
   recoverJobs,
+  redactStore,
   restoreStore,
   retryJob,
   runCommand,
@@ -94,6 +95,7 @@ import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
 import { type RecoverResult, renderRecover, renderRecoverJson } from "./recover.js";
+import { renderRedact, renderRedactJson } from "./redact.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
   formatUtcOffsetLabel,
@@ -2252,6 +2254,22 @@ export function buildCli(): Command {
         );
       }
       console.log(`${verb} ${pruned.length} job(s). ${remaining} remain.`);
+    });
+
+  program
+    .command("redact")
+    .description("Scrub stored secrets (API keys, tokens, Authorization/NAME=secret) from existing jobs")
+    .option("--dry-run", "Show what would be scrubbed without changing the store")
+    .option("--json", "Output machine-readable JSON")
+    .action((opts: { dryRun?: boolean; json?: boolean }) => {
+      const { store } = program.opts();
+      const plan = redactStore({ storePath: store, dryRun: opts.dryRun });
+
+      if (opts.json) {
+        console.log(renderRedactJson(plan, store ?? defaultStorePath(), { dryRun: opts.dryRun }));
+        return;
+      }
+      console.log(renderRedact(plan, { dryRun: opts.dryRun, color: Boolean(process.stdout.isTTY) }));
     });
 
   program
