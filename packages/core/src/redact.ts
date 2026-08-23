@@ -213,6 +213,20 @@ export interface StoreRedactionPlan {
 }
 
 /**
+ * Scrub secrets from a set of jobs, returning a new array of redacted jobs in
+ * input order. Thin pure wrapper over {@link redactJob}: jobs that carry no
+ * secret pass through by reference, so an all-clean set is returned essentially
+ * untouched. Unlike {@link planStoreRedaction} (which also computes a per-job
+ * change log for the in-place `redact` sweep), this returns only the jobs — the
+ * shape `export --redact` needs, where redaction is a non-destructive transform
+ * applied to a copy on the way out rather than a store mutation. Callers that
+ * want the change log should use {@link planStoreRedaction} instead.
+ */
+export function redactJobs(jobs: RelayJob[]): RelayJob[] {
+  return jobs.map((job) => redactJob(job).job);
+}
+
+/**
  * Compute a store-wide redaction plan: run {@link redactJob} over every job and
  * collect both the scrubbed job set and a per-job change log. Pure and
  * order-preserving — the queue applies `jobs` and the CLI's `--dry-run` reports

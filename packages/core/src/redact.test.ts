@@ -118,7 +118,7 @@ describe("redactOutputTailFromEnv", () => {
   });
 });
 
-import { planStoreRedaction, REDACTABLE_FIELDS, redactJob } from "./redact.js";
+import { planStoreRedaction, REDACTABLE_FIELDS, redactJob, redactJobs } from "./redact.js";
 import type { RelayJob } from "./types.js";
 
 function makeJob(overrides: Partial<RelayJob> = {}): RelayJob {
@@ -197,6 +197,38 @@ describe("redactJob", () => {
     const { job: out } = redactJob(job);
     expect(out.updatedAt).toBe(job.updatedAt);
     expect(out.createdAt).toBe(job.createdAt);
+  });
+});
+
+describe("redactJobs", () => {
+  it("returns an all-clean set essentially untouched (jobs shared by reference)", () => {
+    const jobs = [makeJob({ id: "a" }), makeJob({ id: "b", lastOutputTail: "all clear" })];
+    const out = redactJobs(jobs);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toBe(jobs[0]);
+    expect(out[1]).toBe(jobs[1]);
+  });
+
+  it("scrubs secrets on a copy, leaving the input jobs unmutated", () => {
+    const jobs = [
+      makeJob({ id: "leaky", status: "failed", lastError: "boom ghp_ABCdef1234567890ghijklmn" }),
+      makeJob({ id: "clean", lastOutputTail: "fine" }),
+    ];
+    const out = redactJobs(jobs);
+    expect(out[0].lastError).toBe(`boom ${REDACTION_PLACEHOLDER}`);
+    // input untouched (non-destructive transform on a copy)
+    expect(jobs[0].lastError).toBe("boom ghp_ABCdef1234567890ghijklmn");
+    // clean job passes through by reference
+    expect(out[1]).toBe(jobs[1]);
+  });
+
+  it("preserves input order and length", () => {
+    const jobs = [makeJob({ id: "x" }), makeJob({ id: "y" }), makeJob({ id: "z" })];
+    expect(redactJobs(jobs).map((j) => j.id)).toEqual(["x", "y", "z"]);
+  });
+
+  it("handles an empty set", () => {
+    expect(redactJobs([])).toEqual([]);
   });
 });
 

@@ -75,6 +75,7 @@ import {
   RelayScheduler,
   type RestorePreview,
   type RestoreResult,
+  redactJobs,
   redactOutputTailFromEnv,
   resolveAdapter,
   resolveBackup,
@@ -1155,6 +1156,13 @@ export interface ExportJobsOptions {
   outPath?: string;
   /** Column subset/order for the tabular formats (csv/md). Ignored by json/ndjson. Defaults to all columns. */
   columns?: readonly JobCsvColumn[];
+  /**
+   * Scrub secrets from each job's free-text fields (lastOutputTail/lastError/
+   * rawMatch) before serializing. Non-destructive — the store is never touched;
+   * only the exported copy is redacted. Safe to share the output while asking
+   * for help. Defaults to false (raw fields).
+   */
+  redact?: boolean;
 }
 
 export interface ExportJobsResult {
@@ -1174,7 +1182,12 @@ export interface ExportJobsResult {
  * `content` is the exact serializer output without it.
  */
 export function exportStore(options: ExportJobsOptions): ExportJobsResult {
-  const jobs = options.jobs ?? listStatus(options.storePath);
+  const selected = options.jobs ?? listStatus(options.storePath);
+  // Redaction is a non-destructive transform on a copy: the on-disk store is
+  // never rewritten, only the bytes we hand out are scrubbed. Applied before
+  // serialization so every format (and every --columns subset) sees the
+  // redacted fields.
+  const jobs = options.redact ? redactJobs(selected) : selected;
   const content = exportJobs(jobs, options.format, options.columns ? { columns: options.columns } : {});
   let writtenTo: string | null = null;
   if (options.outPath) {
