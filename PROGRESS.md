@@ -2449,3 +2449,21 @@
   completion(nushell #785) 등이 후보. ② `main`·열린 PR 양쪽에 없는 **진짜 신규** 영역에서만 기능 발굴
   (중복 재발 방지). ③ 근본 원인(거의 모든 PR이 BACKLOG/PROGRESS에 append → 하나 병합 시 나머지 전부 문서
   충돌)은 세션 60·78이 진단한 그대로 — 문서 append 충돌 완화 방안은 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 82 — completion powershell(자기 발굴 신규 기능)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-f0zstn`)
+- **배경:** 세션 시작 시 BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 세션
+  78~81이 진단·정리한 "중복 PR 루프"(기억 없는 매시간 세션이 이미 main에 있는 기능을 재구현)를 피하기 위해,
+  열린 PR **100개(#694~#863)** 전체 제목과 main을 실측 대조해 **진짜 신규 영역**만 발굴했다.
+- **발굴 근거:** 완성(completion) 축에서 열린 유일한 비-병합 PR은 nushell(#785) 하나였고, `powershell`/`pwsh`는
+  100개 PR 제목·main(bash/zsh/fish) 어디에도 없음을 grep으로 확인 → 중복 아님. Windows 기본 셸이자
+  크로스플랫폼 PowerShell 7+ 사용자에게 실효 있는 완성 지원.
+- **한 일:** core `completion.ts`에 `generatePowerShell` 추가(`Register-ArgumentCompleter -Native` 스크립트
+  블록 — `commandAst.CommandElements` 순회로 서브커맨드 감지 후 `switch`로 커맨드/서브커맨드/글로벌 옵션
+  제안, 순수 `psList`로 검증된 토큰을 PS 배열 리터럴로 렌더). `CompletionShell`·`COMPLETION_SHELLS`·디스패치·
+  CLI description/help 배선. 기존 `assertSafeToken`/`uniq` 안전 가드 재사용, 새 파서/스케줄러 로직 0줄.
+  completion.test에 powershell 7케이스 + 기존 단언 갱신.
+- **검증:** `pnpm install`→`pnpm build`→`pnpm test` 전부 통과(**core 678 · cli 365/1skip · dashboard 9**),
+  `pnpm ci:lint`(Biome) 0경고, 실제 빌드 CLI로 `completion powershell` 방출 e2e 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 여전히 적체된 ~100개 열린 PR의 포화 축
+  중복 통합 정리 지속(파서 변종·stats 서브커맨드·dashboard 카드 등). ③ 신규 기능은 반드시 main+열린 PR 양쪽에
+  없는 영역에서만 발굴(중복 재발 방지). README/ARCHITECTURE는 🧭 코워크 몫.
