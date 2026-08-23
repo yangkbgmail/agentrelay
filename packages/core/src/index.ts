@@ -6,6 +6,7 @@ export * from "./config.js";
 export * from "./config-schema.js";
 export * from "./control.js";
 export * from "./doctor.js";
+export * from "./env.js";
 export * from "./errors.js";
 export * from "./eta.js";
 export * from "./export.js";

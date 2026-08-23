@@ -78,6 +78,26 @@ describe("validateJobRecord", () => {
     if (result.ok) expect("futureField" in result.job).toBe(false);
   });
 
+  it("round-trips a captured env map", () => {
+    const result = validateJobRecord({ ...job(), env: { ANTHROPIC_BASE_URL: "https://x.test" } });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.job.env).toEqual({ ANTHROPIC_BASE_URL: "https://x.test" });
+  });
+
+  it("drops a malformed or empty env rather than rejecting the record", () => {
+    const bad = validateJobRecord({ ...job(), env: { OK: "1", BAD: 42 } });
+    expect(bad.ok).toBe(true);
+    if (bad.ok) expect(bad.job.env).toEqual({ OK: "1" });
+
+    const empty = validateJobRecord({ ...job(), env: {} });
+    expect(empty.ok).toBe(true);
+    if (empty.ok) expect("env" in empty.job).toBe(false);
+
+    const notObj = validateJobRecord({ ...job(), env: "PATH=/bin" });
+    expect(notObj.ok).toBe(true);
+    if (notObj.ok) expect("env" in notObj.job).toBe(false);
+  });
+
   it("rejects non-objects", () => {
     expect(validateJobRecord(null).ok).toBe(false);
     expect(validateJobRecord("x").ok).toBe(false);

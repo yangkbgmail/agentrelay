@@ -177,6 +177,9 @@ export class RelayQueue {
       lastError: null,
       lastOutputTail: null,
       lastRateLimit: null,
+      // Only persist the key when the caller captured something, so jobs
+      // without a captured environment round-trip to the pre-feature shape.
+      ...(input.env && Object.keys(input.env).length > 0 ? { env: { ...input.env } } : {}),
     };
     this.jobs.set(job.id, job);
     this.flush();

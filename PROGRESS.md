@@ -2449,3 +2449,24 @@
   completion(nushell #785) 등이 후보. ② `main`·열린 PR 양쪽에 없는 **진짜 신규** 영역에서만 기능 발굴
   (중복 재발 방지). ③ 근본 원인(거의 모든 PR이 BACKLOG/PROGRESS에 append → 하나 병합 시 나머지 전부 문서
   충돌)은 세션 60·78이 진단한 그대로 — 문서 append 충돌 완화 방안은 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 81 — `agentrelay run --env`/`--env-from`: 재개 시 환경변수 복원] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-wn7yrz`)
+- **배경:** 세션 시작 시 BACKLOG의 👷 항목은 전부 완료. 열린 PR ~100개(#689~861)는 파서·stats·dashboard·
+  completion·run 플래그 축이 심하게 포화(중복)돼 있었다(세션 78~80이 진단한 "중복 PR 루프"). 91번째 중복
+  기능을 더하지 않기 위해, **main·열린 PR 양쪽에 없는 진짜 신규 영역**만 골라 발굴했다.
+- **발견한 결함:** 스케줄러가 재개 시 `spawn(cmd, args, { cwd })`로만 실행 → 자식은 **데몬 프로세스의 env**를
+  상속한다. 원래 `agentrelay run`을 실행한 셸에만 있던 프로젝트별 환경변수(`ANTHROPIC_BASE_URL`, `HTTPS_PROXY`,
+  커스텀 `PATH`, 스코프 토큰 등)가 몇 시간 뒤 데몬 재개에서 **조용히 유실**돼, 재개가 원래와 다르게 동작하거나
+  실패하는데 큐 어디에도 흔적이 안 남던 미묘한 정확성 결함. env 캡처/복원은 열린 PR 100개·main 어디에도 없음(확인).
+- **한 일(구현):** core `env.ts` 신설(순수·`process.env` 미접촉) — `parseEnvAssignment`·`captureEnvFrom`·
+  `buildJobEnv`·`resolveSpawnEnv`(잡 env를 데몬 env **위에** 레이어링). `RelayJob.env?`/`CreateJobInput.env?`
+  옵셔널 필드(구 스토어 무마이그레이션 로드), `queue.enqueue`가 캡처 있을 때만 영속(복사본). `SpawnFn`에
+  옵셔널 3번째 `env` 인자 추가(하위호환), `runCommand`가 재개 env 계산해 spawn. `import.ts` export→import
+  왕복 보존. CLI `run --env KEY=VALUE`·`--env-from NAME`(반복 가능), `show`는 캡처 키 이름만 표시(값 숨김=시크릿 보호).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0경고, 124파일)→`pnpm test`
+  전 패키지 통과(**core 695 · cli 366/1skip · dashboard 13**). 실제 빌드 CLI e2e: `run --env ...=captured --env-from HOME`로
+  캡처 → `show`가 `ANTHROPIC_BASE_URL, HOME (2 captured, values hidden)` 표시 → 데몬 env에 `ANTHROPIC_BASE_URL=SHOULD_BE_OVERRIDDEN`을
+  둔 채 `tick` 재개 시 **캡처값이 데몬값을 오버라이드**(레이어링)하고 `HTTPS_PROXY`는 데몬 baseline 유지, 잡 completed 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 남은 열린 PR 중 포화 축(파서 변종·
+  completion nushell/powershell·Gemini 어댑터)의 추가 중복 스캔·정리 지속. ③ 신규 기능은 계속 **main·열린 PR
+  양쪽에 없는** 영역에서만 발굴(중복 재발 방지). 근본 원인(BACKLOG/PROGRESS append 충돌)은 🧭 코워크와 협의 필요.

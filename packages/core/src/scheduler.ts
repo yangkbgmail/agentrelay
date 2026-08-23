@@ -1,6 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { resolveAdapter } from "./adapters.js";
 import { mapWithConcurrency, normalizeMaxConcurrent } from "./concurrency.js";
+import { resolveSpawnEnv } from "./env.js";
 import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
 import type { RelayQueue } from "./queue.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
@@ -8,11 +9,17 @@ import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
 
 export type Notifier = (payload: NotifyPayload) => void | Promise<void>;
 
-export type SpawnFn = (command: string[], cwd: string) => ChildProcessWithoutNullStreams;
+export type SpawnFn = (
+  command: string[],
+  cwd: string,
+  env?: Record<string, string | undefined>
+) => ChildProcessWithoutNullStreams;
 
-const defaultSpawn: SpawnFn = (command, cwd) => {
+const defaultSpawn: SpawnFn = (command, cwd, env) => {
   const [cmd, ...args] = command;
-  return spawn(cmd, args, { cwd });
+  // Only pass `env` when the job captured one; otherwise spawn with plain
+  // inheritance (no `env` option) so the pre-feature behavior is byte-identical.
+  return spawn(cmd, args, env ? { cwd, env } : { cwd });
 };
 
 export interface SchedulerOptions {
@@ -277,7 +284,11 @@ export class RelayScheduler {
       let output = "";
       let child: ChildProcessWithoutNullStreams;
       try {
-        child = this.spawnFn(job.command, job.cwd);
+        // Re-apply any environment the job captured at enqueue time, layered
+        // over the daemon's own env. `undefined` when the job captured nothing,
+        // so `defaultSpawn` falls back to plain inheritance.
+        const env = resolveSpawnEnv(job.env, process.env);
+        child = this.spawnFn(job.command, job.cwd, env);
       } catch (err) {
         // Synchronous spawn failure (e.g. bad cwd) — surface as a transient error
         // so the caller can apply the retry policy rather than dropping the job.
