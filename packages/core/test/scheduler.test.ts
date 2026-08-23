@@ -550,4 +550,69 @@ describe("RelayScheduler", () => {
     expect(results.map((j) => j.project)).toEqual(dueOrder);
     expect(results.every((j) => j.status === "completed")).toBe(true);
   });
+
+  it("restores a job's captured env (layered over process.env) when resuming", async () => {
+    // Record what env each spawn is given.
+    let seenEnv: Record<string, string | undefined> | undefined;
+    const recordingSpawn: SpawnFn = (_command, _cwd, env) => {
+      seenEnv = env;
+      const emitter = new EventEmitter() as any;
+      emitter.stdout = new EventEmitter();
+      emitter.stderr = new EventEmitter();
+      setTimeout(() => {
+        emitter.stdout.emit("data", Buffer.from("done"));
+        emitter.emit("close", 0);
+      }, 0);
+      return emitter;
+    };
+
+    process.env.AGENTRELAY_TEST_DAEMON_ONLY = "from-daemon";
+    try {
+      const job = queue.enqueue({
+        project: "demo",
+        tool: "claude-code",
+        command: ["claude", "-p", "continue"],
+        cwd: dir,
+        env: { ANTHROPIC_BASE_URL: "https://captured.test" },
+      });
+      queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+      const scheduler = new RelayScheduler({ queue, spawnFn: recordingSpawn });
+      const results = await scheduler.tick();
+
+      expect(results[0].status).toBe("completed");
+      // Captured var restored...
+      expect(seenEnv?.ANTHROPIC_BASE_URL).toBe("https://captured.test");
+      // ...layered over the daemon's own environment (baseline preserved).
+      expect(seenEnv?.AGENTRELAY_TEST_DAEMON_ONLY).toBe("from-daemon");
+    } finally {
+      delete process.env.AGENTRELAY_TEST_DAEMON_ONLY;
+    }
+  });
+
+  it("spawns with plain inheritance (env undefined) for a job that captured nothing", async () => {
+    let called = false;
+    let seenEnv: Record<string, string | undefined> | undefined = { sentinel: "x" };
+    const recordingSpawn: SpawnFn = (_command, _cwd, env) => {
+      called = true;
+      seenEnv = env;
+      const emitter = new EventEmitter() as any;
+      emitter.stdout = new EventEmitter();
+      emitter.stderr = new EventEmitter();
+      setTimeout(() => {
+        emitter.stdout.emit("data", Buffer.from("done"));
+        emitter.emit("close", 0);
+      }, 0);
+      return emitter;
+    };
+
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude", "-p", "go"], cwd: dir });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({ queue, spawnFn: recordingSpawn });
+    await scheduler.tick();
+
+    expect(called).toBe(true);
+    expect(seenEnv).toBeUndefined();
+  });
 });

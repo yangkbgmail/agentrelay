@@ -92,6 +92,14 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
   }
   lines.push(`  ${label("attempts")} ${job.attempts}`);
 
+  const envKeys = job.env ? Object.keys(job.env).sort() : [];
+  if (envKeys.length > 0) {
+    lines.push("");
+    lines.push(b("resume env"));
+    // Names only — captured values are often secrets, so they're never printed.
+    lines.push(`  ${envKeys.join(", ")} ${d(`(${envKeys.length} captured, values hidden)`)}`);
+  }
+
   const detection = job.lastRateLimit;
   if (detection) {
     lines.push("");

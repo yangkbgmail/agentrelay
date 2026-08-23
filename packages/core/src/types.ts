@@ -53,6 +53,15 @@ export interface RelayJob {
    * rate limit has been detected yet.
    */
   lastRateLimit?: RateLimitDetection | null;
+  /**
+   * Environment variables captured at enqueue time (via `run --env` /
+   * `--env-from`) to be re-applied when the scheduler resumes the command,
+   * layered over the daemon's own environment. Optional so stores written
+   * before this field existed load without migration; absent/empty means the
+   * resume inherits the daemon's environment unchanged (the historical
+   * behavior). See {@link resolveSpawnEnv} in `env.ts`.
+   */
+  env?: Record<string, string> | null;
 }
 
 export interface CreateJobInput {
@@ -60,6 +69,8 @@ export interface CreateJobInput {
   tool: AgentTool;
   command: string[];
   cwd: string;
+  /** Environment variables to restore when this job is resumed (see {@link RelayJob.env}). */
+  env?: Record<string, string>;
 }
 
 export interface RetryPolicy {

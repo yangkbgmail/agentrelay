@@ -128,6 +128,13 @@ export interface RunOptions {
    * meaningful, stable name that the `--project` filters key off.
    */
   project?: string;
+  /**
+   * Environment variables to capture onto the queued job and restore (layered
+   * over the daemon's env) when it's resumed. Wired from `run --env` /
+   * `--env-from`; omitted/empty means the resume inherits the daemon's
+   * environment unchanged (the historical behavior).
+   */
+  env?: Record<string, string>;
   storePath?: string;
   /** Injected for tests; defaults to real stdout/stderr passthrough. */
   stdout?: NodeJS.WritableStream;
@@ -187,7 +194,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
 
   const queue = openQueue(storePath);
   const project = resolveProjectName(cwd, options.project);
-  const job = queue.enqueue({ project, tool, command: options.command, cwd });
+  const job = queue.enqueue({ project, tool, command: options.command, cwd, env: options.env });
   queue.markWaitingForReset(job.id, rateLimit.resetAt, {
     pattern: rateLimit.pattern,
     rawMatch: rateLimit.rawMatch,

@@ -146,6 +146,11 @@ export function validateJobRecord(value: unknown): { ok: true; job: RelayJob } |
   // round-trips to an identical shape (null ≈ absent).
   const lastRateLimit = parseRateLimitDetection(value.lastRateLimit);
 
+  // Preserve any captured resume environment across a round-trip. Like the
+  // provenance above it's non-critical: a malformed map yields `undefined`
+  // (key omitted) rather than rejecting the record.
+  const env = parseJobEnv(value.env);
+
   return {
     ok: true,
     job: {
@@ -162,8 +167,25 @@ export function validateJobRecord(value: unknown): { ok: true; job: RelayJob } |
       lastError: lastError.value,
       lastOutputTail: lastOutputTail.value,
       ...(lastRateLimit ? { lastRateLimit } : {}),
+      ...(env ? { env } : {}),
     },
   };
+}
+
+/**
+ * Best-effort parse of the optional captured `env` map so an export→import
+ * round-trip preserves it. Only plain `{ string: string }` entries survive;
+ * anything malformed yields `undefined` (treated as "no captured env") rather
+ * than rejecting the whole record. An empty object is dropped too, so a job
+ * with no captured env round-trips to an identical shape.
+ */
+function parseJobEnv(value: unknown): Record<string, string> | undefined {
+  if (!isPlainObject(value)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [key, v] of Object.entries(value)) {
+    if (typeof v === "string") out[key] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /**

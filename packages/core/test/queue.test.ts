@@ -50,6 +50,35 @@ describe("RelayQueue", () => {
     expect(job.lastRateLimit).toBeNull();
   });
 
+  it("does not persist an env key for a job that captured nothing", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    expect(job.env).toBeUndefined();
+    const raw = JSON.parse(readFileSync(join(dir, "test.db"), "utf8"));
+    expect(Object.hasOwn(raw[0], "env")).toBe(false);
+  });
+
+  it("persists and reloads a job's captured env", () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude"],
+      cwd: "/tmp",
+      env: { ANTHROPIC_BASE_URL: "https://x.test", HTTPS_PROXY: "http://p" },
+    });
+    expect(job.env).toEqual({ ANTHROPIC_BASE_URL: "https://x.test", HTTPS_PROXY: "http://p" });
+    // A fresh instance over the same file sees the captured env after reload.
+    const reopened = new RelayQueue(join(dir, "test.db"));
+    expect(reopened.getById(job.id)?.env).toEqual({ ANTHROPIC_BASE_URL: "https://x.test", HTTPS_PROXY: "http://p" });
+    reopened.close();
+  });
+
+  it("stores a copy of the input env (later input mutation doesn't leak in)", () => {
+    const input = { ANTHROPIC_BASE_URL: "https://x.test" };
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp", env: input });
+    input.ANTHROPIC_BASE_URL = "mutated";
+    expect(job.env).toEqual({ ANTHROPIC_BASE_URL: "https://x.test" });
+  });
+
   it("persists rate-limit detection provenance when parking a job", () => {
     const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
     const resetAt = new Date(Date.now() + 60_000).toISOString();

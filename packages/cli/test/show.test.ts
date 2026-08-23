@@ -92,6 +92,19 @@ describe("renderJobDetail", () => {
     expect(out).toContain("  line B");
   });
 
+  it("renders captured resume-env key names (sorted) but hides their values", () => {
+    expect(renderJobDetail(job(), { now: NOW })).not.toContain("resume env");
+    const out = renderJobDetail(
+      job({ env: { HTTPS_PROXY: "http://secret", ANTHROPIC_BASE_URL: "https://secret.test" } }),
+      { now: NOW }
+    );
+    expect(out).toContain("resume env");
+    expect(out).toContain("ANTHROPIC_BASE_URL, HTTPS_PROXY");
+    expect(out).toContain("(2 captured, values hidden)");
+    // Values must never be printed.
+    expect(out).not.toContain("secret");
+  });
+
   it("renders a rate-limit provenance block only when a detection is present", () => {
     expect(renderJobDetail(job(), { now: NOW })).not.toContain("rate limit");
     const out = renderJobDetail(

@@ -970,6 +970,22 @@
       Biome 0경고), 실제 빌드 CLI e2e로 `completion fish` 방출(글로벌 옵션·최상위 커맨드·run 플래그·config
       부모 가드)·미지 셸 exit 1 검증. branch `claude/wizardly-pascal-am8gcl`)
 
+- [x] 👷 `agentrelay run --env`/`--env-from` — 재개 시 원래 셸의 프로젝트별 환경변수를 복원.
+      데몬이 재개할 때 자식 프로세스는 **데몬의 env**를 상속하므로, 원래 `run`을 실행한 셸에만 있던
+      `ANTHROPIC_BASE_URL`·`HTTPS_PROXY`·커스텀 `PATH` 등이 몇 시간 뒤 재개에서 조용히 유실되던 실제
+      정확성 결함을 메운다(main·열린 PR 양쪽에 없던 진짜 신규 영역).
+      (완료 — core `env.ts` 신설(순수·`process.env` 미접촉): `parseEnvAssignment`(`KEY=VALUE`, 첫 `=`만
+      분리·키 검증)·`captureEnvFrom`(이름 목록을 소스 env에서 스냅샷, 미설정은 스킵)·`buildJobEnv`(명시
+      assignment > 캡처 스냅샷, 빈 결과는 undefined)·`resolveSpawnEnv`(잡 env를 base env **위에** 레이어링,
+      캡처 없으면 undefined=기존 순수 상속 경로 유지). `types.ts` `RelayJob.env?`/`CreateJobInput.env?`(옵셔널
+      → 마이그레이션 없이 구 스토어 로드), `queue.enqueue`가 캡처 있을 때만 env 키 영속(복사본 저장).
+      `scheduler`의 `SpawnFn`에 옵셔널 3번째 `env` 인자 추가(하위호환), `runCommand`가 `resolveSpawnEnv(job.env,
+      process.env)`로 재개 env 계산해 spawn. `import.ts`가 export→import 왕복에 env 보존(malformed/빈 맵은
+      드롭). CLI `run --env KEY=VALUE`·`--env-from NAME`(둘 다 반복 가능, 공용 `collectOption` 리듀서),
+      잘못된 키/형식은 exit 1. `show`가 캡처된 env **키 이름만**(정렬) 표시하고 값은 숨김(시크릿 유출 방지).
+      build/lint/test 통과(**core 695 · cli 366/1skip · dashboard 13**, Biome 0경고), 실제 빌드 CLI e2e로
+      캡처→`show` 키 노출→`tick` 재개 시 데몬 env 오버라이드(레이어링) 검증. branch `claude/wizardly-pascal-wn7yrz`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

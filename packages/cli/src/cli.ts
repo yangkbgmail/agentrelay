@@ -13,10 +13,12 @@ import type {
 } from "@agentrelay/core";
 import {
   ALL_TOOLS,
+  buildJobEnv,
   buildOverdueReport,
   buildUpcomingTimeline,
   COLUMN_AWARE_FORMATS,
   COMPLETION_SHELLS,
+  captureEnvFrom,
   computeActivityHeatmap,
   computeDailyTrend,
   computeErrorBreakdown,
@@ -37,6 +39,7 @@ import {
   maxResetHorizonMsFromEnv,
   parseCsvColumns,
   parseDuration,
+  parseEnvAssignment,
   renderPrometheusMetrics,
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
@@ -133,6 +136,11 @@ function splitList(raw: string): string[] {
     .split(",")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+}
+
+/** Commander reducer that accumulates a repeatable option into an array. */
+function collectOption(value: string, previous: string[]): string[] {
+  return [...previous, value];
 }
 
 /** The `--status`/`--tool`/`--project`/`--since`/`--until` filter options. */
@@ -545,16 +553,41 @@ export function buildCli(): Command {
       "-p, --project <name>",
       "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
     )
-    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
-      const { store } = program.opts();
-      const result = await runCommand({
-        command,
-        storePath: store,
-        tool: opts.tool as AgentTool | undefined,
-        project: opts.project,
-      });
-      process.exitCode = result.exitCode;
-    });
+    .option(
+      "--env <KEY=VALUE>",
+      "Capture an env var to restore when the job is resumed (repeatable). Layered over the daemon's env.",
+      collectOption,
+      [] as string[]
+    )
+    .option(
+      "--env-from <NAME>",
+      "Snapshot NAME from the current environment onto the job without echoing its value (repeatable).",
+      collectOption,
+      [] as string[]
+    )
+    .action(
+      async (command: string[], opts: { tool?: string; project?: string; env?: string[]; envFrom?: string[] }) => {
+        const { store } = program.opts();
+        let env: Record<string, string> | undefined;
+        try {
+          const assignments = (opts.env ?? []).map(parseEnvAssignment);
+          const captured = captureEnvFrom(opts.envFrom ?? [], process.env);
+          env = buildJobEnv(assignments, captured);
+        } catch (err) {
+          console.error(`[agentrelay] ${(err as Error).message}`);
+          process.exitCode = 1;
+          return;
+        }
+        const result = await runCommand({
+          command,
+          storePath: store,
+          tool: opts.tool as AgentTool | undefined,
+          project: opts.project,
+          env,
+        });
+        process.exitCode = result.exitCode;
+      }
+    );
 
   program
     .command("daemon")
