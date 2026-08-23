@@ -55,6 +55,7 @@ import {
   backupStore,
   bulkControlJobs,
   cancelJob,
+  exportCalendar,
   exportStore,
   getConfigValue,
   importStore,
@@ -1776,6 +1777,58 @@ export function buildCli(): Command {
         }
       }
     );
+
+  program
+    .command("calendar")
+    .description(
+      "Export the resume runway as an iCalendar (.ics) — import or subscribe to see, and be alarmed at, when each rate-limited job resumes"
+    )
+    .option("-o, --out <file>", "Write the .ics to this file instead of stdout")
+    .option("--no-alarm", "Omit the per-event alarm (a plain, notification-free calendar)")
+    .option("--name <name>", "Calendar display name shown in the importing app (X-WR-CALNAME)")
+    .option("-t, --tool <tools>", `Only include jobs run with these comma-separated tools: ${ALL_TOOLS.join(", ")}`)
+    .option("-p, --project <projects>", "Only include jobs from these comma-separated project names (exact match)")
+    .option("--since <duration>", "Only include jobs created within the last <duration> (e.g. 24h, 7d, 30m)")
+    .option("--until <duration>", "Only include jobs created more than <duration> ago (e.g. 1d) — window's older edge")
+    .addHelpText(
+      "after",
+      "\nExamples:\n" +
+        "  # print the .ics for every waiting job to stdout\n" +
+        "  agentrelay calendar\n" +
+        "  # write a file you can import into Apple/Google/Outlook Calendar\n" +
+        "  agentrelay calendar --out ~/agentrelay-resumes.ics\n" +
+        "  # one project's runway, no alarms, custom name\n" +
+        "  agentrelay calendar --project my-app --no-alarm --name 'my-app resumes'"
+    )
+    .action((opts: ScopeOpts & { out?: string; alarm?: boolean; name?: string }) => {
+      const { store } = program.opts();
+      const now = Date.now();
+
+      const built = buildScope(opts, now);
+      if ("error" in built) {
+        console.error(built.error);
+        process.exitCode = 1;
+        return;
+      }
+
+      const all = listStatus(store);
+      const jobs = built.active ? scopeJobs(all, built.scope) : all;
+      const result = exportCalendar({
+        storePath: store,
+        jobs,
+        outPath: opts.out,
+        // commander's --no-alarm defaults `alarm` to true and sets it false when
+        // the flag is present, so this maps straight to the builder's withAlarm.
+        calendar: { withAlarm: opts.alarm !== false, calendarName: opts.name },
+      });
+
+      if (result.writtenTo) {
+        // Keep stdout clean for redirection; status goes to stderr.
+        console.error(`[agentrelay] wrote ${result.count} resume event(s) to ${result.writtenTo}`);
+      } else {
+        console.log(result.content);
+      }
+    });
 
   program
     .command("import")

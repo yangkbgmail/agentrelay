@@ -969,6 +969,21 @@
       (COMPLETION_SHELLS·isCompletionShell). build/lint/test 통과(**core 670 · cli 365/1skip · dashboard 13**,
       Biome 0경고), 실제 빌드 CLI e2e로 `completion fish` 방출(글로벌 옵션·최상위 커맨드·run 플래그·config
       부모 가드)·미지 셸 exit 1 검증. branch `claude/wizardly-pascal-am8gcl`)
+- [x] 👷 `agentrelay calendar` — 재개 런웨이를 iCalendar(.ics)로 내보내 캘린더 앱에서 구독/알림.
+      (완료 — `@agentrelay/core/ics.ts` 신설(순수·의존성 0·파일시스템 미접촉): RFC 5545 준수
+      iCalendar 빌더. `selectCalendarJobs`(waiting_for_reset + 파싱 가능한 resetAt만, reset→createdAt→id
+      결정론적 정렬 — `upcoming`과 동일 선택으로 터미널/캘린더 불일치 방지), `formatIcsUtc`(UTC
+      `YYYYMMDDTHHMMSSZ`), `escapeIcsText`(백슬래시·세미콜론·콤마 이스케이프 + 개행→`\n`),
+      `foldIcsLine`(75옥텟 폴딩 — UTF-8 바이트 기준, 멀티바이트 문자 미분할), `buildResetCalendar`
+      (job당 VEVENT 1개 = resetAt 순간의 zero-length 이벤트[DTSTART만; RFC 5545상 순간 이벤트],
+      기본 VALARM 표시 알림 PT0M, CRLF 종단). CLI `commands.ts` `exportCalendar`(스토어 읽기+선택적
+      파일 쓰기[CRLF]만, 나머지 core 위임 — `exportStore` 미러), `cli.ts` `calendar` 커맨드
+      (`-o/--out`·`--no-alarm`·`--name`·`--tool`/`--project`/`--since`/`--until` 스코프, buildScope 재사용).
+      제품 테마("리셋 시점 가시성")를 사용자가 이미 쓰는 캘린더로 확장 — 열린 PR 60개 어디에도 없던
+      신규 축. ics.test 18케이스(포맷/이스케이프/폴딩[멀티바이트 포함]/선택·정렬/VALARM 토글/결정론) +
+      CLI calendar.test 5케이스. build/lint/test 통과(**core 693 · cli 370/1skip · dashboard 13**,
+      Biome 0에러), 실제 빌드 CLI e2e로 stdout·파일 방출·프로젝트 필터·알림 토글·이스케이프·폴딩 검증.
+      branch `claude/wizardly-pascal-yotvpc`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

@@ -2475,3 +2475,24 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 남은 포화 축의 추가 중복 스캔·정리 지속 —
   IANA/명명 타임존 파서(#731/#740/#749/#774/#838)·Gemini 어댑터(#752/#762)·run --dry-run(#715/#751/#843) 등이
   후보. ③ 근본 원인(문서 append 충돌)은 세션 60·78 진단대로 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 83 — `agentrelay calendar` (iCalendar/.ics 재개 캘린더 내보내기)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-yotvpc`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료, 미완료는 🧭 코워크 소유(문서/리서치)뿐. 열린 PR ~60개를 실측해
+  겹치지 않는 **신규 축**을 발굴 — 파서/CLI/알림/대시보드는 이미 포화라 제품 테마("리셋 시점 가시성")를
+  사용자가 이미 사는 캘린더로 확장하는 iCalendar 내보내기를 골랐다(어느 열린 PR에도 없음).
+- **한 일:** ① `@agentrelay/core/ics.ts` 신설(순수·의존성 0·파일시스템 미접촉, RFC 5545 준수):
+  `selectCalendarJobs`(waiting_for_reset + 파싱 가능 resetAt만, reset→createdAt→id 결정론 정렬 — `upcoming`과
+  동일 선택), `formatIcsUtc`(UTC `YYYYMMDDTHHMMSSZ`), `escapeIcsText`(백슬래시·`;`·`,` 이스케이프 + 개행→`\n`),
+  `foldIcsLine`(75옥텟 폴딩, UTF-8 바이트 기준·멀티바이트 미분할), `buildResetCalendar`(job당 VEVENT 1개 =
+  resetAt 순간 zero-length 이벤트[DTSTART만; RFC 5545상 순간 이벤트], 기본 VALARM 표시알림 PT0M, CRLF 종단,
+  빈 스토어도 유효한 VCALENDAR). ② CLI `commands.ts` `exportCalendar`(스토어 읽기+선택적 파일 쓰기[CRLF]만,
+  나머지 core 위임 — `exportStore` 미러), `cli.ts` `calendar` 커맨드(`-o/--out`·`--no-alarm`·`--name` +
+  `--tool`/`--project`/`--since`/`--until` 스코프, buildScope 재사용). 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 125파일)→`pnpm test`
+  전 패키지 통과(**core 693 · cli 370/1skip · dashboard 13**). ics.test 18케이스(포맷/이스케이프/폴딩[멀티
+  바이트 포함]/선택·정렬/VALARM 토글/CRLF/결정론) + CLI calendar.test 5케이스. 실제 빌드 CLI e2e:
+  `calendar` → stdout에 정렬된 VEVENT·이스케이프(`\;`·`\,`)·75옥텟 폴딩 확인, `calendar --project my-app
+  --no-alarm --out …` → 파일 방출·프로젝트 필터·알림 제거·이벤트 수 2 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 후속 신규 축 후보 — 대시보드에 캘린더
+  구독 링크/버튼 노출, `agentrelay calendar --webcal` 또는 subscribe URL 힌트. ③ 세션 78~82이 진단한 중복 PR
+  적체 정리 지속. README/ARCHITECTURE는 🧭 코워크 몫.

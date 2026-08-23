@@ -11,6 +11,7 @@ export * from "./eta.js";
 export * from "./export.js";
 export * from "./health.js";
 export * from "./heartbeat.js";
+export * from "./ics.js";
 export * from "./import.js";
 export * from "./locations.js";
 export * from "./metrics.js";
