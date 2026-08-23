@@ -136,6 +136,56 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Relative-day wording: "resets tomorrow at 9am" / "try again tomorrow" /
+    // "come back today at 5pm" / "your limit resets tomorrow". Real agent CLIs
+    // phrase a reset this way, and none of the other patterns catch it: the
+    // clock-time ones need an adjacent "reset at <time>" (here the day word sits
+    // between), and relative-duration needs "in". Without this the message
+    // silently produces no detection and the job never resumes.
+    //
+    // The reset trigger word must be adjacent to the day word so an incidental
+    // "tomorrow" elsewhere in noisy output isn't misread as a reset time.
+    //
+    // Time resolution (all local time, matching clock-time's convention):
+    //   - "<day> at 9am" / "at 9:30pm" -> that 12-hour clock time on that day
+    //   - "<day> at 15:00" / "at 21"   -> that 24-hour clock time on that day
+    //   - "tomorrow" (no time)         -> local midnight (00:00) starting tomorrow
+    //   - "today" (no time)            -> skipped (null): "sometime today" has no
+    //                                     defensible instant, so guessing one
+    //                                     risks a wrong wait.
+    name: "relative-day",
+    regex:
+      /(?:reset[s]?|try again|retry|come back|available)\s+(?:on\s+)?(today|tomorrow)\b(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/i,
+    resolve: (m, now) => {
+      const isTomorrow = m[1].toLowerCase() === "tomorrow";
+      const hasTime = m[2] !== undefined;
+      const candidate = new Date(now);
+      if (isTomorrow) candidate.setDate(candidate.getDate() + 1);
+
+      if (!hasTime) {
+        // "today" with no time is too vague to place on the clock; only
+        // "tomorrow" gets a defensible instant (the start of that day).
+        if (!isTomorrow) return null;
+        candidate.setHours(0, 0, 0, 0);
+        return candidate;
+      }
+
+      let hour = parseInt(m[2], 10);
+      const minute = m[3] !== undefined ? parseInt(m[3], 10) : 0;
+      const meridiem = m[4]?.toLowerCase();
+      if (meridiem) {
+        if (hour < 1 || hour > 12) return null; // invalid 12-hour clock time
+        if (meridiem === "pm" && hour < 12) hour += 12;
+        if (meridiem === "am" && hour === 12) hour = 0;
+      } else if (hour > 23) {
+        return null; // invalid 24-hour clock time
+      }
+      if (minute > 59) return null;
+      candidate.setHours(hour, minute, 0, 0);
+      return candidate;
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
@@ -197,7 +247,8 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|resets?_?at\s*[=:]|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|try again|resets?\s+(at|in)|resets?_?at\s*[=:]|retry.?after|(?:try again|retry|come back|available|resets?)\s+(?:on\s+)?to(?:day|morrow))/i;
 
 function tryPattern(
   pattern: RateLimitPattern,
