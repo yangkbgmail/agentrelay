@@ -1002,6 +1002,23 @@
       clean→ok / 중복-id→error+exit 1 / 스토어 UNCHANGED(비파괴) / 두 번째 실행도 여전히 flag 검증.
       branch `claude/wizardly-pascal-uems38`)
 
+- [x] 👷 파서 타임존 인식 — 메시지에 명시된 타임존("(America/New_York)", "UTC")대로 리셋 시각을 해석
+      (자기 발굴 항목). Claude Code가 실제로 출력하는 "Your limit will reset at 5pm (America/New_York)."
+      에서 파서는 지금까지 명시 타임존을 **무시하고 시각을 머신 로컬 시간**으로 읽었다(코드 주석에
+      "named timezone ... is ignored"로 알려진 한계). UTC 서버에서 이 메시지는 5pm 뉴욕이 아니라 5pm UTC로
+      해석돼, 재개가 몇 시간 **이르면** 한도에 다시 걸려 시도만 낭비하고 **늦으면** 창을 허비한다 — 릴레이의
+      존재 이유를 정면으로 무너뜨리는 정확성 버그.
+      (완료 — `@agentrelay/core/timezone.ts` 신설(순수·의존성 0, 빌트인 `Intl`만 사용): `isValidTimeZone`·
+      `normalizeTimeZone`(IANA `지역/도시` 또는 `UTC`/`GMT`/`Z`만 수용, `PST`/`EST`/`IST` 같은 civil 약어는
+      다의성 때문에 거부→로컬 폴백)·`timeZoneOffsetMs`(DST 반영, `Intl` 표시값에서 유도)·`zoneCalendarDate`·
+      `zonedWallClockToUtc`(표준 2-pass 오프셋 알고리즘으로 DST 경계 처리). `parser.ts`의 세 wall-clock 패턴
+      (`clock-time`·`clock-time-meridiem`·`relative-day`)에 선택적 후행 타임존 캡처(`TZ_FRAGMENT`, IANA 슬래시
+      이름 또는 UTC/GMT만—평범한 단어를 zone으로 오인 안 함)를 붙이고, 공용 `resolveWallClock(now,mode,hour,
+      minute,tzToken)`가 인식된 zone이면 그 zone에서, 아니면 기존 로컬 시간으로 해석(zone 없는 메시지는 동작
+      불변). "already past → 내일로 롤" 판정도 zone 기준으로 수행. build/lint/test 통과(**core 706 · cli
+      370/1skip · dashboard 13**, Biome 0경고), 실제 빌드 CLI `parse`로 UTC 머신에서 5pm 뉴욕→21:00 UTC(EDT)·
+      zone 없음→17:00 로컬·`PST`→로컬 폴백 e2e 검증. branch `claude/wizardly-pascal-t4gmg7`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

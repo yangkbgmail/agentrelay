@@ -1,4 +1,5 @@
 import { parseDuration } from "./prune.js";
+import { normalizeTimeZone, zoneCalendarDate, zonedWallClockToUtc } from "./timezone.js";
 import type { RateLimitInfo } from "./types.js";
 
 /**
@@ -82,6 +83,52 @@ export interface RateLimitPattern {
   resolve: (match: RegExpMatchArray, now: Date) => Date | null;
 }
 
+/**
+ * Regex fragment that optionally captures a trailing timezone token after a
+ * wall-clock time, e.g. "5pm (America/New_York)", "15:00 UTC". Matches an IANA
+ * identifier (requires a `/`, so an ordinary trailing word can't be mistaken
+ * for a zone) or the fixed `UTC`/`GMT`. Bare civil abbreviations (`PST`, `EST`)
+ * are intentionally not captured — see `normalizeTimeZone`. Kept as a string so
+ * each wall-clock pattern can append it and share the same capture semantics.
+ */
+const TZ_FRAGMENT = "(?:\\s*\\(?\\s*([A-Za-z]+\\/[A-Za-z_]+(?:\\/[A-Za-z_]+)*|UTC|GMT)\\s*\\)?)?";
+
+type WallClockDayMode = "next-occurrence" | "today" | "tomorrow";
+
+/**
+ * Build the UTC instant for a wall-clock reset. When `tzToken` names a zone the
+ * parser recognizes, the hour/minute are interpreted *in that zone* (fixing the
+ * long-standing bug where a message's stated timezone was ignored and the hour
+ * read as machine-local). Otherwise it falls back to the historical local-time
+ * behavior, so messages without a zone are unaffected.
+ *
+ * `mode` controls day placement: `next-occurrence` uses today and rolls to
+ * tomorrow when the time is already past (clock-time patterns); `today` and
+ * `tomorrow` place it on that calendar day with no roll (relative-day pattern).
+ */
+function resolveWallClock(now: Date, mode: WallClockDayMode, hour: number, minute: number, tzToken?: string): Date {
+  const tz = normalizeTimeZone(tzToken);
+  if (tz) {
+    const base = zoneCalendarDate(now, tz);
+    const dayShift = mode === "tomorrow" ? 1 : 0;
+    let candidate = zonedWallClockToUtc(
+      { year: base.year, month: base.month, day: base.day + dayShift, hour, minute },
+      tz
+    );
+    if (mode === "next-occurrence" && candidate.getTime() <= now.getTime()) {
+      candidate = zonedWallClockToUtc({ year: base.year, month: base.month, day: base.day + 1, hour, minute }, tz);
+    }
+    return candidate;
+  }
+  const candidate = new Date(now);
+  if (mode === "tomorrow") candidate.setDate(candidate.getDate() + 1);
+  candidate.setHours(hour, minute, 0, 0);
+  if (mode === "next-occurrence" && candidate.getTime() <= now.getTime()) {
+    candidate.setDate(candidate.getDate() + 1);
+  }
+  return candidate;
+}
+
 const PATTERNS: RateLimitPattern[] = [
   {
     // "reset at 2026-07-13T05:00:00Z" or similar explicit ISO timestamps
@@ -93,21 +140,18 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
-    // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
+    // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past).
+    // An optional trailing timezone ("15:00 UTC", "3:00pm (America/New_York)") is
+    // honored when recognized; otherwise the hour is read in local time.
     name: "clock-time",
-    regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
+    regex: new RegExp(`reset[s]?\\s+at\\s+(\\d{1,2}):(\\d{2})\\s*(am|pm)?${TZ_FRAGMENT}`, "i"),
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       const minute = parseInt(m[2], 10);
       const meridiem = m[3]?.toLowerCase();
       if (meridiem === "pm" && hour < 12) hour += 12;
       if (meridiem === "am" && hour === 12) hour = 0;
-      const candidate = new Date(now);
-      candidate.setHours(hour, minute, 0, 0);
-      if (candidate.getTime() <= now.getTime()) {
-        candidate.setDate(candidate.getDate() + 1);
-      }
-      return candidate;
+      return resolveWallClock(now, "next-occurrence", hour, minute, m[4]);
     },
   },
   {
@@ -115,24 +159,20 @@ const PATTERNS: RateLimitPattern[] = [
     // This is the wording Claude Code actually prints ("Your limit will reset
     // at 5pm (America/New_York)."), which the minute-requiring clock-time
     // pattern above misses. Meridiem is required: a bare "reset at 5" (no
-    // colon, no am/pm) is too ambiguous to treat as a clock time. The named
-    // timezone in the message is ignored — the hour is interpreted in local
-    // time, same known limitation as clock-time (a real reset is a future
-    // instant, so rolling to tomorrow when already past keeps us safe).
+    // colon, no am/pm) is too ambiguous to treat as a clock time. A named
+    // timezone in the message ("(America/New_York)", "UTC") is now honored: the
+    // hour is interpreted in that zone. Without a recognized zone the hour is
+    // read in local time (historical behavior). A real reset is a future
+    // instant, so rolling to tomorrow when already past keeps us safe.
     name: "clock-time-meridiem",
-    regex: /reset[s]?\s+at\s+(\d{1,2})\s*(am|pm)\b/i,
+    regex: new RegExp(`reset[s]?\\s+at\\s+(\\d{1,2})\\s*(am|pm)\\b${TZ_FRAGMENT}`, "i"),
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       if (hour > 12) return null; // 13pm etc. is not a valid 12-hour clock time
       const meridiem = m[2].toLowerCase();
       if (meridiem === "pm" && hour < 12) hour += 12;
       if (meridiem === "am" && hour === 12) hour = 0;
-      const candidate = new Date(now);
-      candidate.setHours(hour, 0, 0, 0);
-      if (candidate.getTime() <= now.getTime()) {
-        candidate.setDate(candidate.getDate() + 1);
-      }
-      return candidate;
+      return resolveWallClock(now, "next-occurrence", hour, 0, m[3]);
     },
   },
   {
@@ -146,28 +186,30 @@ const PATTERNS: RateLimitPattern[] = [
     // The reset trigger word must be adjacent to the day word so an incidental
     // "tomorrow" elsewhere in noisy output isn't misread as a reset time.
     //
-    // Time resolution (all local time, matching clock-time's convention):
+    // Time resolution (local time by default; a recognized trailing timezone —
+    // "tomorrow at 9am UTC", "today at 5pm (America/New_York)" — is honored):
     //   - "<day> at 9am" / "at 9:30pm" -> that 12-hour clock time on that day
     //   - "<day> at 15:00" / "at 21"   -> that 24-hour clock time on that day
-    //   - "tomorrow" (no time)         -> local midnight (00:00) starting tomorrow
+    //   - "tomorrow" (no time)         -> midnight (00:00) starting tomorrow
     //   - "today" (no time)            -> skipped (null): "sometime today" has no
     //                                     defensible instant, so guessing one
     //                                     risks a wrong wait.
     name: "relative-day",
-    regex:
-      /(?:reset[s]?|try again|retry|come back|available)\s+(?:on\s+)?(today|tomorrow)\b(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/i,
+    regex: new RegExp(
+      `(?:reset[s]?|try again|retry|come back|available)\\s+(?:on\\s+)?(today|tomorrow)\\b(?:\\s+at\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?)?${TZ_FRAGMENT}`,
+      "i"
+    ),
     resolve: (m, now) => {
       const isTomorrow = m[1].toLowerCase() === "tomorrow";
       const hasTime = m[2] !== undefined;
-      const candidate = new Date(now);
-      if (isTomorrow) candidate.setDate(candidate.getDate() + 1);
+      const tzToken = m[5];
+      const mode: WallClockDayMode = isTomorrow ? "tomorrow" : "today";
 
       if (!hasTime) {
         // "today" with no time is too vague to place on the clock; only
         // "tomorrow" gets a defensible instant (the start of that day).
         if (!isTomorrow) return null;
-        candidate.setHours(0, 0, 0, 0);
-        return candidate;
+        return resolveWallClock(now, "tomorrow", 0, 0, tzToken);
       }
 
       let hour = parseInt(m[2], 10);
@@ -181,8 +223,7 @@ const PATTERNS: RateLimitPattern[] = [
         return null; // invalid 24-hour clock time
       }
       if (minute > 59) return null;
-      candidate.setHours(hour, minute, 0, 0);
-      return candidate;
+      return resolveWallClock(now, mode, hour, minute, tzToken);
     },
   },
   {
