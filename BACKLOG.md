@@ -870,6 +870,20 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 스토어 `close()` lost-update 버그 수정 — 읽기 전용 명령이 동시 쓰기를 조용히 덮어쓰던 데이터 유실.
+      자기 발굴 항목 — `RelayQueue.close()`의 docstring은 "No-op"이라 적혀 있지만 실제로는 `this.flush()`를
+      호출해 **인메모리 맵 전체를 무조건 디스크에 다시 썼다.** 그 맵은 큐를 연 시점의 스냅샷이라, 읽기
+      전용 명령(`status`/`stats`/`show`/`export`)이 큐를 열고 읽은 뒤 `close()`하면, 그 사이 다른
+      프로세스(예: 실행 중인 `agentrelay daemon`)가 추가·변경한 잡을 **stale 스냅샷으로 통째로 덮어써
+      유실**시켰다(전형적 lost update). 로컬 우선 도구에서 "잡 상태를 절대 조용히 잃지 않는다"는
+      프로젝트의 핵심 관심사(손상 파일 보존·recover 등과 동일 계열)를 정면으로 위반. `concurrency.ts`가
+      스토어의 무-lost-update 불변식을 문서화하는데 close()가 그것을 깨고 있었다.
+      (완료 — `queue.ts`의 `close()`를 자기 docstring대로 **진짜 no-op**으로 변경[`this.flush()` 제거].
+      모든 mutating 메서드가 이미 호출 시점에 원자적으로 영속화하므로 close()가 커밋할 지연 변경은
+      없다 → close()의 쓰기는 순수 잉여이자 유해했다. 부수 효과로 읽기 전용 명령이 매 실행마다 스토어를
+      재기록하던 낭비도 제거. queue.test.ts에 회귀 2케이스(동시 writer의 변경을 close()가 안 덮어씀·
+      읽기 전용 open/close가 파일을 바이트 단위로 불변 유지). 실제 빌드 CLI e2e로 status 실행 중 동시
+      enqueue된 잡이 유실되지 않음 검증. core 641 전 테스트 통과. branch `claude/wizardly-pascal-close-noop`)
 - [x] 👷 `agentrelay doctor` 먼-미래 리셋 파킹 잡 검사(reset-horizon) — 이미 큐에 파킹된 잡의
       리셋 시각이 지평선을 넘으면 경고. 자기 발굴 항목(세션 72 파서 지평선 가드의 후속) — 세션 72
       가드는 **새로 파싱되는** rate-limit만 검증하므로, 가드가 없던 시절 큐잉됐거나·가드를 끈 채·잘못된
