@@ -57,6 +57,22 @@ describe("renderTestNotifyResults", () => {
     expect(renderTestNotifyResults([result()], { color: true })).toContain("\x1b[");
     expect(renderTestNotifyResults([result()], { color: false })).not.toContain("\x1b[");
   });
+
+  it("shows a non-secret descriptor (desktop command) unmasked, without --show-secrets", () => {
+    const out = renderTestNotifyResults([
+      result({
+        channel: {
+          kind: "desktop",
+          label: "Desktop",
+          url: "notify-send",
+          envVar: "AGENTRELAY_DESKTOP_NOTIFY",
+          secret: false,
+        },
+      }),
+    ]);
+    expect(out).toContain("notify-send");
+    expect(out).not.toContain("•");
+  });
 });
 
 describe("renderTestNotifyResultsJson", () => {

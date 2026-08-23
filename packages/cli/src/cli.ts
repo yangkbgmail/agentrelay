@@ -1600,7 +1600,9 @@ export function buildCli(): Command {
       }
     });
 
-  const notify = program.command("notify").description("Inspect and test notification channels (Slack/webhook)");
+  const notify = program
+    .command("notify")
+    .description("Inspect and test notification channels (Slack / webhook / desktop)");
   notify
     .command("test")
     .description("Send a test notification to every configured channel to verify delivery works end-to-end")

@@ -64,6 +64,9 @@ const FIELD_INFO: Record<string, FieldSchemaInfo> = {
   "notify.webhookAuth": {
     description: "Value sent as the webhook Authorization header (e.g. 'Bearer <token>').",
   },
+  "notify.desktop": {
+    description: "Opt in to native OS desktop notifications (macOS/Linux/Windows) for queue events.",
+  },
   "retry.maxAttempts": {
     description: "Maximum resume attempts before a job is marked failed (0 = unlimited).",
     minimum: 0,
@@ -111,7 +114,7 @@ const FIELD_INFO: Record<string, FieldSchemaInfo> = {
 
 /** Human-readable header for each config group in the generated schema. */
 const GROUP_DESCRIPTION: Record<Exclude<ConfigGroup, "store">, string> = {
-  notify: "Notification channels (Slack / generic webhook).",
+  notify: "Notification channels (Slack / generic webhook / native desktop).",
   retry: "Retry and exponential-backoff policy for resuming jobs.",
   autoPrune: "Daemon auto-prune settings for trimming the job store.",
 };

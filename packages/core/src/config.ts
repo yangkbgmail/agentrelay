@@ -25,6 +25,8 @@ export interface AgentRelayConfig {
     webhookUrl?: string;
     /** Value sent as the webhook `Authorization` header — maps to `AGENTRELAY_WEBHOOK_AUTH`. */
     webhookAuth?: string;
+    /** Opt in to native OS desktop notifications — maps to `AGENTRELAY_DESKTOP_NOTIFY`. */
+    desktop?: boolean;
   };
   /** Retry / exponential-backoff policy. */
   retry?: {
@@ -73,6 +75,7 @@ export function sampleConfig(): AgentRelayConfig {
       slackWebhook: "",
       webhookUrl: "",
       webhookAuth: "",
+      desktop: false,
     },
     retry: {
       maxAttempts: 5,
@@ -135,6 +138,7 @@ export const CONFIG_FIELDS: ConfigField[] = [
   { key: "notify.slackWebhook", group: "notify", type: "string", secret: true },
   { key: "notify.webhookUrl", group: "notify", type: "string", secret: true },
   { key: "notify.webhookAuth", group: "notify", type: "string", secret: true },
+  { key: "notify.desktop", group: "notify", type: "boolean" },
   { key: "retry.maxAttempts", group: "retry", type: "number" },
   { key: "retry.baseDelayMs", group: "retry", type: "number" },
   { key: "retry.factor", group: "retry", type: "number" },
@@ -377,6 +381,7 @@ export function parseConfig(value: unknown, source = "config"): AgentRelayConfig
       config.notify.webhookUrl = asString(notify.webhookUrl, `${source}.notify.webhookUrl`);
     if (notify.webhookAuth !== undefined)
       config.notify.webhookAuth = asString(notify.webhookAuth, `${source}.notify.webhookAuth`);
+    if (notify.desktop !== undefined) config.notify.desktop = asBool(notify.desktop, `${source}.notify.desktop`);
   }
 
   if (root.retry !== undefined) {
@@ -536,6 +541,10 @@ export function configToEnv(config: AgentRelayConfig): Record<string, string> {
   set("AGENTRELAY_SLACK_WEBHOOK", config.notify?.slackWebhook);
   set("AGENTRELAY_WEBHOOK_URL", config.notify?.webhookUrl);
   set("AGENTRELAY_WEBHOOK_AUTH", config.notify?.webhookAuth);
+  // Opt-in flag: boolean in the file, "1"/"0" in the env layer (as autoPrune).
+  if (config.notify?.desktop !== undefined) {
+    env.AGENTRELAY_DESKTOP_NOTIFY = config.notify.desktop ? "1" : "0";
+  }
 
   set("AGENTRELAY_MAX_ATTEMPTS", config.retry?.maxAttempts);
   set("AGENTRELAY_RETRY_BASE_MS", config.retry?.baseDelayMs);
@@ -576,6 +585,7 @@ export const CONFIG_ENV_KEYS: ConfigEnvKey[] = [
   { key: "AGENTRELAY_SLACK_WEBHOOK", group: "notify", secret: true },
   { key: "AGENTRELAY_WEBHOOK_URL", group: "notify", secret: true },
   { key: "AGENTRELAY_WEBHOOK_AUTH", group: "notify", secret: true },
+  { key: "AGENTRELAY_DESKTOP_NOTIFY", group: "notify" },
   { key: "AGENTRELAY_MAX_ATTEMPTS", group: "retry" },
   { key: "AGENTRELAY_RETRY_BASE_MS", group: "retry" },
   { key: "AGENTRELAY_RETRY_FACTOR", group: "retry" },
