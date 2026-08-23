@@ -33,7 +33,7 @@ import {
   inferImportFormat,
   isCompletionShell,
   isJobScopeActive,
-  JOB_CSV_COLUMNS,
+  JOB_EXPORT_COLUMNS,
   maxResetHorizonMsFromEnv,
   parseCsvColumns,
   parseDuration,
@@ -1636,7 +1636,10 @@ export function buildCli(): Command {
     .option("--until <duration>", "Only export jobs created more than <duration> ago (e.g. 1d) — window's older edge")
     .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
     .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
-    .option("--columns <list>", `Pick/reorder columns for csv/md (comma-separated): ${JOB_CSV_COLUMNS.join(", ")}`)
+    .option(
+      "--columns <list>",
+      `Pick/reorder columns for csv/md/html (comma-separated): ${JOB_EXPORT_COLUMNS.join(", ")}`
+    )
     .action(
       (opts: {
         format?: string;
@@ -1659,9 +1662,9 @@ export function buildCli(): Command {
           return;
         }
 
-        // --columns picks/reorders the tabular columns; only csv/md honor it.
-        // json/ndjson are lossless full-shape, so a --columns there is a mistake
-        // we surface rather than silently ignore.
+        // --columns picks/reorders the tabular columns; only csv/md/html honor
+        // it. json/ndjson are lossless full-shape, so a --columns there is a
+        // mistake we surface rather than silently ignore.
         let columns: JobCsvColumn[] | undefined;
         if (opts.columns !== undefined) {
           if (!COLUMN_AWARE_FORMATS.includes(format as (typeof COLUMN_AWARE_FORMATS)[number])) {
@@ -1671,12 +1674,12 @@ export function buildCli(): Command {
           }
           const parsed = parseCsvColumns(opts.columns);
           if (parsed.invalid.length > 0) {
-            console.error(`Unknown column(s): ${parsed.invalid.join(", ")}. Valid: ${JOB_CSV_COLUMNS.join(", ")}.`);
+            console.error(`Unknown column(s): ${parsed.invalid.join(", ")}. Valid: ${JOB_EXPORT_COLUMNS.join(", ")}.`);
             process.exitCode = 1;
             return;
           }
           if (parsed.columns.length === 0) {
-            console.error(`--columns needs at least one column. Valid: ${JOB_CSV_COLUMNS.join(", ")}.`);
+            console.error(`--columns needs at least one column. Valid: ${JOB_EXPORT_COLUMNS.join(", ")}.`);
             process.exitCode = 1;
             return;
           }

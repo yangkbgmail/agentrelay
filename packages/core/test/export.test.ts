@@ -9,6 +9,8 @@ import {
   exportJobs,
   isJobCsvColumn,
   JOB_CSV_COLUMNS,
+  JOB_EXPORT_COLUMNS,
+  JOB_PROVENANCE_COLUMNS,
   jobCsvValue,
   jobsToCsv,
   jobsToHtml,
@@ -83,6 +85,31 @@ describe("jobCsvValue", () => {
     expect(jobCsvValue(j, "status")).toBe("failed");
     expect(jobCsvValue(j, "cwd")).toBe("/work");
   });
+
+  it("renders rate-limit provenance columns from lastRateLimit", () => {
+    const j = job({
+      lastRateLimit: {
+        pattern: "claude-usage-limit",
+        rawMatch: "resets at 2026-07-13T05:00:00Z",
+        resetAt: "2026-07-13T05:00:00.000Z",
+        detectedAt: "2026-07-13T04:30:00.000Z",
+      },
+    });
+    expect(jobCsvValue(j, "pattern")).toBe("claude-usage-limit");
+    expect(jobCsvValue(j, "detectedAt")).toBe("2026-07-13T04:30:00.000Z");
+  });
+
+  it("renders empty provenance cells when a job was never rate-limited", () => {
+    // Explicit null (touched job, no rate limit yet).
+    const never = job({ lastRateLimit: null });
+    expect(jobCsvValue(never, "pattern")).toBe("");
+    expect(jobCsvValue(never, "detectedAt")).toBe("");
+    // Absent field entirely (pre-provenance stores): job() omits lastRateLimit.
+    const legacy = job();
+    expect(legacy.lastRateLimit).toBeUndefined();
+    expect(jobCsvValue(legacy, "pattern")).toBe("");
+    expect(jobCsvValue(legacy, "detectedAt")).toBe("");
+  });
 });
 
 describe("jobsToCsv", () => {
@@ -123,13 +150,33 @@ describe("jobsToCsv", () => {
 });
 
 describe("isJobCsvColumn", () => {
-  it("accepts every declared column and rejects unknown names", () => {
-    for (const col of JOB_CSV_COLUMNS) {
+  it("accepts every selectable column (defaults + provenance) and rejects unknown names", () => {
+    for (const col of JOB_EXPORT_COLUMNS) {
       expect(isJobCsvColumn(col)).toBe(true);
     }
+    expect(isJobCsvColumn("pattern")).toBe(true);
+    expect(isJobCsvColumn("detectedAt")).toBe(true);
     expect(isJobCsvColumn("nope")).toBe(false);
     expect(isJobCsvColumn("")).toBe(false);
     expect(isJobCsvColumn("ID")).toBe(false); // case-sensitive
+  });
+});
+
+describe("column vocabulary", () => {
+  it("keeps provenance columns out of the default emitted set but in the selectable superset", () => {
+    for (const col of JOB_PROVENANCE_COLUMNS) {
+      expect((JOB_CSV_COLUMNS as readonly string[]).includes(col)).toBe(false);
+      expect((JOB_EXPORT_COLUMNS as readonly string[]).includes(col)).toBe(true);
+    }
+    // The superset is exactly defaults followed by provenance, in order.
+    expect([...JOB_EXPORT_COLUMNS]).toEqual([...JOB_CSV_COLUMNS, ...JOB_PROVENANCE_COLUMNS]);
+    expect([...JOB_PROVENANCE_COLUMNS]).toEqual(["pattern", "detectedAt"]);
+  });
+
+  it("does not emit provenance columns by default (backward-compatible header)", () => {
+    expect(jobsToCsv([]).split(",")).not.toContain("pattern");
+    expect(jobsToCsv([]).split(",")).not.toContain("detectedAt");
+    expect(jobsToCsv([])).toBe(JOB_CSV_COLUMNS.join(","));
   });
 });
 
@@ -168,6 +215,29 @@ describe("parseCsvColumns", () => {
     const { columns } = parseCsvColumns("status,id");
     expect(jobsToCsv([job({ id: "x", status: "queued" })], { columns })).toBe("status,id\nqueued,x");
     expect(jobsToMarkdown([job({ id: "x", status: "queued" })], { columns })).toContain("| status | id |");
+  });
+
+  it("accepts the opt-in provenance columns", () => {
+    expect(parseCsvColumns("id,pattern,detectedAt")).toEqual({
+      columns: ["id", "pattern", "detectedAt"],
+      invalid: [],
+    });
+  });
+
+  it("selects provenance columns end to end via jobsToCsv", () => {
+    const { columns } = parseCsvColumns("id,pattern,detectedAt");
+    const parked = job({
+      id: "j1",
+      lastRateLimit: {
+        pattern: "codex-retry-seconds",
+        rawMatch: "try again in 20s",
+        resetAt: "2026-07-13T05:00:00.000Z",
+        detectedAt: "2026-07-13T04:59:40.000Z",
+      },
+    });
+    expect(jobsToCsv([parked], { columns })).toBe(
+      "id,pattern,detectedAt\nj1,codex-retry-seconds,2026-07-13T04:59:40.000Z"
+    );
   });
 });
 
