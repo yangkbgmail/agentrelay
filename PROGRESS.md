@@ -2475,3 +2475,28 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 남은 포화 축의 추가 중복 스캔·정리 지속 —
   IANA/명명 타임존 파서(#731/#740/#749/#774/#838)·Gemini 어댑터(#752/#762)·run --dry-run(#715/#751/#843) 등이
   후보. ③ 근본 원인(문서 append 충돌)은 세션 60·78 진단대로 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 83 — 파서 relative-day: "tomorrow/today at \<time\>" 상대-요일 리셋 인식] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-96dwkp`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 열린 PR ~100개를
+  실측해 포화 축(파서 변종·completion·doctor·stats·notify·신규 명령)을 피하고, **main·열린 PR 양쪽에 없는
+  진짜 신규 갭**만 발굴하는 세션 82 정책을 이어감.
+- **발굴한 갭(실측):** 파서는 요일명(Monday, #806/#841)·자정/정오(#793/#818)·타임존·소수·ISO8601·epoch 등
+  다양한 리셋 표기를 잡지만, 실제 에이전트가 흔히 쓰는 **상대-요일 어휘 "tomorrow/today"**("Your limit resets
+  tomorrow at 9am.", "Try again tomorrow.")는 어느 패턴도 잡지 못했다 — clock-time 계열은 "reset **at** \<time\>"
+  인접을 요구(요일어가 사이에 낌)하고 relative-duration은 "in"을 요구하기 때문. 그 결과 이 메시지는 조용히
+  null이 돼 **잡이 영영 재개되지 않는** 무음 실패로 이어졌다(릴레이 핵심 미션 직결).
+- **한 일:** `parser.ts`에 `relative-day` 패턴 추가 —
+  트리거(`reset(s)`/`try again`/`retry`/`come back`/`available`)가 요일어(`today`/`tomorrow`)에 **인접**할 때만 매치
+  (노이즈 출력의 우발적 "tomorrow" 오탐 방지). 시간 해소는 clock-time 관례대로 전부 로컬타임:
+  `<day> at 9am`/`at 9:30pm`=12시간, `at 15:00`/`at 21`=24시간, `tomorrow`(시간 없음)=내일 자정(00:00),
+  `today`(시간 없음)=**의도적 skip(null)**("오늘 언젠가"는 확정 불가라 잘못된 대기 위험). 무효 시각
+  (12시간제 0/13+, 24시간제 24+, 분 60+)은 null로 fall-through. pre-filter(`LOOKS_LIKE_RATE_LIMIT`)에
+  요일어 대안 추가로 "resets tomorrow" 단독 라인도 통과. 기존 패턴과 무충돌(clock-time은 "reset at \<digit\>",
+  relative-duration은 "in" 요구). 스케줄러/큐 변경 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 122파일)→`pnpm test`
+  전 패키지 통과(**core 681 · cli 365/1skip · dashboard 13**, parser.test +6케이스). 실제 빌드 CLI e2e:
+  `parse "…resets tomorrow at 9am."`→`relative-day`·내일 09:00, `parse "…Try again tomorrow." --json`→내일 자정,
+  `parse "…resets today."`→"No rate-limit detected"(시간 없는 today 안전 skip) 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 남은 미개척 실제 rate-limit 어휘 계속 발굴
+  ("tonight"/"in the morning" 등은 시각 모호로 보류 — 🧭 실제 샘플 수집 후 판단). ③ 근본 원인(문서 append 충돌)은
+  세션 60·78 진단대로 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
