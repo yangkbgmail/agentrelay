@@ -179,6 +179,40 @@ describe("exportStore", () => {
     expect(parsed[0].project).toBe("beta");
   });
 
+  // --redact scrubs secrets from the exported bytes without touching the store,
+  // so a user can safely share a CSV/JSON export while asking for help even when
+  // captured output or error text carries an API key or token.
+  it("scrubs secrets from exported fields when redact is set, without mutating the store", () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "leaky", tool: "claude-code", command: ["claude", "-p", "go"], cwd: "/l" });
+    queue.close();
+    const jobs = listStatus(storePath);
+    jobs[0].status = "failed";
+    jobs[0].lastError = "auth failed: token ghp_ABCdef1234567890ghijklmn rejected";
+    jobs[0].lastOutputTail = "export ANTHROPIC_API_KEY=sk-ant-api03-abcDEF123456ghiJKL789";
+
+    const result = exportStore({ storePath, format: "json", jobs, redact: true });
+    expect(result.content).not.toContain("ghp_ABCdef1234567890ghijklmn");
+    expect(result.content).not.toContain("sk-ant-api03-abcDEF123456ghiJKL789");
+    expect(result.content).toContain("[REDACTED]");
+    // The in-memory job objects handed in are not mutated (transform on a copy).
+    expect(jobs[0].lastError).toContain("ghp_ABCdef1234567890ghijklmn");
+    // Count is preserved.
+    expect(result.count).toBe(1);
+  });
+
+  it("leaves fields raw when redact is not set (default)", () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "leaky", tool: "claude-code", command: ["claude", "-p", "go"], cwd: "/l" });
+    queue.close();
+    const jobs = listStatus(storePath);
+    jobs[0].status = "failed";
+    jobs[0].lastError = "token ghp_ABCdef1234567890ghijklmn rejected";
+
+    const result = exportStore({ storePath, format: "json", jobs });
+    expect(result.content).toContain("ghp_ABCdef1234567890ghijklmn");
+  });
+
   it("combines a --since time window with a --tool filter (window then select)", () => {
     const now = Date.now();
     const iso = (ms: number) => new Date(now - ms).toISOString();

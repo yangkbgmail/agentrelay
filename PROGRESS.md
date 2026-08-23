@@ -2623,3 +2623,24 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② `export`/대시보드에도 옵션형 소급 스크럽 노출은 후속 후보(현재는
   스토어 in-place 정리로 충분). ③ 나머지 clean·고가치 PR(#878 clean/#879 search 등)은 doc append 충돌로 dirty —
   근본 원인(세션 로그를 날짜별 개별 파일로 분리)은 🧭 코워크 소유 프로세스 안건. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 87 — `agentrelay export --redact`: 내보내기 시점 비파괴 스크럽 (👷 자율 발굴)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-ub6gkw`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(미완은 🧭 코워크 소유 문서/리서치만 남음). 세션 85(#875 write-time
+  레닥션)·세션 86(`agentrelay redact` 스토어 in-place 소급 스크럽)이 닫은 위협모델에 마지막 갭이 하나 남아 있었다:
+  `export`는 스토어의 원시 잡을 그대로 직렬화하므로, ① 사용자가 아직 `redact`를 안 돌렸거나 ② 원시 데이터를 로컬에
+  보존하고 싶어 파괴적 in-place 정리를 원치 않는 경우, CSV/JSON/md/ndjson/html 어느 포맷이든 `lastError`·
+  `lastOutputTail`·`rawMatch`에 담긴 API 키·토큰이 그대로 새어 나간다. `redact.ts` 자신의 docstring이 경고하는
+  "in any export a user shares while asking for help" 시나리오가 실제로는 안 닫혀 있었다.
+- **한 일:** `@agentrelay/core/redact.ts`에 순수 `redactJobs(jobs)` 추가(기존 `redactJob`의 얇은 래퍼: 순서·길이
+  보존, 비밀 없는 잡은 참조 그대로 통과해 입력 미변경, all-clean 세트는 사실상 무비용). CLI `exportStore`에
+  `redact?: boolean` 옵션 — 직렬화 **전** 잡 사본에만 `redactJobs`를 적용하고 스토어는 절대 flush하지 않는
+  **비파괴 변환**(모든 포맷·`--columns` 부분집합이 스크럽된 필드를 봄, count 불변). `agentrelay export --redact`
+  플래그 배선. 새 파서/스케줄러 로직 0줄 — 전부 검증된 `redactJob` 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 126파일)→`pnpm test` 전
+  패키지 통과(**core 720 · cli 380/1skip · dashboard 13**; core redact.test +4[redactJobs], cli export.test +2).
+  빌드된 CLI e2e(임시 스토어, `ghp_…`·`sk-ant-…` 심은 잡): `export -f json --redact`·`-f csv --redact`가 비밀을
+  `[REDACTED]`로 스크럽, 기본 `export`(플래그 없음)는 raw 노출, 스크럽 후에도 디스크의 `jobs.json`은 평문 그대로
+  불변(비파괴 확인).
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 대시보드 `/api/jobs`·`show`에도 옵션형 표시-시점 스크럽 노출은
+  후속 후보(현재 export/store 두 표면은 커버). ③ `command` 인자에 비밀이 실린 경우(예: `--api-key sk-…`)는 세
+  스크럽 표면 모두 아직 안 건드림 — `redactJob` 스코프 확장은 별도 항목 후보. README/ARCHITECTURE는 🧭 코워크 몫.

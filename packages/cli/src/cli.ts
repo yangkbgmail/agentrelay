@@ -1637,6 +1637,10 @@ export function buildCli(): Command {
     .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
     .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
     .option("--columns <list>", `Pick/reorder columns for csv/md (comma-separated): ${JOB_CSV_COLUMNS.join(", ")}`)
+    .option(
+      "--redact",
+      "Scrub secrets (API keys, tokens, credentials) from output before exporting; store is untouched"
+    )
     .action(
       (opts: {
         format?: string;
@@ -1649,6 +1653,7 @@ export function buildCli(): Command {
         sort?: string;
         reverse?: boolean;
         columns?: string;
+        redact?: boolean;
       }) => {
         const { store } = program.opts();
 
@@ -1769,6 +1774,7 @@ export function buildCli(): Command {
           jobs,
           outPath: opts.out,
           columns,
+          redact: opts.redact,
         });
         if (result.writtenTo) {
           // Keep stdout clean for redirection; status goes to stderr.

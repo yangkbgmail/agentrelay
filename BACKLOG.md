@@ -1028,6 +1028,16 @@
       core redact.test +9·cli redact.test +8, 빌드 CLI e2e로 디스크 스크럽·updatedAt 불변·idempotent 확인.
       branch `claude/wizardly-pascal-lsguqd`)
 
+- [x] 👷 `agentrelay export --redact` — 내보내기 시점 비파괴 스크럽(👷 자율 발굴). 세션 86 `redact`가 스토어를
+      **in-place 파괴적**으로 정리하는 것과 달리, 스토어를 손대지 않고 **내보낸 바이트만** 스크럽해 도움 요청 시
+      CSV/JSON 첨부를 안전하게 공유. `redact.ts` docstring이 명시한 "in any export a user shares" 위협을 실제로 닫음.
+      (완료 — `@agentrelay/core/redact.ts`에 순수 `redactJobs(jobs)`(기존 `redactJob` 얇은 래퍼, 순서·길이 보존,
+      비밀 없는 잡은 참조 그대로 통과, 입력 미변경) 추가. CLI `exportStore`에 `redact?: boolean` 옵션 —
+      직렬화 **전** 잡 사본에 `redactJobs` 적용(모든 포맷·`--columns` 부분집합이 스크럽된 필드를 봄), 스토어
+      flush 없음. `agentrelay export --redact` 플래그 배선. core redact.test +4(redactJobs)·cli export.test +2
+      (스크럽 적용·기본 raw), 빌드 CLI e2e로 json/csv 스크럽·기본 raw·디스크 스토어 불변 확인. 새 파서/스케줄러
+      로직 0줄. branch `claude/wizardly-pascal-ub6gkw`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
