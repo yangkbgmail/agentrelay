@@ -1,6 +1,6 @@
 import type { RelayJob } from "@agentrelay/core";
 import { describe, expect, it } from "vitest";
-import { formatCommand, renderJobDetail, renderJobDetailJson } from "../src/show.js";
+import { formatCommand, renderJobDetail, renderJobDetailJson, renderShowWatchFrame } from "../src/show.js";
 
 const NOW = Date.parse("2026-07-13T00:00:00.000Z");
 
@@ -114,6 +114,32 @@ describe("renderJobDetail", () => {
   it("emits ANSI codes only when color is enabled", () => {
     expect(renderJobDetail(job(), { now: NOW, color: false })).not.toContain("\x1b[");
     expect(renderJobDetail(job(), { now: NOW, color: true })).toContain("\x1b[");
+  });
+});
+
+describe("renderShowWatchFrame", () => {
+  it("renders a header with the refresh interval, timestamp, store, and the job detail", () => {
+    const out = renderShowWatchFrame(job(), "abcdef12", "/store/jobs.json", 5000, NOW, false);
+    expect(out).toContain("agentrelay show");
+    expect(out).toContain("every 5s");
+    expect(out).toContain("2026-07-13 00:00:00Z");
+    expect(out).toContain("/store/jobs.json");
+    // Embeds the full detail block for the resolved job.
+    expect(out).toContain("Job abcdef1234567890");
+    expect(out).toContain("resets in  1h 30m");
+    expect(out).toContain("attempts   2");
+  });
+
+  it("shows a clear notice (and no detail block) when the job vanished mid-watch", () => {
+    const out = renderShowWatchFrame(null, "abcdef12", "/store/jobs.json", 2000, NOW, false);
+    expect(out).toContain("Job abcdef12");
+    expect(out).toContain("no longer in the store");
+    expect(out).not.toContain("attempts");
+  });
+
+  it("emits ANSI codes only when color is enabled", () => {
+    expect(renderShowWatchFrame(job(), "abcdef12", "/store/jobs.json", 2000, NOW, false)).not.toContain("\x1b[");
+    expect(renderShowWatchFrame(job(), "abcdef12", "/store/jobs.json", 2000, NOW, true)).toContain("\x1b[");
   });
 });
 

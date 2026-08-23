@@ -2575,3 +2575,20 @@
   (파서 변종·completion·doctor 계열은 중복 밀집이라 실제 신규성 실측 후에만). ② **근본 원인**(모든 기능 PR이
   PROGRESS/BACKLOG에 append → 하나 병합 시 나머지 전부 문서 충돌)은 🧭 코워크 소유 영역이라 프로세스/문서
   구조 변경(예: 세션 로그를 날짜별 개별 파일로 분리)이 필요 — 협의 안건. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 85 — `agentrelay show <id> --watch`: 단일 job 라이브 상세 팔로우] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-ua7qil`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐)라 CLAUDE.md
+  "작업 방식"대로 새 개선 항목을 자기 발굴. `status`/`upcoming`/`overdue`/`tools`/`projects`/`stats`에는
+  모두 `--watch` 라이브 뷰가 있는데 `show`만 일회성+`--json`이라, 큐에 넣은 특정 job이 리셋까지
+  카운트다운→재개되는 과정을 전체 상세와 함께 지켜볼 방법이 없었던 일관성 gap을 메움.
+- **한 일:** CLI `show.ts`에 순수 `renderShowWatchFrame`(status의 `renderWatchFrame`과 동일 헤더 +
+  단일 job `renderJobDetail`, job이 watch 중 prune/삭제로 `null`이면 "no longer in the store" 공지)
+  추가. `cli.ts`에 `runShowWatch`(공용 `startWatchLoop` 재사용, 매 프레임 `showJob`로 id 재해소+스토어
+  재읽기 → daemon/tick 전진분 자동 반영) + `show` 커맨드에 `-w,--watch [초]` 배선(시작 시 모호/미존재
+  id는 exit 1, `--json`이 `--watch`보다 우선). 새 core/파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 122파일)→`pnpm test`
+  전 패키지 통과(**core 687 · cli 373/1skip · dashboard 13**, show.test +3케이스). 실제 빌드 CLI e2e:
+  `show <id> --watch 5`가 라이브 카운트다운 프레임(헤더+상세) 렌더, 미존재 id `--watch`는 exit 1 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② `--watch` 계열의 남은 gap 탐색
+  (예: `next`/`show`의 종료 상태 도달 시 자동 종료 옵션). ③ 근본 원인(모든 기능 PR이 PROGRESS/BACKLOG
+  append → 문서 충돌)은 세션 78~84 진단대로 🧭 코워크와 프로세스 협의 필요. README/ARCHITECTURE는 🧭 몫.
