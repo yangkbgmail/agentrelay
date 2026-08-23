@@ -75,6 +75,73 @@ describe("RelayScheduler", () => {
     expect(results[0].status).toBe("completed");
   });
 
+  it("redacts secrets from the persisted output tail by default", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const leaky = "Task done. debug: ANTHROPIC_API_KEY=sk-ant-api03-secretMaterial1234567 finished.";
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({ "claude -p continue": leaky }),
+    });
+
+    const results = await scheduler.tick();
+    expect(results[0].status).toBe("completed");
+    expect(results[0].lastOutputTail).not.toContain("secretMaterial1234567");
+    expect(results[0].lastOutputTail).toContain("[REDACTED]");
+    // Non-secret text around it survives so the tail stays useful.
+    expect(results[0].lastOutputTail).toContain("Task done.");
+  });
+
+  it("keeps the raw output tail when redaction is disabled", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const leaky = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 was here";
+    const scheduler = new RelayScheduler({
+      queue,
+      redactOutputTail: false,
+      spawnFn: fakeSpawnFn({ "claude -p continue": leaky }),
+    });
+
+    const results = await scheduler.tick();
+    expect(results[0].lastOutputTail).toBe(leaky);
+  });
+
+  it("redacts secrets from the tail of a failed job too", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      retryPolicy: { maxAttempts: 1, baseDelayMs: 0, factor: 1, maxDelayMs: 0, jitter: 0 },
+      spawnFn: fakeSpawnWith({
+        output: "crashed with token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 in scope",
+        exitCode: 1,
+      }),
+    });
+
+    const results = await scheduler.tick();
+    expect(results[0].status).toBe("failed");
+    expect(results[0].lastOutputTail).not.toContain("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+    expect(results[0].lastOutputTail).toContain("[REDACTED]");
+  });
+
   it("re-queues a job that hits the rate limit again during resume", async () => {
     const job = queue.enqueue({
       project: "demo",

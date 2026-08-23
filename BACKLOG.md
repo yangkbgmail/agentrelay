@@ -1001,6 +1001,21 @@
       build/lint/test 통과(**core 679 · cli 370/1skip · dashboard 13**, Biome 0경고), 실제 빌드 CLI e2e로
       clean→ok / 중복-id→error+exit 1 / 스토어 UNCHANGED(비파괴) / 두 번째 실행도 여전히 flag 검증.
       branch `claude/wizardly-pascal-uems38`)
+- [x] 👷 출력 tail 비밀 레닥션(secret redaction) — `jobs.json`/`export`에 자격증명 유출 방지.
+      (스스로 발굴. 스케줄러가 재개 실행마다 에이전트 stdout/stderr 꼬리를 `lastOutputTail`로 스토어에
+      영속화하는데, 실제 에이전트 출력엔 자격증명이 흔히 섞임 — 크래시 스크립트가 echo한
+      `ANTHROPIC_API_KEY`, 로깅된 HTTP 요청의 `Authorization: Bearer …`, PAT 박힌 git remote URL.
+      그대로 저장하면 편의용 로그가 디스크(및 디버깅용으로 공유하는 `export`)의 평문 비밀 저장소가 됨.
+      완료 — `@agentrelay/core/redact.ts` 신설: 순수 `redactSecrets(text)`(Anthropic `sk-ant-`/OpenAI
+      `sk-`/GitHub `ghp_`·`github_pat_`/AWS `AKIA`/Slack `xox*`/Google `AIza`/`Authorization: Bearer|token`/
+      `NAME=secret`·`NAME: secret` 자격증명 대입을 `[REDACTED]`로 마스킹, 분류 못 하는 텍스트는 불변 →
+      일반 출력 안 망가뜨림) + `REDACTION_PLACEHOLDER` + `redactOutputTailFromEnv`(`AGENTRELAY_REDACT_OUTPUT`,
+      secure-by-default: 미설정·오타는 on, 명시적 off/0/false/no/none/disabled만 off). 스케줄러는 tail을
+      **슬라이스 후 스크럽**해 저장 — rate-limit 감지는 항상 un-redacted `output`에서 돌아 재개 시점 불변,
+      마스킹은 디스크에 쓰이는 것만 바꿈. `redactOutputTail` 옵션(기본 true), CLI daemon/tick이 env로 배선.
+      redact.test.ts 22케이스 + scheduler.test.ts 3케이스(completed/failed tail 레닥션 + 비활성화 시 raw 보존).
+      build/lint/test 통과(**core 707 · cli 370/1skip · dashboard 13**, Biome 0경고), 빌드된 dist로 실제
+      스크럽 e2e 확인. branch `claude/wizardly-pascal-q3j8uv`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

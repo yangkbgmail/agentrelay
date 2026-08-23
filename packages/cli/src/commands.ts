@@ -75,6 +75,7 @@ import {
   RelayScheduler,
   type RestorePreview,
   type RestoreResult,
+  redactOutputTailFromEnv,
   resolveAdapter,
   resolveBackup,
   resolveConfigPath,
@@ -397,6 +398,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent,
     maxResetHorizonMs: maxResetHorizonMsFromEnv(),
+    redactOutputTail: redactOutputTailFromEnv(),
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
@@ -437,6 +439,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent: maxConcurrentFromEnv(),
     maxResetHorizonMs: maxResetHorizonMsFromEnv(),
+    redactOutputTail: redactOutputTailFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
   });
   const processed = await scheduler.tick();

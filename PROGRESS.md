@@ -2575,3 +2575,26 @@
   (파서 변종·completion·doctor 계열은 중복 밀집이라 실제 신규성 실측 후에만). ② **근본 원인**(모든 기능 PR이
   PROGRESS/BACKLOG에 append → 하나 병합 시 나머지 전부 문서 충돌)은 🧭 코워크 소유 영역이라 프로세스/문서
   구조 변경(예: 세션 로그를 날짜별 개별 파일로 분리)이 필요 — 협의 안건. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 85 — 출력 tail 비밀 레닥션: jobs.json/export 자격증명 유출 차단 (👷 자율 발굴)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-q3j8uv`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐)라 CLAUDE.md 지침대로
+  스스로 신규 개선 항목을 발굴. 파서 "파이프-에포크(`usage limit reached|<epoch>`)"는 이미 `adapters.ts`의
+  `claude-usage-limit-epoch`로 구현돼 있어(generic 오탐 방지 위해 Claude 어댑터에만 의도적으로 둠) 후보에서 제외.
+  대신 실질적 **보안 갭**을 발굴: 스케줄러가 재개마다 에이전트 stdout/stderr 꼬리를 `lastOutputTail`로 스토어에
+  영속화하는데, 그 출력엔 자격증명이 흔히 섞임(크래시가 echo한 `ANTHROPIC_API_KEY`, 로깅된 `Authorization:
+  Bearer …`, PAT 박힌 git URL). 그대로 저장하면 편의 로그가 디스크(및 디버깅용 공유 `export`)의 평문 비밀함이 됨.
+  기존엔 config 값만 표시 시 마스킹했을 뿐, 캡처된 출력 tail은 무방비였음(`grep redact/sanitize` 0건 확인).
+- **한 일:** `@agentrelay/core/redact.ts` 신설 — 순수 `redactSecrets(text)`가 고신뢰 토큰 형태(Anthropic
+  `sk-ant-`/OpenAI `sk-`/GitHub `ghp_`·`github_pat_`/AWS `AKIA`/Slack `xox*`/Google `AIza`/`Authorization:
+  Bearer|token`/`NAME=secret`·`NAME: secret` 대입)를 `[REDACTED]`로 마스킹하고 분류 못 하는 텍스트는 그대로 둠
+  (보수적 → 일반 출력 안 망가뜨림). `REDACTION_PLACEHOLDER`·`redactOutputTailFromEnv`(`AGENTRELAY_REDACT_OUTPUT`,
+  secure-by-default: 미설정·오타는 on, 명시적 off/0/false/no/none/disabled만 off) 함께 export. 스케줄러는 tail을
+  **슬라이스 후 스크럽**해 저장 — rate-limit 감지는 항상 un-redacted `output`에서 돌아 **재개 시점 불변**, 마스킹은
+  디스크에 쓰이는 것만 바꿈. `SchedulerOptions.redactOutputTail`(기본 true), CLI daemon/tick이 env로 배선.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 124파일)→`pnpm test`
+  전 패키지 통과(**core 707 · cli 370/1skip · dashboard 13**; redact.test +22, scheduler.test +3). 빌드된
+  `dist/index.js`로 실제 스크럽 e2e 확인(`ANTHROPIC_API_KEY=sk-ant-…`→`=[REDACTED]`, `Authorization: Bearer …`→
+  `Bearer [REDACTED]`, 일반 출력 불변, env 기본 true·`off`→false).
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② `run`(최초 감지) 경로는 현재 tail을 저장하지
+  않아 무관하나, 향후 감지 시 출력 저장을 추가하면 동일 스크럽 적용 필요. ③ 대시보드/`show`가 이미 저장된(레닥션 전)
+  tail을 표시할 때의 소급 스크럽은 별도 항목 후보. README/ARCHITECTURE는 🧭 코워크 몫.
