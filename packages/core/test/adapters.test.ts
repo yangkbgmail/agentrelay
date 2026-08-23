@@ -3,6 +3,7 @@ import {
   ADAPTERS,
   CLAUDE_CODE_ADAPTER,
   CODEX_CLI_ADAPTER,
+  claudeResumeCommand,
   GENERIC_ADAPTER,
   inferToolFromCommand,
   resolveAdapter,
@@ -127,5 +128,44 @@ describe("adapter rate-limit detection", () => {
     const result = CLAUDE_CODE_ADAPTER.detectRateLimit("Usage limit reached. Resets in 30m.", { now });
     expect(result?.pattern).toBe("relative-duration");
     expect(result?.resetAt).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+  });
+});
+
+describe("resumeCommand (context-preserving resume)", () => {
+  it("Claude Code inserts --continue right after the binary", () => {
+    expect(CLAUDE_CODE_ADAPTER.resumeCommand(["claude", "-p", "continue the refactor"])).toEqual([
+      "claude",
+      "--continue",
+      "-p",
+      "continue the refactor",
+    ]);
+  });
+
+  it("Claude Code leaves a command that already asks to continue/resume unchanged", () => {
+    // --continue / -c already present -> no double flag
+    expect(CLAUDE_CODE_ADAPTER.resumeCommand(["claude", "--continue", "-p", "x"])).toEqual([
+      "claude",
+      "--continue",
+      "-p",
+      "x",
+    ]);
+    expect(CLAUDE_CODE_ADAPTER.resumeCommand(["claude", "-c"])).toEqual(["claude", "-c"]);
+    // an explicit --resume <id> must not be overridden with --continue
+    expect(CLAUDE_CODE_ADAPTER.resumeCommand(["claude", "--resume", "abc123"])).toEqual([
+      "claude",
+      "--resume",
+      "abc123",
+    ]);
+    expect(CLAUDE_CODE_ADAPTER.resumeCommand(["claude", "--resume=abc123"])).toEqual(["claude", "--resume=abc123"]);
+  });
+
+  it("Claude Code returns an empty command unchanged", () => {
+    expect(claudeResumeCommand([])).toEqual([]);
+  });
+
+  it("Codex and generic adapters have no continue flag and re-run verbatim", () => {
+    const cmd = ["codex", "exec", "fix the bug"];
+    expect(CODEX_CLI_ADAPTER.resumeCommand(cmd)).toEqual(cmd);
+    expect(GENERIC_ADAPTER.resumeCommand(["mystery-cli", "--go"])).toEqual(["mystery-cli", "--go"]);
   });
 });

@@ -54,6 +54,22 @@ describe("renderJobDetail", () => {
     expect(out).toContain("attempts   2");
   });
 
+  it("omits the resume line when resumeContext is not set", () => {
+    expect(renderJobDetail(job(), { now: NOW })).not.toContain("resume ");
+  });
+
+  it("shows the resume line with the context-preserving command for a claude-code job", () => {
+    const out = renderJobDetail(job({ resumeContext: true }), { now: NOW });
+    expect(out).toContain('resume     on -> claude --continue -p "continue the refactor"');
+  });
+
+  it("notes verbatim re-run when resumeContext is set on a tool without a continue flag", () => {
+    const out = renderJobDetail(job({ tool: "generic", command: ["mystery-cli", "--go"], resumeContext: true }), {
+      now: NOW,
+    });
+    expect(out).toContain("resume     on (no continue flag for this tool; re-runs verbatim)");
+  });
+
   it("shows the reset countdown with the absolute time when resetAt is set", () => {
     const out = renderJobDetail(job(), { now: NOW });
     expect(out).toContain("resets in  1h 30m");

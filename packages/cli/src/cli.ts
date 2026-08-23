@@ -545,13 +545,18 @@ export function buildCli(): Command {
       "-p, --project <name>",
       "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
     )
-    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
+    .option(
+      "--resume-context",
+      "On resume, continue the previous conversation instead of re-running from scratch (e.g. Claude Code's --continue)"
+    )
+    .action(async (command: string[], opts: { tool?: string; project?: string; resumeContext?: boolean }) => {
       const { store } = program.opts();
       const result = await runCommand({
         command,
         storePath: store,
         tool: opts.tool as AgentTool | undefined,
         project: opts.project,
+        resumeContext: opts.resumeContext,
       });
       process.exitCode = result.exitCode;
     });

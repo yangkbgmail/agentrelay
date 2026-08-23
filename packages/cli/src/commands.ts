@@ -129,6 +129,12 @@ export interface RunOptions {
    * meaningful, stable name that the `--project` filters key off.
    */
   project?: string;
+  /**
+   * When true, the queued job is resumed with its tool's context-preserving form
+   * (e.g. Claude Code's `--continue`) instead of re-running the command verbatim,
+   * so the agent continues the previous conversation. Off by default.
+   */
+  resumeContext?: boolean;
   storePath?: string;
   /** Injected for tests; defaults to real stdout/stderr passthrough. */
   stdout?: NodeJS.WritableStream;
@@ -188,7 +194,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
 
   const queue = openQueue(storePath);
   const project = resolveProjectName(cwd, options.project);
-  const job = queue.enqueue({ project, tool, command: options.command, cwd });
+  const job = queue.enqueue({ project, tool, command: options.command, cwd, resumeContext: options.resumeContext });
   queue.markWaitingForReset(job.id, rateLimit.resetAt, {
     pattern: rateLimit.pattern,
     rawMatch: rateLimit.rawMatch,
@@ -197,8 +203,14 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   });
   queue.close();
 
+  const resumeForm = options.resumeContext ? adapter.resumeCommand(options.command) : options.command;
+  const resumeNote =
+    options.resumeContext && resumeForm.join(" ") !== options.command.join(" ")
+      ? `Will resume by continuing the previous conversation: ${resumeForm.join(" ")}\n`
+      : "";
   stdout.write(
     `\n[agentrelay] Rate limit detected for ${adapter.displayName} (pattern: ${rateLimit.pattern}). Queued job ${job.id} to resume at ${rateLimit.resetAt}.\n` +
+      resumeNote +
       `Run "agentrelay daemon" (or schedule "agentrelay tick" via cron) to auto-resume it.\n`
   );
 

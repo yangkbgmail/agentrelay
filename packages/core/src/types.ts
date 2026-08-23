@@ -53,6 +53,15 @@ export interface RelayJob {
    * rate limit has been detected yet.
    */
   lastRateLimit?: RateLimitDetection | null;
+  /**
+   * When `true`, the scheduler resumes this job with its tool's
+   * context-preserving form (e.g. Claude Code's `--continue`) instead of
+   * re-running the command verbatim, so the agent picks up the previous
+   * conversation rather than starting over (see SPEC §4). Optional so stores
+   * written before this field existed load without migration; absent/`false`
+   * keeps the historical verbatim re-run.
+   */
+  resumeContext?: boolean;
 }
 
 export interface CreateJobInput {
@@ -60,6 +69,8 @@ export interface CreateJobInput {
   tool: AgentTool;
   command: string[];
   cwd: string;
+  /** Opt into context-preserving resume for this job (see {@link RelayJob.resumeContext}). */
+  resumeContext?: boolean;
 }
 
 export interface RetryPolicy {

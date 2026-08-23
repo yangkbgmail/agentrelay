@@ -191,6 +191,9 @@ export class RelayQueue {
       lastOutputTail: null,
       lastRateLimit: null,
     };
+    // Only persist the resume-context flag when opted in, so default stores stay
+    // byte-for-byte unchanged (and older readers keep working).
+    if (input.resumeContext) job.resumeContext = true;
     this.jobs.set(job.id, job);
     this.flush();
     return job;

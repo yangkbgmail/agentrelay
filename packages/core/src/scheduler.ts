@@ -196,11 +196,16 @@ export class RelayScheduler {
       message: `Resuming job for ${job.project} (attempt ${attemptNumber})`,
     });
 
-    const { output, exitCode, error } = await this.runCommand(job);
+    const adapter = resolveAdapter({ tool: job.tool, command: job.command });
+    // When the job opted into context-preserving resume, re-invoke the tool with
+    // its "continue the previous conversation" form (e.g. `claude --continue`)
+    // instead of re-running the original command from scratch (see SPEC §4).
+    const command = job.resumeContext ? adapter.resumeCommand(job.command) : job.command;
+    const { output, exitCode, error } = await this.runCommand(command, job.cwd);
     const tail = output.slice(-this.outputTailLength);
     // Use the tool's adapter so tool-specific rate-limit wording (e.g. Codex's
     // seconds-based waits) is recognized on resume, not just at enqueue time.
-    const rateLimit = resolveAdapter({ tool: job.tool, command: job.command }).detectRateLimit(output, {
+    const rateLimit = adapter.detectRateLimit(output, {
       maxFutureMs: this.maxResetHorizonMs,
     });
 
@@ -272,12 +277,15 @@ export class RelayScheduler {
     return job;
   }
 
-  private runCommand(job: RelayJob): Promise<{ output: string; exitCode: number | null; error: Error | null }> {
+  private runCommand(
+    command: string[],
+    cwd: string
+  ): Promise<{ output: string; exitCode: number | null; error: Error | null }> {
     return new Promise((resolve) => {
       let output = "";
       let child: ChildProcessWithoutNullStreams;
       try {
-        child = this.spawnFn(job.command, job.cwd);
+        child = this.spawnFn(command, cwd);
       } catch (err) {
         // Synchronous spawn failure (e.g. bad cwd) — surface as a transient error
         // so the caller can apply the retry policy rather than dropping the job.
