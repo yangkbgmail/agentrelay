@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildDesktopCommand,
   combineNotifiers,
+  createDesktopNotifier,
   createSlackNotifier,
   createWebhookNotifier,
+  desktopNotifierFromEnv,
   formatSlackText,
+  isDesktopNotifyEnabled,
   listNotifyChannels,
   notifiersFromEnv,
   sendTestNotification,
@@ -336,5 +340,196 @@ describe("sendTestNotification", () => {
     });
     const [, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer t0ken");
+  });
+
+  it("spawns the desktop command when AGENTRELAY_DESKTOP_NOTIFY is on and reports ok", async () => {
+    const spawnFn = vi.fn();
+    const results = await sendTestNotification({
+      env: { AGENTRELAY_DESKTOP_NOTIFY: "1" },
+      platform: "linux",
+      spawnFn,
+    });
+    expect(results).toHaveLength(1);
+    expect(results[0].channel.kind).toBe("desktop");
+    expect(results[0].ok).toBe(true);
+    expect(spawnFn).toHaveBeenCalledTimes(1);
+    expect(spawnFn.mock.calls[0][0]).toBe("notify-send");
+  });
+
+  it("reports the desktop channel as failed on an unsupported platform", async () => {
+    const spawnFn = vi.fn();
+    const results = await sendTestNotification({
+      env: { AGENTRELAY_DESKTOP_NOTIFY: "yes" },
+      platform: "aix" as NodeJS.Platform,
+      spawnFn,
+    });
+    expect(results).toHaveLength(1);
+    expect(results[0].ok).toBe(false);
+    expect(results[0].error).toContain("aix");
+    expect(spawnFn).not.toHaveBeenCalled();
+  });
+});
+
+describe("buildDesktopCommand", () => {
+  const payload: NotifyPayload = {
+    jobId: "job-1",
+    project: "proj",
+    event: "completed",
+    message: "all done",
+  };
+
+  it("builds an osascript command on macOS", () => {
+    const cmd = buildDesktopCommand("darwin", payload);
+    expect(cmd?.command).toBe("osascript");
+    expect(cmd?.args[0]).toBe("-e");
+    expect(cmd?.args[1]).toContain("display notification");
+    expect(cmd?.args[1]).toContain("all done");
+  });
+
+  it("escapes quotes/backslashes into the AppleScript literal so text can't break out", () => {
+    const cmd = buildDesktopCommand("darwin", { ...payload, message: 'say "hi" \\ bye' });
+    // The raw quote/backslash must appear escaped, never as a bare delimiter.
+    expect(cmd?.args[1]).toContain('\\"hi\\"');
+    expect(cmd?.args[1]).toContain("\\\\");
+  });
+
+  it("builds a notify-send command with title and body as separate argv on Linux", () => {
+    const cmd = buildDesktopCommand("linux", payload);
+    expect(cmd?.command).toBe("notify-send");
+    expect(cmd?.args).toContain("--app-name=AgentRelay");
+    expect(cmd?.args.some((a) => a.includes("proj"))).toBe(true);
+    expect(cmd?.args.some((a) => a.includes("all done"))).toBe(true);
+  });
+
+  it("builds a PowerShell balloon command on Windows and doubles single quotes", () => {
+    const cmd = buildDesktopCommand("win32", { ...payload, project: "o'brien" });
+    expect(cmd?.command).toBe("powershell");
+    expect(cmd?.args).toContain("-Command");
+    const script = cmd?.args[cmd.args.length - 1] ?? "";
+    expect(script).toContain("NotifyIcon");
+    expect(script).toContain("o''brien");
+  });
+
+  it("returns null for an unsupported platform", () => {
+    expect(buildDesktopCommand("aix" as NodeJS.Platform, payload)).toBeNull();
+  });
+});
+
+describe("isDesktopNotifyEnabled", () => {
+  it("is true only for recognised on-values (case-insensitive)", () => {
+    for (const v of ["1", "true", "TRUE", "yes", "On"]) {
+      expect(isDesktopNotifyEnabled({ AGENTRELAY_DESKTOP_NOTIFY: v })).toBe(true);
+    }
+  });
+
+  it("is false when unset, blank, or an off-value", () => {
+    expect(isDesktopNotifyEnabled({})).toBe(false);
+    expect(isDesktopNotifyEnabled({ AGENTRELAY_DESKTOP_NOTIFY: "  " })).toBe(false);
+    expect(isDesktopNotifyEnabled({ AGENTRELAY_DESKTOP_NOTIFY: "0" })).toBe(false);
+    expect(isDesktopNotifyEnabled({ AGENTRELAY_DESKTOP_NOTIFY: "off" })).toBe(false);
+  });
+});
+
+describe("createDesktopNotifier", () => {
+  const payload: NotifyPayload = {
+    jobId: "job-1",
+    project: "proj",
+    event: "resumed",
+    message: "back to work",
+  };
+
+  it("spawns the platform command for an event", async () => {
+    const spawnFn = vi.fn();
+    const notify = createDesktopNotifier({ platform: "linux", spawnFn });
+    await notify(payload);
+    expect(spawnFn).toHaveBeenCalledTimes(1);
+    const [command, args] = spawnFn.mock.calls[0] as unknown as [string, string[]];
+    expect(command).toBe("notify-send");
+    expect(args.some((a) => a.includes("back to work"))).toBe(true);
+  });
+
+  it("routes an unsupported platform to onError without spawning or throwing", async () => {
+    const spawnFn = vi.fn();
+    const onError = vi.fn();
+    const notify = createDesktopNotifier({ platform: "aix" as NodeJS.Platform, spawnFn, onError });
+    await expect(notify(payload)).resolves.toBeUndefined();
+    expect(spawnFn).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(String(onError.mock.calls[0][0])).toContain("aix");
+  });
+
+  it("swallows a spawn error so the relay loop never crashes", async () => {
+    const onError = vi.fn();
+    const notify = createDesktopNotifier({
+      platform: "linux",
+      spawnFn: () => {
+        throw new Error("ENOENT: notify-send not found");
+      },
+      onError,
+    });
+    await expect(notify(payload)).resolves.toBeUndefined();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(String(onError.mock.calls[0][0])).toContain("ENOENT");
+  });
+});
+
+describe("desktopNotifierFromEnv", () => {
+  it("returns null when AGENTRELAY_DESKTOP_NOTIFY is off/unset", () => {
+    expect(desktopNotifierFromEnv({})).toBeNull();
+    expect(desktopNotifierFromEnv({ AGENTRELAY_DESKTOP_NOTIFY: "0" })).toBeNull();
+  });
+
+  it("returns a working notifier when enabled", async () => {
+    const spawnFn = vi.fn();
+    const notify = desktopNotifierFromEnv({ AGENTRELAY_DESKTOP_NOTIFY: "true" }, { platform: "linux", spawnFn });
+    expect(notify).not.toBeNull();
+    await notify!({ jobId: "j", project: "p", event: "queued", message: "m" });
+    expect(spawnFn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("notifiersFromEnv with desktop", () => {
+  it("fans out to Slack, webhook, and desktop together", async () => {
+    const fetchFn = vi.fn(async () => okResponse());
+    const spawnFn = vi.fn();
+    const notify = notifiersFromEnv(
+      {
+        AGENTRELAY_SLACK_WEBHOOK: "https://hooks.slack.test/abc",
+        AGENTRELAY_WEBHOOK_URL: "https://hooks.example.test/relay",
+        AGENTRELAY_DESKTOP_NOTIFY: "1",
+      },
+      { fetchFn, spawnFn }
+    );
+    expect(notify).not.toBeNull();
+    await notify!({ jobId: "j", project: "p", event: "completed", message: "m" });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(spawnFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("works with only the desktop channel enabled", async () => {
+    const spawnFn = vi.fn();
+    const notify = notifiersFromEnv({ AGENTRELAY_DESKTOP_NOTIFY: "on" }, { spawnFn });
+    expect(notify).not.toBeNull();
+    await notify!({ jobId: "j", project: "p", event: "failed", message: "m" });
+    expect(spawnFn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("listNotifyChannels with desktop", () => {
+  it("appends the desktop channel (non-secret, with the OS command) when enabled", () => {
+    const channels = listNotifyChannels({ AGENTRELAY_DESKTOP_NOTIFY: "1" }, "linux");
+    expect(channels).toEqual([
+      {
+        kind: "desktop",
+        label: "Desktop",
+        url: "notify-send",
+        envVar: "AGENTRELAY_DESKTOP_NOTIFY",
+        secret: false,
+      },
+    ]);
+  });
+
+  it("does not list desktop when the flag is off", () => {
+    expect(listNotifyChannels({ AGENTRELAY_DESKTOP_NOTIFY: "0" }, "linux")).toEqual([]);
   });
 });

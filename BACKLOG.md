@@ -970,6 +970,24 @@
       Biome 0경고), 실제 빌드 CLI e2e로 `completion fish` 방출(글로벌 옵션·최상위 커맨드·run 플래그·config
       부모 가드)·미지 셸 exit 1 검증. branch `claude/wizardly-pascal-am8gcl`)
 
+- [x] 👷 네이티브 데스크톱 알림자(desktop notifier) — Slack/웹훅 외에 **로컬 OS 알림** 채널 추가.
+      자기 발굴 항목: 세션 시작 시 BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 소유 문서/리서치)였고,
+      열린 PR 130개(#621~#864) 제목과 `main`을 실측 대조해 **알림 채널 축에서 진짜 신규 영역**만 골랐다
+      (main·열린 PR 어디에도 desktop/notify-send/osascript 채널 없음 — Slack·webhook·notify-events 필터·
+      log-file만 존재). AgentRelay는 로컬 우선 도구라 리셋을 기다리는 사용자가 대개 그 기계 앞에 있으므로
+      네이티브 OS 팝업이 가장 실효 있는 채널이다.
+      (완료 — `@agentrelay/core/notify.ts`에 순수 `buildDesktopCommand(platform, payload)`(darwin=osascript·
+      linux=notify-send·win32=PowerShell NotifyIcon 벌룬, 그 외 null) — 셸 미경유로 프로젝트명·메시지가
+      인자/인터프리터 문자열 리터럴로만 들어가 커맨드 인젝션 불가. `createDesktopNotifier`(spawn 주입 가능,
+      미지원 OS·spawn 실패는 `onError`로만 보고하고 절대 throw 안 함 → 릴레이 루프 보호)·`isDesktopNotifyEnabled`·
+      `desktopNotifierFromEnv`(opt-in `AGENTRELAY_DESKTOP_NOTIFY`, 데스크톱 세션 없는 CI/원격 데몬 오작동 방지).
+      `notifiersFromEnv`가 Slack+webhook+desktop을 fan-out, `listNotifyChannels`/`sendTestNotification`이 desktop
+      채널을 처리(비밀 아님 → `notify test`가 커맨드명을 마스킹 없이 표시). 설정파일 `notify.desktop` 불리언 →
+      `AGENTRELAY_DESKTOP_NOTIFY` 1:1 투영(schema·validate·config set/show 전부 반영). run/daemon/tick은
+      기존 `notifiersFromEnv` 경유라 자동 배선. build/lint/test 통과(**core 689 · cli 366/1skip · dashboard 13**,
+      Biome 0경고). 실제 빌드 CLI e2e로 `notify test`(desktop delivered)·`config show/schema/validate`·
+      `config set notify.desktop true` 왕복 검증. branch `claude/wizardly-pascal-kbq3x6`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

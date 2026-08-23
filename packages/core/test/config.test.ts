@@ -59,6 +59,11 @@ describe("configToEnv", () => {
     // maxAttempts 0 (unlimited) must still be emitted, not dropped as falsy.
     expect(configToEnv({ retry: { maxAttempts: 0 } })).toEqual({ AGENTRELAY_MAX_ATTEMPTS: "0" });
   });
+
+  it("encodes notify.desktop as '1'/'0' (opt-in flag)", () => {
+    expect(configToEnv({ notify: { desktop: true } })).toEqual({ AGENTRELAY_DESKTOP_NOTIFY: "1" });
+    expect(configToEnv({ notify: { desktop: false } })).toEqual({ AGENTRELAY_DESKTOP_NOTIFY: "0" });
+  });
 });
 
 describe("applyConfigToEnv", () => {

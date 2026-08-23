@@ -2449,3 +2449,23 @@
   completion(nushell #785) 등이 후보. ② `main`·열린 PR 양쪽에 없는 **진짜 신규** 영역에서만 기능 발굴
   (중복 재발 방지). ③ 근본 원인(거의 모든 PR이 BACKLOG/PROGRESS에 append → 하나 병합 시 나머지 전부 문서
   충돌)은 세션 60·78이 진단한 그대로 — 문서 append 충돌 완화 방안은 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 83 — 네이티브 데스크톱 알림자(desktop notifier) 신규 기능] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-kbq3x6`)
+- **배경:** 세션 시작 시 BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 최근
+  세션들이 진단·정리해 온 "중복 PR 루프"를 피하려 열린 PR **130개(#621~#864)** 전체 제목과 `main`을 실측
+  대조해 **알림 채널 축의 진짜 신규 영역**만 골랐다 — main·열린 PR 어디에도 desktop/notify-send/osascript
+  채널이 없고 Slack·generic webhook·notify-events 필터(#667/#825)·log-file(#836)만 존재. AgentRelay는
+  로컬 우선 도구라 리셋을 기다리는 사용자가 대개 그 기계 앞에 있으므로 네이티브 OS 팝업이 가장 실효 있는 채널.
+- **한 일:** `@agentrelay/core/notify.ts`에 순수 `buildDesktopCommand`(darwin=osascript / linux=notify-send /
+  win32=PowerShell NotifyIcon 벌룬, 그 외 null — 셸 미경유로 커맨드 인젝션 불가) + `createDesktopNotifier`
+  (spawn 주입 가능, 미지원 OS·spawn 실패는 onError로만 보고, 절대 throw 안 함) + `isDesktopNotifyEnabled` +
+  `desktopNotifierFromEnv`(opt-in `AGENTRELAY_DESKTOP_NOTIFY`) 추가. `notifiersFromEnv`가 Slack+webhook+desktop
+  fan-out, `listNotifyChannels`/`sendTestNotification`이 desktop 채널 처리(비밀 아님 → 마스킹 없이 커맨드명 표시).
+  설정파일 `notify.desktop` 불리언 → `AGENTRELAY_DESKTOP_NOTIFY` 투영(schema·validate·config set/show 반영).
+  run/daemon/tick은 기존 `notifiersFromEnv` 경유라 자동 배선.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0경고, 122파일)→`pnpm test` 전
+  패키지 통과(**core 689 · cli 366/1skip · dashboard 13**). 실제 빌드 CLI e2e로 `notify test`(Desktop
+  delivered)·`config show`(AGENTRELAY_DESKTOP_NOTIFY 노출)·`config schema`(notify.desktop boolean)·`config set
+  notify.desktop true` + `config validate` 왕복 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 남은 열린 PR의 포화 축 중복 스캔·정리 지속. ③ 신규 기능은
+  main·열린 PR 양쪽에 없는 영역에서만 발굴(중복 재발 방지). README/ARCHITECTURE는 🧭 코워크 몫.
