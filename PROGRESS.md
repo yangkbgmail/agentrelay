@@ -2449,3 +2449,23 @@
   completion(nushell #785) 등이 후보. ② `main`·열린 PR 양쪽에 없는 **진짜 신규** 영역에서만 기능 발굴
   (중복 재발 방지). ③ 근본 원인(거의 모든 PR이 BACKLOG/PROGRESS에 append → 하나 병합 시 나머지 전부 문서
   충돌)은 세션 60·78이 진단한 그대로 — 문서 append 충돌 완화 방안은 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 82 — `agentrelay daemon` 단일 인스턴스 가드 (double-resume 방지)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-n5ro49`)
+- **배경:** 세션 시작 시 👷 백로그 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐), 열린 PR ~50+는
+  파서·doctor·completion·notify 축에 심하게 포화(세션 78–81이 진단한 "중복 PR 루프"). 91번째 중복을 더하는 대신
+  **열린 PR·main 어디에도 없는 미포화 영역**을 찾아 실질적 복원력 결함을 메웠다: `agentrelay daemon`에 동시 실행
+  방지 장치가 없어, 같은 스토어에 두 데몬을 띄우면 둘 다 같은 due 잡에 발화해 재개 명령을 **중복 spawn**한다.
+- **한 일(구현):** ① core `heartbeat.ts`에 순수 판정 함수 `evaluateDaemonConflict(heartbeat,{nowMs,pidAlive})` +
+  `DaemonConflict` 타입 추가 — `daemon` 모드 하트비트 + PID 생존 + lastTick이 기존 staleness 창 이내일 때만
+  running=true. tick 하트비트·죽은/재사용 PID·stale(크래시/wedged)·파싱 불가 timestamp는 전부 "미실행"으로
+  판정(오판으로 정당한 데몬을 막느니 --force를 요구하는 보수적 설계). ② CLI `commands.ts`: `readDaemonHeartbeat`·
+  `isProcessAlive`(`process.kill(pid,0)`; ESRCH=죽음, EPERM=생존) 헬퍼, `startDaemon`이 스케줄러 기동 전 가드
+  체크 → conflict면 stderr 안내(pid·경과초) + exit 1 + `null` 반환. `DaemonOptions`에 `force`·주입형 `isProcessAlive`.
+  ③ `cli.ts` daemon 서브커맨드에 `-f, --force` 플래그 배선. 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0경고)→`pnpm test` 전 패키지 통과
+  (**core 679 · cli 368/1skip · dashboard 13**). core heartbeat.test 9케이스(없음/신선-생존/죽은PID/tick무시/
+  stale무시/경계값/floor/미래skew/파싱불가) + cli commands.test(src) 3케이스(거부·force·ghost). 실제 빌드 CLI e2e로
+  라이브 하트비트 시 거부(exit 1)·ghost PID 시 기동·`daemon --help`의 --force 노출 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 남은 포화 축(파서 변종·doctor·completion
+  nushell/powershell·notify) 중복 스캔·통합 정리 지속, 진짜 신규는 열린 PR·main 양쪽에 없는 영역에서만 발굴.
+  ③ 근본 원인(거의 모든 PR의 BACKLOG/PROGRESS append 충돌)은 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.

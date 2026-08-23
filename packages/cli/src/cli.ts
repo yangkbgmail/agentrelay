@@ -560,9 +560,10 @@ export function buildCli(): Command {
     .command("daemon")
     .description("Poll the job queue and auto-resume jobs once their rate limit resets")
     .option("-i, --interval <ms>", "Poll interval in milliseconds", "30000")
-    .action((opts: { interval: string }) => {
+    .option("-f, --force", "Start even if another daemon is already watching this store (risks double-resume)")
+    .action((opts: { interval: string; force?: boolean }) => {
       const { store } = program.opts();
-      startDaemon({ storePath: store, pollIntervalMs: parseInt(opts.interval, 10) });
+      startDaemon({ storePath: store, pollIntervalMs: parseInt(opts.interval, 10), force: opts.force });
       // Keep the process alive; RelayScheduler uses setInterval internally.
     });
 

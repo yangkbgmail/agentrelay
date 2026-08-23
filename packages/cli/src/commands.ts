@@ -40,11 +40,13 @@ import {
   canRequeue,
   configToJson,
   countActiveJobs,
+  type DaemonHeartbeat,
   daemonHeartbeatPath,
   distinctActiveBinaries,
   type EffectiveConfigEntry,
   type ExportFormat,
   envKeyForConfigKey,
+  evaluateDaemonConflict,
   evaluateHealth,
   evaluateHeartbeat,
   evaluateWait,
@@ -221,6 +223,18 @@ export interface DaemonOptions {
    * (AGENTRELAY_SLACK_WEBHOOK and/or AGENTRELAY_WEBHOOK_URL, or silent skip).
    */
   remoteNotify?: Notifier | null;
+  /**
+   * Start even when a live daemon is already watching this store. Off by default:
+   * two daemons polling the same store both fire on a due job and double-spawn
+   * the resumed command. Maps to the CLI's `--force` flag.
+   */
+  force?: boolean;
+  /**
+   * Injected for tests: report whether a PID is a running process. Defaults to
+   * the real `process.kill(pid, 0)` probe. Lets the single-instance guard be
+   * unit-tested without spawning processes.
+   */
+  isProcessAlive?: (pid: number) => boolean;
 }
 
 /**
@@ -248,6 +262,37 @@ export function writeDaemonHeartbeat(
     } catch {
       // best-effort cleanup; ignore
     }
+  }
+}
+
+/**
+ * Read and parse the heartbeat file into a {@link DaemonHeartbeat}, or null when
+ * it's missing/unreadable/garbled. Unlike {@link readHeartbeatFacts} (which
+ * distills doctor facts), this returns the raw record for the single-instance
+ * guard. Never throws.
+ */
+export function readDaemonHeartbeat(storePath: string): DaemonHeartbeat | null {
+  let raw: string;
+  try {
+    raw = readFileSync(daemonHeartbeatPath(storePath), "utf8");
+  } catch {
+    return null;
+  }
+  return parseDaemonHeartbeat(raw);
+}
+
+/**
+ * Whether `pid` is a live process. Uses signal 0, which checks existence without
+ * delivering a signal: ESRCH means "no such process", EPERM means "exists but we
+ * can't signal it" (still alive). Any non-positive/invalid pid is not alive.
+ */
+export function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
   }
 }
 
@@ -364,8 +409,33 @@ function autoPruneBanner(
   return parts.length ? ` (auto-prune on, ${parts.join(" + ")})` : " (auto-prune on)";
 }
 
-export function startDaemon(options: DaemonOptions = {}) {
+export function startDaemon(options: DaemonOptions = {}): RelayScheduler | null {
   const storePath = options.storePath ?? defaultStorePath();
+
+  // Single-instance guard: two daemons polling the same store both fire on a due
+  // job and double-spawn the resumed command. Refuse to start a second live one
+  // unless --force. A dead/stale/tick heartbeat reads as "not running" and lets
+  // this start proceed (see evaluateDaemonConflict).
+  if (!options.force) {
+    const existing = readDaemonHeartbeat(storePath);
+    const aliveProbe = options.isProcessAlive ?? isProcessAlive;
+    const conflict = evaluateDaemonConflict(existing, {
+      nowMs: Date.now(),
+      pidAlive: existing !== null && aliveProbe(existing.pid),
+    });
+    if (conflict.running && conflict.pid !== process.pid) {
+      const ageS = Math.round(conflict.ageMs / 1000);
+      // eslint-disable-next-line no-console
+      console.error(
+        `[agentrelay] a daemon is already running (pid ${conflict.pid}, last tick ${ageS}s ago) watching ${storePath}.\n` +
+          "Stop it first, or re-run with --force to start another anyway " +
+          "(not recommended — two daemons can double-resume the same job)."
+      );
+      process.exitCode = 1;
+      return null;
+    }
+  }
+
   const queue = openQueue(storePath);
   const remoteNotify = options.remoteNotify === undefined ? notifiersFromEnv() : options.remoteNotify;
   const autoPrune = autoPruneOptionsFromEnv();

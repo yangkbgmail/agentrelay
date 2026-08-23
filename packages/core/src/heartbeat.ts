@@ -202,3 +202,65 @@ export function evaluateHeartbeat(
     concerning: !alive && waitingJobs > 0,
   };
 }
+
+/**
+ * The verdict of the daemon single-instance guard: is a live `agentrelay daemon`
+ * already running against this store?
+ *
+ * `running: true` means a second daemon should refuse to start (unless forced),
+ * because two daemons polling the same store would both fire on the same due job
+ * and double-spawn the resumed command. `running: false` means it's safe to
+ * start — no heartbeat, a one-shot `tick` heartbeat, a dead/reused PID, or a
+ * stale (crashed/wedged) daemon whose staleness `doctor` already surfaces.
+ */
+export type DaemonConflict =
+  | { running: false }
+  | {
+      /** A live daemon owns this store; a second one should not start. */
+      running: true;
+      /** PID of the running daemon, so the user can find/kill it. */
+      pid: number;
+      /** Age in ms of its last tick (fresh, i.e. within the staleness window). */
+      ageMs: number;
+      /** ISO timestamp of its last tick. */
+      lastTickAt: string;
+    };
+
+/**
+ * Decide whether a live daemon is already running, so `agentrelay daemon` can
+ * refuse to start a second one. Pure: the caller supplies `nowMs` and whether
+ * the recorded PID is still alive (`process.kill(pid, 0)` is impure and lives in
+ * the CLI), mirroring how the rest of this module keeps clock/filesystem out.
+ *
+ * A conflict requires ALL of: a `daemon`-mode heartbeat, its PID still alive,
+ * and its last tick within the staleness window. We deliberately err toward
+ * *allowing* a start on any doubt — a one-shot `tick` heartbeat, an
+ * unparseable timestamp, a dead PID, or a stale beat all read as "not running":
+ * wrongly blocking a legitimate daemon (annoying, needs `--force`) is worse only
+ * than wrongly allowing a second live one (the double-resume bug we're
+ * preventing), and requiring a *fresh* beat from a *live* PID makes the latter
+ * the case we actually catch while a reused PID with an old file does not
+ * falsely block.
+ */
+export function evaluateDaemonConflict(
+  heartbeat: DaemonHeartbeat | null,
+  options: { nowMs: number; pidAlive: boolean }
+): DaemonConflict {
+  if (heartbeat === null) return { running: false };
+  // A one-shot `tick` heartbeat is not a long-lived daemon; it never conflicts.
+  if (heartbeat.mode !== "daemon") return { running: false };
+  // The recorded process is gone (crash/kill) → the file is a ghost, safe to start.
+  if (!options.pidAlive) return { running: false };
+
+  const lastTickMs = new Date(heartbeat.lastTickAt).getTime();
+  const ageMs = options.nowMs - lastTickMs;
+  // Unparseable timestamp → can't confirm freshness → don't block.
+  if (!Number.isFinite(ageMs)) return { running: false };
+
+  const staleAfterMs = heartbeatStaleAfterMs("daemon", heartbeat.pollIntervalMs);
+  // Stale despite a live PID: probably a wedged daemon or a reused PID. `doctor`
+  // surfaces the staleness; don't wrongly block a fresh start on it.
+  if (ageMs > staleAfterMs) return { running: false };
+
+  return { running: true, pid: heartbeat.pid, ageMs, lastTickAt: heartbeat.lastTickAt };
+}
