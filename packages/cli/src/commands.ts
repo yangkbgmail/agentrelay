@@ -34,6 +34,8 @@ import {
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
   buildLocationReport,
+  buildResetCalendar,
+  type CalendarOptions,
   CONFIG_FILENAME,
   type ConfigValueSource,
   canCancel,
@@ -85,6 +87,7 @@ import {
   SETTABLE_CONFIG_KEYS,
   sampleConfigJson,
   scopeJobs,
+  selectCalendarJobs,
   selectFarFutureParkedJobs,
   selectFarFutureResets,
   selectStuckResumingJobs,
@@ -1158,6 +1161,50 @@ export function exportStore(options: ExportJobsOptions): ExportJobsResult {
     writtenTo = path;
   }
   return { content, count: jobs.length, writtenTo };
+}
+
+export interface CalendarExportOptions {
+  /** Store to read jobs from (defaults to the resolved default store). */
+  storePath?: string;
+  /** Pre-scoped jobs to chart; when omitted, the whole store is read. */
+  jobs?: RelayJob[];
+  /** When set, write the `.ics` to this file (parent dirs created) instead of returning it for stdout. */
+  outPath?: string;
+  /** Forwarded to {@link buildResetCalendar} (now/prodId/calendarName/withAlarm). */
+  calendar?: CalendarOptions;
+}
+
+export interface CalendarExportResult {
+  /** The serialized iCalendar document. Always populated, even when also written to a file. */
+  content: string;
+  /** Number of events (waiting jobs) charted. */
+  count: number;
+  /** Absolute path written to, or null when the caller should print to stdout. */
+  writtenTo: string | null;
+}
+
+/**
+ * Serialize the relay's resume runway to an iCalendar (`.ics`) document and,
+ * optionally, write it to a file. The pure `@agentrelay/core` `buildResetCalendar`
+ * does the formatting/escaping/folding; this thin wrapper only handles the store
+ * read and the optional file write so the CLI stays thin — mirroring
+ * {@link exportStore}. `count` reflects the jobs actually charted (waiting, with a
+ * parseable reset), which can be fewer than the jobs supplied.
+ */
+export function exportCalendar(options: CalendarExportOptions): CalendarExportResult {
+  const jobs = options.jobs ?? listStatus(options.storePath);
+  const content = buildResetCalendar(jobs, options.calendar);
+  // One VEVENT per charted job (waiting, with a parseable reset) — the same
+  // selection the builder applies internally.
+  const count = selectCalendarJobs(jobs).length;
+  let writtenTo: string | null = null;
+  if (options.outPath) {
+    const path = resolve(process.cwd(), options.outPath);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${content}\r\n`, "utf8");
+    writtenTo = path;
+  }
+  return { content, count, writtenTo };
 }
 
 export interface ImportStoreOptions {
