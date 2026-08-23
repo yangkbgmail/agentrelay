@@ -202,6 +202,27 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // An ISO-8601 *string* reset value in a structured error payload, under a
+    // `retry_after` / `reset_at` / `resetAt` / `resets_at` field, e.g.
+    // `{"error":"rate_limit","reset_at":"2026-07-13T05:00:00Z"}` or
+    // `resetAt="2026-07-13T05:00:00+09:00"`. Real API error bodies carry the
+    // reset as a datetime string here just as often as an epoch number, but the
+    // `iso-timestamp` pattern only fires after the words "reset at" (with a
+    // space) and the `unix-epoch` pattern only matches bare digits — so this
+    // shape fell through both and the job silently never resumed. Tried *before*
+    // `unix-epoch`: the two are disjoint (this value starts with a 4-digit year
+    // then `-`, never a clean 10/13-digit epoch), the ordering just documents
+    // the string form first. The embedded offset/`Z` is honored, so unlike the
+    // local-time clock patterns this resolves to an unambiguous instant.
+    name: "json-iso-field",
+    regex:
+      /(?:retry_after|resets?_?at)"?\s*[=:]\s*"?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/i,
+    resolve: (m) => {
+      const d = new Date(m[1]);
+      return Number.isNaN(d.getTime()) ? null : d;
+    },
+  },
+  {
     // A Unix epoch embedded in a structured error payload, under `retry_after`
     // or a `reset_at` / `resetAt` / `resets_at` field, e.g. `retry_after=1752345600`,
     // `"retry_after": 1752345600`, `"reset_at": 1752345600`, or `resetAt: 1752345600000`.
@@ -248,7 +269,7 @@ const PATTERNS: RateLimitPattern[] = [
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
 const LOOKS_LIKE_RATE_LIMIT =
-  /(rate.?limit|usage limit|try again|resets?\s+(at|in)|resets?_?at\s*[=:]|retry.?after|(?:try again|retry|come back|available|resets?)\s+(?:on\s+)?to(?:day|morrow))/i;
+  /(rate.?limit|usage limit|try again|resets?\s+(at|in)|resets?_?at"?\s*[=:]|retry.?after|(?:try again|retry|come back|available|resets?)\s+(?:on\s+)?to(?:day|morrow))/i;
 
 function tryPattern(
   pattern: RateLimitPattern,
