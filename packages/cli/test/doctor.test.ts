@@ -1,9 +1,15 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DAEMON_HEARTBEAT_FILENAME, type DiagnosticReport, RelayQueue } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readHeartbeatFacts, removeDaemonHeartbeat, runDoctor, writeDaemonHeartbeat } from "../src/commands.js";
+import {
+  gatherIntegrityFacts,
+  readHeartbeatFacts,
+  removeDaemonHeartbeat,
+  runDoctor,
+  writeDaemonHeartbeat,
+} from "../src/commands.js";
 import { renderDoctor, renderDoctorJson } from "../src/doctor.js";
 
 const find = (report: DiagnosticReport, name: string) => report.checks.find((c) => c.name === name)!;
@@ -53,6 +59,85 @@ describe("runDoctor", () => {
     const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
     expect(find(report, "store").level).toBe("error");
     expect(report.ok).toBe(false);
+  });
+
+  it("reports store-integrity OK for a clean real store", () => {
+    const queue = new RelayQueue(storePath);
+    queue.enqueue({ project: "p", tool: "claude-code", command: ["claude"], cwd: dir });
+    queue.close();
+    const report = runDoctor({ storePath, cwd: dir, env: { PATH: process.env.PATH }, nodeVersion: "v22.5.0" });
+    const integrity = find(report, "store-integrity");
+    expect(integrity.level).toBe("ok");
+    expect(integrity.message).toContain("pass integrity checks");
+  });
+
+  it("skips store-integrity as OK when the store is absent", () => {
+    const report = runDoctor({ storePath, cwd: dir, env: {}, nodeVersion: "v22.5.0" });
+    const integrity = find(report, "store-integrity");
+    expect(integrity.level).toBe("ok");
+    expect(integrity.message).toContain("no readable job store");
+  });
+
+  it("errors store-integrity on a duplicate id the queue would silently collapse", () => {
+    // Write the raw file directly: two structurally-valid records sharing an id.
+    // The queue keys jobs by id in a Map, so it drops the earlier one on load —
+    // exactly the silent data loss this check surfaces.
+    const rec = (overrides: Record<string, unknown>) => ({
+      id: "dup-1",
+      project: "p",
+      tool: "claude-code",
+      command: ["claude"],
+      cwd: dir,
+      status: "completed",
+      resetAt: null,
+      createdAt: "2026-08-01T00:00:00.000Z",
+      updatedAt: "2026-08-01T00:00:00.000Z",
+      attempts: 1,
+      lastError: null,
+      lastOutputTail: null,
+      ...overrides,
+    });
+    writeFileSync(storePath, JSON.stringify([rec({}), rec({})]), "utf8");
+    const report = runDoctor({ storePath, cwd: dir, env: { PATH: process.env.PATH }, nodeVersion: "v22.5.0" });
+    const integrity = find(report, "store-integrity");
+    expect(integrity.level).toBe("error");
+    expect(integrity.message).toContain("integrity error(s)");
+    expect(integrity.message).toContain("dup-1");
+    expect(report.ok).toBe(false);
+  });
+
+  it("does not mutate a duplicate-id store (read-only diagnostic)", () => {
+    // Regression: doctor opened the queue and close()d it, which flushes the
+    // load-collapsed Map back to disk — silently dropping the earlier duplicate
+    // the integrity check is meant to report. doctor must only read.
+    const rec = {
+      id: "dup",
+      project: "p",
+      tool: "claude-code",
+      command: ["claude"],
+      cwd: dir,
+      status: "completed",
+      resetAt: null,
+      createdAt: "2026-08-01T00:00:00.000Z",
+      updatedAt: "2026-08-01T00:00:00.000Z",
+      attempts: 1,
+      lastError: null,
+      lastOutputTail: null,
+    };
+    const before = JSON.stringify([rec, rec]);
+    writeFileSync(storePath, before, "utf8");
+    runDoctor({ storePath, cwd: dir, env: { PATH: process.env.PATH }, nodeVersion: "v22.5.0" });
+    // Both records must still be on disk — the store is byte-for-byte unchanged.
+    expect(readFileSync(storePath, "utf8")).toBe(before);
+    // And a second doctor run still flags the duplicate (it wasn't "fixed" away).
+    const report = runDoctor({ storePath, cwd: dir, env: { PATH: process.env.PATH }, nodeVersion: "v22.5.0" });
+    expect(find(report, "store-integrity").level).toBe("error");
+  });
+
+  it("gatherIntegrityFacts returns not-checked for an absent store", () => {
+    const facts = gatherIntegrityFacts(join(dir, "does-not-exist.json"));
+    expect(facts.checked).toBe(false);
+    expect(facts.total).toBe(0);
   });
 
   it("errors when the config file is malformed", () => {

@@ -2475,3 +2475,27 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 남은 포화 축의 추가 중복 스캔·정리 지속 —
   IANA/명명 타임존 파서(#731/#740/#749/#774/#838)·Gemini 어댑터(#752/#762)·run --dry-run(#715/#751/#843) 등이
   후보. ③ 근본 원인(문서 append 충돌)은 세션 60·78 진단대로 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 83 — doctor 스토어 무결성 검사 + 읽기 전용화(중복-id 파괴 버그 수정)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-uems38`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 열린 PR 100+개는
+  세션 78~82가 진단한 **중복 PR 루프**로 대부분 스테일 base·문서 append 충돌 상태. 91번째 중복을 더하는
+  대신, 세션 79의 "최신 main 위 + 진짜 신규 영역에서만 발굴" 원칙대로 `main`·열린 PR 양쪽에 없는 갭을 실측.
+- **발굴한 갭(실측):** `doctor`는 전체 파일 손상(corrupt)·활성 잡 수만 판정하고, **읽히는** 스토어 내부의
+  의미적 무결성(중복 id·구조 불량 레코드·resetAt 없는 waiting_for_reset)은 못 봤다. 그 판정은 `verify`
+  커맨드(`verifyStore`)에만 있어 별도 실행이 필요했다. 열린 PR 검색(`doctor integrity`) 0건 — 진짜 신규.
+- **함께 발견한 실제 버그:** `runDoctor`가 큐를 열고 `close()`하며 flush → RelayQueue.load가 Map으로
+  이미 붕괴시킨 **중복 id를 디스크에 재기록**해, 읽기 전용이어야 할 진단이 이전 잡을 조용히 파괴했다.
+  (그래서 중복-id 스토어에 doctor를 두 번 돌리면 문제가 "사라진" 것처럼 보였다 — 실제론 데이터 유실.)
+- **한 일:** ① core `doctor.ts` — `StoreIntegrityFacts` 타입 + `integrityCheck` 판정 함수, `runDiagnostics`에
+  store 바로 뒤 `store-integrity` 검사 배선. linter 등급 미러(error=검사 error, warning=warning, 읽을
+  스토어 없음=skip-OK로 이중 보고 방지). ② CLI `commands.ts` — `gatherIntegrityFacts`(기존 `runVerify`
+  raw 읽기+순수 `verifyStore` 재사용, error 우선 최대 3개 샘플) + `runDoctor` 주입. ③ **버그 수정**:
+  `runDoctor`의 `queue.close()` 제거 → 생성자가 이미 load, 읽기 전용 유지로 중복-id 파괴 차단. 새
+  파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 122파일)→`pnpm test`
+  전 패키지 통과(**core 679 · cli 370/1skip · dashboard 13**). 실제 빌드 CLI e2e: clean 스토어→
+  `store-integrity ok`, 중복-id→`error`+exit 1, 스토어 파일 **UNCHANGED**(비파괴), 두 번째 실행도 여전히 flag.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② `runDoctor` 외에 읽기 전용인데
+  `close()` flush로 스토어를 재기록하는 다른 커맨드(status/stats/show 등)가 있는지 추가 감사 — 같은 유형의
+  무음 재기록 위험. ③ 남은 포화 축의 중복 스캔·정리 지속. ④ 근본 원인(문서 append 충돌)은 🧭 코워크와 협의.
+  README/ARCHITECTURE는 🧭 코워크 몫.

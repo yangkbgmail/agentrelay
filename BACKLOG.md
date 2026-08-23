@@ -969,6 +969,24 @@
       (COMPLETION_SHELLS·isCompletionShell). build/lint/test 통과(**core 670 · cli 365/1skip · dashboard 13**,
       Biome 0경고), 실제 빌드 CLI e2e로 `completion fish` 방출(글로벌 옵션·최상위 커맨드·run 플래그·config
       부모 가드)·미지 셸 exit 1 검증. branch `claude/wizardly-pascal-am8gcl`)
+- [x] 👷 `agentrelay doctor` 스토어 무결성(store-integrity) 검사 + doctor 읽기 전용화(중복-id 파괴 버그 수정).
+      자기 발굴 항목. `doctor`는 전체 파일 손상(corrupt)·활성 잡 수만 봤고, **읽히는** 스토어 내부의
+      의미적 문제(중복 id·구조 불량 레코드·resetAt 없는 waiting_for_reset)는 못 잡았다 — 이는 `verify`
+      커맨드(`verifyStore`)에만 있어 사용자가 따로 실행해야 했다. 게다가 `runDoctor`가 큐를 열고
+      `close()`하며 flush → 로드 시 Map이 이미 붕괴시킨 중복 id를 디스크에 **재기록**해, 읽기 전용이어야 할
+      진단이 이전 잡을 조용히 파괴하는 버그가 있었다(그래서 두 번째 doctor 실행은 문제가 "사라진" 것처럼 보임).
+      (완료 — core `doctor.ts`에 `StoreIntegrityFacts`(checked·total·errorCount·warningCount·sampleIssues) 타입 +
+      `integrityCheck` 판정 함수 추가, `runDiagnostics` 검사 순서에 store 바로 뒤 `store-integrity` 배선
+      (node→store→**store-integrity**→store-writable→adapters→daemon→reset-horizon→config→notify). 판정은
+      linter(`verifyStore`) 등급 미러: error(중복 id·구조 불량)=검사 error, warning(방치 잡·파싱 불가 날짜)=
+      warning, 읽을 스토어 없음(부재/전체 손상)=skip-OK(같은 파일 이중 보고 방지). CLI `commands.ts`에
+      `gatherIntegrityFacts`(기존 `runVerify` raw 읽기+순수 `verifyStore` 재사용, error 우선 최대 3개 샘플
+      메시지) + `runDoctor`가 이를 주입. **부수 버그 수정**: `runDoctor`의 `queue.close()` 제거 →
+      생성자가 이미 load하므로 읽기 전용 유지, flush로 인한 중복-id 파괴 차단. 새 파서/스케줄러 로직 0줄.
+      core doctor +4 · cli doctor +5(무결성 ok/skip/중복-id error + 비파괴 회귀 + gatherIntegrityFacts) 테스트.
+      build/lint/test 통과(**core 679 · cli 370/1skip · dashboard 13**, Biome 0경고), 실제 빌드 CLI e2e로
+      clean→ok / 중복-id→error+exit 1 / 스토어 UNCHANGED(비파괴) / 두 번째 실행도 여전히 flag 검증.
+      branch `claude/wizardly-pascal-uems38`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
