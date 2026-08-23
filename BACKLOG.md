@@ -970,6 +970,27 @@
       Biome 0경고), 실제 빌드 CLI e2e로 `completion fish` 방출(글로벌 옵션·최상위 커맨드·run 플래그·config
       부모 가드)·미지 셸 exit 1 검증. branch `claude/wizardly-pascal-am8gcl`)
 
+- [x] 👷 `agentrelay completion powershell` — bash·zsh·fish에 이어 PowerShell(Windows 기본 셸) 탭 완성 추가.
+      자기 발굴 항목. 세션 시작 시 BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐)라
+      진짜 신규 영역을 발굴: 열린 PR 100개(#694~#863) 전체 제목과 main을 실측 대조한 결과 완성 축의 유일한
+      비-병합 PR은 nushell(#785) 하나였고, **PowerShell/pwsh는 어디에도 없어**(main=bash/zsh/fish) 중복이
+      아님을 확인. Windows·크로스플랫폼 PowerShell 7+ 사용자에게 실효.
+      (완료 — core `completion.ts`: `CompletionShell` 유니온·`COMPLETION_SHELLS`에 `"powershell"` 추가,
+      `generateCompletion` 디스패치에 `generatePowerShell` 배선. bash/zsh는 case-문 디스패치, fish는 선언적
+      `complete -c` 규칙이지만 PowerShell은 `Register-ArgumentCompleter -Native` 스크립트 블록: 완성기가 전체
+      `commandAst`를 받으므로 `CommandElements`를 순회해 프로그램 뒤 첫 비-옵션 단어(서브커맨드)를 찾고
+      `switch`로 그 커맨드 플래그를 제안 — 부모 커맨드(`config`)는 서브명이 골라지기 전까지 서브명 + 골라진
+      뒤 그 서브의 플래그, 라인 시작에선 최상위 커맨드(또는 현재 단어가 `-`로 시작하면 글로벌 옵션). 순수
+      `psList`가 검증된 토큰을 PS 단일따옴표 문자열 배열(`@('a', 'b')`)로 렌더 — `assertSafeToken`이 토큰을
+      `[A-Za-z0-9_.:-]`로 제한하므로 따옴표 이스케이프 불필요(단일따옴표 리터럴 안전). 기존 `uniq` 중복 제거·
+      안전 가드 재사용, spec은 라이브 커맨더 프로그램에서 파생되므로 실제 커맨드 표면과 드리프트 안 함. CLI
+      `cli.ts`의 `completion` description·help 예시에 powershell 추가(`| Out-String | Invoke-Expression`),
+      검증·미지 셸 exit 1은 기존 `isCompletionShell` 재사용. 새 파서/스케줄러 로직 0줄. completion.test에
+      powershell 7케이스 + 기존 COMPLETION_SHELLS·isCompletionShell 단언 갱신(powershell 유효, pwsh 무효).
+      build/lint/test 통과(**core 678 · cli 365/1skip · dashboard 9**, Biome 0경고), 실제 빌드 CLI e2e로
+      `completion powershell` 방출(Register-ArgumentCompleter·글로벌 옵션·최상위 커맨드·run 플래그·config
+      부모 가드) 검증. branch `claude/wizardly-pascal-f0zstn`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

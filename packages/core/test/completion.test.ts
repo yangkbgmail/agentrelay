@@ -20,15 +20,17 @@ const SPEC: CompletionSpec = {
 };
 
 describe("completion shell helpers", () => {
-  it("COMPLETION_SHELLS lists bash, zsh and fish", () => {
-    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh", "fish"]);
+  it("COMPLETION_SHELLS lists bash, zsh, fish and powershell", () => {
+    expect([...COMPLETION_SHELLS]).toEqual(["bash", "zsh", "fish", "powershell"]);
   });
 
   it("isCompletionShell accepts known shells and rejects others", () => {
     expect(isCompletionShell("bash")).toBe(true);
     expect(isCompletionShell("zsh")).toBe(true);
     expect(isCompletionShell("fish")).toBe(true);
+    expect(isCompletionShell("powershell")).toBe(true);
     expect(isCompletionShell("tcsh")).toBe(false);
+    expect(isCompletionShell("pwsh")).toBe(false);
     expect(isCompletionShell("")).toBe(false);
     expect(isCompletionShell("BASH")).toBe(false);
   });
@@ -152,6 +154,66 @@ describe("generateCompletion — fish", () => {
         program: "agentrelay",
         options: [],
         commands: [{ name: "run; rm -rf /", options: [] }],
+      })
+    ).toThrow(/unsafe command name/);
+  });
+});
+
+describe("generateCompletion — powershell", () => {
+  const script = generateCompletion("powershell", SPEC);
+
+  it("registers a native argument completer for the program", () => {
+    expect(script.startsWith("# PowerShell completion for agentrelay")).toBe(true);
+    expect(script).toContain("Register-ArgumentCompleter -Native -CommandName agentrelay -ScriptBlock {");
+    expect(script).toContain("[System.Management.Automation.CompletionResult]::new(");
+  });
+
+  it("offers the top-level command names and global options as PowerShell arrays", () => {
+    expect(script).toContain("$commands = @('run', 'status', 'config')");
+    expect(script).toContain("$globalOpts = @('--store', '--config', '--help', '--version')");
+  });
+
+  it("adds a switch arm per command with its flags and --help", () => {
+    expect(script).toContain("'run' { $candidates = @('--tool', '--help') }");
+    expect(script).toContain("'status' { $candidates = @('--watch', '--json', '--status', '--sort', '-r', '--help') }");
+  });
+
+  it("handles a parent command by completing its subcommands and their flags", () => {
+    // fallback offers the subcommand names + --help
+    expect(script).toContain("default { $candidates = @('init', 'validate', 'show', '--help') }");
+    // per-subcommand flags
+    expect(script).toContain("'init' { $candidates = @('--force', '-f', '--help') }");
+    expect(script).toContain("'show' { $candidates = @('--json', '--show-secrets', '--help') }");
+  });
+
+  it("filters candidates by the word being typed", () => {
+    expect(script).toContain('$candidates | Where-Object { $_ -like "$wordToComplete*" }');
+  });
+
+  it("dedupes --version when the spec already carries it (commander adds -V/--version)", () => {
+    const withVersion = generateCompletion("powershell", {
+      program: "agentrelay",
+      options: ["--version", "-V", "--store"],
+      commands: [],
+    });
+    expect(withVersion).toContain("$globalOpts = @('--version', '-V', '--store', '--help')");
+  });
+
+  it("dedupes repeated flags while keeping first-seen order", () => {
+    const dup = generateCompletion("powershell", {
+      program: "x",
+      options: [],
+      commands: [{ name: "c", options: ["--json", "--json", "-j"] }],
+    });
+    expect(dup).toContain("'c' { $candidates = @('--json', '-j', '--help') }");
+  });
+
+  it("throws on an unsafe token rather than emitting it", () => {
+    expect(() =>
+      generateCompletion("powershell", {
+        program: "agentrelay",
+        options: [],
+        commands: [{ name: "run'; rm -rf /", options: [] }],
       })
     ).toThrow(/unsafe command name/);
   });
