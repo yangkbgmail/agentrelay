@@ -2552,3 +2552,26 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 남은 미개척 실제 rate-limit 어휘 계속 발굴
   ("tonight"/"in the morning" 등은 시각 모호로 보류 — 🧭 실제 샘플 수집 후 판단). ③ 근본 원인(문서 append 충돌)은
   세션 60·78 진단대로 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 84 — 큐 배수(consolidation): 초록 PR 3개 병합으로 정체 완화 + 데이터-유실 버그 2건 main 반영] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-u0zmcj`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 열린 PR 90+개가
+  세션 78~82 진단대로 **문서 append 충돌**로 정체 — 대부분 스테일 base라 하나 병합하면 나머지가 `dirty`.
+  91번째 중복을 더하는 대신, COLLAB 병합 정책("CI 초록이면 클로드 코드 또는 사람이 병합")에 따라
+  **가치 높은 초록 PR을 실제로 병합해 큐를 배수**하는 데 집중.
+- **한 일(초록 PR 3개 병합, 문서 충돌만 해소):**
+  - **#872** `feat(parser): relative-day` — "tomorrow/today at <time>" 상대-요일 리셋 인식. clean·green이라 즉시 squash 병합.
+  - **#871** `feat(doctor): store-integrity + 읽기 전용화` — doctor의 `queue.close()`→flush가 중복-id를
+    디스크에 재기록해 이전 잡을 파괴하던 **데이터-유실 버그** 수정 + store-integrity 검사 추가.
+    #872 병합으로 `dirty`가 된 것을 확인 → 브랜치에 최신 main 머지, PROGRESS 세션-83 append 충돌만 해소
+    (양측 로그 보존), `pnpm build`·`ci:lint`·`test` 재검증 후 병합.
+  - **#820** `fix(core): close() lost-update` — `RelayQueue.close()`가 무조건 `flush()`해 읽기 전용 명령
+    (status/stats/show/export)이 stale 스냅샷으로 동시 writer(daemon)의 잡을 덮어쓰던 **lost-update 데이터-유실**
+    수정(close()를 진짜 no-op으로). 모든 mutating 메서드가 호출 시점에 원자적 flush함을 코드로 검증
+    (`enqueue`/`update`/`prune`/`backup` 등)해 no-op화의 안전성을 확인. BACKLOG+PROGRESS 충돌 해소 후 병합.
+- **검증:** 각 병합마다 `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 122파일)→
+  `pnpm test` 전 패키지 통과 확인. 최종 main 반영 후 core 687 · cli 370/1skip · dashboard 13. 세 PR의 CI
+  `build-and-test` 모두 success 확인 후에만 병합.
+- **다음 할 일:** ① 남은 90+ PR 중 **고유·고가치·초록** 항목을 계속 골라 최신 main 위로 충돌 해소 후 병합
+  (파서 변종·completion·doctor 계열은 중복 밀집이라 실제 신규성 실측 후에만). ② **근본 원인**(모든 기능 PR이
+  PROGRESS/BACKLOG에 append → 하나 병합 시 나머지 전부 문서 충돌)은 🧭 코워크 소유 영역이라 프로세스/문서
+  구조 변경(예: 세션 로그를 날짜별 개별 파일로 분리)이 필요 — 협의 안건. README/ARCHITECTURE는 🧭 코워크 몫.
