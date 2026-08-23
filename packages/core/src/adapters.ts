@@ -64,20 +64,33 @@ const CODEX_SECONDS_PATTERN: RateLimitPattern = {
 /**
  * Claude Code's non-interactive / print mode (`claude -p ...`) does not print a
  * prose sentence when it hits the usage limit — it emits a machine-readable line
- * of the form `Claude AI usage limit reached|<unix_epoch_seconds>`, where the
- * number after the pipe is the absolute reset time in Unix epoch *seconds*. This
- * is the exact format automated wrappers (e.g. claude-auto-retry) key on, and
- * the one AgentRelay is most likely to see in practice, since it wraps agents in
+ * of the form `Claude AI usage limit reached|<unix_epoch>`, where the number
+ * after the pipe is the absolute reset time as a Unix epoch. This is the exact
+ * format automated wrappers (e.g. claude-auto-retry) key on, and the one
+ * AgentRelay is most likely to see in practice, since it wraps agents in
  * headless mode. The generic parser has no pipe-delimited epoch pattern (its
- * `unix-epoch` matcher requires a `retry_after` prefix), so this wording would
- * otherwise slip through. Kept as a Claude-specific adapter pattern rather than a
- * generic one so a bare `...|<10 digits>` elsewhere can't be misread as a reset.
+ * `unix-epoch` matcher requires a `retry_after`/`reset_at` prefix), so this
+ * wording would otherwise slip through. Kept as a Claude-specific adapter pattern
+ * rather than a generic one so a bare `...|<digits>` elsewhere can't be misread
+ * as a reset.
+ *
+ * The epoch is normally 10-digit *seconds*, but different Claude/wrapper versions
+ * have been observed emitting a 13-digit *millisecond* epoch (e.g. when the value
+ * comes straight from `Date.now()`), so both widths are accepted and told apart by
+ * digit count. The `\b` boundary keeps ambiguous 11/12-digit values (neither a
+ * clean seconds nor a clean ms epoch) from matching — falling through beats
+ * resuming at a wildly wrong time.
  */
 const CLAUDE_USAGE_LIMIT_EPOCH_PATTERN: RateLimitPattern = {
   name: "claude-usage-limit-epoch",
-  regex: /usage limit reached\s*\|\s*(\d{10})\b/i,
+  // Try 13-digit ms first, then 10-digit seconds; `\b` rejects other widths.
+  regex: /usage limit reached\s*\|\s*(\d{13}|\d{10})\b/i,
   resolve: (m) => {
-    const d = new Date(parseInt(m[1], 10) * 1000);
+    const digits = m[1];
+    const value = parseInt(digits, 10);
+    if (!Number.isFinite(value)) return null;
+    const ms = digits.length === 13 ? value : value * 1000;
+    const d = new Date(ms);
     return Number.isNaN(d.getTime()) ? null : d;
   },
 };
