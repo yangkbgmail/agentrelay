@@ -2449,3 +2449,21 @@
   completion(nushell #785) 등이 후보. ② `main`·열린 PR 양쪽에 없는 **진짜 신규** 영역에서만 기능 발굴
   (중복 재발 방지). ③ 근본 원인(거의 모든 PR이 BACKLOG/PROGRESS에 append → 하나 병합 시 나머지 전부 문서
   충돌)은 세션 60·78이 진단한 그대로 — 문서 append 충돌 완화 방안은 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 82 — `agentrelay import --json` (진짜 신규 gap: 수집 커맨드 스크립트화)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-p3grqc`)
+- **배경:** 세션 시작 시 BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유). 세션 80/81이 경고한
+  "중복 PR 함정"을 재확인 — 열린 PR 100개+ 실측. 첫 후보 `next --watch`는 이미 4개 PR(#574·571·631·532)이
+  경쟁 중이라 폐기. 세션 80 "다음 할 일 ②"(main·열린 PR 양쪽에 없는 **진짜 신규** 영역만)를 따라, 읽기 전용
+  커맨드 `--json` 커버리지를 매핑(status/next/summary/eta/…는 전부 有)한 결과 **수집·유지보수 커맨드
+  `import`·`prune`·`backup`·`restore`엔 `--json`이 없음**을 발견. 그중 `import`는 CI/머신 간 이력 마이그레이션
+  래퍼가 결과를 프로그램으로 검증해야 해서 gap이 가장 컸다(100개 PR 제목·main 어디에도 없음 확인).
+- **한 일:** CLI `packages/cli/src/import.ts` 신설 — 순수 `renderImportJson`이 `{storePath, generatedAt}` 봉투 +
+  `dryRun`·네 병합 카운트·`parseErrors`(verbatim)를 pretty JSON으로 직렬화. `cli.ts` import 액션에 `--json` 배선:
+  stdout에 순수 JSON 1건(파싱 에러는 페이로드로 → stderr 진단 억제해 stdout 청정), 미설정 시 기존 stderr 산문
+  유지. exit-code 신호는 `--json` 무관 동일. 새 core 로직 0줄(검증된 `ImportResult`/`ImportParseError` 재사용).
+- **검증:** import.test.ts 6케이스 추가. `pnpm install→build→ci:lint→test` 전부 통과(**core 670 · cli 371/1skip ·
+  dashboard 13**, Biome 0경고). 실제 빌드 CLI e2e로 dry-run/실import/재import(existing skipped)/비-json 경로·
+  stdout 순수 JSON 검증.
+- **다음 할 일:** ① 같은 패턴으로 `prune`/`backup`/`restore` `--json`도 후속 gap(각각 별 PR, 문서 충돌 최소화).
+  ② 열린 PR 100개+ 적체는 여전 — 세션 80/81식 "main에 이미 병합된 축" 중복 정리를 🧭 코워크와 협의해 지속.
+  ③ 신규 발굴 시 반드시 열린 PR 제목 전수 + main 양쪽 대조(중복 재발 방지).

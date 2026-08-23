@@ -970,6 +970,23 @@
       Biome 0경고), 실제 빌드 CLI e2e로 `completion fish` 방출(글로벌 옵션·최상위 커맨드·run 플래그·config
       부모 가드)·미지 셸 exit 1 검증. branch `claude/wizardly-pascal-am8gcl`)
 
+- [x] 👷 `agentrelay import --json` — 가져오기(import) 결과를 기계 판독 JSON으로 stdout에 출력. 자기 발굴 항목
+      (읽기 전용 커맨드는 거의 전부 `--json`이 있으나 수집/유지보수 커맨드 `import`·`prune`·`backup`·`restore`엔
+      없었다 — 그중 `import`는 CI/머신 간 이력 마이그레이션 래퍼가 결과를 **프로그램으로** 검증해야 해서 gap이
+      가장 컸다).
+      (완료 — 기존 `import`는 카운트 요약과 거절 레코드를 사람용 산문으로 **stderr**에만 찍어, 스크립트가
+      added/updated/skipped 수나 파싱 에러를 텍스트 스크레이핑 없이 얻을 방법이 없었다. CLI `packages/cli/src/import.ts`
+      신설: 순수 `renderImportJson(result, storePath, generatedAt?)` — 다른 `--json` 커맨드와 동일한
+      `{storePath, generatedAt}` 봉투 + `dryRun`·네 병합 카운트(`added`/`updated`/`skippedExisting`/`skippedActive`)·
+      `parseErrors`(각 `{kind,index,reason}` 그대로)를 2-스페이스 pretty JSON으로 직렬화(타임스탬프 주입 가능=테스트
+      결정론). `cli.ts` import 액션에 `--json` 배선: 설정 시 **stdout**에 순수 JSON 1건(파싱 에러는 페이로드에
+      들어가므로 per-record stderr 진단은 억제해 stdout 청정 유지), 미설정 시 기존 사람용 stderr 출력 그대로.
+      "유효 0건 + 파일 문제 있음 → exit 1" 신호는 `--json` 여부와 무관하게 동일 유지. 새 core 로직 0줄 — 기존
+      검증된 `ImportResult`/`ImportParseError` 재사용. import.test.ts 6케이스(봉투·카운트·dryRun·parseErrors
+      verbatim·빈 배열 유지·pretty·기본 ISO 타임스탬프), 실제 빌드 CLI e2e로 dry-run/실import/재import(existing
+      skipped)/비-json 경로·stdout 순수성 검증. build/lint/test 통과(core 670 · cli 371/1skip · dashboard 13,
+      Biome 0경고). branch `claude/wizardly-pascal-p3grqc`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
