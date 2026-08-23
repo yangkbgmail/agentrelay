@@ -199,6 +199,35 @@ describe("parseRateLimitMessage", () => {
     expect(parseRateLimitMessage("rate_limit resets_at: 1752345600")?.resetAt).toBe(seconds);
   });
 
+  it("parses an ISO-8601 string reset value in a structured JSON payload", () => {
+    const result = parseRateLimitMessage('{"error":"rate_limit","reset_at":"2026-07-13T05:00:00Z"}');
+    expect(result).not.toBeNull();
+    expect(result?.pattern).toBe("json-iso-field");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("parses an ISO string reset field under resets_at / resetAt with an offset", () => {
+    // Quoted value with milliseconds and a named-key variant.
+    expect(parseRateLimitMessage('{"resets_at": "2026-07-13T05:00:00.000Z"}')?.pattern).toBe("json-iso-field");
+    // Explicit +09:00 offset resolves to an unambiguous UTC instant (20:00Z the day before).
+    const offset = parseRateLimitMessage('rate_limit resetAt="2026-07-13T05:00:00+09:00"');
+    expect(offset?.pattern).toBe("json-iso-field");
+    expect(offset?.resetAt).toBe("2026-07-12T20:00:00.000Z");
+  });
+
+  it("parses an ISO string under a retry_after field (not just an epoch)", () => {
+    const result = parseRateLimitMessage('{"error":"rate_limit","retry_after": "2026-07-13T05:00:00Z"}');
+    expect(result?.pattern).toBe("json-iso-field");
+    expect(result?.resetAt).toBe("2026-07-13T05:00:00.000Z");
+  });
+
+  it("still parses the epoch (number) form as unix-epoch, not the ISO-string pattern", () => {
+    // Guards the disjointness of json-iso-field vs unix-epoch: a bare numeric
+    // value must keep landing on unix-epoch. Also exercises the quoted-key
+    // pre-filter form (`"reset_at":`) with no other rate-limit keyword present.
+    expect(parseRateLimitMessage('{"reset_at": 1752345600}')?.pattern).toBe("unix-epoch");
+  });
+
   it("rejects an ambiguous 11/12-digit epoch rather than resuming at a wrong time", () => {
     expect(parseRateLimitMessage("rate_limit_error retry_after=17523456000")).toBeNull();
     expect(parseRateLimitMessage("rate_limit_error retry_after=175234560000")).toBeNull();

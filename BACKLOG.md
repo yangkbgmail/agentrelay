@@ -16,6 +16,14 @@
       (완료 — `parser.test.ts`에 12케이스 회귀 추가: 빈 문자열/시간없는 rate-limit/24h 시계/
       12am·12pm/타임존 오프셋 ISO/잘못된 ISO fallthrough/시간단위만/JSON `retry_after`/멀티라인.
       파서도 `"retry_after": N` JSON 형식 인식하도록 개선. branch `claude/keen-allen-u5qt1l`)
+- [x] 👷 파서 — 구조화 페이로드의 ISO 문자열 리셋 필드 인식.
+      (완료 — API 에러 바디가 리셋을 `{"reset_at":"2026-07-13T05:00:00Z"}`처럼 *ISO 문자열*로 담는
+      흔한 형식이 두 패턴 사이로 새고 있었음: `iso-timestamp`는 "reset at"(공백) 접두를, `unix-epoch`은
+      숫자만 요구. `json-iso-field` 패턴 신설(`retry_after`/`reset_at`/`resetAt`/`resets_at` 키 + `=`/`:`
+      + 따옴표 선택 + ISO-8601 값). unix-epoch과 분리(값이 4자리 연도-로 시작해 10/13자리 epoch과 겹치지 않음),
+      메시지 내 오프셋/`Z`를 존중해 로컬-시간 시계 패턴과 달리 명확한 순간으로 해소. 겸사겸사 pre-filter의
+      따옴표 키(`"reset_at":`) 누락도 `"?`로 수정(기존 unix-epoch에도 이로움). parser.test +4케이스.
+      branch `claude/wizardly-pascal-nywcwx`)
 - [x] 👷 최종 QA + 재현 가능한 데모 스크립트.
       (완료 — `scripts/demo.mjs` 신설: 실제 rate-limit을 기다리지 않고 전 경로
       run→감지→큐→`tick`→재개→`completed`를 로컬 몇 초 만에 재현하는 엔드투엔드 데모.

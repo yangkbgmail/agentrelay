@@ -2623,3 +2623,21 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② `export`/대시보드에도 옵션형 소급 스크럽 노출은 후속 후보(현재는
   스토어 in-place 정리로 충분). ③ 나머지 clean·고가치 PR(#878 clean/#879 search 등)은 doc append 충돌로 dirty —
   근본 원인(세션 로그를 날짜별 개별 파일로 분리)은 🧭 코워크 소유 프로세스 안건. README/ARCHITECTURE는 🧭 코워크 몫.
+
+## 세션 86 — 파서: 구조화 페이로드의 ISO 문자열 리셋 필드 인식
+
+- **무엇/왜:** 실제 API 429 에러 바디는 리셋 시각을 epoch 숫자만이 아니라 `{"reset_at":"2026-07-13T05:00:00Z"}`
+  같은 *ISO-8601 문자열*로도 흔히 담는데, 이 형식이 기존 두 패턴 사이로 새고 있었음 — `iso-timestamp`는
+  "reset at"(공백 있는 접두)만, `unix-epoch`은 순수 숫자만 매칭. 결과적으로 `reset_at`/`resetAt`/`resets_at`/
+  `retry_after` 키에 ISO 문자열이 오면 감지 실패 → 잡이 조용히 재개 안 됨(이 릴레이가 계속 막으려는 "silent failure").
+- **어떻게:** `parser.ts`에 `json-iso-field` 패턴 신설 — `(?:retry_after|resets?_?at)"?\s*[=:]\s*"?` + ISO 값
+  캡처. `unix-epoch` *앞*에 배치(둘은 분리: ISO 값은 4자리 연도+`-`로 시작해 10/13자리 epoch과 절대 안 겹침).
+  메시지의 `+09:00`/`Z` 오프셋을 존중 → 로컬-시간 clock 패턴과 달리 모호함 없는 UTC 순간으로 해소. 부수적으로
+  pre-filter `LOOKS_LIKE_RATE_LIMIT`가 따옴표 붙은 키(`"reset_at":`)를 통과시키지 못하던 별개 누락도 `"?`로 수정
+  (패턴 정규식은 이미 `"?`를 쓰고 있었음 — 기존 unix-epoch 순수-키 페이로드에도 이로움).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 126파일)→`pnpm test` 전 패키지
+  통과(**core 720 · cli 378/1skip · dashboard 13**; parser.test +4케이스). 수정 전 `null`이던 4개 실제 형식
+  (`{"error":"rate_limit","reset_at":"…Z"}` / `{"resets_at":"…Z"}` / `resetAt="…+09:00"` / `retry_after:"…Z"`)이
+  모두 `json-iso-field`로 올바른 순간에 파싱됨을 dist 빌드로 E2E 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 남은 실제 rate-limit 샘플 수집(🧭 코워크 몫 #188)으로 파서
+  회귀 케이스 추가 여지. ③ README/ARCHITECTURE는 🧭 코워크 소유.
