@@ -970,6 +970,21 @@
       Biome 0경고), 실제 빌드 CLI e2e로 `completion fish` 방출(글로벌 옵션·최상위 커맨드·run 플래그·config
       부모 가드)·미지 셸 exit 1 검증. branch `claude/wizardly-pascal-am8gcl`)
 
+- [x] 👷 `agentrelay daemon` 단일 인스턴스 가드(single-instance guard) — 같은 스토어를 감시하는
+      데몬이 이미 살아있으면 두 번째 데몬 기동을 거부(`--force`로 우회). 두 데몬이 같은 due 잡에
+      동시에 발화해 재개 명령을 중복 spawn하는 것을 막는 실질적 복원력 개선(자기 발굴 항목,
+      열린 PR·main 어디에도 없던 미포화 영역).
+      (완료 — core `heartbeat.ts`에 순수 판정 함수 `evaluateDaemonConflict(heartbeat, {nowMs, pidAlive})`
+      추가: `daemon` 모드 하트비트 + PID 생존 + lastTick이 staleness 창 이내일 때만 conflict. tick 하트비트·
+      죽은/재사용 PID·stale(wedged)·파싱 불가 timestamp는 전부 "미실행"으로 판정해 정당한 기동을 막지 않음
+      (오판 시 재개 중복보다 --force 요구가 낫다는 보수적 설계). CLI `commands.ts`: `readDaemonHeartbeat`·
+      `isProcessAlive`(`process.kill(pid,0)`, ESRCH=죽음/EPERM=생존) 헬퍼, `startDaemon`이 스케줄러 기동 전
+      가드 체크 후 conflict면 stderr 안내 + exit 1 + `null` 반환. `DaemonOptions`에 `force`·테스트용
+      `isProcessAlive` 주입. `cli.ts` daemon에 `-f, --force` 플래그. 새 파서/스케줄러 로직 0줄, 기존 하트비트
+      staleness 규칙 재사용. core heartbeat.test 9케이스 + cli commands.test(src) 3케이스. build/lint/test 통과
+      (**core 679 · cli 368/1skip · dashboard 13**, Biome 0경고), 실제 빌드 CLI e2e로 라이브 하트비트 거부·
+      ghost PID 기동·`--help`에 --force 노출 검증. branch `claude/wizardly-pascal-n5ro49`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
