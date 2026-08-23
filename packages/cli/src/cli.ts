@@ -86,6 +86,7 @@ import { renderDoctor, renderDoctorJson } from "./doctor.js";
 import { renderErrorBreakdown, renderErrorBreakdownJson } from "./errors.js";
 import { renderEta, renderEtaJson } from "./eta.js";
 import { renderHealth, renderHealthJson } from "./health.js";
+import { renderImportJson } from "./import.js";
 import { renderNext, renderNextJson } from "./next.js";
 import { renderTestNotifyResults, renderTestNotifyResultsJson } from "./notify.js";
 import { renderOverdue, renderOverdueJson, renderOverdueWatchFrame } from "./overdue.js";
@@ -1790,8 +1791,15 @@ export function buildCli(): Command {
     .option("--include-active", "Also import jobs in an active status (queued/waiting/resuming), not just history")
     .option("--overwrite", "Replace jobs whose id already exists (default: skip existing)")
     .option("--dry-run", "Report what would be imported without writing to the store")
+    .option(
+      "--json",
+      "Print the import outcome (counts + parse errors) as JSON on stdout (machine-readable, for scripts/jq)"
+    )
     .action(
-      (file: string, opts: { format?: string; includeActive?: boolean; overwrite?: boolean; dryRun?: boolean }) => {
+      (
+        file: string,
+        opts: { format?: string; includeActive?: boolean; overwrite?: boolean; dryRun?: boolean; json?: boolean }
+      ) => {
         const { store } = program.opts();
 
         // Resolve the format from --format, else infer from the file extension.
@@ -1832,20 +1840,28 @@ export function buildCli(): Command {
           return;
         }
 
-        // Surface each rejected record so a malformed dump is diagnosable.
-        for (const err of result.parseErrors) {
-          console.error(`[agentrelay] skipped ${err.kind} ${err.index}: ${err.reason}`);
+        // --json emits one structured object on stdout (the parse errors live in
+        // the payload, so the per-record stderr diagnostics are suppressed to
+        // keep stdout pure JSON); otherwise print the human prose on stderr.
+        if (opts.json) {
+          console.log(renderImportJson(result, store ?? defaultStorePath()));
+        } else {
+          // Surface each rejected record so a malformed dump is diagnosable.
+          for (const err of result.parseErrors) {
+            console.error(`[agentrelay] skipped ${err.kind} ${err.index}: ${err.reason}`);
+          }
+
+          const verb = result.dryRun ? "would import" : "imported";
+          const parts = [`${result.added} added`, `${result.updated} updated`];
+          if (result.skippedExisting > 0) parts.push(`${result.skippedExisting} existing skipped`);
+          if (result.skippedActive > 0) parts.push(`${result.skippedActive} active skipped`);
+          if (result.parseErrors.length > 0) parts.push(`${result.parseErrors.length} invalid`);
+          console.error(`[agentrelay] ${verb}: ${parts.join(", ")}${result.dryRun ? " (no changes made)" : ""}`);
         }
 
-        const verb = result.dryRun ? "would import" : "imported";
-        const parts = [`${result.added} added`, `${result.updated} updated`];
-        if (result.skippedExisting > 0) parts.push(`${result.skippedExisting} existing skipped`);
-        if (result.skippedActive > 0) parts.push(`${result.skippedActive} active skipped`);
-        if (result.parseErrors.length > 0) parts.push(`${result.parseErrors.length} invalid`);
-        console.error(`[agentrelay] ${verb}: ${parts.join(", ")}${result.dryRun ? " (no changes made)" : ""}`);
-
         // Non-zero exit when nothing valid could be ingested AND the file had
-        // problems, so scripts can detect a wholly-failed import.
+        // problems, so scripts can detect a wholly-failed import (same signal
+        // whether or not --json is set).
         if (result.added === 0 && result.updated === 0 && result.parseErrors.length > 0) {
           process.exitCode = 1;
         }
