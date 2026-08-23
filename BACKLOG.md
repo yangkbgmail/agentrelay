@@ -1001,6 +1001,22 @@
       build/lint/test 통과(**core 679 · cli 370/1skip · dashboard 13**, Biome 0경고), 실제 빌드 CLI e2e로
       clean→ok / 중복-id→error+exit 1 / 스토어 UNCHANGED(비파괴) / 두 번째 실행도 여전히 flag 검증.
       branch `claude/wizardly-pascal-uems38`)
+- [x] 👷 `agentrelay show <id> --watch [초]` — 단일 job 상세를 라이브로 팔로우(리셋 카운트다운·
+      상태/attempts 전이가 제자리에서 갱신). 자기 발굴 항목. `status`/`upcoming`/`overdue`/`tools`/
+      `projects`/`stats`에는 모두 `--watch` 라이브 뷰가 있는데 `show`만 일회성+`--json`이라, 큐에
+      넣은 특정 job이 리셋까지 카운트다운→재개되는 과정을 전체 상세(명령어·에러·출력 tail)와 함께
+      지켜볼 방법이 없었다.
+      (완료 — CLI `show.ts`에 순수 `renderShowWatchFrame(job|null,idOrPrefix,storePath,intervalMs,now,color)`
+      추가: `status`의 `renderWatchFrame`과 동일한 헤더(갱신 주기·타임스탬프·스토어) 아래 단일 job의
+      `renderJobDetail` 블록을 렌더, job이 watch 도중 prune/삭제돼 `null`이면 크래시 대신 "no longer
+      in the store" 공지 렌더. CLI `cli.ts`에 `runShowWatch`(기존 `startWatchLoop` 공용 플러밍 재사용,
+      매 프레임 `showJob`로 id 재해소+스토어 재읽기 → daemon/tick이 job을 전진시키면 카운트다운·상태·
+      attempts가 자동 갱신) + `show` 커맨드에 `-w,--watch [초]` 옵션 배선. 시작 시 id가 모호/미존재면
+      루프를 안 돌리고 exit 1(다른 watch 명령과 동일 실용주의), `--json`은 일회성 머신 덤프라 `--watch`
+      보다 우선. 새 core/파서/스케줄러 로직 0줄 — 전부 기존 검증된 `renderJobDetail`·`showJob`·
+      `startWatchLoop` 재사용. show.test.ts +3케이스(헤더+상세 임베드/null 프레임 공지/색상 게이팅).
+      build/lint/test 통과(**core 687 · cli 373/1skip · dashboard 13**, Biome 0경고), 실제 빌드 CLI e2e로
+      watch 프레임(라이브 카운트다운)·미존재 id exit 1 검증. branch `claude/wizardly-pascal-ua7qil`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

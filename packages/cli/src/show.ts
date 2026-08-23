@@ -116,6 +116,38 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
   return lines.join("\n");
 }
 
+/**
+ * One frame of the live `agentrelay show <id> --watch` view: a title/header
+ * block (refresh interval + timestamp + store) followed by the full detail
+ * block for the job. Mirrors `status`'s `renderWatchFrame` so the two live
+ * views read the same, but zooms in on a single job's rich detail (countdown,
+ * attempts, last error/output) instead of the whole-queue table.
+ *
+ * The job is re-resolved from the store every frame by the caller, so `job` can
+ * be `null` if it was pruned or vanished mid-watch; in that case a clear
+ * "no longer in the store" notice is rendered in place of the detail block
+ * rather than crashing the loop. Pure: no I/O, no ambient clock unless `now`
+ * is omitted.
+ */
+export function renderShowWatchFrame(
+  job: RelayJob | null,
+  idOrPrefix: string,
+  storePath: string,
+  intervalMs: number,
+  now: number = Date.now(),
+  color = true
+): string {
+  const b = (s: string) => (color ? `${BOLD}${s}${RESET}` : s);
+  const d = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
+  const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
+  const title = `${b("agentrelay show")} ${d(`(live, every ${Math.round(intervalMs / 1000)}s — Ctrl-C to exit)`)}`;
+  const meta = d(`${stamp}Z · ${storePath}`);
+  const body = job
+    ? renderJobDetail(job, { now, color })
+    : `${b(`Job ${idOrPrefix}`)}\n  ${d("no longer in the store (pruned or removed while watching)")}`;
+  return [title, meta, "", body].join("\n");
+}
+
 /** Machine-readable single-job snapshot for `--json` (scripts, jq, tooling). */
 export function renderJobDetailJson(
   job: RelayJob,
