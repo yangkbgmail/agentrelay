@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RelayQueue } from "../src/queue.js";
-import { DEFAULT_STUCK_RESUMING_MS, selectFarFutureParkedJobs, selectStuckResumingJobs } from "../src/recover.js";
+import {
+  DEFAULT_STUCK_RESUMING_MS,
+  selectFarFutureParkedJobs,
+  selectStrandedResetJobs,
+  selectStuckResumingJobs,
+} from "../src/recover.js";
 import type { RelayJob } from "../src/types.js";
 
 const NOW = Date.parse("2026-08-15T12:00:00.000Z");
@@ -155,6 +160,72 @@ describe("selectFarFutureParkedJobs", () => {
       expect(report.parked).toBe(1);
       expect(report.farFuture).toEqual([]);
     }
+  });
+});
+
+describe("selectStrandedResetJobs", () => {
+  it("flags waiting_for_reset jobs with a null or unparseable resetAt", () => {
+    const jobs = [
+      job({ id: "null-reset", status: "waiting_for_reset", resetAt: null }),
+      job({ id: "bad-reset", status: "waiting_for_reset", resetAt: "not-a-date" }),
+      job({ id: "ok", status: "waiting_for_reset", resetAt: fromNowIso(2 * 60 * 60_000) }),
+    ];
+    const report = selectStrandedResetJobs(jobs);
+    expect(report.total).toBe(3);
+    expect(report.waiting).toBe(3);
+    expect(report.stranded.map((j) => j.id).sort()).toEqual(["bad-reset", "null-reset"]);
+  });
+
+  it("only considers waiting_for_reset jobs (not queued/resuming/terminal)", () => {
+    const jobs = [
+      job({ id: "queued", status: "queued", resetAt: null }),
+      job({ id: "resuming", status: "resuming", resetAt: null }),
+      job({ id: "done", status: "completed", resetAt: null }),
+      job({ id: "cancelled", status: "cancelled", resetAt: null }),
+      job({ id: "parked", status: "waiting_for_reset", resetAt: null }),
+    ];
+    const report = selectStrandedResetJobs(jobs);
+    expect(report.waiting).toBe(1);
+    expect(report.stranded.map((j) => j.id)).toEqual(["parked"]);
+  });
+
+  it("does not flag parked jobs that have a parseable resetAt (near or far)", () => {
+    const jobs = [
+      job({ id: "near", status: "waiting_for_reset", resetAt: fromNowIso(2 * 60 * 60_000) }),
+      job({ id: "far", status: "waiting_for_reset", resetAt: fromNowIso(1000 * DAY) }),
+      job({ id: "past", status: "waiting_for_reset", resetAt: agoIso(60 * 60_000) }),
+    ];
+    const report = selectStrandedResetJobs(jobs);
+    expect(report.waiting).toBe(3);
+    expect(report.stranded).toEqual([]);
+  });
+
+  it("orders stranded jobs oldest-created first, then by id", () => {
+    const jobs = [
+      job({ id: "b", status: "waiting_for_reset", resetAt: null, createdAt: agoIso(1 * DAY) }),
+      job({ id: "a", status: "waiting_for_reset", resetAt: null, createdAt: agoIso(3 * DAY) }),
+      job({ id: "c", status: "waiting_for_reset", resetAt: "bad", createdAt: agoIso(1 * DAY) }),
+    ];
+    const report = selectStrandedResetJobs(jobs);
+    // "a" oldest; "b" and "c" share createdAt → id tiebreak (b before c).
+    expect(report.stranded.map((j) => j.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("sorts a record with an unparseable createdAt first (most suspect)", () => {
+    const jobs = [
+      job({ id: "dated", status: "waiting_for_reset", resetAt: null, createdAt: agoIso(1 * DAY) }),
+      job({ id: "undated", status: "waiting_for_reset", resetAt: null, createdAt: "not-a-date" }),
+    ];
+    const report = selectStrandedResetJobs(jobs);
+    expect(report.stranded.map((j) => j.id)).toEqual(["undated", "dated"]);
+  });
+
+  it("returns an empty selection when nothing is stranded", () => {
+    const report = selectStrandedResetJobs([
+      job({ id: "ok", status: "waiting_for_reset", resetAt: fromNowIso(60_000) }),
+    ]);
+    expect(report.stranded).toEqual([]);
+    expect(report.waiting).toBe(1);
   });
 });
 

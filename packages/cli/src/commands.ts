@@ -26,6 +26,7 @@ import type {
   Notifier,
   PruneOptions,
   RelayJob,
+  StrandedResetReport,
   StuckResumingReport,
   WritableFacts,
 } from "@agentrelay/core";
@@ -87,6 +88,7 @@ import {
   scopeJobs,
   selectFarFutureParkedJobs,
   selectFarFutureResets,
+  selectStrandedResetJobs,
   selectStuckResumingJobs,
   serializeDaemonHeartbeat,
   setConfigValue,
@@ -653,6 +655,14 @@ export interface RecoverJobsOptions {
    * parked job is flagged even with {@link farFuture} on.
    */
   horizonMs?: number | null;
+  /**
+   * Also reclaim jobs parked `waiting_for_reset` with **no usable reset time**
+   * (`resetAt` null or unparseable), which no tick can ever pick up and no
+   * time-based surface can even list. Off by default and independent of
+   * {@link farFuture} — this class needs no horizon (there is no distance to
+   * judge), so it works regardless of the reset-horizon guard.
+   */
+  stranded?: boolean;
   /** Preview only — report what would be recovered without touching the store. */
   dryRun?: boolean;
   /** Reference "now" (epoch ms); defaults to the wall clock. Injectable for tests. */
@@ -669,6 +679,14 @@ export interface RecoverJobsResult {
    */
   farFuture?: {
     report: FarFutureParkedReport;
+    recovered: RelayJob[];
+  };
+  /**
+   * Present only when {@link RecoverJobsOptions.stranded} was set. The
+   * stranded-reset scan and, unless `dryRun`, the jobs requeued from it.
+   */
+  stranded?: {
+    report: StrandedResetReport;
     recovered: RelayJob[];
   };
   dryRun: boolean;
@@ -688,6 +706,13 @@ export interface RecoverJobsResult {
  * misparses that `doctor`/the dashboard only warn about — via
  * {@link RelayQueue.requeueNow} (attempts reset to 0, error cleared: the distant
  * `resetAt` was itself the bug, so a fresh run with a fresh budget is correct).
+ *
+ * With `stranded`, it *additionally* reclaims jobs parked `waiting_for_reset`
+ * with no usable reset time at all (`resetAt` null/unparseable —
+ * {@link selectStrandedResetJobs}), which `verify` only warns about, via the same
+ * `requeueNow` (the missing/broken `resetAt` was the bug). The two scopes are
+ * independent and can be combined; their candidate sets are disjoint (a job
+ * either has a parseable reset or it doesn't), so no job is requeued twice.
  */
 export function recoverJobs(options: RecoverJobsOptions = {}): RecoverJobsResult {
   const now = options.now ?? Date.now();
@@ -698,10 +723,12 @@ export function recoverJobs(options: RecoverJobsOptions = {}): RecoverJobsResult
     const farFutureReport = options.farFuture
       ? selectFarFutureParkedJobs(jobs, { nowMs: now, horizonMs: options.horizonMs ?? null })
       : null;
+    const strandedReport = options.stranded ? selectStrandedResetJobs(jobs) : null;
 
     if (options.dryRun) {
       const result: RecoverJobsResult = { report, recovered: [], dryRun: true };
       if (farFutureReport) result.farFuture = { report: farFutureReport, recovered: [] };
+      if (strandedReport) result.stranded = { report: strandedReport, recovered: [] };
       return result;
     }
 
@@ -727,6 +754,20 @@ export function recoverJobs(options: RecoverJobsOptions = {}): RecoverJobsResult
         if (updated) ffRecovered.push(updated);
       }
       result.farFuture = { report: farFutureReport, recovered: ffRecovered };
+    }
+    if (strandedReport) {
+      const stRecovered: RelayJob[] = [];
+      for (const job of strandedReport.stranded) {
+        // Re-read for the same reason as above; a stranded job is `waiting_for_reset`
+        // with no usable reset, disjoint from the far-future set (which requires a
+        // parseable one), so the two passes never touch the same job.
+        const current = queue.getById(job.id);
+        if (current?.status !== "waiting_for_reset") continue;
+        queue.requeueNow(job.id, at);
+        const updated = queue.getById(job.id);
+        if (updated) stRecovered.push(updated);
+      }
+      result.stranded = { report: strandedReport, recovered: stRecovered };
     }
     return result;
   } finally {

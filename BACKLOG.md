@@ -970,6 +970,25 @@
       Biome 0경고), 실제 빌드 CLI e2e로 `completion fish` 방출(글로벌 옵션·최상위 커맨드·run 플래그·config
       부모 가드)·미지 셸 exit 1 검증. branch `claude/wizardly-pascal-am8gcl`)
 
+- [x] 👷 `agentrelay recover --stranded` — reset 시각이 없는(null/파싱불가) 채 `waiting_for_reset`로 방치된
+      잡을 자동 감지·재큐. 자기 발굴 항목(세션 69[stuck resuming]·72~76[reset-horizon]가 확립한 "무음 실패
+      루프를 닫는다" 계열의 세 번째·마지막 클래스). 기존 `recover`는 (1) `resuming`에 갇힌 고아 잡, (2)
+      `--far-future`로 지평선 밖에 파킹된 잡을 회수했지만, **`resetAt`이 `null`이거나 파싱 불가한 채 파킹된**
+      잡은 완전히 사각지대였다: `listDue`의 `resetAt !== null && Date(resetAt) <= now`가 NaN 비교로 항상 false라
+      어떤 tick도 안 집고, `next`/`upcoming`/`overdue`는 파싱 불가 resetAt을 필터로 걸러내며, `selectFarFutureParkedJobs`도
+      판정할 거리가 없어 명시적으로 스킵한다 — 즉 `verify`가 `waiting-without-reset`/`unparseable-resetAt`로 **경고만**
+      할 뿐 **고치는** 명령이 없어, 손 편집·잘못된 머지·구/신 빌드 import로 이 상태가 된 잡은 영원히 재개도 목록화도 안 됐다.
+      (완료 — core `recover.ts`에 순수 `selectStrandedResetJobs(jobs)` + `StrandedResetReport` 신설: `waiting_for_reset`
+      중 `resetAt`이 null 또는 `Number.isNaN(Date.parse())`인 잡만 선별(거리가 없으므로 `createdAt` 오름차순·id
+      tiebreak로 가장 오래 방치된 잡 우선, 파싱 불가 createdAt은 가장 의심스러운 것으로 최상단). CLI `recoverJobs`에
+      `stranded` 옵션 추가 — `--far-future`와 독립(지평선 불필요)이며 후보 집합이 상호 배타(파싱 가능한 reset이 있느냐로
+      갈림)라 이중 재큐 없음. `RelayQueue.requeueNow`로 재큐(attempts 0·lastError 클리어 — 없거나 깨진 resetAt 자체가
+      버그였으므로 fresh run이 맞음, `--far-future`와 동일 근거). CLI `recover.ts`에 `renderStrandedBlock`(왜 reset이
+      없는지["no resetAt"/`bad resetAt "…"`] + 방치 기간 표기)·`--json` `stranded` 블록, `cli.ts`에 `--stranded` 플래그
+      배선. core recover +6·cli recover +9 신규 테스트. build/lint/test 통과(**core 681 · cli 374/1skip · dashboard 13**,
+      Biome 0경고), 실제 빌드 CLI e2e로 null·파싱불가 resetAt 잡 dry-run(스토어 불변)·실제 재큐(resetAt=now·attempts 0·
+      err null·listDue 픽업)·유효 파킹 잡 보존·`--far-future`와 disjoint·`--json` 검증. branch `claude/wizardly-pascal-avhlnm`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

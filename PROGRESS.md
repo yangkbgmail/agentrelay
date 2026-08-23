@@ -2475,3 +2475,29 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 남은 포화 축의 추가 중복 스캔·정리 지속 —
   IANA/명명 타임존 파서(#731/#740/#749/#774/#838)·Gemini 어댑터(#752/#762)·run --dry-run(#715/#751/#843) 등이
   후보. ③ 근본 원인(문서 append 충돌)은 세션 60·78 진단대로 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 83 — `agentrelay recover --stranded`: reset 없는 방치 잡 회수(무음 실패 3번째 클래스)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-avhlnm`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료([x], 남은 미완은 🧭 코워크 소유 문서/리서치뿐). 열린 PR 포화 축에
+  또 하나의 독립 중복을 더하는 대신, 세션 69(stuck resuming)·72~76(reset-horizon)가 확립한 **"무음 실패 루프를
+  닫는다"** 계열에서 코드를 정독하다 발견한 **아직 아무도 안 다룬 세 번째·마지막 클래스**를 골랐다.
+- **발굴한 갭(실측):** `recover`는 (1) `resuming`에 갇힌 고아 잡, (2) `--far-future`로 지평선 밖 파킹 잡을
+  회수했지만, **`resetAt`이 `null`이거나 파싱 불가한 채 `waiting_for_reset`로 파킹된** 잡은 완전한 사각지대였다:
+  `listDue`의 `resetAt !== null && Date(resetAt) <= now`가 NaN 비교로 항상 false → 어떤 tick도 안 집음.
+  `next`/`upcoming`/`overdue`는 파싱 불가 resetAt을 필터로 제외, `selectFarFutureParkedJobs`는 판정할 거리가
+  없어 명시적으로 스킵(163~165행). `verify`가 `waiting-without-reset`/`unparseable-resetAt`로 **경고만** 할 뿐
+  **고치는** 원커맨드가 없어, 손 편집·잘못된 머지·구/신 빌드 import로 이 상태가 된 잡은 영원히 재개도 목록화도 안 됐다.
+- **한 일:** ① core `recover.ts` — 순수 `selectStrandedResetJobs(jobs)` + `StrandedResetReport`(`waiting` 풀 카운트 +
+  null/파싱불가 resetAt인 `waiting_for_reset` 잡만 `stranded`로, `createdAt` 오름차순·id tiebreak로 가장 오래 방치된
+  잡 우선, 파싱 불가 createdAt은 최상단). ② CLI `commands.ts` `recoverJobs`에 `stranded` 옵션 — `--far-future`와
+  독립(지평선 불필요)·후보 집합 상호 배타(파싱 가능 reset 유무로 갈림)라 이중 재큐 없음. `RelayQueue.requeueNow`로
+  재큐(attempts 0·lastError 클리어 — 없거나 깨진 resetAt 자체가 버그였으므로 fresh run이 맞음, far-future와 동일 근거).
+  ③ CLI `recover.ts` `renderStrandedBlock`(왜 reset이 없는지["no resetAt"/`bad resetAt "…"`]+방치 기간)·`--json`
+  `stranded` 블록, `cli.ts` `--stranded` 플래그 배선. 새 스케줄러/파서 로직 0줄. core recover +6·cli recover +9 테스트.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 122파일)→`pnpm test` 전 패키지
+  통과(**core 681 · cli 374/1skip · dashboard 13**). **실제 빌드 CLI e2e**: null·파싱불가 resetAt 파킹 잡 스토어로
+  `recover --stranded --dry-run`(사유·방치 기간 표기, 스토어 불변)·실제 재큐(resetAt=now·attempts 0·err null·이후
+  `listDue` 픽업)·유효 파킹 잡(2h·먼-미래) 보존·`--far-future --stranded` disjoint·`--json` stranded 블록 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 무음 실패 계열은 이로써 3클래스(resuming/
+  far-future/stranded) 모두 recover가 커버 — 후속으로 doctor·대시보드에도 stranded 경고 카드 노출을 검토(reset-horizon이
+  밟은 doctor→대시보드 경로와 대칭). ③ 신규 기능은 main·열린 PR 양쪽에 없는 영역에서만 발굴(중복 재발 방지).
+  README/ARCHITECTURE는 🧭 코워크 몫.
