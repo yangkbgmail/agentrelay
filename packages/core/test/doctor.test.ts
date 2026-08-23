@@ -7,6 +7,7 @@ import {
   isSupportedNode,
   parseNodeVersion,
   runDiagnostics,
+  selectFarFutureResets,
 } from "../src/doctor.js";
 import type { RelayJob } from "../src/types.js";
 
@@ -34,11 +35,13 @@ function input(overrides: Partial<DiagnosticInput> = {}): DiagnosticInput {
   return {
     nodeVersion: "v22.5.0",
     store: { path: "/home/u/.agentrelay/jobs.json", exists: true, corrupt: false, jobCount: 0, activeCount: 0 },
+    integrity: { checked: true, total: 0, errorCount: 0, warningCount: 0, sampleIssues: [] },
     writable: { dir: "/home/u/.agentrelay", writable: true, willCreate: false },
     config: { path: null, loadError: null, issues: [] },
     notify: { slackWebhook: "https://hooks.slack.com/x" },
     adapters: { binaries: [] },
     heartbeat: { present: false },
+    resetHorizon: { jobs: [], horizonMs: 8 * 24 * 60 * 60_000 },
     ...overrides,
   };
 }
@@ -105,6 +108,7 @@ describe("runDiagnostics", () => {
     expect(report.counts.error).toBe(0);
     expect(find(report, "node-version").level).toBe("ok");
     expect(find(report, "store").level).toBe("ok");
+    expect(find(report, "store-integrity").level).toBe("ok");
     expect(find(report, "store-writable").level).toBe("ok");
     expect(find(report, "adapters").level).toBe("ok");
     expect(find(report, "config").level).toBe("ok");
@@ -149,6 +153,64 @@ describe("runDiagnostics", () => {
       input({ store: { path: "/s/jobs.json", exists: true, corrupt: false, jobCount: 5, activeCount: 2 } })
     );
     expect(find(report, "store").message).toContain("2 active");
+  });
+
+  it("reports store-integrity OK when a linted store has no issues", () => {
+    const report = runDiagnostics(
+      input({ integrity: { checked: true, total: 4, errorCount: 0, warningCount: 0, sampleIssues: [] } })
+    );
+    const integrity = find(report, "store-integrity");
+    expect(integrity.level).toBe("ok");
+    expect(integrity.message).toContain("all 4 store record(s)");
+    expect(report.ok).toBe(true);
+  });
+
+  it("skips store-integrity as OK when there is no readable store to lint", () => {
+    const report = runDiagnostics(
+      input({ integrity: { checked: false, total: 0, errorCount: 0, warningCount: 0, sampleIssues: [] } })
+    );
+    const integrity = find(report, "store-integrity");
+    expect(integrity.level).toBe("ok");
+    expect(integrity.message).toContain("no readable job store");
+  });
+
+  it("errors store-integrity on error-level issues and names the sample", () => {
+    const report = runDiagnostics(
+      input({
+        integrity: {
+          checked: true,
+          total: 3,
+          errorCount: 1,
+          warningCount: 1,
+          sampleIssues: ['duplicate id "abc" (also at record 0)', "resetAt null"],
+        },
+      })
+    );
+    const integrity = find(report, "store-integrity");
+    expect(integrity.level).toBe("error");
+    expect(integrity.message).toContain("1 integrity error(s) across 3 record(s)");
+    expect(integrity.message).toContain("duplicate id");
+    expect(integrity.hint).toContain("agentrelay verify");
+    expect(report.ok).toBe(false);
+  });
+
+  it("warns store-integrity when there are only warning-level issues", () => {
+    const report = runDiagnostics(
+      input({
+        integrity: {
+          checked: true,
+          total: 2,
+          errorCount: 0,
+          warningCount: 2,
+          sampleIssues: ["waiting_for_reset but resetAt is null"],
+        },
+      })
+    );
+    const integrity = find(report, "store-integrity");
+    expect(integrity.level).toBe("warning");
+    expect(integrity.message).toContain("2 integrity warning(s)");
+    expect(integrity.message).toContain("resetAt is null");
+    expect(report.ok).toBe(true);
   });
 
   it("errors when the config file could not be loaded", () => {
@@ -241,7 +303,7 @@ describe("runDiagnostics", () => {
     const report = runDiagnostics(input({ nodeVersion: "v20.0.0", notify: {} }));
     expect(report.counts.error).toBe(1); // node
     expect(report.counts.warning).toBe(1); // notify
-    expect(report.counts.ok).toBe(5); // store + store-writable + adapters + daemon + config
+    expect(report.counts.ok).toBe(7); // store + store-integrity + store-writable + adapters + daemon + reset-horizon + config
     expect(report.ok).toBe(false);
   });
 
@@ -389,5 +451,100 @@ describe("distinctActiveBinaries", () => {
   it("skips a malformed job with an empty command[0]", () => {
     const jobs = [job({ status: "queued", command: ["   "] }), job({ status: "queued", command: [] as string[] })];
     expect(distinctActiveBinaries(jobs)).toEqual([]);
+  });
+});
+
+describe("selectFarFutureResets", () => {
+  const now = new Date("2026-08-21T00:00:00.000Z");
+  const HORIZON = 8 * 24 * 60 * 60_000; // 8 days
+  const iso = (offsetMs: number) => new Date(now.getTime() + offsetMs).toISOString();
+
+  it("flags an active job whose reset is beyond the horizon", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: iso(30 * 24 * 60 * 60_000) })];
+    const flagged = selectFarFutureResets(jobs, { now, horizonMs: HORIZON });
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0].id).toBe(jobs[0].id);
+    expect(flagged[0].resetAt).toBe(jobs[0].resetAt);
+    expect(flagged[0].msUntilReset).toBe(30 * 24 * 60 * 60_000);
+  });
+
+  it("does not flag a reset within the horizon", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: iso(2 * 60 * 60_000) })];
+    expect(selectFarFutureResets(jobs, { now, horizonMs: HORIZON })).toEqual([]);
+  });
+
+  it("does not flag a reset exactly at the horizon (inclusive bound)", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: iso(HORIZON) })];
+    expect(selectFarFutureResets(jobs, { now, horizonMs: HORIZON })).toEqual([]);
+  });
+
+  it("does not flag a past reset (already-lifted limit, safe to resume)", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: iso(-365 * 24 * 60 * 60_000) })];
+    expect(selectFarFutureResets(jobs, { now, horizonMs: HORIZON })).toEqual([]);
+  });
+
+  it("ignores terminal jobs even with a wild reset", () => {
+    const jobs = [
+      job({ status: "completed", resetAt: iso(30 * 24 * 60 * 60_000) }),
+      job({ status: "failed", resetAt: iso(30 * 24 * 60 * 60_000) }),
+      job({ status: "cancelled", resetAt: iso(30 * 24 * 60 * 60_000) }),
+    ];
+    expect(selectFarFutureResets(jobs, { now, horizonMs: HORIZON })).toEqual([]);
+  });
+
+  it("skips jobs with no resetAt or an unparseable one", () => {
+    const jobs = [
+      job({ status: "queued", resetAt: null }),
+      job({ status: "waiting_for_reset", resetAt: "not-a-date" }),
+    ];
+    expect(selectFarFutureResets(jobs, { now, horizonMs: HORIZON })).toEqual([]);
+  });
+
+  it("returns empty when the guard is disabled (non-positive horizon)", () => {
+    const jobs = [job({ status: "waiting_for_reset", resetAt: iso(30 * 24 * 60 * 60_000) })];
+    expect(selectFarFutureResets(jobs, { now, horizonMs: 0 })).toEqual([]);
+    expect(selectFarFutureResets(jobs, { now, horizonMs: Number.POSITIVE_INFINITY })).toEqual([]);
+  });
+});
+
+describe("runDiagnostics — reset-horizon check", () => {
+  const find = (report: ReturnType<typeof runDiagnostics>) => report.checks.find((c) => c.name === "reset-horizon");
+
+  it("is OK when no job is parked beyond the horizon", () => {
+    const report = runDiagnostics(input({ resetHorizon: { jobs: [], horizonMs: 8 * 24 * 60 * 60_000 } }));
+    const check = find(report);
+    expect(check?.level).toBe("ok");
+    expect(check?.message).toMatch(/no jobs parked/);
+  });
+
+  it("warns and names an example when a job is parked beyond the horizon", () => {
+    const report = runDiagnostics(
+      input({
+        resetHorizon: {
+          horizonMs: 8 * 24 * 60 * 60_000,
+          jobs: [
+            { id: "far9", project: "demo", resetAt: "2027-01-01T00:00:00.000Z", msUntilReset: 100 * 24 * 60 * 60_000 },
+            { id: "near1", project: "demo", resetAt: "2026-09-05T00:00:00.000Z", msUntilReset: 15 * 24 * 60 * 60_000 },
+          ],
+        },
+      })
+    );
+    const check = find(report);
+    expect(check?.level).toBe("warning");
+    expect(check?.message).toContain("2 job(s)");
+    // The least-extreme (soonest) job is used as the example.
+    expect(check?.message).toContain("near1");
+    expect(check?.hint).toBeDefined();
+    // The hint must offer the one-shot bulk fix — plain `recover` does NOT
+    // touch far-future parked jobs, so pointing there alone would be misleading.
+    expect(check?.hint).toContain("recover --far-future");
+    expect(report.ok).toBe(true); // warnings don't fail the report
+  });
+
+  it("is OK (skipped) when the horizon guard is disabled", () => {
+    const report = runDiagnostics(input({ resetHorizon: { jobs: [], horizonMs: null } }));
+    const check = find(report);
+    expect(check?.level).toBe("ok");
+    expect(check?.message).toMatch(/disabled/);
   });
 });

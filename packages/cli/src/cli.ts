@@ -24,6 +24,7 @@ import {
   computeQueueEta,
   computeStats,
   computeWeekdayDistribution,
+  configJsonSchemaJson,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
   generateCompletion,
@@ -33,6 +34,7 @@ import {
   isCompletionShell,
   isJobScopeActive,
   JOB_CSV_COLUMNS,
+  maxResetHorizonMsFromEnv,
   parseCsvColumns,
   parseDuration,
   renderPrometheusMetrics,
@@ -2031,6 +2033,15 @@ export function buildCli(): Command {
         process.exitCode = 1;
       }
     });
+  config
+    .command("schema")
+    .description(
+      'Print a JSON Schema for agentrelay.config.json (pipe to a file and reference it via "$schema" for editor validation/completion)'
+    )
+    .action(() => {
+      // Pure stdout so it composes: `agentrelay config schema > agentrelay.config.schema.json`.
+      process.stdout.write(configJsonSchemaJson());
+    });
 
   registerBulkControl(program, {
     name: "cancel",
@@ -2136,9 +2147,13 @@ export function buildCli(): Command {
       "--older-than <duration>",
       "Only recover jobs stuck resuming for at least this long (default 30m; 0s = all)"
     )
+    .option(
+      "--far-future",
+      "Also requeue jobs parked waiting_for_reset with a reset beyond the plausibility horizon (a misparse that would wait days/years)"
+    )
     .option("--dry-run", "Show what would be recovered without changing the store")
     .option("--json", "Output machine-readable JSON")
-    .action((opts: { olderThan?: string; dryRun?: boolean; json?: boolean }) => {
+    .action((opts: { olderThan?: string; farFuture?: boolean; dryRun?: boolean; json?: boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
 
@@ -2153,8 +2168,16 @@ export function buildCli(): Command {
         stuckAfterMs = parsed;
       }
 
-      const { report, recovered, dryRun } = recoverJobs({ storePath: store, stuckAfterMs, dryRun: opts.dryRun, now });
-      const result: RecoverResult = { report, recovered, dryRun };
+      const horizonMs = opts.farFuture ? maxResetHorizonMsFromEnv() : null;
+      const { report, recovered, farFuture, dryRun } = recoverJobs({
+        storePath: store,
+        stuckAfterMs,
+        farFuture: opts.farFuture,
+        horizonMs,
+        dryRun: opts.dryRun,
+        now,
+      });
+      const result: RecoverResult = { report, recovered, farFuture, dryRun };
 
       if (opts.json) {
         console.log(renderRecoverJson(result, store ?? defaultStorePath(), new Date(now).toISOString()));
@@ -2233,7 +2256,7 @@ export function buildCli(): Command {
 
   program
     .command("completion")
-    .description("Print a shell completion script for agentrelay (bash or zsh)")
+    .description("Print a shell completion script for agentrelay (bash, zsh, or fish)")
     .argument("<shell>", `Shell to generate completion for: ${COMPLETION_SHELLS.join(" | ")}`)
     .addHelpText(
       "after",
@@ -2241,7 +2264,9 @@ export function buildCli(): Command {
         "  # bash: source it now, or add the line to ~/.bashrc\n" +
         "  source <(agentrelay completion bash)\n" +
         "  # zsh: write it onto your $fpath, then restart your shell\n" +
-        "  agentrelay completion zsh > ~/.zfunc/_agentrelay"
+        "  agentrelay completion zsh > ~/.zfunc/_agentrelay\n" +
+        "  # fish: load it now, or drop it in your completions dir\n" +
+        "  agentrelay completion fish > ~/.config/fish/completions/agentrelay.fish"
     )
     .action((shell: string) => {
       if (!isCompletionShell(shell)) {

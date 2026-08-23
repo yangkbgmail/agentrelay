@@ -136,6 +136,56 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
+    // Relative-day wording: "resets tomorrow at 9am" / "try again tomorrow" /
+    // "come back today at 5pm" / "your limit resets tomorrow". Real agent CLIs
+    // phrase a reset this way, and none of the other patterns catch it: the
+    // clock-time ones need an adjacent "reset at <time>" (here the day word sits
+    // between), and relative-duration needs "in". Without this the message
+    // silently produces no detection and the job never resumes.
+    //
+    // The reset trigger word must be adjacent to the day word so an incidental
+    // "tomorrow" elsewhere in noisy output isn't misread as a reset time.
+    //
+    // Time resolution (all local time, matching clock-time's convention):
+    //   - "<day> at 9am" / "at 9:30pm" -> that 12-hour clock time on that day
+    //   - "<day> at 15:00" / "at 21"   -> that 24-hour clock time on that day
+    //   - "tomorrow" (no time)         -> local midnight (00:00) starting tomorrow
+    //   - "today" (no time)            -> skipped (null): "sometime today" has no
+    //                                     defensible instant, so guessing one
+    //                                     risks a wrong wait.
+    name: "relative-day",
+    regex:
+      /(?:reset[s]?|try again|retry|come back|available)\s+(?:on\s+)?(today|tomorrow)\b(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/i,
+    resolve: (m, now) => {
+      const isTomorrow = m[1].toLowerCase() === "tomorrow";
+      const hasTime = m[2] !== undefined;
+      const candidate = new Date(now);
+      if (isTomorrow) candidate.setDate(candidate.getDate() + 1);
+
+      if (!hasTime) {
+        // "today" with no time is too vague to place on the clock; only
+        // "tomorrow" gets a defensible instant (the start of that day).
+        if (!isTomorrow) return null;
+        candidate.setHours(0, 0, 0, 0);
+        return candidate;
+      }
+
+      let hour = parseInt(m[2], 10);
+      const minute = m[3] !== undefined ? parseInt(m[3], 10) : 0;
+      const meridiem = m[4]?.toLowerCase();
+      if (meridiem) {
+        if (hour < 1 || hour > 12) return null; // invalid 12-hour clock time
+        if (meridiem === "pm" && hour < 12) hour += 12;
+        if (meridiem === "am" && hour === 12) hour = 0;
+      } else if (hour > 23) {
+        return null; // invalid 24-hour clock time
+      }
+      if (minute > 59) return null;
+      candidate.setHours(hour, minute, 0, 0);
+      return candidate;
+    },
+  },
+  {
     // "try again in 4h32m" / "retry in 5 hours" / "resets in 45m" / "resets in 2h" /
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
@@ -152,12 +202,23 @@ const PATTERNS: RateLimitPattern[] = [
     },
   },
   {
-    // Unix epoch seconds embedded in structured error payloads, e.g.
-    // `retry_after=1752345600`, `retry_after: 1752345600`, or the JSON form
-    // `"retry_after": 1752345600`.
+    // A Unix epoch embedded in a structured error payload, under `retry_after`
+    // or a `reset_at` / `resetAt` / `resets_at` field, e.g. `retry_after=1752345600`,
+    // `"retry_after": 1752345600`, `"reset_at": 1752345600`, or `resetAt: 1752345600000`.
+    // Normally 10-digit *seconds*, but some payloads carry a 13-digit *millisecond*
+    // epoch straight from `Date.now()`; both widths are accepted and disambiguated
+    // by digit count. The `\b` boundary rejects ambiguous 11/12-digit values (neither
+    // clean seconds nor clean ms) so a misparse can't resume a job at a wild time.
     name: "unix-epoch",
-    regex: /retry_after"?\s*[=:]\s*(\d{10})/i,
-    resolve: (m) => new Date(parseInt(m[1], 10) * 1000),
+    regex: /(?:retry_after|resets?_?at)"?\s*[=:]\s*(\d{13}|\d{10})\b/i,
+    resolve: (m) => {
+      const digits = m[1];
+      const value = parseInt(digits, 10);
+      if (!Number.isFinite(value)) return null;
+      const ms = digits.length === 13 ? value : value * 1000;
+      const d = new Date(ms);
+      return Number.isNaN(d.getTime()) ? null : d;
+    },
   },
   {
     // The standard HTTP `Retry-After` response header (RFC 9110 §10.2.3), which
@@ -186,7 +247,8 @@ const PATTERNS: RateLimitPattern[] = [
 ];
 
 /** Quick pre-filter so we don't run every regex on every line of noisy CLI output. */
-const LOOKS_LIKE_RATE_LIMIT = /(rate.?limit|usage limit|try again|resets?\s+(at|in)|retry.?after)/i;
+const LOOKS_LIKE_RATE_LIMIT =
+  /(rate.?limit|usage limit|try again|resets?\s+(at|in)|resets?_?at\s*[=:]|retry.?after|(?:try again|retry|come back|available|resets?)\s+(?:on\s+)?to(?:day|morrow))/i;
 
 function tryPattern(
   pattern: RateLimitPattern,
