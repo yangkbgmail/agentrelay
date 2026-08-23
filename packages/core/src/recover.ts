@@ -182,3 +182,75 @@ export function selectFarFutureParkedJobs(jobs: RelayJob[], options: FarFuturePa
     farFuture: farFuture.map((entry) => entry.job),
   };
 }
+
+/**
+ * The third silent-failure class `recover` can reclaim: jobs parked in
+ * `waiting_for_reset` with **no usable reset time at all** — `resetAt` is `null`
+ * or a non-parseable string.
+ *
+ * These are strictly worse than a far-future reset: a far-future job at least
+ * has a (wrong, distant) time, so `recover --far-future` can spot it. A stranded
+ * job has none, so it is invisible to *every* time-based surface — `listDue`'s
+ * `resetAt !== null && Date(resetAt) <= now` is false (a `NaN` comparison never
+ * holds), and `next`/`upcoming`/`overdue` all filter out an unparseable/absent
+ * `resetAt`. `selectFarFutureParkedJobs` also deliberately skips them (there is
+ * no distance to judge). So the job sits `waiting_for_reset` forever with nothing
+ * to resume it and nothing to even list it.
+ *
+ * `agentrelay verify` *warns* about exactly this shape (`waiting-without-reset` /
+ * `unparseable-resetAt`) but can't fix it; this is the pure half of the
+ * one-command fix, mirroring {@link selectFarFutureParkedJobs}.
+ *
+ * How does a job reach this state? Not through the normal parse→enqueue path
+ * (which always writes a valid ISO reset), but through a hand-edited `jobs.json`,
+ * a botched merge, an `import` of an older/newer dump, or a build that wrote the
+ * field differently — the same "leaky cast" `verify` exists to catch.
+ */
+export interface StrandedResetReport {
+  /** Total jobs considered (after any scope filter the caller applied). */
+  total: number;
+  /** Jobs currently `waiting_for_reset` (the pool the reset check is applied to). */
+  waiting: number;
+  /**
+   * The `waiting_for_reset` jobs with no usable `resetAt` (null or unparseable),
+   * ordered oldest-created first — the longest-stranded job leads, matching how
+   * the other `recover` scans address the longest-waiting job first. Reset time
+   * can't order them (there is none), so `createdAt` (then `id`) is the axis.
+   */
+  stranded: RelayJob[];
+}
+
+/**
+ * Identify `waiting_for_reset` jobs stranded with no usable reset time. Pure and
+ * non-mutating.
+ *
+ * A job counts as stranded when its `resetAt` is `null` or doesn't parse as a
+ * date — either way no tick will ever pick it up. Only `waiting_for_reset` jobs
+ * are candidates (a `queued` job runs next tick regardless; `resuming` is covered
+ * by {@link selectStuckResumingJobs}; terminal jobs are done).
+ */
+export function selectStrandedResetJobs(jobs: RelayJob[]): StrandedResetReport {
+  let waiting = 0;
+  const stranded: Array<{ job: RelayJob; createdMs: number }> = [];
+  for (const job of jobs) {
+    if (job.status !== "waiting_for_reset") continue;
+    waiting += 1;
+    if (job.resetAt !== null && !Number.isNaN(Date.parse(job.resetAt))) continue;
+    stranded.push({ job, createdMs: Date.parse(job.createdAt) });
+  }
+
+  // Oldest-created first. An unparseable `createdAt` (NaN) sorts first as the
+  // most suspect record; ties break by id for a fully deterministic order.
+  stranded.sort((a, b) => {
+    const am = Number.isNaN(a.createdMs) ? Number.NEGATIVE_INFINITY : a.createdMs;
+    const bm = Number.isNaN(b.createdMs) ? Number.NEGATIVE_INFINITY : b.createdMs;
+    if (am !== bm) return am - bm;
+    return a.job.id < b.job.id ? -1 : a.job.id > b.job.id ? 1 : 0;
+  });
+
+  return {
+    total: jobs.length,
+    waiting,
+    stranded: stranded.map((entry) => entry.job),
+  };
+}

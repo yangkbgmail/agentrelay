@@ -2151,40 +2151,47 @@ export function buildCli(): Command {
       "--far-future",
       "Also requeue jobs parked waiting_for_reset with a reset beyond the plausibility horizon (a misparse that would wait days/years)"
     )
+    .option(
+      "--stranded",
+      "Also requeue jobs parked waiting_for_reset with no usable reset time (resetAt null/unparseable) that no tick can ever pick up"
+    )
     .option("--dry-run", "Show what would be recovered without changing the store")
     .option("--json", "Output machine-readable JSON")
-    .action((opts: { olderThan?: string; farFuture?: boolean; dryRun?: boolean; json?: boolean }) => {
-      const { store } = program.opts();
-      const now = Date.now();
+    .action(
+      (opts: { olderThan?: string; farFuture?: boolean; stranded?: boolean; dryRun?: boolean; json?: boolean }) => {
+        const { store } = program.opts();
+        const now = Date.now();
 
-      let stuckAfterMs: number | undefined;
-      if (opts.olderThan !== undefined) {
-        const parsed = parseDuration(opts.olderThan);
-        if (parsed === null) {
-          console.error(`Invalid --older-than value "${opts.olderThan}". Use a duration like 30m, 1h, 90s, 0s.`);
-          process.exitCode = 1;
-          return;
+        let stuckAfterMs: number | undefined;
+        if (opts.olderThan !== undefined) {
+          const parsed = parseDuration(opts.olderThan);
+          if (parsed === null) {
+            console.error(`Invalid --older-than value "${opts.olderThan}". Use a duration like 30m, 1h, 90s, 0s.`);
+            process.exitCode = 1;
+            return;
+          }
+          stuckAfterMs = parsed;
         }
-        stuckAfterMs = parsed;
-      }
 
-      const horizonMs = opts.farFuture ? maxResetHorizonMsFromEnv() : null;
-      const { report, recovered, farFuture, dryRun } = recoverJobs({
-        storePath: store,
-        stuckAfterMs,
-        farFuture: opts.farFuture,
-        horizonMs,
-        dryRun: opts.dryRun,
-        now,
-      });
-      const result: RecoverResult = { report, recovered, farFuture, dryRun };
+        const horizonMs = opts.farFuture ? maxResetHorizonMsFromEnv() : null;
+        const { report, recovered, farFuture, stranded, dryRun } = recoverJobs({
+          storePath: store,
+          stuckAfterMs,
+          farFuture: opts.farFuture,
+          horizonMs,
+          stranded: opts.stranded,
+          dryRun: opts.dryRun,
+          now,
+        });
+        const result: RecoverResult = { report, recovered, farFuture, stranded, dryRun };
 
-      if (opts.json) {
-        console.log(renderRecoverJson(result, store ?? defaultStorePath(), new Date(now).toISOString()));
-      } else {
-        console.log(renderRecover(result, { color: Boolean(process.stdout.isTTY), now }));
+        if (opts.json) {
+          console.log(renderRecoverJson(result, store ?? defaultStorePath(), new Date(now).toISOString()));
+        } else {
+          console.log(renderRecover(result, { color: Boolean(process.stdout.isTTY), now }));
+        }
       }
-    });
+    );
 
   program
     .command("prune")

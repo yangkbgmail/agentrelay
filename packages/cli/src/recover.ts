@@ -7,7 +7,7 @@
 // cli.ts) so the exact output is unit-testable without a TTY, a clock, or the
 // store.
 
-import type { FarFutureParkedReport, RelayJob, StuckResumingReport } from "@agentrelay/core";
+import type { FarFutureParkedReport, RelayJob, StrandedResetReport, StuckResumingReport } from "@agentrelay/core";
 import { formatDurationMs } from "./stats.js";
 
 const RESET = "\x1b[0m";
@@ -28,6 +28,15 @@ export interface RecoverResult {
    */
   farFuture?: {
     report: FarFutureParkedReport;
+    recovered: RelayJob[];
+  };
+  /**
+   * Present only when the stranded scope (`--stranded`) was requested: the scan
+   * of jobs parked with no usable reset (resetAt null/unparseable), and which
+   * were requeued (empty on a dry run).
+   */
+  stranded?: {
+    report: StrandedResetReport;
     recovered: RelayJob[];
   };
   /** True when this was a preview that left the store untouched. */
@@ -69,7 +78,7 @@ export function renderRecover(result: RecoverResult, options: { now?: number; co
   const m = (s: string): string => (color ? `${MAGENTA}${s}${RESET}` : s);
   const y = (s: string): string => (color ? `${YELLOW}${s}${RESET}` : s);
 
-  const { report, dryRun, farFuture } = result;
+  const { report, dryRun, farFuture, stranded } = result;
 
   const blocks: string[] = [];
 
@@ -113,7 +122,54 @@ export function renderRecover(result: RecoverResult, options: { now?: number; co
     blocks.push(renderFarFutureBlock(farFuture, dryRun, now, { b, d, m: y }));
   }
 
+  // --- Stranded-reset block (only when `--stranded` was requested). ---
+  if (stranded) {
+    blocks.push(renderStrandedBlock(stranded, dryRun, now, { b, d, m: y }));
+  }
+
   return blocks.join("\n\n");
+}
+
+/** How long a job has been stranded `waiting_for_reset`, from its `createdAt` to `now`. */
+function strandedFor(job: RelayJob, now: number): string {
+  const ms = Date.parse(job.createdAt);
+  if (Number.isNaN(ms)) return "unknown";
+  return formatDurationMs(Math.max(0, now - ms));
+}
+
+/** The stranded-reset section of `renderRecover`, split out for readability. */
+function renderStrandedBlock(
+  stranded: NonNullable<RecoverResult["stranded"]>,
+  dryRun: boolean,
+  now: number,
+  fmt: { b: (s: string) => string; d: (s: string) => string; m: (s: string) => string }
+): string {
+  const { b, d, m } = fmt;
+  const { report } = stranded;
+
+  if (report.stranded.length === 0) {
+    const scanned = report.waiting === 1 ? "1 waiting job" : `${report.waiting} waiting jobs`;
+    return `No stranded jobs to recover. ${scanned}, all with a usable reset time.`;
+  }
+
+  const recoveredIds = new Set(stranded.recovered.map((job) => job.id));
+  const rows = dryRun ? report.stranded : report.stranded.filter((job) => recoveredIds.has(job.id));
+  const marker = dryRun ? "-" : "↻";
+
+  const lines: string[] = [];
+  for (const job of rows) {
+    const id = job.id.slice(0, 8);
+    const project = job.project.slice(0, 20).padEnd(20);
+    const why = job.resetAt === null ? "no resetAt" : `bad resetAt "${job.resetAt}"`;
+    lines.push(`${marker} ${m(id)}  ${project} ${d(`${why}, stranded ${strandedFor(job, now)}`)}`);
+  }
+  const noun = rows.length === 1 ? "job" : "jobs";
+  lines.push(
+    dryRun
+      ? `Would recover ${b(String(report.stranded.length))} stranded ${noun} (requeued to run now). ${d("No changes made.")}`
+      : `Recovered ${b(String(stranded.recovered.length))} stranded ${noun} — requeued to resume on the next tick.`
+  );
+  return lines.join("\n");
 }
 
 /** The far-future parked section of `renderRecover`, split out for readability. */
@@ -178,6 +234,13 @@ export function renderRecoverJson(
       parked: result.farFuture.report.parked,
       stuck: result.farFuture.report.farFuture.map((job) => job.id),
       recovered: result.farFuture.recovered.map((job) => job.id),
+    };
+  }
+  if (result.stranded) {
+    payload.stranded = {
+      waiting: result.stranded.report.waiting,
+      stuck: result.stranded.report.stranded.map((job) => job.id),
+      recovered: result.stranded.recovered.map((job) => job.id),
     };
   }
   return JSON.stringify(payload, null, 2);
