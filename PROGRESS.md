@@ -2475,3 +2475,24 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 남은 포화 축의 추가 중복 스캔·정리 지속 —
   IANA/명명 타임존 파서(#731/#740/#749/#774/#838)·Gemini 어댑터(#752/#762)·run --dry-run(#715/#751/#843) 등이
   후보. ③ 근본 원인(문서 append 충돌)은 세션 60·78 진단대로 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 83 — `agentrelay completion pwsh`: PowerShell 탭 완성 추가(네 번째 주요 셸)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-071vnf`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). CLAUDE.md의 "자기 발굴"
+  지침대로 성숙한 서브시스템의 자연스러운 확장을 골랐다 — 쉘 탭 완성은 bash·zsh·fish(세션 83까지 세 셸)만
+  지원해 Windows/크로스플랫폼 사용자의 PowerShell이 빠져 있었다.
+- **한 일:** core `completion.ts`에 `"pwsh"`를 `CompletionShell` 유니온·`COMPLETION_SHELLS`에 추가하고
+  `generateCompletion` 디스패치에 `generatePwsh` 배선. POSIX 셸의 `compgen`/`_describe`가 없는 PowerShell은
+  `Register-ArgumentCompleter -Native` 스크립트 블록으로 구현: spec에서 구운 후보 테이블(`$commands`·
+  `$globalOpts`·`$commandOpts`·`$subcommands`·`$subOpts`)을 두고 런타임에 `$commandAst.CommandElements`를
+  걸어 라인 위 (서브)커맨드를 찾아 매칭 후보를 `CompletionResult`로 반환한다(시작 시 최상위 커맨드+글로벌 옵션,
+  커맨드 정해지면 그 플래그, 부모 커맨드 `config`/`notify`는 서브명 또는 골라진 서브 플래그). 순수 `psQuote`
+  (단일 인용·`'` 이중화)·`psArray`로 안전 방출, 빈 테이블은 `@{}`. 기존 `assertSafeToken`·`uniq` 재사용,
+  spec은 라이브 커맨더에서 파생돼 실제 커맨드 표면과 드리프트 없음. CLI `cli.ts`의 `completion` description·help
+  예시에 PowerShell(`... | Out-String | Invoke-Expression`) 추가. 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 122파일)→`pnpm test`
+  전 패키지 통과(**core 682 · cli 365/1skip · dashboard 13**, completion.test에 pwsh 7케이스 추가). 실제 빌드
+  CLI e2e: `completion pwsh` → 네이티브 등록·후보 테이블·부모 서브커맨드 방출 확인, `completion powershell`
+  → "Unknown shell" exit 1(별칭 아님, `pwsh`만) 확인. (pwsh 바이너리는 환경에 없어 방출 스크립트 실행 검증은
+  불가 — 표준 PowerShell 문법이라 구성/유닛 테스트로 보증.)
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 남은 포화 축(IANA 타임존 파서·Gemini 어댑터·run --dry-run 등
+  세션 82 진단)의 중복 통합 지속. ③ README/ARCHITECTURE 등 🧭 코워크 소유 문서는 코워크 몫.
