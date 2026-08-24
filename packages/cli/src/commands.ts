@@ -75,6 +75,7 @@ import {
   RelayScheduler,
   type RestorePreview,
   type RestoreResult,
+  redactJob,
   redactOutputTailFromEnv,
   resolveAdapter,
   resolveBackup,
@@ -1155,6 +1156,15 @@ export interface ExportJobsOptions {
   outPath?: string;
   /** Column subset/order for the tabular formats (csv/md). Ignored by json/ndjson. Defaults to all columns. */
   columns?: readonly JobCsvColumn[];
+  /**
+   * Scrub secrets from each job's free-text fields (`lastOutputTail`,
+   * `lastError`, `lastRateLimit.rawMatch`) before serializing — without touching
+   * the store on disk. Use when sharing an export (issue, PR, chat, BI upload)
+   * from a store whose in-place `redact` sweep hasn't run. Uses the same
+   * {@link redactJob} scrubber as `agentrelay redact`, so the exported bytes are
+   * consistent with a scrubbed store. Defaults to false (raw export).
+   */
+  redact?: boolean;
 }
 
 export interface ExportJobsResult {
@@ -1174,7 +1184,11 @@ export interface ExportJobsResult {
  * `content` is the exact serializer output without it.
  */
 export function exportStore(options: ExportJobsOptions): ExportJobsResult {
-  const jobs = options.jobs ?? listStatus(options.storePath);
+  const selected = options.jobs ?? listStatus(options.storePath);
+  // Optionally scrub secrets on the fly — a serialization-time view, never a
+  // store mutation. Maps through the same pure `redactJob` as the store sweep so
+  // an export shared for help/reporting can't leak credentials the store still holds.
+  const jobs = options.redact ? selected.map((job) => redactJob(job).job) : selected;
   const content = exportJobs(jobs, options.format, options.columns ? { columns: options.columns } : {});
   let writtenTo: string | null = null;
   if (options.outPath) {

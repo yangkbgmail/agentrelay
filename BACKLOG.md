@@ -184,6 +184,15 @@
       tick-mode 하트비트 기록(cron 사용자도 생존 신호). `runDoctor`가 `nowMs` 주입 가능(테스트용).
       heartbeat.test.ts 13 + doctor daemon 6 + scheduler onTick 2 + CLI 7케이스, 실제 빌드 CLI로
       before/after·daemon 수명주기·stale 경고 e2e 검증. branch `claude/wizardly-pascal-hb7k2m`)
+- [x] 👷 `agentrelay export --redact` — 스토어를 건드리지 않고 export 출력에서만 비밀 스크럽(자율 발굴).
+      (완료 — 기존 `agentrelay redact`는 스토어를 **in-place**로 정리하지만, 그 sweep을 아직 안 돌린
+      스토어에서 `export`(특히 lossless한 json/ndjson/html)는 `lastOutputTail`·`lastError`·
+      `lastRateLimit.rawMatch`의 평문 비밀을 그대로 내보내 이슈/PR/BI 업로드로 공유할 때 누출됐다.
+      `ExportJobsOptions`에 `redact?` 추가, `exportStore`가 켜지면 core의 순수 `redactJob`으로 각 job을
+      직렬화 직전에만 매핑(스토어 파일은 불변 — 직렬화 시점의 뷰). `redact` 커맨드와 같은 스크럽러를
+      재사용해 공유 export가 스크럽된 스토어와 일관됨. CLI `export --redact` 플래그 배선. export.test.ts에
+      4케이스(json 스크럽/기본 off/디스크 불변/csv lastError 컬럼) 추가, 빌드 CLI e2e로
+      `ANTHROPIC_API_KEY=sk-ant-…`→`=[REDACTED]`·디스크 원본 보존 확인. branch `claude/wizardly-pascal-0b2vf5`)
 - [ ] 🧭 경쟁 도구(claude-auto-retry 등) 심층 조사 → 차별화 포인트 문서화.
 - [ ] 🧭 실제 rate-limit 메시지 샘플 수집 → 파서 패턴 보강 제안.
 - [ ] 🧭 성능/효율화 분석(파일 I/O, 대량 job) → 최적화 항목 도출.
