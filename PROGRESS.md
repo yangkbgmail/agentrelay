@@ -2850,3 +2850,26 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR 200+, 중복 밀집) — 큐 배수를
   🧭/사람과 조율. ③ 동류 입력 하드닝 후보: `createdAt`/`updatedAt`도 파싱 불가면 stats 타이밍/트렌드 지표에서 조용히
   스킵되므로, 필요 시 verify는 경고·import는 정책 결정(재개엔 영향 없어 우선순위 낮음).
+
+### [세션 92 — fix(parser): clock-time 범위 밖 시각 무음 misparse 하드닝 (👷 자율)] (2026-08-24, 무인 자율 세션, branch `claude/parser-clock-time-range-validation`)
+- **항목 선정:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐), 열린 PR 200+개로 병리적 포화.
+  세션 73·90·91 방침(신규 feature 지양·버그 픽스 우선·아무 열린 PR도 안 건드리는 진짜 correctness 갭)을 이어감. 파서
+  관련 열린 브랜치(`parser-clock-timezone`·`tz-aware-clock-reset`·`wizardly-pascal-tzclock`·`parser-try-again-at`
+  등 다수)를 사전 검색해, 어느 것도 standalone `clock-time`(minute-precise) 패턴에 hour/minute 범위 검증을 넣지
+  않음을 확인(전부 timezone 처리 또는 `clock-time-meridiem`/`relative-day` 경로만 손댐) → 중복 아님.
+- **발굴한 갭:** 핵심 가치 경로인 파서에서 `clock-time` 패턴(`reset[s]? at HH:MM`)만 범위 검증이 빠져 있었다. 형제
+  패턴 `clock-time-meridiem`은 `hour>12`를, `relative-day`는 12h/24h 경계를 이미 거부하는데 `clock-time`은 그대로
+  `setHours`에 넘겨 **조용히 정규화**했다: `25:00`→다음날 01:00, `12:99`→13:39, `08:60`→09:00, `13:00pm`→13:00.
+  전부 잘못된 리셋 시각으로 잡을 파킹하며, mistime이 작아(수 시간~하루) 8일 plausibility 가드로도 못 잡는 무음
+  실패. end-to-end로 재현 확인 후 픽스.
+- **한 일:** `clock-time` resolve에 형제 패턴과 동일 규율 추가 — `minute>59`면 null, meridiem 있으면 `hour<1||
+  hour>12`면 null(무효 12h + `am`/`pm` 정규화), 없으면 `hour>23`이면 null(무효 24h). null 반환 시 파서가 남은
+  패턴으로 fall-through하거나 최종 null(=정상 완료 처리)로 안전 폴백. 유효 입력(`3:00pm`/`15:00`/`5:30pm`)은
+  동작 불변. 스케줄러/큐/기타 결정 로직 0줄 변경.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 130파일)→`pnpm test` 전
+  패키지 통과(**core 769[+3] · cli 394/1skip · dashboard 13**). parser.test +3(24h 범위 `25:00`, minute 범위
+  `12:99`·`08:60`, 12h+meridiem `13:00pm`·`0:00am`). 실제 빌드 파서로 end-to-end 확인: 무효 시각 4종은 전부
+  null, 유효 시각(`3:00pm`/`15:00`/`5:30pm`)은 정상 파싱 유지.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR 200+, 중복 밀집) — 큐
+  배수를 🧭/사람과 조율. ③ 동류 하드닝 후보: `clock-time-meridiem`은 `hour<1`(예: "0am") 하한을 안 봄 —
+  실제 도달 가능성 낮아 우선순위 낮음. `http-retry-after`의 delay-seconds 상한(7자리) 이미 방어됨.

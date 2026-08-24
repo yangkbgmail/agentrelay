@@ -1107,6 +1107,16 @@
       +4(validateJobRecord 구조-only 유지 1 + parseImportJobs json 거부/수용 2 + ndjson 거부 1),
       실제 빌드 CLI e2e로 `import --include-active`가 bad 레코드만 거부하고 good만 스토어에 남김 확인.
       branch `claude/wizardly-pascal-47451z`)
+- [x] 👷 fix(parser): `clock-time` 패턴이 범위 밖 시각(`25:00`, `12:99`, `08:60`, `13:00pm`)을
+      조용히 잘못 정규화하던 무음 misparse 하드닝. 자기 발굴 **버그 픽스**.
+      (완료 — 최소 minute-precise `clock-time` 패턴(`reset[s]? at HH:MM`)만 hour/minute 범위 검증이
+      없어, `setHours`가 잘못된 값을 **정규화**했다: `25:00`→다음날 01:00, `12:99`→13:39, `08:60`→
+      09:00, `13:00pm`→13:00. 모두 잘못된 리셋 시각으로 잡을 파킹하는데 mistime이 작아 8일
+      plausibility 가드로도 못 잡는다. 이미 검증하는 형제 패턴 `clock-time-meridiem`(hour>12 거부)·
+      `relative-day`(12h/24h 경계)와 동일 규율을 적용: `minute>59`, meridiem 시 `hour<1||hour>12`,
+      24h 시 `hour>23`이면 `null` 반환 → 파서가 saner 패턴으로 fall-through(또는 null=정상 완료 처리).
+      유효 입력(`3:00pm`/`15:00`/`5:30pm`)은 불변. parser.test +3(24h 범위·minute 범위·12h+meridiem
+      각 케이스). 스케줄러/큐 0줄 변경. branch `claude/parser-clock-time-range-validation`)
 
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 

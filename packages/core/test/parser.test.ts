@@ -69,6 +69,25 @@ describe("parseRateLimitMessage", () => {
     expect(resetDate.getMinutes()).toBe(30);
   });
 
+  it("rejects an out-of-range 24-hour clock-time instead of normalizing it ('resets at 25:00')", () => {
+    // Bare setHours(25, 0) silently rolls to 01:00 the next day — a wrong reset
+    // the 8-day guard can't catch. The pattern must fall through to null instead.
+    expect(parseRateLimitMessage("Usage limit reached. Resets at 25:00.")).toBeNull();
+  });
+
+  it("rejects an out-of-range minute in clock-time ('resets at 12:99', 'resets at 08:60')", () => {
+    // setHours(12, 99) -> 13:39; setHours(8, 60) -> 09:00. Both are misparses.
+    expect(parseRateLimitMessage("Resets at 12:99.")).toBeNull();
+    expect(parseRateLimitMessage("Resets at 08:60.")).toBeNull();
+  });
+
+  it("rejects an invalid 12-hour clock-time with a meridiem ('resets at 13:00pm', 'resets at 0:00am')", () => {
+    // 13 and 0 are not valid on a 12-hour clock; without validation "13:00pm"
+    // stuck at 13:00 and "0:00am" at 00:00 — neither is what the message meant.
+    expect(parseRateLimitMessage("Resets at 13:00pm.")).toBeNull();
+    expect(parseRateLimitMessage("Resets at 0:00am.")).toBeNull();
+  });
+
   it("does not treat a bare 'reset at 5' (no minutes, no meridiem) as a clock time", () => {
     // Too ambiguous — could be "5 hours", "5th", etc. Requiring am/pm keeps us safe.
     expect(parseRateLimitMessage("Rate limit hit, reset at 5.")).toBeNull();
