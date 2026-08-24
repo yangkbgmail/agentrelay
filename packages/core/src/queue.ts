@@ -31,6 +31,7 @@ import {
 } from "./backup.js";
 import { type ImportOptions, type ImportResult, planImport, summarizeImportPlan } from "./import.js";
 import { type PruneOptions, selectPrunableJobs } from "./prune.js";
+import { planStoreRedaction, type StoreRedactionPlan } from "./redact.js";
 import type { CreateJobInput, JobStatus, RateLimitDetection, RelayJob } from "./types.js";
 
 /** Details handed to {@link RelayQueueOptions.onCorrupt} when the store file
@@ -318,6 +319,30 @@ export class RelayQueue {
     }
     this.flush();
     return prune;
+  }
+
+  /**
+   * Scrub persisted secrets from every job's free-text fields
+   * (`lastOutputTail`, `lastError`, `lastRateLimit.rawMatch`) in place, using
+   * the same recognizer the scheduler applies at write time (see
+   * {@link redactSecrets}). Where the scheduler only protects *new* writes going
+   * forward, this reaches jobs stored before redaction existed, imported from an
+   * external dump, or hand-edited — the plaintext credentials that `show`/
+   * `export` would otherwise surface. Returns the plan (per-job change log +
+   * totals); pass `dryRun: true` to compute it without writing. A job whose
+   * fields need no change keeps its exact `updatedAt`, so the sweep never
+   * perturbs lifecycle timing.
+   */
+  redact(options: { dryRun?: boolean } = {}): StoreRedactionPlan {
+    this.load();
+    const plan = planStoreRedaction(Array.from(this.jobs.values()));
+    if (options.dryRun || plan.changes.length === 0) return plan;
+    const changedIds = new Set(plan.changes.map((c) => c.id));
+    for (const job of plan.jobs) {
+      if (changedIds.has(job.id)) this.jobs.set(job.id, job);
+    }
+    this.flush();
+    return plan;
   }
 
   /**

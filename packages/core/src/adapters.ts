@@ -98,6 +98,34 @@ const CODEX_SECONDS_PATTERN: RateLimitPattern = {
 };
 
 /**
+ * Google's Gemini API (which the `gemini` CLI talks to) reports how long to back
+ * off with a machine-readable `RetryInfo` field embedded in the 429 error
+ * payload, e.g.
+ *
+ *   429 Too Many Requests {"error":{...,"status":"RESOURCE_EXHAUSTED",
+ *     "details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo",
+ *     "retryDelay":"56s"}]}}
+ *
+ * The delay is a protobuf `Duration` string, always expressed in *seconds* with
+ * a trailing `s` (e.g. `"56s"`, `"27.5s"`). The generic parser only understands
+ * hours/minutes prose, and the Codex seconds pattern requires "try again/retry"
+ * wording that this structured field lacks, so a `retryDelay` would otherwise be
+ * missed. Keyed on the literal field name so it stays disjoint from the other
+ * patterns. Accepts `retryDelay` / `retry_delay` / `retry-delay` and tolerates
+ * optional surrounding quotes on both the key and the value. Rounds the wait up
+ * to whole milliseconds so we never resume before the API is willing to serve.
+ */
+const GEMINI_RETRY_DELAY_PATTERN: RateLimitPattern = {
+  name: "gemini-retry-delay",
+  regex: /retry[_-]?delay"?\s*[:=]\s*"?(\d+(?:\.\d+)?)\s*s"?/i,
+  resolve: (m, now) => {
+    const seconds = parseFloat(m[1]);
+    if (!Number.isFinite(seconds) || seconds <= 0) return null;
+    return new Date(now.getTime() + Math.ceil(seconds * 1000));
+  },
+};
+
+/**
  * Claude Code's non-interactive / print mode (`claude -p ...`) does not print a
  * prose sentence when it hits the usage limit — it emits a machine-readable line
  * of the form `Claude AI usage limit reached|<unix_epoch>`, where the number
@@ -146,6 +174,13 @@ export const CODEX_CLI_ADAPTER: AgentAdapter = makeAdapter({
   patterns: [CODEX_SECONDS_PATTERN],
 });
 
+export const GEMINI_CLI_ADAPTER: AgentAdapter = makeAdapter({
+  tool: "gemini-cli",
+  displayName: "Gemini CLI",
+  binaries: ["gemini"],
+  patterns: [GEMINI_RETRY_DELAY_PATTERN],
+});
+
 export const GENERIC_ADAPTER: AgentAdapter = makeAdapter({
   tool: "generic",
   displayName: "Generic agent",
@@ -157,6 +192,7 @@ export const GENERIC_ADAPTER: AgentAdapter = makeAdapter({
 export const ADAPTERS: Record<AgentTool, AgentAdapter> = {
   "claude-code": CLAUDE_CODE_ADAPTER,
   "codex-cli": CODEX_CLI_ADAPTER,
+  "gemini-cli": GEMINI_CLI_ADAPTER,
   generic: GENERIC_ADAPTER,
 };
 

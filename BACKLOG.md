@@ -1001,6 +1001,47 @@
       build/lint/test 통과(**core 679 · cli 370/1skip · dashboard 13**, Biome 0경고), 실제 빌드 CLI e2e로
       clean→ok / 중복-id→error+exit 1 / 스토어 UNCHANGED(비파괴) / 두 번째 실행도 여전히 flag 검증.
       branch `claude/wizardly-pascal-uems38`)
+- [x] 👷 출력 tail 비밀 레닥션(secret redaction) — `jobs.json`/`export`에 자격증명 유출 방지.
+      (스스로 발굴. 스케줄러가 재개 실행마다 에이전트 stdout/stderr 꼬리를 `lastOutputTail`로 스토어에
+      영속화하는데, 실제 에이전트 출력엔 자격증명이 흔히 섞임 — 크래시 스크립트가 echo한
+      `ANTHROPIC_API_KEY`, 로깅된 HTTP 요청의 `Authorization: Bearer …`, PAT 박힌 git remote URL.
+      그대로 저장하면 편의용 로그가 디스크(및 디버깅용으로 공유하는 `export`)의 평문 비밀 저장소가 됨.
+      완료 — `@agentrelay/core/redact.ts` 신설: 순수 `redactSecrets(text)`(Anthropic `sk-ant-`/OpenAI
+      `sk-`/GitHub `ghp_`·`github_pat_`/AWS `AKIA`/Slack `xox*`/Google `AIza`/`Authorization: Bearer|token`/
+      `NAME=secret`·`NAME: secret` 자격증명 대입을 `[REDACTED]`로 마스킹, 분류 못 하는 텍스트는 불변 →
+      일반 출력 안 망가뜨림) + `REDACTION_PLACEHOLDER` + `redactOutputTailFromEnv`(`AGENTRELAY_REDACT_OUTPUT`,
+      secure-by-default: 미설정·오타는 on, 명시적 off/0/false/no/none/disabled만 off). 스케줄러는 tail을
+      **슬라이스 후 스크럽**해 저장 — rate-limit 감지는 항상 un-redacted `output`에서 돌아 재개 시점 불변,
+      마스킹은 디스크에 쓰이는 것만 바꿈. `redactOutputTail` 옵션(기본 true), CLI daemon/tick이 env로 배선.
+      redact.test.ts 22케이스 + scheduler.test.ts 3케이스(completed/failed tail 레닥션 + 비활성화 시 raw 보존).
+      build/lint/test 통과(**core 707 · cli 370/1skip · dashboard 13**, Biome 0경고), 빌드된 dist로 실제
+      스크럽 e2e 확인. branch `claude/wizardly-pascal-q3j8uv`)
+
+- [x] 👷 `agentrelay redact` — 이미 저장된 잡의 비밀 소급 스크럽(세션 85 #875의 write-time 레닥션 후속:
+      레닥션 이전 저장·`import` 유입·손 편집 잡의 평문 자격증명이 `show`/`export`로 노출되는 갭 차단).
+      (완료 — `@agentrelay/core/redact.ts`에 순수 `redactJob(job)`(`lastOutputTail`·`lastError`·
+      `lastRateLimit.rawMatch`에 기존 `redactSecrets` 적용, 바뀐 필드만 보고, **updatedAt 불변**)·
+      `planStoreRedaction(jobs)`(순서 보존 계획+변경 로그+총계)·`RedactableField`/`REDACTABLE_FIELDS`/
+      `JobRedactionChange`/`StoreRedactionPlan` 추가. `RelayQueue.redact({dryRun})`가 변경 잡만 set 후 원자적
+      flush(dry-run 무기록). CLI `redactStore`+순수 `renderRedact`/`renderRedactJson`+`agentrelay redact
+      [--dry-run] [--json]` 배선. prune/recover의 pure 선택+I/O 분리 재사용, 새 파서/스케줄러 로직 0줄.
+      core redact.test +9·cli redact.test +8, 빌드 CLI e2e로 디스크 스크럽·updatedAt 불변·idempotent 확인.
+      branch `claude/wizardly-pascal-lsguqd`)
+
+- [x] 👷 Gemini CLI 어댑터 — Google `gemini` CLI 지원 추가(툴 추론 + Google API `RetryInfo.retryDelay`
+      구조화 리셋 인식). 세션 초기 "다른 에이전트 툴 어댑터"(claude-code/codex-cli/generic) 확장 후속.
+      (완료 — `AgentTool` 유니온에 `"gemini-cli"` 추가(`types.ts`), `@agentrelay/core/adapters.ts`에
+      `GEMINI_CLI_ADAPTER`(binaries `["gemini"]`) + `GEMINI_RETRY_DELAY_PATTERN` 신설: Gemini API가 429
+      `RESOURCE_EXHAUSTED` 페이로드에 싣는 `google.rpc.RetryInfo`의 `retryDelay:"56s"`(protobuf Duration,
+      항상 초 단위 `s` 접미사)를 인식 — 일반 파서(시/분 prose)도, Codex 초 패턴("try again in Ns" 문구
+      필요)도 놓치던 구조화 필드. `retryDelay`/`retry_delay`/`retry-delay` + 키·값 양쪽 선택적 따옴표 허용,
+      소수 초는 whole-ms로 ceil해 조기 재개 방지. 필드명에 앵커돼 다른 패턴과 disjoint. `ADAPTERS` 레지스트리
+      (컴파일타임 `Record<AgentTool,…>` 강제)·`ALL_TOOLS`(stats zero-fill/metrics 자동 전파)·`VALID_TOOLS`
+      (import 검증)·CLI 도움말/`tools` 설명문에 gemini-cli 반영. 새 명령/스케줄러 로직 0줄 — 기존 어댑터
+      파이프라인 재사용. adapters.test +6(binary 추론·resolve·retryDelay 감지·소수 ceil·generic 폴백·generic이
+      구조화 필드 미인식)·stats.test byTool zero-fill 3케이스 gemini 키 반영. build/lint/test 통과
+      (**core 722 · cli 378/1skip · dashboard 13**, Biome 0에러), 빌드 CLI `parse --tool gemini-cli`로
+      retryDelay→resets in 1m·generic 미인식 e2e 확인. branch `claude/wizardly-pascal-gr62f3`)
 
 - [x] 👷 컨텍스트 보존 재개(`agentrelay run --resume-context`) — 재개 시 명령을 처음부터 다시 돌리는
       대신 툴의 대화-이어가기 형태(Claude Code의 `--continue`)로 실행. **SPEC §4의 미구현 요구사항**
