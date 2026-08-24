@@ -1028,6 +1028,19 @@
       core redact.test +9·cli redact.test +8, 빌드 CLI e2e로 디스크 스크럽·updatedAt 불변·idempotent 확인.
       branch `claude/wizardly-pascal-lsguqd`)
 
+- [x] 👷 `agentrelay export --redact` — 내보내는 출력에서만 비밀을 스크럽(스토어 불변). 세션 85·86의
+      write-time/소급 레닥션 후속: 디버깅용으로 덤프를 공유할 때 스토어를 건드리지 않고도 자격증명 유출 방지.
+      (스스로 발굴. 세션 85 #875는 앞으로의 write만, 세션 86 `redact`는 스토어를 **in-place** 스크럽하지만,
+      "스토어는 그대로 두고 이번 export 출력만 안전하게" 하는 수단이 없었다 — 세션 86 로그의 "다음 할 일 ②"가
+      남긴 갭. 완료 — CLI `commands.ts`의 `ExportJobsOptions`에 `redact?: boolean` + `ExportJobsResult`에
+      `redactedCount` 추가, `exportStore`가 redact 시 core `planStoreRedaction(jobs).jobs`로 **복사본만**
+      스크럽 후 직렬화(원본 job 객체·디스크 스토어 절대 불변, 변경 필드만 참조 교체). `cli.ts` export에
+      `--redact` 플래그 배선 — 파일 출력 시 stderr에 "(redacted secrets in N job(s))", stdout 파이프는
+      청정 유지하되 stderr로 스크럽 건수 확인. 새 core 코드 0줄(세션 86 `planStoreRedaction` 재사용).
+      export.test.ts +5(json/csv 스크럽·redact off·복사본 비파괴·비밀 없음 0건). build/lint/test 통과
+      (**core 716 · cli 383/1skip · dashboard 13**, Biome 0경고), 빌드 CLI e2e로 디스크 스토어 UNCHANGED·
+      redact 시 `[REDACTED]`·미사용 시 평문 유출 확인. branch `claude/wizardly-pascal-xw6r2r`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

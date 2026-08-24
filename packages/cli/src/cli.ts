@@ -1637,6 +1637,7 @@ export function buildCli(): Command {
     .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
     .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
     .option("--columns <list>", `Pick/reorder columns for csv/md (comma-separated): ${JOB_CSV_COLUMNS.join(", ")}`)
+    .option("--redact", "Scrub secrets (API keys, tokens, credentials) from the output without modifying the store")
     .action(
       (opts: {
         format?: string;
@@ -1649,6 +1650,7 @@ export function buildCli(): Command {
         sort?: string;
         reverse?: boolean;
         columns?: string;
+        redact?: boolean;
       }) => {
         const { store } = program.opts();
 
@@ -1769,12 +1771,19 @@ export function buildCli(): Command {
           jobs,
           outPath: opts.out,
           columns,
+          redact: opts.redact,
         });
+        const redactNote = opts.redact ? ` (redacted secrets in ${result.redactedCount} job(s))` : "";
         if (result.writtenTo) {
           // Keep stdout clean for redirection; status goes to stderr.
-          console.error(`[agentrelay] exported ${result.count} job(s) to ${result.writtenTo}`);
+          console.error(`[agentrelay] exported ${result.count} job(s) to ${result.writtenTo}${redactNote}`);
         } else {
           console.log(result.content);
+          // Redaction is silent on the stdout path (which must stay pure for
+          // piping), but a stderr note still confirms scrubbing happened.
+          if (opts.redact) {
+            console.error(`[agentrelay] redacted secrets in ${result.redactedCount} job(s)`);
+          }
         }
       }
     );

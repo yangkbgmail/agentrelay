@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RelayQueue, scopeJobs } from "@agentrelay/core";
+import { type RelayJob, RelayQueue, scopeJobs } from "@agentrelay/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { exportStore, listStatus } from "../src/commands.js";
 import { selectJobs } from "../src/status.js";
@@ -230,5 +230,67 @@ describe("exportStore", () => {
     expect(parsed).toHaveLength(1);
     expect(parsed[0].project).toBe("beta");
     expect(parsed[0].command).toEqual(["codex", "new"]);
+  });
+
+  // --redact scrubs secrets from the serialized copy only, closing the gap where
+  // a job stored before write-time redaction (or imported/hand-edited) still
+  // exposes plaintext credentials through `export`.
+  describe("--redact", () => {
+    const iso = "2026-08-24T00:00:00.000Z";
+    const secretJob = (): RelayJob => ({
+      id: "secret-1",
+      project: "alpha",
+      tool: "claude-code",
+      command: ["claude", "-p", "go"],
+      cwd: "/a",
+      status: "failed",
+      resetAt: null,
+      attempts: 1,
+      lastError: "boom ANTHROPIC_API_KEY=sk-ant-abcdefghijklmnopqrstuvwxyz012345 leaked",
+      lastOutputTail: "Authorization: Bearer ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+      createdAt: iso,
+      updatedAt: iso,
+    });
+
+    it("scrubs secrets from JSON output and reports the count when redact is set", () => {
+      const jobs = [secretJob()];
+      const result = exportStore({ storePath, format: "json", jobs, redact: true });
+      expect(result.redactedCount).toBe(1);
+      expect(result.content).not.toContain("sk-ant-abcdefghijklmnopqrstuvwxyz012345");
+      expect(result.content).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz0123456789");
+      expect(result.content).toContain("[REDACTED]");
+      // Non-secret material is preserved.
+      expect(result.content).toContain("boom");
+    });
+
+    it("does not scrub anything when redact is off (default)", () => {
+      const jobs = [secretJob()];
+      const result = exportStore({ storePath, format: "json", jobs });
+      expect(result.redactedCount).toBe(0);
+      expect(result.content).toContain("sk-ant-abcdefghijklmnopqrstuvwxyz012345");
+    });
+
+    it("scrubs secrets in the CSV lastError column too", () => {
+      const jobs = [secretJob()];
+      const result = exportStore({ storePath, format: "csv", jobs, redact: true });
+      expect(result.content).not.toContain("sk-ant-abcdefghijklmnopqrstuvwxyz012345");
+      expect(result.content).toContain("[REDACTED]");
+    });
+
+    it("never mutates the caller's job objects (redacts a copy)", () => {
+      const jobs = [secretJob()];
+      exportStore({ storePath, format: "json", jobs, redact: true });
+      // The original array/objects passed in are untouched — redaction happens
+      // on the serialized copy only, so the on-disk store is never at risk.
+      expect(jobs[0].lastError).toContain("sk-ant-abcdefghijklmnopqrstuvwxyz012345");
+      expect(jobs[0].lastOutputTail).toContain("ghp_abcdefghijklmnopqrstuvwxyz0123456789");
+    });
+
+    it("reports zero redactions when jobs carry no secrets", () => {
+      seed();
+      const result = exportStore({ storePath, format: "json", redact: true });
+      expect(result.redactedCount).toBe(0);
+      expect(result.count).toBe(2);
+    });
   });
 });

@@ -2623,3 +2623,26 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② `export`/대시보드에도 옵션형 소급 스크럽 노출은 후속 후보(현재는
   스토어 in-place 정리로 충분). ③ 나머지 clean·고가치 PR(#878 clean/#879 search 등)은 doc append 충돌로 dirty —
   근본 원인(세션 로그를 날짜별 개별 파일로 분리)은 🧭 코워크 소유 프로세스 안건. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 87 — `agentrelay export --redact`: 내보내는 출력만 비밀 스크럽(스토어 불변) (👷 자율 발굴)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-xw6r2r`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(열린 🧭 항목은 전부 문서/리서치 — 손대지 않음). 세션 86 로그의
+  "다음 할 일 ②"가 남긴 실질 갭을 발굴·구현: 세션 85 #875는 **앞으로의** write만 스크럽하고, 세션 86
+  `agentrelay redact`는 스토어를 **in-place**로 스크럽하지만, "스토어는 그대로 두고 이번 export 출력만 안전하게"
+  하는 수단이 없었다. 사용자가 디버깅 도움을 청하며 덤프를 공유할 때, 레닥션 이전 저장/`import` 유입/손 편집으로
+  들어온 평문 자격증명이 `export`로 그대로 노출되는 문제.
+- **한 일 (`agentrelay export --redact`):** CLI `commands.ts`의 `ExportJobsOptions`에 `redact?: boolean`,
+  `ExportJobsResult`에 `redactedCount` 추가. `exportStore`가 redact 시 core `planStoreRedaction(jobs).jobs`로
+  **복사본만** 스크럽한 뒤 직렬화 — 원본 job 객체와 디스크 스토어는 절대 불변(순수 계획이 새 job 객체를 만들고
+  안 바뀐 필드는 참조 공유). `cli.ts` export 커맨드에 `--redact` 플래그 배선: 파일 출력 시 stderr에
+  "(redacted secrets in N job(s))" 부기, stdout 파이프는 청정 유지하되 stderr로 스크럽 건수 확인. 새 core 코드
+  0줄 — 세션 86의 검증된 `planStoreRedaction`(pure 선택 + I/O 분리 패턴) 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 126파일)→`pnpm test` 전
+  패키지 통과(**core 716 · cli 383/1skip · dashboard 13**; export.test.ts에 --redact 5케이스 추가:
+  json/csv 스크럽·redact off는 평문 유지·복사본 비파괴[원본 job 불변]·비밀 없으면 0건). 빌드된 CLI e2e(임시
+  스토어 1잡, `ANTHROPIC_API_KEY=sk-ant-…`·`Authorization: Bearer ghp_…`): `export -f json --redact`가
+  출력에서 `[REDACTED]`로 스크럽 + stderr "redacted secrets in 1 job(s)", **디스크 스토어는 UNCHANGED**(비밀 원본
+  유지), redact 미사용 export는 평문 그대로 유출(대조군) 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 대시보드/`show`가 이미 저장된(레닥션 전) tail을
+  렌더할 때의 옵션형 스크럽은 후속 후보(현재는 export/redact/write-time 3면으로 유출 표면을 덮음). ③ 열린 PR 다수는
+  세션 로그 append 충돌로 dirty — 근본 원인(세션 로그를 날짜별 개별 파일로 분리)은 🧭 코워크 소유 프로세스 안건.
+  README/ARCHITECTURE는 🧭 코워크 몫.
