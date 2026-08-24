@@ -1108,6 +1108,23 @@
       실제 빌드 CLI e2e로 `import --include-active`가 bad 레코드만 거부하고 good만 스토어에 남김 확인.
       branch `claude/wizardly-pascal-47451z`)
 
+- [x] 👷 fix(core): `redact`의 openai-key 규칙이 최신 OpenAI 키(`sk-svcacct-`/`sk-admin-`)를
+      전혀 못 잡고, base64url body(`_`·`-` 포함) 키의 꼬리를 유출하던 **시크릿 스크럽 누락** 수정.
+      자기 발굴 **버그 픽스** — 열린 redact PR(#887 PEM/Stripe/Google 규칙 추가·#889 export --redact)이
+      모두 openai `sk-` 규칙 자체는 안 건드려 진짜 갭이 남아 있었다.
+      (완료 — 기존 규칙 `/sk-(?:proj-)?[A-Za-z0-9]{16,}/`는 두 가지로 under-redact 했다: (1) 최신
+      키 body가 base64url(`_`·`-`)이라 첫 구분자에서 잘려 뒷부분이 평문 유출(`sk-proj-abc_DEF…`→
+      `sk-[REDACTED]_DEF…`); (2) `sk-svcacct-…`/`sk-admin-…`는 `svcacct`(7자)·`admin`(5자) 프리픽스가
+      16자 미만이고 뒤 `-`가 run을 끊어 **아예 매치 0** → 키 전체가 평문으로 남았다. 규칙을
+      `/sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{16,}|sk-[A-Za-z0-9]{16,}/`로 교체: 1번 대안이 최신
+      프리픽스를 인식하고 body를 base64url(`[A-Za-z0-9_-]`, anthropic 규칙과 동일)로 매치, 2번 대안이
+      레거시 영숫자 형태를 그대로 유지. anthropic 규칙이 먼저 돌아 이미 마스킹된 `sk-ant-[REDACTED]`
+      (`[` 앞 `ant-` 4자<16)는 어느 대안에도 재매치 안 됨. 순수 함수라 write-time 스크럽·
+      `agentrelay redact` 소급·`export --redact` 전 경로에 자동 적용(파이프라인 배선 0줄). redact.test에
+      +4(최신 body no-tail-leak·svcacct/admin 매치·레거시 유지·anthropic 재매치 방지). build/lint/test
+      통과(**core 770[+4] · cli 394/1skip · dashboard 13**, Biome 0에러). 빌드된 `dist/redact.js`로
+      svcacct/admin/proj/legacy/anthropic 5종 유출 0 확인. branch `claude/wizardly-pascal-yayyj2`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

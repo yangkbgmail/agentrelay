@@ -2850,3 +2850,29 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR 200+, 중복 밀집) — 큐 배수를
   🧭/사람과 조율. ③ 동류 입력 하드닝 후보: `createdAt`/`updatedAt`도 파싱 불가면 stats 타이밍/트렌드 지표에서 조용히
   스킵되므로, 필요 시 verify는 경고·import는 정책 결정(재개엔 영향 없어 우선순위 낮음).
+
+### [세션 92 — fix(core): redact openai-key 규칙이 최신 OpenAI 키(svcacct/admin)·base64url body를 놓쳐 시크릿을 유출하던 스크럽 누락 수정 (👷 자율)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-yayyj2`)
+- **항목 선정:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐), 열린 PR 200+개로 병리적 포화.
+  세션 73·90·91 방침(신규 feature 지양·아무 열린 PR도 안 건드리는 진짜 correctness/보안 갭 발굴)을 이어감. 사전에 잘 알려진
+  버그 클러스터가 이미 열린 PR로 포화임을 확인(시그널로 죽은 재개=#753, listDue 불일치 overdue/next/upcoming/eta=
+  #898·#899·#900) → 이들을 피해 다른 표면을 탐색.
+- **발굴한 갭:** 세션 85(#875 write-time)·86(#880 소급 redact)이 깐 시크릿 스크러버의 openai-key 규칙
+  `/sk-(?:proj-)?[A-Za-z0-9]{16,}/`이 최신 OpenAI 키를 두 가지로 under-redact 했다. (1) 최신 키 body는 base64url이라
+  `_`·`-`를 포함하는데 char class가 `[A-Za-z0-9]`뿐 → 첫 구분자에서 잘려 **꼬리 평문 유출**(`sk-proj-abc_DEF…`→
+  `sk-[REDACTED]_DEF…`); (2) `sk-svcacct-…`/`sk-admin-…`는 프리픽스가 16자 미만이고 뒤 `-`가 run을 끊어 **매치 0** →
+  **키 전체 평문 유출**. 열린 redact PR #887(PEM/Stripe/Google 규칙 추가)·#889(export --redact)은 모두 openai `sk-` 규칙
+  자체를 안 건드려(#887은 오히려 Stripe `sk_live_`가 "하이픈 OpenAI `sk-` 규칙과 disjoint"라 명시) 이 갭이 그대로 남아
+  있었다 — 중복 아님 확인.
+- **한 일:** `packages/core/src/redact.ts`의 openai-key regex를
+  `/sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{16,}|sk-[A-Za-z0-9]{16,}/`로 교체. 1번 대안이 최신 프리픽스를 인식하고
+  body를 base64url(`[A-Za-z0-9_-]`, anthropic 규칙과 동일)로 매치, 2번 대안이 레거시 영숫자 형태를 그대로 유지(strictly
+  additive). anthropic 규칙이 먼저 돌아 이미 마스킹된 `sk-ant-[REDACTED]`(`[` 앞 `ant-` 4자<16)는 어느 대안에도 재매치
+  안 됨. 순수 함수라 write-time 스크럽·`agentrelay redact` 소급·`export --redact` 전 경로에 자동 적용(파이프라인 배선 0줄).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 130파일)→`pnpm test` 전 패키지 통과
+  (**core 770[+4] · cli 394/1skip · dashboard 13**). redact.test +4(최신 body no-tail-leak·svcacct/admin 매치·레거시
+  유지·anthropic 재매치 방지, 키 fixture는 런타임 문자열 결합으로 소스에 매치 substring 없음 → push-protection 안전).
+  수정 **전** `dist/redact.js` 실증: svcacct/admin=전체 유출, proj=꼬리 유출. 수정 **후**: 5종(svcacct/admin/proj/legacy/
+  anthropic) 전부 유출 0 + anthropic은 `sk-ant-` 힌트 보존.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR 200+) — 큐 배수를 🧭/사람과 조율.
+  ③ 잔여 redact 커버리지 후보: `authorization: bearer\n<token>` 같이 `\s+`가 개행을 넘어 다음 줄 토큰을 삼키는 over-match,
+  스케줄러 write-time이 tail만 스크럽하고 `lastError`/`rawMatch`는 소급 sweep에 의존하는 점(문서화된 설계) 재검토.
