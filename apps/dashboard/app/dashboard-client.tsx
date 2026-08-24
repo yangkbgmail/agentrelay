@@ -22,6 +22,16 @@ const STATUS_META: Record<JobStatus, { label: string; colorVar: string }> = {
   cancelled: { label: "Cancelled", colorVar: "var(--ink-muted)" },
 };
 
+// Terminal statuses, kept as a local set so this client component only ever
+// type-imports from `@agentrelay/core` — a value import would drag the core
+// index (and its node: built-ins) into the browser bundle, the same reason
+// `formatCountdown` below is a local copy. Mirrors core's TERMINAL_STATUSES.
+const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set(["completed", "failed", "cancelled"]);
+
+function isTerminalStatus(status: JobStatus): boolean {
+  return TERMINAL_STATUSES.has(status);
+}
+
 function formatCountdown(resetAt: string | null, now: number): string {
   if (!resetAt) return "—";
   const ms = new Date(resetAt).getTime() - now;
@@ -264,7 +274,9 @@ function JobRow({ job, now }: { job: RelayJob; now: number }) {
         <StatusBadge status={job.status} />
       </td>
       <td className="cmd">{job.command.join(" ")}</td>
-      <td className="numeric">{formatCountdown(job.resetAt, now)}</td>
+      {/* Terminal jobs never resume; a completed/failed one keeps a now-stale
+          resetAt that would otherwise show as a misleading "due now". */}
+      <td className="numeric">{isTerminalStatus(job.status) ? "—" : formatCountdown(job.resetAt, now)}</td>
       <td className="numeric">{job.attempts}</td>
       <td className="numeric">{formatClock(job.updatedAt)}</td>
       <td>
