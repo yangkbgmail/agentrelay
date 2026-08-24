@@ -1108,6 +1108,19 @@
       실제 빌드 CLI e2e로 `import --include-active`가 bad 레코드만 거부하고 good만 스토어에 남김 확인.
       branch `claude/wizardly-pascal-47451z`)
 
+- [x] 👷 fix(core): `agentrelay next`·`upcoming`이 파싱 불가 `resetAt` 잡을 조용히 숨겨,
+      데몬이 바로 다음에 재개할 잡을 런웨이에서 보이지 않게 하던 `listDue` 불일치(#812 후속). 자기 발굴 **버그 픽스**.
+      (완료 — #812가 `isJobDue`를 파싱 불가 `resetAt`=**due-now**로 바꿔 `listDue`가 그런 잡을 다음 tick에
+      재개하게 됐지만, 형제 읽기 표면인 `selectNextResume`(next.ts)·`buildUpcomingTimeline`(upcoming.ts)은
+      여전히 `!Number.isNaN(Date.parse(resetAt))`로 **필터 아웃**해, 두 커맨드의 독스트링이 주장하는
+      "listDue가 작동하는 바로 그 집합"과 정면으로 어긋났다 — 사용자는 데몬이 곧 재개할 잡을 `next`/`upcoming`
+      어디서도 못 보는 무음 불일치(#812=listDue·#898/#896=overdue와 동일 갠class, 그러나 이 두 표면은 어떤
+      열린 PR도 안 건드림). 두 모듈의 필터를 `waiting_for_reset` + 비-null `resetAt`로 완화(null은 계속 제외 —
+      isJobDue와 일치)하고, 파싱 불가는 순수 `resetSortKey`(NaN→`NEGATIVE_INFINITY`)로 **가장 시급=맨 앞**에
+      정렬 + `dueInMs:0`·`due:true`(NaN 카운트다운 렌더 방지, CLI는 `due`로 게이트해 "due now" 표시).
+      next.test +1·수정1, upcoming.test +1·수정1(파싱 불가=due-now·맨앞 정렬 회귀). 전 패키지 그린 유지
+      (**core 768 · cli 394/1skip · dashboard 13**), Biome 0에러. branch `claude/wizardly-pascal-xc7xe9`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

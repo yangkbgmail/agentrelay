@@ -2850,3 +2850,26 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR 200+, 중복 밀집) — 큐 배수를
   🧭/사람과 조율. ③ 동류 입력 하드닝 후보: `createdAt`/`updatedAt`도 파싱 불가면 stats 타이밍/트렌드 지표에서 조용히
   스킵되므로, 필요 시 verify는 경고·import는 정책 결정(재개엔 영향 없어 우선순위 낮음).
+
+### [세션 92 — fix(core): next·upcoming이 파싱 불가 resetAt 잡을 조용히 숨기던 listDue 불일치(#812 후속) (👷 자율)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-xc7xe9`)
+- **항목 선정:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 문서/리서치뿐), 열린 PR 200개로 병리적 포화(기능·버그
+  픽스 대부분 중복). 신규 feature PR은 한계효용 음수라 세션 73·90·91 방침을 이어 **어떤 열린 PR도 안 건드리는 진짜
+  correctness 갭**을 발굴. 200개 PR 제목을 전량 스캔해 `next`/`upcoming`의 파싱 불가 resetAt 불일치가 미커버임을 확인
+  (overdue용 #898/#896, next·eta용 #810은 스코프 필터/워치일 뿐 이 갭 아님).
+- **발굴한 갭:** #812(세션 90 병합)가 `isJobDue`를 파싱 불가 `resetAt`=**due-now**로 바꿔 `listDue`가 그런 잡을 다음
+  tick에 재개하게 됐지만, 형제 읽기 표면 `selectNextResume`(next.ts)·`buildUpcomingTimeline`(upcoming.ts)은 여전히
+  `!Number.isNaN(Date.parse(resetAt))`로 필터 아웃 → 두 커맨드 독스트링의 "listDue가 작동하는 바로 그 집합" 주장과
+  정면 모순. 사용자는 데몬이 **곧 재개할 바로 그 잡**을 `agentrelay next`·`upcoming` 어디서도 못 보는 무음 불일치
+  (#812=listDue·#898/#896=overdue와 같은 클래스, 그러나 이 두 표면은 미커버).
+- **한 일:** 두 모듈의 필터를 `waiting_for_reset` + 비-null `resetAt`로 완화(null은 계속 제외 — isJobDue와 정확히 일치).
+  파싱 불가는 순수 `resetSortKey`(NaN→`NEGATIVE_INFINITY`)로 **가장 시급=맨 앞** 정렬(overdue의 earliest-first·recover의
+  -Infinity most-suspect 관례와 일치)하고, entry는 `dueInMs:0`·`due:true`로 리포트(NaN 카운트다운 렌더 방지). CLI 렌더러는
+  이미 `due`로 게이트해 "due now"를 찍고 파싱 불가 resetAt을 `formatCountdown`에 넘기지 않으므로 출력에 NaN 누출 없음.
+  스케줄러/파서 결정 로직 0줄 변경 — 순수 읽기-표면 정합성만 교정.
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 130파일)→`pnpm test` 전 패키지 통과
+  (**core 768[+2] · cli 394/1skip · dashboard 13**). next.test: 기존 "null/unparseable 무시" 테스트를 null-만-무시로
+  교정 + 파싱 불가=due-now·맨앞 정렬 회귀 1 신규. upcoming.test: 동일 교정 + 파싱 불가=due-now(dueNow 카운트·position 1·
+  dueInMs 0) 회귀 1 신규.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR 200개, 중복 밀집) — 큐 배수를
+  🧭/사람과 조율. ③ 동류 정합성 잔여: 세션 91이 남긴 `createdAt`/`updatedAt` 파싱 불가 시 stats 타이밍/트렌드 무음 스킵
+  (재개엔 영향 없어 우선순위 낮음).
