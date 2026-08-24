@@ -89,6 +89,38 @@ describe("runCommand", () => {
     expect(jobs[0].command).toEqual(["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"]);
   });
 
+  it("captures the triggering output tail on the queued job", async () => {
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('working...\\nUsage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    // The freshly-parked job carries the output that triggered the limit, so
+    // `show`/`export` have context without waiting for a resume.
+    expect(result.queuedJob?.lastOutputTail).toContain("Usage limit reached. Resets in 10m.");
+    expect(result.queuedJob?.lastOutputTail).toContain("working...");
+  });
+
+  it("redacts secrets from the captured output tail by default", async () => {
+    const result = await runCommand({
+      command: [
+        "node",
+        "-e",
+        "console.log('ANTHROPIC_API_KEY=sk-ant-api03-secretMaterial1234567\\nUsage limit reached. Resets in 10m.')",
+      ],
+      storePath,
+      cwd: dir,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    const tail = result.queuedJob?.lastOutputTail ?? "";
+    expect(tail).toContain("Usage limit reached. Resets in 10m.");
+    expect(tail).not.toContain("secretMaterial1234567");
+    expect(tail).toContain("[REDACTED]");
+  });
+
   it("sends a 'queued' notification when a rate-limited command is enqueued", async () => {
     const notify = vi.fn(async (_payload: NotifyPayload) => {});
     const result = await runCommand({

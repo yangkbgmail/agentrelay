@@ -68,6 +68,23 @@ describe("RelayQueue", () => {
     expect(queue.getById(job.id)?.lastRateLimit).toBeNull();
   });
 
+  it("persists the triggering output tail when parking a job", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    const resetAt = new Date(Date.now() + 60_000).toISOString();
+    const detection = { pattern: "clock-time-meridiem", rawMatch: "reset at 5pm", resetAt, detectedAt: resetAt };
+    queue.markWaitingForReset(job.id, resetAt, detection, "…limit reached. resets at 5pm");
+    expect(queue.getById(job.id)?.lastOutputTail).toBe("…limit reached. resets at 5pm");
+  });
+
+  it("preserves an existing output tail on a re-queue that omits it", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    const resetAt = new Date(Date.now() + 60_000).toISOString();
+    queue.markWaitingForReset(job.id, resetAt, undefined, "captured context");
+    // A manual re-queue (no tail arg) must not wipe the context captured earlier.
+    queue.markWaitingForReset(job.id, new Date(Date.now() + 120_000).toISOString());
+    expect(queue.getById(job.id)?.lastOutputTail).toBe("captured context");
+  });
+
   it("tracks attempts across resumes", () => {
     const job = queue.enqueue({
       project: "demo",

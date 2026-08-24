@@ -35,6 +35,7 @@ import {
   autoPruneEveryTicksFromEnv,
   autoPruneOptionsFromEnv,
   buildLocationReport,
+  buildOutputTail,
   CONFIG_FILENAME,
   type ConfigValueSource,
   canCancel,
@@ -191,12 +192,21 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   const queue = openQueue(storePath);
   const project = resolveProjectName(cwd, options.project);
   const job = queue.enqueue({ project, tool, command: options.command, cwd });
-  queue.markWaitingForReset(job.id, rateLimit.resetAt, {
-    pattern: rateLimit.pattern,
-    rawMatch: rateLimit.rawMatch,
-    resetAt: rateLimit.resetAt,
-    detectedAt: new Date().toISOString(),
-  });
+  // Preserve the output that triggered the limit so `show`/`export` have context
+  // for the freshly-parked job. Redaction defaults on (secure by default) and is
+  // applied to the persisted tail only; detection above ran on the full output.
+  const tail = buildOutputTail(output, { redact: redactOutputTailFromEnv() });
+  queue.markWaitingForReset(
+    job.id,
+    rateLimit.resetAt,
+    {
+      pattern: rateLimit.pattern,
+      rawMatch: rateLimit.rawMatch,
+      resetAt: rateLimit.resetAt,
+      detectedAt: new Date().toISOString(),
+    },
+    tail
+  );
   queue.close();
 
   stdout.write(

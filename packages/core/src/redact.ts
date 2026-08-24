@@ -129,6 +129,31 @@ export function redactSecrets(text: string): string {
 }
 
 /**
+ * Default number of trailing characters of combined stdout/stderr kept as a
+ * job's `lastOutputTail`. Shared by the scheduler (resume path) and the `run`
+ * command (first-detection path) so the two capture points never drift in how
+ * much context they preserve.
+ */
+export const DEFAULT_OUTPUT_TAIL_LENGTH = 2000;
+
+/**
+ * Build the persisted output tail from raw combined stdout/stderr: keep the last
+ * `length` characters, then (when `redact`, the secure default) scrub secrets.
+ * Pure and side-effect free.
+ *
+ * The order is deliberate — slice first, scrub second — so redaction only ever
+ * touches the bytes that will actually be written to disk. Callers that also run
+ * rate-limit detection must do so on the *un*-sliced, *un*-redacted output, so
+ * building the tail never changes whether or when a job resumes.
+ */
+export function buildOutputTail(output: string, options: { length?: number; redact?: boolean } = {}): string {
+  const length = options.length ?? DEFAULT_OUTPUT_TAIL_LENGTH;
+  const redact = options.redact ?? true;
+  const tail = length > 0 ? output.slice(-length) : output;
+  return redact ? redactSecrets(tail) : tail;
+}
+
+/**
  * Resolve whether output-tail redaction is enabled from
  * `AGENTRELAY_REDACT_OUTPUT`. Secure by default: unset (or any value other than
  * an explicit off switch) → `true`. An explicit `0`/`off`/`false`/`no`/`none`

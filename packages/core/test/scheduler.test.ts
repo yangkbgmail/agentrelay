@@ -164,6 +164,32 @@ describe("RelayScheduler", () => {
     expect(results[0].resetAt).not.toBeNull();
   });
 
+  it("persists a redacted output tail when re-queuing on a repeat rate limit", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({
+        "claude -p continue":
+          "ANTHROPIC_API_KEY=sk-ant-api03-secretMaterial1234567\nUsage limit reached. Resets in 2h.",
+      }),
+    });
+
+    const results = await scheduler.tick();
+    expect(results[0].status).toBe("waiting_for_reset");
+    // The re-queued (still-waiting) job now carries the triggering context...
+    expect(results[0].lastOutputTail).toContain("Resets in 2h.");
+    // ...with the leaked credential scrubbed (redaction on by default).
+    expect(results[0].lastOutputTail).not.toContain("secretMaterial1234567");
+    expect(results[0].lastOutputTail).toContain("[REDACTED]");
+  });
+
   it("ignores an implausibly far-future reset on resume when a horizon is set", async () => {
     // A misparse (or an absurd wait) resolving 30 days out would otherwise park
     // the job a month. With the horizon guard, the far-future reset is dropped;

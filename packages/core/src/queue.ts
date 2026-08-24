@@ -203,12 +203,20 @@ export class RelayQueue {
    * it is persisted on the job so `agentrelay show` / the dashboard can explain
    * *why* the relay chose this reset time. Omit `detection` for reset times
    * that aren't a parsed rate limit (e.g. manual re-queues).
+   *
+   * When `outputTail` is supplied (the slice of agent output that triggered the
+   * limit, already redacted by the caller), it is persisted as `lastOutputTail`
+   * so `show`/`export` can surface the triggering context for a parked job — the
+   * most useful moment to have it. It is only written when provided: omitting it
+   * preserves any existing tail, so a manual re-queue (`requeueNow`) never wipes
+   * the context captured at detection time.
    */
-  markWaitingForReset(id: string, resetAt: string, detection?: RateLimitDetection) {
+  markWaitingForReset(id: string, resetAt: string, detection?: RateLimitDetection, outputTail?: string) {
     this.update(id, {
       status: "waiting_for_reset",
       resetAt,
       ...(detection ? { lastRateLimit: detection } : {}),
+      ...(outputTail !== undefined ? { lastOutputTail: outputTail } : {}),
     });
   }
 

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { REDACTION_PLACEHOLDER, redactOutputTailFromEnv, redactSecrets } from "./redact.js";
+import {
+  buildOutputTail,
+  DEFAULT_OUTPUT_TAIL_LENGTH,
+  REDACTION_PLACEHOLDER,
+  redactOutputTailFromEnv,
+  redactSecrets,
+} from "./redact.js";
 
 describe("redactSecrets", () => {
   it("returns empty/whitespace input unchanged", () => {
@@ -235,5 +241,46 @@ describe("planStoreRedaction", () => {
     expect(plan.changes).toEqual([]);
     expect(plan.jobs).toEqual([]);
     expect(plan.totalFields).toBe(0);
+  });
+});
+
+describe("buildOutputTail", () => {
+  it("keeps only the last N characters (default length)", () => {
+    const output = "x".repeat(DEFAULT_OUTPUT_TAIL_LENGTH + 500) + "END";
+    const tail = buildOutputTail(output);
+    expect(tail.length).toBe(DEFAULT_OUTPUT_TAIL_LENGTH);
+    expect(tail.endsWith("END")).toBe(true);
+  });
+
+  it("honors an explicit length", () => {
+    expect(buildOutputTail("abcdefghij", { length: 4 })).toBe("ghij");
+  });
+
+  it("returns the whole output when shorter than the length", () => {
+    expect(buildOutputTail("short output", { length: 1000 })).toBe("short output");
+  });
+
+  it("redacts secrets in the tail by default", () => {
+    const out = buildOutputTail("logged Authorization: Bearer abc123secret while retrying");
+    expect(out).not.toContain("abc123secret");
+    expect(out).toContain(REDACTION_PLACEHOLDER);
+  });
+
+  it("leaves the raw tail intact when redaction is disabled", () => {
+    const raw = "ANTHROPIC_API_KEY=sk-ant-api03-abcDEF123456ghiJKL789";
+    expect(buildOutputTail(raw, { redact: false })).toBe(raw);
+  });
+
+  it("slices before scrubbing so redaction only touches persisted bytes", () => {
+    // The secret lives outside the kept window -> it is sliced away, not masked.
+    const output = "sk-ant-api03-abcDEF123456ghiJKL789xyz" + "y".repeat(50);
+    const tail = buildOutputTail(output, { length: 10 });
+    expect(tail).toBe("y".repeat(10));
+    expect(tail).not.toContain(REDACTION_PLACEHOLDER);
+  });
+
+  it("returns the full output (optionally redacted) for a non-positive length", () => {
+    expect(buildOutputTail("abcdef", { length: 0 })).toBe("abcdef");
+    expect(buildOutputTail("abcdef", { length: -5 })).toBe("abcdef");
   });
 });

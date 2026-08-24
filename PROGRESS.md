@@ -2623,3 +2623,30 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② `export`/대시보드에도 옵션형 소급 스크럽 노출은 후속 후보(현재는
   스토어 in-place 정리로 충분). ③ 나머지 clean·고가치 PR(#878 clean/#879 search 등)은 doc append 충돌로 dirty —
   근본 원인(세션 로그를 날짜별 개별 파일로 분리)은 🧭 코워크 소유 프로세스 안건. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 87 — 파킹된 잡에 트리거 출력 tail 보존: `run` 최초 감지 + 스케줄러 재감지 재큐 (👷 자율 발굴)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-4ymygu`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완은 전부 🧭 코워크 소유). 열린 `claude/*` 브랜치 ~60개가
+  대부분 파서/명령 아이디어를 이미 점유 중이라 신규 feature의 중복 위험이 큼 → 중복되지 않는 **실질 갭**을
+  코드에서 직접 발굴. 세션 85(#875)·86(#880)의 레닥션 작업이 명시적으로 남긴 후속(`run` 최초 감지 경로가
+  출력 tail을 저장 안 함)을 확인, 나아가 스케줄러 **재감지 재큐** 경로도 tail을 버리는 더 넓은 갭을 발견.
+- **문제:** 잡이 `waiting_for_reset`로 파킹될 때 `lastOutputTail`이 전혀 저장되지 않았다. (1) `runCommand`
+  (최초 감지)는 `markWaitingForReset`에 detection provenance만 넘기고 tail은 안 넘김. (2) 스케줄러 재감지
+  경로는 redacted `tail`을 이미 계산해 놓고도 `markWaitingForReset`엔 안 넘기고 `completed`/`failed`에만 씀.
+  결과적으로 `show`/`export`가 방금 rate-limit에 걸려 파킹된 잡(가장 컨텍스트가 필요한 순간)의 트리거 출력을
+  못 보여줬다.
+- **한 일:** ① `@agentrelay/core/redact.ts`에 순수 `buildOutputTail(output,{length?,redact?})` + 공유 상수
+  `DEFAULT_OUTPUT_TAIL_LENGTH`(2000) 추가 — slice-후-scrub 순서(디스크에 쓰이는 바이트만 레닥션, 감지는 원본
+  유지), non-positive length는 전체 반환. ② `RelayQueue.markWaitingForReset`에 4번째 optional `outputTail`
+  인자 추가: **제공될 때만** `lastOutputTail` 기록(생략 시 기존 tail 보존 → `requeueNow` 등 수동 재큐가
+  컨텍스트를 지우지 않음). ③ 스케줄러 재감지 경로가 이미 만든 `tail`을 넘기도록 배선하고, tail 생성을
+  `redactSecrets` 직접 호출에서 `buildOutputTail`로 통일(캡처 길이 상수 공유로 두 경로 드리프트 제거). ④ CLI
+  `runCommand`가 감지 시 `buildOutputTail(output,{redact:redactOutputTailFromEnv()})`로 tail을 만들어
+  `markWaitingForReset`에 전달(레닥션 secure-by-default 존중). 새 파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 126파일)→`pnpm test` 전
+  패키지 통과(**core 726 · cli 380/1skip · dashboard 13**; core redact.test +7·queue.test +2·scheduler.test +1,
+  cli commands.test +2). 빌드된 CLI e2e: 임시 스토어에 `run -- node -e "console.log('ANTHROPIC_API_KEY=sk-ant-…');
+  console.log('Usage limit reached. Resets in 10m.')"` 실행 후 `status --json`에서 `lastOutputTail`이
+  `ANTHROPIC_API_KEY=[REDACTED]\nUsage limit reached. Resets in 10m.`로 저장됨(비밀 마스킹 + 트리거 컨텍스트 보존) 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② `run`이 **감지 안 된**(비 rate-limit) 완료/실패 실행의 tail도
+  저장할지는 별도 후보(현재는 파킹 시점만 저장 — 스케줄러 resume과 대칭). ③ 대시보드가 파킹된 잡의 tail을
+  카드에 노출할지 후속 후보. README/ARCHITECTURE는 🧭 코워크 몫.
