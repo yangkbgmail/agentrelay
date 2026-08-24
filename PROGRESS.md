@@ -2825,3 +2825,28 @@
 - **다음 할 일:** ① 근본 병목은 여전히 리뷰/병합(열린 PR 200+, 중복 밀집) — 큐 배수를 🧭/사람과 조율. ② 남은 구별되는
   고가치 후보(#811 notifier 예외 격리·#815 notify 타임아웃·#832 스토어 0600·#856 CSV 인젝션 하드닝·#876 파서 명시 타임존)를
   구 main 기반 리베이스·충돌 해소 후 순차 배수. ③ import.ts 입력측 resetAt 방어(#812 후속).
+
+### [세션 91 — fix(core): import 입력측 파싱 불가 resetAt 하드닝(#812 후속) — 조용한 즉시-재개 방지 (👷 자율)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-47451z`)
+- **항목 선정:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐), 열린 PR 200+개로
+  병리적 포화(동일 기능 다중 중복). 신규 feature PR은 한계효용이 음수라, 세션 73·90의 방침(신규 feature 지양·
+  버그 픽스 우선)을 이어 **아무 열린 PR도 건드리지 않는 진짜 correctness 갭**을 발굴. 세션 90 로그의 "다음 할 일 ③
+  import.ts 입력측 resetAt 방어(#812 후속)"를 정확히 구현. 사전에 `validateJobRecord`/import 관련 열린 PR을
+  검색해 중복 아님 확인(검색 결과의 verify PR들은 validateJobRecord를 *재사용*할 뿐 import 입력 경계를 하드닝하지 않음).
+- **발굴한 갭:** #812(세션 90 병합)가 스토어측 `isJobDue`에서 파싱 불가 `resetAt`을 **due-now로 표면화**해 영구
+  orphan을 막았는데, 그 부작용으로 `import`로 들어온 `waiting_for_reset` + `resetAt:"next tuesday"` 잡이 다음
+  tick에 **즉시 재개**돼 덤프가 인코딩한 대기를 조용히 건너뛴다. `import.ts`의 `validateJobRecord`는 `resetAt`을
+  "문자열 또는 null"로만 확인하고 파싱 가능성은 안 봐 이 값이 그대로 큐에 들어오는 실제 도달 경로가 있었다.
+- **한 일:** `validateJobRecord`는 순수 **구조 검증**으로 유지(중요 — `verify.ts`가 이미 스토어에 있는 파싱 불가
+  `resetAt`을 *경고*로 층 쌓기 위해 구조-only에 의존한다. 여기서 error로 바꾸면 verify의 nuanced warning이 fatal
+  invalid-record로 뒤바뀌어 verify.test가 깨진다 — 실제로 첫 시도에서 확인하고 층을 분리). 대신 `parseImportJobs`에
+  순수 `importRejectReason(job)` 입력-경계 정책을 추가: 구조 검증 통과 후 비-null `resetAt`이 `new Date`로 파싱
+  안 되면 그 레코드만 per-record 에러로 거부(소스 덤프는 안 잃고 호출자에 명확한 사유 전달). json·ndjson 양 경로
+  공통 배선. 스케줄러/파서 결정 로직 0줄 변경.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 130파일)→`pnpm test` 전
+  패키지 통과(**core 766[+4] · cli 394/1skip · dashboard 13**). import.test +4(validateJobRecord 구조-only 유지 1 +
+  parseImportJobs json 거부/수용 2 + ndjson 거부 1). 실제 빌드 CLI e2e: `import --include-active`로 good+bad(next
+  tuesday) 덤프를 넣으면 "skipped index 1: `resetAt` … not a parseable date" + "1 added, 1 invalid" → 스토어엔
+  good만 남음(수정 전엔 bad가 들어와 즉시 재개됐을 것).
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR 200+, 중복 밀집) — 큐 배수를
+  🧭/사람과 조율. ③ 동류 입력 하드닝 후보: `createdAt`/`updatedAt`도 파싱 불가면 stats 타이밍/트렌드 지표에서 조용히
+  스킵되므로, 필요 시 verify는 경고·import는 정책 결정(재개엔 영향 없어 우선순위 낮음).

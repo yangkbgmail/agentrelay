@@ -113,6 +113,13 @@ describe("validateJobRecord", () => {
     expect(validateJobRecord({ ...job(), lastError: {} }).ok).toBe(false);
   });
 
+  it("is purely structural: accepts an unparseable resetAt string (boundary policy rejects it, see parseImportJobs)", () => {
+    // verifyStore relies on validateJobRecord being structural-only so it can
+    // layer a *warning* (not a fatal error) on an unparseable resetAt already in
+    // the store. So a non-parseable date string still passes structural checks.
+    expect(validateJobRecord({ ...job(), status: "waiting_for_reset", resetAt: "next tuesday" }).ok).toBe(true);
+  });
+
   it("preserves well-formed lastRateLimit provenance", () => {
     const detection = {
       pattern: "clock-time-meridiem",
@@ -169,6 +176,26 @@ describe("parseImportJobs (json)", () => {
     expect(parsed.errors.map((e) => e.index)).toEqual([1, 2]);
     expect(parsed.errors.every((e) => e.kind === "index")).toBe(true);
   });
+
+  it("rejects a structurally valid record whose resetAt is unparseable", () => {
+    // Importing an unparseable resetAt would resume the job immediately (the
+    // store-side isJobDue guard treats NaN as due-now, see #812), silently
+    // skipping the encoded wait — so the import boundary rejects it by index.
+    const good = job();
+    const bad = { ...job(), status: "waiting_for_reset", resetAt: "next tuesday" };
+    const parsed = parseImportJobs(JSON.stringify([good, bad]), "json");
+    expect(parsed.jobs).toEqual([good]);
+    expect(parsed.errors).toHaveLength(1);
+    expect(parsed.errors[0].index).toBe(1);
+    expect(parsed.errors[0].reason).toMatch(/resetAt.*not a parseable date/);
+  });
+
+  it("accepts a parseable resetAt and a null resetAt", () => {
+    const parked = job({ status: "waiting_for_reset", resetAt: "2026-07-13T21:00:00.000Z" });
+    const parsed = parseImportJobs(JSON.stringify([parked, job()]), "json");
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.jobs).toHaveLength(2);
+  });
 });
 
 describe("parseImportJobs (ndjson)", () => {
@@ -193,6 +220,18 @@ describe("parseImportJobs (ndjson)", () => {
     expect(parsed.errors).toHaveLength(1);
     expect(parsed.errors[0].index).toBe(1);
     expect(parsed.errors[0].kind).toBe("line");
+  });
+
+  it("rejects an unparseable resetAt by 1-based line and keeps the rest", () => {
+    const good = job();
+    const bad = { ...job(), status: "waiting_for_reset", resetAt: "soon" };
+    const text = [JSON.stringify(bad), JSON.stringify(good)].join("\n");
+    const parsed = parseImportJobs(text, "ndjson");
+    expect(parsed.jobs).toEqual([good]);
+    expect(parsed.errors).toHaveLength(1);
+    expect(parsed.errors[0].index).toBe(1);
+    expect(parsed.errors[0].kind).toBe("line");
+    expect(parsed.errors[0].reason).toMatch(/resetAt.*not a parseable date/);
   });
 });
 

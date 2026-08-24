@@ -1093,6 +1093,21 @@
       실제 빌드 CLI e2e로 `import`한 `resetAt:"next tuesday"` 잡이 `tick`에서 `-> completed`로 재개됨
       확인(수정 전엔 영구 스킵). branch `claude/fix-listdue-unparseable-reset`)
 
+- [x] 👷 fix(core): `import`가 파싱 불가 `resetAt`을 그대로 받아들여, 재개 대기를 조용히 건너뛰고
+      즉시 재개되게 하던 입력측 갭 하드닝(#812 후속). 자기 발굴 **버그 픽스**.
+      (완료 — #812가 스토어측 `isJobDue`에서 파싱 불가 `resetAt`을 **due-now로 표면화**해 orphan을
+      막았지만, 그 부작용으로 `import`로 들어온 `waiting_for_reset` + `resetAt:"next tuesday"` 잡은
+      다음 tick에 **즉시 재개**돼 덤프가 인코딩한 대기를 조용히 건너뛴다. #812 엔트리가 지목한 바로
+      그 도달 경로(`import.ts`가 `resetAt`을 "문자열 또는 null"로만 확인)를 **입력 경계에서** 막았다.
+      `validateJobRecord`는 순수 **구조 검증**으로 유지(verify.ts가 이미 스토어에 있는 파싱 불가
+      `resetAt`을 *경고*로 층 쌓기 위해 구조-only에 의존 — 여기서 error로 바꾸면 verify의 nuanced
+      warning이 fatal로 뒤바뀜) 하고, `parseImportJobs`에 순수 `importRejectReason(job)` 경계 정책을
+      추가: 구조 검증 통과 후 비-null `resetAt`이 `new Date`로 파싱 안 되면 그 레코드만 per-record
+      에러로 거부(소스 덤프는 안 잃고 호출자에 명확한 사유 전달), json·ndjson 양 경로 공통. import.test
+      +4(validateJobRecord 구조-only 유지 1 + parseImportJobs json 거부/수용 2 + ndjson 거부 1),
+      실제 빌드 CLI e2e로 `import --include-active`가 bad 레코드만 거부하고 good만 스토어에 남김 확인.
+      branch `claude/wizardly-pascal-47451z`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
