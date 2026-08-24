@@ -177,6 +177,40 @@ describe("parseRateLimitMessage", () => {
     expect(result?.resetAt).toBe(new Date(now.getTime() + 3 * 60_000).toISOString());
   });
 
+  it("does not read a unit letter as the prefix of an unrelated word ('2 months' is not 2 minutes)", () => {
+    // Regression: the minute group's bare `m` used to match the leading `m` of
+    // "months", resolving a multi-month wait to a 2-minute one — a silent
+    // under-wait that resumes the job far too early. The unit boundary now makes
+    // the message unparseable (null = "don't guess") instead.
+    const now = new Date("2026-07-12T10:00:00Z");
+    expect(parseRateLimitMessage("Usage limit reached, try again in 2 months.", { now })).toBeNull();
+    expect(parseRateLimitMessage("try again in 3 milliseconds", { now })).toBeNull();
+    expect(parseRateLimitMessage("come back in 1 moment", { now })).toBeNull();
+    expect(parseRateLimitMessage("resets in 5 modes", { now })).toBeNull();
+  });
+
+  it("still parses the widened unit abbreviations ('hr'/'hrs'/'mins')", () => {
+    const now = new Date("2026-07-12T10:00:00Z");
+    expect(parseRateLimitMessage("try again in 2 hrs", { now })?.resetAt).toBe(
+      new Date(now.getTime() + 2 * 60 * 60_000).toISOString()
+    );
+    expect(parseRateLimitMessage("resets in 1 hr", { now })?.resetAt).toBe(
+      new Date(now.getTime() + 60 * 60_000).toISOString()
+    );
+    expect(parseRateLimitMessage("try again in 30 mins", { now })?.resetAt).toBe(
+      new Date(now.getTime() + 30 * 60_000).toISOString()
+    );
+  });
+
+  it("keeps the compact '4h32m' form working after unit boundaries are added", () => {
+    // The boundary rejects a trailing letter but allows a trailing digit, so the
+    // unit-immediately-followed-by-a-number compact form must still parse.
+    const now = new Date("2026-07-12T10:00:00Z");
+    const result = parseRateLimitMessage("Rate limit exceeded, try again in 1d2h30m.", { now });
+    expect(result?.pattern).toBe("relative-duration");
+    expect(result?.resetAt).toBe(new Date(now.getTime() + ((24 + 2) * 60 + 30) * 60_000).toISOString());
+  });
+
   it("parses a unix epoch retry_after field", () => {
     const result = parseRateLimitMessage("rate_limit_error retry_after=1752345600");
     expect(result).not.toBeNull();
