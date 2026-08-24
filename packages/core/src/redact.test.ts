@@ -30,6 +30,46 @@ describe("redactSecrets", () => {
     expect(out).toContain(`sk-${REDACTION_PLACEHOLDER}`);
   });
 
+  it("redacts a modern OpenAI key whose base64url body has - and _ (no tail leak)", () => {
+    // The fixture is assembled at runtime so the source file carries no
+    // secret-looking substring for push-protection to flag. The body mixes
+    // `_` and `-` (base64url), which the old `[A-Za-z0-9]` body cut short,
+    // leaking everything after the first separator.
+    const sk = `sk${"-"}`;
+    const body = "ABCdef1234567890ghij_KLmn-opqrSTUV";
+    const out = redactSecrets(`OPENAI key ${sk}proj-${body} used here`);
+    expect(out).not.toContain(body);
+    expect(out).not.toContain("KLmn-opqrSTUV");
+    expect(out).toBe(`OPENAI key sk-${REDACTION_PLACEHOLDER} used here`);
+  });
+
+  it("redacts OpenAI service-account and admin keys (previously unmatched)", () => {
+    const sk = `sk${"-"}`;
+    const body = "ABCdef1234567890ghij_KLmn-opqr";
+    for (const prefix of ["svcacct-", "admin-"]) {
+      const key = `${sk}${prefix}${body}`;
+      const out = redactSecrets(`auth used ${key} here`);
+      expect(out).not.toContain(body);
+      expect(out).not.toContain(prefix + body);
+      expect(out).toBe(`auth used sk-${REDACTION_PLACEHOLDER} here`);
+    }
+  });
+
+  it("still redacts a legacy alphanumeric sk- key", () => {
+    const sk = `sk${"-"}`;
+    const body = "ABCDEFGHIJKLMNOPQRSTUVWX0123456789";
+    const out = redactSecrets(`legacy ${sk}${body} end`);
+    expect(out).not.toContain(body);
+    expect(out).toBe(`legacy sk-${REDACTION_PLACEHOLDER} end`);
+  });
+
+  it("does not re-match an already-redacted Anthropic key via the OpenAI rule", () => {
+    // The Anthropic rule runs first and leaves `sk-ant-[REDACTED]`; the widened
+    // OpenAI body must not then re-consume that placeholder.
+    const out = redactSecrets("key sk-ant-api03-abcDEF123456ghiJKL789xyz end");
+    expect(out).toBe(`key sk-ant-${REDACTION_PLACEHOLDER} end`);
+  });
+
   it("redacts GitHub tokens (classic and fine-grained)", () => {
     expect(redactSecrets("token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 here")).toBe(
       `token ${REDACTION_PLACEHOLDER} here`

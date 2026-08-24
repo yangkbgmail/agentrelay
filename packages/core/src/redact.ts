@@ -54,11 +54,21 @@ const RULES: RedactionRule[] = [
     replacement: `sk-ant-${REDACTION_PLACEHOLDER}`,
   },
   {
-    // OpenAI-style keys (`sk-…`, `sk-proj-…`). Runs after the Anthropic rule so
-    // an already-redacted `sk-ant-[REDACTED]` (the `[` ends the char class) is
-    // never re-matched here.
+    // OpenAI keys. Legacy keys are `sk-` + a long alphanumeric run; the modern
+    // keys are `sk-proj-`, `sk-svcacct-`, and `sk-admin-` followed by a long
+    // base64url body that includes `-` and `_`. The old `sk-(?:proj-)?[A-Za-z0-9]{16,}`
+    // under-redacted these two ways: (1) a modern body was cut at the first
+    // `-`/`_`, leaking the tail (`sk-proj-abc_DEF…` → `sk-[REDACTED]_DEF…`); and
+    // (2) `sk-svcacct-…` / `sk-admin-…` never matched at all — the `svcacct`/
+    // `admin` prefix is under 16 chars and the following `-` ended the run — so
+    // those keys stayed fully in the clear. The first alternative recognizes the
+    // modern prefixes and matches a base64url body (`[A-Za-z0-9_-]`, mirroring
+    // the Anthropic rule); the second keeps the legacy alphanumeric form
+    // unchanged. Runs after the Anthropic rule so an already-redacted
+    // `sk-ant-[REDACTED]` (only `ant-`, 4 chars, before the `[`) is never
+    // re-matched by either alternative.
     name: "openai-key",
-    regex: /sk-(?:proj-)?[A-Za-z0-9]{16,}/g,
+    regex: /sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{16,}|sk-[A-Za-z0-9]{16,}/g,
     replacement: `sk-${REDACTION_PLACEHOLDER}`,
   },
   {
