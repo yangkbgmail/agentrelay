@@ -19,6 +19,7 @@ import {
   restoreStore,
   retryJob,
   runCommand,
+  runVerify,
   setConfigFile,
   showConfig,
   showJob,
@@ -1069,5 +1070,55 @@ describe("waitForJob", () => {
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
     expect(result.message).toMatch(/no job matches/);
+  });
+});
+
+describe("runVerify — far-future-reset wiring", () => {
+  let dir: string;
+  let storePath: string;
+  const savedHorizon = process.env.AGENTRELAY_MAX_RESET_HORIZON;
+
+  const farFutureJob = {
+    id: "ffffffff-ffff-ffff-ffff-ffffffffffff",
+    project: "demo",
+    tool: "claude-code",
+    command: ["claude", "-p", "continue"],
+    cwd: "/home/user/demo",
+    status: "waiting_for_reset",
+    resetAt: "2099-01-01T00:00:00.000Z",
+    createdAt: "2026-08-24T10:00:00.000Z",
+    updatedAt: "2026-08-24T10:00:00.000Z",
+    attempts: 0,
+    lastError: null,
+    lastOutputTail: null,
+    lastRateLimit: null,
+  };
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "agentrelay-verify-cli-"));
+    storePath = join(dir, "jobs.json");
+    delete process.env.AGENTRELAY_MAX_RESET_HORIZON;
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+    if (savedHorizon === undefined) delete process.env.AGENTRELAY_MAX_RESET_HORIZON;
+    else process.env.AGENTRELAY_MAX_RESET_HORIZON = savedHorizon;
+  });
+
+  it("flags a stored waiting job parked implausibly far out", () => {
+    writeFileSync(storePath, JSON.stringify([farFutureJob]));
+    const report = runVerify(storePath);
+    expect(report.kind).toBe("verified");
+    const codes = report.verification?.issues.map((i) => i.code) ?? [];
+    expect(codes).toContain("far-future-reset");
+  });
+
+  it("suppresses the far-future warning when the horizon guard is disabled via env", () => {
+    writeFileSync(storePath, JSON.stringify([farFutureJob]));
+    process.env.AGENTRELAY_MAX_RESET_HORIZON = "off";
+    const report = runVerify(storePath);
+    const codes = report.verification?.issues.map((i) => i.code) ?? [];
+    expect(codes).not.toContain("far-future-reset");
   });
 });

@@ -2623,3 +2623,29 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② `export`/대시보드에도 옵션형 소급 스크럽 노출은 후속 후보(현재는
   스토어 in-place 정리로 충분). ③ 나머지 clean·고가치 PR(#878 clean/#879 search 등)은 doc append 충돌로 dirty —
   근본 원인(세션 로그를 날짜별 개별 파일로 분리)은 🧭 코워크 소유 프로세스 안건. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 87 — `agentrelay verify` far-future-reset 검사: 초장기 파킹 잡 소급 탐지 (👷 자율 발굴)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-nwhd15`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료, 열린 PR ~200개로 병리적 포화라 신규 feature는 중복·저가치.
+  최근 실제로 **병합되는** 테마는 데이터 안전/스토어 정합성(#880 소급 레닥션·#875 write-time 레닥션·
+  #820 lost-update 픽스·#871 doctor store-integrity)임을 확인. 그 흐름에 맞춰, 스토어 린터 `verify`에
+  아직 없고 PR 목록에도 없는 실질 갭을 하나 발굴·구현.
+- **갭:** 파서는 `maxFutureMs`(기본 8일, `AGENTRELAY_MAX_RESET_HORIZON`)로 오파싱된 초장기 리셋을
+  **parse-time에** 거부한다(잘못된 epoch 단위·타임존·깨진 상대 기간 → 몇 달·몇 년 뒤 park). 하지만 그
+  가드 이전에 저장됐거나 `import`로 유입됐거나 손 편집된 잡은 여전히 far-future `resetAt`을 가질 수 있고,
+  스케줄러는 "언젠간" 재개하지만 사실상 릴레이가 조용히 무용해진다 — 프로젝트가 계속 싸우는 "무음 실패"
+  클래스. `verify`는 `waiting_for_reset`+null resetAt은 잡지만 far-future는 못 잡았다.
+- **한 일:** `redact`가 write-time→소급으로 확장된 것과 **동일한 패턴**으로 파서 parse-time 가드의
+  스토어-린트 아날로그를 추가. `@agentrelay/core/verify.ts`에 `VerifyOptions`(`now`·`maxFutureMs`) 추가,
+  `verifyStore`가 파서의 `DEFAULT_MAX_RESET_HORIZON_MS`·`isPlausibleReset`를 **재사용**해 파싱 가능하지만
+  `now+maxFutureMs` 너머인 대기 잡을 **warning** `far-future-reset`(~N일 표기)로 플래그. 미래 쪽만 경계
+  (과거 resetAt=due now는 무경고), 비대기 잡 제외(완료/실패 잡의 잔존 resetAt은 재개 안 되므로 무해),
+  `maxFutureMs` 비양수/null이면 검사 비활성. CLI `runVerify`가 `maxResetHorizonMsFromEnv()`를 전달해
+  파서/스케줄러와 **동일 knob 공유**(`AGENTRELAY_MAX_RESET_HORIZON=off`면 verify도 무경고, 의도적 far park
+  false-positive 방지). 새 파서/스케줄러 로직 0줄 — 전부 기존 검증된 pure 함수 재사용.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0경고, 126파일)→`pnpm test`
+  전 패키지 통과(**core 723 · cli 380/1skip · dashboard 13**; core verify.test +8[far-future describe],
+  cli commands.test +2[runVerify env 배선]). 빌드된 CLI e2e: 2099년 resetAt 대기 잡 → `far-future-reset`
+  경고(~26428일), `AGENTRELAY_MAX_RESET_HORIZON=off` → 무경고. 경고 레벨이라 exit 0(verify가 warning은 허용).
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합정책). ② `verify --fix`(#582 unmerged)가 병합되면
+  far-future도 자동 복구(due-now로 재큐) 대상 후보. ③ 대시보드에도 far-future 잡 경고 노출은 후속 후보.
+  README/ARCHITECTURE는 🧭 코워크 몫.

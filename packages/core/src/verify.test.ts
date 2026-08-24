@@ -124,4 +124,58 @@ describe("verifyStore", () => {
     expect(result.errorCount).toBe(1);
     expect(result.issues[0].code).toBe("invalid-record");
   });
+
+  describe("far-future-reset", () => {
+    const now = new Date("2026-08-24T00:00:00.000Z");
+    // 8-day default horizon: +9 days is out, +2 days is fine.
+    const nineDaysOut = "2026-09-02T00:00:00.000Z";
+    const twoDaysOut = "2026-08-26T00:00:00.000Z";
+
+    it("warns when a waiting_for_reset job's resetAt is implausibly far out", () => {
+      const result = verifyStore([job({ status: "waiting_for_reset", resetAt: nineDaysOut })], { now });
+      expect(result.ok).toBe(true); // warning, not error
+      expect(result.warningCount).toBe(1);
+      expect(result.issues[0]).toMatchObject({ level: "warning", code: "far-future-reset" });
+      expect(result.issues[0].message).toContain("9 day(s)");
+    });
+
+    it("does not warn when the resetAt is within the horizon", () => {
+      const result = verifyStore([job({ status: "waiting_for_reset", resetAt: twoDaysOut })], { now });
+      expect(result.issues).toEqual([]);
+    });
+
+    it("does not warn for a far-future resetAt on a non-waiting job", () => {
+      // A completed/failed job keeps its old resetAt; it will never resume, so a
+      // far-future value there isn't a stranding risk.
+      const result = verifyStore([job({ status: "completed", resetAt: nineDaysOut })], { now });
+      expect(result.issues).toEqual([]);
+    });
+
+    it("does not warn for a resetAt in the past (already due)", () => {
+      const result = verifyStore([job({ status: "waiting_for_reset", resetAt: "2026-08-01T00:00:00.000Z" })], { now });
+      expect(result.issues).toEqual([]);
+    });
+
+    it("is disabled by a non-positive / null horizon", () => {
+      const off = verifyStore([job({ status: "waiting_for_reset", resetAt: nineDaysOut })], { now, maxFutureMs: null });
+      expect(off.issues).toEqual([]);
+      const zero = verifyStore([job({ status: "waiting_for_reset", resetAt: nineDaysOut })], { now, maxFutureMs: 0 });
+      expect(zero.issues).toEqual([]);
+    });
+
+    it("respects a tightened custom horizon", () => {
+      // 1-day horizon flags the +2-day reset that the default 8-day horizon allows.
+      const result = verifyStore([job({ status: "waiting_for_reset", resetAt: twoDaysOut })], {
+        now,
+        maxFutureMs: 24 * 60 * 60_000,
+      });
+      expect(result.warningCount).toBe(1);
+      expect(result.issues[0].code).toBe("far-future-reset");
+    });
+
+    it("does not double-count an unparseable resetAt as far-future", () => {
+      const result = verifyStore([job({ status: "waiting_for_reset", resetAt: "not-a-date" })], { now });
+      expect(result.issues.map((i) => i.code)).toEqual(["unparseable-resetAt"]);
+    });
+  });
 });
