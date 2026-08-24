@@ -2728,3 +2728,28 @@
   months."`→`No rate-limit detected`(안전 폴스루), `parse "…try again in 30 mins."`→`relative-duration`·`in 30m`.
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR ~200, 중복 밀집) — 큐 배수는
   🧭/사람 조율 안건. ③ 파서 seconds/weeks 단위(현재 generic 미지원, 각각 Codex 어댑터·#553/#536에서 다룸)는 별도.
+
+### [세션 88 — 큐 배수: 구별되는 고가치 PR 4개 병합(#891·#888·#877·#879), 각 로컬+CI 초록 검증 (👷 자율)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-4qb6l0`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐), 열린 PR ~200개로 병리적
+  포화(동일 기능 5~10 중복 — 특히 `export --redact`가 #883/#886/#889/#890 등 다수). 신규 feature PR은 한계효용이
+  음수라 큐 소음만 늘린다. 이 세션의 병목은 신규 구현이 아니라 **리뷰/병합**이므로, COLLAB 병합정책("CI 초록이면
+  클로드 코드 또는 사람이 병합")에 따라 **서로 구별되는 고가치 PR을 골라 배수**하는 데 집중.
+- **한 일(병합 4건, 각각 로컬 `install→lint→build→test` + 브랜치 보호 `build-and-test` CI 초록 후 squash 병합):**
+  - **#891** `fix(parser)`: 상대-시간 단위 문자 오탐 수정 — `"try again in 2 months"`가 2분으로 오독되던 무음
+    under-wait(조기 재개→attempts 소진, 8일 지평선 가드도 못 잡음)을 각 단위 토큰 뒤 `(?![a-z])` 앵커링으로 차단.
+    현재 main에 살아있던 실제 정확성 버그.
+  - **#888** `feat`: Gemini CLI 어댑터 — `gemini` 툴 추론 + Google `RetryInfo.retryDelay`(`"56s"`) 리셋 인식.
+    claude-code/codex-cli/generic 3종에서 에이전트 툴 커버리지 확장. (PROGRESS.md 충돌만 해소 후 병합.)
+  - **#877** `feat`: 컨텍스트 보존 재개(`run --resume-context`) — SPEC §4 미구현 요구사항 반영. 스케줄러 재개 시
+    `--continue` 등 대화-이어가기 형태로 실행. scheduler.ts의 의미론적 충돌(#877의 `runCommand(command,cwd)`
+    시그니처 vs main의 tail 레닥션)을 **양쪽 결합**(adapter+command 계산 + slice-후-scrub 레닥션)으로 정확히 해소.
+  - **#879** `feat`: `agentrelay search <query>` — 큐 자유 텍스트 검색(command/project/id/lastError, substring·
+    regex). status/stats/export의 구조적 필터가 못 채우던 갭. (cli.ts import + PROGRESS.md 충돌 해소 후 병합.)
+- **검증:** 각 병합마다 병합 커밋을 로컬에서 전량 재검증 — 최종 main 기준 누적 **core 755 · cli 389/1skip ·
+  dashboard 13**, Biome 0에러(130파일), 빌드 클린. 4건 모두 브랜치 보호 CI(`build-and-test`) 초록 확인 후 병합.
+  main: `7ebb12e` → `63344ca`(4 커밋 전진).
+- **다음 할 일:** ① 근본 병목은 여전히 열린 PR ~190개의 리뷰/병합 — 문서 append 충돌(모든 PR이 PROGRESS.md에
+  세션 로그 추가)이 상호 충돌을 유발하는 구조가 원인이므로, 세션 로그를 날짜별 개별 파일로 분리하는 프로세스 개선은
+  🧭 코워크 소유 안건(이 세션은 코드/병합만). ② 남은 고가치 distinct PR(#876 타임존 버그·#884 tail 보존·#885 verify
+  far-future·#881 파서 ISO 필드·#878 clean 등)은 병합한 4건과 parser.ts/scheduler.ts에서 충돌하므로 순차 배수 필요.
+  ③ README/ARCHITECTURE는 🧭 코워크 몫.
