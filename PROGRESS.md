@@ -2644,3 +2644,47 @@
   months."`→`No rate-limit detected`(안전 폴스루), `parse "…try again in 30 mins."`→`relative-duration`·`in 30m`.
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR ~200, 중복 밀집) — 큐 배수는
   🧭/사람 조율 안건. ③ 파서 seconds/weeks 단위(현재 generic 미지원, 각각 Codex 어댑터·#553/#536에서 다룸)는 별도.
+
+### [세션 87 — Gemini CLI 어댑터: `gemini` 툴 추론 + Google `RetryInfo.retryDelay` 리셋 인식 (👷 자율 발굴)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-gr62f3`)
+- **배경:** BACKLOG의 👷 미완료 항목은 0개(남은 미체크는 전부 🧭 코워크 소유의 기획/문서/리서치), 열린 PR ~30개로
+  큐 포화. CLAUDE.md "무한 개선 백로그를 계속 소진, 비면 스스로 발굴" 지침에 따라 **온-미션이면서 기존 오픈 PR과
+  겹치지 않는** 실질 갭을 하나 발굴·구현. 오픈 PR은 전부 redact/export/파서 tweak/completion/notifier/대시보드
+  카드류라 **에이전트 툴 커버리지 확장**(제품 핵심 가치)이 미충돌·고가치로 판단.
+- **한 일(Gemini CLI 어댑터):** 릴레이는 지금까지 claude-code/codex-cli/generic 세 어댑터만 알았다. Google
+  `gemini` CLI는 429 `RESOURCE_EXHAUSTED` 페이로드에 `google.rpc.RetryInfo`의 `retryDelay:"56s"`(protobuf
+  Duration, 항상 초 단위 `s` 접미사)로 백오프 시간을 싣는데, 이건 일반 파서(시/분 prose)도, Codex 초 패턴
+  ("try again in Ns" 문구 필요)도 놓치는 **구조화 필드**라 재개 시각을 못 뽑았다. `AgentTool` 유니온에
+  `"gemini-cli"` 추가(`types.ts`), `adapters.ts`에 `GEMINI_CLI_ADAPTER`(binaries `["gemini"]`) +
+  `GEMINI_RETRY_DELAY_PATTERN`(`retryDelay`/`retry_delay`/`retry-delay` + 키·값 선택적 따옴표, 소수 초는
+  whole-ms로 ceil해 조기 재개 방지, 필드명 앵커로 다른 패턴과 disjoint) 신설·`ADAPTERS`에 등록. 전파:
+  `ALL_TOOLS`(stats zero-fill/metrics 자동)·`VALID_TOOLS`(import 검증)·CLI `--tool` 도움말/`tools` 설명문.
+  새 명령/스케줄러 로직 0줄 — 기존 어댑터 파이프라인 재사용, `Record<AgentTool,…>`가 레지스트리 누락을 컴파일
+  타임에 강제.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm test` 전 패키지 통과(**core 722 · cli 378/1skip ·
+  dashboard 13**; adapters.test +6[binary 추론·resolve·retryDelay 감지·소수 ceil·generic 폴백·generic이 구조화
+  필드 미인식], stats.test byTool zero-fill 3케이스 gemini 키 반영)→`pnpm ci:lint`(Biome 0에러). 빌드된 CLI
+  `parse --tool gemini-cli '…{"retryDelay":"56s"}'`→`gemini-retry-delay` 패턴·resets in 1m, generic 어댑터는
+  같은 입력 미인식 e2e 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 후속 어댑터 후보 — Cursor Agent CLI(`cursor-agent`)·Aider
+  등, 실제 rate-limit 메시지 샘플 확보 후. ③ 툴 목록이 types/stats/import 3곳에 하드코딩 — 향후 `ADAPTERS`
+  레지스트리에서 단일 파생하도록 리팩터 고려(현재는 drift-guard 테스트로 방어).
+### [세션 87 — fix(parser): 상대-시간 단위 문자 오탐 수정 ("2 months"→2분 무음 under-wait), 현재 main 기준 (👷 자율 발굴)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-nd342m`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐), 열린 PR ~200개로 신규 커맨드·
+  포맷·watch·파서 축이 전부 포화(동일 기능 5~10 중복). 신규 feature PR은 한계효용이 음수라 큐 소음만 늘린다. 대신
+  코드에서 **현재 main에 살아있는 실제 정확성 버그**를 발굴해 수정.
+- **버그:** 제네릭 `relative-duration` 파서의 단위 그룹 `d`/`h`/`m` 뒤에 경계가 없어, 단위 문자가 무관한 단어의
+  접두사와 겹치면 그 단어를 짧은 단위로 오독했다. 빌드된 파서로 재현 확인: `"try again in 2 months"`→**2분**,
+  `"3 milliseconds"`→3분, `"1 moment"`→1분. 이 릴레이가 doctor/recover/reset-horizon으로 반복 겨냥해온 무음
+  under-wait(잡을 실제 리셋보다 훨씬 일찍 재개 → 곧바로 재차 한도 → attempts 소진) 부류이며, 8일 지평선 가드도
+  `2분 < 8일`이라 못 잡는다. (동류 수정 PR #578/#827이 있으나 둘 다 오래된 main 기준[Aug 10/21]이라 그 뒤 추가된
+  clock-time-meridiem·relative-day·ms-epoch·http-retry-after 패턴과 parser.ts에서 충돌 — 현재 main엔 미반영.)
+- **한 일:** `parser.ts`의 relative-duration 정규식에 각 단위 토큰 뒤 `(?![a-z])`(후행 letter 거부, 후행 digit은
+  허용 → 컴팩트 `4h32m` 유지) 앵커링 + 경계로 실제 문구가 깨지지 않게 단위 접미사를 흔한 약어로 확장
+  (`h(?:rs?|ours?)?`·`m(?:ins?|inutes?)?`). 새 로직 0줄 — 정규식 앵커 3개 + 근거 주석. 오탐 시 그룹이 비어
+  `resolve`가 `null` → 최종 미감지(안전: 2분 오탐보다 미감지가 낫다).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 126파일)→`pnpm test` 전
+  패키지 통과(**core 719[+3, parser 52→55] · cli 378/1skip · dashboard 13**). parser.test.ts +3(단위-접두사 오탐
+  4종→null · 약어 `hr`/`hrs`/`mins` 정상 · 컴팩트 `1d2h30m` 유지). 빌드된 CLI e2e: `parse "…try again in 2
+  months."`→`No rate-limit detected`(안전 폴스루), `parse "…try again in 30 mins."`→`relative-duration`·`in 30m`.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR ~200, 중복 밀집) — 큐 배수는
+  🧭/사람 조율 안건. ③ 파서 seconds/weeks 단위(현재 generic 미지원, 각각 Codex 어댑터·#553/#536에서 다룸)는 별도.
