@@ -1637,6 +1637,10 @@ export function buildCli(): Command {
     .option("--sort <field>", `Sort by one of: ${SORT_FIELDS.join(", ")} (default: newest first)`)
     .option("-r, --reverse", "Reverse the order (flips --sort, or the store order when no --sort)")
     .option("--columns <list>", `Pick/reorder columns for csv/md (comma-separated): ${JOB_CSV_COLUMNS.join(", ")}`)
+    .option(
+      "--redact",
+      "Scrub credentials (API keys, bearer tokens, credential env vars) from exported job fields — store is not modified"
+    )
     .action(
       (opts: {
         format?: string;
@@ -1649,6 +1653,7 @@ export function buildCli(): Command {
         sort?: string;
         reverse?: boolean;
         columns?: string;
+        redact?: boolean;
       }) => {
         const { store } = program.opts();
 
@@ -1769,12 +1774,25 @@ export function buildCli(): Command {
           jobs,
           outPath: opts.out,
           columns,
+          redact: opts.redact,
         });
         if (result.writtenTo) {
           // Keep stdout clean for redirection; status goes to stderr.
           console.error(`[agentrelay] exported ${result.count} job(s) to ${result.writtenTo}`);
         } else {
           console.log(result.content);
+        }
+        // Report the redaction summary on stderr so it never contaminates the
+        // exported payload on stdout (which may be piped into jq/awk/etc.).
+        if (result.redaction) {
+          const { changedJobs, totalFields } = result.redaction;
+          if (totalFields > 0) {
+            console.error(
+              `[agentrelay] redacted ${totalFields} field(s) across ${changedJobs} job(s) — store not modified`
+            );
+          } else {
+            console.error("[agentrelay] --redact scanned, no credentials found in exported jobs");
+          }
         }
       }
     );

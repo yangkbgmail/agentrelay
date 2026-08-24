@@ -2623,3 +2623,27 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② `export`/대시보드에도 옵션형 소급 스크럽 노출은 후속 후보(현재는
   스토어 in-place 정리로 충분). ③ 나머지 clean·고가치 PR(#878 clean/#879 search 등)은 doc append 충돌로 dirty —
   근본 원인(세션 로그를 날짜별 개별 파일로 분리)은 🧭 코워크 소유 프로세스 안건. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 87 — `agentrelay export --redact`: 내보낼 때만 자격증명 마스킹, 스토어 불변 (👷 자율 발굴)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-8wrx7h`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 세션 86 로그의 "다음 할 일 ②"에
+  명시된 후속 후보(“`export`에도 옵션형 소급 스크럽 노출”)를 그대로 이어감. 열린 PR 다수는 여전히 문서 append 충돌로
+  정체 — 91번째 중복을 더하는 대신 세션 79의 “진짜 신규 갭”만 발굴하는 정책 유지.
+- **발굴한 갭:** `agentrelay redact`(세션 86)는 **파괴적** — 디스크의 `jobs.json`을 in-place 스크럽. 사용자가 “이번
+  한 번의 export만 마스킹하고 원본 스토어는 raw로 유지”(예: 팀원과 잡 이력을 공유하되 로컬 디버깅용 tail은 그대로 두기)
+  하고 싶어도 그 옵션이 없었다. #875(write-time redact)·세션 86(store-wide redact) 이후 남은 마지막 노출 표면.
+- **한 일:** CLI `commands.ts`의 `ExportJobsOptions`에 `redact?: boolean` 필드 + `ExportJobsResult.redaction?:
+  {changedJobs,totalFields}` 필드 추가. `exportStore()`가 `options.redact`이면 core `planStoreRedaction(jobs)`
+  (세션 86이 만든 순수 함수 — 순서 보존, 변경 없는 잡은 참조 공유)을 통과시켜 스크럽된 사본을 serialize.
+  **on-disk 스토어는 절대 안 만짐** (planStoreRedaction은 순수, exportStore는 이미 file-write는 옵션-`out` 경로에만).
+  CLI `cli.ts` export 커맨드에 `--redact` 플래그 배선, stderr에 “redacted N field(s) across M job(s) — store not
+  modified” 리포트(자격증명 0개면 “scanned, no credentials found”). stdout은 청정 유지(jq/awk 파이프 안전).
+  `redaction` 필드는 opt-in일 때만 populated → 콜러가 “opted out”(undefined)과 “opted in, nothing matched”
+  ({changedJobs:0,totalFields:0})을 구분 가능. 새 파서/스케줄러 로직 0줄, core 변경 0줄(전부 기존 재사용).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 126파일)→`pnpm test` 전 패키지
+  통과(**core 716 · cli 381/1skip · dashboard 13**; cli export.test +3케이스 — 자격증명 스크럽·스토어 불변·opt-out
+  undefined·zero-match 서머리). 빌드된 `packages/cli/dist/bin.js`로 실제 e2e: 자격증명 포함 잡 seed →
+  `export -f json`(raw 유출) vs `export -f json --redact`(모두 `[REDACTED]`) → 디스크 파일 diff 0(스토어 UNCHANGED),
+  clean subset은 stderr “no credentials found” 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 대시보드가 `lastOutputTail`을 표시할 때의 옵션형
+  마스킹(read-only 표면이라 uncommon path지만 팀 공용 대시보드에서 유용)은 별도 후속 후보. ③ 근본 원인(문서 append 충돌)은
+  🧭 코워크 소유 프로세스 안건. README/ARCHITECTURE는 🧭 코워크 몫.
