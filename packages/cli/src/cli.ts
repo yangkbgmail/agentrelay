@@ -10,6 +10,7 @@ import type {
   JobScope,
   JobStatus,
   RelayJob,
+  SearchField,
 } from "@agentrelay/core";
 import {
   ALL_TOOLS,
@@ -25,6 +26,7 @@ import {
   computeStats,
   computeWeekdayDistribution,
   configJsonSchemaJson,
+  DEFAULT_SEARCH_FIELDS,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
   generateCompletion,
@@ -33,13 +35,16 @@ import {
   inferImportFormat,
   isCompletionShell,
   isJobScopeActive,
+  isSearchField,
   JOB_CSV_COLUMNS,
   maxResetHorizonMsFromEnv,
   parseCsvColumns,
   parseDuration,
   renderPrometheusMetrics,
+  SEARCH_FIELDS,
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
+  searchJobs,
   selectNextResume,
   sendTestNotification,
   summarizeJobs,
@@ -96,6 +101,7 @@ import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
 import { type RecoverResult, renderRecover, renderRecoverJson } from "./recover.js";
 import { renderRedact, renderRedactJson } from "./redact.js";
+import { renderSearch, renderSearchJson } from "./search.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
   formatUtcOffsetLabel,
@@ -1912,6 +1918,95 @@ export function buildCli(): Command {
       }
       console.log(renderParseReport(report, { color: Boolean(process.stdout.isTTY) }));
     });
+
+  program
+    .command("search")
+    .description("Find jobs by free-text search across their command, project, id, and last error")
+    .argument("<query>", "Text to look for (a substring by default, or a regex with --regex)")
+    .option(
+      "--field <fields>",
+      `Restrict to comma-separated fields: ${SEARCH_FIELDS.join(", ")} (default: ${DEFAULT_SEARCH_FIELDS.join(", ")})`
+    )
+    .option("-E, --regex", "Treat the query as a JavaScript regular expression")
+    .option("-c, --case-sensitive", "Match case-sensitively (default: case-insensitive)")
+    .option("--json", "Print matches as JSON (machine-readable, for scripts/jq)")
+    .option("-n, --limit <n>", "Show at most N matches (the headline still counts every match)")
+    .action(
+      (
+        query: string,
+        opts: { field?: string; regex?: boolean; caseSensitive?: boolean; json?: boolean; limit?: string }
+      ) => {
+        const { store } = program.opts();
+
+        if (query === "") {
+          console.error("[agentrelay] search needs a non-empty query.");
+          process.exitCode = 1;
+          return;
+        }
+
+        let fields: SearchField[] | undefined;
+        if (opts.field !== undefined) {
+          const requested = splitList(opts.field);
+          if (requested.length === 0) {
+            console.error("--field needs at least one field name.");
+            process.exitCode = 1;
+            return;
+          }
+          const invalid = requested.filter((f) => !isSearchField(f));
+          if (invalid.length > 0) {
+            console.error(`Unknown search field(s): ${invalid.join(", ")}. Valid: ${SEARCH_FIELDS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          fields = requested as SearchField[];
+        }
+
+        let limit: number | undefined;
+        if (opts.limit !== undefined) {
+          const n = Number.parseInt(opts.limit, 10);
+          if (!Number.isInteger(n) || n < 1) {
+            console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+            process.exitCode = 1;
+            return;
+          }
+          limit = n;
+        }
+
+        const searchOptions = { fields, regex: opts.regex, caseSensitive: opts.caseSensitive };
+        const all = listStatus(store);
+        let matches: RelayJob[];
+        try {
+          matches = searchJobs(all, query, searchOptions);
+        } catch (err) {
+          console.error(`[agentrelay] Invalid --regex pattern: ${(err as Error).message}`);
+          process.exitCode = 1;
+          return;
+        }
+
+        const usedFields = fields ?? DEFAULT_SEARCH_FIELDS;
+        if (opts.json) {
+          console.log(
+            renderSearchJson(matches, query, {
+              total: all.length,
+              fields: usedFields,
+              regex: opts.regex,
+              storePath: store,
+              limit,
+            })
+          );
+          return;
+        }
+        console.log(
+          renderSearch(matches, query, {
+            color: Boolean(process.stdout.isTTY),
+            limit,
+            regex: opts.regex,
+            fields: usedFields,
+            total: all.length,
+          })
+        );
+      }
+    );
 
   const config = program.command("config").description("Manage the agentrelay.config.json defaults file");
   config

@@ -1062,6 +1062,22 @@
       scheduler +3·queue +2 · cli commands +2·show +3 신규 테스트, 실제 빌드 CLI e2e로 claude 바이너리→
       `--continue` 삽입·generic→verbatim·show 라인 검증. branch `claude/wizardly-pascal-mx96ky`)
 
+- [x] 👷 `agentrelay search <query>` — 큐 자유 텍스트 검색(명령어·프로젝트·id·마지막 에러). 큐가
+      한 화면을 넘어가면 status의 구조적 필터(상태/툴/프로젝트/시간창)로는 "지난주 그 리팩터 잡이
+      뭐였지?"를 찾을 수 없었다 — 사람이 잡을 식별하는 유일한 텍스트(command·project·lastError)를
+      grep할 방법이 없었다.
+      (완료 — `@agentrelay/core/search.ts` 신설(순수·파일시스템 미접촉): `SEARCH_FIELDS`/`SearchField`·
+      `DEFAULT_SEARCH_FIELDS`(command/project/id/error — tool은 닫힌 어휘라 opt-in)·`isSearchField` +
+      `compileSearch`(기본 대소문자 무시 substring, `--regex`면 정규식[잘못된 패턴은 SyntaxError],
+      `--case-sensitive`) + `jobFieldText`(command는 공백 조인, null은 "") + `searchJobs`(빈 쿼리는
+      전부가 아니라 []=footgun 방지, 필드 중 하나라도 매치하면 hit, 입력 순서 보존, 비파괴 새 배열) +
+      `matchedFields`(어느 필드가 걸렸는지 provenance). CLI `search.ts`에 순수 `searchHeadline`
+      ("N of M job(s) match …", substring은 큰따옴표·regex는 슬래시)·`renderSearch`(헤드라인+status
+      테이블 재사용)·`renderSearchJson`(--limit 캡은 emitted만, matched는 진짜 개수). `agentrelay search
+      <query> [--field ...] [-E/--regex] [-c/--case-sensitive] [--json] [-n/--limit]` 배선, 빈 쿼리·잘못된
+      필드·잘못된 limit·잘못된 정규식은 exit 1. core 21 + cli 6 신규 테스트, 실제 빌드 CLI e2e로
+      substring/필드 제한/regex+json/no-match/에러 exit 검증. branch `claude/wizardly-pascal-7fkr66`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

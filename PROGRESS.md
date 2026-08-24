@@ -2576,6 +2576,23 @@
   PROGRESS/BACKLOG에 append → 하나 병합 시 나머지 전부 문서 충돌)은 🧭 코워크 소유 영역이라 프로세스/문서
   구조 변경(예: 세션 로그를 날짜별 개별 파일로 분리)이 필요 — 협의 안건. README/ARCHITECTURE는 🧭 코워크 몫.
 
+### [세션 85 — `agentrelay search <query>`: 큐 자유 텍스트 검색 신규 커맨드] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-7fkr66`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐)라 CLAUDE.md 지침대로
+  신규 개선 항목을 발굴. status/stats/export는 상태·툴·프로젝트·시간창 등 **구조적** 필터만 있어, 큐가
+  커지면 "명령어 텍스트로 잡을 찾는" 흔한 요구(예: "refactor" 들어간 잡)를 채울 방법이 없었다. `search`/
+  `grep`/`find` 커맨드가 전무함을 확인 후 진짜 갭으로 판단.
+- **한 일:** `@agentrelay/core/search.ts`(순수) — `SEARCH_FIELDS`·`DEFAULT_SEARCH_FIELDS`(command/project/
+  id/error, tool은 opt-in)·`compileSearch`(대소문자 무시 substring 기본, `--regex`/`--case-sensitive`)·
+  `jobFieldText`·`searchJobs`(빈 쿼리는 []=footgun 방지, 필드 OR 매치, 순서 보존, 비파괴)·`matchedFields`.
+  CLI `search.ts` — `searchHeadline`("N of M …", substring 큰따옴표·regex 슬래시)·`renderSearch`(status
+  테이블 재사용)·`renderSearchJson`(--limit 캡). `agentrelay search <query> [--field/-E/-c/--json/-n]` 배선.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 126파일)→`pnpm test`
+  전 패키지 통과(**core 708 · cli 376/1skip · dashboard 13**, search core 21 + cli 6 신규). 실제 빌드 CLI
+  e2e: `search auth`→2/3 매치, `--field command`→1/3, `'auth|billing' --regex --json`→3/3, `search zzz`→
+  no-match, 잘못된 필드/정규식→exit 1 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 후속 개선 여지: `status`처럼 `--sort`/`--reverse`,
+  `--status`/`--tool`/시간창 등 스코프와의 조합, `--watch` 라이브 검색. ③ 문서 append 충돌 근본 원인은
+  여전히 🧭 코워크 협의 안건(세션 84 진단 유지). README/ARCHITECTURE는 🧭 코워크 몫.
 ### [세션 85 — 컨텍스트 보존 재개(`run --resume-context`): SPEC §4 미구현 요구사항 구현] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-mx96ky`)
 - **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). CLAUDE.md/SPEC §8
   지침대로 스스로 새 개선 항목을 발굴. 스케줄러가 rate-limit 재개 시 `job.command`를 **그대로** 재실행해,
