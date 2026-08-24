@@ -2576,6 +2576,29 @@
   PROGRESS/BACKLOG에 append → 하나 병합 시 나머지 전부 문서 충돌)은 🧭 코워크 소유 영역이라 프로세스/문서
   구조 변경(예: 세션 로그를 날짜별 개별 파일로 분리)이 필요 — 협의 안건. README/ARCHITECTURE는 🧭 코워크 몫.
 
+### [세션 85 — 컨텍스트 보존 재개(`run --resume-context`): SPEC §4 미구현 요구사항 구현] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-mx96ky`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). CLAUDE.md/SPEC §8
+  지침대로 스스로 새 개선 항목을 발굴. 스케줄러가 rate-limit 재개 시 `job.command`를 **그대로** 재실행해,
+  `claude -p "..."` 잡은 리셋 후 이전 대화 컨텍스트를 잃고 프롬프트를 처음부터 다시 보냈다 — **SPEC §4가
+  명시한 "가능하면 --resume/컨텍스트 유지 플래그 사용"이 미구현**이었다(열린 브랜치에도 없음).
+- **한 일:** `@agentrelay/core` — `AgentAdapter`에 순수 `resumeCommand(command)` 추가(툴별 대화-이어가기
+  변환; 플래그 없는 툴은 identity=그대로) + `claudeResumeCommand`(바이너리 바로 뒤 `--continue` 삽입,
+  이미 `--continue`/`-c`/`--resume`/`--resume=<id>` 있으면 그대로 두어 이중 삽입·명시 세션 오버라이드 방지,
+  빈 command 그대로). `RelayJob`/`CreateJobInput`에 optional `resumeContext`(미설정=기존 verbatim 재실행,
+  하위호환). `RelayQueue.enqueue`는 opt-in일 때만 플래그 영속(기본 스토어 바이트 불변), `update`의
+  `{...existing}` 병합으로 상태 변경·재직렬화 후에도 보존. 스케줄러 `resume`이 `job.resumeContext`면 어댑터
+  변환 적용 후 spawn(원본 command는 불변이라 매 재개가 원본에서 멱등 변환), `runCommand(command,cwd)`로
+  시그니처 정리. CLI `agentrelay run --resume-context` 플래그, 큐 메시지가 활성 시 실제 재개 형태 안내,
+  `show`가 `resume` 라인으로 노출(변환 없는 툴은 "re-runs verbatim"). Codex/generic은 이어가기 플래그가
+  없어 no-op(안전). 파서/큐 저장 포맷 변경 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 122파일)→`pnpm test`
+  전 패키지 통과(**core 696 · cli 375/1skip · dashboard 13**). core adapters +4·scheduler +3·queue +2 ·
+  cli commands +2·show +3 신규 테스트. 실제 빌드 CLI e2e: `claude`-이름 바이너리로 `run --resume-context`→
+  큐 메시지·`show`에 `--continue` 삽입된 재개 형태 표기 / generic(node) 바이너리→"re-runs verbatim" 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② Codex CLI의 대화-이어가기 플래그
+  (`codex resume`/세션 재개) 실측 후 `CODEX_CLI_ADAPTER.resumeCommand` 채우기(현재 no-op). ③ 데몬/tick에도
+  전역 기본값(`AGENTRELAY_RESUME_CONTEXT` env)으로 opt-in 노출 검토. ④ 근본 원인(문서 append 충돌)은
+  세션 84 진단대로 🧭 코워크와 협의. README/ARCHITECTURE는 🧭 코워크 몫.
 ### [세션 85 — 출력 tail 비밀 레닥션: jobs.json/export 자격증명 유출 차단 (👷 자율 발굴)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-q3j8uv`)
 - **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐)라 CLAUDE.md 지침대로
   스스로 신규 개선 항목을 발굴. 파서 "파이프-에포크(`usage limit reached|<epoch>`)"는 이미 `adapters.ts`의

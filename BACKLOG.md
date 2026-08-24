@@ -1043,6 +1043,25 @@
       (**core 722 · cli 378/1skip · dashboard 13**, Biome 0에러), 빌드 CLI `parse --tool gemini-cli`로
       retryDelay→resets in 1m·generic 미인식 e2e 확인. branch `claude/wizardly-pascal-gr62f3`)
 
+- [x] 👷 컨텍스트 보존 재개(`agentrelay run --resume-context`) — 재개 시 명령을 처음부터 다시 돌리는
+      대신 툴의 대화-이어가기 형태(Claude Code의 `--continue`)로 실행. **SPEC §4의 미구현 요구사항**
+      직접 구현("가능하면 --resume/컨텍스트 유지 플래그 사용"). 자기 발굴 항목. 지금까지 스케줄러는
+      rate-limit 재개 시 `job.command`를 **그대로** 재실행해, `claude -p "..."` 잡은 리셋 후 이전 대화
+      컨텍스트를 잃고 프롬프트를 처음부터 다시 보냈다.
+      (완료 — `@agentrelay/core`: `AgentAdapter`에 순수 `resumeCommand(command)` 추가(툴별 대화-이어가기
+      변환, 없는 툴은 identity=그대로) + `claudeResumeCommand`(바이너리 바로 뒤에 `--continue` 삽입, 이미
+      `--continue`/`-c`/`--resume`/`--resume=<id>`가 있으면 그대로 두어 이중 삽입·명시 세션 오버라이드
+      방지, 빈 command는 그대로). `RelayJob`/`CreateJobInput`에 optional `resumeContext` 추가(미설정 시
+      기존 verbatim 재실행 그대로 — 하위호환). `RelayQueue.enqueue`가 opt-in일 때만 플래그 영속(기본
+      스토어 바이트 불변), `update`의 `{...existing}` 병합으로 상태 변경·재직렬화 후에도 보존. 스케줄러
+      `resume`이 `job.resumeContext`면 어댑터 변환 적용 후 spawn(원본 command는 불변이라 매 재개가 원본에서
+      멱등 변환), `runCommand(command,cwd)`로 시그니처 정리. CLI `agentrelay run --resume-context` 플래그,
+      큐 메시지가 활성 시 실제 재개 형태를 안내, `show`가 `resume` 라인으로 노출(변환 없는 툴은 "re-runs
+      verbatim"). Codex/generic은 이어가기 플래그가 없어 no-op(안전). 파서/큐 저장 포맷 변경 0줄.
+      build/lint/test 통과(**core 696 · cli 375/1skip · dashboard 13**, Biome 0경고), core adapters +4·
+      scheduler +3·queue +2 · cli commands +2·show +3 신규 테스트, 실제 빌드 CLI e2e로 claude 바이너리→
+      `--continue` 삽입·generic→verbatim·show 라인 검증. branch `claude/wizardly-pascal-mx96ky`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

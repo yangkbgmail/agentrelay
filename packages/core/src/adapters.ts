@@ -26,15 +26,33 @@ export interface AgentAdapter {
   /** Tool-specific rate-limit patterns, tried before the generic ones. */
   patterns: RateLimitPattern[];
   /**
+   * Transform a command into its context-preserving *resume* form — the way you
+   * would re-invoke the tool to continue the previous conversation rather than
+   * start over (e.g. Claude Code's `--continue`). The scheduler applies this only
+   * when a job opted into context-preserving resume (`RelayJob.resumeContext`);
+   * verbatim re-run stays the default. Returns the command unchanged when the
+   * tool has no such flag or one is already present. Pure and side-effect free.
+   */
+  resumeCommand(command: string[]): string[];
+  /**
    * Detect a rate-limit message in command output. Delegates to the generic
    * parser but injects this adapter's patterns at highest priority.
    */
   detectRateLimit(output: string, options?: ParseOptions): RateLimitInfo | null;
 }
 
-function makeAdapter(spec: Omit<AgentAdapter, "detectRateLimit">): AgentAdapter {
+/** Identity transform: tools without a context-preserving resume flag re-run verbatim. */
+const identityResume = (command: string[]): string[] => command;
+
+function makeAdapter(
+  spec: Omit<AgentAdapter, "detectRateLimit" | "resumeCommand"> & {
+    resumeCommand?: (command: string[]) => string[];
+  }
+): AgentAdapter {
+  const resumeCommand = spec.resumeCommand ?? identityResume;
   return {
     ...spec,
+    resumeCommand,
     detectRateLimit(output, options = {}) {
       return parseRateLimitMessage(output, {
         ...options,
@@ -42,6 +60,24 @@ function makeAdapter(spec: Omit<AgentAdapter, "detectRateLimit">): AgentAdapter 
       });
     },
   };
+}
+
+/**
+ * Claude Code continues the most recent conversation in a working directory with
+ * `--continue` (`-c`). When resuming a rate-limited `claude -p "..."` run we want
+ * to pick that conversation back up instead of starting a fresh one, so insert
+ * `--continue` right after the binary — unless the command already asks to
+ * continue or resume a session, so we never double the flag or override an
+ * explicit `--resume <id>`.
+ */
+export function claudeResumeCommand(command: string[]): string[] {
+  if (command.length === 0) return command;
+  const rest = command.slice(1);
+  const alreadyResuming = rest.some(
+    (arg) => arg === "--continue" || arg === "-c" || arg === "--resume" || arg === "-r" || arg.startsWith("--resume=")
+  );
+  if (alreadyResuming) return command;
+  return [command[0], "--continue", ...rest];
 }
 
 /**
@@ -128,6 +164,7 @@ export const CLAUDE_CODE_ADAPTER: AgentAdapter = makeAdapter({
   displayName: "Claude Code",
   binaries: ["claude", "claude-code"],
   patterns: [CLAUDE_USAGE_LIMIT_EPOCH_PATTERN],
+  resumeCommand: claudeResumeCommand,
 });
 
 export const CODEX_CLI_ADAPTER: AgentAdapter = makeAdapter({

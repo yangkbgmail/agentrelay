@@ -617,4 +617,72 @@ describe("RelayScheduler", () => {
     expect(results.map((j) => j.project)).toEqual(dueOrder);
     expect(results.every((j) => j.status === "completed")).toBe(true);
   });
+
+  // Records every command the scheduler actually spawns, then closes cleanly.
+  function recordingSpawnFn(spawned: string[][]): SpawnFn {
+    return (command) => {
+      spawned.push(command);
+      const emitter = new EventEmitter() as any;
+      emitter.stdout = new EventEmitter();
+      emitter.stderr = new EventEmitter();
+      setTimeout(() => {
+        emitter.stdout.emit("data", Buffer.from("done"));
+        emitter.emit("close", 0);
+      }, 0);
+      return emitter;
+    };
+  }
+
+  it("resumes with the tool's context-preserving command when resumeContext is set", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+      resumeContext: true,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const spawned: string[][] = [];
+    const scheduler = new RelayScheduler({ queue, spawnFn: recordingSpawnFn(spawned) });
+    const results = await scheduler.tick();
+
+    expect(spawned).toEqual([["claude", "--continue", "-p", "continue"]]);
+    expect(results[0].status).toBe("completed");
+    // The stored command is untouched, so a later resume still transforms from the original.
+    expect(results[0].command).toEqual(["claude", "-p", "continue"]);
+  });
+
+  it("resumes verbatim when resumeContext is not set (historical default)", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const spawned: string[][] = [];
+    const scheduler = new RelayScheduler({ queue, spawnFn: recordingSpawnFn(spawned) });
+    await scheduler.tick();
+
+    expect(spawned).toEqual([["claude", "-p", "continue"]]);
+  });
+
+  it("resumeContext on a tool with no continue flag falls back to verbatim re-run", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "generic",
+      command: ["mystery-cli", "--go"],
+      cwd: dir,
+      resumeContext: true,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const spawned: string[][] = [];
+    const scheduler = new RelayScheduler({ queue, spawnFn: recordingSpawnFn(spawned) });
+    await scheduler.tick();
+
+    expect(spawned).toEqual([["mystery-cli", "--go"]]);
+  });
 });

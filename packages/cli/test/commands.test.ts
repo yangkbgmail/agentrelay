@@ -89,6 +89,40 @@ describe("runCommand", () => {
     expect(jobs[0].command).toEqual(["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"]);
   });
 
+  it("persists resumeContext on the queued job and notes the resume form", async () => {
+    // Use a `claude`-named binary (symlinked to node) so the claude-code adapter
+    // is inferred and its --continue resume transform applies in the note.
+    const claudeBin = join(dir, "claude");
+    symlinkSync(process.execPath, claudeBin);
+    const stdout = new PassThrough();
+    let printed = "";
+    stdout.on("data", (c) => {
+      printed += c.toString();
+    });
+    const result = await runCommand({
+      command: [claudeBin, "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      resumeContext: true,
+      stdout,
+      stderr: new PassThrough(),
+    });
+    expect(result.queuedJob?.resumeContext).toBe(true);
+    expect(printed).toContain("continuing the previous conversation");
+    expect(printed).toContain("--continue");
+  });
+
+  it("does not set resumeContext when the flag is omitted", async () => {
+    const result = await runCommand({
+      command: ["node", "-e", "console.log('Usage limit reached. Resets in 10m.')"],
+      storePath,
+      cwd: dir,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    expect(result.queuedJob?.resumeContext).toBeUndefined();
+  });
+
   it("sends a 'queued' notification when a rate-limited command is enqueued", async () => {
     const notify = vi.fn(async (_payload: NotifyPayload) => {});
     const result = await runCommand({
