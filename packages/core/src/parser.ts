@@ -94,14 +94,29 @@ const PATTERNS: RateLimitPattern[] = [
   },
   {
     // "resets at 3:00pm" / "resets at 15:00" (assume today, or tomorrow if already past)
+    //
+    // Out-of-range hours/minutes are rejected (null) instead of being fed to
+    // `setHours`, which silently *normalizes* them into a wrong instant: "25:00"
+    // rolls to 01:00 the next day, "12:99" becomes 13:39, "08:60" becomes 09:00,
+    // and "13:00pm" (invalid 12-hour clock) sticks at 13:00. Each is a silent
+    // misparse that parks the job at the wrong reset — and the 8-day plausibility
+    // guard can't catch a mistime this small. The sibling `clock-time-meridiem`
+    // and `relative-day` patterns already validate their ranges; this mirrors
+    // them so a nonsense clock falls through to a saner pattern (or `null`).
     name: "clock-time",
     regex: /reset[s]?\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
     resolve: (m, now) => {
       let hour = parseInt(m[1], 10);
       const minute = parseInt(m[2], 10);
       const meridiem = m[3]?.toLowerCase();
-      if (meridiem === "pm" && hour < 12) hour += 12;
-      if (meridiem === "am" && hour === 12) hour = 0;
+      if (minute > 59) return null; // invalid minute
+      if (meridiem) {
+        if (hour < 1 || hour > 12) return null; // invalid 12-hour clock time (e.g. "13:00pm", "0:00am")
+        if (meridiem === "pm" && hour < 12) hour += 12;
+        if (meridiem === "am" && hour === 12) hour = 0;
+      } else if (hour > 23) {
+        return null; // invalid 24-hour clock time (e.g. "25:00")
+      }
       const candidate = new Date(now);
       candidate.setHours(hour, minute, 0, 0);
       if (candidate.getTime() <= now.getTime()) {
