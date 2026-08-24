@@ -231,4 +231,60 @@ describe("exportStore", () => {
     expect(parsed[0].project).toBe("beta");
     expect(parsed[0].command).toEqual(["codex", "new"]);
   });
+
+  // `export --redact` scrubs secrets from the serialized output on the fly,
+  // without mutating the store — the export-time counterpart to `agentrelay
+  // redact` (which cleans the store in place). It reuses the same core
+  // `redactJob` scrubber so a shared export stays consistent with a scrubbed store.
+  describe("--redact", () => {
+    const SECRET_KEY = "sk-ant-0123456789abcdefABCDEF0123456789";
+
+    function seedWithSecret(): string {
+      const queue = new RelayQueue(storePath);
+      const job = queue.enqueue({
+        project: "leaky",
+        tool: "claude-code",
+        command: ["claude", "-p", "go"],
+        cwd: "/l",
+      });
+      // A crashing agent echoed its API key into both the error and the tail.
+      queue.markFailed(job.id, `boom ANTHROPIC_API_KEY=${SECRET_KEY}`, `env: ANTHROPIC_API_KEY=${SECRET_KEY}`);
+      queue.close();
+      return job.id;
+    }
+
+    it("scrubs secrets from the JSON export when redact is on", () => {
+      seedWithSecret();
+      const result = exportStore({ storePath, format: "json", redact: true });
+      expect(result.content).not.toContain(SECRET_KEY);
+      expect(result.content).toContain("[REDACTED]");
+      const parsed = JSON.parse(result.content) as Array<{ lastError: string; lastOutputTail: string }>;
+      expect(parsed[0].lastError).not.toContain(SECRET_KEY);
+      expect(parsed[0].lastOutputTail).not.toContain(SECRET_KEY);
+    });
+
+    it("leaves the secret in the export when redact is off (default)", () => {
+      seedWithSecret();
+      const result = exportStore({ storePath, format: "json" });
+      expect(result.content).toContain(SECRET_KEY);
+    });
+
+    it("does not mutate the store on disk (serialization-time view only)", () => {
+      seedWithSecret();
+      exportStore({ storePath, format: "json", redact: true });
+      // The store still holds the raw secret — redaction was applied to the
+      // export bytes, not written back.
+      const onDisk = readFileSync(storePath, "utf8");
+      expect(onDisk).toContain(SECRET_KEY);
+      const stillRaw = listStatus(storePath);
+      expect(stillRaw[0].lastError).toContain(SECRET_KEY);
+    });
+
+    it("scrubs secrets in the CSV lastError column too", () => {
+      seedWithSecret();
+      const result = exportStore({ storePath, format: "csv", redact: true });
+      expect(result.content).not.toContain(SECRET_KEY);
+      expect(result.content).toContain("[REDACTED]");
+    });
+  });
 });
