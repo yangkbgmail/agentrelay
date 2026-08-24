@@ -2850,3 +2850,29 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR 200+, 중복 밀집) — 큐 배수를
   🧭/사람과 조율. ③ 동류 입력 하드닝 후보: `createdAt`/`updatedAt`도 파싱 불가면 stats 타이밍/트렌드 지표에서 조용히
   스킵되므로, 필요 시 verify는 경고·import는 정책 결정(재개엔 영향 없어 우선순위 낮음).
+
+### [세션 92 — fix(core): overdue 진단이 파싱 불가 resetAt 잡을 조용히 누락하던 listDue 불일치 수정 (👷 자율)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-wfyxi2`)
+- **항목 선정:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐), 열린 PR 200+개로 병리적 포화.
+  세션 73·90·91 방침(신규 feature 지양·버그 픽스 우선·아무 열린 PR도 안 건드리는 진짜 correctness 갭 발굴)을 이어,
+  세션 90의 #812(`listDue`가 파싱 불가 `resetAt`을 due-now로 표면화)가 만든 **후속 불일치**를 발굴.
+- **발굴한 갭:** `overdue.ts`는 자기 docstring에서 "이건 스케줄러 `listDue`가 작동하는 바로 그 집합을 읽는다 → populated
+  report는 '데몬이 이 잡들을 준비해 놓고도 안 돌리고 있다'는 신뢰할 신호"라고 명시하는데, #812 이후 그 주장이 **거짓**이
+  됐다. `isJobDue`는 파싱 불가(비-null) `resetAt` 잡을 **due-now로 취급해 스케줄러가 재개**하지만, `overdue`는
+  `Number.isNaN(resetMs) → return false`로 그 잡을 **조용히 제외**했다. 즉 "돌아야 하는데 안 도는" 잡을 잡으라고
+  존재하는 진단이, 가장 stuck되기 쉬운 부류(손 편집·구 스냅샷 복원의 malformed `resetAt`)를 못 봤다 — 이 툴이
+  반복해서 겨냥하는 "silent failure" 부류. `overdue.test.ts`의 기존 테스트("ignores … unparseable resetAt")가
+  바로 이 불일치를 인코딩하고 있었다.
+- **한 일:** 순수 `overdueSinceMs(job)` 신설: 파싱 가능한 `resetAt`이면 그 순간, 파싱 불가면 `isJobDue`가 due로 보는
+  근거(파킹된 시점)에 맞춰 `updatedAt`→`createdAt`으로 fallback해 overdue span을 정직하게 앵커. 세 타임스탬프가 모두
+  파싱 불가한 degenerate 케이스만 `null` 반환해 제외(큐가 절대 만들지 않는 값). `buildOverdueReport`가 이 유효 due
+  instant로 grace 필터·정렬·`overdueByMs`·`maxOverdueByMs`를 계산하도록 재작성 — grace가 malformed 잡에도 자연히
+  적용돼(방금 파킹된 잡은 다음 tick에 재개될 것이므로 false-alarm 안 함), RESET AT 컬럼엔 원본 문자열이 그대로 노출돼
+  왜 stuck인지 보여줌. 스케줄러/파서/큐 로직 0줄 변경.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm format`→`pnpm ci:lint`(Biome 0에러, 130파일)→
+  `pnpm test` 전 패키지 통과(**core 770[+4] · cli 394/1skip · dashboard 13**). overdue.test 기존 불일치 테스트를
+  null-only 제외로 교정 + 파싱불가→표면화/grace 적용/parseable와 혼합 랭킹/전부-파싱불가 제외 4케이스 추가. 실제 빌드
+  CLI e2e: malformed(`"next tuesday"`)+good 잡 스토어에 `overdue`→둘 다 표면화, malformed는 updatedAt 기준 정직한
+  span·원본 문자열 verbatim(수정 전엔 조용히 누락됐을 것).
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 동류 후속: `next`/`eta`/`upcoming`/`wait`도 같은 필터로 파싱 불가
+  `resetAt` 잡을 제외 중 — `next`는 due-now 잡을 "다음 재개"에서 빠뜨려 3시간 뒤 잡을 가리킬 수 있음. 필요 시 동일 앵커
+  정책으로 순차 하드닝(진단 우선순위는 overdue가 가장 높아 이번엔 여기만). ③ 근본 병목은 여전히 리뷰/병합(열린 PR 200+).
