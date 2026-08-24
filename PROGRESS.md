@@ -2623,3 +2623,24 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② `export`/대시보드에도 옵션형 소급 스크럽 노출은 후속 후보(현재는
   스토어 in-place 정리로 충분). ③ 나머지 clean·고가치 PR(#878 clean/#879 search 등)은 doc append 충돌로 dirty —
   근본 원인(세션 로그를 날짜별 개별 파일로 분리)은 🧭 코워크 소유 프로세스 안건. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 87 — fix(parser): 상대-시간 단위 문자 오탐 수정 ("2 months"→2분 무음 under-wait), 현재 main 기준 (👷 자율 발굴)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-nd342m`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐), 열린 PR ~200개로 신규 커맨드·
+  포맷·watch·파서 축이 전부 포화(동일 기능 5~10 중복). 신규 feature PR은 한계효용이 음수라 큐 소음만 늘린다. 대신
+  코드에서 **현재 main에 살아있는 실제 정확성 버그**를 발굴해 수정.
+- **버그:** 제네릭 `relative-duration` 파서의 단위 그룹 `d`/`h`/`m` 뒤에 경계가 없어, 단위 문자가 무관한 단어의
+  접두사와 겹치면 그 단어를 짧은 단위로 오독했다. 빌드된 파서로 재현 확인: `"try again in 2 months"`→**2분**,
+  `"3 milliseconds"`→3분, `"1 moment"`→1분. 이 릴레이가 doctor/recover/reset-horizon으로 반복 겨냥해온 무음
+  under-wait(잡을 실제 리셋보다 훨씬 일찍 재개 → 곧바로 재차 한도 → attempts 소진) 부류이며, 8일 지평선 가드도
+  `2분 < 8일`이라 못 잡는다. (동류 수정 PR #578/#827이 있으나 둘 다 오래된 main 기준[Aug 10/21]이라 그 뒤 추가된
+  clock-time-meridiem·relative-day·ms-epoch·http-retry-after 패턴과 parser.ts에서 충돌 — 현재 main엔 미반영.)
+- **한 일:** `parser.ts`의 relative-duration 정규식에 각 단위 토큰 뒤 `(?![a-z])`(후행 letter 거부, 후행 digit은
+  허용 → 컴팩트 `4h32m` 유지) 앵커링 + 경계로 실제 문구가 깨지지 않게 단위 접미사를 흔한 약어로 확장
+  (`h(?:rs?|ours?)?`·`m(?:ins?|inutes?)?`). 새 로직 0줄 — 정규식 앵커 3개 + 근거 주석. 오탐 시 그룹이 비어
+  `resolve`가 `null` → 최종 미감지(안전: 2분 오탐보다 미감지가 낫다).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 126파일)→`pnpm test` 전
+  패키지 통과(**core 719[+3, parser 52→55] · cli 378/1skip · dashboard 13**). parser.test.ts +3(단위-접두사 오탐
+  4종→null · 약어 `hr`/`hrs`/`mins` 정상 · 컴팩트 `1d2h30m` 유지). 빌드된 CLI e2e: `parse "…try again in 2
+  months."`→`No rate-limit detected`(안전 폴스루), `parse "…try again in 30 mins."`→`relative-duration`·`in 30m`.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR ~200, 중복 밀집) — 큐 배수는
+  🧭/사람 조율 안건. ③ 파서 seconds/weeks 단위(현재 generic 미지원, 각각 Codex 어댑터·#553/#536에서 다룸)는 별도.
