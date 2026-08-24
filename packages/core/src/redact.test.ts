@@ -96,6 +96,57 @@ describe("redactSecrets", () => {
     const text = "the sk-1234 shorthand and the word secretary are fine";
     expect(redactSecrets(text)).toBe(text);
   });
+
+  it("redacts a multi-line PEM private key block as a whole", () => {
+    const pem = [
+      "-----BEGIN RSA PRIVATE KEY-----",
+      "MIIEpAIBAAKCAQEA0abcDEF1234567890secretkeymaterialgoeshereXYZ",
+      "aW5uZXJib2R5b2ZhcHJpdmF0ZWtleXRoYXRtdXN0bmV2ZXJsZWFr",
+      "-----END RSA PRIVATE KEY-----",
+    ].join("\n");
+    const out = redactSecrets(`before\n${pem}\nafter`);
+    expect(out).toBe(`before\n${REDACTION_PLACEHOLDER}\nafter`);
+    expect(out).not.toContain("secretkeymaterial");
+    expect(out).not.toContain("BEGIN RSA PRIVATE KEY");
+  });
+
+  it("redacts a one-line, backslash-n-escaped PEM private key (env/JSON form)", () => {
+    const key = "-----BEGIN PRIVATE KEY-----\\nMIIBODEADBEEFsecretbody0123456789\\n-----END PRIVATE KEY-----";
+    const out = redactSecrets(`GOOGLE_PRIVATE_KEY="${key}"`);
+    expect(out).not.toContain("DEADBEEFsecretbody");
+    expect(out).toContain(REDACTION_PLACEHOLDER);
+  });
+
+  it("redacts two adjacent PEM blocks separately (non-greedy)", () => {
+    const block = (body: string) => `-----BEGIN EC PRIVATE KEY-----\n${body}\n-----END EC PRIVATE KEY-----`;
+    const out = redactSecrets(`${block("firstbodyAAAA1111")} keep ${block("secondbodyBBBB2222")}`);
+    expect(out).toBe(`${REDACTION_PLACEHOLDER} keep ${REDACTION_PLACEHOLDER}`);
+    expect(out).not.toContain("firstbody");
+    expect(out).not.toContain("secondbody");
+  });
+
+  it("redacts Stripe secret and restricted keys but not publishable keys", () => {
+    // Fixtures are assembled at runtime so the source file itself doesn't carry
+    // a substring that matches GitHub push-protection's Stripe-key signature.
+    const secret = `${"sk"}_${"live"}_ABCdef1234567890ghijKLmn`;
+    const restricted = `${"rk"}_${"test"}_0123456789abcdefGHIJ`;
+    const publishable = `${"pk"}_${"live"}_0123456789abcdefGHIJ`;
+    expect(redactSecrets(`STRIPE ${secret} done`)).toBe(`STRIPE ${REDACTION_PLACEHOLDER} done`);
+    expect(redactSecrets(`test key ${restricted} here`)).toBe(`test key ${REDACTION_PLACEHOLDER} here`);
+    // Publishable keys are safe to expose — left untouched.
+    expect(redactSecrets(`publishable ${publishable}`)).toBe(`publishable ${publishable}`);
+  });
+
+  it("redacts a Google OAuth access token, keeping the ya29. hint", () => {
+    const token = "ya29.a0AfB_byC-1234567890abcdefGHIJKLmnop";
+    const out = redactSecrets(`Authorization dumped ${token} in the log`);
+    expect(out).not.toContain("a0AfB_byC-1234567890");
+    expect(out).toBe(`Authorization dumped ${REDACTION_PLACEHOLDER} in the log`);
+    // A bare "ya29." mention with no token body should survive.
+    expect(redactSecrets("the ya29. prefix identifies Google tokens")).toBe(
+      "the ya29. prefix identifies Google tokens"
+    );
+  });
 });
 
 describe("redactOutputTailFromEnv", () => {
