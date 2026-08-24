@@ -2593,3 +2593,138 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 후속 개선 여지: `status`처럼 `--sort`/`--reverse`,
   `--status`/`--tool`/시간창 등 스코프와의 조합, `--watch` 라이브 검색. ③ 문서 append 충돌 근본 원인은
   여전히 🧭 코워크 협의 안건(세션 84 진단 유지). README/ARCHITECTURE는 🧭 코워크 몫.
+### [세션 85 — 컨텍스트 보존 재개(`run --resume-context`): SPEC §4 미구현 요구사항 구현] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-mx96ky`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). CLAUDE.md/SPEC §8
+  지침대로 스스로 새 개선 항목을 발굴. 스케줄러가 rate-limit 재개 시 `job.command`를 **그대로** 재실행해,
+  `claude -p "..."` 잡은 리셋 후 이전 대화 컨텍스트를 잃고 프롬프트를 처음부터 다시 보냈다 — **SPEC §4가
+  명시한 "가능하면 --resume/컨텍스트 유지 플래그 사용"이 미구현**이었다(열린 브랜치에도 없음).
+- **한 일:** `@agentrelay/core` — `AgentAdapter`에 순수 `resumeCommand(command)` 추가(툴별 대화-이어가기
+  변환; 플래그 없는 툴은 identity=그대로) + `claudeResumeCommand`(바이너리 바로 뒤 `--continue` 삽입,
+  이미 `--continue`/`-c`/`--resume`/`--resume=<id>` 있으면 그대로 두어 이중 삽입·명시 세션 오버라이드 방지,
+  빈 command 그대로). `RelayJob`/`CreateJobInput`에 optional `resumeContext`(미설정=기존 verbatim 재실행,
+  하위호환). `RelayQueue.enqueue`는 opt-in일 때만 플래그 영속(기본 스토어 바이트 불변), `update`의
+  `{...existing}` 병합으로 상태 변경·재직렬화 후에도 보존. 스케줄러 `resume`이 `job.resumeContext`면 어댑터
+  변환 적용 후 spawn(원본 command는 불변이라 매 재개가 원본에서 멱등 변환), `runCommand(command,cwd)`로
+  시그니처 정리. CLI `agentrelay run --resume-context` 플래그, 큐 메시지가 활성 시 실제 재개 형태 안내,
+  `show`가 `resume` 라인으로 노출(변환 없는 툴은 "re-runs verbatim"). Codex/generic은 이어가기 플래그가
+  없어 no-op(안전). 파서/큐 저장 포맷 변경 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 122파일)→`pnpm test`
+  전 패키지 통과(**core 696 · cli 375/1skip · dashboard 13**). core adapters +4·scheduler +3·queue +2 ·
+  cli commands +2·show +3 신규 테스트. 실제 빌드 CLI e2e: `claude`-이름 바이너리로 `run --resume-context`→
+  큐 메시지·`show`에 `--continue` 삽입된 재개 형태 표기 / generic(node) 바이너리→"re-runs verbatim" 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② Codex CLI의 대화-이어가기 플래그
+  (`codex resume`/세션 재개) 실측 후 `CODEX_CLI_ADAPTER.resumeCommand` 채우기(현재 no-op). ③ 데몬/tick에도
+  전역 기본값(`AGENTRELAY_RESUME_CONTEXT` env)으로 opt-in 노출 검토. ④ 근본 원인(문서 append 충돌)은
+  세션 84 진단대로 🧭 코워크와 협의. README/ARCHITECTURE는 🧭 코워크 몫.
+### [세션 85 — 출력 tail 비밀 레닥션: jobs.json/export 자격증명 유출 차단 (👷 자율 발굴)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-q3j8uv`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐)라 CLAUDE.md 지침대로
+  스스로 신규 개선 항목을 발굴. 파서 "파이프-에포크(`usage limit reached|<epoch>`)"는 이미 `adapters.ts`의
+  `claude-usage-limit-epoch`로 구현돼 있어(generic 오탐 방지 위해 Claude 어댑터에만 의도적으로 둠) 후보에서 제외.
+  대신 실질적 **보안 갭**을 발굴: 스케줄러가 재개마다 에이전트 stdout/stderr 꼬리를 `lastOutputTail`로 스토어에
+  영속화하는데, 그 출력엔 자격증명이 흔히 섞임(크래시가 echo한 `ANTHROPIC_API_KEY`, 로깅된 `Authorization:
+  Bearer …`, PAT 박힌 git URL). 그대로 저장하면 편의 로그가 디스크(및 디버깅용 공유 `export`)의 평문 비밀함이 됨.
+  기존엔 config 값만 표시 시 마스킹했을 뿐, 캡처된 출력 tail은 무방비였음(`grep redact/sanitize` 0건 확인).
+- **한 일:** `@agentrelay/core/redact.ts` 신설 — 순수 `redactSecrets(text)`가 고신뢰 토큰 형태(Anthropic
+  `sk-ant-`/OpenAI `sk-`/GitHub `ghp_`·`github_pat_`/AWS `AKIA`/Slack `xox*`/Google `AIza`/`Authorization:
+  Bearer|token`/`NAME=secret`·`NAME: secret` 대입)를 `[REDACTED]`로 마스킹하고 분류 못 하는 텍스트는 그대로 둠
+  (보수적 → 일반 출력 안 망가뜨림). `REDACTION_PLACEHOLDER`·`redactOutputTailFromEnv`(`AGENTRELAY_REDACT_OUTPUT`,
+  secure-by-default: 미설정·오타는 on, 명시적 off/0/false/no/none/disabled만 off) 함께 export. 스케줄러는 tail을
+  **슬라이스 후 스크럽**해 저장 — rate-limit 감지는 항상 un-redacted `output`에서 돌아 **재개 시점 불변**, 마스킹은
+  디스크에 쓰이는 것만 바꿈. `SchedulerOptions.redactOutputTail`(기본 true), CLI daemon/tick이 env로 배선.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 124파일)→`pnpm test`
+  전 패키지 통과(**core 707 · cli 370/1skip · dashboard 13**; redact.test +22, scheduler.test +3). 빌드된
+  `dist/index.js`로 실제 스크럽 e2e 확인(`ANTHROPIC_API_KEY=sk-ant-…`→`=[REDACTED]`, `Authorization: Bearer …`→
+  `Bearer [REDACTED]`, 일반 출력 불변, env 기본 true·`off`→false).
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② `run`(최초 감지) 경로는 현재 tail을 저장하지
+  않아 무관하나, 향후 감지 시 출력 저장을 추가하면 동일 스크럽 적용 필요. ③ 대시보드/`show`가 이미 저장된(레닥션 전)
+  tail을 표시할 때의 소급 스크럽은 별도 항목 후보. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 86 — #875 보안 픽스 병합 + `agentrelay redact`: 이미 저장된 비밀 소급 스크럽 (👷 자율 발굴)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-lsguqd`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료, 열린 PR ~200개로 병리적 포화(중복 밀집) — 신규 feature 한계효용이
+  낮고 병목은 리뷰/병합. 먼저 **가장 고가치·clean·초록 PR을 병합해 큐를 배수**(COLLAB §병합정책), 이어서 그 위에
+  실질 갭을 하나 발굴·구현.
+- **한 일 ①(큐 배수):** #875 `feat(core): redact secrets from persisted output tail`(mergeable clean, 현재 main
+  기반)을 로컬에서 build/test/lint 전 검증(core 707·cli 370/1skip·dashboard 13, Biome 0에러) 후 **squash 병합**.
+  세션 85가 남긴 보안 픽스가 main에 반영됨.
+- **한 일 ②(`agentrelay redact` — #875 소급 스크럽):** 세션 85 "다음 할 일 ③"이 남긴 갭 — #875는 **앞으로의**
+  write만 스크럽하고, 그 이전에 저장됐거나 `import`로 유입됐거나 손 편집된 잡의 평문 비밀은 여전히 디스크에 남아
+  `show`/`export`가 노출함(#875 docstring이 명시한 위협모델을 실제로는 못 닫음). `@agentrelay/core/redact.ts`에
+  순수 `redactJob(job)`(`lastOutputTail`·`lastError`·`lastRateLimit.rawMatch`에 `redactSecrets` 적용, 바뀐 필드만
+  보고, **updatedAt 불변** — 콘텐츠 정리이지 라이프사이클 이벤트 아님)·`planStoreRedaction(jobs)`(순서 보존 계획+변경
+  로그+총계)·`RedactableField`/`REDACTABLE_FIELDS`/`JobRedactionChange`/`StoreRedactionPlan` 추가. `RelayQueue.redact
+  ({dryRun})`가 계획 계산→변경 잡만 set→원자적 flush(dry-run은 무기록). CLI `redactStore`(commands.ts)+순수 렌더
+  `renderRedact`/`renderRedactJson`(redact.ts)+`agentrelay redact [--dry-run] [--json]` 배선(prune/recover의 pure
+  선택+I/O 분리 패턴 재사용, 새 파서/스케줄러 로직 0줄).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 128파일)→`pnpm test` 전 패키지
+  통과(**core 716 · cli 378/1skip · dashboard 13**; core redact.test +9, cli redact.test +8). 빌드된 CLI e2e(임시
+  스토어 2잡): `redact --dry-run` 비파괴, `--json` 계획 정확, `redact` 적용 후 디스크에서 `ghp_…@github.com`→
+  `[REDACTED]@github.com`·`ANTHROPIC_API_KEY=sk-ant-…`→`=[REDACTED]`, `updatedAt` 불변 확인, 재실행 idempotent
+  ("Nothing to redact"). 병합 대상 #875와 doc 충돌 회피 위해 세션 85 로그 위에 append.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② `export`/대시보드에도 옵션형 소급 스크럽 노출은 후속 후보(현재는
+  스토어 in-place 정리로 충분). ③ 나머지 clean·고가치 PR(#878 clean/#879 search 등)은 doc append 충돌로 dirty —
+  근본 원인(세션 로그를 날짜별 개별 파일로 분리)은 🧭 코워크 소유 프로세스 안건. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 87 — fix(parser): 상대-시간 단위 문자 오탐 수정 ("2 months"→2분 무음 under-wait), 현재 main 기준 (👷 자율 발굴)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-nd342m`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐), 열린 PR ~200개로 신규 커맨드·
+  포맷·watch·파서 축이 전부 포화(동일 기능 5~10 중복). 신규 feature PR은 한계효용이 음수라 큐 소음만 늘린다. 대신
+  코드에서 **현재 main에 살아있는 실제 정확성 버그**를 발굴해 수정.
+- **버그:** 제네릭 `relative-duration` 파서의 단위 그룹 `d`/`h`/`m` 뒤에 경계가 없어, 단위 문자가 무관한 단어의
+  접두사와 겹치면 그 단어를 짧은 단위로 오독했다. 빌드된 파서로 재현 확인: `"try again in 2 months"`→**2분**,
+  `"3 milliseconds"`→3분, `"1 moment"`→1분. 이 릴레이가 doctor/recover/reset-horizon으로 반복 겨냥해온 무음
+  under-wait(잡을 실제 리셋보다 훨씬 일찍 재개 → 곧바로 재차 한도 → attempts 소진) 부류이며, 8일 지평선 가드도
+  `2분 < 8일`이라 못 잡는다. (동류 수정 PR #578/#827이 있으나 둘 다 오래된 main 기준[Aug 10/21]이라 그 뒤 추가된
+  clock-time-meridiem·relative-day·ms-epoch·http-retry-after 패턴과 parser.ts에서 충돌 — 현재 main엔 미반영.)
+- **한 일:** `parser.ts`의 relative-duration 정규식에 각 단위 토큰 뒤 `(?![a-z])`(후행 letter 거부, 후행 digit은
+  허용 → 컴팩트 `4h32m` 유지) 앵커링 + 경계로 실제 문구가 깨지지 않게 단위 접미사를 흔한 약어로 확장
+  (`h(?:rs?|ours?)?`·`m(?:ins?|inutes?)?`). 새 로직 0줄 — 정규식 앵커 3개 + 근거 주석. 오탐 시 그룹이 비어
+  `resolve`가 `null` → 최종 미감지(안전: 2분 오탐보다 미감지가 낫다).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 126파일)→`pnpm test` 전
+  패키지 통과(**core 719[+3, parser 52→55] · cli 378/1skip · dashboard 13**). parser.test.ts +3(단위-접두사 오탐
+  4종→null · 약어 `hr`/`hrs`/`mins` 정상 · 컴팩트 `1d2h30m` 유지). 빌드된 CLI e2e: `parse "…try again in 2
+  months."`→`No rate-limit detected`(안전 폴스루), `parse "…try again in 30 mins."`→`relative-duration`·`in 30m`.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR ~200, 중복 밀집) — 큐 배수는
+  🧭/사람 조율 안건. ③ 파서 seconds/weeks 단위(현재 generic 미지원, 각각 Codex 어댑터·#553/#536에서 다룸)는 별도.
+
+### [세션 87 — Gemini CLI 어댑터: `gemini` 툴 추론 + Google `RetryInfo.retryDelay` 리셋 인식 (👷 자율 발굴)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-gr62f3`)
+- **배경:** BACKLOG의 👷 미완료 항목은 0개(남은 미체크는 전부 🧭 코워크 소유의 기획/문서/리서치), 열린 PR ~30개로
+  큐 포화. CLAUDE.md "무한 개선 백로그를 계속 소진, 비면 스스로 발굴" 지침에 따라 **온-미션이면서 기존 오픈 PR과
+  겹치지 않는** 실질 갭을 하나 발굴·구현. 오픈 PR은 전부 redact/export/파서 tweak/completion/notifier/대시보드
+  카드류라 **에이전트 툴 커버리지 확장**(제품 핵심 가치)이 미충돌·고가치로 판단.
+- **한 일(Gemini CLI 어댑터):** 릴레이는 지금까지 claude-code/codex-cli/generic 세 어댑터만 알았다. Google
+  `gemini` CLI는 429 `RESOURCE_EXHAUSTED` 페이로드에 `google.rpc.RetryInfo`의 `retryDelay:"56s"`(protobuf
+  Duration, 항상 초 단위 `s` 접미사)로 백오프 시간을 싣는데, 이건 일반 파서(시/분 prose)도, Codex 초 패턴
+  ("try again in Ns" 문구 필요)도 놓치는 **구조화 필드**라 재개 시각을 못 뽑았다. `AgentTool` 유니온에
+  `"gemini-cli"` 추가(`types.ts`), `adapters.ts`에 `GEMINI_CLI_ADAPTER`(binaries `["gemini"]`) +
+  `GEMINI_RETRY_DELAY_PATTERN`(`retryDelay`/`retry_delay`/`retry-delay` + 키·값 선택적 따옴표, 소수 초는
+  whole-ms로 ceil해 조기 재개 방지, 필드명 앵커로 다른 패턴과 disjoint) 신설·`ADAPTERS`에 등록. 전파:
+  `ALL_TOOLS`(stats zero-fill/metrics 자동)·`VALID_TOOLS`(import 검증)·CLI `--tool` 도움말/`tools` 설명문.
+  새 명령/스케줄러 로직 0줄 — 기존 어댑터 파이프라인 재사용, `Record<AgentTool,…>`가 레지스트리 누락을 컴파일
+  타임에 강제.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm test` 전 패키지 통과(**core 722 · cli 378/1skip ·
+  dashboard 13**; adapters.test +6[binary 추론·resolve·retryDelay 감지·소수 ceil·generic 폴백·generic이 구조화
+  필드 미인식], stats.test byTool zero-fill 3케이스 gemini 키 반영)→`pnpm ci:lint`(Biome 0에러). 빌드된 CLI
+  `parse --tool gemini-cli '…{"retryDelay":"56s"}'`→`gemini-retry-delay` 패턴·resets in 1m, generic 어댑터는
+  같은 입력 미인식 e2e 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 후속 어댑터 후보 — Cursor Agent CLI(`cursor-agent`)·Aider
+  등, 실제 rate-limit 메시지 샘플 확보 후. ③ 툴 목록이 types/stats/import 3곳에 하드코딩 — 향후 `ADAPTERS`
+  레지스트리에서 단일 파생하도록 리팩터 고려(현재는 drift-guard 테스트로 방어).
+### [세션 87 — fix(parser): 상대-시간 단위 문자 오탐 수정 ("2 months"→2분 무음 under-wait), 현재 main 기준 (👷 자율 발굴)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-nd342m`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐), 열린 PR ~200개로 신규 커맨드·
+  포맷·watch·파서 축이 전부 포화(동일 기능 5~10 중복). 신규 feature PR은 한계효용이 음수라 큐 소음만 늘린다. 대신
+  코드에서 **현재 main에 살아있는 실제 정확성 버그**를 발굴해 수정.
+- **버그:** 제네릭 `relative-duration` 파서의 단위 그룹 `d`/`h`/`m` 뒤에 경계가 없어, 단위 문자가 무관한 단어의
+  접두사와 겹치면 그 단어를 짧은 단위로 오독했다. 빌드된 파서로 재현 확인: `"try again in 2 months"`→**2분**,
+  `"3 milliseconds"`→3분, `"1 moment"`→1분. 이 릴레이가 doctor/recover/reset-horizon으로 반복 겨냥해온 무음
+  under-wait(잡을 실제 리셋보다 훨씬 일찍 재개 → 곧바로 재차 한도 → attempts 소진) 부류이며, 8일 지평선 가드도
+  `2분 < 8일`이라 못 잡는다. (동류 수정 PR #578/#827이 있으나 둘 다 오래된 main 기준[Aug 10/21]이라 그 뒤 추가된
+  clock-time-meridiem·relative-day·ms-epoch·http-retry-after 패턴과 parser.ts에서 충돌 — 현재 main엔 미반영.)
+- **한 일:** `parser.ts`의 relative-duration 정규식에 각 단위 토큰 뒤 `(?![a-z])`(후행 letter 거부, 후행 digit은
+  허용 → 컴팩트 `4h32m` 유지) 앵커링 + 경계로 실제 문구가 깨지지 않게 단위 접미사를 흔한 약어로 확장
+  (`h(?:rs?|ours?)?`·`m(?:ins?|inutes?)?`). 새 로직 0줄 — 정규식 앵커 3개 + 근거 주석. 오탐 시 그룹이 비어
+  `resolve`가 `null` → 최종 미감지(안전: 2분 오탐보다 미감지가 낫다).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 126파일)→`pnpm test` 전
+  패키지 통과(**core 719[+3, parser 52→55] · cli 378/1skip · dashboard 13**). parser.test.ts +3(단위-접두사 오탐
+  4종→null · 약어 `hr`/`hrs`/`mins` 정상 · 컴팩트 `1d2h30m` 유지). 빌드된 CLI e2e: `parse "…try again in 2
+  months."`→`No rate-limit detected`(안전 폴스루), `parse "…try again in 30 mins."`→`relative-duration`·`in 30m`.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR ~200, 중복 밀집) — 큐 배수는
+  🧭/사람 조율 안건. ③ 파서 seconds/weeks 단위(현재 generic 미지원, 각각 Codex 어댑터·#553/#536에서 다룸)는 별도.

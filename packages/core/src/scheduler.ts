@@ -3,6 +3,7 @@ import { resolveAdapter } from "./adapters.js";
 import { mapWithConcurrency, normalizeMaxConcurrent } from "./concurrency.js";
 import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
 import type { RelayQueue } from "./queue.js";
+import { redactSecrets } from "./redact.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
 import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
 
@@ -22,6 +23,19 @@ export interface SchedulerOptions {
   notify?: Notifier;
   /** Keep the last N chars of combined stdout/stderr for debugging. */
   outputTailLength?: number;
+  /**
+   * Scrub secrets (provider API keys, VCS tokens, `Authorization: Bearer …`,
+   * `NAME=secret` assignments, …) from the captured output tail before it is
+   * persisted to the job store, so a crashing agent that echoed a credential
+   * doesn't turn `jobs.json` (or a shared `export`) into a plaintext secret
+   * store. Defaults to `true` (secure by default). Set `false` only when you
+   * need the raw tail for debugging and accept the exposure. Rate-limit
+   * detection always runs on the *un*-redacted output, so scrubbing never
+   * changes when a job resumes — it only affects what is written to disk.
+   * Wired from `AGENTRELAY_REDACT_OUTPUT` at the CLI; see
+   * {@link redactOutputTailFromEnv}.
+   */
+  redactOutputTail?: boolean;
   /** Retry/backoff/max-attempts policy. Defaults to {@link DEFAULT_RETRY_POLICY}. */
   retryPolicy?: RetryPolicy;
   /**
@@ -95,6 +109,7 @@ export class RelayScheduler {
   private spawnFn: SpawnFn;
   private notify: Notifier;
   private outputTailLength: number;
+  private redactOutputTail: boolean;
   private retryPolicy: RetryPolicy;
   private rng: () => number;
   private autoPrune: PruneOptions | null;
@@ -114,6 +129,7 @@ export class RelayScheduler {
     this.spawnFn = options.spawnFn ?? defaultSpawn;
     this.notify = options.notify ?? (() => {});
     this.outputTailLength = options.outputTailLength ?? 2000;
+    this.redactOutputTail = options.redactOutputTail ?? true;
     this.retryPolicy = options.retryPolicy ?? DEFAULT_RETRY_POLICY;
     this.rng = options.rng ?? Math.random;
     this.autoPrune = options.autoPrune ?? null;
@@ -196,11 +212,20 @@ export class RelayScheduler {
       message: `Resuming job for ${job.project} (attempt ${attemptNumber})`,
     });
 
-    const { output, exitCode, error } = await this.runCommand(job);
-    const tail = output.slice(-this.outputTailLength);
+    const adapter = resolveAdapter({ tool: job.tool, command: job.command });
+    // When the job opted into context-preserving resume, re-invoke the tool with
+    // its "continue the previous conversation" form (e.g. `claude --continue`)
+    // instead of re-running the original command from scratch (see SPEC §4).
+    const command = job.resumeContext ? adapter.resumeCommand(job.command) : job.command;
+    const { output, exitCode, error } = await this.runCommand(command, job.cwd);
+    // Slice first, then scrub: only the persisted tail is redacted. Rate-limit
+    // detection below still runs on the full, un-redacted `output`, so masking
+    // secrets never changes whether/when a job resumes.
+    const rawTail = output.slice(-this.outputTailLength);
+    const tail = this.redactOutputTail ? redactSecrets(rawTail) : rawTail;
     // Use the tool's adapter so tool-specific rate-limit wording (e.g. Codex's
     // seconds-based waits) is recognized on resume, not just at enqueue time.
-    const rateLimit = resolveAdapter({ tool: job.tool, command: job.command }).detectRateLimit(output, {
+    const rateLimit = adapter.detectRateLimit(output, {
       maxFutureMs: this.maxResetHorizonMs,
     });
 
@@ -272,12 +297,15 @@ export class RelayScheduler {
     return job;
   }
 
-  private runCommand(job: RelayJob): Promise<{ output: string; exitCode: number | null; error: Error | null }> {
+  private runCommand(
+    command: string[],
+    cwd: string
+  ): Promise<{ output: string; exitCode: number | null; error: Error | null }> {
     return new Promise((resolve) => {
       let output = "";
       let child: ChildProcessWithoutNullStreams;
       try {
-        child = this.spawnFn(job.command, job.cwd);
+        child = this.spawnFn(command, cwd);
       } catch (err) {
         // Synchronous spawn failure (e.g. bad cwd) — surface as a transient error
         // so the caller can apply the retry policy rather than dropping the job.

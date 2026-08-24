@@ -61,6 +61,26 @@ describe("RelayQueue", () => {
     expect(reloaded?.resetAt).toBe(resetAt);
   });
 
+  it("does not set resumeContext by default", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    expect(job.resumeContext).toBeUndefined();
+  });
+
+  it("persists resumeContext across a fresh queue load and a status change", () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "x"],
+      cwd: "/tmp",
+      resumeContext: true,
+    });
+    expect(job.resumeContext).toBe(true);
+    queue.markWaitingForReset(job.id, new Date(Date.now() + 60_000).toISOString());
+    // Reload from disk to prove the flag survives serialization + a status update.
+    const reloaded = new RelayQueue(join(dir, "test.db")).getById(job.id);
+    expect(reloaded?.resumeContext).toBe(true);
+  });
+
   it("leaves lastRateLimit untouched when parking without a detection", () => {
     const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
     const resetAt = new Date(Date.now() + 60_000).toISOString();

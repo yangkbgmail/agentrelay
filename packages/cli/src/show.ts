@@ -4,7 +4,7 @@
 // Pure functions here (separate from the commander wiring in cli.ts) so the
 // output is unit-testable without a store, a TTY, or a spawned process.
 
-import type { JobStatus, RelayJob } from "@agentrelay/core";
+import { type JobStatus, type RelayJob, resolveAdapter } from "@agentrelay/core";
 import { formatDurationMs } from "./stats.js";
 import { formatCountdown } from "./status.js";
 
@@ -91,6 +91,14 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
     lines.push(`  ${label("resets in")} ${formatCountdown(job.resetAt, now)} ${d(`(${job.resetAt})`)}`);
   }
   lines.push(`  ${label("attempts")} ${job.attempts}`);
+  if (job.resumeContext) {
+    const resumeForm = resolveAdapter({ tool: job.tool, command: job.command }).resumeCommand(job.command);
+    const detail =
+      formatCommand(resumeForm) === formatCommand(job.command)
+        ? "on (no continue flag for this tool; re-runs verbatim)"
+        : `on -> ${formatCommand(resumeForm)}`;
+    lines.push(`  ${label("resume")} ${detail}`);
+  }
 
   const detection = job.lastRateLimit;
   if (detection) {
