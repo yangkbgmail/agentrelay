@@ -39,17 +39,30 @@ describe("buildUpcomingTimeline", () => {
     expect(timeline.entries).toHaveLength(0);
   });
 
-  it("ignores waiting jobs with a missing or unparseable resetAt", () => {
+  it("ignores a waiting job with a null resetAt (not genuinely parked)", () => {
     const timeline = buildUpcomingTimeline(
-      [
-        job({ id: "no-reset", resetAt: null }),
-        job({ id: "bad-reset", resetAt: "not a date" }),
-        job({ id: "good", resetAt: "2026-07-30T13:00:00.000Z" }),
-      ],
+      [job({ id: "no-reset", resetAt: null }), job({ id: "good", resetAt: "2026-07-30T13:00:00.000Z" })],
       NOW
     );
     expect(timeline.totalWaiting).toBe(1);
     expect(timeline.entries.map((e) => e.job.id)).toEqual(["good"]);
+  });
+
+  it("surfaces an unparseable resetAt as due now, sorted ahead of real resets", () => {
+    // Regression: post-#812 `isJobDue` returns unparseable-resetAt jobs as due,
+    // so `upcoming` must show them (the daemon resumes them next) rather than
+    // silently hide the runway's most urgent row.
+    const timeline = buildUpcomingTimeline(
+      [job({ id: "good", resetAt: "2026-07-30T13:00:00.000Z" }), job({ id: "bad-reset", resetAt: "not a date" })],
+      NOW
+    );
+    expect(timeline.totalWaiting).toBe(2);
+    expect(timeline.dueNow).toBe(1);
+    expect(timeline.entries.map((e) => e.job.id)).toEqual(["bad-reset", "good"]);
+    const bad = timeline.entries[0];
+    expect(bad.due).toBe(true);
+    expect(bad.dueInMs).toBe(0); // not NaN
+    expect(bad.position).toBe(1);
   });
 
   it("orders entries by soonest reset and numbers positions from 1", () => {

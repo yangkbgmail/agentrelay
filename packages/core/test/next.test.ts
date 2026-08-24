@@ -55,17 +55,23 @@ describe("selectNextResume", () => {
     expect(next?.waitingBehind).toBe(2);
   });
 
-  it("ignores waiting jobs with a null or unparseable resetAt", () => {
-    const next = selectNextResume(
-      [
-        job({ id: "a", resetAt: null }),
-        job({ id: "b", resetAt: "not-a-date" }),
-        job({ id: "c", resetAt: at(90 * 60_000) }),
-      ],
-      NOW
-    );
+  it("ignores a waiting job with a null resetAt (not genuinely parked)", () => {
+    const next = selectNextResume([job({ id: "a", resetAt: null }), job({ id: "c", resetAt: at(90 * 60_000) })], NOW);
     expect(next?.job.id).toBe("c");
     expect(next?.waitingBehind).toBe(0);
+  });
+
+  it("surfaces an unparseable resetAt as due now — the daemon (listDue) resumes it next", () => {
+    // Regression: post-#812 `isJobDue` returns unparseable-resetAt jobs as due,
+    // so `next` must too; filtering them out hid the exact job the daemon runs.
+    const next = selectNextResume(
+      [job({ id: "future", resetAt: at(90 * 60_000) }), job({ id: "bad", resetAt: "not-a-date" })],
+      NOW
+    );
+    expect(next?.job.id).toBe("bad"); // sorts ahead of any real timestamp
+    expect(next?.due).toBe(true);
+    expect(next?.dueInMs).toBe(0); // not NaN
+    expect(next?.waitingBehind).toBe(1);
   });
 
   it("reports dueInMs and due=false for a future reset", () => {
