@@ -190,9 +190,20 @@ const PATTERNS: RateLimitPattern[] = [
     // "try again in 2 days" / "resets in 1d 4h" — days cover weekly/daily usage
     // windows. Seconds are deliberately *not* handled here (see adapters.ts: they
     // are OpenAI/Codex-style wording that the Codex adapter contributes).
+    //
+    // Each unit token is followed by `(?![a-z])` so the unit *letter* can't be
+    // read as the prefix of an unrelated word. Without it, the minute group's
+    // bare `m` swallowed the leading `m` of "months"/"milliseconds"/"moment"
+    // ("try again in 2 months" -> a 2-*minute* wait — a silent under-wait that
+    // resumes the job far too early, burning attempts against the still-closed
+    // limit; the 8-day horizon guard can't catch it because 2min < 8d). The
+    // lookahead rejects a trailing *letter* but allows a trailing digit, so the
+    // compact "4h32m" form (unit immediately followed by the next number) still
+    // parses. Suffixes are widened to the common abbreviations (`hr`/`hrs`,
+    // `min`/`mins`) so anchoring the boundary doesn't reject real wording.
     name: "relative-duration",
     regex:
-      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?)?\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/i,
+      /(?:try again|resets?|retry)\s+in\s+(?:(\d+)\s*d(?:ays?)?(?![a-z]))?\s*(?:(\d+)\s*h(?:rs?|ours?)?(?![a-z]))?\s*(?:(\d+)\s*m(?:ins?|inutes?)?(?![a-z]))?/i,
     resolve: (m, now) => {
       const days = m[1] ? parseInt(m[1], 10) : 0;
       const hours = m[2] ? parseInt(m[2], 10) : 0;
