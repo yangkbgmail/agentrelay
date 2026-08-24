@@ -81,6 +81,16 @@ describe("renderJobDetail", () => {
     expect(out).not.toContain("resets in");
   });
 
+  it("omits the reset line for a terminal job carrying a stale resetAt", () => {
+    // A completed/failed job that hit a rate limit keeps its last resetAt; a
+    // "resets in due now" line for a finished job would be misleading.
+    for (const status of ["completed", "failed", "cancelled"] as const) {
+      const out = renderJobDetail(job({ status, resetAt: at(-3 * 3600_000) }), { now: NOW });
+      expect(out).not.toContain("resets in");
+      expect(out).not.toContain("due now");
+    }
+  });
+
   it("annotates the updated timestamp with the lifecycle span", () => {
     const out = renderJobDetail(job(), { now: NOW });
     expect(out).toContain("(1m 0s later)");

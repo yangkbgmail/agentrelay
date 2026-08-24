@@ -2753,3 +2753,28 @@
   🧭 코워크 소유 안건(이 세션은 코드/병합만). ② 남은 고가치 distinct PR(#876 타임존 버그·#884 tail 보존·#885 verify
   far-future·#881 파서 ISO 필드·#878 clean 등)은 병합한 4건과 parser.ts/scheduler.ts에서 충돌하므로 순차 배수 필요.
   ③ README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 89 — fix(cli+dashboard): 종료 잡의 오해 소지 재개 카운트다운 제거 (👷 자율 발굴)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-w1uwrw`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐), 열린 PR ~500개로 신규 커맨드·
+  포맷·파서·watch 축이 병리적 포화(동일 기능 다수 중복). 신규 feature PR은 한계효용이 음수. 대신 **현재 main에
+  살아있고 기존 오픈 PR이 안 다루는 실제 사용자-노출 버그**를 발굴해 수정.
+- **버그:** `queue.ts`의 `markCancelled`는 종료 시 `resetAt`을 지우지만(오해 소지 카운트다운 방지 주석까지 있음)
+  `markCompleted`/`markFailed`는 안 지운다. 그래서 rate-limit 사이클을 거친 완료/실패 잡이 과거 `resetAt`을 그대로
+  들고 있고, 렌더러들이 이를 무조건 카운트다운으로 표시했다: `status` 테이블 RESETS IN 칸에 **"due now"**(완료 잡인데!),
+  `show` 상세에 **"resets in due now (…)"**, 대시보드 잡 행도 동일. 코드베이스 관례는 "종료 잡은 stale resetAt를
+  가질 수 있고, 리셋이 중요한 소비자(listDue·next/eta/upcoming·doctor far-future)는 status로 필터한다"인데(doctor
+  `selectFarFutureResets`가 종료 잡을 명시적으로 무시하는 테스트 존재), 세 렌더러만 이 관례를 어겨 버그가 됐다.
+- **한 일(디스플레이 계층 수정 — store 데이터 불변, 관례 준수, 어떤 출처의 stale 데이터에도 견고):**
+  `status.ts`에 순수 `formatResetCountdown(job, now)`(종료 상태면 "-", 아니면 기존 `formatCountdown`) 신설·테이블
+  렌더에 배선(일회성·`--watch` 공통). `show.ts`는 "resets in" 라인을 `!isTerminalStatus(job.status)`로 가드(종료
+  잡엔 미표시). 대시보드 `dashboard-client.tsx`는 카운트다운 셀을 종료 잡이면 "—"로(클라이언트 번들이 core 값
+  import로 node: 빌트인을 끌어오지 않게 로컬 `TERMINAL_STATUSES` 사용 — 기존 로컬 `formatCountdown`과 동일 이유).
+  `--json` 출력은 raw `resetAt` 그대로 유지(기계 소비자는 status로 필터, 데이터 충실성 보존).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 130파일)→`pnpm test` 전 패키지
+  통과(**core 755 · cli 394/1skip[+5] · dashboard 13**). status.test +4(formatResetCountdown 종료/활성/무-reset +
+  renderStatusTable 완료 잡 "due now" 미표시 회귀), show.test +1(종료 잡 "resets in" 미표시). 빌드된 CLI e2e:
+  과거 resetAt의 completed 잡 seed → `status` RESETS IN "-"(대기 잡은 "1h 30m" 정상), `show`에 "resets in" 라인 없음.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 열린 PR ~500개의 리뷰/병합 + PROGRESS.md
+  append 상호충돌(🧭/사람 조율 안건). ③ 동류 정합성: `markCompleted`/`markFailed`가 store에서 resetAt을 지우게
+  하는 근본 수정도 가능하나, 코드베이스가 "종료 잡의 stale resetAt 허용"을 관례화(doctor 테스트)하고 있어 디스플레이
+  수정을 택함 — 향후 관례 재검토 시 🧭와 논의.
