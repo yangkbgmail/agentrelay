@@ -1028,6 +1028,22 @@
       core redact.test +9·cli redact.test +8, 빌드 CLI e2e로 디스크 스크럽·updatedAt 불변·idempotent 확인.
       branch `claude/wizardly-pascal-lsguqd`)
 
+- [x] 👷 `agentrelay verify` far-future-reset 검사 — 스토어에 몇 달·몇 년 뒤로 파킹된 `waiting_for_reset`
+      잡을 소급 탐지(파서 parse-time 가드의 스토어-린트 아날로그).
+      (스스로 발굴. 파서는 `maxFutureMs`(기본 8일, `AGENTRELAY_MAX_RESET_HORIZON`)로 오파싱된 초장기
+      리셋을 **parse-time에** 거부하지만, 그 가드 이전에 저장됐거나 `import`로 유입됐거나 손 편집된 잡은
+      여전히 몇 달·몇 년 뒤 `resetAt`을 가질 수 있음 — 스케줄러는 언젠간 재개하지만 사실상 릴레이가
+      조용히 무용해지는 프로젝트의 핵심 "무음 실패" 클래스. `redact`가 write-time→소급으로 확장된 것과
+      동일한 패턴으로, `verify`(스토어 린터)에 소급 검사를 추가. 완료 — `@agentrelay/core/verify.ts`에
+      `VerifyOptions`(`now`·`maxFutureMs`) 추가, `verifyStore`가 파서의 `DEFAULT_MAX_RESET_HORIZON_MS`·
+      `isPlausibleReset`를 재사용해 파싱 가능하지만 `now+maxFutureMs` 너머인 대기 잡을 **warning**
+      `far-future-reset`(~N일 표기)로 플래그. 미래 쪽만 경계(과거 resetAt=due now는 무경고), 비대기 잡은
+      제외(완료/실패 잡의 잔존 resetAt은 재개 안 되므로 무해), `maxFutureMs` 비양수/null이면 검사 비활성.
+      CLI `runVerify`가 `maxResetHorizonMsFromEnv()`를 전달 — 파서/스케줄러와 동일 knob 공유(`off`면
+      verify도 무경고). 새 파서/스케줄러 로직 0줄, 순수 재사용. core verify.test +8·cli commands.test +2,
+      빌드 CLI e2e로 2099년 리셋 잡→경고·`AGENTRELAY_MAX_RESET_HORIZON=off`→무경고 확인. build/lint/test
+      통과(**core 723 · cli 380/1skip · dashboard 13**, Biome 0경고). branch `claude/wizardly-pascal-nwhd15`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

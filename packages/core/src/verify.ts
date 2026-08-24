@@ -1,4 +1,5 @@
 import { validateJobRecord } from "./import.js";
+import { DEFAULT_MAX_RESET_HORIZON_MS, isPlausibleReset } from "./parser.js";
 import type { RelayJob } from "./types.js";
 
 /**
@@ -56,6 +57,27 @@ export interface StoreVerification {
   issues: StoreIssue[];
 }
 
+/** Tuning knobs for {@link verifyStore}. All optional; the defaults reproduce the
+ *  historical behavior plus a default-on far-future-reset guard. */
+export interface VerifyOptions {
+  /**
+   * Reference "now" for the far-future-reset check. Defaults to `new Date()`.
+   * Injectable so tests can pin the horizon deterministically.
+   */
+  now?: Date;
+  /**
+   * Upper bound (ms) on how far past `now` a `waiting_for_reset` job's `resetAt`
+   * may sit before it's flagged as an implausible misparse. Defaults to
+   * {@link DEFAULT_MAX_RESET_HORIZON_MS} (8 days) — the same horizon the parser
+   * uses to reject bad resets at parse time, so the two surfaces agree. A
+   * `null` / non-positive / non-finite value disables the check (matching
+   * {@link isPlausibleReset}), so callers that intentionally park jobs far out
+   * can opt out. Wire it from `AGENTRELAY_MAX_RESET_HORIZON` at the CLI for a
+   * single shared knob.
+   */
+  maxFutureMs?: number | null;
+}
+
 /** True when `value` parses as a date (mirrors the `Date.parse` + `Number.isNaN`
  *  convention used across stats/heartbeat). */
 function isParseableDate(value: string): boolean {
@@ -89,10 +111,25 @@ function rawId(value: unknown): string | null {
  *     - `waiting_for_reset` with `resetAt === null` (**warning**) — the
  *       scheduler has no time to wait for, so the job is stranded.
  *     - a non-null `resetAt` that isn't a parseable date (**warning**).
+ *     - `waiting_for_reset` with a parseable `resetAt` implausibly far in the
+ *       future (**warning**, `far-future-reset`) — a misparse (wrong epoch
+ *       units, a bad timezone, a garbled relative duration) or a hand-edited /
+ *       imported record can park a job months or years out, where the scheduler
+ *       *will* eventually resume it but not for so long that the relay is
+ *       silently useless. The parser rejects such resets at parse time; this is
+ *       the retroactive store-lint analog for records that predate the guard,
+ *       arrived via `import`, or were edited by hand. Bounded by
+ *       {@link VerifyOptions.maxFutureMs} (default 8 days); disable by passing a
+ *       non-positive horizon.
  *     - `createdAt`/`updatedAt` that aren't parseable dates (**warning**).
  *     - `updatedAt` earlier than `createdAt` (**warning**, clock skew).
  */
-export function verifyStore(records: unknown[]): StoreVerification {
+export function verifyStore(records: unknown[], options: VerifyOptions = {}): StoreVerification {
+  const now = options.now ?? new Date();
+  // `undefined` means "use the default guard"; an explicit `null`/<=0 disables it
+  // (see isPlausibleReset). This keeps the check default-on while letting the CLI
+  // forward `AGENTRELAY_MAX_RESET_HORIZON=off` straight through.
+  const maxFutureMs = options.maxFutureMs === undefined ? DEFAULT_MAX_RESET_HORIZON_MS : options.maxFutureMs;
   const issues: StoreIssue[] = [];
   let validJobs = 0;
   // id -> the index of the first structurally-valid record that claimed it.
@@ -147,6 +184,26 @@ export function verifyStore(records: unknown[]): StoreVerification {
         jobId: job.id,
         code: "unparseable-resetAt",
         message: `resetAt "${job.resetAt}" is not a parseable date`,
+      });
+    }
+
+    // A parseable but implausibly far-out reset on a still-waiting job: the relay
+    // won't act for months/years, which reads as a silent failure. Only the
+    // future side is bounded (a past resetAt just means "due now"), so this never
+    // fires on overdue jobs. A non-positive/null horizon disables the check.
+    if (
+      job.status === "waiting_for_reset" &&
+      job.resetAt !== null &&
+      isParseableDate(job.resetAt) &&
+      !isPlausibleReset(new Date(job.resetAt), now, maxFutureMs)
+    ) {
+      const daysOut = Math.round((Date.parse(job.resetAt) - now.getTime()) / 86_400_000);
+      issues.push({
+        level: "warning",
+        index,
+        jobId: job.id,
+        code: "far-future-reset",
+        message: `resetAt "${job.resetAt}" is ~${daysOut} day(s) out — likely a misparse or bad epoch units; the job won't resume until then`,
       });
     }
 

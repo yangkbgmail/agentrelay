@@ -1273,7 +1273,10 @@ export function runVerify(storePath?: string): VerifyReport {
     return { kind: "corrupt", store, corruptReason: "root is not a JSON array of jobs" };
   }
 
-  return { kind: "verified", store, verification: verifyStore(parsed) };
+  // Share the parser/scheduler's reset-horizon knob so a store whose far-future
+  // parks were accepted with the guard off (AGENTRELAY_MAX_RESET_HORIZON=off)
+  // isn't flagged, and a tightened horizon narrows verify too.
+  return { kind: "verified", store, verification: verifyStore(parsed, { maxFutureMs: maxResetHorizonMsFromEnv() }) };
 }
 
 /** How many representative integrity issues `doctor` folds into its one-line
