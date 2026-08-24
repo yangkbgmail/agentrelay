@@ -1078,6 +1078,21 @@
       필드·잘못된 limit·잘못된 정규식은 exit 1. core 21 + cli 6 신규 테스트, 실제 빌드 CLI e2e로
       substring/필드 제한/regex+json/no-match/에러 exit 검증. branch `claude/wizardly-pascal-7fkr66`)
 
+- [x] 👷 fix(core): `listDue`가 파싱 불가 `resetAt` 잡을 영구 orphan하던 무음 실패 수정. 자기 발굴
+      **버그 픽스** — 열린 PR ~200개가 전부 feature 중복(reset-horizon ×20, NO_COLOR ×4 등)이라
+      실질 갭이 없어, 코드를 훑어 아무 PR도 안 건드린 진짜 correctness 버그를 발굴했다.
+      (완료 — `listDue`의 인라인 필터가 `new Date(job.resetAt).getTime() <= ref`였는데, `resetAt`이
+      파싱 불가 문자열이면 `NaN <= ref`가 **항상 false** → 그 잡은 `listDue`에서 절대 안 나와
+      `waiting_for_reset`에 영원히 앉아 재개 안 됨. `import`의 검증(`import.ts`)이 `resetAt`을 "문자열
+      또는 null"로만 확인하고 파싱 가능성은 안 봐서, 외부 덤프의 `"resetAt":"next tuesday"` 같은 값이
+      그대로 들어오는 실제 도달 경로가 있다 — doctor·recover가 반복 겨냥한 바로 그 "silent failure" 부류.
+      `queue.ts`에 순수 `isJobDue(job, refMs)` 신설: `waiting_for_reset` + 비-null resetAt만 대상,
+      파싱 결과가 `NaN`이면 **due-now로 취급**(스케줄 불가 잡은 orphan보다 표면화가 안전 — 재개해 성공
+      하거나 유효 resetAt으로 재파킹하거나 실패). `listDue`가 이 predicate 사용. queue.test +7(파싱불가
+      →due-now e2e 1 + isJobDue 6: 경과/미래/경계 inclusive/null 비-due/파싱불가 due/비-waiting 상태).
+      실제 빌드 CLI e2e로 `import`한 `resetAt:"next tuesday"` 잡이 `tick`에서 `-> completed`로 재개됨
+      확인(수정 전엔 영구 스킵). branch `claude/fix-listdue-unparseable-reset`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
