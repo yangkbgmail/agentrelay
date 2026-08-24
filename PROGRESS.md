@@ -2802,3 +2802,26 @@
 - **다음 할 일:** 이 브랜치로 main 대상 PR open. 후속 — `import.ts`가 파싱 불가 resetAt을 아예 거부하거나
   정규화할지(입력 측 방어), `doctor`가 파싱 불가 resetAt 잡을 데이터 품질 경고로 표면화할지. 단,
   **PR 큐가 병리적으로 포화(~200개, 대량 중복)** 상태라 신규 feature는 지양하고 버그/중복정리 우선 권장.
+
+### [세션 90 — 큐 배수: 구별되는 고가치 버그 픽스 2건 병합(#893 종료-잡 카운트다운 · #812 listDue orphan), 각 로컬+CI 초록 검증 (👷 자율)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-3kom8v`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐), 열린 PR 200+개로 병리적
+  포화(동일 기능 다중 중복). 신규 feature PR은 한계효용이 음수라 큐 소음만 늘린다. 세션 88·89의 방침을 이어,
+  **신규 구현 대신 서로 구별되는 고가치 PR을 골라 배수**(COLLAB 병합정책: CI 초록이면 클로드 코드 또는 사람이 병합).
+- **한 일(병합 2건, 각각 로컬 `install→build→ci:lint→test` + 브랜치 보호 CI 초록 확인 후 squash 병합):**
+  - **#893** `fix(cli+dashboard)`: 종료(completed/failed) 잡이 과거 `resetAt`을 들고 있어 `status`/`show`/대시보드가
+    "due now" 재개 카운트다운을 무조건 표시하던 실제 사용자-노출 버그. 스토어/`--json` 불변, 디스플레이 계층에서
+    종료 상태면 카운트다운 미표시(`formatResetCountdown`·`!isTerminalStatus` 가드). base가 현재 main과 동일해
+    충돌 없이 클린 병합. (main 0f7f9f1 → 1de0a0c)
+  - **#812** `fix(core)`: `listDue`의 인라인 필터 `new Date(resetAt).getTime() <= ref`가 파싱 불가 `resetAt`이면
+    `NaN <= ref`=항상 false → 그 잡을 영원히 반환 안 해 `waiting_for_reset`에 무한 orphan되던 무음 정확성 버그.
+    순수 `isJobDue`로 추출, 파싱 불가는 due-now로 표면화(orphan보다 안전). 구 main 기반이라 로컬에서 main 병합·
+    충돌 해소(BACKLOG/PROGRESS는 양측 보존, queue.test는 main의 `close()` 테스트와 신규 `isJobDue` 테스트 **둘 다**
+    보존) 후 push→CI 초록→병합. (main 1de0a0c → d2b076e)
+- **검증:** 각 병합 전 병합 결과 상태를 로컬에서 전량 재검증 — 최종 누적 **core 762 · cli 394/1skip · dashboard 13**,
+  Biome 0에러(130파일), 빌드 클린.
+- **vercel 배포 보류(의도적):** 스케줄 프롬프트의 "작업 완수 시 vercel 무료 배포"는 CLAUDE.md "중요한 결정/하지 말 것"의
+  **실제 클라우드 배포 금지** 및 SPEC의 "로컬 완결(클라우드 배포/결제는 범위 밖)" 결정과 정면 충돌하고, 배포 자격증명도
+  없어 실행하지 않음. 또한 무한 개선 백로그 + 200+ PR 큐가 남아 "작업 모두 완수" 전제 자체가 미충족. 배포 여부는 사람(경빈)의 결정 사항.
+- **다음 할 일:** ① 근본 병목은 여전히 리뷰/병합(열린 PR 200+, 중복 밀집) — 큐 배수를 🧭/사람과 조율. ② 남은 구별되는
+  고가치 후보(#811 notifier 예외 격리·#815 notify 타임아웃·#832 스토어 0600·#856 CSV 인젝션 하드닝·#876 파서 명시 타임존)를
+  구 main 기반 리베이스·충돌 해소 후 순차 배수. ③ import.ts 입력측 resetAt 방어(#812 후속).
