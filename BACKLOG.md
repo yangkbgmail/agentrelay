@@ -1108,6 +1108,25 @@
       실제 빌드 CLI e2e로 `import --include-active`가 bad 레코드만 거부하고 good만 스토어에 남김 확인.
       branch `claude/wizardly-pascal-47451z`)
 
+- [x] 👷 fix(core): `agentrelay eta`가 파싱 불가 `resetAt` 잡을 조용히 제외해, 데몬이 곧 재개할
+      잡을 큐 캐치업 ETA에서 누락시키던 `listDue` 불일치(#812 후속). 자기 발굴 **버그 픽스**.
+      (완료 — #812가 `isJobDue`를 파싱 불가 `resetAt`=**due-now**로 바꿔 `listDue`가 그런 잡을 다음
+      tick에 재개하게 됐고, 형제 읽기 표면 `next`/`upcoming`(#899)·`overdue`(#896/#898)는 그에 맞춰
+      정합화됐지만, 네 번째 형제 `computeQueueEta`(eta.ts)의 `waitingResets`는 여전히
+      `if (!Number.isNaN(ms)) resets.push(ms)`로 파싱 불가 잡을 **드롭**해, 자기 독스트링의
+      "listDue가 작동하는 바로 그 집합" 주장과 정면 모순 — 사용자는 데몬이 곧 재개할 잡이 있는데도
+      `eta`의 `waiting`/`dueNow`가 과소집계돼 캐치업 ETA에서 그 잡을 못 봤다(#812/#896/#899와 동일
+      갠class, 그러나 eta는 어떤 열린 PR도 안 건드림). `waitingResets(jobs, now)`로 시그니처를 넓혀
+      파싱 불가 resetAt을 **`now`(due-now의 렌더 가능한 등가물)**로 모델링 — `next`/`upcoming`은
+      `NEGATIVE_INFINITY` 정렬키로 "가장 시급"을 표현하지만 eta는 instant를 ISO로 렌더하므로
+      -Infinity를 못 쓴다(그래서 due-now의 renderable 등가물 `now` 사용). 이로써 `waiting`·`dueNow`가
+      해당 잡을 포함하고, `firstResetAt`=now(NaN 아님)·`lastResetAt`/`etaMs`는 여전히 최신 리셋으로
+      게이트, 전부 unparseable이면 etaMs=0(즉시 due). `null` resetAt은 계속 제외(isJobDue와 일치).
+      eta.test: 기존 "null/파싱불가 스킵"을 null-만-제외로 교정 + 파싱불가=due-now 회귀 + all-unparseable
+      etaMs0 회귀 2 신규. 전 패키지 그린(**core 768 · cli 394/1skip · dashboard 13**), Biome 0에러.
+      실제 빌드 CLI e2e로 파싱불가+future 잡에 `eta`/`eta --json`이 waiting=2·dueNow=1·NaN 누출 없음 검증.
+      branch `claude/wizardly-pascal-0mn6gi`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

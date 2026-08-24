@@ -2850,3 +2850,30 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR 200+, 중복 밀집) — 큐 배수를
   🧭/사람과 조율. ③ 동류 입력 하드닝 후보: `createdAt`/`updatedAt`도 파싱 불가면 stats 타이밍/트렌드 지표에서 조용히
   스킵되므로, 필요 시 verify는 경고·import는 정책 결정(재개엔 영향 없어 우선순위 낮음).
+
+### [세션 93 — fix(core): eta가 파싱 불가 resetAt 잡을 조용히 제외하던 listDue 불일치(#812 후속) (👷 자율)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-0mn6gi`)
+- **항목 선정:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 문서/리서치뿐), 열린 PR 200+개로 병리적 포화(기능·버그
+  픽스 대부분 중복). 신규 feature PR은 한계효용 음수라 세션 73·90·91·92 방침을 이어 **어떤 열린 PR도 안 건드리는 진짜
+  correctness 갭**을 발굴. 열린 PR 40개 최근분을 스캔해 `listDue`-정합 패밀리의 커버 범위를 확인: #897=clock-time 범위,
+  #896/#898=overdue, #899=next·upcoming. `eta`(computeQueueEta)는 이 패밀리의 **네 번째 형제인데 어느 열린 PR도 미커버**.
+- **발굴한 갭:** #812(세션 90 병합)가 `isJobDue`를 파싱 불가 `resetAt`=**due-now**로 바꿔 `listDue`가 그런 잡을 다음 tick에
+  재개하게 됐지만, `eta.ts`의 `waitingResets`는 여전히 `if (!Number.isNaN(ms)) resets.push(ms)`로 파싱 불가 잡을 드롭 →
+  자기 독스트링("listDue가 작동하는 바로 그 집합", "next/upcoming과 동일 필터 유지")과 정면 모순. 사용자는 데몬이 곧 재개할
+  잡이 있는데도 `eta`의 `waiting`/`dueNow`가 과소집계돼 캐치업 ETA에서 그 잡을 못 봤다(#812=listDue·#896/#898=overdue·
+  #899=next/upcoming과 같은 클래스, 그러나 eta는 미커버). #899가 next/upcoming을 고치면 eta만 이 불변식을 깨는 outlier로 남음.
+- **한 일:** `waitingResets(jobs)` → `waitingResets(jobs, now)`로 넓혀 파싱 불가 resetAt을 **`now`로 모델링**(due-now의
+  렌더 가능한 등가물). 핵심 판단: `next`/`upcoming`은 `NEGATIVE_INFINITY` 정렬키로 "가장 시급"을 표현하지만, `eta`는
+  instant를 `new Date(ms).toISOString()`로 렌더하므로 -Infinity를 못 쓴다(RangeError) → due-now의 renderable 등가물 `now`
+  사용. 결과: `waiting`·`dueNow`가 파싱 불가 잡을 포함, `firstResetAt`=now(NaN 아님), `lastResetAt`/`etaMs`는 여전히 최신
+  리셋으로 게이트(파싱 불가는 due-now=과거/현재라 런웨이를 늘리지 않음), 전부 unparseable이면 min=max=now→etaMs 0(즉시 due).
+  `null` resetAt은 계속 제외(isJobDue와 일치). 스케줄러/파서 결정 로직 0줄 변경 — 순수 읽기-표면 정합성만 교정. CLI eta
+  렌더러는 유한값만 받으므로 NaN 누출 없음.
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 130파일)→`pnpm test` 전 패키지 통과
+  (**core 768[+2] · cli 394/1skip · dashboard 13**). eta.test: 기존 "null 또는 파싱 불가 스킵"을 null-만-제외로 교정 +
+  파싱불가=due-now(waiting 2·dueNow 1·firstResetAt=now·etaMs 최신리셋) 회귀 1 + all-unparseable=due-now(etaMs 0·spanMs 0·
+  not caughtUp) 회귀 1 신규. 실제 빌드 CLI e2e: 파싱불가("next tuesday")+future 잡 스토어에 `agentrelay eta`가
+  "2 jobs waiting, 1 due now" + `--json`이 waiting:2·dueNow:1·firstResetAt=now(NaN 아님) 출력(수정 전엔 waiting:1·dueNow:0로
+  그 잡을 숨겼을 것).
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR 200+, 중복 밀집) — 큐 배수를
+  🧭/사람과 조율. ③ 동류 정합성 잔여: 세션 91·92가 남긴 `createdAt`/`updatedAt` 파싱 불가 시 stats 타이밍/트렌드 무음
+  스킵(재개엔 영향 없어 우선순위 낮음). `listDue`-정합 패밀리는 이제 next·upcoming·overdue·eta 네 형제 모두 커버(각 PR 병합 시).
