@@ -1028,6 +1028,21 @@
       core redact.test +9·cli redact.test +8, 빌드 CLI e2e로 디스크 스크럽·updatedAt 불변·idempotent 확인.
       branch `claude/wizardly-pascal-lsguqd`)
 
+- [x] 👷 Gemini CLI 어댑터 — Google `gemini` CLI 지원 추가(툴 추론 + Google API `RetryInfo.retryDelay`
+      구조화 리셋 인식). 세션 초기 "다른 에이전트 툴 어댑터"(claude-code/codex-cli/generic) 확장 후속.
+      (완료 — `AgentTool` 유니온에 `"gemini-cli"` 추가(`types.ts`), `@agentrelay/core/adapters.ts`에
+      `GEMINI_CLI_ADAPTER`(binaries `["gemini"]`) + `GEMINI_RETRY_DELAY_PATTERN` 신설: Gemini API가 429
+      `RESOURCE_EXHAUSTED` 페이로드에 싣는 `google.rpc.RetryInfo`의 `retryDelay:"56s"`(protobuf Duration,
+      항상 초 단위 `s` 접미사)를 인식 — 일반 파서(시/분 prose)도, Codex 초 패턴("try again in Ns" 문구
+      필요)도 놓치던 구조화 필드. `retryDelay`/`retry_delay`/`retry-delay` + 키·값 양쪽 선택적 따옴표 허용,
+      소수 초는 whole-ms로 ceil해 조기 재개 방지. 필드명에 앵커돼 다른 패턴과 disjoint. `ADAPTERS` 레지스트리
+      (컴파일타임 `Record<AgentTool,…>` 강제)·`ALL_TOOLS`(stats zero-fill/metrics 자동 전파)·`VALID_TOOLS`
+      (import 검증)·CLI 도움말/`tools` 설명문에 gemini-cli 반영. 새 명령/스케줄러 로직 0줄 — 기존 어댑터
+      파이프라인 재사용. adapters.test +6(binary 추론·resolve·retryDelay 감지·소수 ceil·generic 폴백·generic이
+      구조화 필드 미인식)·stats.test byTool zero-fill 3케이스 gemini 키 반영. build/lint/test 통과
+      (**core 722 · cli 378/1skip · dashboard 13**, Biome 0에러), 빌드 CLI `parse --tool gemini-cli`로
+      retryDelay→resets in 1m·generic 미인식 e2e 확인. branch `claude/wizardly-pascal-gr62f3`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
