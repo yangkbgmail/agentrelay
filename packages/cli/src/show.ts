@@ -4,7 +4,7 @@
 // Pure functions here (separate from the commander wiring in cli.ts) so the
 // output is unit-testable without a store, a TTY, or a spawned process.
 
-import type { JobStatus, RelayJob } from "@agentrelay/core";
+import { isTerminalStatus, type JobStatus, type RelayJob, resolveAdapter } from "@agentrelay/core";
 import { formatDurationMs } from "./stats.js";
 import { formatCountdown } from "./status.js";
 
@@ -87,10 +87,22 @@ export function renderJobDetail(job: RelayJob, options: JobDetailOptions = {}): 
   lines.push(`  ${label("cwd")} ${job.cwd}`);
   lines.push(`  ${label("created")} ${job.createdAt}`);
   lines.push(`  ${label("updated")} ${job.updatedAt}${d(updatedAnnotation(job.createdAt, job.updatedAt))}`);
-  if (job.resetAt !== null) {
+  // Only surface a resume countdown for jobs that can still resume. A terminal
+  // job (completed/failed/cancelled) never resumes, and a completed/failed one
+  // that hit a rate limit keeps a now-stale `resetAt` on the record — rendering
+  // it here as "resets in due now" would be misleading (see formatResetCountdown).
+  if (job.resetAt !== null && !isTerminalStatus(job.status)) {
     lines.push(`  ${label("resets in")} ${formatCountdown(job.resetAt, now)} ${d(`(${job.resetAt})`)}`);
   }
   lines.push(`  ${label("attempts")} ${job.attempts}`);
+  if (job.resumeContext) {
+    const resumeForm = resolveAdapter({ tool: job.tool, command: job.command }).resumeCommand(job.command);
+    const detail =
+      formatCommand(resumeForm) === formatCommand(job.command)
+        ? "on (no continue flag for this tool; re-runs verbatim)"
+        : `on -> ${formatCommand(resumeForm)}`;
+    lines.push(`  ${label("resume")} ${detail}`);
+  }
 
   const detection = job.lastRateLimit;
   if (detection) {

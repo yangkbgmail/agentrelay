@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   EMPTY_MESSAGE,
   formatCountdown,
+  formatResetCountdown,
   isSelectionFiltering,
   renderStatusJson,
   renderStatusTable,
@@ -60,9 +61,41 @@ describe("formatCountdown", () => {
   });
 });
 
+describe("formatResetCountdown", () => {
+  it("shows the countdown for jobs that can still resume", () => {
+    expect(formatResetCountdown(job({ status: "waiting_for_reset", resetAt: at(30 * 60_000) }), NOW)).toBe("30m");
+    expect(formatResetCountdown(job({ status: "queued", resetAt: at(2 * 3600_000) }), NOW)).toBe("2h 0m");
+    expect(formatResetCountdown(job({ status: "resuming", resetAt: at(-1) }), NOW)).toBe("due now");
+  });
+
+  it("shows '-' for terminal jobs even with a lingering (now-stale) resetAt", () => {
+    // A completed/failed job that hit a rate limit keeps its last resetAt on the
+    // record; without the status guard this would render a misleading "due now".
+    for (const status of ["completed", "failed", "cancelled"] as const) {
+      expect(formatResetCountdown(job({ status, resetAt: at(-60 * 60_000) }), NOW)).toBe("-");
+      expect(formatResetCountdown(job({ status, resetAt: at(90 * 60_000) }), NOW)).toBe("-");
+    }
+  });
+
+  it("shows '-' for a terminal job with no resetAt (unchanged)", () => {
+    expect(formatResetCountdown(job({ status: "completed", resetAt: null }), NOW)).toBe("-");
+  });
+});
+
 describe("renderStatusTable", () => {
   it("returns the onboarding message when there are no jobs", () => {
     expect(renderStatusTable([], { now: NOW })).toBe(EMPTY_MESSAGE);
+  });
+
+  it("does not show a resume countdown for a completed job with a stale past reset", () => {
+    // Regression: markCompleted/markFailed don't clear resetAt, so a finished
+    // job that went through a rate-limit cycle carries a now-past reset. The
+    // RESETS IN column must read "-" for it, never "due now".
+    const out = renderStatusTable([job({ id: "cccccccc0000", status: "completed", resetAt: at(-3 * 3600_000) })], {
+      now: NOW,
+    });
+    expect(out).toContain("completed");
+    expect(out).not.toContain("due now");
   });
 
   it("renders a header, a row per job, and a summary footer", () => {

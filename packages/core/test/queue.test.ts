@@ -61,6 +61,26 @@ describe("RelayQueue", () => {
     expect(reloaded?.resetAt).toBe(resetAt);
   });
 
+  it("does not set resumeContext by default", () => {
+    const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
+    expect(job.resumeContext).toBeUndefined();
+  });
+
+  it("persists resumeContext across a fresh queue load and a status change", () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "x"],
+      cwd: "/tmp",
+      resumeContext: true,
+    });
+    expect(job.resumeContext).toBe(true);
+    queue.markWaitingForReset(job.id, new Date(Date.now() + 60_000).toISOString());
+    // Reload from disk to prove the flag survives serialization + a status update.
+    const reloaded = new RelayQueue(join(dir, "test.db")).getById(job.id);
+    expect(reloaded?.resumeContext).toBe(true);
+  });
+
   it("leaves lastRateLimit untouched when parking without a detection", () => {
     const job = queue.enqueue({ project: "demo", tool: "claude-code", command: ["claude"], cwd: "/tmp" });
     const resetAt = new Date(Date.now() + 60_000).toISOString();
@@ -264,6 +284,61 @@ describe("RelayQueue", () => {
     const due = queue.listDue(new Date());
     expect(due).toHaveLength(1);
     expect(due[0].id).toBe(job.id);
+  });
+
+  describe("close() is a non-destructive no-op", () => {
+    it("does not clobber a concurrent writer's changes", () => {
+      const path = join(dir, "test.db");
+      const writer = new RelayQueue(path);
+      const first = writer.enqueue({
+        project: "a",
+        tool: "claude-code",
+        command: ["claude", "-p", "one"],
+        cwd: "/tmp/a",
+      });
+
+      // A second, long-lived instance opens the store for a read-only view.
+      // Its in-memory snapshot now holds only `first`.
+      const reader = new RelayQueue(path);
+      expect(reader.listAll().map((j) => j.id)).toEqual([first.id]);
+
+      // Meanwhile another process enqueues a job through the first instance.
+      const second = writer.enqueue({
+        project: "b",
+        tool: "claude-code",
+        command: ["claude", "-p", "two"],
+        cwd: "/tmp/b",
+      });
+
+      // Closing the (now stale) reader must NOT write its snapshot back and
+      // drop `second`. The previous close()->flush() would have clobbered it.
+      reader.close();
+
+      const onDisk = new RelayQueue(path)
+        .listAll()
+        .map((j) => j.id)
+        .sort();
+      expect(onDisk).toEqual([first.id, second.id].sort());
+    });
+
+    it("leaves the store file byte-for-byte unchanged across an open/close", () => {
+      const path = join(dir, "test.db");
+      const seeded = new RelayQueue(path);
+      seeded.enqueue({
+        project: "demo",
+        tool: "claude-code",
+        command: ["claude", "-p", "continue"],
+        cwd: "/tmp/demo",
+      });
+      const before = readFileSync(path, "utf8");
+
+      // A read-only lifecycle: open, read, close. Must not rewrite the file.
+      const viewer = new RelayQueue(path);
+      viewer.listAll();
+      viewer.close();
+
+      expect(readFileSync(path, "utf8")).toBe(before);
+    });
   });
 });
 

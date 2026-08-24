@@ -75,6 +75,73 @@ describe("RelayScheduler", () => {
     expect(results[0].status).toBe("completed");
   });
 
+  it("redacts secrets from the persisted output tail by default", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const leaky = "Task done. debug: ANTHROPIC_API_KEY=sk-ant-api03-secretMaterial1234567 finished.";
+    const scheduler = new RelayScheduler({
+      queue,
+      spawnFn: fakeSpawnFn({ "claude -p continue": leaky }),
+    });
+
+    const results = await scheduler.tick();
+    expect(results[0].status).toBe("completed");
+    expect(results[0].lastOutputTail).not.toContain("secretMaterial1234567");
+    expect(results[0].lastOutputTail).toContain("[REDACTED]");
+    // Non-secret text around it survives so the tail stays useful.
+    expect(results[0].lastOutputTail).toContain("Task done.");
+  });
+
+  it("keeps the raw output tail when redaction is disabled", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const leaky = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 was here";
+    const scheduler = new RelayScheduler({
+      queue,
+      redactOutputTail: false,
+      spawnFn: fakeSpawnFn({ "claude -p continue": leaky }),
+    });
+
+    const results = await scheduler.tick();
+    expect(results[0].lastOutputTail).toBe(leaky);
+  });
+
+  it("redacts secrets from the tail of a failed job too", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const scheduler = new RelayScheduler({
+      queue,
+      retryPolicy: { maxAttempts: 1, baseDelayMs: 0, factor: 1, maxDelayMs: 0, jitter: 0 },
+      spawnFn: fakeSpawnWith({
+        output: "crashed with token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 in scope",
+        exitCode: 1,
+      }),
+    });
+
+    const results = await scheduler.tick();
+    expect(results[0].status).toBe("failed");
+    expect(results[0].lastOutputTail).not.toContain("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+    expect(results[0].lastOutputTail).toContain("[REDACTED]");
+  });
+
   it("re-queues a job that hits the rate limit again during resume", async () => {
     const job = queue.enqueue({
       project: "demo",
@@ -549,5 +616,73 @@ describe("RelayScheduler", () => {
 
     expect(results.map((j) => j.project)).toEqual(dueOrder);
     expect(results.every((j) => j.status === "completed")).toBe(true);
+  });
+
+  // Records every command the scheduler actually spawns, then closes cleanly.
+  function recordingSpawnFn(spawned: string[][]): SpawnFn {
+    return (command) => {
+      spawned.push(command);
+      const emitter = new EventEmitter() as any;
+      emitter.stdout = new EventEmitter();
+      emitter.stderr = new EventEmitter();
+      setTimeout(() => {
+        emitter.stdout.emit("data", Buffer.from("done"));
+        emitter.emit("close", 0);
+      }, 0);
+      return emitter;
+    };
+  }
+
+  it("resumes with the tool's context-preserving command when resumeContext is set", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+      resumeContext: true,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const spawned: string[][] = [];
+    const scheduler = new RelayScheduler({ queue, spawnFn: recordingSpawnFn(spawned) });
+    const results = await scheduler.tick();
+
+    expect(spawned).toEqual([["claude", "--continue", "-p", "continue"]]);
+    expect(results[0].status).toBe("completed");
+    // The stored command is untouched, so a later resume still transforms from the original.
+    expect(results[0].command).toEqual(["claude", "-p", "continue"]);
+  });
+
+  it("resumes verbatim when resumeContext is not set (historical default)", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "claude-code",
+      command: ["claude", "-p", "continue"],
+      cwd: dir,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const spawned: string[][] = [];
+    const scheduler = new RelayScheduler({ queue, spawnFn: recordingSpawnFn(spawned) });
+    await scheduler.tick();
+
+    expect(spawned).toEqual([["claude", "-p", "continue"]]);
+  });
+
+  it("resumeContext on a tool with no continue flag falls back to verbatim re-run", async () => {
+    const job = queue.enqueue({
+      project: "demo",
+      tool: "generic",
+      command: ["mystery-cli", "--go"],
+      cwd: dir,
+      resumeContext: true,
+    });
+    queue.markWaitingForReset(job.id, new Date(Date.now() - 1000).toISOString());
+
+    const spawned: string[][] = [];
+    const scheduler = new RelayScheduler({ queue, spawnFn: recordingSpawnFn(spawned) });
+    await scheduler.tick();
+
+    expect(spawned).toEqual([["mystery-cli", "--go"]]);
   });
 });

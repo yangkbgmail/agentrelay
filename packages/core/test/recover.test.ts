@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RelayQueue } from "../src/queue.js";
-import { DEFAULT_STUCK_RESUMING_MS, selectStuckResumingJobs } from "../src/recover.js";
+import { DEFAULT_STUCK_RESUMING_MS, selectFarFutureParkedJobs, selectStuckResumingJobs } from "../src/recover.js";
 import type { RelayJob } from "../src/types.js";
 
 const NOW = Date.parse("2026-08-15T12:00:00.000Z");
@@ -85,6 +85,76 @@ describe("selectStuckResumingJobs", () => {
     const report = selectStuckResumingJobs([job({ id: "fresh", updatedAt: agoIso(1_000) })], { nowMs: NOW });
     expect(report.stuck).toEqual([]);
     expect(report.resuming).toBe(1);
+  });
+});
+
+/** ISO string for `ms` after NOW. */
+function fromNowIso(ms: number): string {
+  return new Date(NOW + ms).toISOString();
+}
+
+const DAY = 24 * 60 * 60_000;
+const HORIZON = 8 * DAY;
+
+describe("selectFarFutureParkedJobs", () => {
+  it("flags waiting_for_reset jobs whose reset is beyond the horizon", () => {
+    const jobs = [
+      job({ id: "far", status: "waiting_for_reset", resetAt: fromNowIso(100 * DAY) }),
+      job({ id: "near", status: "waiting_for_reset", resetAt: fromNowIso(2 * 60 * 60_000) }), // 2h — plausible
+    ];
+    const report = selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs: HORIZON });
+    expect(report.horizonMs).toBe(HORIZON);
+    expect(report.parked).toBe(2);
+    expect(report.farFuture.map((j) => j.id)).toEqual(["far"]);
+  });
+
+  it("only considers waiting_for_reset jobs (not queued/resuming/terminal)", () => {
+    const jobs = [
+      job({ id: "queued", status: "queued", resetAt: fromNowIso(100 * DAY) }),
+      job({ id: "resuming", status: "resuming", resetAt: fromNowIso(100 * DAY) }),
+      job({ id: "done", status: "completed", resetAt: fromNowIso(100 * DAY) }),
+      job({ id: "parked", status: "waiting_for_reset", resetAt: fromNowIso(100 * DAY) }),
+    ];
+    const report = selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs: HORIZON });
+    expect(report.parked).toBe(1);
+    expect(report.farFuture.map((j) => j.id)).toEqual(["parked"]);
+  });
+
+  it("orders far-future jobs earliest-reset first", () => {
+    const jobs = [
+      job({ id: "b", status: "waiting_for_reset", resetAt: fromNowIso(200 * DAY) }),
+      job({ id: "a", status: "waiting_for_reset", resetAt: fromNowIso(30 * DAY) }),
+      job({ id: "c", status: "waiting_for_reset", resetAt: fromNowIso(1000 * DAY) }),
+    ];
+    const report = selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs: HORIZON });
+    expect(report.farFuture.map((j) => j.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("skips parked jobs with no resetAt or an unparseable one (nothing to judge)", () => {
+    const jobs = [
+      job({ id: "no-reset", status: "waiting_for_reset", resetAt: null }),
+      job({ id: "bad-reset", status: "waiting_for_reset", resetAt: "not-a-date" }),
+      job({ id: "far", status: "waiting_for_reset", resetAt: fromNowIso(100 * DAY) }),
+    ];
+    const report = selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs: HORIZON });
+    expect(report.parked).toBe(1); // only the parseable-resetAt parked job counts
+    expect(report.farFuture.map((j) => j.id)).toEqual(["far"]);
+  });
+
+  it("treats a past reset as plausible (not far-future)", () => {
+    const jobs = [job({ id: "past", status: "waiting_for_reset", resetAt: agoIso(60 * 60_000) })];
+    const report = selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs: HORIZON });
+    expect(report.farFuture).toEqual([]);
+  });
+
+  it("with a disabled guard (null / non-positive horizon) flags nothing but still counts the pool", () => {
+    const jobs = [job({ id: "far", status: "waiting_for_reset", resetAt: fromNowIso(100 * DAY) })];
+    for (const horizonMs of [null, 0, -1, Number.POSITIVE_INFINITY]) {
+      const report = selectFarFutureParkedJobs(jobs, { nowMs: NOW, horizonMs });
+      expect(report.horizonMs).toBeNull();
+      expect(report.parked).toBe(1);
+      expect(report.farFuture).toEqual([]);
+    }
   });
 });
 

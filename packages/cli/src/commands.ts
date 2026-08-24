@@ -18,6 +18,7 @@ import type {
   BackupResult,
   ConfigIssue,
   DiagnosticReport,
+  FarFutureParkedReport,
   HealthReport,
   HeartbeatFacts,
   HeartbeatMode,
@@ -25,6 +26,7 @@ import type {
   Notifier,
   PruneOptions,
   RelayJob,
+  StoreIntegrityFacts,
   StuckResumingReport,
   WritableFacts,
 } from "@agentrelay/core";
@@ -73,6 +75,7 @@ import {
   RelayScheduler,
   type RestorePreview,
   type RestoreResult,
+  redactOutputTailFromEnv,
   resolveAdapter,
   resolveBackup,
   resolveConfigPath,
@@ -82,8 +85,11 @@ import {
   retryPolicyFromEnv,
   runDiagnostics,
   SETTABLE_CONFIG_KEYS,
+  type StoreRedactionPlan,
   sampleConfigJson,
   scopeJobs,
+  selectFarFutureParkedJobs,
+  selectFarFutureResets,
   selectStuckResumingJobs,
   serializeDaemonHeartbeat,
   setConfigValue,
@@ -125,6 +131,12 @@ export interface RunOptions {
    * meaningful, stable name that the `--project` filters key off.
    */
   project?: string;
+  /**
+   * When true, the queued job is resumed with its tool's context-preserving form
+   * (e.g. Claude Code's `--continue`) instead of re-running the command verbatim,
+   * so the agent continues the previous conversation. Off by default.
+   */
+  resumeContext?: boolean;
   storePath?: string;
   /** Injected for tests; defaults to real stdout/stderr passthrough. */
   stdout?: NodeJS.WritableStream;
@@ -184,7 +196,7 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
 
   const queue = openQueue(storePath);
   const project = resolveProjectName(cwd, options.project);
-  const job = queue.enqueue({ project, tool, command: options.command, cwd });
+  const job = queue.enqueue({ project, tool, command: options.command, cwd, resumeContext: options.resumeContext });
   queue.markWaitingForReset(job.id, rateLimit.resetAt, {
     pattern: rateLimit.pattern,
     rawMatch: rateLimit.rawMatch,
@@ -193,8 +205,14 @@ export async function runCommand(options: RunOptions): Promise<RunResult> {
   });
   queue.close();
 
+  const resumeForm = options.resumeContext ? adapter.resumeCommand(options.command) : options.command;
+  const resumeNote =
+    options.resumeContext && resumeForm.join(" ") !== options.command.join(" ")
+      ? `Will resume by continuing the previous conversation: ${resumeForm.join(" ")}\n`
+      : "";
   stdout.write(
     `\n[agentrelay] Rate limit detected for ${adapter.displayName} (pattern: ${rateLimit.pattern}). Queued job ${job.id} to resume at ${rateLimit.resetAt}.\n` +
+      resumeNote +
       `Run "agentrelay daemon" (or schedule "agentrelay tick" via cron) to auto-resume it.\n`
   );
 
@@ -393,6 +411,7 @@ export function startDaemon(options: DaemonOptions = {}) {
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent,
     maxResetHorizonMs: maxResetHorizonMsFromEnv(),
+    redactOutputTail: redactOutputTailFromEnv(),
     autoPrune,
     autoPruneEveryMs,
     autoPruneEveryTicks,
@@ -433,6 +452,7 @@ export async function tickOnce(storePath?: string, remoteNotify?: Notifier | nul
     retryPolicy: retryPolicyFromEnv(),
     maxConcurrent: maxConcurrentFromEnv(),
     maxResetHorizonMs: maxResetHorizonMsFromEnv(),
+    redactOutputTail: redactOutputTailFromEnv(),
     autoPrune: autoPruneOptionsFromEnv(),
   });
   const processed = await scheduler.tick();
@@ -633,10 +653,44 @@ export function pruneJobs(options: PruneJobsOptions = {}): { pruned: RelayJob[];
   return { pruned, remaining };
 }
 
+export interface RedactStoreOptions {
+  storePath?: string;
+  /** Preview only — report what would be scrubbed without writing the store. */
+  dryRun?: boolean;
+}
+
+/**
+ * Scrub persisted secrets from every job's free-text fields in the store (or,
+ * with `dryRun`, report what would change without writing). Returns the plan so
+ * the CLI can print a per-job summary. Complements the scheduler's write-time
+ * redaction by cleaning jobs that predate it or arrived via `import`.
+ */
+export function redactStore(options: RedactStoreOptions = {}): StoreRedactionPlan {
+  const queue = openQueue(options.storePath ?? defaultStorePath());
+  try {
+    return queue.redact({ dryRun: options.dryRun });
+  } finally {
+    queue.close();
+  }
+}
+
 export interface RecoverJobsOptions {
   storePath?: string;
   /** Staleness threshold (ms) a `resuming` job must exceed to be reclaimed. */
   stuckAfterMs?: number;
+  /**
+   * Also reclaim jobs parked `waiting_for_reset` with a `resetAt` beyond the
+   * reset horizon (a misparse that would otherwise wait days/years). Off by
+   * default — this is the more consequential class (it runs a job *now* that was
+   * parked far out), so it's opt-in. Requires {@link horizonMs}.
+   */
+  farFuture?: boolean;
+  /**
+   * The plausibility horizon (ms) for the far-future scope, resolved from
+   * `AGENTRELAY_MAX_RESET_HORIZON` by the caller. `null` = guard disabled, so no
+   * parked job is flagged even with {@link farFuture} on.
+   */
+  horizonMs?: number | null;
   /** Preview only — report what would be recovered without touching the store. */
   dryRun?: boolean;
   /** Reference "now" (epoch ms); defaults to the wall clock. Injectable for tests. */
@@ -645,8 +699,16 @@ export interface RecoverJobsOptions {
 
 export interface RecoverJobsResult {
   report: StuckResumingReport;
-  /** Jobs actually reclaimed (post-transition). Empty on a dry run. */
+  /** Jobs actually reclaimed from `resuming` (post-transition). Empty on a dry run. */
   recovered: RelayJob[];
+  /**
+   * Present only when {@link RecoverJobsOptions.farFuture} was set. The far-future
+   * parked scan and, unless `dryRun`, the jobs requeued from it.
+   */
+  farFuture?: {
+    report: FarFutureParkedReport;
+    recovered: RelayJob[];
+  };
   dryRun: boolean;
 }
 
@@ -658,13 +720,29 @@ export interface RecoverJobsResult {
  * tick resumes it. The per-job guard means a job that finishes resuming between
  * the scan and the write is simply skipped (its transition returns `false`),
  * never double-run.
+ *
+ * With `farFuture`, it *additionally* reclaims jobs parked `waiting_for_reset`
+ * with a `resetAt` beyond `horizonMs` ({@link selectFarFutureParkedJobs}) —
+ * misparses that `doctor`/the dashboard only warn about — via
+ * {@link RelayQueue.requeueNow} (attempts reset to 0, error cleared: the distant
+ * `resetAt` was itself the bug, so a fresh run with a fresh budget is correct).
  */
 export function recoverJobs(options: RecoverJobsOptions = {}): RecoverJobsResult {
   const now = options.now ?? Date.now();
   const queue = openQueue(options.storePath ?? defaultStorePath());
   try {
-    const report = selectStuckResumingJobs(queue.listAll(), { nowMs: now, stuckAfterMs: options.stuckAfterMs });
-    if (options.dryRun) return { report, recovered: [], dryRun: true };
+    const jobs = queue.listAll();
+    const report = selectStuckResumingJobs(jobs, { nowMs: now, stuckAfterMs: options.stuckAfterMs });
+    const farFutureReport = options.farFuture
+      ? selectFarFutureParkedJobs(jobs, { nowMs: now, horizonMs: options.horizonMs ?? null })
+      : null;
+
+    if (options.dryRun) {
+      const result: RecoverJobsResult = { report, recovered: [], dryRun: true };
+      if (farFutureReport) result.farFuture = { report: farFutureReport, recovered: [] };
+      return result;
+    }
+
     const at = new Date(now).toISOString();
     const recovered: RelayJob[] = [];
     for (const job of report.stuck) {
@@ -673,7 +751,22 @@ export function recoverJobs(options: RecoverJobsOptions = {}): RecoverJobsResult
         if (updated) recovered.push(updated);
       }
     }
-    return { report, recovered, dryRun: false };
+
+    const result: RecoverJobsResult = { report, recovered, dryRun: false };
+    if (farFutureReport) {
+      const ffRecovered: RelayJob[] = [];
+      for (const job of farFutureReport.farFuture) {
+        // Re-read: a job requeued from the stuck-resuming pass above can't also be
+        // here (disjoint statuses), but guard against a store that changed under us.
+        const current = queue.getById(job.id);
+        if (current?.status !== "waiting_for_reset") continue;
+        queue.requeueNow(job.id, at);
+        const updated = queue.getById(job.id);
+        if (updated) ffRecovered.push(updated);
+      }
+      result.farFuture = { report: farFutureReport, recovered: ffRecovered };
+    }
+    return result;
   } finally {
     queue.close();
   }
@@ -1195,6 +1288,33 @@ export function runVerify(storePath?: string): VerifyReport {
   return { kind: "verified", store, verification: verifyStore(parsed) };
 }
 
+/** How many representative integrity issues `doctor` folds into its one-line
+ *  check message — enough to point at the problem, few enough to stay a summary
+ *  (`agentrelay verify` lists them all). */
+const DOCTOR_INTEGRITY_SAMPLE_LIMIT = 3;
+
+/**
+ * Build the {@link StoreIntegrityFacts} `doctor` judges, by reusing
+ * {@link runVerify} (raw read + pure `verifyStore` linter). A missing store or
+ * whole-file corruption becomes `checked: false` — the first is a clean
+ * first-run, the second is already the `store` check's error, so integrity stays
+ * a skipped OK rather than double-reporting the same file. For a linted store,
+ * the counts pass straight through and up to a few issue messages (errors first,
+ * so the most serious problem always shows) become the report sample.
+ */
+export function gatherIntegrityFacts(storePath?: string): StoreIntegrityFacts {
+  const report = runVerify(storePath);
+  if (report.kind !== "verified" || !report.verification) {
+    return { checked: false, total: 0, errorCount: 0, warningCount: 0, sampleIssues: [] };
+  }
+  const { total, errorCount, warningCount, issues } = report.verification;
+  const sampleIssues = [...issues]
+    .sort((a, b) => (a.level === b.level ? 0 : a.level === "error" ? -1 : 1))
+    .slice(0, DOCTOR_INTEGRITY_SAMPLE_LIMIT)
+    .map((issue) => issue.message);
+  return { checked: true, total, errorCount, warningCount, sampleIssues };
+}
+
 export interface ConfigShowOptions {
   /** Explicit file path. When omitted, the usual discovery order is used. */
   path?: string;
@@ -1430,12 +1550,24 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
   // not-yet-created dir look already-present).
   const writable = probeStoreWritable(storePath);
 
+  // --- store-integrity facts. Reads the *raw* file (via runVerify) and runs the
+  // pure `verifyStore` linter, so duplicate ids and structurally-broken records
+  // are caught before the queue's Map silently collapses them. A missing store
+  // (first run) or whole-file corruption (already the `store` check's error) is
+  // reported as "not checked" so the same file isn't flagged twice.
+  const integrity = gatherIntegrityFacts(storePath);
+
   let corrupt = false;
   let jobs: RelayJob[] = [];
   try {
     const queue = new RelayQueue(storePath, { onCorrupt: () => (corrupt = true) });
     jobs = queue.listAll();
-    queue.close();
+    // Deliberately NOT queue.close(): close() flushes the in-memory Map back to
+    // disk, and the Map has already collapsed any duplicate ids on load — so a
+    // read-only diagnostic would silently rewrite the store and destroy the very
+    // duplicate-id job the store-integrity check just reported. doctor only reads
+    // (the constructor already loaded the jobs), so skipping close() keeps it
+    // non-mutating.
   } catch {
     // Opening the queue can throw when the store dir can't be created/written
     // (parent is a file, perms deny mkdir, read-only mount). The writable probe
@@ -1467,6 +1599,15 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     return { binary, neededBy, found: resolvedPath !== null, resolvedPath: resolvedPath ?? undefined };
   });
 
+  // --- reset-horizon facts. The parser's guard only vets *newly parsed* resets;
+  // a job already parked far in the future (guard off at the time, a pre-guard
+  // entry, or a misparse) sits waiting forever. Re-check the live queue against
+  // the same env-resolved horizon so doctor flags it. A null horizon (guard
+  // disabled) means nothing to bound against — pass an empty list.
+  const horizonMs = maxResetHorizonMsFromEnv(env);
+  const now = new Date(options.nowMs ?? Date.now());
+  const farFutureResets = horizonMs === null ? [] : selectFarFutureResets(jobs, { now, horizonMs });
+
   return runDiagnostics({
     nodeVersion: options.nodeVersion ?? process.version,
     store: {
@@ -1476,6 +1617,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
       jobCount: jobs.length,
       activeCount: countActiveJobs(jobs),
     },
+    integrity,
     writable,
     config: { path: configPathResolved, loadError, issues },
     notify: {
@@ -1486,6 +1628,7 @@ export function runDoctor(options: DoctorOptions = {}): DiagnosticReport {
     // --- heartbeat facts. Reads the liveness file the daemon/tick writes so
     // doctor can flag "jobs waiting but nothing running to resume them".
     heartbeat: readHeartbeatFacts(storePath, options.nowMs),
+    resetHorizon: { jobs: farFutureResets, horizonMs },
   });
 }
 

@@ -4,17 +4,17 @@
 // only way to get it is to hand the shell a completion script.
 //
 // This module holds only the pure *rendering*: given a description of the
-// command tree (a `CompletionSpec`), produce a valid bash or zsh completion
-// script as a string. The CLI derives the spec from the live commander program
-// (so it never drifts from the real command surface) and prints the script; the
-// generator here is filesystem/commander-free so it's trivially unit-testable
-// and deterministic.
+// command tree (a `CompletionSpec`), produce a valid bash, zsh, or fish
+// completion script as a string. The CLI derives the spec from the live
+// commander program (so it never drifts from the real command surface) and
+// prints the script; the generator here is filesystem/commander-free so it's
+// trivially unit-testable and deterministic.
 
 /** Shells we can emit a completion script for. */
-export type CompletionShell = "bash" | "zsh";
+export type CompletionShell = "bash" | "zsh" | "fish";
 
 /** Every shell `agentrelay completion` accepts, in a stable order. */
-export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh"] as const;
+export const COMPLETION_SHELLS: readonly CompletionShell[] = ["bash", "zsh", "fish"] as const;
 
 /** Type guard: is `value` one of the shells we support? */
 export function isCompletionShell(value: string): value is CompletionShell {
@@ -86,6 +86,7 @@ export function generateCompletion(shell: CompletionShell, spec: CompletionSpec)
     for (const sub of cmd.subcommands ?? []) assertSafeToken(sub.name, "subcommand name");
   }
   if (shell === "bash") return generateBash(spec);
+  if (shell === "fish") return generateFish(spec);
   return generateZsh(spec);
 }
 
@@ -267,4 +268,93 @@ ${caseArms.join("\n")}
 }
 ${fn} "$@"
 `;
+}
+
+/**
+ * Map an option flag to the token(s) a fish `complete` line expects. Fish wants
+ * the flag *without* its leading dashes, tagged by kind: `-l` for a long option
+ * (`--json` → `-l json`), `-s` for a single-char short (`-r` → `-s r`), and
+ * `-o` for the rare old-style multi-char single-dash flag (`-foo` → `-o foo`).
+ * The caller has already run `assertSafeToken` on the whole flag, so the stem is
+ * a bare word.
+ */
+function fishOptionSpec(flag: string): string {
+  if (flag.startsWith("--")) return `-l ${flag.slice(2)}`;
+  if (flag.startsWith("-") && flag.length === 2) return `-s ${flag.slice(1)}`;
+  if (flag.startsWith("-")) return `-o ${flag.slice(1)}`;
+  // No leading dash at all: treat as a long option so it still completes.
+  return `-l ${flag}`;
+}
+
+/**
+ * Fish: a series of `complete -c` registrations rather than one dispatch
+ * function. Fish's own `__fish_use_subcommand` / `__fish_seen_subcommand_from`
+ * conditions decide when each candidate applies — top-level subcommands and
+ * global options before a command is chosen, then that command's flags (or a
+ * parent command's nested subcommands and their flags) once it's on the line.
+ */
+function generateFish(spec: CompletionSpec): string {
+  const p = spec.program;
+  for (const c of spec.commands) {
+    assertSafeToken(c.name, "command name");
+    for (const s of c.subcommands ?? []) assertSafeToken(s.name, "subcommand name");
+  }
+
+  const lines: string[] = [
+    `# fish completion for ${p}`,
+    `# Install: save this file as ~/.config/fish/completions/${p}.fish,`,
+    `# or load it now with: ${p} completion fish | source`,
+    "",
+    "# Disable file completion by default; nothing here completes filenames.",
+    `complete -c ${p} -f`,
+    "",
+  ];
+
+  // Global options: offered while no subcommand is present yet.
+  const globalOpts = uniq([...spec.options, "--help", "--version"].filter((o) => o.length > 0));
+  for (const o of globalOpts) assertSafeToken(o, "global option");
+  lines.push("# Global options (before any subcommand).");
+  for (const o of globalOpts) {
+    lines.push(`complete -c ${p} -n __fish_use_subcommand ${fishOptionSpec(o)}`);
+  }
+  lines.push("");
+
+  // Top-level subcommands.
+  lines.push("# Top-level subcommands.");
+  for (const c of spec.commands) {
+    lines.push(`complete -c ${p} -n __fish_use_subcommand -a ${c.name}`);
+  }
+  lines.push("");
+
+  // Per-command options, or a parent command's nested subcommands + their flags.
+  for (const cmd of spec.commands) {
+    const subs = cmd.subcommands ?? [];
+    if (subs.length > 0) {
+      const subNames = subs.map((s) => s.name);
+      lines.push(`# ${cmd.name} subcommands and their options.`);
+      // Offer the subcommand names while the parent is seen but no sub yet.
+      const guard = `__fish_seen_subcommand_from ${cmd.name}; and not __fish_seen_subcommand_from ${subNames.join(" ")}`;
+      for (const s of subNames) {
+        lines.push(`complete -c ${p} -n '${guard}' -a ${s}`);
+      }
+      for (const s of subs) {
+        const opts = uniq([...s.options, "--help"].filter((o) => o.length > 0));
+        for (const o of opts) assertSafeToken(o, "subcommand option");
+        for (const o of opts) {
+          lines.push(`complete -c ${p} -n '__fish_seen_subcommand_from ${s.name}' ${fishOptionSpec(o)}`);
+        }
+      }
+      lines.push("");
+    } else {
+      const opts = uniq([...cmd.options, "--help"].filter((o) => o.length > 0));
+      for (const o of opts) assertSafeToken(o, "command option");
+      lines.push(`# ${cmd.name} options.`);
+      for (const o of opts) {
+        lines.push(`complete -c ${p} -n '__fish_seen_subcommand_from ${cmd.name}' ${fishOptionSpec(o)}`);
+      }
+      lines.push("");
+    }
+  }
+
+  return `${lines.join("\n")}\n`;
 }

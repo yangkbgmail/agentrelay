@@ -2260,6 +2260,525 @@
   (수년 전 epoch)도 misparse 신호로 보고할지, `doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가.
   stats 분산/watch·summary --watch·epoch ms는 PR 포화라 지양. README/ARCHITECTURE(🧭 코워크).
 
+### [세션 73 — 스토어 close() lost-update 버그 수정] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-close-noop`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  **열린 PR이 200개**에 달하고 극도로 중복(doctor reset-horizon 단일 항목만 30+개, summary/eta `--watch`·
+  Gemini 어댑터·파서 micro-pattern 다수 중복)이라, 파서/stats/watch/doctor 계열을 전부 피하고 200개
+  PR 제목을 스캔해 **어떤 열린 PR에도 없는** 실제 데이터-유실 버그를 코어에서 발굴했다.
+- **발굴한 버그:** `RelayQueue.close()`는 docstring이 "No-op kept for API parity"라 적혀 있으면서도
+  실제로는 `this.flush()`를 호출해 **인메모리 잡 맵 전체를 무조건 디스크에 다시 썼다.** 그 맵은 큐를
+  연 시점의 스냅샷이라, 읽기 전용 명령(`status`/`stats`/`show`/`export` 등 CLI의 거의 모든 경로가
+  `openQueue(...) → 읽기 → queue.close()` 패턴)이 큐를 연 뒤 close()하면, 그 사이 다른 프로세스(실행
+  중인 `agentrelay daemon`)가 추가·변경한 잡을 **stale 스냅샷으로 통째로 덮어써 유실**시켰다(전형적
+  lost update). `concurrency.ts`는 스토어가 무-lost-update 불변식을 지킨다고 문서화하는데, close()가
+  바로 그 불변식을 깨고 있었고, 손상 파일 보존·recover 등으로 "잡 상태를 절대 조용히 잃지 않는다"를
+  거듭 강조해온 이 프로젝트의 핵심 관심사에 정면으로 반했다.
+- **한 일 (branch `claude/wizardly-pascal-close-noop`):**
+  - core `queue.ts`의 `close()`를 자기 docstring대로 **진짜 no-op**으로 변경(`this.flush()` 제거) +
+    왜 아무것도 안 쓰는지(모든 mutating 메서드가 이미 호출 시점에 원자적 flush로 영속화 → close()가
+    커밋할 지연 변경 없음, 잉여이자 유해했음)를 주석으로 명시.
+  - 부수 효과: 읽기 전용 명령이 매 실행마다 스토어를 재기록하던 낭비(불필요한 파일 쓰기·mtime 변화)도
+    함께 제거.
+  - queue.test.ts에 회귀 2케이스 — (a) 두 인스턴스로 stale 스냅샷 시나리오를 재현해 close()가 동시
+    writer의 잡을 안 덮어씀, (b) 읽기 전용 open→read→close가 스토어 파일을 바이트 단위로 불변 유지.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지
+  통과(**core 641 · cli 354/1skip · dashboard 9**; queue.test +2). **실제 빌드 CLI e2e**(mock 아님):
+  long-lived 리더가 스냅샷을 로드한 뒤 "daemon"이 잡 b를 enqueue → 리더의 `close()`가 b를 안 떨어뜨림,
+  이어 실제 빌드 CLI `status --json` 실행 중 동시 enqueue된 잡 c도 유실 없이 a,b,c 모두 잔존 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). **⚠️ 운영 이슈:** 열린 PR 200개가
+  병합 게이트 부재로 누적·중복 심화 — 소유자의 병합/정리 판단 필요(중복 클러스터를 닫고 고유·녹색 PR만
+  병합하면 무기억 세션의 중복 재구현 루프가 끊긴다). README/ARCHITECTURE(🧭 코워크).
+### [세션 73 — doctor 먼-미래 리셋 파킹 잡 검사(reset-horizon)] (2026-08-21, 무인 자율 세션, branch `claude/wizardly-pascal-4p3s77`)
+- **항목 선정:** BACKLOG의 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 세션 72
+  로그가 명시한 후속 인접 후보 "`doctor`에 큐 내 먼-미래 리셋 잡 경고 검사 추가"를 자기 발굴 항목으로 채택.
+  세션 72 파서 지평선 가드는 **새로 파싱되는** rate-limit만 검증하므로, 가드가 없던 시절 큐잉됐거나·가드를 끈
+  채·잘못된 epoch 단위/거대한 상대 기간 misparse로 이미 `waiting_for_reset`으로 파킹된 잡은 수일/수년 조용히
+  대기해도 아무도 못 잡았다 — 이 도구가 반복해 겨냥해온 "silent failure" 부류의 잔여 갭.
+- **한 일 (branch `claude/wizardly-pascal-4p3s77`):**
+  - core `doctor.ts`: 순수 `selectFarFutureResets(jobs, {now, horizonMs})` 신설 — 활성 잡 중 resetAt이
+    now+horizon을 넘는 것만 골라냄(과거/근접 리셋은 안전하므로 제외, 종료 잡·resetAt 없음/파싱불가는 스킵,
+    비양수·비유한 horizon은 "가드 없음"으로 빈 배열). parser `isPlausibleReset` 재사용으로 지평선 판정을 파서와
+    일치. `FarFutureResetJob`/`ResetHorizonFacts` 타입 + `DiagnosticInput.resetHorizon` 추가. `runDiagnostics`에
+    `reset-horizon` 검사 배선(node→store→writable→adapters→daemon→**reset-horizon**→config→notify):
+    horizonMs null(가드 off)=OK 스킵·파킹 0개=OK·1개↑=warning(가장 이른 잡을 예시로 id/project/카운트다운 표기,
+    `show`/`cancel`/`retry`/`recover` 힌트). warning은 리포트를 실패시키지 않음(기존 정책 준수).
+  - CLI `commands.ts`: `runDoctor`가 `maxResetHorizonMsFromEnv(env)`로 지평선 해소 후 `selectFarFutureResets`로
+    facts 구성(null이면 빈 리스트) → `runDiagnostics`에 `resetHorizon` 전달. 순수 로직은 전부 core, CLI는 clock·env만.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과
+  (**core 649 · cli 357/1skip · dashboard 9**; core doctor +11, cli doctor +3, 기존 카운트 테스트 5→6 갱신).
+  **실제 빌드 CLI e2e**(mock 아님): 100일 파킹 잡→`reset-horizon` warning("1 job(s) … beyond the 8d horizon … e.g.
+  abc12345 (myproj) resets in 100d"), `AGENTRELAY_MAX_RESET_HORIZON=off`→"guard is disabled" OK 스킵, 2h 근접 리셋→
+  OK, `--json`에 reset-horizon 검사 노출 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드에도 동일 먼-미래
+  파킹 잡 경고 노출(세션 31 하트비트 카드 패턴 재사용), 또는 `recover`가 먼-미래 파킹 잡을 자동 감지·재큐 대상으로
+  포함하는지 점검. README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 74 — 대시보드 먼-미래 리셋 파킹 잡 경고 카드(reset-horizon)] (2026-08-22, 무인 자율 세션, branch `claude/dashboard-reset-horizon-card`)
+- **항목 선정:** BACKLOG 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 문서/리서치뿐). 세션 73 로그가
+  명시한 후속 인접 후보 "대시보드에도 동일 먼-미래 파킹 잡 경고 노출(세션 31 하트비트 카드 패턴 재사용)"을
+  자기 발굴 항목으로 채택. 세션 73이 `doctor`에 넣은 `reset-horizon` 검사는 사용자가 CLI를 켜야만 보이지만,
+  로컬 대시보드는 상시 떠 있어 큐를 시각적으로 감시하는 경로 — misparse로 수일/수년 파킹돼 조용히 재개 안 되는
+  잡을 여기서도 즉시 눈에 띄게 해 "silent failure" 커버리지를 CLI·GUI 양쪽으로 넓힘.
+- **한 일 (branch `claude/dashboard-reset-horizon-card`):**
+  - `apps/dashboard/lib/jobs.ts`: 스냅샷에 `resetHorizon: {jobs, horizonMs}` 필드 추가. core의 순수
+    `selectFarFutureResets(jobs,{now,horizonMs})` + `maxResetHorizonMsFromEnv()`를 그대로 재사용 —
+    가드 off(`AGENTRELAY_MAX_RESET_HORIZON=off`)면 horizonMs=null·빈 리스트. `ResetHorizonSummary` 타입 export.
+    순수 로직 100% core 재사용이라 CLI `doctor`의 `reset-horizon` 검사와 절대 드리프트 안 함.
+  - `apps/dashboard/app/dashboard-client.tsx`: `FarFutureResetsCard` 추가 — 하트비트 카드와 동일한
+    "concerning" 경고 카드 패턴 재사용. 가장 이른(덜 극단, 실제 엣지케이스일 가능성 높은) 잡부터 최대 5개
+    표기(+N more)·id 8자·프로젝트·`resets in Nd/Ny`. 먼 기간용 `formatLongDuration`(일/년 반올림) 신설 —
+    기존 시간 단위 `formatCountdown`이 수천 시간으로 넘치는 것 방지. `show`/`cancel`/`retry`/`recover` 힌트.
+    가드 off거나 파킹 0개면 렌더 안 함(깨끗한 큐는 조용). `<ResumeLoopCard>` 바로 아래 배치.
+  - `apps/dashboard/app/globals.css`: `.far-future*` 스타일 추가(하트비트 카드 톤과 일치, 좌측 경고색 보더).
+- **검증:** `pnpm install`→`pnpm build`(Next 타입체크 포함 클린)→`pnpm ci:lint`(Biome 0에러; JSX 리플로우
+  1건 `lint:fix`로 정리)→`pnpm test` 전 패키지 통과(**core 649 · cli 357/1skip · dashboard 13**; dashboard +4:
+  먼-미래 플래그·근접 미플래그·종료 잡 미플래그·빈 스토어). 2099년 리셋은 8일 지평선 초과로 플래그, 2h 근접
+  리셋·완료(종료) 잡·빈 스토어는 미플래그 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — `recover`가 먼-미래 파킹 잡을
+  자동 감지·재큐 대상으로 포함하는지 점검, 또는 대시보드 카드에서 직접 취소/재시도 액션(로컬 API route 필요).
+  README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 75 — `agentrelay recover --far-future`: 먼-미래 파킹 잡 자동 재큐] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-w9pkuw`)
+- **항목 선정:** BACKLOG 미완료 👷 항목은 전부 소진(남은 미완료는 🧭 코워크 문서/리서치뿐). 세션 73(doctor)·
+  세션 74(대시보드 카드) 로그가 명시한 후속 인접 후보 "recover가 먼-미래 파킹 잡을 자동 감지·재큐 대상으로
+  포함하는지 점검"을 자기 발굴 항목으로 채택. 세션 72~74가 만든 reset-horizon 인프라는 misparse로 수일/수년
+  파킹된 잡을 `doctor`(CLI)·대시보드 카드에서 **경고**만 했지 **고치는** 원커맨드가 없어 잡마다 손 `retry`가
+  필요했다 — `recover`(지금까지 `resuming` 고아만 회수)에 두 번째 무음-실패 클래스를 붙여 경고→고침 루프를 닫음.
+- **한 일 (branch `claude/wizardly-pascal-w9pkuw`):**
+  - `packages/core/src/recover.ts`: 순수 `selectFarFutureParkedJobs(jobs,{nowMs,horizonMs})` + `FarFutureParkedReport`/
+    `FarFutureParkedOptions` 신설. `waiting_for_reset`(파킹) 잡만 후보(`queued`는 다음 tick 실행, `resuming`은
+    라이브거나 `selectStuckResumingJobs` 담당) → resetAt 지평선 초과분만 가장 이른 순 정렬, resetAt 없음/파싱불가
+    스킵, 가드 비활성(null/비양수/비유한)은 빈 리스트(pool은 카운트). parser `isPlausibleReset` 재사용 → doctor·
+    대시보드와 지평선 의미 절대 드리프트 안 함.
+  - `packages/cli/src/commands.ts`: `recoverJobs`에 `farFuture`/`horizonMs` 옵션 추가 — 파킹 잡을
+    `RelayQueue.requeueNow`로 재큐(attempts 0 리셋·lastError 클리어; 먼-미래 resetAt 자체가 버그라 fresh run이 맞음,
+    `recoverResuming`의 attempts 보존과 대비). `RecoverJobsResult`에 optional `farFuture:{report,recovered}` 추가.
+  - `packages/cli/src/recover.ts`: `RecoverResult`에 far-future 블록 추가, `renderRecover`를 두 섹션 결합으로 리팩터
+    (`renderFarFutureBlock` 분리 + 먼 기간용 `resetInWords`), `renderRecoverJson`에 `farFuture` 키 추가.
+  - `packages/cli/src/cli.ts`: `recover`에 `--far-future` opt-in 플래그(더 결과가 큰 클래스라 기본 off) +
+    `maxResetHorizonMsFromEnv()`로 지평선 해소 배선.
+- **검증:** `pnpm install`→`pnpm build`(전 패키지 클린)→`pnpm test`(**core 655 · cli 365/1skip · dashboard 13**;
+  core recover +6·cli recover +7)→`pnpm ci:lint`(Biome 0에러; 포맷 2파일 `format`로 정리). 실제 빌드 CLI e2e:
+  기본 `recover`는 far-future 미포함, `--far-future --dry-run`은 100d 파킹 잡 리포트하되 스토어 불변, 실제 실행은
+  resetAt=now·attempts 3→0·err null로 재큐하고 2h 근접 잡은 보존, `--json`에 farFuture 블록 노출,
+  `AGENTRELAY_MAX_RESET_HORIZON=off`는 스캔 스킵 문구 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). 후속 인접 후보 — 대시보드 far-future 카드에서 직접
+  취소/재시도 액션(로컬 API route 필요), 또는 `doctor`/대시보드 경고 문구에 "run `agentrelay recover --far-future`"
+  힌트를 명시적으로 추가. README/ARCHITECTURE(🧭 코워크). PR 포화 항목(stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 76 — 중복 PR 루프 해소(#846 병합) + 먼-미래 fix 힌트 교정] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-wmsc0y`)
+- **중복 PR 루프 진단·해소:** 세션 시작 시 이번 세션도 세션 74 로그가 명시한 후속 후보(`recover --far-future`)를
+  구현했으나, CI 목록을 보니 **기억 없는 매시간 세션들이 같은 기능을 독립 재구현**해 기능적으로 동일한 초록 PR이
+  #844·#845·#846·(이번)#848로 4개 쌓여 있었다 — PROGRESS가 반복 경고해온 바로 그 중복 루프. COLLAB 병합 정책
+  (CI 초록 시 클로드 코드 병합 가능)과 과거 선례(세션 3·8·10·70이 루프를 끊은 방식)에 따라, 중복을 하나 더 쌓는
+  대신 `mergeable_state: clean`(base=최신 main af21ed5, CI success)이던 **#846을 main에 병합**(→5b552f0)해 기능을
+  랜딩하고, 나머지 3개(#844·#845·#848[이번 세션 것])를 사유 코멘트와 함께 닫았다.
+- **한 일 (branch `claude/wizardly-pascal-wmsc0y`, main=병합된 #846 위에서 재시작):** 병합된 `recover --far-future`의
+  **후속 정확성 수정** — #846이 main의 PROGRESS "다음 할 일"로 직접 명시한 항목("doctor/대시보드 경고 문구에
+  `agentrelay recover --far-future` 힌트 명시")을 채택. `recover --far-future`가 랜딩되기 전엔 doctor `reset-horizon`
+  warning과 대시보드 먼-미래 카드가 fix로 플래그 없는 `agentrelay recover`를 제시했는데, plain `recover`는 `resuming`
+  고아 잡만 회수하고 **먼-미래 파킹 잡은 안 건드린다** → 경고대로 쳐도 아무것도 안 고쳐지는 **오도(misleading) 힌트**.
+  - `packages/core/src/doctor.ts` `resetHorizonCheck` hint를 "Requeue them all with `agentrelay recover --far-future`
+    (plain `recover` won't — it only reclaims jobs stuck resuming). Or inspect one with `show`/`cancel`/`retry`."로 교체.
+  - `apps/dashboard/app/dashboard-client.tsx` `FarFutureResetsCard` 안내문도 동일 교정.
+  - core doctor.test에 hint가 `recover --far-future`를 포함하는지 단언 추가(오도 힌트 회귀 방지).
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과(**core 655 · cli
+  365/1skip · dashboard 13**). 실제 빌드 CLI `doctor` e2e로 120d 파킹 잡에 대해 교정된 힌트("Requeue them all with
+  `agentrelay recover --far-future` …") 출력 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). **중복 루프 주의** — `recover --far-future`는
+  이미 main에 있으니 재구현 금지. 후속 인접 후보 — 대시보드 far-future 카드에서 직접 재큐하는 로컬 API route(mutation),
+  또는 `recover`가 과거-지평선(수년 전 epoch) misparse도 신호로 보고. README/ARCHITECTURE(🧭 코워크). PR 포화 항목
+  (stats 분산/watch·summary --watch·epoch ms)은 지양.
+
+### [세션 77 — `agentrelay config schema` (JSON Schema 출력)] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-ixo6hb`)
+- **배경:** 세션 시작 시 명시적 👷 백로그 항목은 전부 완료 상태, 열린 PR은 50+개인데 파서 개선·doctor
+  reset-horizon 검사에 **중복 PR이 심하게 포화**(reset-horizon만 10개+, 파서 다수). 중복 루프를 피해 CLAUDE.md
+  지침대로 **포화되지 않은 영역에서 새 개선 항목을 발굴**했다 — config 커맨드군(`init`/`validate`/`show`/`get`/
+  `set`/`unset`)에는 있었지만, 에디터가 `agentrelay.config.json`을 **편집 중 실시간 검증/자동완성**할 수단
+  (JSON Schema)이 없었다. 열린 PR 어디에도 "schema"는 없음(중복 아님 확인).
+- **한 일 (branch `claude/wizardly-pascal-ixo6hb`):** `agentrelay config schema` —
+  - `@agentrelay/core/config-schema.ts` 신설(순수·파일시스템/env 미접촉): `buildConfigJsonSchema()`가 기존
+    `CONFIG_FIELDS`(config set/get/show의 단일 진실 원천)에서 draft-07 스키마 객체를 **생성** + 키별
+    description/제약 테이블(`FIELD_INFO`). 숫자 제약을 `validateConfig`와 동일하게 미러(retry.maxAttempts≥0 정수·
+    factor≥1·jitter 0~1·baseDelayMs/maxDelayMs≥0 정수, autoPrune.keep/everyTicks≥0 정수), duration 필드는
+    `parseDuration`을 흉내 낸 case-insensitive `pattern`(`7d`/`24h`/`1.5h`/`500ms`), notify/retry/autoPrune 그룹
+    오브젝트는 `additionalProperties:false`, 인라인 `"$schema"` 참조 허용(에디터가 파일에 스키마 URL을 심어도
+    additionalProperties:false에 걸리지 않게). `CONFIG_SCHEMA_ID`/`CONFIG_SCHEMA_DIALECT`,
+    `configJsonSchemaJson()`(2-스페이스 pretty + trailing newline). index.ts export.
+  - CLI `agentrelay config schema` 서브커맨드는 순수 stdout(파일 미접촉) → `agentrelay config schema >
+    agentrelay.config.schema.json`으로 파이프 후 `"$schema"`로 참조.
+  - core `config-schema.test.ts` 9케이스: 모든 settable 필드가 스키마 노드를 가짐(드리프트 방지)·타입 매핑·
+    duration 패턴이 실제 `parseDuration` 통과 입력과 일치하고 쓰레기 입력은 거부·sampleConfig가 스키마 제약에
+    부합·JSON 왕복.
+- **검증:** `pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러)→`pnpm test` 전 패키지 통과
+  (**core 664 · cli 365/1skip · dashboard 13**). 실제 빌드 CLI e2e: `config schema`가 유효 JSON(3673B) 출력,
+  top props($schema,store,notify,retry,autoPrune)·retry 그룹 props·autoPrune.after duration pattern 확인.
+- **다음 할 일:** 이 브랜치로 main 대상 PR open(CI 초록 시 병합). **중복 루프 주의** — 파서/reset-horizon은
+  이미 PR 포화이니 재구현 금지. 후속 인접 후보 — `config init`이 생성하는 샘플 파일에 `"$schema"` 라인을 선택적으로
+  추가(에디터 즉시 연동), 또는 스키마를 리포지토리 정적 파일로도 발행. README/ARCHITECTURE(🧭 코워크).
+
+### [세션 78 — PR 적체 통합: 중복 8개 정리 + #850(config schema) 병합] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-dhodhg`)
+- **배경:** 세션 시작 시 👷 백로그 항목은 전부 완료, 열린 PR **40개**가 적체. 세션 76이 경고한 **중복 PR 루프**가
+  재발 — 기억 없는 매시간 세션들이 **이미 main에 병합된 기능**을 독립 재구현해 초록 PR을 쌓고 있었다. 새 41번째
+  기능 PR을 더하는 대신, PROGRESS 세션 60/61/63/76의 **통합(consolidation) 정책**을 따라 큐를 배수했다.
+- **중복 정리(8개 close):** main 대비 실제 코드 diff로 검증해, **main에 이미 있는 기능의 중복**만 사유 코멘트와
+  함께 닫았다(되살릴 필요 시 reopen 가능).
+  - `reset-horizon` doctor 검사(이미 main #835 `resetHorizonCheck`) 재구현 5개: **#833·#823·#813·#807·#804**.
+  - `recover --far-future`/먼-미래 파킹 잡 회수(이미 main #846 `recover.ts`) 재구현 3개: **#842·#840·#837**.
+- **forward progress(#850 병합):** 남은 PR 중 **완전 clean(문서 충돌 없음) + CI 초록 + 비중복** 신규 기능을 골라
+  main에 랜딩 — **#850 `agentrelay config schema`**(JSON Schema draft-07 출력, 에디터 실시간 검증/자동완성).
+  COLLAB 병합 정책(CI 초록 → 클로드 코드 병합)에 근거. → main `8cf5dcf`.
+- **#851은 다음 세션 몫:** `agentrelay watch`(통합 라이브 관제탑)도 CI 초록·코드 clean이나, #850 병합 직후
+  BACKLOG/PROGRESS **문서 append 충돌**이 생겼다(코드는 clean). 세션의 지정 브랜치 제약상 타 브랜치에 push하지
+  않았다 — 문서 리베이스만 하면 바로 병합 가능.
+- **근본 원인 재확인:** 거의 모든 PR이 `BACKLOG.md`/`PROGRESS.md`에 append하므로, 하나를 병합하면 나머지 전부가
+  문서 충돌로 바뀐다(세션 60이 진단한 그대로). 이 때문에 매시간 clean PR은 1~2개뿐이고 큐가 계속 자란다.
+- **다음 할 일:** ① #851 문서 충돌만 리베이스해 병합. ② 남은 ~30개 중 `main`에 이미 병합된 기능의 추가 중복
+  스캔·정리(파서 계열 특히). ③ 신규 기능은 **열린 PR·main 양쪽에 없는** 영역에서만 발굴(중복 재발 방지).
+  README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 79 — `agentrelay completion fish` (fish 셸 완성) + 스테일 fish 중복 8개 통합] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-am8gcl`)
+- **배경:** 세션 시작 시 👷 백로그 항목은 전부 완료. 새 개선 항목으로 `agentrelay completion fish`(bash·zsh만
+  지원하던 쉘 탭 완성에 fish 추가)를 발굴·구현했으나, **열린 PR 조사에서 fish 완성이 이미 8개 PR로 중복**
+  (#606·#495·#581·#315·#241·#210·#100·#561)임을 확인 — 세션 78이 경고한 "중복 PR 루프"의 전형.
+- **판단:** 9번째 독립 중복을 더하는 대신, 세션 33/48/76/78이 확립한 **통합(consolidation) 정책**을 따랐다.
+  기존 8개는 전부 **오래된 base**(예: #606은 `cf4e475`, 현재 main은 `81b4282`)에 있어 문서 append 충돌로
+  클린 병합이 불가능하다(큐가 막힌 근본 원인 — 세션 60·78 진단). 그래서 **최신 main 기반의 검증된 통합본**을
+  열어 8개를 대체·정리하는 "최신 main 위로 통합 → 스테일 중복 대체" 패턴을 적용.
+- **한 일(구현):** core `completion.ts`에 `generateFish` 추가 — 선언적 `complete -c` 규칙 목록을 fish 표준
+  술어(`__fish_use_subcommand`/`__fish_seen_subcommand_from`)로 가드. 순수 `fishOptionSpec`(long→`-l`/short→`-s`/
+  그 외→`-o`), 기존 `assertSafeToken`·`uniq` 재사용, `-f`로 파일 완성 억제. `CompletionShell`·`COMPLETION_SHELLS`·
+  디스패치·CLI description/help 배선. 새 파서/스케줄러 로직 0줄. completion.test에 fish 6케이스 + 기존 단언 갱신.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0경고, 122파일)→`pnpm test`
+  전 패키지 통과(**core 670 · cli 365/1skip · dashboard 13**). 실제 빌드 CLI e2e로 `completion fish` 방출
+  (글로벌 옵션·최상위 커맨드·run 플래그 `-l tool`·config 부모 가드)·미지 셸 `completion tcsh` exit 1 검증.
+- **정리(통합):** 스테일 fish 중복 8개를 이 통합본 PR을 가리키는 사유 코멘트와 함께 close(reopen 가능).
+  → 큐에서 fish 축 -8, main에 fish 기능 +1.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책: CI 초록 → 클로드 코드 병합). ② 나머지 ~90개
+  열린 PR 중 **reset-horizon doctor 검사(수십 개 중복)**·**config schema**·**completion nushell/powershell** 등
+  포화 축의 추가 중복 스캔·정리 지속. ③ 신규 기능은 열린 PR·main 양쪽에 없는 영역에서만 발굴. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 80 — reset-horizon doctor 중복 클러스터 31개 통합 정리] (2026-08-22, 무인 자율 세션, branch `claude/wizardly-pascal-4xtvoe`)
+- **배경:** 세션 시작 시 BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐).
+  세션 78·79가 진단·경고한 **"중복 PR 루프"**를 열린 PR ~90개 실측으로 재확인 — 기억 없는 매시간
+  세션들이 **이미 `main`에 병합된 기능**을 독립 재구현해 초록 PR을 쌓고 있었고, 그중 단연 최다가
+  **`agentrelay doctor`의 먼-미래 리셋(reset-horizon) 검사** 중복이었다(이미 `main` #835 `selectFarFutureResets`/
+  `resetHorizonCheck`/`ResetHorizonFacts`로 제공). 91번째 중복 기능 PR을 더하는 대신, 세션 33/48/76/78/79가
+  확립한 **통합(consolidation) 정책**을 따라 이 축의 큐를 배수했다.
+- **검증:** `main`의 `packages/core/src/doctor.ts`에 `selectFarFutureResets`·`ResetHorizonFacts`·`resetHorizonCheck`가
+  실재함을 확인하고, 대표 중복 #801·#799의 실제 diff를 열어 `main`과 **동일 로직(함수명까지 일치)**의
+  독립 재구현임을 확인한 뒤 정리에 착수.
+- **한 일(31개 close):** 아래 reset-horizon doctor 중복을 각각 사유 코멘트(참조: `main` #835, reopen 가능)와
+  함께 닫았다 —
+  **#734·735·738·741·742·743·745·748·754·755·756·759·760·761·764·766·768·769·771·772·775·776·779·781·782·788·791·794·799·801·803**.
+  → 큐에서 reset-horizon 축 -31, 이 축의 적체가 사실상 해소됨(코드 변경 없음: `main` 기능은 그대로).
+- **다음 할 일:** ① 남은 ~60개 열린 PR 중 여전히 남은 포화 축의 추가 중복 스캔·정리 지속 — 파서 변종
+  (weekday/timezone/fractional/ISO8601/colon-countdown/clock-word/ratelimit-header 등)·Gemini 어댑터(#752/#762)·
+  completion(nushell #785) 등이 후보. ② `main`·열린 PR 양쪽에 없는 **진짜 신규** 영역에서만 기능 발굴
+  (중복 재발 방지). ③ 근본 원인(거의 모든 PR이 BACKLOG/PROGRESS에 append → 하나 병합 시 나머지 전부 문서
+  충돌)은 세션 60·78이 진단한 그대로 — 문서 append 충돌 완화 방안은 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 82 — 파서 epoch 통합: 13자리 ms + `reset_at`/`resetAt` 필드 인식(스테일 중복 5개 대체)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-0m2e4p`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 열린 PR ~100개를
+  실측한 결과 세션 78~81이 진단한 **중복 PR 루프**가 계속 — 그중 **파이프-epoch 밀리초(13자리) 인식**이
+  #707·#711·#717·#719·#722 다섯 갈래로 중복돼 있었다. 5개 모두 스테일 base에 있어 문서 append 충돌로
+  클린 병합 불가(세션 60·78 진단). 6번째 독립 중복을 더하는 대신, 세션 79가 확립한 **"최신 main 위로 통합
+  → 스테일 중복 대체"** 패턴을 적용.
+- **발굴한 갭(실측):** `main`의 어댑터 `CLAUDE_USAGE_LIMIT_EPOCH_PATTERN`은 `\d{10}`(초)만, 제네릭 파서의
+  `unix-epoch`는 `retry_after` + `\d{10}`만 잡는다. 그래서 (a) `Claude AI usage limit reached|1752345600000`
+  같은 **13자리 ms** 파이프 라인과 (b) `reset_at`/`resetAt`/`resets_at` **필드명**을 쓰는 구조화 페이로드가
+  조용히 통과(null)돼 실제 rate-limit을 감지 못 했다.
+- **한 일:** ① `adapters.ts` — `CLAUDE_USAGE_LIMIT_EPOCH_PATTERN` 정규식을 `(\d{13}|\d{10})\b`로 확장, 자릿수로
+  단위 구분(13=ms 그대로, 10=×1000). ② `parser.ts` — `unix-epoch` 필드 alternation을
+  `(?:retry_after|resets?_?at)`로, 값은 `(\d{13}|\d{10})\b`로 확장(reset_at/resetAt/resets_at + ms).
+  ③ pre-filter `LOOKS_LIKE_RATE_LIMIT`에 `resets?_?at\s*[=:]` 추가로 `reset_at` 단독 페이로드도 통과.
+  `\b` 경계가 모호한 11/12자리를 배제 → 엉뚱한 시각 재개 대신 fall-through. 새 스케줄러 로직 0줄.
+  parser.test +3케이스(13자리 ms·필드명 3종·11/12자리 거부), adapters.test +2케이스.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 122파일)→`pnpm test`
+  전 패키지 통과(**core 675 · cli 365/1skip · dashboard 13**). 실제 빌드 CLI e2e: `parse --tool claude-code
+  "…|1752345600000"` → `claude-usage-limit-epoch` 매치·`2025-07-12T18:40:00Z`, `parse '{…"reset_at":1752345600}'`
+  → `unix-epoch` 매치, `…|175234560000`(12자리) → "No rate-limit detected"(모호값 거부) 확인.
+- **정리(통합):** 스테일 epoch-ms 중복 5개(#707·#711·#717·#719·#722)를 이 통합 PR을 가리키는 사유 코멘트와
+  함께 close(reopen 가능). → 큐에서 epoch-ms 축 -5, main에 기능 +1.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 남은 포화 축의 추가 중복 스캔·정리 지속 —
+  IANA/명명 타임존 파서(#731/#740/#749/#774/#838)·Gemini 어댑터(#752/#762)·run --dry-run(#715/#751/#843) 등이
+  후보. ③ 근본 원인(문서 append 충돌)은 세션 60·78 진단대로 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 83 — doctor 스토어 무결성 검사 + 읽기 전용화(중복-id 파괴 버그 수정)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-uems38`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 열린 PR 100+개는
+  세션 78~82가 진단한 **중복 PR 루프**로 대부분 스테일 base·문서 append 충돌 상태. 91번째 중복을 더하는
+  대신, 세션 79의 "최신 main 위 + 진짜 신규 영역에서만 발굴" 원칙대로 `main`·열린 PR 양쪽에 없는 갭을 실측.
+- **발굴한 갭(실측):** `doctor`는 전체 파일 손상(corrupt)·활성 잡 수만 판정하고, **읽히는** 스토어 내부의
+  의미적 무결성(중복 id·구조 불량 레코드·resetAt 없는 waiting_for_reset)은 못 봤다. 그 판정은 `verify`
+  커맨드(`verifyStore`)에만 있어 별도 실행이 필요했다. 열린 PR 검색(`doctor integrity`) 0건 — 진짜 신규.
+- **함께 발견한 실제 버그:** `runDoctor`가 큐를 열고 `close()`하며 flush → RelayQueue.load가 Map으로
+  이미 붕괴시킨 **중복 id를 디스크에 재기록**해, 읽기 전용이어야 할 진단이 이전 잡을 조용히 파괴했다.
+  (그래서 중복-id 스토어에 doctor를 두 번 돌리면 문제가 "사라진" 것처럼 보였다 — 실제론 데이터 유실.)
+- **한 일:** ① core `doctor.ts` — `StoreIntegrityFacts` 타입 + `integrityCheck` 판정 함수, `runDiagnostics`에
+  store 바로 뒤 `store-integrity` 검사 배선. linter 등급 미러(error=검사 error, warning=warning, 읽을
+  스토어 없음=skip-OK로 이중 보고 방지). ② CLI `commands.ts` — `gatherIntegrityFacts`(기존 `runVerify`
+  raw 읽기+순수 `verifyStore` 재사용, error 우선 최대 3개 샘플) + `runDoctor` 주입. ③ **버그 수정**:
+  `runDoctor`의 `queue.close()` 제거 → 생성자가 이미 load, 읽기 전용 유지로 중복-id 파괴 차단. 새
+  파서/스케줄러 로직 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 122파일)→`pnpm test`
+  전 패키지 통과(**core 679 · cli 370/1skip · dashboard 13**). 실제 빌드 CLI e2e: clean 스토어→
+  `store-integrity ok`, 중복-id→`error`+exit 1, 스토어 파일 **UNCHANGED**(비파괴), 두 번째 실행도 여전히 flag.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② `runDoctor` 외에 읽기 전용인데
+  `close()` flush로 스토어를 재기록하는 다른 커맨드(status/stats/show 등)가 있는지 추가 감사 — 같은 유형의
+  무음 재기록 위험. ③ 남은 포화 축의 중복 스캔·정리 지속. ④ 근본 원인(문서 append 충돌)은 🧭 코워크와 협의.
+  README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 83 — 파서 relative-day: "tomorrow/today at \<time\>" 상대-요일 리셋 인식] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-96dwkp`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 열린 PR ~100개를
+  실측해 포화 축(파서 변종·completion·doctor·stats·notify·신규 명령)을 피하고, **main·열린 PR 양쪽에 없는
+  진짜 신규 갭**만 발굴하는 세션 82 정책을 이어감.
+- **발굴한 갭(실측):** 파서는 요일명(Monday, #806/#841)·자정/정오(#793/#818)·타임존·소수·ISO8601·epoch 등
+  다양한 리셋 표기를 잡지만, 실제 에이전트가 흔히 쓰는 **상대-요일 어휘 "tomorrow/today"**("Your limit resets
+  tomorrow at 9am.", "Try again tomorrow.")는 어느 패턴도 잡지 못했다 — clock-time 계열은 "reset **at** \<time\>"
+  인접을 요구(요일어가 사이에 낌)하고 relative-duration은 "in"을 요구하기 때문. 그 결과 이 메시지는 조용히
+  null이 돼 **잡이 영영 재개되지 않는** 무음 실패로 이어졌다(릴레이 핵심 미션 직결).
+- **한 일:** `parser.ts`에 `relative-day` 패턴 추가 —
+  트리거(`reset(s)`/`try again`/`retry`/`come back`/`available`)가 요일어(`today`/`tomorrow`)에 **인접**할 때만 매치
+  (노이즈 출력의 우발적 "tomorrow" 오탐 방지). 시간 해소는 clock-time 관례대로 전부 로컬타임:
+  `<day> at 9am`/`at 9:30pm`=12시간, `at 15:00`/`at 21`=24시간, `tomorrow`(시간 없음)=내일 자정(00:00),
+  `today`(시간 없음)=**의도적 skip(null)**("오늘 언젠가"는 확정 불가라 잘못된 대기 위험). 무효 시각
+  (12시간제 0/13+, 24시간제 24+, 분 60+)은 null로 fall-through. pre-filter(`LOOKS_LIKE_RATE_LIMIT`)에
+  요일어 대안 추가로 "resets tomorrow" 단독 라인도 통과. 기존 패턴과 무충돌(clock-time은 "reset at \<digit\>",
+  relative-duration은 "in" 요구). 스케줄러/큐 변경 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 122파일)→`pnpm test`
+  전 패키지 통과(**core 681 · cli 365/1skip · dashboard 13**, parser.test +6케이스). 실제 빌드 CLI e2e:
+  `parse "…resets tomorrow at 9am."`→`relative-day`·내일 09:00, `parse "…Try again tomorrow." --json`→내일 자정,
+  `parse "…resets today."`→"No rate-limit detected"(시간 없는 today 안전 skip) 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② 남은 미개척 실제 rate-limit 어휘 계속 발굴
+  ("tonight"/"in the morning" 등은 시각 모호로 보류 — 🧭 실제 샘플 수집 후 판단). ③ 근본 원인(문서 append 충돌)은
+  세션 60·78 진단대로 🧭 코워크와 협의 필요. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 84 — 큐 배수(consolidation): 초록 PR 3개 병합으로 정체 완화 + 데이터-유실 버그 2건 main 반영] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-u0zmcj`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). 열린 PR 90+개가
+  세션 78~82 진단대로 **문서 append 충돌**로 정체 — 대부분 스테일 base라 하나 병합하면 나머지가 `dirty`.
+  91번째 중복을 더하는 대신, COLLAB 병합 정책("CI 초록이면 클로드 코드 또는 사람이 병합")에 따라
+  **가치 높은 초록 PR을 실제로 병합해 큐를 배수**하는 데 집중.
+- **한 일(초록 PR 3개 병합, 문서 충돌만 해소):**
+  - **#872** `feat(parser): relative-day` — "tomorrow/today at <time>" 상대-요일 리셋 인식. clean·green이라 즉시 squash 병합.
+  - **#871** `feat(doctor): store-integrity + 읽기 전용화` — doctor의 `queue.close()`→flush가 중복-id를
+    디스크에 재기록해 이전 잡을 파괴하던 **데이터-유실 버그** 수정 + store-integrity 검사 추가.
+    #872 병합으로 `dirty`가 된 것을 확인 → 브랜치에 최신 main 머지, PROGRESS 세션-83 append 충돌만 해소
+    (양측 로그 보존), `pnpm build`·`ci:lint`·`test` 재검증 후 병합.
+  - **#820** `fix(core): close() lost-update` — `RelayQueue.close()`가 무조건 `flush()`해 읽기 전용 명령
+    (status/stats/show/export)이 stale 스냅샷으로 동시 writer(daemon)의 잡을 덮어쓰던 **lost-update 데이터-유실**
+    수정(close()를 진짜 no-op으로). 모든 mutating 메서드가 호출 시점에 원자적 flush함을 코드로 검증
+    (`enqueue`/`update`/`prune`/`backup` 등)해 no-op화의 안전성을 확인. BACKLOG+PROGRESS 충돌 해소 후 병합.
+- **검증:** 각 병합마다 `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 122파일)→
+  `pnpm test` 전 패키지 통과 확인. 최종 main 반영 후 core 687 · cli 370/1skip · dashboard 13. 세 PR의 CI
+  `build-and-test` 모두 success 확인 후에만 병합.
+- **다음 할 일:** ① 남은 90+ PR 중 **고유·고가치·초록** 항목을 계속 골라 최신 main 위로 충돌 해소 후 병합
+  (파서 변종·completion·doctor 계열은 중복 밀집이라 실제 신규성 실측 후에만). ② **근본 원인**(모든 기능 PR이
+  PROGRESS/BACKLOG에 append → 하나 병합 시 나머지 전부 문서 충돌)은 🧭 코워크 소유 영역이라 프로세스/문서
+  구조 변경(예: 세션 로그를 날짜별 개별 파일로 분리)이 필요 — 협의 안건. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 85 — `agentrelay search <query>`: 큐 자유 텍스트 검색 신규 커맨드] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-7fkr66`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐)라 CLAUDE.md 지침대로
+  신규 개선 항목을 발굴. status/stats/export는 상태·툴·프로젝트·시간창 등 **구조적** 필터만 있어, 큐가
+  커지면 "명령어 텍스트로 잡을 찾는" 흔한 요구(예: "refactor" 들어간 잡)를 채울 방법이 없었다. `search`/
+  `grep`/`find` 커맨드가 전무함을 확인 후 진짜 갭으로 판단.
+- **한 일:** `@agentrelay/core/search.ts`(순수) — `SEARCH_FIELDS`·`DEFAULT_SEARCH_FIELDS`(command/project/
+  id/error, tool은 opt-in)·`compileSearch`(대소문자 무시 substring 기본, `--regex`/`--case-sensitive`)·
+  `jobFieldText`·`searchJobs`(빈 쿼리는 []=footgun 방지, 필드 OR 매치, 순서 보존, 비파괴)·`matchedFields`.
+  CLI `search.ts` — `searchHeadline`("N of M …", substring 큰따옴표·regex 슬래시)·`renderSearch`(status
+  테이블 재사용)·`renderSearchJson`(--limit 캡). `agentrelay search <query> [--field/-E/-c/--json/-n]` 배선.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 126파일)→`pnpm test`
+  전 패키지 통과(**core 708 · cli 376/1skip · dashboard 13**, search core 21 + cli 6 신규). 실제 빌드 CLI
+  e2e: `search auth`→2/3 매치, `--field command`→1/3, `'auth|billing' --regex --json`→3/3, `search zzz`→
+  no-match, 잘못된 필드/정규식→exit 1 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 후속 개선 여지: `status`처럼 `--sort`/`--reverse`,
+  `--status`/`--tool`/시간창 등 스코프와의 조합, `--watch` 라이브 검색. ③ 문서 append 충돌 근본 원인은
+  여전히 🧭 코워크 협의 안건(세션 84 진단 유지). README/ARCHITECTURE는 🧭 코워크 몫.
+### [세션 85 — 컨텍스트 보존 재개(`run --resume-context`): SPEC §4 미구현 요구사항 구현] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-mx96ky`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐). CLAUDE.md/SPEC §8
+  지침대로 스스로 새 개선 항목을 발굴. 스케줄러가 rate-limit 재개 시 `job.command`를 **그대로** 재실행해,
+  `claude -p "..."` 잡은 리셋 후 이전 대화 컨텍스트를 잃고 프롬프트를 처음부터 다시 보냈다 — **SPEC §4가
+  명시한 "가능하면 --resume/컨텍스트 유지 플래그 사용"이 미구현**이었다(열린 브랜치에도 없음).
+- **한 일:** `@agentrelay/core` — `AgentAdapter`에 순수 `resumeCommand(command)` 추가(툴별 대화-이어가기
+  변환; 플래그 없는 툴은 identity=그대로) + `claudeResumeCommand`(바이너리 바로 뒤 `--continue` 삽입,
+  이미 `--continue`/`-c`/`--resume`/`--resume=<id>` 있으면 그대로 두어 이중 삽입·명시 세션 오버라이드 방지,
+  빈 command 그대로). `RelayJob`/`CreateJobInput`에 optional `resumeContext`(미설정=기존 verbatim 재실행,
+  하위호환). `RelayQueue.enqueue`는 opt-in일 때만 플래그 영속(기본 스토어 바이트 불변), `update`의
+  `{...existing}` 병합으로 상태 변경·재직렬화 후에도 보존. 스케줄러 `resume`이 `job.resumeContext`면 어댑터
+  변환 적용 후 spawn(원본 command는 불변이라 매 재개가 원본에서 멱등 변환), `runCommand(command,cwd)`로
+  시그니처 정리. CLI `agentrelay run --resume-context` 플래그, 큐 메시지가 활성 시 실제 재개 형태 안내,
+  `show`가 `resume` 라인으로 노출(변환 없는 툴은 "re-runs verbatim"). Codex/generic은 이어가기 플래그가
+  없어 no-op(안전). 파서/큐 저장 포맷 변경 0줄.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 122파일)→`pnpm test`
+  전 패키지 통과(**core 696 · cli 375/1skip · dashboard 13**). core adapters +4·scheduler +3·queue +2 ·
+  cli commands +2·show +3 신규 테스트. 실제 빌드 CLI e2e: `claude`-이름 바이너리로 `run --resume-context`→
+  큐 메시지·`show`에 `--continue` 삽입된 재개 형태 표기 / generic(node) 바이너리→"re-runs verbatim" 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② Codex CLI의 대화-이어가기 플래그
+  (`codex resume`/세션 재개) 실측 후 `CODEX_CLI_ADAPTER.resumeCommand` 채우기(현재 no-op). ③ 데몬/tick에도
+  전역 기본값(`AGENTRELAY_RESUME_CONTEXT` env)으로 opt-in 노출 검토. ④ 근본 원인(문서 append 충돌)은
+  세션 84 진단대로 🧭 코워크와 협의. README/ARCHITECTURE는 🧭 코워크 몫.
+### [세션 85 — 출력 tail 비밀 레닥션: jobs.json/export 자격증명 유출 차단 (👷 자율 발굴)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-q3j8uv`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐)라 CLAUDE.md 지침대로
+  스스로 신규 개선 항목을 발굴. 파서 "파이프-에포크(`usage limit reached|<epoch>`)"는 이미 `adapters.ts`의
+  `claude-usage-limit-epoch`로 구현돼 있어(generic 오탐 방지 위해 Claude 어댑터에만 의도적으로 둠) 후보에서 제외.
+  대신 실질적 **보안 갭**을 발굴: 스케줄러가 재개마다 에이전트 stdout/stderr 꼬리를 `lastOutputTail`로 스토어에
+  영속화하는데, 그 출력엔 자격증명이 흔히 섞임(크래시가 echo한 `ANTHROPIC_API_KEY`, 로깅된 `Authorization:
+  Bearer …`, PAT 박힌 git URL). 그대로 저장하면 편의 로그가 디스크(및 디버깅용 공유 `export`)의 평문 비밀함이 됨.
+  기존엔 config 값만 표시 시 마스킹했을 뿐, 캡처된 출력 tail은 무방비였음(`grep redact/sanitize` 0건 확인).
+- **한 일:** `@agentrelay/core/redact.ts` 신설 — 순수 `redactSecrets(text)`가 고신뢰 토큰 형태(Anthropic
+  `sk-ant-`/OpenAI `sk-`/GitHub `ghp_`·`github_pat_`/AWS `AKIA`/Slack `xox*`/Google `AIza`/`Authorization:
+  Bearer|token`/`NAME=secret`·`NAME: secret` 대입)를 `[REDACTED]`로 마스킹하고 분류 못 하는 텍스트는 그대로 둠
+  (보수적 → 일반 출력 안 망가뜨림). `REDACTION_PLACEHOLDER`·`redactOutputTailFromEnv`(`AGENTRELAY_REDACT_OUTPUT`,
+  secure-by-default: 미설정·오타는 on, 명시적 off/0/false/no/none/disabled만 off) 함께 export. 스케줄러는 tail을
+  **슬라이스 후 스크럽**해 저장 — rate-limit 감지는 항상 un-redacted `output`에서 돌아 **재개 시점 불변**, 마스킹은
+  디스크에 쓰이는 것만 바꿈. `SchedulerOptions.redactOutputTail`(기본 true), CLI daemon/tick이 env로 배선.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 124파일)→`pnpm test`
+  전 패키지 통과(**core 707 · cli 370/1skip · dashboard 13**; redact.test +22, scheduler.test +3). 빌드된
+  `dist/index.js`로 실제 스크럽 e2e 확인(`ANTHROPIC_API_KEY=sk-ant-…`→`=[REDACTED]`, `Authorization: Bearer …`→
+  `Bearer [REDACTED]`, 일반 출력 불변, env 기본 true·`off`→false).
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합(COLLAB 병합 정책). ② `run`(최초 감지) 경로는 현재 tail을 저장하지
+  않아 무관하나, 향후 감지 시 출력 저장을 추가하면 동일 스크럽 적용 필요. ③ 대시보드/`show`가 이미 저장된(레닥션 전)
+  tail을 표시할 때의 소급 스크럽은 별도 항목 후보. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 86 — #875 보안 픽스 병합 + `agentrelay redact`: 이미 저장된 비밀 소급 스크럽 (👷 자율 발굴)] (2026-08-23, 무인 자율 세션, branch `claude/wizardly-pascal-lsguqd`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료, 열린 PR ~200개로 병리적 포화(중복 밀집) — 신규 feature 한계효용이
+  낮고 병목은 리뷰/병합. 먼저 **가장 고가치·clean·초록 PR을 병합해 큐를 배수**(COLLAB §병합정책), 이어서 그 위에
+  실질 갭을 하나 발굴·구현.
+- **한 일 ①(큐 배수):** #875 `feat(core): redact secrets from persisted output tail`(mergeable clean, 현재 main
+  기반)을 로컬에서 build/test/lint 전 검증(core 707·cli 370/1skip·dashboard 13, Biome 0에러) 후 **squash 병합**.
+  세션 85가 남긴 보안 픽스가 main에 반영됨.
+- **한 일 ②(`agentrelay redact` — #875 소급 스크럽):** 세션 85 "다음 할 일 ③"이 남긴 갭 — #875는 **앞으로의**
+  write만 스크럽하고, 그 이전에 저장됐거나 `import`로 유입됐거나 손 편집된 잡의 평문 비밀은 여전히 디스크에 남아
+  `show`/`export`가 노출함(#875 docstring이 명시한 위협모델을 실제로는 못 닫음). `@agentrelay/core/redact.ts`에
+  순수 `redactJob(job)`(`lastOutputTail`·`lastError`·`lastRateLimit.rawMatch`에 `redactSecrets` 적용, 바뀐 필드만
+  보고, **updatedAt 불변** — 콘텐츠 정리이지 라이프사이클 이벤트 아님)·`planStoreRedaction(jobs)`(순서 보존 계획+변경
+  로그+총계)·`RedactableField`/`REDACTABLE_FIELDS`/`JobRedactionChange`/`StoreRedactionPlan` 추가. `RelayQueue.redact
+  ({dryRun})`가 계획 계산→변경 잡만 set→원자적 flush(dry-run은 무기록). CLI `redactStore`(commands.ts)+순수 렌더
+  `renderRedact`/`renderRedactJson`(redact.ts)+`agentrelay redact [--dry-run] [--json]` 배선(prune/recover의 pure
+  선택+I/O 분리 패턴 재사용, 새 파서/스케줄러 로직 0줄).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 128파일)→`pnpm test` 전 패키지
+  통과(**core 716 · cli 378/1skip · dashboard 13**; core redact.test +9, cli redact.test +8). 빌드된 CLI e2e(임시
+  스토어 2잡): `redact --dry-run` 비파괴, `--json` 계획 정확, `redact` 적용 후 디스크에서 `ghp_…@github.com`→
+  `[REDACTED]@github.com`·`ANTHROPIC_API_KEY=sk-ant-…`→`=[REDACTED]`, `updatedAt` 불변 확인, 재실행 idempotent
+  ("Nothing to redact"). 병합 대상 #875와 doc 충돌 회피 위해 세션 85 로그 위에 append.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② `export`/대시보드에도 옵션형 소급 스크럽 노출은 후속 후보(현재는
+  스토어 in-place 정리로 충분). ③ 나머지 clean·고가치 PR(#878 clean/#879 search 등)은 doc append 충돌로 dirty —
+  근본 원인(세션 로그를 날짜별 개별 파일로 분리)은 🧭 코워크 소유 프로세스 안건. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 87 — fix(parser): 상대-시간 단위 문자 오탐 수정 ("2 months"→2분 무음 under-wait), 현재 main 기준 (👷 자율 발굴)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-nd342m`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐), 열린 PR ~200개로 신규 커맨드·
+  포맷·watch·파서 축이 전부 포화(동일 기능 5~10 중복). 신규 feature PR은 한계효용이 음수라 큐 소음만 늘린다. 대신
+  코드에서 **현재 main에 살아있는 실제 정확성 버그**를 발굴해 수정.
+- **버그:** 제네릭 `relative-duration` 파서의 단위 그룹 `d`/`h`/`m` 뒤에 경계가 없어, 단위 문자가 무관한 단어의
+  접두사와 겹치면 그 단어를 짧은 단위로 오독했다. 빌드된 파서로 재현 확인: `"try again in 2 months"`→**2분**,
+  `"3 milliseconds"`→3분, `"1 moment"`→1분. 이 릴레이가 doctor/recover/reset-horizon으로 반복 겨냥해온 무음
+  under-wait(잡을 실제 리셋보다 훨씬 일찍 재개 → 곧바로 재차 한도 → attempts 소진) 부류이며, 8일 지평선 가드도
+  `2분 < 8일`이라 못 잡는다. (동류 수정 PR #578/#827이 있으나 둘 다 오래된 main 기준[Aug 10/21]이라 그 뒤 추가된
+  clock-time-meridiem·relative-day·ms-epoch·http-retry-after 패턴과 parser.ts에서 충돌 — 현재 main엔 미반영.)
+- **한 일:** `parser.ts`의 relative-duration 정규식에 각 단위 토큰 뒤 `(?![a-z])`(후행 letter 거부, 후행 digit은
+  허용 → 컴팩트 `4h32m` 유지) 앵커링 + 경계로 실제 문구가 깨지지 않게 단위 접미사를 흔한 약어로 확장
+  (`h(?:rs?|ours?)?`·`m(?:ins?|inutes?)?`). 새 로직 0줄 — 정규식 앵커 3개 + 근거 주석. 오탐 시 그룹이 비어
+  `resolve`가 `null` → 최종 미감지(안전: 2분 오탐보다 미감지가 낫다).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 126파일)→`pnpm test` 전
+  패키지 통과(**core 719[+3, parser 52→55] · cli 378/1skip · dashboard 13**). parser.test.ts +3(단위-접두사 오탐
+  4종→null · 약어 `hr`/`hrs`/`mins` 정상 · 컴팩트 `1d2h30m` 유지). 빌드된 CLI e2e: `parse "…try again in 2
+  months."`→`No rate-limit detected`(안전 폴스루), `parse "…try again in 30 mins."`→`relative-duration`·`in 30m`.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR ~200, 중복 밀집) — 큐 배수는
+  🧭/사람 조율 안건. ③ 파서 seconds/weeks 단위(현재 generic 미지원, 각각 Codex 어댑터·#553/#536에서 다룸)는 별도.
+
+### [세션 87 — Gemini CLI 어댑터: `gemini` 툴 추론 + Google `RetryInfo.retryDelay` 리셋 인식 (👷 자율 발굴)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-gr62f3`)
+- **배경:** BACKLOG의 👷 미완료 항목은 0개(남은 미체크는 전부 🧭 코워크 소유의 기획/문서/리서치), 열린 PR ~30개로
+  큐 포화. CLAUDE.md "무한 개선 백로그를 계속 소진, 비면 스스로 발굴" 지침에 따라 **온-미션이면서 기존 오픈 PR과
+  겹치지 않는** 실질 갭을 하나 발굴·구현. 오픈 PR은 전부 redact/export/파서 tweak/completion/notifier/대시보드
+  카드류라 **에이전트 툴 커버리지 확장**(제품 핵심 가치)이 미충돌·고가치로 판단.
+- **한 일(Gemini CLI 어댑터):** 릴레이는 지금까지 claude-code/codex-cli/generic 세 어댑터만 알았다. Google
+  `gemini` CLI는 429 `RESOURCE_EXHAUSTED` 페이로드에 `google.rpc.RetryInfo`의 `retryDelay:"56s"`(protobuf
+  Duration, 항상 초 단위 `s` 접미사)로 백오프 시간을 싣는데, 이건 일반 파서(시/분 prose)도, Codex 초 패턴
+  ("try again in Ns" 문구 필요)도 놓치는 **구조화 필드**라 재개 시각을 못 뽑았다. `AgentTool` 유니온에
+  `"gemini-cli"` 추가(`types.ts`), `adapters.ts`에 `GEMINI_CLI_ADAPTER`(binaries `["gemini"]`) +
+  `GEMINI_RETRY_DELAY_PATTERN`(`retryDelay`/`retry_delay`/`retry-delay` + 키·값 선택적 따옴표, 소수 초는
+  whole-ms로 ceil해 조기 재개 방지, 필드명 앵커로 다른 패턴과 disjoint) 신설·`ADAPTERS`에 등록. 전파:
+  `ALL_TOOLS`(stats zero-fill/metrics 자동)·`VALID_TOOLS`(import 검증)·CLI `--tool` 도움말/`tools` 설명문.
+  새 명령/스케줄러 로직 0줄 — 기존 어댑터 파이프라인 재사용, `Record<AgentTool,…>`가 레지스트리 누락을 컴파일
+  타임에 강제.
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm test` 전 패키지 통과(**core 722 · cli 378/1skip ·
+  dashboard 13**; adapters.test +6[binary 추론·resolve·retryDelay 감지·소수 ceil·generic 폴백·generic이 구조화
+  필드 미인식], stats.test byTool zero-fill 3케이스 gemini 키 반영)→`pnpm ci:lint`(Biome 0에러). 빌드된 CLI
+  `parse --tool gemini-cli '…{"retryDelay":"56s"}'`→`gemini-retry-delay` 패턴·resets in 1m, generic 어댑터는
+  같은 입력 미인식 e2e 확인.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 후속 어댑터 후보 — Cursor Agent CLI(`cursor-agent`)·Aider
+  등, 실제 rate-limit 메시지 샘플 확보 후. ③ 툴 목록이 types/stats/import 3곳에 하드코딩 — 향후 `ADAPTERS`
+  레지스트리에서 단일 파생하도록 리팩터 고려(현재는 drift-guard 테스트로 방어).
+### [세션 87 — fix(parser): 상대-시간 단위 문자 오탐 수정 ("2 months"→2분 무음 under-wait), 현재 main 기준 (👷 자율 발굴)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-nd342m`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐), 열린 PR ~200개로 신규 커맨드·
+  포맷·watch·파서 축이 전부 포화(동일 기능 5~10 중복). 신규 feature PR은 한계효용이 음수라 큐 소음만 늘린다. 대신
+  코드에서 **현재 main에 살아있는 실제 정확성 버그**를 발굴해 수정.
+- **버그:** 제네릭 `relative-duration` 파서의 단위 그룹 `d`/`h`/`m` 뒤에 경계가 없어, 단위 문자가 무관한 단어의
+  접두사와 겹치면 그 단어를 짧은 단위로 오독했다. 빌드된 파서로 재현 확인: `"try again in 2 months"`→**2분**,
+  `"3 milliseconds"`→3분, `"1 moment"`→1분. 이 릴레이가 doctor/recover/reset-horizon으로 반복 겨냥해온 무음
+  under-wait(잡을 실제 리셋보다 훨씬 일찍 재개 → 곧바로 재차 한도 → attempts 소진) 부류이며, 8일 지평선 가드도
+  `2분 < 8일`이라 못 잡는다. (동류 수정 PR #578/#827이 있으나 둘 다 오래된 main 기준[Aug 10/21]이라 그 뒤 추가된
+  clock-time-meridiem·relative-day·ms-epoch·http-retry-after 패턴과 parser.ts에서 충돌 — 현재 main엔 미반영.)
+- **한 일:** `parser.ts`의 relative-duration 정규식에 각 단위 토큰 뒤 `(?![a-z])`(후행 letter 거부, 후행 digit은
+  허용 → 컴팩트 `4h32m` 유지) 앵커링 + 경계로 실제 문구가 깨지지 않게 단위 접미사를 흔한 약어로 확장
+  (`h(?:rs?|ours?)?`·`m(?:ins?|inutes?)?`). 새 로직 0줄 — 정규식 앵커 3개 + 근거 주석. 오탐 시 그룹이 비어
+  `resolve`가 `null` → 최종 미감지(안전: 2분 오탐보다 미감지가 낫다).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 126파일)→`pnpm test` 전
+  패키지 통과(**core 719[+3, parser 52→55] · cli 378/1skip · dashboard 13**). parser.test.ts +3(단위-접두사 오탐
+  4종→null · 약어 `hr`/`hrs`/`mins` 정상 · 컴팩트 `1d2h30m` 유지). 빌드된 CLI e2e: `parse "…try again in 2
+  months."`→`No rate-limit detected`(안전 폴스루), `parse "…try again in 30 mins."`→`relative-duration`·`in 30m`.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR ~200, 중복 밀집) — 큐 배수는
+  🧭/사람 조율 안건. ③ 파서 seconds/weeks 단위(현재 generic 미지원, 각각 Codex 어댑터·#553/#536에서 다룸)는 별도.
+
+### [세션 88 — 큐 배수: 구별되는 고가치 PR 4개 병합(#891·#888·#877·#879), 각 로컬+CI 초록 검증 (👷 자율)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-4qb6l0`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐), 열린 PR ~200개로 병리적
+  포화(동일 기능 5~10 중복 — 특히 `export --redact`가 #883/#886/#889/#890 등 다수). 신규 feature PR은 한계효용이
+  음수라 큐 소음만 늘린다. 이 세션의 병목은 신규 구현이 아니라 **리뷰/병합**이므로, COLLAB 병합정책("CI 초록이면
+  클로드 코드 또는 사람이 병합")에 따라 **서로 구별되는 고가치 PR을 골라 배수**하는 데 집중.
+- **한 일(병합 4건, 각각 로컬 `install→lint→build→test` + 브랜치 보호 `build-and-test` CI 초록 후 squash 병합):**
+  - **#891** `fix(parser)`: 상대-시간 단위 문자 오탐 수정 — `"try again in 2 months"`가 2분으로 오독되던 무음
+    under-wait(조기 재개→attempts 소진, 8일 지평선 가드도 못 잡음)을 각 단위 토큰 뒤 `(?![a-z])` 앵커링으로 차단.
+    현재 main에 살아있던 실제 정확성 버그.
+  - **#888** `feat`: Gemini CLI 어댑터 — `gemini` 툴 추론 + Google `RetryInfo.retryDelay`(`"56s"`) 리셋 인식.
+    claude-code/codex-cli/generic 3종에서 에이전트 툴 커버리지 확장. (PROGRESS.md 충돌만 해소 후 병합.)
+  - **#877** `feat`: 컨텍스트 보존 재개(`run --resume-context`) — SPEC §4 미구현 요구사항 반영. 스케줄러 재개 시
+    `--continue` 등 대화-이어가기 형태로 실행. scheduler.ts의 의미론적 충돌(#877의 `runCommand(command,cwd)`
+    시그니처 vs main의 tail 레닥션)을 **양쪽 결합**(adapter+command 계산 + slice-후-scrub 레닥션)으로 정확히 해소.
+  - **#879** `feat`: `agentrelay search <query>` — 큐 자유 텍스트 검색(command/project/id/lastError, substring·
+    regex). status/stats/export의 구조적 필터가 못 채우던 갭. (cli.ts import + PROGRESS.md 충돌 해소 후 병합.)
+- **검증:** 각 병합마다 병합 커밋을 로컬에서 전량 재검증 — 최종 main 기준 누적 **core 755 · cli 389/1skip ·
+  dashboard 13**, Biome 0에러(130파일), 빌드 클린. 4건 모두 브랜치 보호 CI(`build-and-test`) 초록 확인 후 병합.
+  main: `7ebb12e` → `63344ca`(4 커밋 전진).
+- **다음 할 일:** ① 근본 병목은 여전히 열린 PR ~190개의 리뷰/병합 — 문서 append 충돌(모든 PR이 PROGRESS.md에
+  세션 로그 추가)이 상호 충돌을 유발하는 구조가 원인이므로, 세션 로그를 날짜별 개별 파일로 분리하는 프로세스 개선은
+  🧭 코워크 소유 안건(이 세션은 코드/병합만). ② 남은 고가치 distinct PR(#876 타임존 버그·#884 tail 보존·#885 verify
+  far-future·#881 파서 ISO 필드·#878 clean 등)은 병합한 4건과 parser.ts/scheduler.ts에서 충돌하므로 순차 배수 필요.
+  ③ README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 89 — fix(cli+dashboard): 종료 잡의 오해 소지 재개 카운트다운 제거 (👷 자율 발굴)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-w1uwrw`)
+- **배경:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐), 열린 PR ~500개로 신규 커맨드·
+  포맷·파서·watch 축이 병리적 포화(동일 기능 다수 중복). 신규 feature PR은 한계효용이 음수. 대신 **현재 main에
+  살아있고 기존 오픈 PR이 안 다루는 실제 사용자-노출 버그**를 발굴해 수정.
+- **버그:** `queue.ts`의 `markCancelled`는 종료 시 `resetAt`을 지우지만(오해 소지 카운트다운 방지 주석까지 있음)
+  `markCompleted`/`markFailed`는 안 지운다. 그래서 rate-limit 사이클을 거친 완료/실패 잡이 과거 `resetAt`을 그대로
+  들고 있고, 렌더러들이 이를 무조건 카운트다운으로 표시했다: `status` 테이블 RESETS IN 칸에 **"due now"**(완료 잡인데!),
+  `show` 상세에 **"resets in due now (…)"**, 대시보드 잡 행도 동일. 코드베이스 관례는 "종료 잡은 stale resetAt를
+  가질 수 있고, 리셋이 중요한 소비자(listDue·next/eta/upcoming·doctor far-future)는 status로 필터한다"인데(doctor
+  `selectFarFutureResets`가 종료 잡을 명시적으로 무시하는 테스트 존재), 세 렌더러만 이 관례를 어겨 버그가 됐다.
+- **한 일(디스플레이 계층 수정 — store 데이터 불변, 관례 준수, 어떤 출처의 stale 데이터에도 견고):**
+  `status.ts`에 순수 `formatResetCountdown(job, now)`(종료 상태면 "-", 아니면 기존 `formatCountdown`) 신설·테이블
+  렌더에 배선(일회성·`--watch` 공통). `show.ts`는 "resets in" 라인을 `!isTerminalStatus(job.status)`로 가드(종료
+  잡엔 미표시). 대시보드 `dashboard-client.tsx`는 카운트다운 셀을 종료 잡이면 "—"로(클라이언트 번들이 core 값
+  import로 node: 빌트인을 끌어오지 않게 로컬 `TERMINAL_STATUSES` 사용 — 기존 로컬 `formatCountdown`과 동일 이유).
+  `--json` 출력은 raw `resetAt` 그대로 유지(기계 소비자는 status로 필터, 데이터 충실성 보존).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm ci:lint`(Biome 0에러, 130파일)→`pnpm test` 전 패키지
+  통과(**core 755 · cli 394/1skip[+5] · dashboard 13**). status.test +4(formatResetCountdown 종료/활성/무-reset +
+  renderStatusTable 완료 잡 "due now" 미표시 회귀), show.test +1(종료 잡 "resets in" 미표시). 빌드된 CLI e2e:
+  과거 resetAt의 completed 잡 seed → `status` RESETS IN "-"(대기 잡은 "1h 30m" 정상), `show`에 "resets in" 라인 없음.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 열린 PR ~500개의 리뷰/병합 + PROGRESS.md
+  append 상호충돌(🧭/사람 조율 안건). ③ 동류 정합성: `markCompleted`/`markFailed`가 store에서 resetAt을 지우게
+  하는 근본 수정도 가능하나, 코드베이스가 "종료 잡의 stale resetAt 허용"을 관례화(doctor 테스트)하고 있어 디스플레이
+  수정을 택함 — 향후 관례 재검토 시 🧭와 논의.
+
 ### [세션 73 — fix(core): listDue가 파싱 불가 resetAt 잡을 영구 orphan하던 무음 실패 수정] (2026-08-21, 무인 자율 세션, branch `claude/fix-listdue-unparseable-reset`)
 - **항목 선정 — PR 큐 병리적 포화 확인 후 버그 픽스로 전환:** 원래 세션 72의 후속 후보 "doctor 먼-미래
   리셋 큐 검사(reset-horizon)"를 구현·테스트·린트까지 마쳤으나, push 시 **동일 결정론적 브랜치명에 이미

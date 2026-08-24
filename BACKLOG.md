@@ -870,6 +870,214 @@
       completed·가드 없으면 재큐). 실제 빌드 CLI e2e로 기본 지평선은 30일 리셋 드롭(미큐잉)·`off`면 큐잉·
       2h는 정상 큐잉·`parse` 진단은 지평선 미적용(30일 표시) 확인. branch `claude/wizardly-pascal-reset-horizon`)
 
+- [x] 👷 스토어 `close()` lost-update 버그 수정 — 읽기 전용 명령이 동시 쓰기를 조용히 덮어쓰던 데이터 유실.
+      자기 발굴 항목 — `RelayQueue.close()`의 docstring은 "No-op"이라 적혀 있지만 실제로는 `this.flush()`를
+      호출해 **인메모리 맵 전체를 무조건 디스크에 다시 썼다.** 그 맵은 큐를 연 시점의 스냅샷이라, 읽기
+      전용 명령(`status`/`stats`/`show`/`export`)이 큐를 열고 읽은 뒤 `close()`하면, 그 사이 다른
+      프로세스(예: 실행 중인 `agentrelay daemon`)가 추가·변경한 잡을 **stale 스냅샷으로 통째로 덮어써
+      유실**시켰다(전형적 lost update). 로컬 우선 도구에서 "잡 상태를 절대 조용히 잃지 않는다"는
+      프로젝트의 핵심 관심사(손상 파일 보존·recover 등과 동일 계열)를 정면으로 위반. `concurrency.ts`가
+      스토어의 무-lost-update 불변식을 문서화하는데 close()가 그것을 깨고 있었다.
+      (완료 — `queue.ts`의 `close()`를 자기 docstring대로 **진짜 no-op**으로 변경[`this.flush()` 제거].
+      모든 mutating 메서드가 이미 호출 시점에 원자적으로 영속화하므로 close()가 커밋할 지연 변경은
+      없다 → close()의 쓰기는 순수 잉여이자 유해했다. 부수 효과로 읽기 전용 명령이 매 실행마다 스토어를
+      재기록하던 낭비도 제거. queue.test.ts에 회귀 2케이스(동시 writer의 변경을 close()가 안 덮어씀·
+      읽기 전용 open/close가 파일을 바이트 단위로 불변 유지). 실제 빌드 CLI e2e로 status 실행 중 동시
+      enqueue된 잡이 유실되지 않음 검증. core 641 전 테스트 통과. branch `claude/wizardly-pascal-close-noop`)
+- [x] 👷 `agentrelay doctor` 먼-미래 리셋 파킹 잡 검사(reset-horizon) — 이미 큐에 파킹된 잡의
+      리셋 시각이 지평선을 넘으면 경고. 자기 발굴 항목(세션 72 파서 지평선 가드의 후속) — 세션 72
+      가드는 **새로 파싱되는** rate-limit만 검증하므로, 가드가 없던 시절 큐잉됐거나·가드를 끈 채·잘못된
+      epoch 단위/거대한 상대 기간 misparse로 이미 `waiting_for_reset`으로 파킹된 잡은 수일/수년 조용히
+      대기해도 아무도 못 잡았다. doctor가 라이브 큐를 동일 지평선으로 재검사해 이 무음 실패를 표면화.
+      (완료 — `@agentrelay/core/doctor.ts`에 순수 `selectFarFutureResets(jobs,{now,horizonMs})`(활성 잡
+      중 resetAt이 now+horizon을 넘는 것만; 과거/근접 리셋은 안전하므로 제외, 종료 잡·resetAt 없음/
+      파싱불가는 스킵, 비양수·비유한 horizon은 "가드 없음"으로 빈 배열 — parser `isPlausibleReset` 재사용)
+      + `FarFutureResetJob`/`ResetHorizonFacts` 타입 추가, `DiagnosticInput.resetHorizon` 추가.
+      `runDiagnostics`에 `reset-horizon` 검사 배선(순서 node→store→writable→adapters→daemon→
+      **reset-horizon**→config→notify): horizonMs null(가드 off)=OK 스킵, 파킹 잡 0개=OK, 1개 이상=warning
+      (가장 덜 극단(가장 이른)인 잡을 예시로 이름·프로젝트·카운트다운 표기, `show`/`cancel`/`retry`/`recover`
+      힌트). CLI `runDoctor`가 `maxResetHorizonMsFromEnv(env)`로 지평선 해소 후 `selectFarFutureResets`로
+      facts 구성(null이면 빈 리스트). core doctor +11(selectFarFutureResets 7 + reset-horizon 검사 3 +
+      기존 카운트 갱신) · cli doctor +3(먼-미래 warning·근접 OK·`off` 스킵). 실제 빌드 CLI e2e로 100일
+      파킹→warning(예시 표기)·`off`→disabled OK·2h→OK·`--json` 노출 확인. branch
+      `claude/wizardly-pascal-4p3s77`)
+
+- [x] 👷 대시보드 먼-미래 리셋 파킹 잡 경고 카드(reset-horizon) — CLI `doctor`의 `reset-horizon`
+      검사를 로컬 대시보드에도 노출. 자기 발굴 항목(세션 73 doctor 검사의 후속으로 세션 73 로그가
+      명시한 "대시보드에도 동일 먼-미래 파킹 잡 경고 노출"). doctor는 CLI를 켜야만 보이지만, 대시보드는
+      상시 떠 있어 사용자가 큐를 시각적으로 감시하는 경로 — misparse로 수일/수년 파킹된 잡을 여기서도
+      즉시 눈에 띄게. (완료 — `apps/dashboard/lib/jobs.ts`가 core `selectFarFutureResets` +
+      `maxResetHorizonMsFromEnv`를 스냅샷에서 재사용해 `resetHorizon:{jobs,horizonMs}` 필드 추가(가드 off면
+      horizonMs=null·빈 리스트). `dashboard-client.tsx`에 `FarFutureResetsCard` 추가: 하트비트 카드와 동일한
+      "concerning" 경고 카드 패턴 재사용, 가장 이른(덜 극단) 잡부터 최대 5개 표기(+N more)·id 8자·프로젝트·
+      `resets in Nd/Ny`(먼 기간용 `formatLongDuration` 신설, 기존 시간 단위 카운트다운이 수천 시간으로
+      넘치는 것 방지)·`show`/`cancel`/`retry`/`recover` 힌트. 가드 off거나 파킹 0개면 렌더 안 함(조용). CSS
+      `.far-future*` 추가. 순수 로직은 전부 core 재사용이라 CLI doctor와 절대 드리프트 안 함. dashboard test
+      +4(먼-미래 플래그·근접 미플래그·종료 잡 미플래그·빈 스토어). branch
+      `claude/dashboard-reset-horizon-card`)
+
+- [x] 👷 `agentrelay recover --far-future` — 먼-미래 파킹 잡을 자동 감지·재큐(경고를 고침으로).
+      자기 발굴 항목(세션 73 doctor·세션 74 대시보드 카드가 명시한 후속 "recover가 먼-미래 파킹 잡을
+      자동 감지·재큐 대상으로 포함하는지 점검"). 세션 72~74가 만든 reset-horizon 인프라는 misparse로
+      수일/수년 파킹된 잡을 `doctor`(CLI)·대시보드 카드에서 **경고**만 했지 **고치는** 원커맨드가 없어,
+      사용자가 잡마다 `retry <id>`를 손으로 쳐야 했다. `recover`(지금까지 `resuming` 고아 잡만 회수)에
+      두 번째 무음-실패 클래스를 붙여 이 루프를 닫는다.
+      (완료 — `@agentrelay/core/recover.ts`에 순수 `selectFarFutureParkedJobs(jobs,{nowMs,horizonMs})` +
+      `FarFutureParkedReport`/`FarFutureParkedOptions` 신설: `waiting_for_reset`(파킹된) 잡만 후보 —
+      `queued`는 어차피 다음 tick에 실행, `resuming`은 라이브거나 `selectStuckResumingJobs` 담당 —
+      resetAt이 지평선 초과인 것만 골라 가장 이른(덜 극단) 순 정렬, resetAt 없음/파싱불가는 스킵,
+      가드 비활성(null/비양수/비유한 horizon)은 빈 리스트(pool은 계속 카운트). parser `isPlausibleReset`
+      재사용으로 doctor·대시보드와 지평선 의미 절대 드리프트 안 함. CLI `recover`에 `--far-future` opt-in
+      플래그(더 결과가 큰 클래스라 기본 off) 추가: `maxResetHorizonMsFromEnv()`로 지평선 해소 후
+      `recoverJobs`가 파킹 잡을 `RelayQueue.requeueNow`로 재큐(attempts 0 리셋·lastError 클리어 — 먼-미래
+      resetAt 자체가 버그였으므로 새 시도 예산으로 fresh run이 맞음, `recoverResuming`의 attempts 보존과
+      대비). `--dry-run`·`--json`에 far-future 섹션 병존, 가드 off면 스캔 스킵 문구. 순수 렌더는
+      `renderFarFutureBlock`로 분리, 먼 기간용 `resetInWords`(일/년). core recover +6·cli recover +7 신규
+      테스트, 실제 빌드 CLI e2e로 기본 미포함·`--far-future` dry-run(스토어 불변)·실제 재큐(resetAt=now·
+      attempts 0·err null·근접 2h 잡 보존)·`--json` farFuture 블록·`off` 스킵 검증. branch
+      `claude/wizardly-pascal-w9pkuw`)
+
+- [x] 👷 먼-미래 리셋 경고의 fix 힌트를 `recover --far-future`로 교정(doctor + 대시보드). 자기 발굴 항목
+      (바로 위 `recover --far-future` 랜딩의 후속 정확성 수정). `recover --far-future`가 main에 들어오기 전엔
+      doctor `reset-horizon` warning과 대시보드 먼-미래 카드가 fix로 `agentrelay recover`(플래그 없이)를
+      제시했는데, plain `recover`는 `resuming` 고아 잡만 회수하고 **먼-미래 파킹 잡은 건드리지 않는다** — 즉
+      경고를 보고 안내대로 `recover`를 쳐도 아무것도 안 고쳐지는 **오도(misleading) 힌트**였다. 이제 존재하는
+      원커맨드 `agentrelay recover --far-future`를 명시적으로 가리키도록 양쪽 표면을 교정. (완료 —
+      `packages/core/src/doctor.ts` `resetHorizonCheck`의 hint를 "Requeue them all with `agentrelay recover
+      --far-future` (plain `recover` won't …). Or inspect one with `show`/`cancel`/`retry`."로 교체,
+      `apps/dashboard/app/dashboard-client.tsx` `FarFutureResetsCard` 안내문도 동일 교정. core doctor.test에
+      hint가 `recover --far-future`를 포함하는지 단언 추가. build/lint/test 통과(core 655·cli 365/1skip·
+      dashboard 13), 실제 빌드 CLI `doctor` e2e로 교정된 힌트 출력 확인. branch `claude/wizardly-pascal-wmsc0y`)
+
+- [x] 👷 `agentrelay config schema` — `agentrelay.config.json`용 JSON Schema 출력(에디터 검증/자동완성). 자기 발굴
+      항목. 지금까지 config는 `init`(샘플 파일)·`validate`(구조+의미 검사)·`show`/`get`/`set`/`unset`은 있었지만,
+      **에디터가 편집 중 실시간으로** 오타(`retry.maxAttemps`)·범위 밖 값을 잡아줄 수단이 없었다. (완료 —
+      `@agentrelay/core/config-schema.ts` 신설(순수·파일시스템 미접촉): `buildConfigJsonSchema()`가 기존
+      `CONFIG_FIELDS`(config set/get/show와 동일한 단일 진실 원천)에서 draft-07 스키마를 **생성** + 키별
+      description/제약 테이블(FIELD_INFO). 숫자 제약은 `validateConfig`와 동일하게 미러(maxAttempts≥0 정수,
+      factor≥1, jitter 0~1, keep/everyTicks≥0 정수), duration 필드는 `parseDuration`을 흉내 낸 case-insensitive
+      pattern(`7d`/`1.5h`/`500ms`), 그룹 오브젝트는 `additionalProperties:false`, 인라인 `"$schema"` 참조 허용.
+      `CONFIG_SCHEMA_ID`/`CONFIG_SCHEMA_DIALECT`·`configJsonSchemaJson()`(2-스페이스 pretty + trailing newline).
+      CLI `agentrelay config schema`는 순수 stdout(파일 미접촉) → `agentrelay config schema > agentrelay.config.schema.json`으로
+      파이프. config-schema.test 9케이스(모든 settable 필드가 스키마에 존재·타입 매핑·duration 패턴이 실제
+      parseDuration 통과 입력과 일치·sampleConfig 제약 부합·JSON 왕복). build/lint/test 통과(**core 664 · cli
+      365/1skip · dashboard 13**), 실제 빌드 CLI e2e로 유효 JSON 출력·top/그룹 props·duration pattern 확인.
+      branch `claude/wizardly-pascal-ixo6hb`)
+
+- [x] 👷 `agentrelay completion fish` — bash·zsh만 지원하던 쉘 탭 완성에 fish(세 번째 주요 셸) 추가.
+      자기 발굴 항목 + **스테일 중복 8개 통합(consolidation)**. 세션 78이 진단한 "중복 PR 루프"의 전형으로,
+      fish 완성은 이미 열린 PR **8개**(#606·#495·#581·#315·#241·#210·#100·#561)가 각기 다른 오래된 base에서
+      독립 재구현돼 있었으나, 전부 문서 append 충돌로 클린 병합이 불가능했다(큐가 막힌 근본 원인). 세션
+      33/48 등의 확립된 "최신 main 위로 통합 → 스테일 중복 대체" 패턴대로, 최신 main 기반의 검증된 통합본을
+      열어 8개를 대체·정리한다.
+      (완료 — core `completion.ts`: `CompletionShell` 유니온·`COMPLETION_SHELLS`에 `"fish"` 추가,
+      `generateCompletion` 디스패치에 `generateFish` 배선. bash/zsh는 단일 case-문 디스패치 함수지만 fish는
+      선언적 `complete -c` 규칙 목록을 fish 표준 술어(`__fish_use_subcommand`/`__fish_seen_subcommand_from`)로
+      가드: 최상위 커맨드명·글로벌 옵션은 서브커맨드 선택 전에만, 각 커맨드 플래그는 이름이 라인에 있을 때,
+      부모 커맨드(`config`)는 서브명이 골라지기 전까지 서브명 제안 + 골라진 뒤엔 그 서브의 플래그. 순수
+      `fishOptionSpec`가 플래그를 fish 형식으로 변환(long `--json`→`-l json`, short `-r`→`-s r`, 그 외 선행
+      대시→`-o`). 기존 `assertSafeToken` 안전 가드·`uniq` 중복 제거 재사용, `-f`로 파일 완성 억제. spec은
+      여전히 라이브 커맨더 프로그램에서 파생되므로 실제 커맨드 표면과 절대 드리프트 안 함. CLI `cli.ts`의
+      `completion` description·help 예시에 fish 추가(검증·미지 셸 exit 1은 기존 `isCompletionShell` 재사용).
+      새 파서/스케줄러 로직 0줄. completion.test에 fish 6케이스 + 기존 "fish는 무효" 단언을 유효로 갱신
+      (COMPLETION_SHELLS·isCompletionShell). build/lint/test 통과(**core 670 · cli 365/1skip · dashboard 13**,
+      Biome 0경고), 실제 빌드 CLI e2e로 `completion fish` 방출(글로벌 옵션·최상위 커맨드·run 플래그·config
+      부모 가드)·미지 셸 exit 1 검증. branch `claude/wizardly-pascal-am8gcl`)
+- [x] 👷 `agentrelay doctor` 스토어 무결성(store-integrity) 검사 + doctor 읽기 전용화(중복-id 파괴 버그 수정).
+      자기 발굴 항목. `doctor`는 전체 파일 손상(corrupt)·활성 잡 수만 봤고, **읽히는** 스토어 내부의
+      의미적 문제(중복 id·구조 불량 레코드·resetAt 없는 waiting_for_reset)는 못 잡았다 — 이는 `verify`
+      커맨드(`verifyStore`)에만 있어 사용자가 따로 실행해야 했다. 게다가 `runDoctor`가 큐를 열고
+      `close()`하며 flush → 로드 시 Map이 이미 붕괴시킨 중복 id를 디스크에 **재기록**해, 읽기 전용이어야 할
+      진단이 이전 잡을 조용히 파괴하는 버그가 있었다(그래서 두 번째 doctor 실행은 문제가 "사라진" 것처럼 보임).
+      (완료 — core `doctor.ts`에 `StoreIntegrityFacts`(checked·total·errorCount·warningCount·sampleIssues) 타입 +
+      `integrityCheck` 판정 함수 추가, `runDiagnostics` 검사 순서에 store 바로 뒤 `store-integrity` 배선
+      (node→store→**store-integrity**→store-writable→adapters→daemon→reset-horizon→config→notify). 판정은
+      linter(`verifyStore`) 등급 미러: error(중복 id·구조 불량)=검사 error, warning(방치 잡·파싱 불가 날짜)=
+      warning, 읽을 스토어 없음(부재/전체 손상)=skip-OK(같은 파일 이중 보고 방지). CLI `commands.ts`에
+      `gatherIntegrityFacts`(기존 `runVerify` raw 읽기+순수 `verifyStore` 재사용, error 우선 최대 3개 샘플
+      메시지) + `runDoctor`가 이를 주입. **부수 버그 수정**: `runDoctor`의 `queue.close()` 제거 →
+      생성자가 이미 load하므로 읽기 전용 유지, flush로 인한 중복-id 파괴 차단. 새 파서/스케줄러 로직 0줄.
+      core doctor +4 · cli doctor +5(무결성 ok/skip/중복-id error + 비파괴 회귀 + gatherIntegrityFacts) 테스트.
+      build/lint/test 통과(**core 679 · cli 370/1skip · dashboard 13**, Biome 0경고), 실제 빌드 CLI e2e로
+      clean→ok / 중복-id→error+exit 1 / 스토어 UNCHANGED(비파괴) / 두 번째 실행도 여전히 flag 검증.
+      branch `claude/wizardly-pascal-uems38`)
+- [x] 👷 출력 tail 비밀 레닥션(secret redaction) — `jobs.json`/`export`에 자격증명 유출 방지.
+      (스스로 발굴. 스케줄러가 재개 실행마다 에이전트 stdout/stderr 꼬리를 `lastOutputTail`로 스토어에
+      영속화하는데, 실제 에이전트 출력엔 자격증명이 흔히 섞임 — 크래시 스크립트가 echo한
+      `ANTHROPIC_API_KEY`, 로깅된 HTTP 요청의 `Authorization: Bearer …`, PAT 박힌 git remote URL.
+      그대로 저장하면 편의용 로그가 디스크(및 디버깅용으로 공유하는 `export`)의 평문 비밀 저장소가 됨.
+      완료 — `@agentrelay/core/redact.ts` 신설: 순수 `redactSecrets(text)`(Anthropic `sk-ant-`/OpenAI
+      `sk-`/GitHub `ghp_`·`github_pat_`/AWS `AKIA`/Slack `xox*`/Google `AIza`/`Authorization: Bearer|token`/
+      `NAME=secret`·`NAME: secret` 자격증명 대입을 `[REDACTED]`로 마스킹, 분류 못 하는 텍스트는 불변 →
+      일반 출력 안 망가뜨림) + `REDACTION_PLACEHOLDER` + `redactOutputTailFromEnv`(`AGENTRELAY_REDACT_OUTPUT`,
+      secure-by-default: 미설정·오타는 on, 명시적 off/0/false/no/none/disabled만 off). 스케줄러는 tail을
+      **슬라이스 후 스크럽**해 저장 — rate-limit 감지는 항상 un-redacted `output`에서 돌아 재개 시점 불변,
+      마스킹은 디스크에 쓰이는 것만 바꿈. `redactOutputTail` 옵션(기본 true), CLI daemon/tick이 env로 배선.
+      redact.test.ts 22케이스 + scheduler.test.ts 3케이스(completed/failed tail 레닥션 + 비활성화 시 raw 보존).
+      build/lint/test 통과(**core 707 · cli 370/1skip · dashboard 13**, Biome 0경고), 빌드된 dist로 실제
+      스크럽 e2e 확인. branch `claude/wizardly-pascal-q3j8uv`)
+
+- [x] 👷 `agentrelay redact` — 이미 저장된 잡의 비밀 소급 스크럽(세션 85 #875의 write-time 레닥션 후속:
+      레닥션 이전 저장·`import` 유입·손 편집 잡의 평문 자격증명이 `show`/`export`로 노출되는 갭 차단).
+      (완료 — `@agentrelay/core/redact.ts`에 순수 `redactJob(job)`(`lastOutputTail`·`lastError`·
+      `lastRateLimit.rawMatch`에 기존 `redactSecrets` 적용, 바뀐 필드만 보고, **updatedAt 불변**)·
+      `planStoreRedaction(jobs)`(순서 보존 계획+변경 로그+총계)·`RedactableField`/`REDACTABLE_FIELDS`/
+      `JobRedactionChange`/`StoreRedactionPlan` 추가. `RelayQueue.redact({dryRun})`가 변경 잡만 set 후 원자적
+      flush(dry-run 무기록). CLI `redactStore`+순수 `renderRedact`/`renderRedactJson`+`agentrelay redact
+      [--dry-run] [--json]` 배선. prune/recover의 pure 선택+I/O 분리 재사용, 새 파서/스케줄러 로직 0줄.
+      core redact.test +9·cli redact.test +8, 빌드 CLI e2e로 디스크 스크럽·updatedAt 불변·idempotent 확인.
+      branch `claude/wizardly-pascal-lsguqd`)
+
+- [x] 👷 Gemini CLI 어댑터 — Google `gemini` CLI 지원 추가(툴 추론 + Google API `RetryInfo.retryDelay`
+      구조화 리셋 인식). 세션 초기 "다른 에이전트 툴 어댑터"(claude-code/codex-cli/generic) 확장 후속.
+      (완료 — `AgentTool` 유니온에 `"gemini-cli"` 추가(`types.ts`), `@agentrelay/core/adapters.ts`에
+      `GEMINI_CLI_ADAPTER`(binaries `["gemini"]`) + `GEMINI_RETRY_DELAY_PATTERN` 신설: Gemini API가 429
+      `RESOURCE_EXHAUSTED` 페이로드에 싣는 `google.rpc.RetryInfo`의 `retryDelay:"56s"`(protobuf Duration,
+      항상 초 단위 `s` 접미사)를 인식 — 일반 파서(시/분 prose)도, Codex 초 패턴("try again in Ns" 문구
+      필요)도 놓치던 구조화 필드. `retryDelay`/`retry_delay`/`retry-delay` + 키·값 양쪽 선택적 따옴표 허용,
+      소수 초는 whole-ms로 ceil해 조기 재개 방지. 필드명에 앵커돼 다른 패턴과 disjoint. `ADAPTERS` 레지스트리
+      (컴파일타임 `Record<AgentTool,…>` 강제)·`ALL_TOOLS`(stats zero-fill/metrics 자동 전파)·`VALID_TOOLS`
+      (import 검증)·CLI 도움말/`tools` 설명문에 gemini-cli 반영. 새 명령/스케줄러 로직 0줄 — 기존 어댑터
+      파이프라인 재사용. adapters.test +6(binary 추론·resolve·retryDelay 감지·소수 ceil·generic 폴백·generic이
+      구조화 필드 미인식)·stats.test byTool zero-fill 3케이스 gemini 키 반영. build/lint/test 통과
+      (**core 722 · cli 378/1skip · dashboard 13**, Biome 0에러), 빌드 CLI `parse --tool gemini-cli`로
+      retryDelay→resets in 1m·generic 미인식 e2e 확인. branch `claude/wizardly-pascal-gr62f3`)
+
+- [x] 👷 컨텍스트 보존 재개(`agentrelay run --resume-context`) — 재개 시 명령을 처음부터 다시 돌리는
+      대신 툴의 대화-이어가기 형태(Claude Code의 `--continue`)로 실행. **SPEC §4의 미구현 요구사항**
+      직접 구현("가능하면 --resume/컨텍스트 유지 플래그 사용"). 자기 발굴 항목. 지금까지 스케줄러는
+      rate-limit 재개 시 `job.command`를 **그대로** 재실행해, `claude -p "..."` 잡은 리셋 후 이전 대화
+      컨텍스트를 잃고 프롬프트를 처음부터 다시 보냈다.
+      (완료 — `@agentrelay/core`: `AgentAdapter`에 순수 `resumeCommand(command)` 추가(툴별 대화-이어가기
+      변환, 없는 툴은 identity=그대로) + `claudeResumeCommand`(바이너리 바로 뒤에 `--continue` 삽입, 이미
+      `--continue`/`-c`/`--resume`/`--resume=<id>`가 있으면 그대로 두어 이중 삽입·명시 세션 오버라이드
+      방지, 빈 command는 그대로). `RelayJob`/`CreateJobInput`에 optional `resumeContext` 추가(미설정 시
+      기존 verbatim 재실행 그대로 — 하위호환). `RelayQueue.enqueue`가 opt-in일 때만 플래그 영속(기본
+      스토어 바이트 불변), `update`의 `{...existing}` 병합으로 상태 변경·재직렬화 후에도 보존. 스케줄러
+      `resume`이 `job.resumeContext`면 어댑터 변환 적용 후 spawn(원본 command는 불변이라 매 재개가 원본에서
+      멱등 변환), `runCommand(command,cwd)`로 시그니처 정리. CLI `agentrelay run --resume-context` 플래그,
+      큐 메시지가 활성 시 실제 재개 형태를 안내, `show`가 `resume` 라인으로 노출(변환 없는 툴은 "re-runs
+      verbatim"). Codex/generic은 이어가기 플래그가 없어 no-op(안전). 파서/큐 저장 포맷 변경 0줄.
+      build/lint/test 통과(**core 696 · cli 375/1skip · dashboard 13**, Biome 0경고), core adapters +4·
+      scheduler +3·queue +2 · cli commands +2·show +3 신규 테스트, 실제 빌드 CLI e2e로 claude 바이너리→
+      `--continue` 삽입·generic→verbatim·show 라인 검증. branch `claude/wizardly-pascal-mx96ky`)
+
+- [x] 👷 `agentrelay search <query>` — 큐 자유 텍스트 검색(명령어·프로젝트·id·마지막 에러). 큐가
+      한 화면을 넘어가면 status의 구조적 필터(상태/툴/프로젝트/시간창)로는 "지난주 그 리팩터 잡이
+      뭐였지?"를 찾을 수 없었다 — 사람이 잡을 식별하는 유일한 텍스트(command·project·lastError)를
+      grep할 방법이 없었다.
+      (완료 — `@agentrelay/core/search.ts` 신설(순수·파일시스템 미접촉): `SEARCH_FIELDS`/`SearchField`·
+      `DEFAULT_SEARCH_FIELDS`(command/project/id/error — tool은 닫힌 어휘라 opt-in)·`isSearchField` +
+      `compileSearch`(기본 대소문자 무시 substring, `--regex`면 정규식[잘못된 패턴은 SyntaxError],
+      `--case-sensitive`) + `jobFieldText`(command는 공백 조인, null은 "") + `searchJobs`(빈 쿼리는
+      전부가 아니라 []=footgun 방지, 필드 중 하나라도 매치하면 hit, 입력 순서 보존, 비파괴 새 배열) +
+      `matchedFields`(어느 필드가 걸렸는지 provenance). CLI `search.ts`에 순수 `searchHeadline`
+      ("N of M job(s) match …", substring은 큰따옴표·regex는 슬래시)·`renderSearch`(헤드라인+status
+      테이블 재사용)·`renderSearchJson`(--limit 캡은 emitted만, matched는 진짜 개수). `agentrelay search
+      <query> [--field ...] [-E/--regex] [-c/--case-sensitive] [--json] [-n/--limit]` 배선, 빈 쿼리·잘못된
+      필드·잘못된 limit·잘못된 정규식은 exit 1. core 21 + cli 6 신규 테스트, 실제 빌드 CLI e2e로
+      substring/필드 제한/regex+json/no-match/에러 exit 검증. branch `claude/wizardly-pascal-7fkr66`)
+
 - [x] 👷 fix(core): `listDue`가 파싱 불가 `resetAt` 잡을 영구 orphan하던 무음 실패 수정. 자기 발굴
       **버그 픽스** — 열린 PR ~200개가 전부 feature 중복(reset-horizon ×20, NO_COLOR ×4 등)이라
       실질 갭이 없어, 코드를 훑어 아무 PR도 안 건드린 진짜 correctness 버그를 발굴했다.

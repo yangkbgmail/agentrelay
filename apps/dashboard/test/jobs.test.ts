@@ -134,4 +134,53 @@ describe("readJobsSnapshot", () => {
     const snapshot = readJobsSnapshot(storePath);
     expect(snapshot.heartbeat.state).toBe("absent");
   });
+
+  it("flags an active job parked with a reset beyond the default horizon", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "proj-a", tool: "generic", command: ["echo"], cwd: dir });
+    // Year 2099 is well beyond the 8-day plausibility horizon — a misparse that
+    // would sit waiting_for_reset forever.
+    queue.markWaitingForReset(job.id, "2099-01-01T00:00:00.000Z");
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.resetHorizon.horizonMs).toBeGreaterThan(0);
+    expect(snapshot.resetHorizon.jobs).toHaveLength(1);
+    expect(snapshot.resetHorizon.jobs[0]).toMatchObject({
+      id: job.id,
+      project: "proj-a",
+      resetAt: "2099-01-01T00:00:00.000Z",
+    });
+    expect(snapshot.resetHorizon.jobs[0].msUntilReset).toBeGreaterThan(0);
+  });
+
+  it("does not flag a near-future reset within the horizon", () => {
+    const queue = new RelayQueue(storePath);
+    const job = queue.enqueue({ project: "p", tool: "generic", command: ["echo"], cwd: dir });
+    const soon = new Date(Date.now() + 2 * 60 * 60_000).toISOString(); // 2h out
+    queue.markWaitingForReset(job.id, soon);
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.resetHorizon.jobs).toEqual([]);
+  });
+
+  it("does not flag terminal jobs, only active ones", () => {
+    const queue = new RelayQueue(storePath);
+    const done = queue.enqueue({ project: "p", tool: "generic", command: ["echo"], cwd: dir });
+    // A completed job can carry a stale far-future resetAt; it's history, never
+    // acted on again, so the dashboard must not warn about it.
+    queue.markWaitingForReset(done.id, "2099-01-01T00:00:00.000Z");
+    queue.markCompleted(done.id, "ok");
+    queue.close();
+
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.resetHorizon.jobs).toEqual([]);
+  });
+
+  it("reports no far-future jobs for an empty store", () => {
+    const snapshot = readJobsSnapshot(storePath);
+    expect(snapshot.resetHorizon.jobs).toEqual([]);
+    expect(snapshot.resetHorizon.horizonMs).toBeGreaterThan(0);
+  });
 });

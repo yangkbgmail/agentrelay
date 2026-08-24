@@ -1,8 +1,15 @@
 "use client";
 
-import type { HeartbeatStatus, JobStatus, ProjectBreakdown, RelayJob, ToolBreakdown } from "@agentrelay/core";
+import type {
+  FarFutureResetJob,
+  HeartbeatStatus,
+  JobStatus,
+  ProjectBreakdown,
+  RelayJob,
+  ToolBreakdown,
+} from "@agentrelay/core";
 import { useEffect, useState } from "react";
-import type { JobsSnapshot } from "../lib/jobs";
+import type { JobsSnapshot, ResetHorizonSummary } from "../lib/jobs";
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -14,6 +21,16 @@ const STATUS_META: Record<JobStatus, { label: string; colorVar: string }> = {
   failed: { label: "Failed", colorVar: "var(--status-critical)" },
   cancelled: { label: "Cancelled", colorVar: "var(--ink-muted)" },
 };
+
+// Terminal statuses, kept as a local set so this client component only ever
+// type-imports from `@agentrelay/core` — a value import would drag the core
+// index (and its node: built-ins) into the browser bundle, the same reason
+// `formatCountdown` below is a local copy. Mirrors core's TERMINAL_STATUSES.
+const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set(["completed", "failed", "cancelled"]);
+
+function isTerminalStatus(status: JobStatus): boolean {
+  return TERMINAL_STATUSES.has(status);
+}
 
 function formatCountdown(resetAt: string | null, now: number): string {
   if (!resetAt) return "—";
@@ -48,6 +65,21 @@ function formatAge(ms: number | undefined): string {
   if (hours > 0) return `${hours}h ${minutes}m ago`;
   if (minutes > 0) return `${minutes}m ${seconds}s ago`;
   return `${seconds}s ago`;
+}
+
+/**
+ * Coarse duration for a far-future reset (days/years), where {@link formatCountdown}
+ * would overflow into thousands of hours. Rounds to the largest sensible unit so a
+ * "resets in 100d" / "resets in 3y" reads at a glance — this is a "how wrong is this
+ * misparse" signal, not a live countdown.
+ */
+function formatLongDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "now";
+  const days = Math.round(ms / 86_400_000);
+  if (days < 1) return "<1d";
+  if (days < 365) return `${days}d`;
+  const years = Math.round(days / 365);
+  return `${years}y`;
 }
 
 const HEARTBEAT_META: Record<HeartbeatStatus["state"], { label: string; colorVar: string }> = {
@@ -88,6 +120,52 @@ function ResumeLoopCard({ heartbeat }: { heartbeat: HeartbeatStatus | undefined 
           <code>agentrelay daemon</code> (or schedule <code>agentrelay tick</code> via cron).
         </div>
       )}
+    </section>
+  );
+}
+
+/**
+ * Warns about active jobs parked with an implausibly-distant reset — a misparse
+ * (wrong epoch unit, a huge relative span) or a pre-guard job that will sit
+ * `waiting_for_reset` for days/years and never resume in a sane window. This is
+ * the dashboard mirror of `agentrelay doctor`'s `reset-horizon` check: it reuses
+ * the exact same `selectFarFutureResets` facts (computed server-side in the
+ * snapshot), so the browser view never drifts from the CLI. Renders nothing when
+ * the guard is disabled or nothing is parked far out — a clean queue stays quiet.
+ */
+function FarFutureResetsCard({ resetHorizon }: { resetHorizon: ResetHorizonSummary | undefined }) {
+  if (!resetHorizon || resetHorizon.horizonMs === null || resetHorizon.jobs.length === 0) return null;
+  const horizon = formatLongDuration(resetHorizon.horizonMs);
+  // Soonest-past-horizon first: the least-extreme example is the most likely to
+  // be a real edge case worth a second look, and it caps a long list gracefully.
+  const sorted: FarFutureResetJob[] = [...resetHorizon.jobs].sort((a, b) => a.msUntilReset - b.msUntilReset);
+  const shown = sorted.slice(0, 5);
+  const overflow = sorted.length - shown.length;
+
+  return (
+    <section className="far-future concerning" aria-label="Jobs parked with an implausible reset time">
+      <div className="far-future-head">
+        <span className="dot" style={{ background: "var(--status-warning)" }} aria-hidden />
+        <span className="far-future-label">
+          {resetHorizon.jobs.length} job(s) parked with a reset beyond the {horizon} horizon
+        </span>
+      </div>
+      <div className="far-future-detail">
+        Likely misparsed — these won&apos;t resume for a long time. Requeue them all with{" "}
+        <code>agentrelay recover --far-future</code> (plain <code>recover</code> won&apos;t — it only reclaims jobs
+        stuck resuming). Or inspect one with <code>agentrelay show &lt;id&gt;</code>, then{" "}
+        <code>agentrelay cancel &lt;id&gt;</code> / <code>agentrelay retry &lt;id&gt;</code>.
+      </div>
+      <ul className="far-future-list">
+        {shown.map((job) => (
+          <li key={job.id}>
+            <code className="far-future-id">{job.id.slice(0, 8)}</code>
+            <span className="far-future-project">{job.project}</span>
+            <span className="far-future-eta numeric">resets in {formatLongDuration(job.msUntilReset)}</span>
+          </li>
+        ))}
+      </ul>
+      {overflow > 0 && <div className="far-future-more">+{overflow} more</div>}
     </section>
   );
 }
@@ -196,7 +274,9 @@ function JobRow({ job, now }: { job: RelayJob; now: number }) {
         <StatusBadge status={job.status} />
       </td>
       <td className="cmd">{job.command.join(" ")}</td>
-      <td className="numeric">{formatCountdown(job.resetAt, now)}</td>
+      {/* Terminal jobs never resume; a completed/failed one keeps a now-stale
+          resetAt that would otherwise show as a misleading "due now". */}
+      <td className="numeric">{isTerminalStatus(job.status) ? "—" : formatCountdown(job.resetAt, now)}</td>
       <td className="numeric">{job.attempts}</td>
       <td className="numeric">{formatClock(job.updatedAt)}</td>
       <td>
@@ -265,6 +345,7 @@ export default function DashboardClient() {
       )}
 
       <ResumeLoopCard heartbeat={snapshot?.heartbeat} />
+      <FarFutureResetsCard resetHorizon={snapshot?.resetHorizon} />
 
       <section className="tile-row" aria-label="Queue summary">
         <div className="tile">

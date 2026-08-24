@@ -10,6 +10,7 @@ import type {
   JobScope,
   JobStatus,
   RelayJob,
+  SearchField,
 } from "@agentrelay/core";
 import {
   ALL_TOOLS,
@@ -24,6 +25,8 @@ import {
   computeQueueEta,
   computeStats,
   computeWeekdayDistribution,
+  configJsonSchemaJson,
+  DEFAULT_SEARCH_FIELDS,
   EXPORT_FORMATS,
   GROUP_DIMENSIONS,
   generateCompletion,
@@ -32,12 +35,16 @@ import {
   inferImportFormat,
   isCompletionShell,
   isJobScopeActive,
+  isSearchField,
   JOB_CSV_COLUMNS,
+  maxResetHorizonMsFromEnv,
   parseCsvColumns,
   parseDuration,
   renderPrometheusMetrics,
+  SEARCH_FIELDS,
   SETTABLE_CONFIG_KEYS,
   scopeJobs,
+  searchJobs,
   selectNextResume,
   sendTestNotification,
   summarizeJobs,
@@ -65,6 +72,7 @@ import {
   readHealthReport,
   readLocationReport,
   recoverJobs,
+  redactStore,
   restoreStore,
   retryJob,
   runCommand,
@@ -92,6 +100,8 @@ import { renderLocations, renderLocationsJson } from "./paths.js";
 import { renderPatterns, renderPatternsJson } from "./patterns.js";
 import { renderProjects, renderProjectsJson, renderProjectsWatchFrame } from "./projects.js";
 import { type RecoverResult, renderRecover, renderRecoverJson } from "./recover.js";
+import { renderRedact, renderRedactJson } from "./redact.js";
+import { renderSearch, renderSearchJson } from "./search.js";
 import { renderJobDetail, renderJobDetailJson } from "./show.js";
 import {
   formatUtcOffsetLabel,
@@ -537,19 +547,24 @@ export function buildCli(): Command {
     .argument("<command...>", 'Command to run, e.g. agentrelay run -- claude -p "continue"')
     .option(
       "--tool <tool>",
-      "Agent tool adapter to use (claude-code | codex-cli | generic). Inferred from the command when omitted."
+      "Agent tool adapter to use (claude-code | codex-cli | gemini-cli | generic). Inferred from the command when omitted."
     )
     .option(
       "-p, --project <name>",
       "Project label for the queued job (overrides the auto-derived cwd name; used by every --project filter)"
     )
-    .action(async (command: string[], opts: { tool?: string; project?: string }) => {
+    .option(
+      "--resume-context",
+      "On resume, continue the previous conversation instead of re-running from scratch (e.g. Claude Code's --continue)"
+    )
+    .action(async (command: string[], opts: { tool?: string; project?: string; resumeContext?: boolean }) => {
       const { store } = program.opts();
       const result = await runCommand({
         command,
         storePath: store,
         tool: opts.tool as AgentTool | undefined,
         project: opts.project,
+        resumeContext: opts.resumeContext,
       });
       process.exitCode = result.exitCode;
     });
@@ -1456,7 +1471,9 @@ export function buildCli(): Command {
 
   program
     .command("tools")
-    .description("List the agent tools in play (claude-code/codex-cli/generic) with per-tool job counts and next reset")
+    .description(
+      "List the agent tools in play (claude-code/codex-cli/gemini-cli/generic) with per-tool job counts and next reset"
+    )
     .option("-w, --watch [seconds]", "Continuously refresh the index with live reset countdowns (Ctrl-C to exit)")
     .option("--json", "Print the summary as JSON (machine-readable, for scripts/CI)")
     .option("-s, --status <statuses>", "Only count jobs with these comma-separated statuses (e.g. waiting_for_reset)")
@@ -1902,6 +1919,95 @@ export function buildCli(): Command {
       console.log(renderParseReport(report, { color: Boolean(process.stdout.isTTY) }));
     });
 
+  program
+    .command("search")
+    .description("Find jobs by free-text search across their command, project, id, and last error")
+    .argument("<query>", "Text to look for (a substring by default, or a regex with --regex)")
+    .option(
+      "--field <fields>",
+      `Restrict to comma-separated fields: ${SEARCH_FIELDS.join(", ")} (default: ${DEFAULT_SEARCH_FIELDS.join(", ")})`
+    )
+    .option("-E, --regex", "Treat the query as a JavaScript regular expression")
+    .option("-c, --case-sensitive", "Match case-sensitively (default: case-insensitive)")
+    .option("--json", "Print matches as JSON (machine-readable, for scripts/jq)")
+    .option("-n, --limit <n>", "Show at most N matches (the headline still counts every match)")
+    .action(
+      (
+        query: string,
+        opts: { field?: string; regex?: boolean; caseSensitive?: boolean; json?: boolean; limit?: string }
+      ) => {
+        const { store } = program.opts();
+
+        if (query === "") {
+          console.error("[agentrelay] search needs a non-empty query.");
+          process.exitCode = 1;
+          return;
+        }
+
+        let fields: SearchField[] | undefined;
+        if (opts.field !== undefined) {
+          const requested = splitList(opts.field);
+          if (requested.length === 0) {
+            console.error("--field needs at least one field name.");
+            process.exitCode = 1;
+            return;
+          }
+          const invalid = requested.filter((f) => !isSearchField(f));
+          if (invalid.length > 0) {
+            console.error(`Unknown search field(s): ${invalid.join(", ")}. Valid: ${SEARCH_FIELDS.join(", ")}.`);
+            process.exitCode = 1;
+            return;
+          }
+          fields = requested as SearchField[];
+        }
+
+        let limit: number | undefined;
+        if (opts.limit !== undefined) {
+          const n = Number.parseInt(opts.limit, 10);
+          if (!Number.isInteger(n) || n < 1) {
+            console.error(`Invalid --limit value "${opts.limit}". Use a positive integer.`);
+            process.exitCode = 1;
+            return;
+          }
+          limit = n;
+        }
+
+        const searchOptions = { fields, regex: opts.regex, caseSensitive: opts.caseSensitive };
+        const all = listStatus(store);
+        let matches: RelayJob[];
+        try {
+          matches = searchJobs(all, query, searchOptions);
+        } catch (err) {
+          console.error(`[agentrelay] Invalid --regex pattern: ${(err as Error).message}`);
+          process.exitCode = 1;
+          return;
+        }
+
+        const usedFields = fields ?? DEFAULT_SEARCH_FIELDS;
+        if (opts.json) {
+          console.log(
+            renderSearchJson(matches, query, {
+              total: all.length,
+              fields: usedFields,
+              regex: opts.regex,
+              storePath: store,
+              limit,
+            })
+          );
+          return;
+        }
+        console.log(
+          renderSearch(matches, query, {
+            color: Boolean(process.stdout.isTTY),
+            limit,
+            regex: opts.regex,
+            fields: usedFields,
+            total: all.length,
+          })
+        );
+      }
+    );
+
   const config = program.command("config").description("Manage the agentrelay.config.json defaults file");
   config
     .command("init")
@@ -2031,6 +2137,15 @@ export function buildCli(): Command {
         process.exitCode = 1;
       }
     });
+  config
+    .command("schema")
+    .description(
+      'Print a JSON Schema for agentrelay.config.json (pipe to a file and reference it via "$schema" for editor validation/completion)'
+    )
+    .action(() => {
+      // Pure stdout so it composes: `agentrelay config schema > agentrelay.config.schema.json`.
+      process.stdout.write(configJsonSchemaJson());
+    });
 
   registerBulkControl(program, {
     name: "cancel",
@@ -2136,9 +2251,13 @@ export function buildCli(): Command {
       "--older-than <duration>",
       "Only recover jobs stuck resuming for at least this long (default 30m; 0s = all)"
     )
+    .option(
+      "--far-future",
+      "Also requeue jobs parked waiting_for_reset with a reset beyond the plausibility horizon (a misparse that would wait days/years)"
+    )
     .option("--dry-run", "Show what would be recovered without changing the store")
     .option("--json", "Output machine-readable JSON")
-    .action((opts: { olderThan?: string; dryRun?: boolean; json?: boolean }) => {
+    .action((opts: { olderThan?: string; farFuture?: boolean; dryRun?: boolean; json?: boolean }) => {
       const { store } = program.opts();
       const now = Date.now();
 
@@ -2153,8 +2272,16 @@ export function buildCli(): Command {
         stuckAfterMs = parsed;
       }
 
-      const { report, recovered, dryRun } = recoverJobs({ storePath: store, stuckAfterMs, dryRun: opts.dryRun, now });
-      const result: RecoverResult = { report, recovered, dryRun };
+      const horizonMs = opts.farFuture ? maxResetHorizonMsFromEnv() : null;
+      const { report, recovered, farFuture, dryRun } = recoverJobs({
+        storePath: store,
+        stuckAfterMs,
+        farFuture: opts.farFuture,
+        horizonMs,
+        dryRun: opts.dryRun,
+        now,
+      });
+      const result: RecoverResult = { report, recovered, farFuture, dryRun };
 
       if (opts.json) {
         console.log(renderRecoverJson(result, store ?? defaultStorePath(), new Date(now).toISOString()));
@@ -2232,8 +2359,24 @@ export function buildCli(): Command {
     });
 
   program
+    .command("redact")
+    .description("Scrub stored secrets (API keys, tokens, Authorization/NAME=secret) from existing jobs")
+    .option("--dry-run", "Show what would be scrubbed without changing the store")
+    .option("--json", "Output machine-readable JSON")
+    .action((opts: { dryRun?: boolean; json?: boolean }) => {
+      const { store } = program.opts();
+      const plan = redactStore({ storePath: store, dryRun: opts.dryRun });
+
+      if (opts.json) {
+        console.log(renderRedactJson(plan, store ?? defaultStorePath(), { dryRun: opts.dryRun }));
+        return;
+      }
+      console.log(renderRedact(plan, { dryRun: opts.dryRun, color: Boolean(process.stdout.isTTY) }));
+    });
+
+  program
     .command("completion")
-    .description("Print a shell completion script for agentrelay (bash or zsh)")
+    .description("Print a shell completion script for agentrelay (bash, zsh, or fish)")
     .argument("<shell>", `Shell to generate completion for: ${COMPLETION_SHELLS.join(" | ")}`)
     .addHelpText(
       "after",
@@ -2241,7 +2384,9 @@ export function buildCli(): Command {
         "  # bash: source it now, or add the line to ~/.bashrc\n" +
         "  source <(agentrelay completion bash)\n" +
         "  # zsh: write it onto your $fpath, then restart your shell\n" +
-        "  agentrelay completion zsh > ~/.zfunc/_agentrelay"
+        "  agentrelay completion zsh > ~/.zfunc/_agentrelay\n" +
+        "  # fish: load it now, or drop it in your completions dir\n" +
+        "  agentrelay completion fish > ~/.config/fish/completions/agentrelay.fish"
     )
     .action((shell: string) => {
       if (!isCompletionShell(shell)) {

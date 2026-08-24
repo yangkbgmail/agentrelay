@@ -31,6 +31,7 @@ import {
 } from "./backup.js";
 import { type ImportOptions, type ImportResult, planImport, summarizeImportPlan } from "./import.js";
 import { type PruneOptions, selectPrunableJobs } from "./prune.js";
+import { planStoreRedaction, type StoreRedactionPlan } from "./redact.js";
 import type { CreateJobInput, JobStatus, RateLimitDetection, RelayJob } from "./types.js";
 
 /** Details handed to {@link RelayQueueOptions.onCorrupt} when the store file
@@ -117,10 +118,23 @@ export class RelayQueue {
     this.load();
   }
 
-  /** No-op kept for API parity with earlier SQLite-backed implementation. */
-  close() {
-    this.flush();
-  }
+  /**
+   * No-op kept for API parity with the earlier SQLite-backed implementation.
+   *
+   * It deliberately does NOT write anything. Every mutating method already
+   * persists atomically at call time (load → mutate → atomic flush), so there
+   * are no deferred changes for `close()` to commit. The previous version
+   * called `flush()` here, which re-wrote this instance's *in-memory* map —
+   * a map loaded when the queue was opened and never refreshed for a read-only
+   * command. That was a silent lost-update vector: opening the store for a
+   * read (`status`, `stats`, `show`, `export`, …) and then closing it would
+   * overwrite the file with a stale snapshot, clobbering any job a concurrent
+   * process (e.g. a running `agentrelay daemon`) had enqueued or updated in the
+   * meantime. Making close() a true no-op removes that write entirely, which
+   * both matches this method's long-standing docstring and upholds the
+   * lost-update-free invariant documented in concurrency.ts.
+   */
+  close() {}
 
   private load() {
     if (!existsSync(this.filePath)) {
@@ -201,6 +215,9 @@ export class RelayQueue {
       lastOutputTail: null,
       lastRateLimit: null,
     };
+    // Only persist the resume-context flag when opted in, so default stores stay
+    // byte-for-byte unchanged (and older readers keep working).
+    if (input.resumeContext) job.resumeContext = true;
     this.jobs.set(job.id, job);
     this.flush();
     return job;
@@ -325,6 +342,30 @@ export class RelayQueue {
     }
     this.flush();
     return prune;
+  }
+
+  /**
+   * Scrub persisted secrets from every job's free-text fields
+   * (`lastOutputTail`, `lastError`, `lastRateLimit.rawMatch`) in place, using
+   * the same recognizer the scheduler applies at write time (see
+   * {@link redactSecrets}). Where the scheduler only protects *new* writes going
+   * forward, this reaches jobs stored before redaction existed, imported from an
+   * external dump, or hand-edited — the plaintext credentials that `show`/
+   * `export` would otherwise surface. Returns the plan (per-job change log +
+   * totals); pass `dryRun: true` to compute it without writing. A job whose
+   * fields need no change keeps its exact `updatedAt`, so the sweep never
+   * perturbs lifecycle timing.
+   */
+  redact(options: { dryRun?: boolean } = {}): StoreRedactionPlan {
+    this.load();
+    const plan = planStoreRedaction(Array.from(this.jobs.values()));
+    if (options.dryRun || plan.changes.length === 0) return plan;
+    const changedIds = new Set(plan.changes.map((c) => c.id));
+    for (const job of plan.jobs) {
+      if (changedIds.has(job.id)) this.jobs.set(job.id, job);
+    }
+    this.flush();
+    return plan;
   }
 
   /**

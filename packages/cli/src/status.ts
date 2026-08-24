@@ -4,7 +4,7 @@
 // TTY, a clock, or a spawned process.
 
 import type { JobStatus, QueueSummary, RelayJob } from "@agentrelay/core";
-import { summarizeJobs } from "@agentrelay/core";
+import { isTerminalStatus, summarizeJobs } from "@agentrelay/core";
 
 const COL = { id: 10, project: 16, status: 18, resets: 12 } as const;
 
@@ -166,6 +166,22 @@ export function formatCountdown(resetAt: string | null, now: number = Date.now()
   return `${minutes}m`;
 }
 
+/**
+ * The reset countdown to display for a job. Terminal jobs
+ * (completed/failed/cancelled) never resume, so a "resets in …" countdown is
+ * meaningless for them — yet a completed/failed job that went through a
+ * rate-limit cycle keeps the last `resetAt` on the record (only `markCancelled`
+ * clears it), and that stale, now-past reset would otherwise render as a
+ * misleading "due now". The store deliberately leaves the stale value in place
+ * — every reset-aware consumer (listDue, next/eta/upcoming, the far-future
+ * doctor check) filters by status first — so the fix belongs at the display
+ * layer: show "-" for terminal jobs, and the normal countdown otherwise.
+ */
+export function formatResetCountdown(job: RelayJob, now: number = Date.now()): string {
+  if (isTerminalStatus(job.status)) return "-";
+  return formatCountdown(job.resetAt, now);
+}
+
 function colorStatus(status: JobStatus, cell: string, color: boolean): string {
   if (!color) return cell;
   return `${STATUS_COLOR[status] ?? ""}${cell}${RESET}`;
@@ -207,7 +223,7 @@ export function renderStatusTable(jobs: RelayJob[], options: RenderOptions = {})
       job.id.slice(0, 8).padEnd(COL.id),
       job.project.slice(0, COL.project).padEnd(COL.project),
       colorStatus(job.status, statusCell, color),
-      formatCountdown(job.resetAt, now).padEnd(COL.resets),
+      formatResetCountdown(job, now).padEnd(COL.resets),
       String(job.attempts),
     ].join(" ");
   });
