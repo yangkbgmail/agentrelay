@@ -71,6 +71,7 @@ import {
   parseImportJobs,
   partitionForControl,
   planImport,
+  planStoreRedaction,
   RelayQueue,
   RelayScheduler,
   type RestorePreview,
@@ -1155,6 +1156,15 @@ export interface ExportJobsOptions {
   outPath?: string;
   /** Column subset/order for the tabular formats (csv/md). Ignored by json/ndjson. Defaults to all columns. */
   columns?: readonly JobCsvColumn[];
+  /**
+   * Scrub secrets from the serialized output. When true, each job's free-text
+   * fields (`lastOutputTail`/`lastError`/`lastRateLimit.rawMatch`) are run
+   * through the same redactor `agentrelay redact` uses, but only on the *copy*
+   * that is serialized — the store on disk is never modified. Lets a user hand
+   * out a dump for debugging without leaking credentials that predate write-time
+   * redaction, arrived via `import`, or were hand-edited in.
+   */
+  redact?: boolean;
 }
 
 export interface ExportJobsResult {
@@ -1164,6 +1174,8 @@ export interface ExportJobsResult {
   count: number;
   /** Absolute path written to, or null when the caller should print to stdout. */
   writtenTo: string | null;
+  /** Number of jobs that had at least one secret scrubbed (0 unless `redact` was set). */
+  redactedCount: number;
 }
 
 /**
@@ -1174,7 +1186,16 @@ export interface ExportJobsResult {
  * `content` is the exact serializer output without it.
  */
 export function exportStore(options: ExportJobsOptions): ExportJobsResult {
-  const jobs = options.jobs ?? listStatus(options.storePath);
+  const source = options.jobs ?? listStatus(options.storePath);
+  // --redact scrubs the serialized copy only; the store is never touched (the
+  // pure plan returns new job objects, sharing unchanged fields by reference).
+  let jobs = source;
+  let redactedCount = 0;
+  if (options.redact) {
+    const plan = planStoreRedaction(source);
+    jobs = plan.jobs;
+    redactedCount = plan.changes.length;
+  }
   const content = exportJobs(jobs, options.format, options.columns ? { columns: options.columns } : {});
   let writtenTo: string | null = null;
   if (options.outPath) {
@@ -1183,7 +1204,7 @@ export function exportStore(options: ExportJobsOptions): ExportJobsResult {
     writeFileSync(path, `${content}\n`, "utf8");
     writtenTo = path;
   }
-  return { content, count: jobs.length, writtenTo };
+  return { content, count: jobs.length, writtenTo, redactedCount };
 }
 
 export interface ImportStoreOptions {
