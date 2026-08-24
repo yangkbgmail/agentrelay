@@ -10,7 +10,12 @@ import type { RelayJob } from "./types.js";
  * so `agentrelay eta` is unit-testable end to end.
  */
 export interface QueueEta {
-  /** Number of `waiting_for_reset` jobs with a parseable `resetAt`. */
+  /**
+   * Number of `waiting_for_reset` jobs with a non-null `resetAt` — exactly the
+   * set the scheduler's `listDue` acts on (see `isJobDue`). A job whose
+   * `resetAt` is present but **unparseable** is included, not dropped: the
+   * scheduler treats it as due now and resumes it next, so `eta` counts it too.
+   */
   waiting: number;
   /** How many of those are already past due (a tick would pick them up now). */
   dueNow: number;
@@ -36,15 +41,26 @@ export interface QueueEta {
 
 /**
  * The same set the scheduler's `listDue` acts on: `waiting_for_reset` jobs with
- * a parseable `resetAt`. Keeping this filter identical to `next`/`upcoming`
- * means all three surfaces agree on "what is the relay actually waiting on".
+ * a non-null `resetAt`, mapped to their effective reset instant (epoch ms).
+ * Keeping this set identical to `next`/`upcoming`/`isJobDue` means all four
+ * surfaces agree on "what is the relay actually waiting on".
+ *
+ * An **unparseable** `resetAt` mirrors `isJobDue`: the scheduler treats it as
+ * due now and resumes it on the next tick, so its effective instant is `now`
+ * (already due) rather than being dropped from the set. Dropping it — the old
+ * behavior — made `eta` silently under-count the very jobs the daemon runs next,
+ * the same `listDue` inconsistency #812/#896/#899 fixed for the sibling surfaces.
+ * (`next`/`upcoming` use a `NEGATIVE_INFINITY` sort key for "most urgent"; `eta`
+ * renders the instant as an ISO string, which -Infinity can't be, so the
+ * renderable due-now equivalent — `now` — is used here.) A `null` `resetAt` is
+ * still excluded (the job isn't genuinely parked on a reset), matching `isJobDue`.
  */
-function waitingResets(jobs: RelayJob[]): number[] {
+function waitingResets(jobs: RelayJob[], now: number): number[] {
   const resets: number[] = [];
   for (const job of jobs) {
     if (job.status !== "waiting_for_reset" || job.resetAt === null) continue;
     const ms = Date.parse(job.resetAt);
-    if (!Number.isNaN(ms)) resets.push(ms);
+    resets.push(Number.isNaN(ms) ? now : ms);
   }
   return resets;
 }
@@ -55,7 +71,7 @@ function waitingResets(jobs: RelayJob[]): number[] {
  * waiting for a reset — an empty queue, or only active/terminal jobs.
  */
 export function computeQueueEta(jobs: RelayJob[], now: number = Date.now()): QueueEta {
-  const resets = waitingResets(jobs);
+  const resets = waitingResets(jobs, now);
   if (resets.length === 0) {
     return {
       waiting: 0,

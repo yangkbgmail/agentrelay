@@ -51,13 +51,39 @@ describe("computeQueueEta", () => {
     expect(eta.caughtUp).toBe(true);
   });
 
-  it("skips waiting jobs whose resetAt is null or unparseable", () => {
-    const eta = computeQueueEta(
-      [job({ resetAt: null }), job({ resetAt: "not-a-date" }), job({ resetAt: "2026-07-30T14:00:00.000Z" })],
-      NOW
-    );
+  it("excludes a waiting job with a null resetAt (not genuinely parked)", () => {
+    const eta = computeQueueEta([job({ resetAt: null }), job({ resetAt: "2026-07-30T14:00:00.000Z" })], NOW);
     expect(eta.waiting).toBe(1);
     expect(eta.lastResetAt).toBe("2026-07-30T14:00:00.000Z");
+  });
+
+  it("surfaces an unparseable resetAt as due now — the daemon (listDue) resumes it next", () => {
+    // Regression: post-#812 `isJobDue` returns unparseable-resetAt jobs as due,
+    // so `eta` must count them too; dropping them (the old behavior) under-counted
+    // the exact jobs the daemon resumes next and hid them from the catch-up ETA.
+    const eta = computeQueueEta(
+      [job({ resetAt: "not-a-date" }), job({ resetAt: "2026-07-30T14:00:00.000Z" })], // future
+      NOW
+    );
+    expect(eta.waiting).toBe(2);
+    expect(eta.dueNow).toBe(1); // the unparseable one is due now, the future one isn't
+    // The unparseable job is modeled at `now`, so it's the soonest reset instant.
+    expect(eta.firstResetAt).toBe("2026-07-30T10:00:00.000Z"); // == NOW, not NaN
+    // Catch-up is still gated by the latest (future) reset.
+    expect(eta.lastResetAt).toBe("2026-07-30T14:00:00.000Z");
+    expect(eta.etaMs).toBe(4 * 60 * 60 * 1000); // 14:00 - 10:00
+    expect(eta.caughtUp).toBe(false);
+  });
+
+  it("treats an all-unparseable waiting queue as fully due now (etaMs 0)", () => {
+    const eta = computeQueueEta([job({ resetAt: "not-a-date" }), job({ resetAt: "still-not-a-date" })], NOW);
+    expect(eta.waiting).toBe(2);
+    expect(eta.dueNow).toBe(2);
+    expect(eta.firstResetAt).toBe("2026-07-30T10:00:00.000Z"); // == NOW
+    expect(eta.lastResetAt).toBe("2026-07-30T10:00:00.000Z"); // == NOW
+    expect(eta.etaMs).toBe(0); // all due now, loop just hasn't run yet
+    expect(eta.spanMs).toBe(0);
+    expect(eta.caughtUp).toBe(false); // there ARE jobs to pick up
   });
 
   it("uses the LATEST reset as the catch-up moment (not the soonest)", () => {
