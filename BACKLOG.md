@@ -1028,6 +1028,23 @@
       core redact.test +9·cli redact.test +8, 빌드 CLI e2e로 디스크 스크럽·updatedAt 불변·idempotent 확인.
       branch `claude/wizardly-pascal-lsguqd`)
 
+- [x] 👷 파킹된 잡에 트리거 출력 tail 보존(`run` 최초 감지 + 스케줄러 재감지 재큐 경로). 자기 발굴 항목
+      (세션 85 #875·세션 86 #880이 남긴 "다음 할 일": `run`의 최초 감지 경로는 tail을 저장하지 않아
+      `show`/`export`가 방금 파킹된 잡의 컨텍스트를 못 보여줬다. 게다가 스케줄러의 **재감지 재큐**
+      (`waiting_for_reset`) 경로도 이미 계산한 tail을 버리고 `markWaitingForReset`에 넘기지 않아,
+      `completed`/`failed` 잡만 tail을 가졌다).
+      (완료 — `@agentrelay/core/redact.ts`에 순수 `buildOutputTail(output,{length?,redact?})` +
+      공유 상수 `DEFAULT_OUTPUT_TAIL_LENGTH`(2000) 추가: slice-후-scrub 순서로 디스크에 쓰이는 바이트만
+      레닥션(감지는 여전히 원본에서). `RelayQueue.markWaitingForReset`에 4번째 optional `outputTail` 인자
+      추가 — 제공될 때만 `lastOutputTail` 기록(생략 시 기존 tail 보존, `requeueNow` 등 수동 재큐는 컨텍스트
+      안 지움). 스케줄러 재감지 경로가 이미 만든 redacted `tail`을 넘기도록 배선(`redactSecrets` 직접 호출
+      → `buildOutputTail`로 통일, 캡처 길이 상수 공유로 드리프트 제거). CLI `runCommand`가 감지 시
+      `buildOutputTail(output,{redact:redactOutputTailFromEnv()})`로 tail을 만들어 `markWaitingForReset`에
+      전달. 새 파서/스케줄러 로직 0줄. core redact.test +7 · queue.test +2 · scheduler.test +1 ·
+      cli commands.test +2. build/lint/test 통과(**core 726 · cli 380/1skip · dashboard 13**, Biome 0에러),
+      빌드된 CLI e2e로 `run` 감지 후 디스크 tail이 `sk-ant-…`→`[REDACTED]`로 저장됨 확인.
+      branch `claude/wizardly-pascal-4ymygu`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

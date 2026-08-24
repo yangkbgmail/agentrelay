@@ -3,7 +3,7 @@ import { resolveAdapter } from "./adapters.js";
 import { mapWithConcurrency, normalizeMaxConcurrent } from "./concurrency.js";
 import { type PruneOptions, shouldAutoPrune, shouldAutoPruneByTicks } from "./prune.js";
 import type { RelayQueue } from "./queue.js";
-import { redactSecrets } from "./redact.js";
+import { buildOutputTail, DEFAULT_OUTPUT_TAIL_LENGTH } from "./redact.js";
 import { computeBackoffMs, DEFAULT_RETRY_POLICY, isRetryExhausted } from "./retry.js";
 import type { NotifyPayload, RelayJob, RetryPolicy } from "./types.js";
 
@@ -128,7 +128,7 @@ export class RelayScheduler {
     this.pollIntervalMs = options.pollIntervalMs ?? 30_000;
     this.spawnFn = options.spawnFn ?? defaultSpawn;
     this.notify = options.notify ?? (() => {});
-    this.outputTailLength = options.outputTailLength ?? 2000;
+    this.outputTailLength = options.outputTailLength ?? DEFAULT_OUTPUT_TAIL_LENGTH;
     this.redactOutputTail = options.redactOutputTail ?? true;
     this.retryPolicy = options.retryPolicy ?? DEFAULT_RETRY_POLICY;
     this.rng = options.rng ?? Math.random;
@@ -216,8 +216,7 @@ export class RelayScheduler {
     // Slice first, then scrub: only the persisted tail is redacted. Rate-limit
     // detection below still runs on the full, un-redacted `output`, so masking
     // secrets never changes whether/when a job resumes.
-    const rawTail = output.slice(-this.outputTailLength);
-    const tail = this.redactOutputTail ? redactSecrets(rawTail) : rawTail;
+    const tail = buildOutputTail(output, { length: this.outputTailLength, redact: this.redactOutputTail });
     // Use the tool's adapter so tool-specific rate-limit wording (e.g. Codex's
     // seconds-based waits) is recognized on resume, not just at enqueue time.
     const rateLimit = resolveAdapter({ tool: job.tool, command: job.command }).detectRateLimit(output, {
@@ -232,12 +231,17 @@ export class RelayScheduler {
         this.queue.markFailed(job.id, msg, tail);
         await this.notify({ jobId: job.id, project: job.project, event: "failed", message: msg });
       } else {
-        this.queue.markWaitingForReset(job.id, rateLimit.resetAt, {
-          pattern: rateLimit.pattern,
-          rawMatch: rateLimit.rawMatch,
-          resetAt: rateLimit.resetAt,
-          detectedAt: new Date().toISOString(),
-        });
+        this.queue.markWaitingForReset(
+          job.id,
+          rateLimit.resetAt,
+          {
+            pattern: rateLimit.pattern,
+            rawMatch: rateLimit.rawMatch,
+            resetAt: rateLimit.resetAt,
+            detectedAt: new Date().toISOString(),
+          },
+          tail
+        );
         await this.notify({
           jobId: job.id,
           project: job.project,
