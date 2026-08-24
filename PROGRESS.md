@@ -2623,3 +2623,33 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② `export`/대시보드에도 옵션형 소급 스크럽 노출은 후속 후보(현재는
   스토어 in-place 정리로 충분). ③ 나머지 clean·고가치 PR(#878 clean/#879 search 등)은 doc append 충돌로 dirty —
   근본 원인(세션 로그를 날짜별 개별 파일로 분리)은 🧭 코워크 소유 프로세스 안건. README/ARCHITECTURE는 🧭 코워크 몫.
+
+### [세션 87 — `redactSecrets`: PEM 개인키 블록·Stripe 시크릿·Google OAuth 토큰 추가 (👷 자율 발굴)] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-g2g9t2`)
+- **배경:** 세션 85/86가 output-tail 소급 스크럽 인프라를 깔았지만, 룰 목록에는 여전히 세 가지 **최대 위험** 시크릿 형태가
+  빠져 있었다: ① 다중 줄 **PEM 개인키 블록**(`-----BEGIN … PRIVATE KEY-----`), ② **Stripe `sk_live_`/`sk_test_`·
+  `rk_live_`/`rk_test_`** 시크릿·리스트릭티드 키(OpenAI `sk-`와 언더스코어로 disjoint), ③ **Google OAuth 액세스
+  토큰(`ya29.<token>`)**. 첫 번째는 한 줄이 아니라 **한 블록 전체**가 통째로 시크릿이라, 라인 단위 룰이 다 놓쳐 그대로
+  `jobs.json`에 평문으로 저장돼 왔음(worst-case leak). Stripe/OAuth는 흔한 SaaS/HTTP 로그 형태인데 룰에 없어 `redact`
+  후에도 살아 있었음.
+- **한 일:** `packages/core/src/redact.ts` `RULES`에 세 룰 추가:
+  - `pem-private-key`(순서 **최우선**): `-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----`
+    로 RSA/EC/OPENSSH/PKCS#8 등 armored 블록을 통째로 `[REDACTED]`로 치환. `[\s\S]*?`(non-greedy)라 인접한 두 블록이
+    합쳐 매치되지 않고, `\s`가 개행+공백을 다 먹으니 **실제 개행**과 **env/JSON에 흔한 리터럴 `\n` 이스케이프 한 줄 형태**
+    모두 커버.
+  - `stripe-key`: `\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,}\b` — 언더스코어라 하이픈 OpenAI `sk-` 룰과 disjoint,
+    publishable `pk_…`는 의도적으로 매치 안 함(설계상 노출 안전 — 지우면 노이즈만 늘어남).
+  - `google-oauth-token`: `\bya29\.[A-Za-z0-9_-]{20,}` — 짧은 수명 bearer, `ya29.` 힌트는 남기고 값만 마스킹, 본문 없는
+    "the ya29. prefix" 같은 단순 언급은 살려둠.
+  모듈 docstring도 새 커버리지 반영해 갱신. 순수 함수 그대로, `redactJob`/`planStoreRedaction`/`RelayQueue.redact`/
+  스케줄러 write-time 스크럽 전 경로에 자동 적용됨(파이프라인 배선 0줄 추가).
+- **검증:** `pnpm install` → `pnpm build`(Next 포함 클린) → `pnpm ci:lint`(Biome 0에러, 126파일) → `pnpm test` 전 패키지
+  통과(**core 721 · cli 378/1skip · dashboard 13**; core redact.test +5 — PEM 다중줄/one-line env 형태/인접 두 블록
+  독립 매치, Stripe secret+restricted 매치·publishable pk_는 유지, Google `ya29.` 마스킹 + 본문 없는 언급 유지).
+  빌드된 `dist/redact.js`로 end-to-end 수동 확인: `-----BEGIN OPENSSH PRIVATE KEY-----…-----END OPENSSH PRIVATE KEY-----`
+  →`[REDACTED]`, `STRIPE_SECRET=sk_live_…`→`STRIPE_SECRET=[REDACTED]`, `bearer ya29.…`→`bearer [REDACTED]`,
+  `pk_live_…` 그대로. 기존 12개 `redactSecrets` 회귀 + 11개 `redactJob`/`planStoreRedaction` 케이스 전부 통과 —
+  broadening만이라 오탐/누락 회귀 0건.
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 여전히 룰에 없는 후속 후보: Azure Storage 계정 키(base64 88자),
+  GCP 서비스 계정 JSON 키(구조화된 JSON — 블록 감지 필요), JWT `eyJ…` 자체 판별(현재는 Authorization 헤더 뒤에서만
+  잡힘). ③ `redactSecrets`가 이제 다중 줄 블록도 만지므로 output-tail 슬라이스 경계에서 PEM이 **잘렸을 때**의 동작
+  검증(begin만 남거나 end만 남으면 매치 실패 → 부분 평문 잔존)을 후속 항목으로. README/ARCHITECTURE는 🧭 코워크 몫.

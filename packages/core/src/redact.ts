@@ -11,8 +11,9 @@
  * convenience log into a plaintext secret store on disk (and in any export a
  * user shares while asking for help).
  *
- * This scrubber recognizes the common, high-signal token shapes (provider API
- * keys, VCS tokens, cloud keys, `Authorization` bearer/token lines, and
+ * This scrubber recognizes the common, high-signal token shapes (PEM private
+ * key blocks, provider API keys — Anthropic/OpenAI/Stripe/Google/Slack/AWS —,
+ * VCS tokens, OAuth bearer tokens, `Authorization` bearer/token lines, and
  * `NAME=secret` / `NAME: secret` assignments for credential-looking names) and
  * replaces the secret material with {@link REDACTION_PLACEHOLDER}. It is
  * deliberately conservative: it leaves text it can't confidently classify
@@ -47,6 +48,17 @@ interface RedactionRule {
  */
 const RULES: RedactionRule[] = [
   {
+    // PEM-encoded private key blocks (RSA/EC/OPENSSH/PKCS#8/…). A private key
+    // echoed into agent output is the worst-case leak — the whole block, not a
+    // single token — so it runs first and the entire armored block (header,
+    // base64 body, footer) is replaced. Non-greedy body so two adjacent blocks
+    // aren't merged, and `[\s\S]` so it spans real newlines *and* the literal
+    // `\n`-escaped one-line form that env vars and JSON commonly carry.
+    name: "pem-private-key",
+    regex: /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----/g,
+    replacement: REDACTION_PLACEHOLDER,
+  },
+  {
     // Anthropic API keys. Keep the recognizable `sk-ant-` prefix so a scrubbed
     // log still says "an Anthropic key was here" without leaking the secret.
     name: "anthropic-key",
@@ -60,6 +72,24 @@ const RULES: RedactionRule[] = [
     name: "openai-key",
     regex: /sk-(?:proj-)?[A-Za-z0-9]{16,}/g,
     replacement: `sk-${REDACTION_PLACEHOLDER}`,
+  },
+  {
+    // Stripe secret (`sk_live_`/`sk_test_`) and restricted (`rk_live_`/
+    // `rk_test_`) keys. The underscore keeps this disjoint from the hyphenated
+    // OpenAI `sk-` rule above. Publishable keys (`pk_…`) are deliberately *not*
+    // matched — they're safe to expose by design, so redacting them would only
+    // add noise.
+    name: "stripe-key",
+    regex: /\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,}\b/g,
+    replacement: REDACTION_PLACEHOLDER,
+  },
+  {
+    // Google OAuth 2.0 access tokens (`ya29.<token>`) — short-lived bearer
+    // credentials that agents proxying Google APIs routinely print. Keep the
+    // `ya29.` hint; require a decent length so a bare `ya29.` mention survives.
+    name: "google-oauth-token",
+    regex: /\bya29\.[A-Za-z0-9_-]{20,}/g,
+    replacement: REDACTION_PLACEHOLDER,
   },
   {
     // GitHub tokens: personal (ghp), OAuth (gho), user-to-server (ghu),
