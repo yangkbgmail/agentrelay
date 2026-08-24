@@ -32,10 +32,12 @@ function compareNext(a: RelayJob, b: RelayJob): number {
 
 /**
  * Find the next job the relay will resume: the `waiting_for_reset` job with a
- * parseable `resetAt` that comes due soonest. This is exactly the set the
- * scheduler's `listDue` acts on, so `next` answers "what's the daemon's next
- * move?" without duplicating the queue's due logic. Returns null when nothing
- * is waiting for a reset (an empty queue, or only active/terminal jobs).
+ * parseable `resetAt` that comes due soonest — the *placeable* subset of what
+ * the scheduler's `listDue` acts on. A job whose `resetAt` is present but
+ * unparseable is also due (see `isJobDue`) but has no timeline position, so it
+ * is excluded here and surfaced by `agentrelay overdue` instead. Returns null
+ * when nothing is waiting for a reset (an empty queue, or only active/terminal
+ * jobs).
  */
 export function selectNextResume(jobs: RelayJob[], now: number = Date.now()): NextResume | null {
   const waiting = jobs.filter(

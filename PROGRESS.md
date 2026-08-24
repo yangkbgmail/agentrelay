@@ -2850,3 +2850,34 @@
 - **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② 근본 병목은 여전히 리뷰/병합(열린 PR 200+, 중복 밀집) — 큐 배수를
   🧭/사람과 조율. ③ 동류 입력 하드닝 후보: `createdAt`/`updatedAt`도 파싱 불가면 stats 타이밍/트렌드 지표에서 조용히
   스킵되므로, 필요 시 verify는 경고·import는 정책 결정(재개엔 영향 없어 우선순위 낮음).
+
+### [세션 92 — fix(core): overdue가 파싱 불가 resetAt(스케줄 불가) 잡을 조용히 숨기던 무음 실패 수정(#812 후속) — 자율] (2026-08-24, 무인 자율 세션, branch `claude/wizardly-pascal-bdvpfu`)
+- **항목 선정:** BACKLOG의 👷 항목은 전부 완료(남은 미완료는 🧭 코워크 소유 문서/리서치뿐), 열린 PR 200+개로 중복
+  포화. 세션 73·90·91 방침(신규 feature 지양·아무 열린 PR도 안 건드리는 진짜 correctness 갭 발굴)을 이어, 세 진단
+  표면(next/eta/upcoming/overdue)이 코드로 명시적으로 주장하는 "listDue가 act하는 정확한 집합을 읽는다"가 #812
+  이후 **거짓**이 된 일관성 버그를 발굴.
+- **발굴한 갭:** #812(세션 90 병합)가 스토어측 `isJobDue`에서 파싱 불가(비-null) `resetAt`을 **due-now로 표면화**해
+  영구 orphan을 막았다. 그런데 진단 표면 `overdue`(정확히 "돌아야 하는데 안 도는 잡"을 잡는 명령)의 필터는 여전히
+  `if (Number.isNaN(resetMs)) return false`로 그런 잡을 **제외**했다 — 심지어 기존 테스트가 "unparseable resetAt은
+  무시한다"로 이 잘못된 동작을 못박고 있었다. 결과: 스토어 손상으로 스케줄 불가가 된, 스케줄러가 매 tick 재개하려는
+  잡이 `overdue`(가장 stuck을 잡아야 할 진단)에서 **완전히 안 보였다** — 이 도구가 반복 겨냥하는 바로 그 silent-failure.
+  형제 표면 `next`/`eta`/`upcoming`도 같은 필터·같은 거짓 주장을 갖고 있었다(타임라인 표면은 파싱 불가를 배치 불가해
+  제외하는 게 방어적이나, docstring이 "listDue와 정확히 동일"이라 오도).
+- **한 일:** (1) core `overdue.ts` — `buildOverdueReport`가 `waiting_for_reset` + 비-null이지만 파싱 불가 `resetAt`
+  잡을 **unschedulable**로 포함: 타임라인 배치 불가라 span은 파킹 시각(`updatedAt`→`createdAt` fallback)으로부터 측정,
+  모든 배치 가능(placeable) 잡보다 **앞에 랭크**(가장 concerning — 건강한 릴레이면 즉시 재개되므로 잔류=루프 다운+스토어
+  손상), grace는 *갓 파킹된* 손상 잡을 여전히 보호. `OverdueEntry`에 `unschedulable: boolean`, `OverdueReport`에
+  full-set `unschedulable` 카운트 추가. 정렬은 `-Infinity` sortKey 명시 `<`/`>` 비교(뺄셈 NaN 회피). `maxOverdueByMs`는
+  양 종류 통틀어 최장 span으로 정직화. `null` resetAt은 여전히 제외(`isJobDue`와 동일). (2) CLI `overdue.ts` — 파싱 불가
+  행은 RESET AT 셀에 `unschedulable: <원시값>`로 표기, footer에 `N unschedulable (malformed reset)` 노트. (3) 형제
+  표면 next/eta/upcoming의 docstring을 "listDue의 *placeable* 부분집합 + 파싱 불가는 overdue가 표면화"로 정직화(주석만,
+  동작 불변).
+- **검증:** `pnpm install`→`pnpm build`(Next 포함 클린)→`pnpm format`+`pnpm ci:lint`(Biome 0에러, 130파일)→`pnpm test`
+  전 패키지 통과(**core 769[+3] · cli 395/1skip[+1] · dashboard 13**). core overdue.test 기존 "unparseable 무시" 테스트를
+  "null 제외 유지 + unparseable 표면화·랭크·parked-span·grace·완전손상 fallback" 케이스로 교체/추가, cli overdue.test에
+  렌더 마커+footer 케이스 추가. 실제 빌드 CLI e2e: 손상(`resetAt:"next tuesday"`)+정상(2h overdue) 잡을 심은 임시
+  스토어에 `overdue` 실행 → 손상 잡이 최상단 `unschedulable: next tuesday`(span=파킹 후 40m)로 표면화 + footer
+  `1 unschedulable`, `--json`도 `report.unschedulable:1`·entry `unschedulable:true` 노출(수정 전엔 완전히 안 보였음).
+- **다음 할 일:** ① 이 PR CI 초록 확인 후 병합. ② (선택) 같은 일관성 정직화를 `next`/`eta`/`upcoming`의 *동작*에도
+  확장할지 — 타임라인 표면은 파싱 불가를 배치 불가라 별도 카운트/경고로 노출하는 방안(현재는 docstring만 정직화, overdue가
+  단일 표면화 지점). ③ 근본 병목은 여전히 리뷰/병합(열린 PR 200+, 중복 밀집) — 큐 배수를 🧭/사람과 조율.

@@ -82,6 +82,18 @@ describe("renderOverdue", () => {
     // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting no escapes.
     expect(out).not.toMatch(/\x1b\[/);
   });
+
+  it("marks an unschedulable row and notes it in the footer", () => {
+    const out = renderOverdue(
+      report([job({ id: "badreset", project: "corrupt-app", resetAt: "next tuesday", updatedAt: at(-45 * 60_000) })])
+    );
+    // The malformed reset value is shown verbatim, flagged as unschedulable.
+    expect(out).toContain("unschedulable: next tuesday");
+    // The span reads as time-since-parked (45m).
+    expect(out).toContain("45m");
+    // The footer counts it.
+    expect(out).toContain("1 unschedulable (malformed reset)");
+  });
 });
 
 describe("renderOverdueWatchFrame", () => {

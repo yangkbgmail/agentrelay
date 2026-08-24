@@ -28,7 +28,14 @@ const HOUR = 60 * 60 * 1000;
 describe("buildOverdueReport", () => {
   it("returns an empty report when nothing is overdue", () => {
     const report = buildOverdueReport([], NOW);
-    expect(report).toEqual({ entries: [], totalOverdue: 0, hidden: 0, graceMs: 0, maxOverdueByMs: 0 });
+    expect(report).toEqual({
+      entries: [],
+      totalOverdue: 0,
+      unschedulable: 0,
+      hidden: 0,
+      graceMs: 0,
+      maxOverdueByMs: 0,
+    });
   });
 
   it("ignores jobs that are not waiting_for_reset even if their resetAt is past", () => {
@@ -56,16 +63,57 @@ describe("buildOverdueReport", () => {
     expect(report.totalOverdue).toBe(1);
   });
 
-  it("ignores waiting jobs with a missing or unparseable resetAt", () => {
+  it("ignores waiting jobs with a null resetAt (not genuinely parked on a reset)", () => {
     const report = buildOverdueReport(
-      [
-        job({ id: "no-reset", resetAt: null }),
-        job({ id: "bad-reset", resetAt: "not a date" }),
-        job({ id: "good", resetAt: "2026-07-30T08:00:00.000Z" }),
-      ],
+      [job({ id: "no-reset", resetAt: null }), job({ id: "good", resetAt: "2026-07-30T08:00:00.000Z" })],
       NOW
     );
     expect(report.entries.map((e) => e.job.id)).toEqual(["good"]);
+    expect(report.unschedulable).toBe(0);
+  });
+
+  it("surfaces a waiting job with an unparseable resetAt as unschedulable, ranked first", () => {
+    // `isJobDue` treats an unparseable (non-null) resetAt as due every tick, so
+    // such a job is stuck-and-due; overdue must not hide it (it did pre-#812).
+    const report = buildOverdueReport(
+      [
+        job({ id: "good", resetAt: "2026-07-30T08:00:00.000Z" }), // 2h overdue
+        job({ id: "bad-reset", resetAt: "next tuesday", updatedAt: "2026-07-30T09:30:00.000Z" }), // parked 30m ago
+      ],
+      NOW
+    );
+    // Unschedulable ranks ahead of the placeable job even though its span is shorter.
+    expect(report.entries.map((e) => e.job.id)).toEqual(["bad-reset", "good"]);
+    expect(report.entries[0].unschedulable).toBe(true);
+    expect(report.entries[0].overdueByMs).toBe(30 * 60 * 1000); // now - updatedAt
+    expect(report.entries[1].unschedulable).toBe(false);
+    expect(report.totalOverdue).toBe(2);
+    expect(report.unschedulable).toBe(1);
+    // "worst" reflects the longest span across both kinds (the placeable 2h job).
+    expect(report.maxOverdueByMs).toBe(2 * HOUR);
+  });
+
+  it("measures an unschedulable job from its parked time, protected by grace", () => {
+    const jobs = [
+      job({ id: "just-parked", resetAt: "garbage", updatedAt: "2026-07-30T09:59:30.000Z" }), // 30s ago
+      job({ id: "long-parked", resetAt: "garbage", updatedAt: "2026-07-30T07:00:00.000Z" }), // 3h ago
+    ];
+    const report = buildOverdueReport(jobs, NOW, { graceMs: 60 * 1000 });
+    // The freshly-parked corrupt job is within grace and not flagged yet.
+    expect(report.entries.map((e) => e.job.id)).toEqual(["long-parked"]);
+    expect(report.entries[0].overdueByMs).toBe(3 * HOUR);
+    expect(report.unschedulable).toBe(1);
+  });
+
+  it("still surfaces an unschedulable job whose parked timestamps are also corrupt", () => {
+    const report = buildOverdueReport(
+      [job({ id: "fully-corrupt", resetAt: "nope", updatedAt: "nope", createdAt: "nope" })],
+      NOW
+    );
+    expect(report.entries.map((e) => e.job.id)).toEqual(["fully-corrupt"]);
+    expect(report.entries[0].unschedulable).toBe(true);
+    expect(report.entries[0].overdueByMs).toBe(0);
+    expect(report.unschedulable).toBe(1);
   });
 
   it("does not treat a reset exactly at now (or in the future) as overdue", () => {

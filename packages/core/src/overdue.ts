@@ -10,8 +10,27 @@ import type { RelayJob } from "./types.js";
 export interface OverdueEntry {
   /** The stuck waiting job this row describes. */
   job: RelayJob;
-  /** How long ago the reset time passed, in ms (always > graceMs). */
+  /**
+   * How long the job has been due-and-unresumed, in ms. For a job with a
+   * placeable reset this is `now - resetAt` (always `> graceMs`). For an
+   * {@link OverdueEntry.unschedulable} job — a non-null but *unparseable*
+   * `resetAt` that {@link isJobDue} treats as due on every tick — there is no
+   * reset instant to measure from, so it is measured from when the job was
+   * parked (`updatedAt`, falling back to `createdAt`): "how long it has been
+   * stuck waiting". `0` only when neither timestamp parses.
+   */
   overdueByMs: number;
+  /**
+   * True when the job's `resetAt` is present but *unparseable* (e.g. a malformed
+   * date that slipped in via an imported dump or a hand-edited store). The
+   * scheduler's {@link isJobDue} treats such a reset as due **now** on every
+   * tick, so the job is stuck-and-due exactly like an overdue one — yet its
+   * reset can't be placed on the timeline. These are ranked ahead of every
+   * timeline-placed job because they are the most concerning: a healthy relay
+   * resumes them immediately, so their lingering means the resume loop is down
+   * *and* the store holds a malformed reset the relay can't schedule.
+   */
+  unschedulable: boolean;
 }
 
 /**
@@ -27,6 +46,14 @@ export interface OverdueReport {
   entries: OverdueEntry[];
   /** Total overdue jobs before any `limit` trim. */
   totalOverdue: number;
+  /**
+   * How many of the overdue jobs (full set, before any `limit` trim) have an
+   * unschedulable reset — a non-null but unparseable `resetAt` the scheduler
+   * treats as due every tick (see {@link OverdueEntry.unschedulable}). `0` in a
+   * healthy store; a positive value points at store corruption the relay can't
+   * schedule a real wait for.
+   */
+  unschedulable: number;
   /** How many overdue jobs are hidden by `limit` (0 when all are shown). */
   hidden: number;
   /** The grace window applied, in ms (jobs due within it are not yet overdue). */
@@ -48,28 +75,57 @@ export interface OverdueOptions {
   limit?: number;
 }
 
-/**
- * Order two overdue jobs worst-first: the one that has been overdue longest
- * comes first, then oldest `createdAt`, then id — fully deterministic even when
- * two jobs share a reset time. Newest-overdue is the tie-break's back, so the
- * ranking surfaces the most-stuck job at the top where it belongs.
- */
-function compareOverdue(a: RelayJob, b: RelayJob): number {
-  const ra = Date.parse(a.resetAt as string);
-  const rb = Date.parse(b.resetAt as string);
-  // Earlier resetAt = longer overdue = should sort first.
-  if (ra !== rb) return ra - rb;
-  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
-  if (a.id === b.id) return 0;
-  return a.id < b.id ? -1 : 1;
+/** A scored overdue candidate: the job, its computed span, whether its reset is
+ *  unschedulable, and the key it sorts by (earlier = more overdue = first). */
+interface OverdueRow {
+  job: RelayJob;
+  overdueByMs: number;
+  unschedulable: boolean;
+  /** Sort position: a placeable reset's epoch ms, or `-Infinity` for an
+   *  unschedulable job so it ranks ahead of every timeline-placed one. */
+  sortKey: number;
 }
 
 /**
- * Build the overdue report: every `waiting_for_reset` job with a parseable
- * `resetAt` that came due more than `graceMs` ago, ranked most-overdue first.
- * This reads exactly the set the scheduler's `listDue` would act on, so a
- * populated report is a faithful "the daemon has these ready but isn't running
- * them" signal rather than a re-derivation of due logic.
+ * When a waiting job's reset can't be placed on the timeline, "how long overdue"
+ * has no reset instant to measure from, so we measure staleness from when the
+ * job was parked: `updatedAt` (the last status change, i.e. when it entered
+ * `waiting_for_reset`), falling back to `createdAt`. Returns `null` only when
+ * neither timestamp parses — a pathological store where even the lifecycle
+ * timestamps are corrupt.
+ */
+function parkedSinceMs(job: RelayJob): number | null {
+  const updated = Date.parse(job.updatedAt);
+  if (!Number.isNaN(updated)) return updated;
+  const created = Date.parse(job.createdAt);
+  return Number.isNaN(created) ? null : created;
+}
+
+/**
+ * Order two overdue rows worst-first: earlier `sortKey` (longer overdue, with
+ * unschedulable jobs pinned to the front) comes first, then oldest `createdAt`,
+ * then id — fully deterministic even when two jobs share a reset time.
+ * Compared with explicit `<`/`>` (never subtraction) so the `-Infinity` sort key
+ * two unschedulable jobs share doesn't produce `NaN`.
+ */
+function compareOverdue(a: OverdueRow, b: OverdueRow): number {
+  if (a.sortKey !== b.sortKey) return a.sortKey < b.sortKey ? -1 : 1;
+  if (a.job.createdAt !== b.job.createdAt) return a.job.createdAt < b.job.createdAt ? -1 : 1;
+  if (a.job.id === b.job.id) return 0;
+  return a.job.id < b.job.id ? -1 : 1;
+}
+
+/**
+ * Build the overdue report: every `waiting_for_reset` job the scheduler's
+ * `listDue` would pick up but that isn't being resumed, ranked most-overdue
+ * first. This reads exactly the set {@link isJobDue} acts on — including a job
+ * whose `resetAt` is present but *unparseable*, which `listDue` treats as due
+ * every tick (see the `unschedulable` flag on {@link OverdueEntry}). Those
+ * unschedulable jobs are ranked ahead of every placeable one and their span is
+ * measured from when they were parked. A `null` `resetAt` is still excluded (the
+ * job isn't genuinely parked on a reset), matching `isJobDue`. So a populated
+ * report is a faithful "the daemon has these ready but isn't running them"
+ * signal rather than a re-derivation of due logic.
  *
  * `limit` (a positive integer) trims the returned `entries`, but
  * `totalOverdue`/`maxOverdueByMs` still reflect the full set so callers can
@@ -82,29 +138,47 @@ export function buildOverdueReport(
 ): OverdueReport {
   const graceMs = Number.isFinite(options.graceMs) && (options.graceMs as number) > 0 ? (options.graceMs as number) : 0;
 
-  const overdue = jobs
-    .filter((job) => {
-      if (job.status !== "waiting_for_reset" || job.resetAt === null) return false;
-      const resetMs = Date.parse(job.resetAt);
-      if (Number.isNaN(resetMs)) return false;
-      return now - resetMs > graceMs;
-    })
-    .sort(compareOverdue);
+  const rows: OverdueRow[] = [];
+  for (const job of jobs) {
+    if (job.status !== "waiting_for_reset" || job.resetAt === null) continue;
+    const resetMs = Date.parse(job.resetAt);
+    if (Number.isNaN(resetMs)) {
+      // Unschedulable reset: due-now every tick per `isJobDue`. Measure staleness
+      // from when it was parked; grace still protects a *just*-parked job so a
+      // fresh corrupt import isn't flagged before a tick could act. When even the
+      // parked time is unreadable we surface it anyway (better than hiding a
+      // genuinely stuck job) with a 0 span.
+      const parked = parkedSinceMs(job);
+      const staleMs = parked === null ? 0 : now - parked;
+      if (parked !== null && !(staleMs > graceMs)) continue;
+      rows.push({ job, overdueByMs: Math.max(0, staleMs), unschedulable: true, sortKey: Number.NEGATIVE_INFINITY });
+    } else {
+      if (!(now - resetMs > graceMs)) continue;
+      rows.push({ job, overdueByMs: now - resetMs, unschedulable: false, sortKey: resetMs });
+    }
+  }
+  rows.sort(compareOverdue);
 
-  const totalOverdue = overdue.length;
+  const totalOverdue = rows.length;
+  const unschedulable = rows.reduce((count, row) => count + (row.unschedulable ? 1 : 0), 0);
+  // Honest across both kinds: the longest span wins regardless of sort position
+  // (an unschedulable job ranks first but may have a shorter parked-since span
+  // than a very-overdue placeable one).
+  const maxOverdueByMs = rows.reduce((max, row) => (row.overdueByMs > max ? row.overdueByMs : max), 0);
+
   const { limit } = options;
-  const capped = typeof limit === "number" && Number.isInteger(limit) && limit >= 0 ? overdue.slice(0, limit) : overdue;
+  const capped = typeof limit === "number" && Number.isInteger(limit) && limit >= 0 ? rows.slice(0, limit) : rows;
 
-  const entries: OverdueEntry[] = capped.map((job) => ({
-    job,
-    overdueByMs: now - Date.parse(job.resetAt as string),
+  const entries: OverdueEntry[] = capped.map((row) => ({
+    job: row.job,
+    overdueByMs: row.overdueByMs,
+    unschedulable: row.unschedulable,
   }));
-
-  const maxOverdueByMs = totalOverdue > 0 ? now - Date.parse(overdue[0].resetAt as string) : 0;
 
   return {
     entries,
     totalOverdue,
+    unschedulable,
     hidden: totalOverdue - entries.length,
     graceMs,
     maxOverdueByMs,
