@@ -71,6 +71,7 @@ import {
   parseImportJobs,
   partitionForControl,
   planImport,
+  planStoreRedaction,
   RelayQueue,
   RelayScheduler,
   type RestorePreview,
@@ -1155,6 +1156,24 @@ export interface ExportJobsOptions {
   outPath?: string;
   /** Column subset/order for the tabular formats (csv/md). Ignored by json/ndjson. Defaults to all columns. */
   columns?: readonly JobCsvColumn[];
+  /**
+   * Scrub credentials from the exported jobs before serialization. The store
+   * itself is left untouched (unlike `agentrelay redact`, which rewrites the
+   * store in place); this only affects the bytes that leave this call — for
+   * pasting into an issue, sharing with a teammate, or feeding into a BI tool
+   * that shouldn't see raw tokens. Runs the same {@link planStoreRedaction}
+   * that powers `redact`, so the scrubbing rules stay in lockstep across the
+   * two surfaces.
+   */
+  redact?: boolean;
+}
+
+/** Summary of what was scrubbed by an `exportStore({redact:true})` call. */
+export interface ExportRedactionSummary {
+  /** Number of jobs that had at least one field rewritten. */
+  changedJobs: number;
+  /** Total field rewrites across all jobs (≥ `changedJobs`). */
+  totalFields: number;
 }
 
 export interface ExportJobsResult {
@@ -1164,6 +1183,12 @@ export interface ExportJobsResult {
   count: number;
   /** Absolute path written to, or null when the caller should print to stdout. */
   writtenTo: string | null;
+  /**
+   * How many jobs/fields were scrubbed when `redact` was on. Absent when
+   * redaction was not requested, so callers can distinguish "opted out" from
+   * "opted in but nothing matched" (which is `{changedJobs:0,totalFields:0}`).
+   */
+  redaction?: ExportRedactionSummary;
 }
 
 /**
@@ -1172,9 +1197,24 @@ export interface ExportJobsResult {
  * only handles the store read and optional file write so the CLI stays thin.
  * A file write appends a trailing newline (POSIX text convention); the returned
  * `content` is the exact serializer output without it.
+ *
+ * With `redact: true`, jobs are passed through {@link planStoreRedaction} before
+ * serialization so credentials in `lastOutputTail`/`lastError`/
+ * `lastRateLimit.rawMatch` never leave in plaintext. This is purely in-memory —
+ * the on-disk store is not touched (use `agentrelay redact` for that).
  */
 export function exportStore(options: ExportJobsOptions): ExportJobsResult {
-  const jobs = options.jobs ?? listStatus(options.storePath);
+  const source = options.jobs ?? listStatus(options.storePath);
+  let jobs = source;
+  let redaction: ExportRedactionSummary | undefined;
+  if (options.redact) {
+    // `planStoreRedaction` returns a scrubbed copy of the input, preserving
+    // order and sharing unchanged jobs by reference — so the caller's job list
+    // (and the on-disk store behind it) is never mutated.
+    const plan = planStoreRedaction(source);
+    jobs = plan.jobs;
+    redaction = { changedJobs: plan.changes.length, totalFields: plan.totalFields };
+  }
   const content = exportJobs(jobs, options.format, options.columns ? { columns: options.columns } : {});
   let writtenTo: string | null = null;
   if (options.outPath) {
@@ -1183,7 +1223,7 @@ export function exportStore(options: ExportJobsOptions): ExportJobsResult {
     writeFileSync(path, `${content}\n`, "utf8");
     writtenTo = path;
   }
-  return { content, count: jobs.length, writtenTo };
+  return { content, count: jobs.length, writtenTo, ...(redaction ? { redaction } : {}) };
 }
 
 export interface ImportStoreOptions {

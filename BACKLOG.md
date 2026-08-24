@@ -1028,6 +1028,21 @@
       core redact.test +9·cli redact.test +8, 빌드 CLI e2e로 디스크 스크럽·updatedAt 불변·idempotent 확인.
       branch `claude/wizardly-pascal-lsguqd`)
 
+- [x] 👷 `agentrelay export --redact` — 내보낼 때만 자격증명 마스킹, 스토어는 불변(세션 86 로그
+      "다음 할 일 ②"에 명시된 후속 후보). `agentrelay redact`(세션 86)는 파괴적(디스크 in-place)이라
+      "이번 export만 마스킹하고 원본은 raw로 유지"(팀원과 이력 공유 + 로컬 디버깅용 tail 보존) 시나리오를
+      지원하지 못했다. #875(write-time) · 세션 86(store-wide) 이후 남은 마지막 노출 표면을 닫는다.
+      (완료 — CLI `commands.ts`의 `ExportJobsOptions`에 `redact?: boolean` + `ExportJobsResult.redaction?:
+      {changedJobs,totalFields}` 필드 추가. `exportStore()`가 `options.redact`이면 core `planStoreRedaction`
+      (세션 86 순수 함수 — 순서 보존, 변경 없는 잡은 참조 공유)을 통과시켜 스크럽된 사본을 serialize.
+      on-disk 스토어는 절대 안 만짐(planStoreRedaction 순수, exportStore 파일 write는 `--out` 경로에만).
+      CLI `cli.ts` export 커맨드에 `--redact` 플래그 배선, stderr에 "redacted N field(s) across M job(s) —
+      store not modified" 리포트(자격증명 0개면 "scanned, no credentials found"). stdout 청정 유지
+      (jq/awk 파이프 안전). `redaction` 필드는 opt-in일 때만 populated → 콜러가 "opted out"(undefined)과
+      "opted in, nothing matched"({changedJobs:0,totalFields:0})을 구분 가능. 새 파서/스케줄러 로직 0줄,
+      core 변경 0줄(전부 기존 재사용). cli export.test +3케이스, 빌드 CLI e2e로 스크럽·스토어 불변·zero-match
+      서머리 검증. branch `claude/wizardly-pascal-8wrx7h`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)

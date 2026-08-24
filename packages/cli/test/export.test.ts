@@ -179,6 +179,64 @@ describe("exportStore", () => {
     expect(parsed[0].project).toBe("beta");
   });
 
+  // --redact is the in-memory sibling of `agentrelay redact`: same scrubber, but
+  // it only touches the exported bytes and never mutates the on-disk store, so
+  // users can share a scrubbed dump while keeping the raw store for debugging.
+  it("scrubs credentials from exported jobs when --redact is on and leaves the store untouched", () => {
+    seed();
+    // Seed the store with a job that carries a plaintext token in its output
+    // tail — the exact case --redact exists to protect against.
+    const queue = new RelayQueue(storePath);
+    const [first] = queue.listAll();
+    queue.update(first.id, {
+      lastOutputTail: "ANTHROPIC_API_KEY=sk-ant-abcdefghijklmnopqrstuvwxyz",
+      lastError: "auth failed: Authorization: Bearer ghp_abcdefghijklmnop1234",
+    });
+    queue.close();
+
+    const rawDiskBefore = readFileSync(storePath, "utf8");
+    const result = exportStore({ storePath, format: "json", redact: true });
+
+    const parsed = JSON.parse(result.content) as Array<{
+      id: string;
+      lastOutputTail: string | null;
+      lastError: string | null;
+    }>;
+    const scrubbed = parsed.find((j) => j.id === first.id);
+    // The exported payload has the credentials masked but keeps enough context
+    // to explain what was there (the `[REDACTED]` marker plus the key name).
+    expect(scrubbed?.lastOutputTail).toContain("[REDACTED]");
+    expect(scrubbed?.lastOutputTail).not.toContain("sk-ant-abcdefghijklmnop");
+    expect(scrubbed?.lastError).toContain("[REDACTED]");
+    expect(scrubbed?.lastError).not.toContain("ghp_abcdefghijklmnop");
+
+    // Summary is populated with the actual scrub counts so the CLI can report
+    // "N field(s) across M job(s)" on stderr without contaminating stdout.
+    expect(result.redaction).toEqual({ changedJobs: 1, totalFields: 2 });
+
+    // The on-disk store is the whole point of "in-memory only": untouched.
+    const rawDiskAfter = readFileSync(storePath, "utf8");
+    expect(rawDiskAfter).toBe(rawDiskBefore);
+    expect(rawDiskAfter).toContain("sk-ant-abcdefghijklmnop");
+    expect(rawDiskAfter).toContain("ghp_abcdefghijklmnop");
+  });
+
+  it("omits the redaction summary when --redact is off (opt-in signal, not silent no-op)", () => {
+    seed();
+    const result = exportStore({ storePath, format: "json" });
+    // No `redaction` key at all — callers distinguish "opted out" (undefined)
+    // from "opted in but nothing matched" ({changedJobs:0, totalFields:0}).
+    expect(result.redaction).toBeUndefined();
+  });
+
+  it("reports zero scrubs when --redact is on but no credentials are present", () => {
+    seed();
+    const result = exportStore({ storePath, format: "json", redact: true });
+    // Clean store still gets a summary — the CLI uses this to say "scanned,
+    // nothing found" so the operator sees the flag actually took effect.
+    expect(result.redaction).toEqual({ changedJobs: 0, totalFields: 0 });
+  });
+
   it("combines a --since time window with a --tool filter (window then select)", () => {
     const now = Date.now();
     const iso = (ms: number) => new Date(now - ms).toISOString();
