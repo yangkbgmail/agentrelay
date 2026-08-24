@@ -45,7 +45,10 @@ export function renderOverdue(report: OverdueReport, options: { color?: boolean;
     const id = pad(entry.job.id.slice(0, 8), 8);
     const project = pad(truncate(entry.job.project, projWidth), projWidth);
     const overdue = pad(formatDurationMs(entry.overdueByMs), 12);
-    lines.push(`${b(id)}  ${project}  ${overdue}  ${d(entry.job.resetAt ?? "-")}`);
+    // An unschedulable reset can't be placed on the timeline, so make it obvious
+    // the span is "time stuck since parked" and show the malformed value verbatim.
+    const resetCell = entry.unschedulable ? `unschedulable: ${entry.job.resetAt ?? "-"}` : (entry.job.resetAt ?? "-");
+    lines.push(`${b(id)}  ${project}  ${overdue}  ${d(resetCell)}`);
   }
 
   lines.push("");
@@ -104,6 +107,7 @@ function footer(report: OverdueReport): string {
   const parts = [`${report.totalOverdue} ${jobWord} overdue`];
   parts.push(`worst ${formatDurationMs(report.maxOverdueByMs)}`);
   if (report.graceMs > 0) parts.push(`grace ${formatDurationMs(report.graceMs)}`);
+  if (report.unschedulable > 0) parts.push(`${report.unschedulable} unschedulable (malformed reset)`);
   if (report.hidden > 0) parts.push(`${report.hidden} more not shown`);
   return `${parts.join(" · ")}\nIf this list persists, check the resume loop: \`agentrelay health\` / \`agentrelay doctor\`.`;
 }

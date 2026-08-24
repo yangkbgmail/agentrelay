@@ -35,9 +35,12 @@ export interface QueueEta {
 }
 
 /**
- * The same set the scheduler's `listDue` acts on: `waiting_for_reset` jobs with
- * a parseable `resetAt`. Keeping this filter identical to `next`/`upcoming`
- * means all three surfaces agree on "what is the relay actually waiting on".
+ * The *placeable* subset of what the scheduler's `listDue` acts on:
+ * `waiting_for_reset` jobs with a parseable `resetAt`. Keeping this filter
+ * identical to `next`/`upcoming` means all three timeline surfaces agree on
+ * "what is the relay actually waiting on". A job whose `resetAt` is present but
+ * unparseable is also due (see `isJobDue`) but has no timeline position, so it's
+ * excluded from the ETA math and surfaced by `agentrelay overdue` instead.
  */
 function waitingResets(jobs: RelayJob[]): number[] {
   const resets: number[] = [];

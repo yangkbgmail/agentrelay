@@ -52,9 +52,11 @@ function compareUpcoming(a: RelayJob, b: RelayJob): number {
 
 /**
  * Build the upcoming-resume timeline: the `waiting_for_reset` jobs with a
- * parseable `resetAt`, sorted by when they come due. This is exactly the set
- * the scheduler's `listDue` acts on, so `upcoming` mirrors "what the daemon
- * will do next, and after that" without duplicating the queue's due logic.
+ * parseable `resetAt`, sorted by when they come due. This is the *placeable*
+ * subset of what the scheduler's `listDue` acts on: a job whose `resetAt` is
+ * present but unparseable is also due (see `isJobDue`), but it can't be placed
+ * on a timeline, so it's excluded here and surfaced by `agentrelay overdue`
+ * (which flags it as unschedulable) instead.
  *
  * `limit` (when a positive integer) trims the returned `entries` to the
  * soonest N, but `totalWaiting`/`dueNow` still reflect the full set so callers

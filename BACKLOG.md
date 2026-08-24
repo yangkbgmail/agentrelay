@@ -1108,6 +1108,20 @@
       실제 빌드 CLI e2e로 `import --include-active`가 bad 레코드만 거부하고 good만 스토어에 남김 확인.
       branch `claude/wizardly-pascal-47451z`)
 
+- [x] 👷 fix(core): `agentrelay overdue`가 파싱 불가 `resetAt`(스케줄 불가) 잡을 조용히 숨겨,
+      "돌아야 하는데 안 도는 잡"을 잡는 바로 그 진단이 스토어 손상 잡을 못 보던 무음 실패 수정(#812 후속).
+      자기 발굴 **버그 픽스**.
+      (완료 — #812가 스토어측 `isJobDue`에서 비-null이지만 파싱 불가 `resetAt`을 **due-now로 표면화**해
+      영구 orphan을 막았는데, 진단 표면 `overdue`의 필터는 여전히 그런 잡을 제외해(기존 테스트가 이 잘못된
+      동작을 못박고 있었음) 스케줄러가 매 tick 재개하려는 손상 잡이 `overdue`/`--json`에서 완전히 안 보였다.
+      `overdue.ts`의 `buildOverdueReport`가 파싱 불가 resetAt 잡을 **unschedulable**로 포함: span은 파킹
+      시각(`updatedAt`→`createdAt`)에서 측정, 배치 가능 잡보다 앞 랭크(`-Infinity` sortKey, 뺄셈 NaN 회피),
+      grace는 갓 파킹된 손상 잡 보호, `null`은 여전히 제외. `OverdueEntry.unschedulable`·`OverdueReport.unschedulable`
+      카운트 추가. CLI는 RESET AT 셀 `unschedulable: <원시값>` + footer 노트. 형제 표면 next/eta/upcoming의
+      "listDue와 정확히 동일" docstring도 "placeable 부분집합 + 파싱 불가는 overdue가 표면화"로 정직화(주석만).
+      build/lint/test 통과(**core 769 · cli 395/1skip · dashboard 13**, Biome 0경고), 실제 빌드 CLI e2e 검증.
+      branch `claude/wizardly-pascal-bdvpfu`)
+
 ## 코워크가 발굴한 신규 항목 (수시 추가)
 
 - (아직 없음)
