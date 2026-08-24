@@ -81,6 +81,32 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+/** True when `value` parses to a real calendar date (mirrors the store-side
+ *  `new Date(resetAt).getTime()` check the scheduler relies on). */
+function isParseableTimestamp(value: string): boolean {
+  return !Number.isNaN(new Date(value).getTime());
+}
+
+/**
+ * Import-boundary policy applied to a *structurally valid* job (i.e. one that
+ * already passed {@link validateJobRecord}). Returns a rejection reason, or null
+ * when the record is safe to import.
+ *
+ * `validateJobRecord` is intentionally purely structural so {@link verifyStore}
+ * can layer *warnings* on top when linting data that's already in the store
+ * (dropping nothing). The import path is stricter: it rejects a non-null
+ * `resetAt` that doesn't parse to a real date, because the store-side due guard
+ * (`isJobDue`, see queue.ts) surfaces such a job as *due now* — so importing one
+ * would resume it *immediately*, silently skipping the wait the dump encoded.
+ * The source record isn't lost; the caller gets a clear per-record error.
+ */
+function importRejectReason(job: RelayJob): string | null {
+  if (job.resetAt !== null && !isParseableTimestamp(job.resetAt)) {
+    return `\`resetAt\` "${job.resetAt}" is not a parseable date`;
+  }
+  return null;
+}
+
 /**
  * Validate one decoded value as a {@link RelayJob}. Returns the (structurally
  * cloned) job on success or a rejection reason on failure. Strict on purpose —
@@ -192,6 +218,11 @@ function parseRateLimitDetection(value: unknown): RateLimitDetection | null {
  * line is parsed independently (matching `jobsToNdjson`), so one bad line
  * doesn't sink the rest — its error is recorded and parsing continues. Blank
  * lines are skipped. Never throws.
+ *
+ * Beyond structural validation, a structurally valid record can still be
+ * rejected by the import-boundary policy ({@link importRejectReason}) — e.g. an
+ * unparseable non-null `resetAt` — and is reported as a per-record error rather
+ * than seeded into the store.
  */
 export function parseImportJobs(text: string, format: ImportFormat): ParsedImport {
   const jobs: RelayJob[] = [];
@@ -210,8 +241,13 @@ export function parseImportJobs(text: string, format: ImportFormat): ParsedImpor
         continue;
       }
       const result = validateJobRecord(decoded);
-      if (result.ok) jobs.push(result.job);
-      else errors.push({ index: i + 1, kind: "line", reason: result.reason });
+      if (!result.ok) {
+        errors.push({ index: i + 1, kind: "line", reason: result.reason });
+        continue;
+      }
+      const rejected = importRejectReason(result.job);
+      if (rejected) errors.push({ index: i + 1, kind: "line", reason: rejected });
+      else jobs.push(result.job);
     }
     return { jobs, errors };
   }
@@ -230,8 +266,13 @@ export function parseImportJobs(text: string, format: ImportFormat): ParsedImpor
   }
   for (let i = 0; i < decoded.length; i++) {
     const result = validateJobRecord(decoded[i]);
-    if (result.ok) jobs.push(result.job);
-    else errors.push({ index: i, kind: "index", reason: result.reason });
+    if (!result.ok) {
+      errors.push({ index: i, kind: "index", reason: result.reason });
+      continue;
+    }
+    const rejected = importRejectReason(result.job);
+    if (rejected) errors.push({ index: i, kind: "index", reason: rejected });
+    else jobs.push(result.job);
   }
   return { jobs, errors };
 }
